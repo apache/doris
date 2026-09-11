@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -42,7 +41,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -54,25 +52,40 @@ import java.util.stream.Collectors;
 /**
  * Simplified struct info of a memo {@link Group}, used by History Based Optimization (HBO).
  *
- * <p>Unlike the MV oriented {@code rules.exploration.mv.StructInfo}, this struct info only keeps
- * the minimum information needed for HBO plan-subtree matching:
+ * <p>The struct info is a property of the <b>group</b>, not of one of its group expressions: all
+ * expressions of a group are logically equivalent, so they describe the same set of relations with
+ * the same predicates, and the canonical form below is deliberately insensitive to which expression
+ * is picked.
  * <ul>
- *   <li>the kind of the group head operator (scan / filter-on-scan / join / aggregate);</li>
- *   <li>for each scan: table qualifier, occurrence ordinal, pruned partition count and the table
- *       visible version (so that data changes invalidate the fingerprint);</li>
- *   <li>for filter / join / aggregate: normalized predicates / join conditions / agg keys, i.e.
- *       the structural pattern only.</li>
+ *   <li>join commutativity: children of a join are canonicalized by sorting;</li>
+ *   <li>join associativity: a whole inner / cross join chain is emitted as one node
+ *       ({@code J{inner,c:[...]}(...;...)}) whose children are the chain leaves sorted by their
+ *       canonical form and whose conditions are the sorted union of every condition of the chain,
+ *       so {@code (A join B) join C} and {@code A join (B join C)} produce the same descriptor;</li>
+ *   <li>aggregation: only the group by keys and the child participate, because the output row count
+ *       of an aggregation is the number of groups and cannot be changed by the aggregate functions
+ *       or by the output expressions;</li>
+ *   <li>project is transparent for structure matching.</li>
  * </ul>
- * No shuttle maps, no expression lineage, no per-query ids (slot/expr ids are stripped by
- * {@link #normalizeExpression}), no plan object references are produced: the canonical string is
- * reproducible across runs for structurally identical sub trees, and its sha256 is used as the
- * HBO cache key (fingerprint).
+ * This mirrors what the MV oriented {@code rules.exploration.mv.StructInfo} does (it identifies a
+ * sub tree by its relation set and by level independent - shuttled - predicates), with every MV
+ * specific field dropped: no hyper graph, no shuttle map, no equivalence class, no lineage.
  *
- * <p>The descriptor is derived from the group's logical expression and its child groups (memo
- * level traversal, with a visited set to guard shared sub graphs such as CTE). Groups whose
- * content is not supported (e.g. contains TVF / CTE consumer, or the head operator is not one of
- * the supported kinds) are {@link #isValid() invalid} and callers must fall back to the legacy
- * behavior.
+ * <p>What the canonical form keeps:
+ * <ul>
+ *   <li>for each scan: table qualifier, pruned partition count and the table visible version (so
+ *       that data changes invalidate the fingerprint instead of reusing a stale row count);</li>
+ *   <li>for filter / join / aggregate: the normalized predicates / join conditions / grouping keys,
+ *       i.e. the structural pattern only (slot and expression ids are stripped by
+ *       {@link #normalizeExpression}).</li>
+ * </ul>
+ * The string contains no per-query identifier, so it is reproducible across runs and queries for
+ * structurally identical sub trees, and its sha256 is used as the HBO cache key (fingerprint).
+ *
+ * <p>The descriptor is derived from the group's logical expression and its child groups (memo level
+ * traversal, with a visited set to guard shared sub graphs such as CTE). Groups whose content is not
+ * supported (e.g. contains TVF / CTE consumer, or the head operator is not one of the supported
+ * kinds) are {@link #isValid() invalid} and callers must fall back to the legacy behavior.
  */
 public class GroupStructInfo {
     /** Shared invalid instance. */
@@ -215,8 +228,8 @@ public class GroupStructInfo {
         try {
             Ctx ctx = new Ctx(mode);
             StringBuilder sb = new StringBuilder();
-            String minToken = visit(group, sb, ctx);
-            if (!ctx.valid || minToken == null) {
+            visit(group, sb, ctx);
+            if (!ctx.valid) {
                 return INVALID;
             }
             String canonicalString = sb.toString();
@@ -233,144 +246,180 @@ public class GroupStructInfo {
 
     /**
      * Visit a group and append its canonical description to {@code sb}.
-     *
-     * @return the smallest scan-leaf token of this subtree, or null if the subtree contains no
-     *         supported scan (in which case the whole struct info is invalid).
      */
-    private static String visit(Group group, StringBuilder sb, Ctx ctx) {
+    private static void visit(Group group, StringBuilder sb, Ctx ctx) {
         if (!ctx.valid) {
-            return null;
+            return;
         }
         if (!ctx.visited.add(group)) {
             // shared sub graph (e.g. CTE / repeated child group): cannot be expressed by a single
             // canonical tree, mark invalid so that callers fall back to legacy behavior
-            return invalid(ctx);
+            invalid(ctx);
+            return;
         }
-        // Use the first logical expression: memo may merge logically equivalent expressions
-        // (e.g. commuted inner joins) into one group; equivalents share the same canonical
-        // structure, so picking the first one is deterministic enough for the hbo fingerprint.
+        // Use the first logical expression to know the kind of the group head. The canonical forms
+        // below are insensitive to which expression is picked, so this choice cannot change the
+        // fingerprint of the group (see the class comment).
         GroupExpression ge = group.getFirstLogicalExpression();
         if (ge == null) {
-            ctx.valid = false;
-            return null;
+            invalid(ctx);
+            return;
         }
-        Plan plan = ge.getPlan();
+        appendPlan(ge.getPlan(), ge, sb, ctx);
+    }
+
+    private static void appendPlan(Plan plan, GroupExpression ge, StringBuilder sb, Ctx ctx) {
+        if (!ctx.valid) {
+            return;
+        }
         if (plan instanceof LogicalOlapScan) {
-            return appendScan((LogicalOlapScan) plan, sb, ctx);
+            appendScan((LogicalOlapScan) plan, sb, ctx);
         } else if (plan instanceof LogicalFilter) {
             LogicalFilter<?> filter = (LogicalFilter<?>) plan;
             sb.append("F{").append(normalizedSorted(filter.getConjuncts(), ctx.mode)).append("}(");
-            String minToken = visitChild(ge, 0, sb, ctx);
+            appendChild(ge, 0, sb, ctx);
             sb.append(")");
-            return minToken;
         } else if (plan instanceof LogicalProject) {
             // project is transparent for structure matching
-            return ge.arity() == 1 ? visitChild(ge, 0, sb, ctx) : invalid(ctx);
+            if (ge.arity() == 1) {
+                appendChild(ge, 0, sb, ctx);
+            } else {
+                invalid(ctx);
+            }
         } else if (plan instanceof LogicalJoin) {
-            LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
-            sb.append("J{").append(join.getJoinType());
-            sb.append(",h:").append(normalizedSorted(join.getHashJoinConjuncts(), ctx.mode));
-            sb.append(",o:").append(normalizedSorted(join.getOtherJoinConjuncts(), ctx.mode));
-            sb.append("}(");
-            // only commutative joins may reorder their inputs; for outer/semi/anti joins the
-            // left/right order is semantically significant and the memo order is kept
-            boolean sortChildren = join.getJoinType() == JoinType.INNER_JOIN
-                    || join.getJoinType() == JoinType.CROSS_JOIN;
-            String minToken = appendSortedChildren(ge, sb, ctx, sortChildren);
-            sb.append(")");
-            return minToken;
+            appendJoin((LogicalJoin<?, ?>) plan, ge, sb, ctx);
         } else if (plan instanceof LogicalAggregate) {
-            LogicalAggregate<?> agg = (LogicalAggregate<?>) plan;
-            sb.append("A{gb:").append(normalizedSorted(agg.getGroupByExpressions(), ctx.mode));
-            sb.append(",fn:").append(normalizedSortedAggFunctions(agg.getOutputExpressions(), ctx.mode));
-            sb.append("}(");
-            String minToken = visitChild(ge, 0, sb, ctx);
-            sb.append(")");
-            return minToken;
+            appendAggregate((LogicalAggregate<?>) plan, ge, sb, ctx);
         } else {
             // unsupported head operator (sort/topn/limit/window/union/cte/tvf/...)
-            return invalid(ctx);
+            invalid(ctx);
         }
     }
 
-    private static String invalid(Ctx ctx) {
-        ctx.valid = false;
-        return null;
+    private static void appendJoin(LogicalJoin<?, ?> join, GroupExpression ge, StringBuilder sb, Ctx ctx) {
+        if (isFlattenableJoinType(join.getJoinType())) {
+            appendJoinChain(join, ge, sb, ctx);
+            return;
+        }
+        // Outer / semi / anti / asof joins: the two sides are semantically different and the join
+        // cannot be reassociated, so the memo order of the children and the join type are kept.
+        sb.append("J{").append(join.getJoinType());
+        sb.append(",c:[").append(normalizedJoinConditions(join, ctx.mode)).append("]}(");
+        appendChild(ge, 0, sb, ctx);
+        sb.append(SEP);
+        appendChild(ge, 1, sb, ctx);
+        sb.append(")");
     }
 
-    private static String appendScan(LogicalOlapScan scan, StringBuilder sb, Ctx ctx) {
+    /**
+     * Append the canonical form of a whole inner / cross join chain as a single node.
+     *
+     * <p>Inner and cross joins are associative and commutative, so the grouping of the chain is an
+     * artifact of the explored expression and must not be part of the fingerprint: the chain is
+     * emitted as {@code J{inner,c:[...]}(leaf;leaf;...)} with the conditions of every join of the
+     * chain merged into one sorted set and the leaves (scans, filters, aggregations, non
+     * flattenable joins) sorted by their canonical form. Every expression of a group therefore
+     * produces the same descriptor. Cross joins are merged with inner joins because a cross join is
+     * exactly an inner join without condition, and both have the same output row count.
+     */
+    private static void appendJoinChain(LogicalJoin<?, ?> join, GroupExpression ge, StringBuilder sb, Ctx ctx) {
+        TreeSet<String> conditions = new TreeSet<>();
+        List<String> leaves = new ArrayList<>();
+        collectJoinConditions(join, conditions, ctx.mode);
+        for (int i = 0; i < ge.arity(); i++) {
+            collectJoinChain(ge.child(i), conditions, leaves, ctx);
+        }
+        if (!ctx.valid) {
+            return;
+        }
+        leaves.sort(String::compareTo);
+        sb.append("J{inner,c:[").append(String.join(SEP, conditions)).append("]}(");
+        sb.append(String.join(SEP, leaves)).append(")");
+    }
+
+    /**
+     * Collect one member of an inner / cross join chain: either descend into another join of the
+     * chain (associativity), or append the canonical form of the whole sub tree as one chain leaf.
+     * The group of {@code ge} is already marked visited by the caller.
+     */
+    private static void collectJoinChain(Group group, TreeSet<String> conditions, List<String> leaves, Ctx ctx) {
+        if (!ctx.valid) {
+            return;
+        }
+        if (!ctx.visited.add(group)) {
+            invalid(ctx);
+            return;
+        }
+        GroupExpression ge = group.getFirstLogicalExpression();
+        if (ge == null) {
+            invalid(ctx);
+            return;
+        }
+        Plan plan = ge.getPlan();
+        if (plan instanceof LogicalJoin && isFlattenableJoinType(((LogicalJoin<?, ?>) plan).getJoinType())) {
+            collectJoinConditions((LogicalJoin<?, ?>) plan, conditions, ctx.mode);
+            for (int i = 0; i < ge.arity(); i++) {
+                collectJoinChain(ge.child(i), conditions, leaves, ctx);
+            }
+            return;
+        }
+        if (plan instanceof LogicalProject && ge.arity() == 1) {
+            // keep descending through projects so that a project between two joins cannot break the
+            // chain in one expression and not in another
+            collectJoinChain(ge.child(0), conditions, leaves, ctx);
+            return;
+        }
+        StringBuilder leaf = new StringBuilder();
+        appendPlan(plan, ge, leaf, ctx);
+        if (ctx.valid) {
+            leaves.add(leaf.toString());
+        }
+    }
+
+    /** Inner and cross joins may be reordered, reassociated and therefore flattened. */
+    private static boolean isFlattenableJoinType(JoinType joinType) {
+        return joinType == JoinType.INNER_JOIN || joinType == JoinType.CROSS_JOIN;
+    }
+
+    private static void appendAggregate(LogicalAggregate<?> agg, GroupExpression ge, StringBuilder sb, Ctx ctx) {
+        // Only the grouping keys and the child take part: the output row count of an aggregation is
+        // the number of groups, which the aggregate functions and the output expressions cannot
+        // change, so keeping them would only split one plan pattern into several cache entries.
+        sb.append("A{gb:").append(normalizedSorted(agg.getGroupByExpressions(), ctx.mode));
+        sb.append("}(");
+        appendChild(ge, 0, sb, ctx);
+        sb.append(")");
+    }
+
+    private static void invalid(Ctx ctx) {
+        ctx.valid = false;
+    }
+
+    private static void appendScan(LogicalOlapScan scan, StringBuilder sb, Ctx ctx) {
         try {
             String fullName = scan.getTable().getNameWithFullQualifiers();
-            int ordinal = ctx.occurrenceCount.computeIfAbsent(fullName, k -> new int[1])[0]++;
             String partitions = "";
             int partitionCount = scan.getTable().getPartitionNames().size();
             if (scan.getSelectedPartitionIds().size() != partitionCount) {
                 partitions = ",p" + scan.getSelectedPartitionIds().size() + "/" + partitionCount;
             }
             long version = scan.getTable().getVisibleVersion();
-            String token = "S{" + fullName + "#" + ordinal + partitions + ",v" + version + "}";
-            sb.append(token);
-            return token;
+            // No occurrence ordinal: an occurrence is identified by the aliases used in the
+            // conditions of the enclosing operators, and two occurrences with the same table,
+            // partition selection and version are interchangeable.
+            sb.append("S{").append(fullName).append(partitions).append(",v").append(version).append("}");
         } catch (org.apache.doris.rpc.RpcException e) {
             // table version may not be available (e.g. cloud rpc failure): mark invalid and fall back
             LOG.debug("failed to get visible version for scan {}", scan.getTable().getNameWithFullQualifiers(), e);
-            return invalid(ctx);
+            invalid(ctx);
         }
     }
 
-    /**
-     * Visit child groups; when {@code sortChildren} is true (commutative joins) the children are
-     * emitted in a canonical (sorted by min leaf token) order so that join sides are
-     * interchangeable; otherwise the memo order is kept (semantically significant for outer/
-     * semi/anti joins and for deterministic cross-run reproducibility).
-     */
-    private static String appendSortedChildren(GroupExpression ge, StringBuilder sb, Ctx ctx,
-            boolean sortChildren) {
-        List<String[]> children = new ArrayList<>();
-        for (int i = 0; i < ge.arity(); i++) {
-            StringBuilder childSb = new StringBuilder();
-            String minToken = visitChild(ge, i, childSb, ctx);
-            if (!ctx.valid) {
-                return null;
-            }
-            children.add(new String[] {minToken, childSb.toString()});
-        }
-        if (sortChildren) {
-            children.sort((a, b) -> {
-                int c = a[0].compareTo(b[0]);
-                return c != 0 ? c : a[1].compareTo(b[1]);
-            });
-        }
-        boolean first = true;
-        String minToken = null;
-        for (String[] child : children) {
-            if (!first) {
-                sb.append(SEP);
-            }
-            sb.append(child[1]);
-            first = false;
-            if (minToken == null || child[0].compareTo(minToken) < 0) {
-                minToken = child[0];
-            }
-        }
-        return minToken;
-    }
-
-    private static String visitChild(GroupExpression ge, int index, StringBuilder sb, Ctx ctx) {
+    private static void appendChild(GroupExpression ge, int index, StringBuilder sb, Ctx ctx) {
         if (!ctx.valid) {
-            return null;
+            return;
         }
-        StringBuilder childSb = new StringBuilder();
-        String minToken = visit(ge.child(index), childSb, ctx);
-        if (!ctx.valid) {
-            return null;
-        }
-        if (minToken == null) {
-            // group subtree contains no supported scan (e.g. empty/const relation)
-            return invalid(ctx);
-        }
-        sb.append(childSb);
-        return minToken;
+        visit(ge.child(index), sb, ctx);
     }
 
     // -----------------------------------------------------------------------------------
@@ -387,27 +436,25 @@ public class GroupStructInfo {
                 .collect(Collectors.joining(SEP));
     }
 
-    private static String normalizedSortedAggFunctions(List<? extends Expression> outputs, LiteralMode mode) {
-        TreeSet<String> fnSet = new TreeSet<>();
-        for (Expression output : outputs) {
-            Expression inner = output;
-            if (inner.children().size() == 1) {
-                // unwrap alias / single-child wrappers so that aggregate functions are visible
-                inner = inner.children().get(0);
-            }
-            if (inner instanceof AggregateFunction) {
-                AggregateFunction fn = (AggregateFunction) inner;
-                // function arguments keep their original order: argument lists are not freely
-                // commutable (e.g. percentile_approx(col, ratio)), sorting them would collapse
-                // distinct signatures into one descriptor (review round3 Major). DISTINCT is a
-                // semantic modifier on the function and must be part of the signature too.
-                String args = fn.children().stream().map(e -> normalizeExpression(e, mode))
-                        .collect(Collectors.joining(","));
-                fnSet.add((fn.isDistinct() ? "distinct " : "")
-                        + fn.getClass().getSimpleName() + "(" + args + ")");
-            }
+    /**
+     * Render all conditions of one join node (hash and other conjuncts) as one sorted, de
+     * duplicated set: whether a given conjunct is classified as a hash conjunct or as an other
+     * conjunct depends on the grouping of the chain, so that classification cannot be part of a
+     * canonical form that has to be insensitive to the grouping.
+     */
+    private static String normalizedJoinConditions(LogicalJoin<?, ?> join, LiteralMode mode) {
+        TreeSet<String> conditions = new TreeSet<>();
+        collectJoinConditions(join, conditions, mode);
+        return String.join(SEP, conditions);
+    }
+
+    private static void collectJoinConditions(LogicalJoin<?, ?> join, Set<String> conditions, LiteralMode mode) {
+        for (Expression conjunct : join.getHashJoinConjuncts()) {
+            conditions.add(normalizeExpression(conjunct, mode));
         }
-        return String.join(SEP, fnSet);
+        for (Expression conjunct : join.getOtherJoinConjuncts()) {
+            conditions.add(normalizeExpression(conjunct, mode));
+        }
     }
 
     /**
@@ -453,12 +500,11 @@ public class GroupStructInfo {
                 || expression instanceof And;
     }
 
-    /** Traversal state; shared along the whole subtree so occurrence ordinals are deterministic. */
+    /** Traversal state; shared along the whole subtree so the visited set guards shared sub graphs. */
     private static class Ctx {
         private final LiteralMode mode;
         private boolean valid = true;
         private final Set<Group> visited = new HashSet<>();
-        private final Map<String, int[]> occurrenceCount = new HashMap<>();
 
         Ctx(LiteralMode mode) {
             this.mode = mode;

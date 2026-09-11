@@ -66,7 +66,7 @@ suite("hbo_structinfo_inject_test", "nonConcurrent") {
     log.info("filter(hbo_si_r) fingerprint: " + fingerprint)
 
     // inject hbo statistics so that |filter(R)| (500000) > |T| (100000)
-    sql """ HBO SET STATISTICS '${fingerprint}' = 500000 STRUCT 'S{internal.hbo_test.hbo_si_r#0,v2}'; """
+    sql """ HBO SET STATISTICS '${fingerprint}' = 500000 STRUCT 'S{internal.hbo_test.hbo_si_r,v2}'; """
 
     def afterText = explainText(query)
     def afterFragment0 = firstFragment(afterText)

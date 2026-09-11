@@ -21,7 +21,7 @@ suite("hbo_show_statistics_test", "nonConcurrent") {
     // entry creation time, which is not reproducible across runs; every query below is filtered
     // by an exact fingerprint so the result set is deterministic in size and content.
     def fingerprint = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-    def structCanonical = "S{internal.hbo_test.hbo_si_r#0,v2}"
+    def structCanonical = "S{internal.hbo_test.hbo_si_r,v2}"
     try {
         sql """ HBO SET STATISTICS '${fingerprint}' = 123456 STRUCT '${structCanonical}'; """
 

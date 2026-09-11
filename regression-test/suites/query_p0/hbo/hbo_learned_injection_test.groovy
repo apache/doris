@@ -77,7 +77,7 @@ suite("hbo_learned_injection_test", "nonConcurrent") {
         exception "TYPE and STRUCT are not supported for hbo learned statistics"
     }
     test {
-        sql """ HBO SET LEARNED STATISTICS '${fingerprint}' = 1 STRUCT 'S{internal.hbo_test.hbo_li_r#0,v2}'; """
+        sql """ HBO SET LEARNED STATISTICS '${fingerprint}' = 1 STRUCT 'S{internal.hbo_test.hbo_li_r,v2}'; """
         exception "TYPE and STRUCT are not supported for hbo learned statistics"
     }
 }
