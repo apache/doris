@@ -79,6 +79,45 @@ class UniqueTest extends TestWithFeService {
     }
 
     @Test
+    void testAggregateOutputInjectivity() {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("select sum(abs(id)) as s from agg group by id")
+                .getPlan();
+        Assertions.assertFalse(plan.getLogicalProperties().getTrait()
+                .isUnique(plan.getOutput().get(0)));
+
+        plan = PlanChecker.from(connectContext)
+                .analyze("select avg(cast(id as bigint)) as a from agg group by id")
+                .getPlan();
+        Assertions.assertFalse(plan.getLogicalProperties().getTrait()
+                .isUnique(plan.getOutput().get(0)));
+
+        plan = PlanChecker.from(connectContext)
+                .analyze("select sum(cast(id as bigint)) as s from agg group by id")
+                .getPlan();
+        Assertions.assertFalse(plan.getLogicalProperties().getTrait()
+                .isUnique(plan.getOutput().get(0)));
+
+        plan = PlanChecker.from(connectContext)
+                .analyze("select max(cast(id as bigint)) as m from agg group by id")
+                .getPlan();
+        Assertions.assertFalse(plan.getLogicalProperties().getTrait()
+                .isUnique(plan.getOutput().get(0)));
+
+        plan = PlanChecker.from(connectContext)
+                .analyze("select sum(cast(id as tinyint)) as s from agg group by id")
+                .getPlan();
+        Assertions.assertFalse(plan.getLogicalProperties().getTrait()
+                .isUnique(plan.getOutput().get(0)));
+
+        plan = PlanChecker.from(connectContext)
+                .analyze("select max(cast(id as char(1))) as m from agg group by id")
+                .getPlan();
+        Assertions.assertFalse(plan.getLogicalProperties().getTrait()
+                .isUnique(plan.getOutput().get(0)));
+    }
+
+    @Test
     void testScan() throws Exception {
         // test agg key
         Plan plan = PlanChecker.from(connectContext)

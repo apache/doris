@@ -51,4 +51,48 @@ suite("eliminate_group_by") {
     qt_variance_samp_shape "explain shape plan select a,variance_samp(b),variance_samp(null) from test_unique2 group by a order by 1,2,3;"
     qt_sum0_shape "explain shape plan select a,sum0(b),sum0(null) from test_unique2 group by a order by 1,2,3;"
     qt_median_shape "explain shape plan select a,median(b),any_value(b),percentile(a,0.1),percentile(b,0.9),percentile(b,0.4) from test_unique2 group by a order by 1,2,3,4,5,6;"
+    sql "drop table if exists test_agg_output_injectivity;"
+    sql """
+        create table test_agg_output_injectivity(pk bigint not null)
+        unique key(pk)
+        distributed by hash(pk) buckets 1
+        properties("replication_num"="1");
+    """
+    sql """
+        insert into test_agg_output_injectivity
+        values (-1), (1), (10), (11), (9007199254740992), (9007199254740993);
+    """
+    order_qt_non_injective_agg_argument """
+        select s, count(*) as n
+        from (
+            select pk, sum(abs(pk)) as s
+            from test_agg_output_injectivity
+            where abs(pk) = 1
+            group by pk
+        ) q
+        group by s
+        order by s, n;
+    """
+    order_qt_non_injective_agg_result_cast """
+        select a, count(*) as n
+        from (
+            select pk, avg(pk) as a
+            from test_agg_output_injectivity
+            where pk > 100
+            group by pk
+        ) q
+        group by a
+        order by a, n;
+    """
+    order_qt_truncating_agg_argument_cast """
+        select m, count(*) as n
+        from (
+            select pk, max(cast(pk as char(1))) as m
+            from test_agg_output_injectivity
+            where pk between 10 and 11
+            group by pk
+        ) q
+        group by m
+        order by m, n;
+    """
 }

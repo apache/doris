@@ -198,3 +198,12 @@ PhysicalResultSink
 ----filter((test_unique2.__DORIS_DELETE_SIGN__ = 0))
 ------PhysicalOlapScan[test_unique2]
 
+-- !non_injective_agg_argument --
+1	2
+
+-- !non_injective_agg_result_cast --
+9007199254740992	2
+
+-- !truncating_agg_argument_cast --
+1	2
+

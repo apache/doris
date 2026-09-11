@@ -88,6 +88,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.qe.ConnectContext;
@@ -1205,9 +1207,66 @@ public class ExpressionUtils {
         return expression instanceof Slot;
     }
 
-    // if the input is unique, the output of agg is unique, too
+    /**
+     * Whether an aggregate preserves uniqueness for a group containing exactly one row.
+     *
+     * <p>Checking the aggregate kind and its input slots is not sufficient. An aggregate argument
+     * may contain a non-injective expression, and the aggregate return type may also collapse
+     * distinct argument values. Keep this proof deliberately narrow: the argument must be a bare
+     * slot, and the one-row result conversion must be a proven lossless numeric conversion.
+     */
     public static boolean isInjectiveAgg(Expression agg) {
-        return agg instanceof Sum || agg instanceof Avg || agg instanceof Max || agg instanceof Min;
+        if (!(agg instanceof Sum || agg instanceof Avg || agg instanceof Max || agg instanceof Min)) {
+            return false;
+        }
+        Expression argument = agg.child(0);
+        return argument instanceof Slot
+                && isProvablyInjectiveNumericConversion(argument.getDataType(), agg.getDataType());
+    }
+
+    /**
+     * A deliberately small whitelist of numeric conversions that preserve every source value.
+     * Do not use the general cast compatibility predicates here: some conversions accepted by
+     * them can truncate values (for example, casting an integer to a bounded character type).
+     */
+    private static boolean isProvablyInjectiveNumericConversion(DataType source, DataType target) {
+        if (!source.isNumericType() || !target.isNumericType()) {
+            return false;
+        }
+        if (source.equals(target)) {
+            return true;
+        }
+        if (source.isIntegralType()) {
+            if (target.isIntegralType()) {
+                return target.width() > source.width();
+            }
+            // IEEE 754 binary32 and binary64 have 24 and 53 bits of integer precision.
+            if (target.isFloatType()) {
+                return source.width() <= Short.BYTES;
+            }
+            if (target.isDoubleType()) {
+                return source.width() <= Integer.BYTES;
+            }
+            return false;
+        }
+        if (source.isFloatType()) {
+            return target.isDoubleType();
+        }
+        if (source.isDecimalLikeType() && target.isDecimalLikeType()) {
+            return decimalRange(target) >= decimalRange(source)
+                    && decimalScale(target) >= decimalScale(source);
+        }
+        return false;
+    }
+
+    private static int decimalRange(DataType type) {
+        return type instanceof DecimalV2Type
+                ? ((DecimalV2Type) type).getRange() : ((DecimalV3Type) type).getRange();
+    }
+
+    private static int decimalScale(DataType type) {
+        return type instanceof DecimalV2Type
+                ? ((DecimalV2Type) type).getScale() : ((DecimalV3Type) type).getScale();
     }
 
     public static <E> Set<E> mutableCollect(List<? extends Expression> expressions,
