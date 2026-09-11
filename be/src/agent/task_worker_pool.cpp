@@ -73,6 +73,7 @@
 #include "runtime/snapshot_loader.h"
 #include "runtime/user_function_cache.h"
 #include "service/backend_options.h"
+#include "storage/active_tablet_stats.h"
 #include "storage/compaction/cumulative_compaction_binlog_policy.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
@@ -119,6 +120,29 @@ std::atomic_ulong s_report_version(time(nullptr) * 100000);
 
 void increase_report_version() {
     s_report_version.fetch_add(1, std::memory_order_relaxed);
+}
+
+enum class ActiveDim { QUERY, LOAD };
+
+// The two top-N lists differ only in which pair of thrift fields carries the dimension;
+// tablet_id and delta_window_ms are common, so they are written once here.
+template <ActiveDim Dim>
+std::vector<TActiveTabletStat> to_thrift(const std::vector<ActiveTabletCandidate>& candidates) {
+    std::vector<TActiveTabletStat> result;
+    result.reserve(candidates.size());
+    for (const auto& candidate : candidates) {
+        auto& stat = result.emplace_back();
+        stat.__set_tablet_id(candidate.tablet_id);
+        if constexpr (Dim == ActiveDim::QUERY) {
+            stat.__set_scan_count_delta(candidate.delta);
+            stat.__set_last_query_time_ms(candidate.last_time_ms);
+        } else {
+            stat.__set_load_count_delta(candidate.delta);
+            stat.__set_last_load_time_ms(candidate.last_time_ms);
+        }
+        stat.__set_delta_window_ms(candidate.window_ms);
+    }
+    return result;
 }
 
 // FIXME(plat1ko): Paired register and remove task info
@@ -523,6 +547,7 @@ bvar::Adder<uint64_t> report_disk_total("report", "disk_total");
 bvar::Adder<uint64_t> report_disk_failed("report", "disk_failed");
 bvar::Adder<uint64_t> report_tablet_total("report", "tablet_total");
 bvar::Adder<uint64_t> report_tablet_failed("report", "tablet_failed");
+bvar::Adder<uint64_t> report_active_tablet_truncated("report", "active_tablet_truncated");
 bvar::Adder<uint64_t> report_index_policy_total("report", "index_policy_total");
 bvar::Adder<uint64_t> report_index_policy_failed("report", "index_policy_failed");
 
@@ -1174,10 +1199,12 @@ void report_tablet_callback(StorageEngine& engine, const ClusterInfo* cluster_in
 
     increase_report_version();
     uint64_t report_version;
+    ActiveTabletCollector active;
     for (int i = 0; i < 5; i++) {
         request.tablets.clear();
+        active.clear();
         report_version = s_report_version;
-        engine.tablet_manager()->build_all_report_tablets_info(&request.tablets);
+        engine.tablet_manager()->build_all_report_tablets_info(&request.tablets, &active);
         if (report_version == s_report_version) {
             break;
         }
@@ -1225,7 +1252,17 @@ void report_tablet_callback(StorageEngine& engine, const ClusterInfo* cluster_in
     }
     request.__isset.resource = true;
 
+    active.take_top_n();
+    request.__set_top_query_tablets(to_thrift<ActiveDim::QUERY>(active.query_candidates()));
+    request.__set_top_load_tablets(to_thrift<ActiveDim::LOAD>(active.load_candidates()));
+    if (active.truncated()) {
+        report_active_tablet_truncated << 1;
+    }
+
     bool succ = handle_report(request, cluster_info, "tablet");
+    if (succ) {
+        active.commit();
+    }
     report_tablet_total << 1;
     if (!succ) [[unlikely]] {
         report_tablet_failed << 1;
@@ -1247,10 +1284,16 @@ void report_tablet_callback(CloudStorageEngine& engine, const ClusterInfo* clust
     increase_report_version();
     uint64_t report_version;
     uint64_t total_num_tablets = 0;
+    ActiveTabletCollector active;
     for (int i = 0; i < 5; i++) {
         request.tablets.clear();
+        // build_all_report_tablets_info() only increments tablet_num, so a retry would
+        // otherwise report a multiple of the real tablet count to FE.
+        total_num_tablets = 0;
+        active.clear();
         report_version = s_report_version;
-        engine.tablet_mgr().build_all_report_tablets_info(&request.tablets, &total_num_tablets);
+        engine.tablet_mgr().build_all_report_tablets_info(&request.tablets, &total_num_tablets,
+                                                          &active);
         if (report_version == s_report_version) {
             break;
         }
@@ -1265,7 +1308,17 @@ void report_tablet_callback(CloudStorageEngine& engine, const ClusterInfo* clust
     request.__set_report_version(report_version);
     request.__set_num_tablets(total_num_tablets);
 
+    active.take_top_n();
+    request.__set_top_query_tablets(to_thrift<ActiveDim::QUERY>(active.query_candidates()));
+    request.__set_top_load_tablets(to_thrift<ActiveDim::LOAD>(active.load_candidates()));
+    if (active.truncated()) {
+        report_active_tablet_truncated << 1;
+    }
+
     bool succ = handle_report(request, cluster_info, "tablet");
+    if (succ) {
+        active.commit();
+    }
     report_tablet_total << 1;
     if (!succ) [[unlikely]] {
         report_tablet_failed << 1;

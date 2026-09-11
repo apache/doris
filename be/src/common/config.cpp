@@ -269,6 +269,8 @@ DEFINE_mInt32(report_task_interval_seconds, "10");
 DEFINE_mInt32(report_disk_state_interval_seconds, "30");
 // the interval time(seconds) for agent report olap table to FE
 DEFINE_mInt32(report_tablet_interval_seconds, "60");
+DEFINE_mInt32(report_active_tablet_max_num, "5000");
+DEFINE_mInt32(report_active_tablet_window_second, "3600");
 // the max download speed(KB/s)
 DEFINE_mInt32(max_download_speed_kbps, "50000");
 // download low speed limit(KB/s)
