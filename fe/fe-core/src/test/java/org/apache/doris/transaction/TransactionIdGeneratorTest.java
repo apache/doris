@@ -15,22 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mtmv.ivm.agg;
+package org.apache.doris.transaction;
 
-/**
- * User-visible aggregate function kind supported by IVM.
- *
- * <p>The same enum also names logical delta slots for COUNT/SUM/MIN/MAX. AVG is only a user-visible
- * function kind: its processor exposes SUM and COUNT delta slots instead of an AVG delta slot.
- */
-public enum IvmAggFunctionKind {
-    COUNT,
-    SUM,
-    AVG,
-    MIN,
-    MAX,
-    BITMAP_UNION,
-    BITMAP_UNION_COUNT,
-    ARRAY_AGG,
-    COLLECT_LIST
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+public class TransactionIdGeneratorTest {
+    @Test
+    public void testGetCurrentTransactionIdDoesNotAllocateId() {
+        TransactionIdGenerator generator = new TransactionIdGenerator();
+        generator.initTransactionId(1000L);
+
+        Assertions.assertEquals(1000L, generator.getCurrentTransactionId());
+        Assertions.assertEquals(1000L, generator.getCurrentTransactionId());
+    }
 }
