@@ -420,12 +420,6 @@ TEST_F(TxnManagerTest, PublishVersionWithCommitTSO) {
 
 TEST_F(TxnManagerTest, TxnWithRowBinlog) {
     auto binlog_rowset = create_binlog_rowset(30000, _rowset->version());
-    auto* mappings = _rowset->rowset_meta()->mutable_row_binlog_column_mappings();
-    mappings->set_need_historical_value(true);
-    auto* mapping = mappings->add_entries();
-    mapping->set_source_column_unique_id(1);
-    mapping->set_current_column_unique_id(10);
-    mapping->set_before_column_unique_id(11);
     RowBinlogTxnInfo attach_row_binlog;
     attach_row_binlog.rowset = binlog_rowset;
     attach_row_binlog.tablet = k_engine->tablet_manager()->get_tablet(tablet_id, _tablet_uid);
@@ -441,8 +435,6 @@ TEST_F(TxnManagerTest, TxnWithRowBinlog) {
     st = RowsetMetaManager::get_rowset_meta(_meta.get(), _tablet_uid, _rowset->rowset_id(),
                                             committed_meta);
     ASSERT_TRUE(st.ok()) << st;
-    EXPECT_TRUE(committed_meta->has_row_binlog_column_mappings());
-    EXPECT_TRUE(committed_meta->row_binlog_column_mappings().need_historical_value());
 
     RowsetMetaSharedPtr committed_binlog_meta(new RowsetMeta());
     st = RowsetMetaManager::get_rowset_meta(_meta.get(), _tablet_uid, binlog_rowset->rowset_id(),
@@ -450,7 +442,6 @@ TEST_F(TxnManagerTest, TxnWithRowBinlog) {
     ASSERT_TRUE(st.ok()) << st;
     EXPECT_EQ(committed_binlog_meta->rowset_state(), RowsetStatePB::COMMITTED);
     EXPECT_TRUE(committed_binlog_meta->is_row_binlog());
-    EXPECT_FALSE(committed_binlog_meta->has_row_binlog_column_mappings());
 
     Version new_version(10, 10);
     TabletPublishStatistics stats;
@@ -465,7 +456,6 @@ TEST_F(TxnManagerTest, TxnWithRowBinlog) {
     ASSERT_TRUE(st.ok()) << st;
     EXPECT_EQ(rowset_meta->start_version(), 10);
     EXPECT_EQ(rowset_meta->end_version(), 10);
-    EXPECT_FALSE(rowset_meta->has_row_binlog_column_mappings());
 
     RowsetMetaSharedPtr binlog_rowset_meta(new RowsetMeta());
     st = RowsetMetaManager::get_rowset_meta(_meta.get(), _tablet_uid, binlog_rowset->rowset_id(),

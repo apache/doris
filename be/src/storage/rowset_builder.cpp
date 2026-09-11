@@ -602,19 +602,6 @@ Status GroupRowsetBuilder::init() {
             return mappings.error();
         }
         cfg.column_mappings = std::move(*mappings);
-
-        auto* persisted_mappings = _txn_rs_builder->rowset_writer()
-                                           ->rowset_meta()
-                                           ->mutable_row_binlog_column_mappings();
-        persisted_mappings->set_need_historical_value(cfg.need_historical_value);
-        for (const auto& mapping : source_index_schema->row_binlog_column_mappings) {
-            auto* entry = persisted_mappings->add_entries();
-            entry->set_source_column_unique_id(mapping.source_uid);
-            entry->set_current_column_unique_id(mapping.current_uid);
-            if (mapping.before_uid.has_value()) {
-                entry->set_before_column_unique_id(*mapping.before_uid);
-            }
-        }
     }
 
     _rowset_writer = std::move(group_writer);

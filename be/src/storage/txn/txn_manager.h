@@ -192,7 +192,8 @@ public:
                        TTransactionId transaction_id, const Version& version,
                        TabletPublishStatistics* stats,
                        std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info,
-                       const int64_t commit_tso = -1);
+                       const int64_t commit_tso = -1,
+                       const PRowBinlogWriteColumnMappings* row_binlog_column_mappings = nullptr);
 
     // delete the txn from manager if it is not committed(not have a valid rowset)
     Status rollback_txn(TPartitionId partition_id, const Tablet& tablet,
@@ -213,7 +214,8 @@ public:
                        TTabletId tablet_id, TabletUid tablet_uid, const Version& version,
                        TabletPublishStatistics* stats,
                        std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info,
-                       const int64_t commit_tso = -1);
+                       const int64_t commit_tso = -1,
+                       const PRowBinlogWriteColumnMappings* row_binlog_column_mappings = nullptr);
 
     // only abort not committed txn
     void abort_txn(TPartitionId partition_id, TTransactionId transaction_id, TTabletId tablet_id,

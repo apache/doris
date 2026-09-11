@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -29,15 +30,21 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.task.PublishVersionTask;
+import org.apache.doris.thrift.TOlapTableIndexSchema;
+import org.apache.doris.thrift.TOlapTableSchemaParam;
+import org.apache.doris.thrift.TRowBinlogWriteColumnMapping;
+import org.apache.doris.thrift.TRowBinlogWriteColumnMappings;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
+import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
@@ -48,6 +55,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -282,6 +290,88 @@ public class TransactionState implements Writable {
     // tbl id -> (index ids)
     @SerializedName(value = "loadedTblIndexes")
     private Map<Long, Set<Long>> loadedTblIndexes = Maps.newHashMap();
+
+    // Actual write txn (possibly a subtxn) -> source index -> immutable write-time snapshot.
+    // Copy-on-write keeps checkpoint serialization safe while concurrent load planning adds indexes.
+    @SerializedName("rowBinlogMappings")
+    private volatile Map<Long, Map<Long, RowBinlogWriteMapping>> rowBinlogColumnMappings = ImmutableMap.of();
+
+    @EqualsAndHashCode
+    private static class RowBinlogColumnMapping {
+        @SerializedName("source")
+        private final int source;
+        @SerializedName("current")
+        private final int current;
+        @SerializedName("before")
+        private final Integer before;
+
+        RowBinlogColumnMapping(TRowBinlogWriteColumnMapping mapping) {
+            source = mapping.getSourceColumnUniqueId();
+            current = mapping.getCurrentColumnUniqueId();
+            before = mapping.isSetBeforeColumnUniqueId() ? mapping.getBeforeColumnUniqueId() : null;
+        }
+
+        TRowBinlogWriteColumnMapping toThrift() {
+            TRowBinlogWriteColumnMapping mapping = new TRowBinlogWriteColumnMapping(source, current);
+            if (before != null) {
+                mapping.setBeforeColumnUniqueId(before);
+            }
+            return mapping;
+        }
+    }
+
+    @EqualsAndHashCode
+    private static class RowBinlogWriteMapping {
+        @SerializedName("historical")
+        private final boolean historical;
+        @SerializedName("columns")
+        private final List<RowBinlogColumnMapping> columns;
+
+        RowBinlogWriteMapping(TOlapTableIndexSchema index) {
+            Preconditions.checkState(index.isSetRowBinlogNeedHistoricalValue());
+            Preconditions.checkState(index.isSetRowBinlogColumnMappings());
+            historical = index.isRowBinlogNeedHistoricalValue();
+            columns = new ArrayList<>(index.getRowBinlogColumnMappingsSize());
+            for (TRowBinlogWriteColumnMapping mapping : index.getRowBinlogColumnMappings()) {
+                columns.add(new RowBinlogColumnMapping(mapping));
+            }
+        }
+
+        TRowBinlogWriteColumnMappings toThrift() {
+            List<TRowBinlogWriteColumnMapping> entries = new ArrayList<>(columns.size());
+            for (RowBinlogColumnMapping column : columns) {
+                entries.add(column.toThrift());
+            }
+            return new TRowBinlogWriteColumnMappings().setEntries(entries).setNeedHistoricalValue(historical);
+        }
+    }
+
+    public synchronized void captureRowBinlogColumnMappings(long writeTxnId, TOlapTableSchemaParam schema)
+            throws AnalysisException {
+        Map<Long, RowBinlogWriteMapping> indexes = new HashMap<>(
+                rowBinlogColumnMappings.getOrDefault(writeTxnId, Collections.emptyMap()));
+        for (TOlapTableIndexSchema index : schema.getIndexes()) {
+            if (index.getRowBinlogId() <= 0) {
+                continue;
+            }
+            RowBinlogWriteMapping snapshot = new RowBinlogWriteMapping(index);
+            RowBinlogWriteMapping previous = indexes.putIfAbsent(index.getId(), snapshot);
+            if (previous != null && !previous.equals(snapshot)) {
+                throw new AnalysisException("Row-binlog write schema changed within transaction "
+                        + writeTxnId + ", source index " + index.getId());
+            }
+        }
+        Map<Long, Map<Long, RowBinlogWriteMapping>> snapshots = new HashMap<>(rowBinlogColumnMappings);
+        snapshots.put(writeTxnId, ImmutableMap.copyOf(indexes));
+        rowBinlogColumnMappings = ImmutableMap.copyOf(snapshots);
+    }
+
+    public Map<Long, TRowBinlogWriteColumnMappings> getRowBinlogColumnMappings(long writeTxnId) {
+        Map<Long, TRowBinlogWriteColumnMappings> mappings = new HashMap<>();
+        rowBinlogColumnMappings.getOrDefault(writeTxnId, Collections.emptyMap())
+                .forEach((indexId, snapshot) -> mappings.put(indexId, snapshot.toThrift()));
+        return mappings;
+    }
 
     /**
      * the value is the num delta rows of all replicas in each tablet

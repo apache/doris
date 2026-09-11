@@ -17,12 +17,20 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
+import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.OlapTableSink.AdaptiveBucketAssignment;
 import org.apache.doris.planner.OlapTableSink.AdaptiveIndexBucketAssignment;
 import org.apache.doris.system.Backend;
@@ -33,8 +41,11 @@ import org.apache.doris.thrift.TOlapTablePartition;
 import org.apache.doris.thrift.TRowBinlogWriteColumnMapping;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletLocation;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
+import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -46,6 +57,51 @@ import java.util.List;
 import java.util.Map;
 
 public class OlapTableSinkTest {
+    @Test
+    public void testWriteSchemaCapturesTransactionSnapshot() throws Exception {
+        checkWriteSchemaSnapshot(100L);
+    }
+
+    @Test
+    public void testRoutineLoadPlansWithActualTransactionBeforeCapturingSnapshot() throws Exception {
+        for (RoutineLoadJob job : Arrays.asList(new KafkaRoutineLoadJob(), new KinesisRoutineLoadJob())) {
+            long planningTxnId = job.toNereidsRoutineLoadTaskInfo(100L).getTxnId();
+            Assertions.assertDoesNotThrow(() -> checkWriteSchemaSnapshot(planningTxnId));
+        }
+    }
+
+    private void checkWriteSchemaSnapshot(long planningTxnId) throws Exception {
+        MaterializedIndexMeta source = indexMeta(10L, Arrays.asList(
+                column("k1", 1, true, true), column("v1", 2, false, true)));
+        source.setRowBinlogIndexId(20L);
+        MaterializedIndexMeta binlog = indexMeta(20L, Arrays.asList(
+                column("k1", 11, true, true), column("v1", 12, false, true),
+                column(Column.generateBeforeColName("v1"), 22, false, true)));
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.needRowBinlog()).thenReturn(true);
+        Mockito.when(table.getBaseIndexId()).thenReturn(10L);
+        Mockito.when(table.getIndexMetaByIndexId(10L)).thenReturn(source);
+        Mockito.when(table.getIndexIdToMeta()).thenReturn(ImmutableMap.of(10L, source));
+        Mockito.when(table.getRowBinlogMeta()).thenReturn(binlog);
+        BinlogConfig config = Mockito.mock(BinlogConfig.class);
+        Mockito.when(config.getNeedHistoricalValue()).thenReturn(true);
+        Mockito.when(table.getBinlogConfig()).thenReturn(config);
+        TransactionState state = new TransactionState();
+        GlobalTransactionMgrIface manager = Mockito.mock(GlobalTransactionMgrIface.class);
+        Mockito.when(manager.getTransactionState(1L, 100L)).thenReturn(state);
+        try (MockedStatic<Env> env = Mockito.mockStatic(Env.class)) {
+            env.when(Env::getCurrentGlobalTransactionMgr).thenReturn(manager);
+            OlapTableSink sink = new OlapTableSink(table, new TupleDescriptor(new TupleId(0)),
+                    Collections.emptyList());
+            Deencapsulation.setField(sink, "txnId", planningTxnId);
+            Deencapsulation.invoke(sink, "createSchema", 1L, table);
+        }
+        String expected = "{\"100\":{\"10\":{\"historical\":true,\"columns\":["
+                + "{\"source\":1,\"current\":11},{\"source\":2,\"current\":12,\"before\":22}]}}}";
+        Assertions.assertEquals(JsonParser.parseString(expected),
+                JsonParser.parseString(GsonUtils.GSON.toJson(state)).getAsJsonObject().get("rowBinlogMappings"));
+    }
+
     @Test
     public void testCreateHistoricalRowBinlogColumnMappings() throws Exception {
         MaterializedIndexMeta sourceMeta = indexMeta(1L, Arrays.asList(

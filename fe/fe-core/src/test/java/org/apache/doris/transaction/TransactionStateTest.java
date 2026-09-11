@@ -17,6 +17,7 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.EtlStatus;
@@ -27,8 +28,13 @@ import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
+import org.apache.doris.thrift.TOlapTableIndexSchema;
+import org.apache.doris.thrift.TOlapTableSchemaParam;
+import org.apache.doris.thrift.TRowBinlogWriteColumnMapping;
+import org.apache.doris.thrift.TRowBinlogWriteColumnMappings;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
@@ -36,6 +42,7 @@ import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.JsonParser;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -46,6 +53,9 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Map;
 import java.util.UUID;
 import java.util.function.Consumer;
 
@@ -54,6 +64,53 @@ public class TransactionStateTest {
     private static String fileName = "./TransactionStateTest";
     private static String fileName2 = "./TransactionStateTest2";
     private static String fileName3 = "./TransactionStateTest3";
+
+    @Test
+    public void testRowBinlogSnapshotsAreIndependentOfWriterAndPublishRequests() throws Exception {
+        TransactionState state = new TransactionState();
+        TRowBinlogWriteColumnMapping key = new TRowBinlogWriteColumnMapping(1, 11);
+        TRowBinlogWriteColumnMapping value = new TRowBinlogWriteColumnMapping(2, 12)
+                .setBeforeColumnUniqueId(22);
+        TOlapTableIndexSchema index = new TOlapTableIndexSchema(10L, Collections.emptyList(), 1)
+                .setRowBinlogId(20L).setRowBinlogNeedHistoricalValue(true)
+                .setRowBinlogColumnMappings(Arrays.asList(key, value));
+        TOlapTableSchemaParam schema = new TOlapTableSchemaParam().setIndexes(Collections.singletonList(index));
+        state.captureRowBinlogColumnMappings(100L, schema);
+        state.captureRowBinlogColumnMappings(100L, schema); // Identical retries are allowed.
+        value.setCurrentColumnUniqueId(99);
+        Assertions.assertThrows(AnalysisException.class, () -> state.captureRowBinlogColumnMappings(100L, schema));
+        state.captureRowBinlogColumnMappings(101L, schema); // Separate subtransaction, separate schema snapshot.
+
+        testSerDe(fileName, state, restored -> {
+            Map<Long, TRowBinlogWriteColumnMappings> published = restored.getRowBinlogColumnMappings(100L);
+            TRowBinlogWriteColumnMappings mapping = published.get(10L);
+            Assertions.assertTrue(mapping.isSetNeedHistoricalValue());
+            Assertions.assertTrue(mapping.isNeedHistoricalValue());
+            Assertions.assertEquals(2, mapping.getEntriesSize());
+            Assertions.assertFalse(mapping.getEntries().get(0).isSetBeforeColumnUniqueId());
+            Assertions.assertEquals(12, mapping.getEntries().get(1).getCurrentColumnUniqueId());
+            Assertions.assertEquals(22, mapping.getEntries().get(1).getBeforeColumnUniqueId());
+            mapping.getEntries().clear();
+            published.clear();
+            Assertions.assertEquals(2, restored.getRowBinlogColumnMappings(100L).get(10L).getEntriesSize());
+            Assertions.assertEquals(99, restored.getRowBinlogColumnMappings(101L).get(10L)
+                    .getEntries().get(1).getCurrentColumnUniqueId());
+            Assertions.assertTrue(restored.getRowBinlogColumnMappings(102L).isEmpty());
+        });
+    }
+
+    @Test
+    public void testRowBinlogSnapshotSurvivesTransactionReplay() throws IOException {
+        // Key-only historical and a later subtransaction must retain distinct write-time snapshots.
+        String snapshots = "{\"100\":{\"10\":{\"historical\":true,\"columns\":["
+                + "{\"source\":1,\"current\":11}]}},"
+                + "\"101\":{\"10\":{\"historical\":false,\"columns\":["
+                + "{\"source\":1,\"current\":11},{\"source\":2,\"current\":12}]}}}";
+        TransactionState state = GsonUtils.GSON.fromJson(
+                "{\"txnId\":100,\"rowBinlogMappings\":" + snapshots + "}", TransactionState.class);
+        testSerDe(fileName, state, restored -> Assertions.assertEquals(JsonParser.parseString(snapshots),
+                JsonParser.parseString(restored.toJson()).getAsJsonObject().get("rowBinlogMappings")));
+    }
 
     @AfterEach
     public void tearDown() {
