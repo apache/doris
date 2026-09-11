@@ -39,6 +39,11 @@ inline constexpr uint16_t kMinReaderVersion = 1;
 // reject unknown ones as Unsupported, so a pure-text directory stays
 // byte-identical to the pre-blob format.
 inline constexpr uint32_t kFeatureBlobLogicalIndex = 1;
+// At least one inverted entry holds dictionary entries whose posting list was dropped
+// (dict_flags::kPostingDropped, stop-gram). Such an entry ends right after its df, which a
+// reader that predates the flag would parse as a truncated locator; declaring the feature
+// makes that reader refuse the container as unsupported instead of reporting corruption.
+inline constexpr uint32_t kFeatureDroppedPostings = 2;
 
 // ---- SectionFramer type ids for standalone metadata blobs ----
 enum class SectionType : uint8_t {

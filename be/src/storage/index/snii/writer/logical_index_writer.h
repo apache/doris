@@ -311,6 +311,9 @@ public:
     format::IndexTier tier() const { return tier_; }
     uint64_t index_id() const { return index_id_; }
     const std::string& index_suffix() const { return index_suffix_; }
+    // Dictionary entries written without a posting list (stop-gram). Non-zero raises
+    // kFeatureDroppedPostings on the container's directory.
+    uint64_t dropped_posting_terms() const { return dropped_posting_terms_; }
 
     // Builds the three mandatory v1 metadata blobs. The orchestrator writes them
     // contiguously as Core -> STI -> DBD and publishes their absolute references
@@ -373,6 +376,7 @@ private:
     const std::vector<TermPostings>& terms_; // materialized fallback (may be empty)
     SpimiTermBuffer* term_source_;           // streaming source (null => use terms_)
     uint64_t term_count_ = 0;                // distinct terms actually consumed
+    uint64_t dropped_posting_terms_ = 0;     // of which posting_dropped (stop-gram)
     const std::vector<uint8_t>& encoded_norms_;
     std::optional<segment_v2::gram::GramScheme> gram_scheme_;
     // See SniiIndexInput::stop_gram_df_threshold. 0 leaves every posting list in place.

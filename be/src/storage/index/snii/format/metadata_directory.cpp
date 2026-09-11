@@ -124,6 +124,10 @@ Status decode_directory_pb(const doris::snii::SniiMetadataDirectoryPB& input,
             feature_blob = true;
             continue;
         }
+        if (feature == kFeatureDroppedPostings) {
+            // Understood by this reader's dictionary decoder; nothing to validate here.
+            continue;
+        }
         return metadata_directory_unsupported(
                 "metadata directory: required feature is not supported");
     }
@@ -226,6 +230,7 @@ Status encode_metadata_directory(const std::vector<LogicalIndexMetadataRef>& ent
 
     doris::snii::SniiMetadataDirectoryPB directory;
     bool any_blob = false;
+    bool any_dropped = false;
     for (const auto& entry : entries) {
         auto* index = directory.add_indexes();
         index->set_index_id(entry.index_id);
@@ -241,6 +246,7 @@ Status encode_metadata_directory(const std::vector<LogicalIndexMetadataRef>& ent
             encode_blob_ref(entry.core_metadata, index->mutable_core_metadata());
             encode_blob_ref(entry.sampled_term_index, index->mutable_sampled_term_index());
             encode_blob_ref(entry.dict_block_directory, index->mutable_dict_block_directory());
+            any_dropped = any_dropped || entry.dropped_postings;
         } else {
             // The three inverted refs do not serialize for blob entries, so
             // the shared decode self-check below could not catch a caller that
@@ -264,6 +270,9 @@ Status encode_metadata_directory(const std::vector<LogicalIndexMetadataRef>& ent
     }
     if (any_blob) {
         directory.add_required_features(kFeatureBlobLogicalIndex);
+    }
+    if (any_dropped) {
+        directory.add_required_features(kFeatureDroppedPostings);
     }
 
     std::vector<LogicalIndexMetadataRef> validated;
