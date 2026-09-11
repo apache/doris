@@ -42,6 +42,10 @@ schema:
   Explain String(Nereids Planner): Utf8 nullable
 rows: some
 
+=== statement explain plan process select 1 ===
+state: EOF
+result: none, the producer synthesizes StatusResult=0
+
 === statement select from ===
 state: ERR errorCode=ERR_UNKNOWN_ERROR message="errCode = 2, detailMessage = \nmismatched input 'from' expecting {'(', '..."
 
