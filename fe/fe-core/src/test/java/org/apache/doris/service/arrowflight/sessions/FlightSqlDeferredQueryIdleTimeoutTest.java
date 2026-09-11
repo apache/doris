@@ -62,8 +62,8 @@ public class FlightSqlDeferredQueryIdleTimeoutTest {
     }
 
     // A Flight session that ran a query and has been sleeping since; the client never closed it.
-    private static FlightSqlConnectContext sleepingFlightSession(StmtExecutor... deferred) {
-        FlightSqlConnectContext ctx = new FlightSqlConnectContext("test-peer-identity");
+    private static ConnectContext sleepingFlightSession(StmtExecutor... deferred) {
+        ConnectContext ctx = ConnectContext.forFlight("test-peer-identity");
         ctx.setCommand(MysqlCommand.COM_SLEEP);
         ctx.setStartTime();
         for (StmtExecutor executor : deferred) {
@@ -76,7 +76,7 @@ public class FlightSqlDeferredQueryIdleTimeoutTest {
     public void testIdleSessionReleasesDeferredQueryButIsNotKilled() {
         Config.arrow_flight_deferred_query_idle_timeout_second = 7;
         StmtExecutor deferred = deferredExecutor(5);
-        FlightSqlConnectContext ctx = sleepingFlightSession(deferred);
+        ConnectContext ctx = sleepingFlightSession(deferred);
         long start = ctx.getStartTime();
         Assertions.assertEquals(7L, ctx.getFlightSqlDeferredExecutorsIdleTimeoutS());
 
@@ -102,7 +102,7 @@ public class FlightSqlDeferredQueryIdleTimeoutTest {
         Config.arrow_flight_deferred_query_idle_timeout_second = 3;
         StmtExecutor shortQuery = deferredExecutor(5);
         StmtExecutor longQuery = deferredExecutor(20);
-        FlightSqlConnectContext ctx = sleepingFlightSession(shortQuery, longQuery);
+        ConnectContext ctx = sleepingFlightSession(shortQuery, longQuery);
         long start = ctx.getStartTime();
         // the longest deferred query wins: a client may still be pulling its results from the BE
         Assertions.assertEquals(20L, ctx.getFlightSqlDeferredExecutorsIdleTimeoutS());
@@ -121,7 +121,7 @@ public class FlightSqlDeferredQueryIdleTimeoutTest {
     public void testZeroDisablesTheReaper() {
         Config.arrow_flight_deferred_query_idle_timeout_second = 0;
         StmtExecutor deferred = deferredExecutor(5);
-        FlightSqlConnectContext ctx = sleepingFlightSession(deferred);
+        ConnectContext ctx = sleepingFlightSession(deferred);
         Assertions.assertEquals(-1L, ctx.getFlightSqlDeferredExecutorsIdleTimeoutS());
 
         // idle for almost the whole wait_timeout: nothing is released and the session is alive
@@ -134,7 +134,7 @@ public class FlightSqlDeferredQueryIdleTimeoutTest {
     @Test
     public void testNothingDeferredMeansNoBound() {
         Config.arrow_flight_deferred_query_idle_timeout_second = 7;
-        FlightSqlConnectContext ctx = sleepingFlightSession();
+        ConnectContext ctx = sleepingFlightSession();
         Assertions.assertEquals(-1L, ctx.getFlightSqlDeferredExecutorsIdleTimeoutS());
 
         ctx.checkTimeout(ctx.getStartTime() + 3_600_000L);

@@ -86,16 +86,16 @@ public class MTMVRelationManager implements MTMVHookService {
     }
 
     public void markIvmBaselineRebuild(BaseTableInfo baseTableInfo, String reason) {
-        markIvmBaselineRebuild(baseTableInfo, Collections.emptyMap(), reason);
+        markIvmBaselineRebuild(baseTableInfo, true, Collections.emptyMap(), reason);
     }
 
     public void markIvmBaselineRebuildForPartitionChange(BaseTableInfo baseTableInfo,
             Map<String, Long> changedPartitions, String reason) {
         Preconditions.checkArgument(!changedPartitions.isEmpty(), "changed partitions can not be empty");
-        markIvmBaselineRebuild(baseTableInfo, changedPartitions, reason);
+        markIvmBaselineRebuild(baseTableInfo, false, changedPartitions, reason);
     }
 
-    private void markIvmBaselineRebuild(BaseTableInfo baseTableInfo,
+    private void markIvmBaselineRebuild(BaseTableInfo baseTableInfo, boolean allPartitionsChanged,
             Map<String, Long> changedPartitions, String reason) {
         TableNameInfo baseTableName = new TableNameInfo(baseTableInfo.getCtlName(),
                 baseTableInfo.getDbName(), baseTableInfo.getTableName());
@@ -115,7 +115,7 @@ public class MTMVRelationManager implements MTMVHookService {
             if (MTMVPartitionUtil.isTableExcluded(mtmv.getExcludedTriggerTables(), baseTableName)) {
                 continue;
             }
-            if (changedPartitions.isEmpty()) {
+            if (allPartitionsChanged) {
                 mtmv.invalidateIvmBaseline();
             } else {
                 mtmv.invalidateIvmBaseline(baseTableInfo, changedPartitions);

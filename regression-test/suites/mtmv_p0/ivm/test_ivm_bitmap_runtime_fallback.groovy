@@ -18,7 +18,7 @@
 import org.awaitility.Awaitility
 import static java.util.concurrent.TimeUnit.SECONDS
 
-suite("test_ivm_bitmap_runtime_fallback", "nonConcurrent") {
+suite("test_ivm_bitmap_runtime_fallback") {
     sql """drop materialized view if exists ivm_bm_fb_mv"""
     sql """drop table if exists ivm_bm_fb_t"""
 
