@@ -255,6 +255,7 @@ public class IcebergUtils {
 
     public static final int ICEBERG_ROW_LINEAGE_MIN_VERSION = 3;
     public static final int ICEBERG_VARIANT_MIN_VERSION = 3;
+    public static final int ICEBERG_SPATIAL_MIN_VERSION = 3;
     public static final String ICEBERG_ROW_ID_COL = "_row_id";
     public static final String ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL = "_last_updated_sequence_number";
 
@@ -812,11 +813,32 @@ public class IcebergUtils {
         return false;
     }
 
+    public static boolean containsSpatial(Type type) {
+        if (type.isScalarType()) {
+            return ((ScalarType) type).isSpatialType();
+        }
+        if (type.isArrayType()) {
+            return containsSpatial(((ArrayType) type).getItemType());
+        }
+        if (type.isMapType()) {
+            MapType map = (MapType) type;
+            return containsSpatial(map.getKeyType()) || containsSpatial(map.getValueType());
+        }
+        if (type.isStructType()) {
+            return ((StructType) type).getFields().stream()
+                    .anyMatch(field -> containsSpatial(field.getType()));
+        }
+        return false;
+    }
+
     public static void validateWriteSchema(Table table, List<Column> columns) {
         boolean writesVariant = columns.stream().anyMatch(column -> containsVariant(column.getType()));
+        boolean writesSpatial = columns.stream().anyMatch(column -> containsSpatial(column.getType()));
         FileFormat fileFormat = getFileFormat(table);
-        if (writesVariant) {
+        if (writesVariant || writesSpatial) {
             validateWriteSchema(columns, getFormatVersion(table), fileFormat);
+        }
+        if (writesVariant) {
             validateVariantWriteProperties(columns, table.properties());
         }
         boolean writesOrcBinary = fileFormat == FileFormat.ORC
@@ -849,16 +871,32 @@ public class IcebergUtils {
 
     @VisibleForTesting
     public static void validateWriteSchema(List<Column> columns, int formatVersion, FileFormat fileFormat) {
-        if (columns.stream().noneMatch(column -> containsVariant(column.getType()))) {
+        boolean hasVariant = columns.stream().anyMatch(column -> containsVariant(column.getType()));
+        boolean hasSpatial = columns.stream().anyMatch(column -> containsSpatial(column.getType()));
+        if (!hasVariant && !hasSpatial) {
             return;
         }
-        if (formatVersion < ICEBERG_VARIANT_MIN_VERSION) {
-            throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                    "Iceberg VARIANT writes require table format-version 3, but found " + formatVersion);
+        if (hasVariant) {
+            if (formatVersion < ICEBERG_VARIANT_MIN_VERSION) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                        "Iceberg VARIANT writes require table format-version 3, but found " + formatVersion);
+            }
+            if (fileFormat != FileFormat.PARQUET) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                        "Iceberg VARIANT writes require Parquet data files, but found " + fileFormat);
+            }
         }
-        if (fileFormat != FileFormat.PARQUET) {
-            throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                    "Iceberg VARIANT writes require Parquet data files, but found " + fileFormat);
+        if (hasSpatial) {
+            if (formatVersion < ICEBERG_SPATIAL_MIN_VERSION) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                        "Iceberg GEOMETRY and GEOGRAPHY writes require table format-version 3, but found "
+                                + formatVersion);
+            }
+            if (fileFormat != FileFormat.PARQUET) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                        "Iceberg GEOMETRY and GEOGRAPHY writes require Parquet data files, but found "
+                                + fileFormat);
+            }
         }
     }
 

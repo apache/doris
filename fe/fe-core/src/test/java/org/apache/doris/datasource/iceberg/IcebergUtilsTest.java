@@ -491,6 +491,21 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testIcebergSpatialWriteCapabilityMatrix() {
+        Type geometry = IcebergUtils.icebergTypeToDorisType(Types.GeometryType.crs84(), false, false);
+        Column column = new Column("shape", geometry);
+        IcebergUtils.validateWriteSchema(ImmutableList.of(column), 3, FileFormat.PARQUET);
+
+        AnalysisException formatException = Assert.assertThrows(AnalysisException.class,
+                () -> IcebergUtils.validateWriteSchema(ImmutableList.of(column), 2, FileFormat.PARQUET));
+        Assert.assertTrue(formatException.getMessage().contains("format-version 3"));
+
+        AnalysisException fileFormatException = Assert.assertThrows(AnalysisException.class,
+                () -> IcebergUtils.validateWriteSchema(ImmutableList.of(column), 3, FileFormat.ORC));
+        Assert.assertTrue(fileFormatException.getMessage().contains("Parquet"));
+    }
+
+    @Test
     public void testRejectVariantWritesWhenParquetShreddingIsEnabled() {
         String shredVariantsProperty = "write.parquet.shred-variants";
         Type variant = IcebergUtils.icebergTypeToDorisType(Types.VariantType.get(), false, false);
