@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 
 /** DateTimeChecker */
 public class DateTimeChecker extends FormatChecker {
+    private static final int MIN_TIMEZONE_OFFSET_START = 12;
     private static final DateTimeChecker INSTANCE = new DateTimeChecker();
 
     private final FormatChecker checker;
@@ -106,10 +107,12 @@ public class DateTimeChecker extends FormatChecker {
             return false;
         }
 
-        // Find the separator between date and time parts (' ' or 'T')
+        // Find the separator between date and time parts (' ', 'T', or ':').
+        // A colon at or after the minimum timezone position belongs to the timezone offset.
         int timeSeparatorIndex = -1;
         for (int i = 0; i < str.length(); i++) {
-            if (str.charAt(i) == ' ' || str.charAt(i) == 'T') {
+            char c = str.charAt(i);
+            if (c == ' ' || c == 'T' || (c == ':' && i < MIN_TIMEZONE_OFFSET_START)) {
                 timeSeparatorIndex = i;
                 break;
             }
@@ -133,8 +136,8 @@ public class DateTimeChecker extends FormatChecker {
             }
         }
 
-        // The minimum start of offset is 12： `YY-M-DTH:M:S<offset>`
-        if (timeEndIndex >= str.length() || timeEndIndex < 12) {
+        // The minimum start of offset is 12: `YY-M-DTH:M:S<offset>`
+        if (timeEndIndex >= str.length() || timeEndIndex < MIN_TIMEZONE_OFFSET_START) {
             return false;
         }
 
