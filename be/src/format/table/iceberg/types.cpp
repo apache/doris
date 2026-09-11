@@ -143,6 +143,15 @@ std::string StructType::to_string() const {
 }
 
 std::unique_ptr<PrimitiveType> Types::from_primitive_string(const std::string& type_string) {
+    auto trim = [](std::string value) {
+        const auto begin = value.find_first_not_of(" \t\n\r\f\v");
+        if (begin == std::string::npos) {
+            return std::string {};
+        }
+        const auto end = value.find_last_not_of(" \t\n\r\f\v");
+        return value.substr(begin, end - begin + 1);
+    };
+
     std::string lower_type_string;
     std::transform(type_string.begin(), type_string.end(), std::back_inserter(lower_type_string),
                    [](unsigned char c) { return std::tolower(c); });
@@ -187,6 +196,31 @@ std::unique_ptr<PrimitiveType> Types::from_primitive_string(const std::string& t
             int precision = std::stoi(match[1]);
             int scale = std::stoi(match[2]);
             return std::make_unique<DecimalType>(precision, scale);
+        }
+
+        std::regex geometry(R"(geometry\s*(?:\(\s*([^)]*?)\s*\))?)", std::regex::icase);
+        if (std::regex_match(type_string, match, geometry, std::regex_constants::match_default)) {
+            const std::string crs =
+                    match[1].matched ? trim(match[1].str()) : GeometryType::DEFAULT_CRS;
+            if (crs.empty()) {
+                throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                       "Invalid CRS: (empty string)");
+            }
+            return std::make_unique<GeometryType>(crs);
+        }
+
+        std::regex geography(R"(geography\s*(?:\(\s*([^,]*?)\s*(?:,\s*(\w*)\s*)?\))?)",
+                             std::regex::icase);
+        if (std::regex_match(type_string, match, geography, std::regex_constants::match_default)) {
+            const std::string crs =
+                    match[1].matched ? trim(match[1].str()) : GeographyType::DEFAULT_CRS;
+            const std::string algorithm =
+                    match[2].matched ? trim(match[2].str()) : GeographyType::DEFAULT_ALGORITHM;
+            if (crs.empty() || algorithm.empty()) {
+                throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                       "Spatial CRS and edge algorithm must not be empty");
+            }
+            return std::make_unique<GeographyType>(crs, algorithm);
         }
 
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
