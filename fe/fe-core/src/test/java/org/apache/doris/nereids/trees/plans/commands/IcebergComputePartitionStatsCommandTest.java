@@ -101,6 +101,7 @@ class IcebergComputePartitionStatsCommandTest {
         table = Mockito.mock(Table.class, Mockito.withSettings().extraInterfaces(HasTableOperations.class));
         Mockito.when(table.name()).thenReturn("test_table");
         Mockito.when(table.io()).thenReturn(Mockito.mock(FileIO.class));
+        Mockito.when(table.snapshots()).thenReturn(Collections.emptyList());
         Mockito.when(((HasTableOperations) table).operations()).thenReturn(Mockito.mock(TableOperations.class));
         context = Mockito.mock(ConnectContext.class);
         executor = Mockito.mock(StmtExecutor.class);
