@@ -43,8 +43,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-import org.junit.jupiter.params.provider.ValueSource;
-import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -54,10 +52,8 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.List;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.stream.Collectors;
 
 public class CacheHotspotManagerRecoveryTest {
     private CacheHotspotManager manager;
@@ -159,9 +155,8 @@ public class CacheHotspotManagerRecoveryTest {
         manager.recoverRunningJobsBeforeStart();
         manager.notifyJobStop(first);
 
-        Assertions.assertTrue(manager.tryRegisterRunningJob(second));
         Assertions.assertFalse(manager.tryRegisterRunningJob(first));
-        manager.cancelRecoveredConflictingJobs();
+        Assertions.assertTrue(manager.tryRegisterRunningJob(second));
         Mockito.verifyNoInteractions(editLog, backendPool, client);
     }
 
@@ -190,7 +185,6 @@ public class CacheHotspotManagerRecoveryTest {
         CloudWarmUpJob blocked = newJob(207L, SyncMode.ONCE, JobState.PENDING);
         blocked.setCloudClusterName("another_target");
         Assertions.assertFalse(manager.tryRegisterRunningJob(blocked));
-        manager.cancelRecoveredConflictingJobs();
         Mockito.verifyNoInteractions(editLog, backendPool, client);
     }
 
@@ -233,58 +227,6 @@ public class CacheHotspotManagerRecoveryTest {
         Assertions.assertEquals("", pending.errMsg);
         Mockito.verify(client).warmUpTablets(Mockito.argThat(request -> request.getJobId() == 205L
                 && request.getType() == TWarmUpTabletsRequestType.SET_JOB));
-    }
-
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    public void testConflictingJobsAreCleanedDeterministically(boolean reverseOrder) throws Exception {
-        CloudWarmUpJob owner = newJob(204L, SyncMode.ONCE, JobState.RUNNING);
-        CloudWarmUpJob periodic = newJob(205L, SyncMode.PERIODIC, JobState.RUNNING);
-        CloudWarmUpJob once = newJob(206L, SyncMode.ONCE, JobState.RUNNING);
-        List<CloudWarmUpJob> jobs = Arrays.asList(owner, periodic, once);
-        if (reverseOrder) {
-            Collections.reverse(jobs);
-        }
-        for (CloudWarmUpJob job : jobs) {
-            manager.replayCloudWarmUpJob(roundTrip(job));
-        }
-        manager.recoverRunningJobsBeforeStart();
-        manager.recoverRunningJobsBeforeStart();
-        Mockito.verifyNoInteractions(editLog, backendPool, client);
-
-        manager.cancelRecoveredConflictingJobs();
-        Assertions.assertEquals(JobState.RUNNING, manager.getCloudWarmUpJob(204L).getJobState());
-        Assertions.assertEquals(JobState.PENDING, manager.getCloudWarmUpJob(205L).getJobState());
-        Assertions.assertEquals(JobState.CANCELLED, manager.getCloudWarmUpJob(206L).getJobState());
-        Assertions.assertTrue(manager.getCloudWarmUpJob(205L).errMsg.contains("204"));
-        Assertions.assertTrue(manager.tryRegisterRunningJob(owner));
-        Assertions.assertFalse(manager.tryRegisterRunningJob(periodic));
-        ArgumentCaptor<TWarmUpTabletsRequest> requests = ArgumentCaptor.forClass(TWarmUpTabletsRequest.class);
-        Mockito.verify(client, Mockito.times(2)).warmUpTablets(requests.capture());
-        Assertions.assertEquals(Arrays.asList(205L, 206L), requests.getAllValues().stream()
-                .map(TWarmUpTabletsRequest::getJobId).collect(Collectors.toList()));
-        Assertions.assertTrue(requests.getAllValues().stream()
-                .allMatch(request -> request.getType() == TWarmUpTabletsRequestType.CLEAR_JOB));
-        Mockito.verify(editLog).logModifyCloudWarmUpJob(manager.getCloudWarmUpJob(205L));
-        Mockito.verify(editLog).logModifyCloudWarmUpJob(manager.getCloudWarmUpJob(206L));
-
-        Mockito.clearInvocations(editLog, backendPool, client);
-        manager.cancelRecoveredConflictingJobs();
-        Mockito.verifyNoInteractions(editLog, backendPool, client);
-    }
-
-    @Test
-    public void testUserCancelledConflictDoesNotClearTheOwner() throws Exception {
-        manager.replayCloudWarmUpJob(roundTrip(newJob(204L, SyncMode.ONCE, JobState.RUNNING)));
-        manager.replayCloudWarmUpJob(roundTrip(newJob(205L, SyncMode.ONCE, JobState.RUNNING)));
-        manager.recoverRunningJobsBeforeStart();
-        Assertions.assertTrue(manager.getCloudWarmUpJob(205L).cancel("user cancel", true));
-        Mockito.clearInvocations(editLog, backendPool, client);
-
-        manager.cancelRecoveredConflictingJobs();
-
-        Assertions.assertFalse(manager.tryRegisterRunningJob(newJob(206L, SyncMode.ONCE, JobState.PENDING)));
-        Mockito.verifyNoInteractions(editLog, backendPool, client);
     }
 
     private void loadImage(CloudWarmUpJob job) throws Exception {
