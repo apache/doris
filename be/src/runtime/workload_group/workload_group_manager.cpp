@@ -52,7 +52,7 @@ PausedQuery::PausedQuery(std::shared_ptr<ResourceContext> resource_ctx, double c
           cache_ratio_(cache_ratio),
           reserve_size_(reserve_size),
           query_id_(print_id(resource_ctx->task_controller()->task_id())) {
-    enqueue_at = std::chrono::system_clock::now();
+    enqueue_at = std::chrono::steady_clock::now();
 }
 
 WorkloadGroupMgr::~WorkloadGroupMgr() = default;
@@ -585,6 +585,24 @@ void WorkloadGroupMgr::handle_paused_queries() {
                     ++query_it;
                     continue;
                 }
+
+                // The process memory pressure may have been relieved by cache reclamation or by
+                // other queries that finished. Check it before routing the query below, otherwise
+                // a query in a workload group that uses less than its min memory limit has to
+                // wait for the timeout.
+                const size_t test_memory_size =
+                        std::max<size_t>(query_it->reserve_size_, 32L * 1024 * 1024);
+                if (!GlobalMemoryArbitrator::is_exceed_soft_mem_limit(test_memory_size)) {
+                    LOG(INFO) << "Query: " << print_id(resource_ctx->task_controller()->task_id())
+                              << ", process limit not exceeded now, resume this query"
+                              << ", process memory info: "
+                              << GlobalMemoryArbitrator::process_memory_used_details_str()
+                              << ", wg info: " << wg->debug_string();
+                    resource_ctx->task_controller()->set_memory_sufficient(true);
+                    query_it = queries_list.erase(query_it);
+                    continue;
+                }
+
                 // If workload group's memory usage > min memory, then it means the workload group use too much memory
                 // in memory contention state. Should just spill
                 if (wg->total_mem_used() > wg->min_memory_limit()) {
@@ -808,12 +826,15 @@ bool WorkloadGroupMgr::handle_single_query_(const std::shared_ptr<ResourceContex
                       << ", wg info: " << wg->debug_string();
             requestor->task_controller()->set_memory_sufficient(true);
             return true;
-        } else if (time_in_queue < config::spill_in_paused_queue_timeout_ms) {
+        }
+
+        const bool exceed_hard_mem_limit = GlobalMemoryArbitrator::is_exceed_hard_mem_limit();
+        if (time_in_queue < config::spill_in_paused_queue_timeout_ms && !exceed_hard_mem_limit) {
             // The query has no revocable memory, cancelling it will not release much memory.
             // Keep it paused so that it can be resumed once other queries release memory,
             // and cancel it only after it has waited for `spill_in_paused_queue_timeout_ms`.
-            // If the process memory keeps growing, memory gc will cancel queries when the
-            // hard limit is reached.
+            // Stop waiting once the process reaches the hard memory limit, so that the
+            // protection does not depend on memory gc, which may be disabled.
             LOG_EVERY_T(INFO, 1) << "Query: " << query_id
                                  << " process memory is exceeded, and could not find task to "
                                     "spill, keep it paused. Waited "
@@ -823,26 +844,26 @@ bool WorkloadGroupMgr::handle_single_query_(const std::shared_ptr<ResourceContex
                                  << GlobalMemoryArbitrator::process_memory_used_details_str()
                                  << ", wg info: " << wg->debug_string();
             return false;
-        } else {
-            // Waited long enough and still could not find any memory to release,
-            // cancel the query to protect the process.
-            Status error_status = Status::MemoryLimitExceeded(
-                    "Query {} process memory is exceeded"
-                    ", and there is no cache now. And could not find task to spill after "
-                    "waiting {} ms in paused queue, try to cancel query. "
-                    "Query memory usage: {}, limit: {}, reserved "
-                    "size: {}, try to reserve: {}, wg info: {}."
-                    " Maybe you should set the workload group's limit to a lower value. {}",
-                    query_id, time_in_queue, PrettyPrinter::print_bytes(memory_usage),
-                    PrettyPrinter::print_bytes(limit), PrettyPrinter::print_bytes(reserved_size),
-                    PrettyPrinter::print_bytes(size_to_reserve), wg->memory_debug_string(),
-                    doris::ProcessProfile::instance()
-                            ->memory_profile()
-                            ->process_memory_detail_str());
-            LOG_LONG_STRING(INFO, error_status.to_string());
-            requestor->task_controller()->cancel(error_status);
-            return true;
         }
+
+        // Waited long enough or the process reached the hard memory limit, and still
+        // could not find any memory to release, cancel the query to protect the process.
+        Status error_status = Status::MemoryLimitExceeded(
+                "Query {} process memory is exceeded"
+                ", and there is no cache now. And could not find task to spill after "
+                "waiting {} ms in paused queue (timeout: {} ms, exceed hard limit: {}), "
+                "try to cancel query. "
+                "Query memory usage: {}, limit: {}, reserved "
+                "size: {}, try to reserve: {}, wg info: {}."
+                " Maybe you should set the workload group's limit to a lower value. {}",
+                query_id, time_in_queue, config::spill_in_paused_queue_timeout_ms,
+                exceed_hard_mem_limit, PrettyPrinter::print_bytes(memory_usage),
+                PrettyPrinter::print_bytes(limit), PrettyPrinter::print_bytes(reserved_size),
+                PrettyPrinter::print_bytes(size_to_reserve), wg->memory_debug_string(),
+                doris::ProcessProfile::instance()->memory_profile()->process_memory_detail_str());
+        LOG_LONG_STRING(INFO, error_status.to_string());
+        requestor->task_controller()->cancel(error_status);
+        return true;
     }
 }
 
