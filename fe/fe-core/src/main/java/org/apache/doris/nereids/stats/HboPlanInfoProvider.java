@@ -29,6 +29,8 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 
 import java.lang.reflect.Field;
 import java.time.Duration;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -54,6 +56,7 @@ public class HboPlanInfoProvider {
     private volatile Cache<String, Map<PhysicalPlan, Integer>> planToIdCache;
     private volatile Cache<String, Map<RelationId, Set<Expression>>> scanToFilterCache;
     private volatile Cache<String, Map<Integer, String>> nodeIdToFingerprintCache;
+    private volatile Cache<String, Map<String, String>> pinnedGuardSkipCache;
 
     /**
      * Hbo plan info provider.
@@ -72,6 +75,10 @@ public class HboPlanInfoProvider {
                 Config.expire_hbo_plan_info_cache_in_fe_second
         );
         nodeIdToFingerprintCache = buildHboNodeIdToFingerprintCache(
+                Config.hbo_plan_info_cache_num,
+                Config.expire_hbo_plan_info_cache_in_fe_second
+        );
+        pinnedGuardSkipCache = buildHboPinnedGuardSkipCache(
                 Config.hbo_plan_info_cache_num,
                 Config.expire_hbo_plan_info_cache_in_fe_second
         );
@@ -163,6 +170,38 @@ public class HboPlanInfoProvider {
 
     public void putNodeIdToFingerprintMap(String queryId, Map<Integer, String> nodeIdToFingerprintMap) {
         nodeIdToFingerprintCache.put(queryId, nodeIdToFingerprintMap);
+    }
+
+    private static Cache<String, Map<String, String>> buildHboPinnedGuardSkipCache(
+            int cacheNum, long expireAfterAccessSeconds) {
+        Caffeine<Object, Object> cacheBuilder = Caffeine.newBuilder()
+                .softValues();
+        if (cacheNum > 0) {
+            cacheBuilder.maximumSize(cacheNum);
+        }
+        if (expireAfterAccessSeconds > 0) {
+            cacheBuilder = cacheBuilder.expireAfterAccess(Duration.ofSeconds(expireAfterAccessSeconds));
+        }
+        return cacheBuilder.build();
+    }
+
+    /**
+     * Record that a pinned {@code FILTER_SMALL} entry was skipped by the extreme-small guard for
+     * the given query, so the explain annotation can report it.
+     */
+    public void putPinnedGuardSkip(String queryId, String fingerprint, String reason) {
+        Map<String, String> skips = pinnedGuardSkipCache.getIfPresent(queryId);
+        if (skips == null) {
+            skips = new HashMap<>();
+            pinnedGuardSkipCache.put(queryId, skips);
+        }
+        skips.put(fingerprint, reason);
+    }
+
+    /** Guard skip reasons of a query, keyed by hbo fingerprint; empty when none was recorded. */
+    public Map<String, String> getPinnedGuardSkip(String queryId) {
+        Map<String, String> skips = pinnedGuardSkipCache.getIfPresent(queryId);
+        return skips == null ? Collections.emptyMap() : skips;
     }
 
     /**

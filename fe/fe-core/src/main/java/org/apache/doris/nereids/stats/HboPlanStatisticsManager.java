@@ -19,9 +19,13 @@ package org.apache.doris.nereids.stats;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.statistics.hbo.PlanStatistics;
+import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
+import org.apache.doris.statistics.hbo.RecentRunsPlanStatisticsEntry;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -61,6 +65,44 @@ public class HboPlanStatisticsManager {
     private static final Logger LOG = LogManager.getLogger(HboPlanStatisticsManager.class);
 
     private static final long LOAD_RETRY_INTERVAL_MS = 30_000L;
+
+    /**
+     * How a manually injected (pinned) row count is applied.
+     */
+    public enum PinnedType {
+        /** unconditional override once the fingerprint matches. */
+        EXACT,
+        /**
+         * only applied while the optimizer's own filter estimate is in the pathological
+         * "extremely small" regime (see {@code Config.hbo_filter_small_ratio}), so a stale
+         * injection can not override a healthy estimate.
+         */
+        FILTER_SMALL;
+
+        /** Parse a user supplied type name, returns null when unknown. */
+        public static PinnedType fromName(String name) {
+            if (name == null) {
+                return null;
+            }
+            for (PinnedType type : values()) {
+                if (type.name().equalsIgnoreCase(name)) {
+                    return type;
+                }
+            }
+            return null;
+        }
+    }
+
+    /**
+     * Which literal mode produced the fingerprint a pinned entry is keyed by. It is unknown at
+     * injection time (the statement only carries the fingerprint) and is bound lazily to the mode
+     * that actually matched on the first application, purely for diagnostics / {@code HBO SHOW}.
+     */
+    public enum FingerprintKind {
+        UNKNOWN,
+        WITH_LITERAL,
+        NO_LITERAL
+    }
 
     private HboPlanStatisticsProvider hboPlanStatisticsProvider;
     private HboPlanInfoProvider hboPlanInfoProvider;
@@ -105,26 +147,27 @@ public class HboPlanStatisticsManager {
     }
 
     /**
-     * Inject (or overwrite) a pinned statistics entry for the given hbo fingerprint.
+     * Inject (or overwrite) a pinned statistics entry applied unconditionally.
      * @param fingerprint hbo fingerprint (simplified group struct info sha256)
      * @param rows output row count that overrides the optimizer estimation
-     * @param nodeType optional node kind recorded for diagnostics, may be null/empty
+     * @param structCanonical optional human-readable simplified struct info canonical string
      */
-    public void putPinnedPlanStatistics(String fingerprint, long rows, String nodeType) {
-        putPinnedPlanStatistics(fingerprint, rows, nodeType, "");
+    public void putPinnedPlanStatistics(String fingerprint, long rows, String structCanonical) {
+        putPinnedPlanStatistics(fingerprint, rows, PinnedType.EXACT, structCanonical);
     }
 
     /**
      * Inject (or overwrite) a pinned statistics entry.
+     * @param type how the injected row count is applied (unconditional vs filter-small guard)
      * @param structCanonical optional human-readable simplified struct info canonical string
      */
-    public void putPinnedPlanStatistics(String fingerprint, long rows, String nodeType, String structCanonical) {
+    public void putPinnedPlanStatistics(String fingerprint, long rows, PinnedType type, String structCanonical) {
         // LRU bounded by Config.hbo_pinned_stats_cache_num; pinned entries are otherwise never
         // expired automatically and are only removed by HBO DELETE STATISTICS or eviction
         long createTimeMs = System.currentTimeMillis();
         synchronized (pinnedLoadLock) {
             pinnedPlanStatistics.put(fingerprint,
-                    new PinnedHboStatistics(fingerprint, rows, nodeType, structCanonical, createTimeMs));
+                    new PinnedHboStatistics(fingerprint, rows, type, structCanonical, createTimeMs));
             // a SET after a failed DELETE re-creates the entry: drop the deletion intent so a
             // pending load does not skip the re-created row
             pendingLoadTombstones.remove(fingerprint);
@@ -133,7 +176,7 @@ public class HboPlanStatisticsManager {
             // and, when the best-effort writes succeed, the stored row matches the last memory
             // writer (a failed write only logs a warning and may reappear after a FE restart)
             if (persistenceEnabled()) {
-                HboStatisticsStore.persist(fingerprint, rows, nodeType, structCanonical, createTimeMs);
+                HboStatisticsStore.persist(fingerprint, rows, type, structCanonical, createTimeMs);
             }
         }
     }
@@ -160,6 +203,24 @@ public class HboPlanStatisticsManager {
                 }
             }
         }
+    }
+
+    /**
+     * Inject a learned entry (used by {@code HBO SET LEARNED STATISTICS}) so that the learned
+     * lookup path can be exercised without waiting for a real profile publish. The injected entry
+     * carries no input table statistics and therefore matches by fingerprint alone.
+     */
+    public void putLearnedPlanStatistics(String fingerprint, long rows) {
+        PlanStatistics planStatistics = new PlanStatistics(0, rows, rows, rows, rows,
+                rows, rows, rows, rows, 0, 0, 1);
+        RecentRunsPlanStatistics runs = new RecentRunsPlanStatistics(
+                Lists.newArrayList(new RecentRunsPlanStatisticsEntry(planStatistics, Lists.newArrayList())));
+        hboPlanStatisticsProvider.putHboPlanStatsByFingerprint(fingerprint, runs);
+    }
+
+    /** Remove a learned entry by fingerprint. */
+    public void removeLearnedPlanStatistics(String fingerprint) {
+        hboPlanStatisticsProvider.removeHboPlanStats(fingerprint);
     }
 
     public Map<String, PinnedHboStatistics> getAllPinnedPlanStatistics() {
@@ -237,17 +298,34 @@ public class HboPlanStatisticsManager {
     public static class PinnedHboStatistics {
         private final String fingerprint;
         private final long rows;
-        private final String nodeType;
+        private final PinnedType type;
         private final String structCanonical;
         private final long createTime;
+        // which literal mode matched this entry; bound lazily on first application (diagnostics)
+        private volatile FingerprintKind fingerprintKind = FingerprintKind.UNKNOWN;
 
-        PinnedHboStatistics(String fingerprint, long rows, String nodeType, String structCanonical,
+        PinnedHboStatistics(String fingerprint, long rows, PinnedType type, String structCanonical,
                 long createTime) {
             this.fingerprint = fingerprint;
             this.rows = rows;
-            this.nodeType = nodeType == null ? "" : nodeType;
+            this.type = type == null ? PinnedType.EXACT : type;
             this.structCanonical = structCanonical == null ? "" : structCanonical;
             this.createTime = createTime;
+        }
+
+        /** Bind the fingerprint kind observed on the first successful application (idempotent). */
+        public void bindFingerprintKind(FingerprintKind kind) {
+            if (fingerprintKind == FingerprintKind.UNKNOWN && kind != null) {
+                fingerprintKind = kind;
+            }
+        }
+
+        public FingerprintKind getFingerprintKind() {
+            return fingerprintKind;
+        }
+
+        public PinnedType getType() {
+            return type;
         }
 
         public String getFingerprint() {
@@ -256,10 +334,6 @@ public class HboPlanStatisticsManager {
 
         public long getRows() {
             return rows;
-        }
-
-        public String getNodeType() {
-            return nodeType;
         }
 
         public long getCreateTime() {

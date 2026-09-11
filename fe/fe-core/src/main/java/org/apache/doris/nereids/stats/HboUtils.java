@@ -287,7 +287,18 @@ public class HboUtils {
      * unsupported struct info): the caller should treat it as an hbo cache miss.
      */
     public static Optional<PlanNodeAndHash> getHboPlanNodeAndHash(AbstractPlan planNode) {
-        Optional<String> fingerprint = GroupStructInfo.fingerprintOfPlanNode(planNode);
+        return getHboPlanNodeAndHash(planNode, GroupStructInfo.LiteralMode.WITH_LITERAL);
+    }
+
+    /**
+     * Get the hbo lookup key of a plan node in the given literal mode (see
+     * {@link GroupStructInfo.LiteralMode}): {@code WITH_LITERAL} for the exact filter form,
+     * {@code NO_LITERAL} for the constant agnostic form used by join / aggregation keys and by
+     * the filter shape key.
+     */
+    public static Optional<PlanNodeAndHash> getHboPlanNodeAndHash(AbstractPlan planNode,
+            GroupStructInfo.LiteralMode mode) {
+        Optional<String> fingerprint = GroupStructInfo.fingerprintOfPlanNode(planNode, mode);
         return fingerprint.map(hash -> new PlanNodeAndHash(planNode, Optional.of(hash)));
     }
 
@@ -323,6 +334,14 @@ public class HboUtils {
      */
     public static PlanStatistics getMatchedPlanStatistics(RecentRunsPlanStatistics planStatistics,
             ConnectContext connectContext) {
+        // an entry injected by HBO SET LEARNED STATISTICS carries no input table statistics; it is
+        // a wildcard that matches by fingerprint alone (real learned entries always describe at
+        // least one scan, so an empty input list is unambiguous)
+        for (RecentRunsPlanStatisticsEntry injected : planStatistics.getRecentRunsStatistics()) {
+            if (injected.getInputTableStatistics().isEmpty()) {
+                return injected.getPlanStatistics();
+            }
+        }
         PlanStatistics matchedPlanStatistics = null;
         // NOTE: get current inputTableStatistics is difficult, consider the case:
         // select ... from t where c1 = 1 followed by select ... from t where c1 = 1 and c2 = 2

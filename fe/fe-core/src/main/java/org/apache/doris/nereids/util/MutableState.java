@@ -31,6 +31,11 @@ public interface MutableState {
     String KEY_PUSH_TOPN_TO_AGG = "pushTopnToAgg";
     /** hbo fingerprint attached at planning time for explain printing */
     String KEY_HBO_FP = "hbo-fingerprint";
+    /**
+     * hbo constant agnostic fingerprint attached at planning time for explain printing; only filter
+     * nodes carry both forms (exact + shape), join / aggregation carry the constant agnostic one
+     */
+    String KEY_HBO_FP_NO_LITERAL = "hbo-fingerprint-no-literal";
     /** hbo simplified struct info canonical string attached at planning time for explain printing */
     String KEY_HBO_STRUCT = "hbo-struct";
     /** marks that the node statistics actually came from hbo (learned or pinned) */

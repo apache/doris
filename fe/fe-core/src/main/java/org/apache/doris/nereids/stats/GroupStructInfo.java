@@ -81,6 +81,26 @@ public class GroupStructInfo {
     private static final String SEP = ";";
     private static final Logger LOG = LogManager.getLogger(GroupStructInfo.class);
 
+    /**
+     * Whether literal values participate in the canonical string / fingerprint.
+     * <ul>
+     *   <li>{@link #WITH_LITERAL} keeps the literal value ({@code lit(10:int)}): the fingerprint is
+     *       bound to the exact constants, used for filter roots where the constant changes the
+     *       output row count;</li>
+     *   <li>{@link #NO_LITERAL} replaces every literal value with {@code *} ({@code lit(*)}): the
+     *       fingerprint is constant agnostic, used for join / aggregate roots and for the
+     *       constant-free filter shape.</li>
+     * </ul>
+     * The literal data type is intentionally not kept: nereids inserts an explicit {@code Cast}
+     * for mismatching operand types, so two semantically different literal forms already differ by
+     * the cast node, while equivalent forms (e.g. {@code d > 1} and {@code d > 1.0} on a decimal
+     * column) are allowed to collapse.
+     */
+    public enum LiteralMode {
+        WITH_LITERAL,
+        NO_LITERAL
+    }
+
     private final boolean valid;
     private final String canonicalString;
     private final String fingerprint;
@@ -109,8 +129,15 @@ public class GroupStructInfo {
      * {@code chooseBestPlan}). Empty when the group content is unsupported (invalid struct info).
      */
     public static Optional<String> fingerprintOfPlanNode(AbstractPlan planNode) {
+        return fingerprintOfPlanNode(planNode, LiteralMode.WITH_LITERAL);
+    }
+
+    /**
+     * Resolve the group fingerprint of a plan node in the given literal mode.
+     */
+    public static Optional<String> fingerprintOfPlanNode(AbstractPlan planNode, LiteralMode mode) {
         return fingerprintOfGroup(planNode.getGroupExpression()
-                .map(GroupExpression::getOwnerGroup).orElse(null));
+                .map(GroupExpression::getOwnerGroup).orElse(null), mode);
     }
 
     /**
@@ -120,22 +147,20 @@ public class GroupStructInfo {
      * id to group, and is looked up only when the back reference is absent.
      */
     public static Optional<String> fingerprintOfPlanNode(AbstractPlan planNode, Map<Integer, Group> groupsById) {
-        Group group = planNode.getGroupExpression().map(GroupExpression::getOwnerGroup).orElse(null);
-        if (group == null) {
-            Optional<Object> groupState = planNode.getMutableState(MutableState.KEY_GROUP);
-            if (groupState.isPresent() && groupsById != null) {
-                try {
-                    group = groupsById.get(Integer.valueOf(groupState.get().toString()));
-                } catch (NumberFormatException ignored) {
-                    group = null;
-                }
-            }
-        }
-        return fingerprintOfGroup(group);
+        return fingerprintOfPlanNode(planNode, groupsById, LiteralMode.WITH_LITERAL);
     }
 
-    private static Optional<String> fingerprintOfGroup(Group group) {
-        return structInfoOfGroup(group).map(GroupStructInfo::getFingerprint);
+    /**
+     * Resolve the group fingerprint of a plan node in the given literal mode, with the
+     * {@link MutableState#KEY_GROUP} fallback for post-processed copies.
+     */
+    public static Optional<String> fingerprintOfPlanNode(AbstractPlan planNode, Map<Integer, Group> groupsById,
+            LiteralMode mode) {
+        return structInfoOfPlanNode(planNode, groupsById, mode).map(GroupStructInfo::getFingerprint);
+    }
+
+    private static Optional<String> fingerprintOfGroup(Group group, LiteralMode mode) {
+        return structInfoOfGroup(group, mode).map(GroupStructInfo::getFingerprint);
     }
 
     /**
@@ -145,6 +170,14 @@ public class GroupStructInfo {
      */
     public static Optional<GroupStructInfo> structInfoOfPlanNode(AbstractPlan planNode,
             Map<Integer, Group> groupsById) {
+        return structInfoOfPlanNode(planNode, groupsById, LiteralMode.WITH_LITERAL);
+    }
+
+    /**
+     * Resolve the struct info of the group a plan node belongs to, in the given literal mode.
+     */
+    public static Optional<GroupStructInfo> structInfoOfPlanNode(AbstractPlan planNode,
+            Map<Integer, Group> groupsById, LiteralMode mode) {
         Group group = planNode.getGroupExpression().map(GroupExpression::getOwnerGroup).orElse(null);
         if (group == null) {
             Optional<Object> groupState = planNode.getMutableState(MutableState.KEY_GROUP);
@@ -156,14 +189,14 @@ public class GroupStructInfo {
                 }
             }
         }
-        return structInfoOfGroup(group);
+        return structInfoOfGroup(group, mode);
     }
 
-    private static Optional<GroupStructInfo> structInfoOfGroup(Group group) {
+    private static Optional<GroupStructInfo> structInfoOfGroup(Group group, LiteralMode mode) {
         if (group == null) {
             return Optional.empty();
         }
-        GroupStructInfo structInfo = group.getOrComputeHboStructInfo();
+        GroupStructInfo structInfo = group.getOrComputeHboStructInfo(mode);
         return structInfo.isValid() ? Optional.of(structInfo) : Optional.empty();
     }
 
@@ -172,8 +205,15 @@ public class GroupStructInfo {
      * group's logical expression and its child groups.
      */
     public static GroupStructInfo of(Group group) {
+        return of(group, LiteralMode.WITH_LITERAL);
+    }
+
+    /**
+     * Compute the simplified struct info of a memo group in the given literal mode.
+     */
+    public static GroupStructInfo of(Group group, LiteralMode mode) {
         try {
-            Ctx ctx = new Ctx();
+            Ctx ctx = new Ctx(mode);
             StringBuilder sb = new StringBuilder();
             String minToken = visit(group, sb, ctx);
             if (!ctx.valid || minToken == null) {
@@ -219,7 +259,7 @@ public class GroupStructInfo {
             return appendScan((LogicalOlapScan) plan, sb, ctx);
         } else if (plan instanceof LogicalFilter) {
             LogicalFilter<?> filter = (LogicalFilter<?>) plan;
-            sb.append("F{").append(normalizedSorted(filter.getConjuncts())).append("}(");
+            sb.append("F{").append(normalizedSorted(filter.getConjuncts(), ctx.mode)).append("}(");
             String minToken = visitChild(ge, 0, sb, ctx);
             sb.append(")");
             return minToken;
@@ -229,8 +269,8 @@ public class GroupStructInfo {
         } else if (plan instanceof LogicalJoin) {
             LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
             sb.append("J{").append(join.getJoinType());
-            sb.append(",h:").append(normalizedSorted(join.getHashJoinConjuncts()));
-            sb.append(",o:").append(normalizedSorted(join.getOtherJoinConjuncts()));
+            sb.append(",h:").append(normalizedSorted(join.getHashJoinConjuncts(), ctx.mode));
+            sb.append(",o:").append(normalizedSorted(join.getOtherJoinConjuncts(), ctx.mode));
             sb.append("}(");
             // only commutative joins may reorder their inputs; for outer/semi/anti joins the
             // left/right order is semantically significant and the memo order is kept
@@ -241,8 +281,8 @@ public class GroupStructInfo {
             return minToken;
         } else if (plan instanceof LogicalAggregate) {
             LogicalAggregate<?> agg = (LogicalAggregate<?>) plan;
-            sb.append("A{gb:").append(normalizedSorted(agg.getGroupByExpressions()));
-            sb.append(",fn:").append(normalizedSortedAggFunctions(agg.getOutputExpressions()));
+            sb.append("A{gb:").append(normalizedSorted(agg.getGroupByExpressions(), ctx.mode));
+            sb.append(",fn:").append(normalizedSortedAggFunctions(agg.getOutputExpressions(), ctx.mode));
             sb.append("}(");
             String minToken = visitChild(ge, 0, sb, ctx);
             sb.append(")");
@@ -337,17 +377,17 @@ public class GroupStructInfo {
     // expression normalization: strip slot/expr ids, keep qualifier + column + literal value
     // -----------------------------------------------------------------------------------
 
-    private static String normalizedSorted(Set<Expression> conjuncts) {
-        return conjuncts.stream().map(GroupStructInfo::normalizeExpression).sorted()
+    private static String normalizedSorted(Set<Expression> conjuncts, LiteralMode mode) {
+        return conjuncts.stream().map(e -> normalizeExpression(e, mode)).sorted()
                 .collect(Collectors.joining(SEP));
     }
 
-    private static String normalizedSorted(List<Expression> conjuncts) {
-        return conjuncts.stream().map(GroupStructInfo::normalizeExpression).sorted()
+    private static String normalizedSorted(List<Expression> conjuncts, LiteralMode mode) {
+        return conjuncts.stream().map(e -> normalizeExpression(e, mode)).sorted()
                 .collect(Collectors.joining(SEP));
     }
 
-    private static String normalizedSortedAggFunctions(List<? extends Expression> outputs) {
+    private static String normalizedSortedAggFunctions(List<? extends Expression> outputs, LiteralMode mode) {
         TreeSet<String> fnSet = new TreeSet<>();
         for (Expression output : outputs) {
             Expression inner = output;
@@ -361,7 +401,7 @@ public class GroupStructInfo {
                 // commutable (e.g. percentile_approx(col, ratio)), sorting them would collapse
                 // distinct signatures into one descriptor (review round3 Major). DISTINCT is a
                 // semantic modifier on the function and must be part of the signature too.
-                String args = fn.children().stream().map(GroupStructInfo::normalizeExpression)
+                String args = fn.children().stream().map(e -> normalizeExpression(e, mode))
                         .collect(Collectors.joining(","));
                 fnSet.add((fn.isDistinct() ? "distinct " : "")
                         + fn.getClass().getSimpleName() + "(" + args + ")");
@@ -370,11 +410,14 @@ public class GroupStructInfo {
         return String.join(SEP, fnSet);
     }
 
-    private static String normalizeExpression(Expression expression) {
+    private static String normalizeExpression(Expression expression, LiteralMode mode) {
         if (expression instanceof SlotReference) {
             SlotReference slot = (SlotReference) expression;
             return "col(" + String.join(".", slot.getQualifier()) + "." + slot.getName() + ")";
         } else if (expression instanceof Literal) {
+            if (mode == LiteralMode.NO_LITERAL) {
+                return "lit(*)";
+            }
             Literal literal = (Literal) expression;
             return "lit(" + literal.getValue() + ":" + literal.getDataType() + ")";
         } else if (expression.children().isEmpty()) {
@@ -382,7 +425,7 @@ public class GroupStructInfo {
         } else {
             List<Expression> children = expression.children();
             List<String> normalizedChildren = children.stream()
-                    .map(GroupStructInfo::normalizeExpression).collect(Collectors.toList());
+                    .map(e -> normalizeExpression(e, mode)).collect(Collectors.toList());
             if (isOrderInsensitive(expression)) {
                 // only order-insensitive operators (equal-to / and / or) may have their operands
                 // sorted; ordered comparisons (e.g. '<') must keep the original order, otherwise
@@ -403,8 +446,13 @@ public class GroupStructInfo {
 
     /** Traversal state; shared along the whole subtree so occurrence ordinals are deterministic. */
     private static class Ctx {
+        private final LiteralMode mode;
         private boolean valid = true;
         private final Set<Group> visited = new HashSet<>();
         private final Map<String, int[]> occurrenceCount = new HashMap<>();
+
+        Ctx(LiteralMode mode) {
+            this.mode = mode;
+        }
     }
 }

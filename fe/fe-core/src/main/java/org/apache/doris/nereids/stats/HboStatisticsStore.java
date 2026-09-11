@@ -61,17 +61,23 @@ public class HboStatisticsStore {
     /**
      * Upsert one pinned entry (UNIQUE KEY fingerprint replaces on conflict).
      */
-    public static void persist(String fingerprint, long rows, String nodeType, String structCanonical,
-            long createTimeMs) {
+    public static void persist(String fingerprint, long rows,
+            HboPlanStatisticsManager.PinnedType type, String structCanonical, long createTimeMs) {
         try {
             ensureTable();
-            String nodeTypeVal = nodeType == null ? "" : nodeType;
+            HboPlanStatisticsManager.PinnedType statsType = type == null
+                    ? HboPlanStatisticsManager.PinnedType.EXACT : type;
             String struct = truncateUtf8(structCanonical == null ? "" : structCanonical, STRUCT_MAX_BYTES);
+            // the fingerprint kind is only known after the entry was applied once, so the stored
+            // value stays UNKNOWN (it is reported by HBO SHOW from the in-memory entry)
             String sql = "INSERT INTO " + FULL_QUALIFIED
-                    + " (`fingerprint`, `row_count`, `node_type`, `struct_info`, `create_time_ms`) VALUES ('"
+                    + " (`fingerprint`, `row_count`, `stats_type`, `fingerprint_kind`, `struct_info`,"
+                    + " `create_time_ms`) VALUES ('"
                     + StatisticsUtil.escapeSQL(fingerprint) + "', " + rows + ", '"
-                    + StatisticsUtil.escapeSQL(nodeTypeVal) + "', '" + StatisticsUtil.escapeSQL(struct)
-                    + "', " + createTimeMs + ")";
+                    + StatisticsUtil.escapeSQL(statsType.name().toLowerCase(java.util.Locale.ROOT)) + "', '"
+                    + StatisticsUtil.escapeSQL(
+                            HboPlanStatisticsManager.FingerprintKind.UNKNOWN.name().toLowerCase(java.util.Locale.ROOT))
+                    + "', '" + StatisticsUtil.escapeSQL(struct) + "', " + createTimeMs + ")";
             StatisticsUtil.execUpdate(sql);
         } catch (Exception t) {
             LOG.warn("failed to persist hbo pinned statistics for fingerprint {}", fingerprint, t);
@@ -108,14 +114,16 @@ public class HboStatisticsStore {
         try {
             ensureTable();
             List<ResultRow> rows = StatisticsUtil.execStatisticQuery(
-                    "SELECT `fingerprint`, `row_count`, `node_type`, `struct_info`, `create_time_ms` FROM "
+                    "SELECT `fingerprint`, `row_count`, `stats_type`, `struct_info`, `create_time_ms` FROM "
                             + FULL_QUALIFIED);
             for (ResultRow row : rows) {
                 try {
+                    HboPlanStatisticsManager.PinnedType type =
+                            HboPlanStatisticsManager.PinnedType.fromName(row.get(2));
                     result.add(new HboPlanStatisticsManager.PinnedHboStatistics(
                             row.get(0),
                             Long.parseLong(row.get(1)),
-                            row.get(2) == null ? "" : row.get(2),
+                            type == null ? HboPlanStatisticsManager.PinnedType.EXACT : type,
                             row.get(3) == null ? "" : row.get(3),
                             Long.parseLong(row.get(4))));
                 } catch (NumberFormatException e) {
@@ -137,7 +145,8 @@ public class HboStatisticsStore {
                 + "`.`" + TABLE + "` (\n"
                 + "  `fingerprint` varchar(64) NOT NULL COMMENT \"\",\n"
                 + "  `row_count` bigint NOT NULL COMMENT \"\",\n"
-                + "  `node_type` varchar(1024) NULL COMMENT \"\",\n"
+                + "  `stats_type` varchar(32) NOT NULL COMMENT \"\",\n"
+                + "  `fingerprint_kind` varchar(16) NOT NULL COMMENT \"\",\n"
                 + "  `struct_info` varchar(" + STRUCT_MAX_BYTES + ") NULL COMMENT \"\",\n"
                 + "  `create_time_ms` bigint NOT NULL COMMENT \"\"\n"
                 + ") ENGINE = olap\n"

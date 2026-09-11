@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.common.Config;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -51,30 +53,47 @@ public class HboStatsCalculator extends StatsCalculator {
     /**
      * NOTE: Can't override computeScan since the publishing side's plan hash of scan node
      * use the scan's hbo string but embedding the filter info into the input table structure.
-     * if the matching logic here want to support filter node's hbo plan stats. reusing, it only needs
-     * to hook the computeFilter and use original scan's plan hash string, and also embedding the
-     * parent filter info into the scan node also.
      * @param filter filter
      * @return Statistics
      */
     @Override
     public Statistics computeFilter(Filter filter, Statistics inputStats) {
         Statistics legacyStats = super.computeFilter(filter, inputStats);
-        boolean isLogicalFilterOnTs = HboUtils.isLogicalFilterOnLogicalScan(filter);
-        boolean isPhysicalFilterOnTs = HboUtils.isPhysicalFilterOnPhysicalScan(filter);
-        if (isLogicalFilterOnTs || isPhysicalFilterOnTs) {
-            AbstractPlan scanPlan = HboUtils.getScanUnderFilterNode(filter);
-            return getStatsFromHboPlanStats(scanPlan, legacyStats);
-        } else {
-            return legacyStats;
+        AbstractPlan filterNode = (AbstractPlan) filter;
+        // 1) pinned, authoritative: exact (literal carrying) then constant agnostic filter
+        //    fingerprint; FILTER_SMALL entries additionally require the optimizer estimate to be
+        //    in the pathological "extremely small" regime
+        Statistics pinnedStats = applyPinnedStats(filterNode, legacyStats, inputStats);
+        if (pinnedStats != null) {
+            return pinnedStats;
         }
+        // 2) learned: the filter fingerprints first (so an injected learned entry keyed by a
+        //    printed filter fingerprint is honored), then the scan group fingerprint used by the
+        //    publish path (whose entries carry the predicates for matching)
+        for (GroupStructInfo.LiteralMode mode : FILTER_LOOKUP_MODES) {
+            Statistics learnedStats = applyLearnedStats(
+                    HboUtils.getHboPlanNodeAndHash(filterNode, mode), legacyStats);
+            if (learnedStats != null) {
+                return learnedStats;
+            }
+        }
+        if (HboUtils.isLogicalFilterOnLogicalScan(filter) || HboUtils.isPhysicalFilterOnPhysicalScan(filter)) {
+            AbstractPlan scanPlan = HboUtils.getScanUnderFilterNode(filter);
+            Statistics learnedStats = applyLearnedStats(HboUtils.getHboPlanNodeAndHash(scanPlan), legacyStats);
+            if (learnedStats != null) {
+                return learnedStats;
+            }
+        }
+        return legacyStats;
     }
 
     @Override
     public Statistics computeJoin(Join join, Statistics leftStats, Statistics rightStats) {
         Statistics legacyStats = super.computeJoin(join, groupExpression.childStatistics(0),
                 groupExpression.childStatistics(1));
-        return getStatsFromHboPlanStats((AbstractPlan) join, legacyStats);
+        // join / aggregation keys never carry literals: only the constant agnostic fingerprint
+        return getStatsFromHboPlanStats((AbstractPlan) join, legacyStats,
+                GroupStructInfo.LiteralMode.NO_LITERAL, null);
     }
 
     @Override
@@ -86,38 +105,92 @@ public class HboStatsCalculator extends StatsCalculator {
         // e.g, logical one likes "count(*) AS `count(*)`#4"
         //      local physical one likes "partial_count(*) AS `partial_count(*)`#5"
         //      global physical one likes "count(partial_count(*)#5) AS `count(*)`#4"
-        return getStatsFromHboPlanStats((AbstractPlan) aggregate, legacyStats);
+        return getStatsFromHboPlanStats((AbstractPlan) aggregate, legacyStats,
+                GroupStructInfo.LiteralMode.NO_LITERAL, null);
     }
 
-    private Statistics getStatsFromHboPlanStats(AbstractPlan planNode, Statistics delegateStats) {
-        Optional<PlanNodeAndHash> planNodeAndHashOpt = HboUtils.getHboPlanNodeAndHash(planNode);
-        if (!planNodeAndHashOpt.isPresent()) {
-            // no usable fingerprint (no group / unsupported struct info): fall back to legacy stats
-            return delegateStats;
-        }
-        Optional<String> hash = planNodeAndHashOpt.get().getHash();
-        if (hash.isPresent()) {
-            // manually injected (pinned) statistics are authoritative and bypass the learned
-            // entry matching (ScanPlanStatistics predicate comparison). The pin key for a
-            // filter-on-scan is the scan-group fingerprint, whose token carries table/ordinal/
-            // partition-pruning/version but NOT the filter constants, so a pin is scan-wide: it
-            // also overrides the output rows of the same scan shape with different filter
-            // predicates. Manual pins are expert overrides keyed by the shape fingerprint
-            // (see GroupStructInfo scan tokens and the design doc 4.1); keep this bypass, but
-            // users must scope pins by version/pruning rather than by predicate constants.
-            Optional<HboPlanStatisticsManager.PinnedHboStatistics> pinned = Env.getCurrentEnv()
-                    .getHboPlanStatisticsManager().getPinnedPlanStatistics(hash.get());
-            if (pinned.isPresent()) {
-                return delegateStats.withRowCountAndHboFlag(pinned.get().getRows());
+    /** Pinned lookup order for filter roots: exact form first, then the constant agnostic form. */
+    private static final GroupStructInfo.LiteralMode[] FILTER_LOOKUP_MODES = {
+            GroupStructInfo.LiteralMode.WITH_LITERAL,
+            GroupStructInfo.LiteralMode.NO_LITERAL,
+    };
+
+    /**
+     * Apply a pinned entry for the given plan node: exact filter form, then constant agnostic form
+     * (join / aggregation only have the latter). Returns null when no entry applies.
+     *
+     * @param guardInputStats filter input statistics, required to evaluate the FILTER_SMALL guard
+     *                        of a filter node (null for join / aggregation)
+     */
+    private Statistics applyPinnedStats(AbstractPlan planNode, Statistics delegateStats,
+            Statistics guardInputStats) {
+        for (GroupStructInfo.LiteralMode mode : FILTER_LOOKUP_MODES) {
+            Optional<String> fingerprint = GroupStructInfo.fingerprintOfPlanNode(planNode, mode);
+            if (!fingerprint.isPresent()) {
+                continue;
             }
+            Optional<HboPlanStatisticsManager.PinnedHboStatistics> pinnedOpt = Env.getCurrentEnv()
+                    .getHboPlanStatisticsManager().getPinnedPlanStatistics(fingerprint.get());
+            if (!pinnedOpt.isPresent()) {
+                continue;
+            }
+            HboPlanStatisticsManager.PinnedHboStatistics pinned = pinnedOpt.get();
+            if (pinned.getType() == HboPlanStatisticsManager.PinnedType.FILTER_SMALL
+                    && guardInputStats != null
+                    && !isExtremeSmallFilterEstimate(delegateStats.getRowCount(),
+                            guardInputStats.getRowCount())) {
+                // the estimate is not in the pathological regime this entry was injected for:
+                // skip it (and try the coarser granularity / learned matching instead)
+                recordGuardSkip(fingerprint.get(), delegateStats.getRowCount(), guardInputStats.getRowCount());
+                continue;
+            }
+            pinned.bindFingerprintKind(mode == GroupStructInfo.LiteralMode.NO_LITERAL
+                    ? HboPlanStatisticsManager.FingerprintKind.NO_LITERAL
+                    : HboPlanStatisticsManager.FingerprintKind.WITH_LITERAL);
+            return delegateStats.withRowCountAndHboFlag(pinned.getRows());
         }
-        RecentRunsPlanStatistics planStatistics = hboPlanStatisticsProvider
-                .getHboPlanStats(planNodeAndHashOpt.get());
+        return null;
+    }
+
+    private Statistics getStatsFromHboPlanStats(AbstractPlan planNode, Statistics delegateStats,
+            GroupStructInfo.LiteralMode mode, Statistics guardInputStats) {
+        Statistics pinnedStats = applyPinnedStats(planNode, delegateStats, guardInputStats);
+        if (pinnedStats != null) {
+            return pinnedStats;
+        }
+        Statistics learnedStats = applyLearnedStats(HboUtils.getHboPlanNodeAndHash(planNode, mode), delegateStats);
+        return learnedStats == null ? delegateStats : learnedStats;
+    }
+
+    private Statistics applyLearnedStats(Optional<PlanNodeAndHash> planNodeAndHashOpt, Statistics delegateStats) {
+        if (!planNodeAndHashOpt.isPresent() || !planNodeAndHashOpt.get().getHash().isPresent()) {
+            return null;
+        }
+        RecentRunsPlanStatistics planStatistics = hboPlanStatisticsProvider.getHboPlanStats(planNodeAndHashOpt.get());
         PlanStatistics matchedPlanStatistics = HboUtils.getMatchedPlanStatistics(planStatistics,
                 cascadesContext.getConnectContext());
-        if (matchedPlanStatistics != null) {
-            delegateStats = delegateStats.withRowCountAndHboFlag(matchedPlanStatistics.getOutputRows());
+        if (matchedPlanStatistics == null) {
+            return null;
         }
-        return delegateStats;
+        return delegateStats.withRowCountAndHboFlag(matchedPlanStatistics.getOutputRows());
     }
+
+    /** True while the optimizer's own filter estimate is in the pathological "extremely small" regime. */
+    private static boolean isExtremeSmallFilterEstimate(double estimatedRows, double inputRows) {
+        if (estimatedRows <= 1) {
+            return true;
+        }
+        return inputRows > 0 && estimatedRows <= inputRows * Config.hbo_filter_small_ratio;
+    }
+
+    /** Record (per query) that a FILTER_SMALL entry was skipped, for the explain annotation. */
+    private void recordGuardSkip(String fingerprint, double estimatedRows, double inputRows) {
+        if (cascadesContext == null || cascadesContext.getConnectContext() == null) {
+            return;
+        }
+        HboPlanInfoProvider provider = Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider();
+        provider.putPinnedGuardSkip(DebugUtil.printId(cascadesContext.getConnectContext().queryId()),
+                fingerprint, "filterSmallGuard(E=" + (long) estimatedRows + ",I=" + (long) inputRows + ")");
+    }
+
 }

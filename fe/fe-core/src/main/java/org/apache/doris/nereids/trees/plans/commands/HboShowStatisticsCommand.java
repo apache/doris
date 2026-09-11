@@ -65,7 +65,8 @@ public class HboShowStatisticsCommand extends ShowCommand {
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Kind", ScalarType.createVarchar(16)))
                     .addColumn(new Column("Fingerprint", ScalarType.createVarchar(64)))
-                    .addColumn(new Column("NodeType", ScalarType.createVarchar(1024)))
+                    .addColumn(new Column("Granularity", ScalarType.createVarchar(16)))
+                    .addColumn(new Column("Type", ScalarType.createVarchar(16)))
                     .addColumn(new Column("Rows", ScalarType.createVarchar(32)))
                     .addColumn(new Column("StructInfo", ScalarType.createVarchar(65533)))
                     .addColumn(new Column("Detail", ScalarType.createVarchar(64)))
@@ -105,7 +106,9 @@ public class HboShowStatisticsCommand extends ShowCommand {
                 List<String> row = new ArrayList<>();
                 row.add(SCOPE_PINNED);
                 row.add(pinned.getFingerprint());
-                row.add(pinned.getNodeType());
+                // the literal mode is only known once the entry matched a plan node
+                row.add(pinned.getFingerprintKind().name().toLowerCase(Locale.ROOT));
+                row.add(pinned.getType().name().toLowerCase(Locale.ROOT));
                 row.add(String.valueOf(pinned.getRows()));
                 row.add(pinned.getStructCanonical());
                 row.add(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.ofInstant(
@@ -125,7 +128,10 @@ public class HboShowStatisticsCommand extends ShowCommand {
                 List<String> row = new ArrayList<>();
                 row.add(SCOPE_LEARNED);
                 row.add(entry.getKey());
-                row.add("");
+                // learned keys are generated internally (constant agnostic for join / aggregation,
+                // scan token for scans), so no user facing granularity can be reported
+                row.add("-");
+                row.add("-");
                 row.add(rowsText);
                 row.add("");
                 row.add("runs=" + recentRuns.size());

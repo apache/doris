@@ -115,6 +115,10 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
         }
         StringBuilder builder = new StringBuilder(text);
         builder.append(" hboFingerprint=").append(fingerprint.get());
+        Optional<Object> noLiteralFingerprint = getMutableState(MutableState.KEY_HBO_FP_NO_LITERAL);
+        if (noLiteralFingerprint.isPresent()) {
+            builder.append(" hboFingerprintNoLiteral=").append(noLiteralFingerprint.get());
+        }
         Optional<Object> struct = getMutableState(MutableState.KEY_HBO_STRUCT);
         if (struct.isPresent()) {
             builder.append(" hboStruct=").append(struct.get());

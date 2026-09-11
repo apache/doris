@@ -2338,6 +2338,16 @@ public class Config extends ConfigBase {
      * otherwise not expired automatically. A non-positive value disables the LRU bound
      * (unbounded), matching the other hbo caches. Takes effect at FE start (not hot-mutable).
      */
+    /**
+     * Threshold of the "extremely small filter estimate" guard used by pinned entries injected with
+     * {@code TYPE FILTER_SMALL}: such an entry is only applied while the optimizer's own filter
+     * estimate E satisfies {@code E <= 1} or {@code E <= inputRows * hbo_filter_small_ratio}, i.e.
+     * while the pathological regime that motivated the injection still holds. Hot mutable.
+     */
+    @ConfField(mutable = true, description = "The default setting is 0.001. Relative threshold below which the optimizer's own "
+            + "filter estimate counts as 'extremely small' for HBO FILTER_SMALL pinned entries.")
+    public static double hbo_filter_small_ratio = 0.001;
+
     @ConfField(description = "The default setting is 5000. Maximum number of manually injected "
             + "(pinned) hbo statistics entries kept per FE; exceeding the limit evicts the least "
             + "recently used entry; a non-positive value disables the bound (unbounded). Takes "

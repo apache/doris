@@ -109,6 +109,7 @@ import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -672,8 +673,10 @@ public class NereidsPlanner extends Planner {
                 // snapshot the hbo fingerprint (simplified group struct info) per plan node id;
                 // consumed by the profile publish path after the memo has been released
                 {
+                    // publish keys are constant agnostic: join / aggregation fingerprints never
+                    // carry literals, and scan tokens contain none by construction
                     Optional<String> fingerprint = GroupStructInfo.fingerprintOfPlanNode(
-                            (AbstractPlan) root, groupsById);
+                            (AbstractPlan) root, groupsById, GroupStructInfo.LiteralMode.NO_LITERAL);
                     if (fingerprint.isPresent()) {
                         HboPlanInfoProvider planInfoProvider = Env.getCurrentEnv()
                                 .getHboPlanStatisticsManager().getHboPlanInfoProvider();
@@ -714,24 +717,30 @@ public class NereidsPlanner extends Planner {
     }
 
     private void attachHboExplainInfo(AbstractPlan node, Map<Integer, Group> groupsById) {
-        Optional<GroupStructInfo> structInfo;
-        if (node instanceof AbstractPhysicalJoin
+        boolean isFilter = node instanceof PhysicalFilter;
+        boolean isJoinOrAgg = node instanceof AbstractPhysicalJoin
                 || node instanceof PhysicalHashAggregate
-                || node instanceof PhysicalStorageLayerAggregate) {
-            structInfo = GroupStructInfo.structInfoOfPlanNode(node, groupsById);
-        } else if (node instanceof PhysicalFilter) {
-            // only a filter directly above an olap scan is an hbo read-side lookup target
-            // (filter-on-scan); other filters carry no injectable fingerprint
-            AbstractPlan scan = findScanUnder((PhysicalFilter<?>) node);
-            if (scan == null) {
-                return;
-            }
-            structInfo = GroupStructInfo.structInfoOfPlanNode(scan, groupsById);
-        } else {
+                || node instanceof PhysicalStorageLayerAggregate;
+        if (!isFilter && !isJoinOrAgg) {
             return;
+        }
+        // filter roots have two fingerprints (exact with literals + constant agnostic shape);
+        // join / aggregation roots only have the constant agnostic one (their read side key)
+        GroupStructInfo.LiteralMode primaryMode = isFilter
+                ? GroupStructInfo.LiteralMode.WITH_LITERAL
+                : GroupStructInfo.LiteralMode.NO_LITERAL;
+        Optional<GroupStructInfo> structInfo = GroupStructInfo.structInfoOfPlanNode(node, groupsById, primaryMode);
+        Optional<GroupStructInfo> noLiteralStructInfo = structInfo;
+        if (isFilter) {
+            noLiteralStructInfo = GroupStructInfo.structInfoOfPlanNode(node, groupsById,
+                    GroupStructInfo.LiteralMode.NO_LITERAL);
         }
         if (structInfo.isPresent()) {
             node.setMutableState(MutableState.KEY_HBO_FP, structInfo.get().getFingerprint());
+            if (noLiteralStructInfo.isPresent()) {
+                node.setMutableState(MutableState.KEY_HBO_FP_NO_LITERAL,
+                        noLiteralStructInfo.get().getFingerprint());
+            }
             node.setMutableState(MutableState.KEY_HBO_STRUCT, structInfo.get().getCanonicalString());
             // mark whether the node statistics actually came from hbo (learned or pinned): the
             // optimizer overwrites the row count with withRowCountAndHboFlag, which propagates
@@ -1292,22 +1301,23 @@ public class NereidsPlanner extends Planner {
         List<AbstractPlan> nodes = new ArrayList<>();
         collectPlanNodes(physicalPlan, nodes);
         nodes.sort((a, b) -> Integer.compare(a.getId(), b.getId()));
+        Map<String, String> guardSkips = Collections.emptyMap();
+        if (ConnectContext.get() != null) {
+            guardSkips = Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider()
+                    .getPinnedGuardSkip(DebugUtil.printId(ConnectContext.get().queryId()));
+        }
         for (AbstractPlan node : nodes) {
             String kind;
-            AbstractPlan scan = null;
             if (node instanceof AbstractPhysicalJoin) {
                 kind = "join";
             } else if (node instanceof PhysicalHashAggregate || node instanceof PhysicalStorageLayerAggregate) {
                 kind = "aggregation";
             } else if (node instanceof PhysicalFilter) {
-                // filter-on-scan: the fingerprint attached at planning time is the scan group
-                // fingerprint (the hbo read-side lookup key for the filter output row count);
-                // plain filters (not directly above a scan) are not injectable and are skipped
-                scan = findScanUnder((PhysicalFilter<?>) node);
-                if (scan == null) {
-                    continue;
-                }
-                kind = "filter-on-scan(table=" + scanName(scan) + ")";
+                // a filter root is injectable: its primary fingerprint carries the literals, and
+                // the constant agnostic shape fingerprint is printed next to it; filters directly
+                // above a scan additionally have a learned read-side key derived from the scan
+                AbstractPlan scan = findScanUnder((PhysicalFilter<?>) node);
+                kind = scan == null ? "filter" : "filter-on-scan(table=" + scanName(scan) + ")";
             } else {
                 continue;
             }
@@ -1317,9 +1327,22 @@ public class NereidsPlanner extends Planner {
             }
             sb.append("  [").append(node.getId()).append("] kind=").append(kind)
                     .append(" fingerprint=").append(fingerprint);
+            Object noLiteralFingerprint = node.getMutableState(MutableState.KEY_HBO_FP_NO_LITERAL).orElse(null);
+            if (noLiteralFingerprint != null && !noLiteralFingerprint.equals(fingerprint)) {
+                sb.append(" fingerprintNoLiteral=").append(noLiteralFingerprint);
+            }
             Object struct = node.getMutableState(MutableState.KEY_HBO_STRUCT).orElse(null);
             if (struct != null) {
                 sb.append(" struct=").append(struct);
+            }
+            // a FILTER_SMALL entry can be skipped under either granularity (the exact form or the
+            // constant agnostic form), so both fingerprints are consulted
+            String skipReason = guardSkips.get(fingerprint.toString());
+            if (skipReason == null && noLiteralFingerprint != null) {
+                skipReason = guardSkips.get(noLiteralFingerprint.toString());
+            }
+            if (skipReason != null) {
+                sb.append(" skipped=").append(skipReason);
             }
             sb.append("\n");
         }

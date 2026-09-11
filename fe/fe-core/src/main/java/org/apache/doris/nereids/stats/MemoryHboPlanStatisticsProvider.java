@@ -57,6 +57,16 @@ public class MemoryHboPlanStatisticsProvider implements HboPlanStatisticsProvide
     }
 
     @Override
+    public void putHboPlanStatsByFingerprint(String fingerprint, RecentRunsPlanStatistics planStatistics) {
+        hboPlanStatsCache.put(fingerprint, planStatistics);
+    }
+
+    @Override
+    public void removeHboPlanStats(String fingerprint) {
+        hboPlanStatsCache.invalidate(fingerprint);
+    }
+
+    @Override
     public Map<String, RecentRunsPlanStatistics> getAllHboPlanStats() {
         return Collections.unmodifiableMap(hboPlanStatsCache.asMap());
     }

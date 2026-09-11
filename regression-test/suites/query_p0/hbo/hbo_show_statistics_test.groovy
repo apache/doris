@@ -26,12 +26,17 @@ suite("hbo_show_statistics_test", "nonConcurrent") {
         sql """ HBO SET STATISTICS '${fingerprint}' = 123456 STRUCT '${structCanonical}'; """
 
         // pinned scope: exactly the injected entry
+        // columns: Kind, Fingerprint, Granularity, Type, Rows, StructInfo, Detail
         def pinnedRows = sql """ HBO SHOW PINNED STATISTICS LIKE '${fingerprint}'; """
         assertEquals(1, pinnedRows.size())
         assertEquals("pinned", pinnedRows[0][0].toString())
         assertEquals(fingerprint, pinnedRows[0][1].toString())
-        assertEquals("123456", pinnedRows[0][3].toString())
-        assertEquals(structCanonical, pinnedRows[0][4].toString())
+        // the granularity is unknown until the entry matched a plan node; the type comes from the
+        // statement (default EXACT)
+        assertEquals("unknown", pinnedRows[0][2].toString())
+        assertEquals("exact", pinnedRows[0][3].toString())
+        assertEquals("123456", pinnedRows[0][4].toString())
+        assertEquals(structCanonical, pinnedRows[0][5].toString())
 
         // default scope covers pinned + learned; the injected fingerprint is never a learned key
         def allRows = sql """ HBO SHOW STATISTICS LIKE '${fingerprint}'; """

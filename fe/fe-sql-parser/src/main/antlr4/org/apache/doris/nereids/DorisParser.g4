@@ -138,9 +138,11 @@ statementBase
 // HBO manual statistics management. 'HBO' and 'STATISTICS' are not reserved keywords, so they
 // are matched as identifiers and validated in the logical plan builder.
 hboStatement
-    : hbo=identifier SET statistics=identifier key=STRING_LITERAL EQ rows=INTEGER_VALUE
+    : hbo=identifier SET scope=identifier? statistics=identifier key=STRING_LITERAL EQ rows=INTEGER_VALUE
+          (typeWord=TYPE typeName=identifier)?
           (structWord=identifier structCanonical=STRING_LITERAL)?      #hboSetStatistics
-    | hbo=identifier DELETE statistics=identifier key=STRING_LITERAL   #hboDeleteStatistics
+    | hbo=identifier DELETE scope=identifier? statistics=identifier key=STRING_LITERAL
+                                                                       #hboDeleteStatistics
     | hbo=identifier SHOW scope=identifier? statistics=identifier
           (LIKE likePattern=STRING_LITERAL)?                           #hboShowStatistics
     ;

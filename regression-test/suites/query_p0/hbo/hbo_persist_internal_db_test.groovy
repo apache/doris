@@ -27,15 +27,15 @@ suite("hbo_persist_internal_db_test", "nonConcurrent") {
     try {
         sql """ ADMIN SET FRONTEND CONFIG ("hbo_persist_pinned_to_internal_db" = "true"); """
         try {
-            // SET persists the pinned entry into the internal table synchronously
-            sql """ HBO SET STATISTICS '${fingerprint}' = 123456; """
-            qt_set_persisted """ SELECT fingerprint, row_count, node_type, struct_info FROM ${tableName}
-                WHERE fingerprint = '${fingerprint}'; """
+            // SET persists the pinned entry (including its stats type) into the internal table
+            sql """ HBO SET STATISTICS '${fingerprint}' = 123456 TYPE FILTER_SMALL; """
+            qt_set_persisted """ SELECT fingerprint, row_count, stats_type, fingerprint_kind, struct_info
+                FROM ${tableName} WHERE fingerprint = '${fingerprint}'; """
 
             // DELETE removes the row from the internal table
             sql """ HBO DELETE STATISTICS '${fingerprint}'; """
-            qt_delete_cleared """ SELECT fingerprint, row_count, node_type, struct_info FROM ${tableName}
-                WHERE fingerprint = '${fingerprint}'; """
+            qt_delete_cleared """ SELECT fingerprint, row_count, stats_type, fingerprint_kind, struct_info
+                FROM ${tableName} WHERE fingerprint = '${fingerprint}'; """
         } finally {
             // cleanup runs while the config is still on, so a failure between SET and the DELETE
             // above cannot leave a persisted row behind

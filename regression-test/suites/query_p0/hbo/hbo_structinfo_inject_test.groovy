@@ -34,6 +34,8 @@ suite("hbo_structinfo_inject_test", "nonConcurrent") {
     sql "set global enable_hbo_info_collection=true;"
     sql "set enable_hbo_optimization=true;"
     sql "set show_hbo_fingerprint=true;"
+    sql "set enable_sql_cache=false;"
+    sql "set enable_query_cache=false;"
     try {
 
     def query = "select * from hbo_si_t join hbo_si_r on hbo_si_t.a = hbo_si_r.a where hbo_si_r.b = 1"
@@ -83,17 +85,24 @@ suite("hbo_structinfo_inject_test", "nonConcurrent") {
     assertTrue(linesAfter[joinIdxAfter + 1].contains("hbo_si_r"), nodeAfter)
     assertTrue((nodeAfter =~ /PhysicalFilter\[\d+\].*hboUsed=true/).find(), nodeAfter)
 
-    // The pin key for filter-on-scan is the scan-group fingerprint, whose token excludes the
-    // filter constants: a different constant (R.b = 2) over the same scan shape/version shares
-    // the pin and is flipped too (documented scan-wide override semantics, see GroupStructInfo
-    // scan tokens). Lock the behavior in so an accidental predicate-sensitive key change is
-    // caught.
+    // A filter root has two fingerprints: the exact form (literals kept, injected above) and the
+    // constant agnostic shape form. The exact injection must not leak to another constant, while
+    // the agnostic one covers every constant of the same predicate shape.
     def otherConstantQuery = "select * from hbo_si_t join hbo_si_r on hbo_si_t.a = hbo_si_r.a where hbo_si_r.b = 2"
     def otherConstantText = firstFragment(explainText(otherConstantQuery))
-    assertTrue(otherConstantText.contains("TABLE: hbo_test.hbo_si_r(hbo_si_r)"), otherConstantText)
+    assertTrue(otherConstantText.contains("TABLE: hbo_test.hbo_si_t(hbo_si_t)"), otherConstantText)
+
+    def shapeMatcher = (beforeText =~ /fingerprintNoLiteral=([0-9a-f]+)/)
+    assertTrue(shapeMatcher.find(), "no agnostic fingerprint annotation found:\n" + beforeText)
+    def shapeFingerprint = shapeMatcher.group(1)
+    sql """ HBO DELETE STATISTICS '${fingerprint}'; """
+    sql """ HBO SET STATISTICS '${shapeFingerprint}' = 500000; """
+    def shapeText = firstFragment(explainText(otherConstantQuery))
+    assertTrue(shapeText.contains("TABLE: hbo_test.hbo_si_r(hbo_si_r)"), shapeText)
 
     } finally {
         sql """ HBO DELETE STATISTICS '${fingerprint}'; """
+        sql """ HBO DELETE STATISTICS '${shapeFingerprint}'; """
         sql "set global enable_hbo_info_collection=${prevInfoCollection};"
     }
 }

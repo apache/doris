@@ -7201,14 +7201,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
             structCanonical = stripQuotes(ctx.structCanonical.getText());
         }
-        return new HboStatisticsCommand(HboStatisticsCommand.Op.SET, fingerprint, rows, structCanonical);
+        String typeName = ctx.typeName == null ? null : ctx.typeName.getText();
+        String scopeName = ctx.scope == null ? null : ctx.scope.getText();
+        return new HboStatisticsCommand(HboStatisticsCommand.Op.SET, scopeName, fingerprint, rows,
+                typeName, structCanonical);
     }
 
     @Override
     public LogicalPlan visitHboDeleteStatistics(DorisParser.HboDeleteStatisticsContext ctx) {
         checkHboStatementWords(ctx.hbo, ctx.statistics);
         String fingerprint = stripQuotes(ctx.key.getText());
-        return new HboStatisticsCommand(HboStatisticsCommand.Op.DELETE, fingerprint, 0);
+        return new HboStatisticsCommand(HboStatisticsCommand.Op.DELETE,
+                ctx.scope == null ? null : ctx.scope.getText(), fingerprint, 0,
+                null, "");
     }
 
     @Override

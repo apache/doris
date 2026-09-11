@@ -94,6 +94,7 @@ public class Group {
      * not supported by the simplified struct info.
      */
     private GroupStructInfo hboStructInfo;
+    private GroupStructInfo hboStructInfoNoLiteral;
 
     /**
      * Constructor for Group.
@@ -187,8 +188,23 @@ public class Group {
      * volatile by design (group objects never leave the planner thread).
      */
     public GroupStructInfo getOrComputeHboStructInfo() {
+        return getOrComputeHboStructInfo(GroupStructInfo.LiteralMode.WITH_LITERAL);
+    }
+
+    /**
+     * Lazily compute and cache the simplified struct info of this group in the given literal mode.
+     * Both modes are cached separately (at most two computations per group per query), so the memo
+     * stays the single source of truth for the hbo fingerprints.
+     */
+    public GroupStructInfo getOrComputeHboStructInfo(GroupStructInfo.LiteralMode mode) {
+        if (mode == GroupStructInfo.LiteralMode.NO_LITERAL) {
+            if (hboStructInfoNoLiteral == null) {
+                hboStructInfoNoLiteral = GroupStructInfo.of(this, GroupStructInfo.LiteralMode.NO_LITERAL);
+            }
+            return hboStructInfoNoLiteral;
+        }
         if (hboStructInfo == null) {
-            hboStructInfo = GroupStructInfo.of(this);
+            hboStructInfo = GroupStructInfo.of(this, GroupStructInfo.LiteralMode.WITH_LITERAL);
         }
         return hboStructInfo;
     }
