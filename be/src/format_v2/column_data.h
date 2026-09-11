@@ -424,9 +424,9 @@ inline bool is_child_projected(const LocalColumnIndex* projection, int32_t local
 
 // Merge two projection trees that point to the same file-local node.
 //
-// A full projection dominates a partial projection. Two partial projections are merged by child id
-// and recursively union their child paths. The caller must only merge projections for the same
-// root/child node.
+// A full projection dominates physical child selection. Children are still retained because table
+// formats can attach logical metadata, such as nested timestamp semantics, to those paths. Child
+// paths are merged by id recursively. The caller must only merge projections for the same node.
 inline Status merge_local_column_index(LocalColumnIndex* target, const LocalColumnIndex& source) {
     DORIS_CHECK(target != nullptr);
     DORIS_CHECK(target->index == source.index);
@@ -437,14 +437,9 @@ inline Status merge_local_column_index(LocalColumnIndex* target, const LocalColu
         return Status::InvalidArgument("Conflicting timestamp semantics for file-local column {}",
                                        target->index);
     }
-    if (target->project_all_children) {
-        return Status::OK();
-    }
-    if (source.project_all_children) {
-        target->project_all_children = true;
-        target->children.clear();
-        return Status::OK();
-    }
+    // Full projection controls physical selection only; discarding child metadata here can make a
+    // nested TIMESTAMP_LTZ column materialize as DATETIMEV2 and crash its timestamp SerDe.
+    target->project_all_children = target->project_all_children || source.project_all_children;
     for (const auto& source_child : source.children) {
         auto target_child_it = std::find_if(
                 target->children.begin(), target->children.end(),

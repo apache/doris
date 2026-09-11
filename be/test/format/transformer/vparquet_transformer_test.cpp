@@ -28,6 +28,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "exprs/function/parse/variant_string_parse.h"
@@ -126,6 +127,35 @@ TEST_F(VParquetTransformerTest, WritesIcebergVariantAndCollectsLogicalMetrics) {
     ASSERT_EQ(2, payload_group.field_count());
     EXPECT_EQ(-1, payload_group.field(0)->field_id());
     EXPECT_EQ(-1, payload_group.field(1)->field_id());
+}
+
+TEST_F(VParquetTransformerTest, WritesInt64TimestampSemantics) {
+    DataTypes types {DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6),
+                     DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMPTZ, false, 0, 6)};
+    VExprContextSPtrs output_exprs = MockSlotRef::create_mock_contexts(types);
+
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+    RuntimeState state;
+    state.set_timezone("Asia/Shanghai");
+    ParquetFileOptions options {.compression_type = TParquetCompressionType::UNCOMPRESSED,
+                                .parquet_version = TParquetVersion::PARQUET_1_0,
+                                .parquet_disable_dictionary = false,
+                                .enable_int96_timestamps = false};
+    VParquetTransformer transformer(&state, file_writer.get(), output_exprs,
+                                    {"local_time", "instant"}, false, options, nullptr, nullptr);
+    ASSERT_TRUE(transformer.open().ok());
+    ASSERT_TRUE(transformer.close().ok());
+
+    auto reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    const auto* root = reader->metadata()->schema()->group_node();
+    ASSERT_EQ(2, root->field_count());
+    ASSERT_NE(nullptr, root->field(0)->logical_type());
+    ASSERT_NE(nullptr, root->field(1)->logical_type());
+    EXPECT_NE(std::string::npos,
+              root->field(0)->logical_type()->ToString().find("isAdjustedToUTC=false"));
+    EXPECT_NE(std::string::npos,
+              root->field(1)->logical_type()->ToString().find("isAdjustedToUTC=true"));
 }
 
 TEST_F(VParquetTransformerTest, WritesNestedIcebergVariant) {
