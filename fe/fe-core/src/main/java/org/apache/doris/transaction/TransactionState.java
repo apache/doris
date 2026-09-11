@@ -327,12 +327,16 @@ public class TransactionState implements Writable {
         @SerializedName("columns")
         private final List<RowBinlogColumnMapping> columns;
 
-        RowBinlogWriteMapping(TOlapTableIndexSchema index) {
-            Preconditions.checkState(index.isSetRowBinlogNeedHistoricalValue());
-            Preconditions.checkState(index.isSetRowBinlogColumnMappings());
-            historical = index.isRowBinlogNeedHistoricalValue();
-            columns = new ArrayList<>(index.getRowBinlogColumnMappingsSize());
-            for (TRowBinlogWriteColumnMapping mapping : index.getRowBinlogColumnMappings()) {
+        RowBinlogWriteMapping(TRowBinlogWriteColumnMappings mappings) throws AnalysisException {
+            if (!mappings.isSetNeedHistoricalValue() || !mappings.isSetEntries()) {
+                throw new AnalysisException("Incomplete row-binlog column mapping");
+            }
+            historical = mappings.isNeedHistoricalValue();
+            columns = new ArrayList<>(mappings.getEntriesSize());
+            for (TRowBinlogWriteColumnMapping mapping : mappings.getEntries()) {
+                if (!mapping.isSetSourceColumnUniqueId() || !mapping.isSetCurrentColumnUniqueId()) {
+                    throw new AnalysisException("Missing column unique ID in row-binlog column mapping");
+                }
                 columns.add(new RowBinlogColumnMapping(mapping));
             }
         }
@@ -346,23 +350,59 @@ public class TransactionState implements Writable {
         }
     }
 
+    public static Map<Long, TRowBinlogWriteColumnMappings> collectRowBinlogColumnMappings(
+            TOlapTableSchemaParam schema) {
+        Map<Long, TRowBinlogWriteColumnMappings> mappings = new HashMap<>();
+        for (TOlapTableIndexSchema index : schema.getIndexes()) {
+            if (index.getRowBinlogId() > 0) {
+                Preconditions.checkState(index.isSetRowBinlogNeedHistoricalValue());
+                Preconditions.checkState(index.isSetRowBinlogColumnMappings());
+                mappings.put(index.getId(), new TRowBinlogWriteColumnMappings()
+                        .setNeedHistoricalValue(index.isRowBinlogNeedHistoricalValue())
+                        .setEntries(index.getRowBinlogColumnMappings()));
+            }
+        }
+        return mappings;
+    }
+
     public synchronized void captureRowBinlogColumnMappings(long writeTxnId, TOlapTableSchemaParam schema)
             throws AnalysisException {
         Map<Long, RowBinlogWriteMapping> indexes = new HashMap<>(
                 rowBinlogColumnMappings.getOrDefault(writeTxnId, Collections.emptyMap()));
-        for (TOlapTableIndexSchema index : schema.getIndexes()) {
-            if (index.getRowBinlogId() <= 0) {
-                continue;
-            }
-            RowBinlogWriteMapping snapshot = new RowBinlogWriteMapping(index);
-            RowBinlogWriteMapping previous = indexes.putIfAbsent(index.getId(), snapshot);
+        for (Map.Entry<Long, TRowBinlogWriteColumnMappings> entry : collectRowBinlogColumnMappings(schema).entrySet()) {
+            RowBinlogWriteMapping snapshot = new RowBinlogWriteMapping(entry.getValue());
+            RowBinlogWriteMapping previous = indexes.putIfAbsent(entry.getKey(), snapshot);
             if (previous != null && !previous.equals(snapshot)) {
                 throw new AnalysisException("Row-binlog write schema changed within transaction "
-                        + writeTxnId + ", source index " + index.getId());
+                        + writeTxnId + ", source index " + entry.getKey());
             }
         }
         Map<Long, Map<Long, RowBinlogWriteMapping>> snapshots = new HashMap<>(rowBinlogColumnMappings);
         snapshots.put(writeTxnId, ImmutableMap.copyOf(indexes));
+        rowBinlogColumnMappings = ImmutableMap.copyOf(snapshots);
+    }
+
+    public synchronized void captureRemoteRowBinlogColumnMappings(Map<Long, TRowBinlogWriteColumnMappings> mappings)
+            throws AnalysisException {
+        Map<Long, RowBinlogWriteMapping> indexes = new HashMap<>();
+        for (Map.Entry<Long, TRowBinlogWriteColumnMappings> entry : mappings.entrySet()) {
+            indexes.put(entry.getKey(), new RowBinlogWriteMapping(entry.getValue()));
+        }
+        // A remote commit supplies the complete writer snapshot, not incremental sink planning.
+        Map<Long, RowBinlogWriteMapping> previous = rowBinlogColumnMappings.get(transactionId);
+        if (previous != null) {
+            if (!previous.equals(indexes)) {
+                throw new AnalysisException("Row-binlog column mapping changed within transaction " + transactionId);
+            }
+            return;
+        }
+        // Commit journals under this same monitor. A late retry must never amend journaled state.
+        if (transactionStatus != TransactionStatus.PREPARE) {
+            throw new AnalysisException("Cannot capture row-binlog column mapping for transaction "
+                    + transactionId + " in state " + transactionStatus);
+        }
+        Map<Long, Map<Long, RowBinlogWriteMapping>> snapshots = new HashMap<>(rowBinlogColumnMappings);
+        snapshots.put(transactionId, ImmutableMap.copyOf(indexes));
         rowBinlogColumnMappings = ImmutableMap.copyOf(snapshots);
     }
 
