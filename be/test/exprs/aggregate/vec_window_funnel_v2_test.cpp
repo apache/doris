@@ -118,6 +118,51 @@ TEST_F(VWindowFunnelV2Test, testEmpty) {
     agg_function->destroy(place2);
 }
 
+TEST_F(VWindowFunnelV2Test, testWindowOverflowThrows) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    DataTypes data_types = {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeString>(),
+                            std::make_shared<DataTypeDateTimeV2>(),
+                            std::make_shared<DataTypeUInt8>(), std::make_shared<DataTypeUInt8>()};
+    auto overflow_agg_function = factory.get("window_funnel_v2", data_types, nullptr, false,
+                                             BeExecVersionManager::get_newest_version());
+    ASSERT_NE(overflow_agg_function, nullptr);
+
+    auto column_mode = ColumnString::create();
+    column_mode->insert(Field::create_field<TYPE_STRING>("default"));
+    column_mode->insert(Field::create_field<TYPE_STRING>("default"));
+
+    auto column_timestamp = ColumnDateTimeV2::create();
+    for (const auto& second : {58, 59}) {
+        VecDateTimeValue time_value;
+        time_value.unchecked_set_time(9999, 12, 31, 23, 59, second);
+        auto dtv2 = time_value.to_datetime_v2();
+        column_timestamp->insert_data((char*)&dtv2, 0);
+    }
+
+    auto column_window = ColumnInt64::create();
+    column_window->insert(Field::create_field<TYPE_BIGINT>(10));
+    column_window->insert(Field::create_field<TYPE_BIGINT>(10));
+    auto column_event1 = ColumnUInt8::create();
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    auto column_event2 = ColumnUInt8::create();
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+
+    std::unique_ptr<char[]> memory(new char[overflow_agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    overflow_agg_function->create(place);
+    const IColumn* columns[] = {column_window.get(), column_mode.get(), column_timestamp.get(),
+                                column_event1.get(), column_event2.get()};
+    for (int row = 0; row < 2; ++row) {
+        overflow_agg_function->add(place, columns, row, arena);
+    }
+
+    ColumnInt32 result;
+    EXPECT_THROW(overflow_agg_function->insert_result_into(place, result), Exception);
+    overflow_agg_function->destroy(place);
+}
+
 TEST_F(VWindowFunnelV2Test, testSerialize) {
     const int NUM_CONDS = 4;
     auto column_mode = ColumnString::create();

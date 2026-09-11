@@ -261,7 +261,11 @@ struct WindowFunnelStateV2 {
         } else {
             DateValueType end_ts = _ts_from_int(base_ts);
             TimeInterval interval(SECOND, window, false);
-            end_ts.template date_add_interval<SECOND>(interval);
+            if (!end_ts.template date_add_interval<SECOND>(interval)) {
+                throw Exception(ErrorCode::OUT_OF_BOUND,
+                                "Operation window_funnel of {}, {} out of range",
+                                end_ts.debug_string(), window);
+            }
             return current_ts <= end_ts.to_date_int_val();
         }
     }

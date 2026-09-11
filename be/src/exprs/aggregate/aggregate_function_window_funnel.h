@@ -193,7 +193,11 @@ struct WindowFunnelState {
             if constexpr (T != TYPE_TIMESTAMP_NS) {
                 TimeInterval interval(SECOND, window, false);
                 end_timestamp = first_timestamp;
-                end_timestamp.template date_add_interval<SECOND>(interval);
+                if (!end_timestamp.template date_add_interval<SECOND>(interval)) {
+                    throw Exception(ErrorCode::OUT_OF_BOUND,
+                                    "Operation window_funnel of {}, {} out of range",
+                                    first_timestamp.debug_string(), window);
+                }
             }
 
             matched_count++;
