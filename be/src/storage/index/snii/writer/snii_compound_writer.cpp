@@ -576,6 +576,9 @@ Status SniiCompoundWriter::write_tail() {
         LogicalIndexMetadataRef entry;
         entry.index_id = w.index_id();
         entry.index_suffix = w.index_suffix();
+        // Inherited groups above never carry this: only a positional index can be inherited
+        // (compaction/eligibility.cpp), and postings are dropped from docs-only ones alone.
+        entry.dropped_postings = w.dropped_posting_terms() > 0;
         entry.core_metadata = {.offset = out_->bytes_written(), .length = group.core.size()};
         RETURN_IF_ERROR(append(group.core));
         DORIS_CHECK_EQ(out_->bytes_written(),

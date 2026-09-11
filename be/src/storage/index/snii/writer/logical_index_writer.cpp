@@ -196,6 +196,7 @@ private:
         entry->term = std::move(postings_->term);
         entry->df = total_docs_;
         entry->posting_dropped = true;
+        ++writer_->dropped_posting_terms_;
         *stats = stats_;
         return Status::OK();
     }

@@ -452,5 +452,26 @@ TEST(SniiMetadataDirectory, RejectsNullOutputPointers) {
             encode_metadata_directory(sample_entries(), nullptr).is<ErrorCode::INVALID_ARGUMENT>());
 }
 
+// An inverted entry whose dictionary dropped postings raises kFeatureDroppedPostings, so a
+// reader that predates the flag refuses the container as unsupported instead of parsing a
+// truncated locator; a directory without such an entry keeps its pre-feature bytes.
+TEST(SniiMetadataDirectory, DroppedPostingsRaiseTheFeatureAndRoundTrip) {
+    auto entries = sample_entries();
+    entries[0].dropped_postings = true;
+    const auto bytes = encode(entries);
+    doris::snii::SniiMetadataDirectoryPB wire;
+    ASSERT_TRUE(wire.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
+    ASSERT_EQ(1, wire.required_features_size());
+    EXPECT_EQ(kFeatureDroppedPostings, wire.required_features(0));
+    MetadataDirectory directory;
+    ASSERT_TRUE(MetadataDirectory::decode(Slice(bytes), &directory).ok());
+    EXPECT_EQ(directory.size(), 2U);
+
+    const auto bare = encode(sample_entries());
+    doris::snii::SniiMetadataDirectoryPB bare_wire;
+    ASSERT_TRUE(bare_wire.ParseFromArray(bare.data(), static_cast<int>(bare.size())));
+    EXPECT_EQ(0, bare_wire.required_features_size());
+}
+
 } // namespace
 } // namespace doris::snii::format
