@@ -203,7 +203,7 @@ public class MaterializedIndexTest {
         String crc32Checksum = partition.getMetaChecksum();
 
         distributionInfo.setHashType(HashDistributionInfo.HashType.IDENTITY);
-        Assert.assertNotEquals(crc32Checksum, partition.getMetaChecksum());
+        Assertions.assertNotEquals(crc32Checksum, partition.getMetaChecksum());
     }
 
     @Test

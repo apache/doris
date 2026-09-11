@@ -30,8 +30,8 @@ import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -57,10 +57,10 @@ public class DistributionHashTypeTest {
 
     @Test
     public void testLegacyConstructorsDefaultToCrc32() {
-        Assert.assertEquals(HashType.CRC32, new HashDistributionInfo().getHashType());
-        Assert.assertEquals(HashType.CRC32,
+        Assertions.assertEquals(HashType.CRC32, new HashDistributionInfo().getHashType());
+        Assertions.assertEquals(HashType.CRC32,
                 new HashDistributionInfo(8, Lists.newArrayList(intCol("id"))).getHashType());
-        Assert.assertEquals(HashType.CRC32,
+        Assertions.assertEquals(HashType.CRC32,
                 new HashDistributionInfo(8, false, Lists.newArrayList(intCol("id"))).getHashType());
     }
 
@@ -72,9 +72,9 @@ public class DistributionHashTypeTest {
                 = new HashDistributionInfo(8, false, Lists.newArrayList(intCol("id")), HashType.CRC32);
         String json = GsonUtils.GSON.toJson(original);
         String legacyJson = json.replaceAll(",?\\s*\"hashType\"\\s*:\\s*\"[A-Z0-9_]+\"", "");
-        Assert.assertFalse(legacyJson.contains("hashType"));
+        Assertions.assertFalse(legacyJson.contains("hashType"));
         HashDistributionInfo restored = GsonUtils.GSON.fromJson(legacyJson, HashDistributionInfo.class);
-        Assert.assertEquals(HashType.CRC32, restored.getHashType());
+        Assertions.assertEquals(HashType.CRC32, restored.getHashType());
     }
 
     @Test
@@ -85,7 +85,7 @@ public class DistributionHashTypeTest {
             HashDistributionInfo original = new HashDistributionInfo(8, false, Lists.newArrayList(intCol("id")), type);
             HashDistributionInfo restored
                     = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(original), HashDistributionInfo.class);
-            Assert.assertEquals("hashType lost in gson round trip: " + type, type, restored.getHashType());
+            Assertions.assertEquals(type, restored.getHashType(), "hashType lost in gson round trip: " + type);
         }
     }
 
@@ -96,11 +96,11 @@ public class DistributionHashTypeTest {
         for (int i = 0; i < types.length; i++) {
             HashDistributionInfo a = new HashDistributionInfo(8, false, Lists.newArrayList(intCol("id")), types[i]);
             HashDistributionInfo aSame = new HashDistributionInfo(8, false, Lists.newArrayList(intCol("id")), types[i]);
-            Assert.assertEquals(a, aSame);
-            Assert.assertEquals(a.hashCode(), aSame.hashCode());
+            Assertions.assertEquals(a, aSame);
+            Assertions.assertEquals(a.hashCode(), aSame.hashCode());
             for (int j = i + 1; j < types.length; j++) {
                 HashDistributionInfo b = new HashDistributionInfo(8, false, Lists.newArrayList(intCol("id")), types[j]);
-                Assert.assertNotEquals(a, b);
+                Assertions.assertNotEquals(a, b);
             }
         }
     }
@@ -114,12 +114,12 @@ public class DistributionHashTypeTest {
             List<Column> columns = Lists.newArrayList(intCol("id"));
             HashDistributionInfo info = new HashDistributionInfo(8, false, columns, type);
             DistributionDesc desc = info.toDistributionDesc();
-            Assert.assertTrue(desc instanceof HashDistributionDesc);
+            Assertions.assertTrue(desc instanceof HashDistributionDesc);
             HashDistributionInfo rebuilt = (HashDistributionInfo) desc.toDistributionInfo(columns);
-            Assert.assertEquals(type, rebuilt.getHashType());
+            Assertions.assertEquals(type, rebuilt.getHashType());
             HashDistributionInfo descriptorRoundTrip = (HashDistributionInfo) desc.toDistributionDescriptor()
                     .translateToCatalogStyle().toDistributionInfo(columns);
-            Assert.assertEquals(type, descriptorRoundTrip.getHashType());
+            Assertions.assertEquals(type, descriptorRoundTrip.getHashType());
         }
     }
 
@@ -129,9 +129,9 @@ public class DistributionHashTypeTest {
         // InternalCatalog.addPartition overwrites hashType with the table's. Verify the setter path.
         HashDistributionInfo partition
                 = new HashDistributionInfo(8, false, Lists.newArrayList(intCol("id")), HashType.CRC32);
-        Assert.assertEquals(HashType.CRC32, partition.getHashType());
+        Assertions.assertEquals(HashType.CRC32, partition.getHashType());
         partition.setHashType(HashType.IDENTITY);
-        Assert.assertEquals(HashType.IDENTITY, partition.getHashType());
+        Assertions.assertEquals(HashType.IDENTITY, partition.getHashType());
     }
 
     // ------------------------------------------------------------------
@@ -141,16 +141,16 @@ public class DistributionHashTypeTest {
     @Test
     public void testAnalyzeDistributionHashType() throws AnalysisException {
         // missing property -> CRC32
-        Assert.assertEquals(HashType.CRC32, PropertyAnalyzer.analyzeDistributionHashType(null));
-        Assert.assertEquals(HashType.CRC32, PropertyAnalyzer.analyzeDistributionHashType(Maps.newHashMap()));
+        Assertions.assertEquals(HashType.CRC32, PropertyAnalyzer.analyzeDistributionHashType(null));
+        Assertions.assertEquals(HashType.CRC32, PropertyAnalyzer.analyzeDistributionHashType(Maps.newHashMap()));
 
         // every hash type parses case-insensitively and the property is consumed (removed) so it is
         // not later flagged as an unknown property.
         for (HashType type : HashType.values()) {
             Map<String, String> props = Maps.newHashMap();
             props.put(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_HASH_TYPE, mixCase(type.name()));
-            Assert.assertEquals(type, PropertyAnalyzer.analyzeDistributionHashType(props));
-            Assert.assertFalse(props.containsKey(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_HASH_TYPE));
+            Assertions.assertEquals(type, PropertyAnalyzer.analyzeDistributionHashType(props));
+            Assertions.assertFalse(props.containsKey(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_HASH_TYPE));
         }
     }
 
@@ -159,8 +159,8 @@ public class DistributionHashTypeTest {
         Map<String, String> bad = Maps.newHashMap();
         bad.put(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_HASH_TYPE, "murmur3");
         AnalysisException e
-                = Assert.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.analyzeDistributionHashType(bad));
-        Assert.assertTrue(e.getMessage().contains(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_HASH_TYPE));
+                = Assertions.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.analyzeDistributionHashType(bad));
+        Assertions.assertTrue(e.getMessage().contains(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_HASH_TYPE));
     }
 
     // ------------------------------------------------------------------
@@ -173,8 +173,8 @@ public class DistributionHashTypeTest {
         HashDistributionDesc desc
                 = new HashDistributionDesc(8, false, Lists.newArrayList("shard_num"), HashType.IDENTITY);
         HashDistributionInfo info = (HashDistributionInfo) desc.toDistributionInfo(schema);
-        Assert.assertEquals(HashType.IDENTITY, info.getHashType());
-        Assert.assertEquals(1, info.getDistributionColumns().size());
+        Assertions.assertEquals(HashType.IDENTITY, info.getHashType());
+        Assertions.assertEquals(1, info.getDistributionColumns().size());
     }
 
     @Test
@@ -182,7 +182,7 @@ public class DistributionHashTypeTest {
         List<Column> schema = Lists.newArrayList(new Column("big_id", PrimitiveType.LARGEINT, true));
         HashDistributionDesc desc = new HashDistributionDesc(8, false, Lists.newArrayList("big_id"), HashType.IDENTITY);
         HashDistributionInfo info = (HashDistributionInfo) desc.toDistributionInfo(schema);
-        Assert.assertEquals(HashType.IDENTITY, info.getHashType());
+        Assertions.assertEquals(HashType.IDENTITY, info.getHashType());
     }
 
     @Test
@@ -190,8 +190,8 @@ public class DistributionHashTypeTest {
         List<Column> schema = Lists.newArrayList(new Column("s", PrimitiveType.VARCHAR, true));
         HashDistributionDesc desc = new HashDistributionDesc(8, false, Lists.newArrayList("s"), HashType.IDENTITY);
         HashDistributionInfo info = (HashDistributionInfo) desc.toDistributionInfo(schema);
-        Assert.assertEquals(HashType.IDENTITY, info.getHashType());
-        Assert.assertEquals(PrimitiveType.VARCHAR,
+        Assertions.assertEquals(HashType.IDENTITY, info.getHashType());
+        Assertions.assertEquals(PrimitiveType.VARCHAR,
                 info.getDistributionColumns().get(0).getType().getPrimitiveType());
     }
 
@@ -201,8 +201,8 @@ public class DistributionHashTypeTest {
         HashDistributionDesc desc = new HashDistributionDesc(8, false, Lists.newArrayList("a", "b"),
                 HashType.IDENTITY);
         HashDistributionInfo info = (HashDistributionInfo) desc.toDistributionInfo(schema);
-        Assert.assertEquals(HashType.IDENTITY, info.getHashType());
-        Assert.assertEquals(2, info.getDistributionColumns().size());
+        Assertions.assertEquals(HashType.IDENTITY, info.getHashType());
+        Assertions.assertEquals(2, info.getDistributionColumns().size());
     }
 
     @Test
@@ -211,8 +211,8 @@ public class DistributionHashTypeTest {
         List<Column> schema = Lists.newArrayList(new Column("a", PrimitiveType.VARCHAR, true), intCol("b"));
         HashDistributionDesc desc = new HashDistributionDesc(8, false, Lists.newArrayList("a", "b"), HashType.CRC32);
         HashDistributionInfo info = (HashDistributionInfo) desc.toDistributionInfo(schema);
-        Assert.assertEquals(HashType.CRC32, info.getHashType());
-        Assert.assertEquals(2, info.getDistributionColumns().size());
+        Assertions.assertEquals(HashType.CRC32, info.getHashType());
+        Assertions.assertEquals(2, info.getDistributionColumns().size());
     }
 
     @Test
@@ -227,7 +227,7 @@ public class DistributionHashTypeTest {
         String crc32Signature = table.getSignature(1, Lists.newArrayList("p"));
         distributionInfo.setHashType(HashType.IDENTITY);
         String identitySignature = table.getSignature(1, Lists.newArrayList("p"));
-        Assert.assertNotEquals(crc32Signature, identitySignature);
+        Assertions.assertNotEquals(crc32Signature, identitySignature);
     }
 
     // ------------------------------------------------------------------
@@ -262,7 +262,7 @@ public class DistributionHashTypeTest {
                 ColocateGroupSchema schema = schemaWith(types[i]);
                 HashDistributionInfo info
                         = new HashDistributionInfo(8, false, Lists.newArrayList(intCol("id")), types[j]);
-                Assert.assertThrows(DdlException.class, () -> schema.checkDistribution(info));
+                Assertions.assertThrows(DdlException.class, () -> schema.checkDistribution(info));
             }
         }
     }
@@ -281,8 +281,8 @@ public class DistributionHashTypeTest {
                 original.write(new DataOutputStream(bos));
                 ColocateGroupSchema restored
                         = ColocateGroupSchema.read(new DataInputStream(new ByteArrayInputStream(bos.toByteArray())));
-                Assert.assertEquals("hashType lost in Writable round trip: " + type, type, restored.getHashType());
-                Assert.assertEquals(8, restored.getBucketsNum());
+                Assertions.assertEquals(type, restored.getHashType(), "hashType lost in Writable round trip: " + type);
+                Assertions.assertEquals(8, restored.getBucketsNum());
             }
         } finally {
             MetaContext.remove();
@@ -309,8 +309,8 @@ public class DistributionHashTypeTest {
         try {
             ByteArrayInputStream input = new ByteArrayInputStream(bos.toByteArray());
             ColocateGroupSchema restored = ColocateGroupSchema.read(new DataInputStream(input));
-            Assert.assertEquals(HashType.CRC32, restored.getHashType());
-            Assert.assertEquals(0, input.available());
+            Assertions.assertEquals(HashType.CRC32, restored.getHashType());
+            Assertions.assertEquals(0, input.available());
         } finally {
             MetaContext.remove();
         }
@@ -323,9 +323,9 @@ public class DistributionHashTypeTest {
         ColocateGroupSchema schema = schemaWith(HashType.IDENTITY);
         String json = GsonUtils.GSON.toJson(schema);
         String legacyJson = json.replaceAll(",?\\s*\"hashType\"\\s*:\\s*\"[A-Z0-9_]+\"", "");
-        Assert.assertFalse(legacyJson.contains("hashType"));
+        Assertions.assertFalse(legacyJson.contains("hashType"));
         ColocateGroupSchema restored = GsonUtils.GSON.fromJson(legacyJson, ColocateGroupSchema.class);
-        Assert.assertEquals(HashType.CRC32, restored.getHashType());
+        Assertions.assertEquals(HashType.CRC32, restored.getHashType());
     }
 
     // Alternate the case of each character so the parse path is exercised case-insensitively

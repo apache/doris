@@ -210,32 +210,32 @@ public class HashDistributionPrunerTest {
         HashDistributionPruner pruner = new HashDistributionPruner(null, index, columns, filters,
                 tabletIds.size(), true, HashType.IDENTITY);
         // append(uint32_le(1), bytes("A")) = 1 * 256 + 65; 321 % 257 = 64
-        Assert.assertEquals(Lists.newArrayList(64L), pruner.prune());
+        Assertions.assertEquals(Lists.newArrayList(64L), pruner.prune());
     }
 
     @Test
     public void testIdentityNullCanonicalBytes() {
         PartitionKey nullKey = new PartitionKey();
         nullKey.pushColumn(new NullLiteral(), PrimitiveType.INT);
-        Assert.assertEquals(0, nullKey.getIdentityHashValue(257));
+        Assertions.assertEquals(0, nullKey.getIdentityHashValue(257));
 
         nullKey.pushColumn(new StringLiteral("A"), PrimitiveType.VARCHAR);
-        Assert.assertEquals(65, nullKey.getIdentityHashValue(257));
+        Assertions.assertEquals(65, nullKey.getIdentityHashValue(257));
     }
 
     @Test
     public void testIdentityPruneWithIpAndVarBinaryCanonicalBytes() throws Exception {
         PartitionKey ipv4 = new PartitionKey();
         ipv4.pushColumn(new IPv4Literal("1.2.3.4"), PrimitiveType.IPV4);
-        Assert.assertEquals(2, ipv4.getIdentityHashValue(257));
+        Assertions.assertEquals(2, ipv4.getIdentityHashValue(257));
 
         PartitionKey ipv6 = new PartitionKey();
         ipv6.pushColumn(new IPv6Literal("::1"), PrimitiveType.IPV6);
-        Assert.assertEquals(1, ipv6.getIdentityHashValue(257));
+        Assertions.assertEquals(1, ipv6.getIdentityHashValue(257));
 
         PartitionKey varBinary = new PartitionKey();
         varBinary.pushColumn(new VarBinaryLiteral(new byte[] {(byte) 0xff, 0}), PrimitiveType.VARBINARY);
-        Assert.assertEquals(255, varBinary.getIdentityHashValue(257));
+        Assertions.assertEquals(255, varBinary.getIdentityHashValue(257));
     }
 
     private void assertIdentityBucket(List<Long> tabletIds, List<Column> columns, String colName, Expr value,
@@ -250,8 +250,8 @@ public class HashDistributionPrunerTest {
         HashDistributionPruner pruner = new HashDistributionPruner(null, index, columns, filters, tabletIds.size(),
                 true, HashType.IDENTITY);
         Collection<Long> results = pruner.prune();
-        Assert.assertEquals(1, results.size());
-        Assert.assertEquals(Long.valueOf(expectedBucket), results.iterator().next());
+        Assertions.assertEquals(1, results.size());
+        Assertions.assertEquals(Long.valueOf(expectedBucket), results.iterator().next());
     }
 
     @Test
