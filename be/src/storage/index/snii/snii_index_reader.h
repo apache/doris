@@ -27,6 +27,10 @@
 #include "storage/index/inverted/inverted_index_query_type.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 
+namespace doris::segment_v2::gram {
+struct GramScheme;
+} // namespace doris::segment_v2::gram
+
 namespace doris::snii::reader {
 class LogicalIndexReader;
 } // namespace doris::snii::reader
@@ -114,6 +118,8 @@ private:
                   std::shared_ptr<roaring::Roaring>& bit_map,
                   InvertedIndexQueryCacheHandle* null_bitmap_cache_handle,
                   const InvertedIndexAnalyzerCtx* analyzer_ctx);
+    Status _current_gram_scheme(const InvertedIndexAnalyzerCtx* analyzer_ctx,
+                                std::optional<segment_v2::gram::GramScheme>* out) const;
     Status _parse_query_terms(const IndexQueryContextPtr& context, std::string search_str,
                               InvertedIndexQueryType query_type,
                               const InvertedIndexAnalyzerCtx* analyzer_ctx,

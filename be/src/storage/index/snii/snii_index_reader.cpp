@@ -42,7 +42,9 @@
 #include "storage/index/index_reader_helper.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/common/single_flight.h"
+#include "storage/index/inverted/gram/gram_family.h"
 #include "storage/index/inverted/gram/gram_query.h"
+#include "storage/index/inverted/gram/gram_scheme.h"
 #include "storage/index/inverted/gram/regex_gram_compiler.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
@@ -160,6 +162,23 @@ bool uses_phrase_frequency_scoring(InvertedIndexQueryType query_type,
     return query_info.term_infos.size() > 1 &&
            (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY ||
             query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY);
+}
+
+// Query types whose terms come out of the current analyzer. On a gram-family index those
+// terms are grams, and they only mean what the segment's own grams mean when both were cut
+// by the same scheme; a gram query compiles against the segment's scheme itself and a raw
+// pattern query never analyzes, so neither is affected.
+bool analyzes_query_terms(InvertedIndexQueryType query_type) {
+    switch (query_type) {
+    case InvertedIndexQueryType::MATCH_ANY_QUERY:
+    case InvertedIndexQueryType::MATCH_ALL_QUERY:
+    case InvertedIndexQueryType::MATCH_PHRASE_QUERY:
+    case InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY:
+    case InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY:
+        return true;
+    default:
+        return false;
+    }
 }
 
 Status score_plain_term_candidates(const IndexQueryContextPtr& context,
@@ -483,6 +502,27 @@ Status SniiIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
     return Status::OK();
 }
 
+// The scheme the current analyzer cuts query terms with: the provider the caller resolved,
+// or, when none was handed down, the analyzer the index properties name -- the same fallback
+// _parse_query_terms takes. A policy that no longer exists is reported, not swallowed: the
+// analysis below would fail on it anyway.
+Status SniiIndexReader::_current_gram_scheme(
+        const InvertedIndexAnalyzerCtx* analyzer_ctx,
+        std::optional<segment_v2::gram::GramScheme>* out) const {
+    if (analyzer_ctx != nullptr && analyzer_ctx->analyzer_provider != nullptr) {
+        *out = analyzer_ctx->analyzer_provider->gram_scheme();
+        return Status::OK();
+    }
+    try {
+        *out = segment_v2::gram::resolve_gram_scheme(_index_meta.properties(),
+                                                     ExecEnv::GetInstance()->index_policy_mgr());
+    } catch (const Exception& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "SNII resolve analyzer failed: {}", e.what());
+    }
+    return Status::OK();
+}
+
 Status SniiIndexReader::_parse_query_terms(const IndexQueryContextPtr& context,
                                            std::string search_str,
                                            InvertedIndexQueryType query_type,
@@ -657,11 +697,24 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
         parse_phrase_slop(&plain_analysis_str, &query_info);
     }
+    // An analyzed query (MATCH_*) on a gram-family index is exact only when the query is cut
+    // by the very scheme that cut the segment. The segment's scheme is persisted -- a density
+    // solved from its own rows, or the scheme of a policy that has since been recreated --
+    // while the analyzer here is the current one. Where they differ the scalar predicate and
+    // the index would disagree, so such a query is skipped once the segment is open, and it
+    // is never cached: the cache key does not tell the two schemes apart.
+    const bool analyzed_query = analyzes_query_terms(query_type) &&
+                                (analyzer_ctx == nullptr || analyzer_ctx->requires_analysis());
+    std::optional<segment_v2::gram::GramScheme> current_gram_scheme;
+    if (analyzed_query) {
+        RETURN_IF_ERROR(_current_gram_scheme(analyzer_ctx, &current_gram_scheme));
+    }
     // Result cache keys contain only (index file, column, query type, raw query bytes). Analysis
     // is determined by index properties and policies, which are immutable once referenced, so
     // sharing can be decided before opening the segment. Scoring queries depend on collection
     // statistics and use neither the result cache nor single-flight coalescing.
-    const bool allow_result_cache = !actual_similarity;
+    const bool allow_result_cache =
+            !actual_similarity && !(analyzed_query && current_gram_scheme.has_value());
     const InvertedIndexRawQuerySemantic raw_semantic {.raw_query_bytes = search_str,
                                                       .query_type = query_type,
                                                       .slop = query_info.slop,
@@ -684,6 +737,12 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     const ::doris::snii::reader::LogicalIndexReader* logical_reader = nullptr;
     RETURN_IF_ERROR(_get_logical_reader(context, &searcher_cache_handle, &uncached_reader,
                                         &logical_reader));
+    if (analyzed_query && logical_reader->gram_scheme().has_value() &&
+        current_gram_scheme != logical_reader->gram_scheme()) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                "gram index segment was cut with a different scheme than the current "
+                "analyzer; the predicate is evaluated without the index");
+    }
 
     InvertedIndexQueryInfo execution_query_info = query_info;
     RETURN_IF_ERROR(_parse_query_terms(context, plain_analysis_str, query_type, analyzer_ctx,

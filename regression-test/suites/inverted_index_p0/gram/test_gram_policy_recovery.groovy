@@ -83,12 +83,19 @@ suite("test_gram_policy_recovery", "p0") {
     qt_dense4_tokens """SELECT TOKENIZE('abcdef', '"analyzer"="gram_recovery_analyzer"')"""
     sql "RECOVER TABLE test_gram_policy_recovery"
 
+    // MATCH terms come out of the current (dense4) analyzer while the recovered segment was
+    // cut dense3: the index must step aside for such queries and let the scalar predicate
+    // answer, so the two passes agree here as they do for LIKE / REGEXP.
     [false, true].each { useIndex ->
         sql "SET enable_inverted_index_query=${useIndex}"
         "order_qt_recovered_${useIndex}_like"("""SELECT id FROM test_gram_policy_recovery
             WHERE msg LIKE '%abcdef%'""")
         "order_qt_recovered_${useIndex}_regexp"("""SELECT id FROM test_gram_policy_recovery
             WHERE msg REGEXP 'abc.*def'""")
+        "order_qt_recovered_${useIndex}_match_any"("""SELECT id FROM test_gram_policy_recovery
+            WHERE msg MATCH_ANY 'abcdef'""")
+        "order_qt_recovered_${useIndex}_match_all"("""SELECT id FROM test_gram_policy_recovery
+            WHERE msg MATCH_ALL 'abcdef'""")
     }
 
     // This writer sees dense4, while the recovered rowset retains its dense3 dictionary.
@@ -107,6 +114,12 @@ suite("test_gram_policy_recovery", "p0") {
             WHERE msg LIKE '%abc%'""")
         "order_qt_mixed_${useIndex}_short_regexp"("""SELECT id FROM test_gram_policy_recovery
             WHERE msg REGEXP 'abc'""")
+        // dense3 and dense4 segments side by side: the index answers MATCH on the segment
+        // whose scheme the current analyzer shares and steps aside on the other.
+        "order_qt_mixed_${useIndex}_match_any"("""SELECT id FROM test_gram_policy_recovery
+            WHERE msg MATCH_ANY 'abcdef'""")
+        "order_qt_mixed_${useIndex}_match_all"("""SELECT id FROM test_gram_policy_recovery
+            WHERE msg MATCH_ALL 'abcdef'""")
     }
     sql "SET enable_inverted_index_query=true"
 }

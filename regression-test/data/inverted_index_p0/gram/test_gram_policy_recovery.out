@@ -13,11 +13,27 @@
 1
 2
 
+-- !recovered_false_match_any --
+1
+2
+
+-- !recovered_false_match_all --
+1
+2
+
 -- !recovered_true_like --
 1
 2
 
 -- !recovered_true_regexp --
+1
+2
+
+-- !recovered_true_match_any --
+1
+2
+
+-- !recovered_true_match_all --
 1
 2
 
@@ -43,6 +59,16 @@
 5
 6
 
+-- !mixed_false_match_any --
+1
+2
+5
+
+-- !mixed_false_match_all --
+1
+2
+5
+
 -- !mixed_true_like --
 1
 2
@@ -64,4 +90,14 @@
 2
 5
 6
+
+-- !mixed_true_match_any --
+1
+2
+5
+
+-- !mixed_true_match_all --
+1
+2
+5
 
