@@ -52,16 +52,6 @@ public class FlightSqlChannel {
         allocator = new RootAllocator(Long.MAX_VALUE);
     }
 
-    // TODO
-    public String getRemoteIp() {
-        return "0.0.0.0";
-    }
-
-    // TODO
-    public String getRemoteHostPortString() {
-        return "0.0.0.0:0";
-    }
-
     public void addResult(String queryId, String runningQuery, ResultSet resultSet) {
         List<Field> schemaFields = new ArrayList<>();
         List<FieldVector> dataFields = new ArrayList<>();

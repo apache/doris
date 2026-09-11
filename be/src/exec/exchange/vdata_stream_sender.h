@@ -163,12 +163,9 @@ public:
 
     std::shared_ptr<ExchangeSendCallback<PTransmitDataResult>> get_send_callback(RpcInstance* ins,
                                                                                  bool eos) {
-        // here we reuse the callback because it's re-construction may be expensive due to many parameters' capture
-        if (!_send_callback) {
-            _send_callback = ExchangeSendCallback<PTransmitDataResult>::create_shared();
-        } else {
-            _send_callback->cntl_->Reset();
-        }
+        // Keep the latest callback alive because AutoReleaseClosure intentionally holds only a
+        // weak_ptr. See ExchangeSinkBuffer::_send_rpc() for the callback replacement sequence.
+        _send_callback = ExchangeSendCallback<PTransmitDataResult>::create_shared();
         _send_callback->init(ins, eos);
         return _send_callback;
     }

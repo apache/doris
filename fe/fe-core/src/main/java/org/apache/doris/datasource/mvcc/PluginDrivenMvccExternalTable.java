@@ -68,6 +68,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -798,6 +799,35 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     }
 
     @Override
+    public Map<String, MTMVSnapshotIf> getPartitionSnapshots(Set<String> partitionNames,
+            MTMVRefreshContext context, Optional<MvccSnapshot> snapshot) throws AnalysisException {
+        PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
+        Map<String, MTMVSnapshotIf> snapshots = new LinkedHashMap<>();
+        if (pin.getConnectorSnapshot().isLastModifiedFreshness()) {
+            List<String> existingPartitionNames = partitionNames.stream()
+                    .filter(pin.getNameToLastModifiedMillis()::containsKey)
+                    .collect(Collectors.toList());
+            Map<String, Long> freshness = queryPartitionFreshnessMillis(existingPartitionNames);
+            for (String partitionName : partitionNames) {
+                Long value = freshness.get(partitionName);
+                if (value != null) {
+                    snapshots.put(partitionName, new MTMVTimestampSnapshot(value));
+                }
+            }
+            return snapshots;
+        }
+
+        for (String partitionName : partitionNames) {
+            Long value = pin.getNameToLastModifiedMillis().get(partitionName);
+            if (value != null) {
+                snapshots.put(partitionName, pin.isSnapshotIdFreshness()
+                        ? new MTMVSnapshotIdSnapshot(value) : new MTMVTimestampSnapshot(value));
+            }
+        }
+        return snapshots;
+    }
+
+    @Override
     public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
         return getTableSnapshot(snapshot);
@@ -851,6 +881,15 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         }
         FreshnessProbe p = probe.get();
         return p.metadata.getPartitionFreshnessMillis(p.session, p.handle, partitionName);
+    }
+
+    private Map<String, Long> queryPartitionFreshnessMillis(List<String> partitionNames) {
+        Optional<FreshnessProbe> probe = resolveFreshnessProbe();
+        if (!probe.isPresent()) {
+            return Collections.emptyMap();
+        }
+        FreshnessProbe p = probe.get();
+        return p.metadata.getPartitionsFreshnessMillis(p.session, p.handle, partitionNames);
     }
 
     /**

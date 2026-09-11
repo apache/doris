@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.service.arrowflight.sessions.FlightSqlConnectContext;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.AfterEach;
@@ -43,7 +42,7 @@ import java.util.List;
  */
 public class ConnectProcessorFlightForwardOutcomeTest {
     private boolean savedRunningUnitTest;
-    private FlightSqlConnectContext context;
+    private ConnectContext context;
     private ConnectProcessor processor;
 
     @BeforeEach
@@ -51,7 +50,7 @@ public class ConnectProcessorFlightForwardOutcomeTest {
         savedRunningUnitTest = FeConstants.runningUnitTest;
         // ConnectContext.init() registers the session with Env unless running as a unit test.
         FeConstants.runningUnitTest = true;
-        context = new FlightSqlConnectContext("test-peer-identity");
+        context = ConnectContext.forFlight("test-peer-identity");
         processor = new TestConnectProcessor(context);
     }
 

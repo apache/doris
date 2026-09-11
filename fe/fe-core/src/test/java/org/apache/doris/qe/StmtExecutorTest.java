@@ -29,6 +29,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
+import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
@@ -38,6 +39,7 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -50,7 +52,10 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class StmtExecutorTest extends TestWithFeService {
@@ -86,13 +91,17 @@ public class StmtExecutorTest extends TestWithFeService {
     // the idle reaper must not read the session value later.
     @Test
     public void testDeferForArrowFlightFreezesExecTimeoutInEffect() throws Exception {
-        int savedQueryTimeout = connectContext.getSessionVariable().getQueryTimeoutS();
+        // Only an Arrow Flight SQL session defers a query's coordinator.
+        ConnectContext flightContext = ConnectContext.forFlight("test-peer-identity");
+        flightContext.setCurrentUserIdentity(connectContext.getCurrentUserIdentity());
+        flightContext.setEnv(connectContext.getEnv());
         int savedIdleTimeout = Config.arrow_flight_deferred_query_idle_timeout_second;
-        connectContext.setQueryId(new TUniqueId(0x67503L, 0x1L));
+        flightContext.setQueryId(new TUniqueId(0x67503L, 0x1L));
         try {
             Config.arrow_flight_deferred_query_idle_timeout_second = 1;
-            connectContext.getSessionVariable().setQueryTimeoutS(1234);
-            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
+            flightContext.getSessionVariable().setQueryTimeoutS(1234);
+            StmtExecutor stmtExecutor = new StmtExecutor(flightContext,
+                    analyzeAndGetStmtByNereids("select 1", flightContext));
             Assertions.assertFalse(stmtExecutor.isDeferredForArrowFlight());
             Assertions.assertEquals(-1, stmtExecutor.getDeferredExecTimeoutS());
 
@@ -101,14 +110,13 @@ public class StmtExecutorTest extends TestWithFeService {
             Assertions.assertTrue(stmtExecutor.isDeferredForArrowFlight());
             Assertions.assertEquals(1234, stmtExecutor.getDeferredExecTimeoutS());
             // the reaper's bound is floored at the frozen value ...
-            Assertions.assertEquals(1234L, connectContext.getFlightSqlDeferredExecutorsIdleTimeoutS());
+            Assertions.assertEquals(1234L, flightContext.getFlightSqlDeferredExecutorsIdleTimeoutS());
             // ... even after the session value moved on, as it does when a SET_VAR hint is reverted
-            connectContext.getSessionVariable().setQueryTimeoutS(5);
+            flightContext.getSessionVariable().setQueryTimeoutS(5);
             Assertions.assertEquals(1234, stmtExecutor.getDeferredExecTimeoutS());
-            Assertions.assertEquals(1234L, connectContext.getFlightSqlDeferredExecutorsIdleTimeoutS());
+            Assertions.assertEquals(1234L, flightContext.getFlightSqlDeferredExecutorsIdleTimeoutS());
         } finally {
-            connectContext.closeFlightSqlDeferredExecutors();
-            connectContext.getSessionVariable().setQueryTimeoutS(savedQueryTimeout);
+            flightContext.closeFlightSqlDeferredExecutors();
             Config.arrow_flight_deferred_query_idle_timeout_second = savedIdleTimeout;
         }
     }
@@ -396,6 +404,102 @@ public class StmtExecutorTest extends TestWithFeService {
 
         StmtExecutor executor = new StmtExecutor(mockCtx, new OriginStatement("", 1), false);
         executor.sendBinaryResultRow(resultSet);
+    }
+
+    @Test
+    public void testCursorFetchMetadataTerminatorDependsOnConnectorJVersion() throws IOException {
+        List<byte[]> connector82Packets = sendEmptyResultSet(true, "MySQL Connector/J", "8.2.0");
+        Assertions.assertEquals(3, connector82Packets.size());
+        Assertions.assertEquals(0xFE, Byte.toUnsignedInt(connector82Packets.get(2)[0]));
+        Assertions.assertTrue(connector82Packets.get(2).length > 5);
+
+        Assertions.assertEquals(3, sendEmptyResultSet(true, "MySQL Connector Java", "5.1.49").size());
+        Assertions.assertEquals(3, sendEmptyResultSet(true, "MySQL Connector/J", "6.0.6").size());
+        Assertions.assertEquals(3, sendEmptyResultSet(true, "MySQL Connector/J", "9.4.0").size());
+        Assertions.assertEquals(2, sendEmptyResultSet(true, "MySQL Connector/J", "9.5.0").size());
+        Assertions.assertEquals(2, sendEmptyResultSet(false, "MySQL Connector/J", "8.2.0").size());
+        Assertions.assertEquals(2, sendEmptyResultSet(true, "MariaDB Connector/J", "3.5.6").size());
+        Assertions.assertEquals(3, sendEmptyResultSet(true, Collections.emptyMap()).size());
+
+        List<byte[]> legacyEofPackets = sendEmptyResultSet(true, "MySQL Connector/J", "8.2.0", false);
+        Assertions.assertEquals(3, legacyEofPackets.size());
+        Assertions.assertEquals(5, legacyEofPackets.get(2).length);
+    }
+
+    @Test
+    public void testPrepareMetadataTerminatorsFollowNegotiatedCapability() throws IOException {
+        Assertions.assertEquals(3, sendPrepareMetadata(false).size());
+        Assertions.assertEquals(2, sendPrepareMetadata(true).size());
+    }
+
+    private List<byte[]> sendPrepareMetadata(boolean clientDeprecatedEof) throws IOException {
+        ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
+        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
+        Mockito.when(mockCtx.getConnectType()).thenReturn(ConnectType.MYSQL);
+        Mockito.when(mockCtx.getMysqlChannel()).thenReturn(channel);
+        Mockito.when(mockCtx.getState()).thenReturn(new QueryState());
+        Mockito.when(mockCtx.getSessionVariable()).thenReturn(new SessionVariable());
+        Mockito.when(channel.clientDeprecatedEOF()).thenReturn(clientDeprecatedEof);
+        Mockito.when(channel.getSerializer()).thenReturn(MysqlSerializer.newInstance());
+
+        List<byte[]> packets = new ArrayList<>();
+        Mockito.doAnswer(invocation -> {
+            ByteBuffer packet = invocation.getArgument(0);
+            byte[] copy = new byte[packet.remaining()];
+            packet.duplicate().get(copy);
+            packets.add(copy);
+            return null;
+        }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
+
+        new StmtExecutor(mockCtx, new OriginStatement("", 0), true).sendStmtPrepareOK(
+                1, Collections.singletonList("p"), Collections.emptyList());
+        return packets;
+    }
+
+    private List<byte[]> sendEmptyResultSet(boolean cursorFetchRequested, String clientName,
+            String clientVersion) throws IOException {
+        return sendEmptyResultSet(cursorFetchRequested, clientName, clientVersion, true);
+    }
+
+    private List<byte[]> sendEmptyResultSet(boolean cursorFetchRequested, String clientName,
+            String clientVersion, boolean clientDeprecatedEof) throws IOException {
+        return sendEmptyResultSet(cursorFetchRequested, ImmutableMap.of(
+                "_client_name", clientName, "_client_version", clientVersion), clientDeprecatedEof);
+    }
+
+    private List<byte[]> sendEmptyResultSet(boolean cursorFetchRequested,
+            Map<String, String> connectAttributes) throws IOException {
+        return sendEmptyResultSet(cursorFetchRequested, connectAttributes, true);
+    }
+
+    private List<byte[]> sendEmptyResultSet(boolean cursorFetchRequested,
+            Map<String, String> connectAttributes, boolean clientDeprecatedEof) throws IOException {
+        ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
+        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
+        MysqlProtocolAdapter protocol = new MysqlProtocolAdapter(channel);
+        protocol.setCursorFetchRequested(cursorFetchRequested);
+        Mockito.when(mockCtx.getConnectType()).thenReturn(ConnectType.MYSQL);
+        Mockito.when(mockCtx.getProtocolAdapter()).thenReturn(protocol);
+        Mockito.when(mockCtx.getMysqlChannel()).thenReturn(channel);
+        Mockito.when(mockCtx.getState()).thenReturn(new QueryState());
+        Mockito.when(mockCtx.getSessionVariable()).thenReturn(VariableMgr.newSessionVariable());
+        Mockito.when(mockCtx.getConnectAttributes()).thenReturn(connectAttributes);
+        Mockito.when(channel.clientDeprecatedEOF()).thenReturn(clientDeprecatedEof);
+        Mockito.when(channel.getSerializer()).thenReturn(MysqlSerializer.newInstance());
+
+        List<byte[]> packets = new ArrayList<>();
+        Mockito.doAnswer(invocation -> {
+            ByteBuffer packet = invocation.getArgument(0);
+            byte[] copy = new byte[packet.remaining()];
+            packet.duplicate().get(copy);
+            packets.add(copy);
+            return null;
+        }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
+
+        List<Column> columns = Collections.singletonList(new Column("c", PrimitiveType.INT));
+        ResultSet resultSet = new CommonResultSet(new CommonResultSetMetaData(columns), Collections.emptyList());
+        new StmtExecutor(mockCtx, new OriginStatement("", 0), true).sendResultSet(resultSet);
+        return packets;
     }
 
     @Test

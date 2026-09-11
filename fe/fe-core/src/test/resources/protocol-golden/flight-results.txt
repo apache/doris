@@ -1,0 +1,50 @@
+=== statement show variables like 'wait_timeout' ===
+state: EOF
+schema:
+  Variable_name: Utf8 nullable
+  Value: Utf8 nullable
+  Default_Value: Utf8 nullable
+  Changed: Utf8 nullable
+rows: 1
+  wait_timeout | 28800 | 28800 | 0
+
+=== statement show databases like 'protocol_golden_flight_db' ===
+state: EOF
+schema:
+  Database: Utf8 nullable
+rows: 1
+  protocol_golden_flight_db
+
+=== statement desc golden_tbl ===
+state: EOF
+schema:
+  Field: Utf8 nullable
+  Type: Utf8 nullable
+  Null: Utf8 nullable
+  Key: Utf8 nullable
+  Default: Utf8 nullable
+  Extra: Utf8 nullable
+rows: 2
+  k1 | int | Yes | true | NULL |
+  k2 | varchar(32) | Yes | false | NULL | NONE
+
+=== statement set sql_select_limit = 100 ===
+state: OK
+result: none, the producer synthesizes StatusResult=0
+
+=== statement use protocol_golden_flight_db ===
+state: OK
+result: none, the producer synthesizes StatusResult=0
+
+=== statement explain select 1 ===
+state: EOF
+schema:
+  Explain String(Nereids Planner): Utf8 nullable
+rows: some
+
+=== statement select from ===
+state: ERR errorCode=ERR_UNKNOWN_ERROR message="errCode = 2, detailMessage = \nmismatched input 'from' expecting {'(', '..."
+
+=== statement select * from no_such_table ===
+state: ERR errorCode=ERR_UNKNOWN_ERROR message="errCode = 2, detailMessage = Table [no_such_table] does not exist in database [protocol_golden_flight_db].(line 1, pos 14)"
+

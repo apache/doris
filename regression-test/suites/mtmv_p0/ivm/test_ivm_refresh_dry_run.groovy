@@ -16,14 +16,9 @@
 // under the License.
 
 suite("test_ivm_refresh_dry_run") {
-    // Cloud mode: __DORIS_SEQUENCE_COL__ in the dry-run delta rows derives from cloud txn
-    // versioning and differs from local (e.g. 6145 vs 4097), so the .out values
-    // for the sequence column do not apply.
-    if (isCloudMode()) {
-        logger.info("skip test_ivm_refresh_dry_run on cloud mode: " +
-                "__DORIS_SEQUENCE_COL__ differs between cloud and local")
-        return
-    }
+    // __DORIS_SEQUENCE_COL__ of the dry-run delta rows encodes the refresh version, whose base
+    // value differs between cloud and shared-nothing deployments (e.g. 6145 vs 4097).
+    // ivm_dry_run_qt masks that column, so cloud and local share this suite and its .out.
     sql "DROP MATERIALIZED VIEW IF EXISTS test_ivm_refresh_dry_run_mv"
     sql "DROP TABLE IF EXISTS test_ivm_refresh_dry_run_base"
 
@@ -65,9 +60,9 @@ suite("test_ivm_refresh_dry_run") {
 
     order_qt_ivm_dry_run_before "SELECT k1, cnt, sum_v1 FROM test_ivm_refresh_dry_run_mv"
 
-    order_qt_ivm_dry_run_full """
+    ivm_dry_run_qt("ivm_dry_run_full", """
         REFRESH MATERIALIZED VIEW test_ivm_refresh_dry_run_mv INCREMENTAL WITH DRY RUN
-    """
+    """)
 
     // The delta rows picked by a LIMIT depend on scan order (no ORDER BY before the cap),
     // so assert only the returned row count instead of exact rows in the .out file.
@@ -77,11 +72,21 @@ suite("test_ivm_refresh_dry_run") {
 
     order_qt_ivm_dry_run_after "SELECT k1, cnt, sum_v1 FROM test_ivm_refresh_dry_run_mv"
 
-    order_qt_ivm_dry_run_repeat """
+    ivm_dry_run_qt("ivm_dry_run_repeat", """
         REFRESH MATERIALIZED VIEW test_ivm_refresh_dry_run_mv INCREMENTAL WITH DRY RUN LIMIT 10
-    """
+    """)
 
     sql "REFRESH MATERIALIZED VIEW test_ivm_refresh_dry_run_mv INCREMENTAL"
     waitingMTMVTaskFinishedByMvName("test_ivm_refresh_dry_run_mv")
     order_qt_ivm_dry_run_after_refresh "SELECT k1, cnt, sum_v1 FROM test_ivm_refresh_dry_run_mv"
+
+    // Empty delta: the delta query is a LogicalEmptyRelation and the dry run must return an
+    // empty result instead of sending fragments to a placeholder backend. Every dry-run
+    // comparison goes through ivm_dry_run_qt so the sequence column is masked in all of them.
+    ivm_dry_run_qt("ivm_dry_run_empty", """
+        REFRESH MATERIALIZED VIEW test_ivm_refresh_dry_run_mv INCREMENTAL WITH DRY RUN
+    """)
+    ivm_dry_run_qt("ivm_dry_run_empty_repeat", """
+        REFRESH MATERIALIZED VIEW test_ivm_refresh_dry_run_mv INCREMENTAL WITH DRY RUN
+    """)
 }

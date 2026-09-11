@@ -38,10 +38,15 @@ public class VersionHelper {
     // Call get_version() from meta service, and save the elapsed to summary profile.
     public static Cloud.GetVersionResponse getVersionFromMeta(Cloud.GetVersionRequest req)
             throws RpcException {
+        return getVersionFromMeta(req, Config.metaServiceRpcRetryTimes());
+    }
+
+    public static Cloud.GetVersionResponse getVersionFromMeta(Cloud.GetVersionRequest req, int maxAttempts)
+            throws RpcException {
         long startAt = System.nanoTime();
         boolean isTableVersion = req.getIsTableVersion();
         try {
-            return getVisibleVersion(req);
+            return getVisibleVersion(req, maxAttempts);
         } finally {
             SummaryProfile profile = getSummaryProfile();
             if (profile != null) {
@@ -56,8 +61,13 @@ public class VersionHelper {
     }
 
     public static Cloud.GetVersionResponse getVisibleVersion(Cloud.GetVersionRequest request) throws RpcException {
+        return getVisibleVersion(request, Config.metaServiceRpcRetryTimes());
+    }
+
+    public static Cloud.GetVersionResponse getVisibleVersion(Cloud.GetVersionRequest request, int maxAttempts)
+            throws RpcException {
         int tryTimes = 0;
-        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
+        while (tryTimes++ < maxAttempts) {
             Cloud.GetVersionResponse resp = getVisibleVersionInternal(request,
                     Config.default_get_version_from_ms_timeout_second * 1000);
             if (resp != null) {
@@ -73,14 +83,16 @@ public class VersionHelper {
                         resp.getStatus(), tryTimes);
             }
             // sleep random millis, retry rpc failed
-            if (tryTimes > Config.metaServiceRpcRetryTimes() / 2) {
-                sleepSeveralMs(500, 1000);
-            } else {
-                sleepSeveralMs(20, 200);
+            if (tryTimes < maxAttempts) {
+                if (tryTimes > maxAttempts / 2) {
+                    sleepSeveralMs(500, 1000);
+                } else {
+                    sleepSeveralMs(20, 200);
+                }
             }
         }
 
-        LOG.warn("get version from meta service failed after retry {} times", tryTimes);
+        LOG.warn("get version from meta service failed after retry {} times", maxAttempts);
         throw new RpcException("get version from meta service", "failed after retry n times");
     }
 

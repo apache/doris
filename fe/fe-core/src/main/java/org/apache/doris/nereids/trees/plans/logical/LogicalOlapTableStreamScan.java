@@ -315,7 +315,7 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
      */
     @Override
     public LogicalOlapTableStreamScan withSelectedPartitionIds(List<Long> selectedPartitionIdsd) {
-        return withSelectedPartitionIds(selectedPartitionIdsd, false);
+        return withSelectedPartitionIds(selectedPartitionIdsd, hasPartitionPredicate);
     }
 
     /**
