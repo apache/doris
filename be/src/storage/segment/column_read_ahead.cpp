@@ -23,6 +23,7 @@
 
 #include "common/cast_set.h"
 #include "common/logging.h"
+#include "runtime/runtime_profile.h"
 
 namespace doris::segment_v2 {
 
@@ -87,8 +88,12 @@ void ColumnReadAhead::plan(const rowid_t* current_rowids, size_t count,
     output->column = this;
     output->new_pages.clear();
     output->released_pages.clear();
+    output->window_discard_ns = 0;
+    output->current_batch_plan_ns = 0;
+    output->window_extend_ns = 0;
 
     _discard_passed_pages(current_rowids, count, output);
+    SCOPED_RAW_TIMER(&output->current_batch_plan_ns);
     for (size_t index = 0; index < count; ++index) {
         const auto& page = _page_for_ordinal(current_rowids[_reverse ? count - index - 1 : index]);
         _add_page(page, output);
@@ -142,6 +147,7 @@ void ColumnReadAhead::_add_page(const ColumnReadAheadPage& page, ColumnReadAhead
 
 void ColumnReadAhead::_discard_passed_pages(const rowid_t* current_rowids, size_t count,
                                             ColumnReadAheadPlan* output) {
+    SCOPED_RAW_TIMER(&output->window_discard_ns);
     const rowid_t first = current_rowids[0];
     const rowid_t last = current_rowids[count - 1];
     for (auto entry = _window.begin(); entry != _window.end();) {
@@ -159,6 +165,7 @@ void ColumnReadAhead::_discard_passed_pages(const rowid_t* current_rowids, size_
 
 void ColumnReadAhead::_extend_window(const roaring::Roaring& scan_rowids,
                                      ColumnReadAheadPlan* output) {
+    SCOPED_RAW_TIMER(&output->window_extend_ns);
     _next_trigger_page_index = -1;
     if (_next_page_index < 0 || _next_page_index >= cast_set<int64_t>(_pages.size())) {
         return;
