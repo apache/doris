@@ -1302,6 +1302,17 @@ public class StmtExecutor {
     }
 
     private void forwardToMaster() throws Exception {
+        // A session-narrowed (SU) session carries its active role subset in the forward request
+        // (TMasterOpRequest.is_su_user / current_roles) and the master installs it before
+        // executing. An older master silently ignores those fields and would authorize the
+        // statement against the target's FULL role union, so fail closed unless the master is
+        // known to run this same build (a rolling upgrade upgrades the master last).
+        if (context.getSessionRoleOverride() != null && !Env.getCurrentEnv().masterRunsSameBuild()) {
+            throw new UserException("This statement would be forwarded to the master FE, which runs a "
+                    + "different build than this FE; a session-narrowed (SU) session forwards only when "
+                    + "the master is known to apply the narrowing. Retry once the rolling upgrade "
+                    + "completes, or run it in a non-narrowed session.");
+        }
         masterOpExecutor = new MasterOpExecutor(originStmt, context, redirectStatus, isQuery());
         if (LOG.isDebugEnabled()) {
             LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());

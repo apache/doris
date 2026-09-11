@@ -52,6 +52,7 @@ import org.apache.thrift.transport.TTransportException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -184,6 +185,13 @@ public class FEOpExecutor {
         params.setUserIp(ctx.getRemoteIP());
         params.setStmtId(ctx.getStmtId());
         params.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
+        Set<String> sessionRoleOverride = ctx.getSessionRoleOverride();
+        if (sessionRoleOverride != null) {
+            // Session-narrowed (SU) session: carry the active role subset so the master authorizes
+            // the forwarded statement against exactly this set, never the target's full role union.
+            params.setIsSuUser(true);
+            params.setCurrentRoles(new HashSet<>(sessionRoleOverride));
+        }
         params.setSessionId(ctx.getSessionId());
         params.setMoreResultExists(moreStmtExists);
 

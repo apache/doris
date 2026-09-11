@@ -5501,6 +5501,27 @@ public class Env {
         return this.masterInfo.getHost();
     }
 
+    /**
+     * Whether the master FE reports (through its heartbeat) the same build as this FE. Gates the
+     * forwarding of request fields an older master would silently ignore, such as a session's SU
+     * role narrowing: the master is upgraded last in a rolling upgrade, so a newer follower must not
+     * hand such a statement to a master that cannot apply the field. An unknown or dead master is
+     * treated as a different build.
+     */
+    public boolean masterRunsSameBuild() {
+        if (isMaster()) {
+            return true;
+        }
+        String masterHost = getMasterHost();
+        int masterRpcPort = getMasterRpcPort();
+        for (Frontend fe : frontends.values()) {
+            if (fe.getHost().equals(masterHost) && fe.getRpcPort() == masterRpcPort) {
+                return fe.isAlive() && Frontend.localBuildVersion().equals(fe.getVersion());
+            }
+        }
+        return false;
+    }
+
 
 
     public PolicyMgr getPolicyMgr() {

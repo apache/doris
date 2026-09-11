@@ -176,6 +176,14 @@ public class ConnectContext {
     protected volatile Principal authenticatedPrincipal;
     // Roles granted during authentication and bound to the current session.
     protected volatile Set<String> authenticatedRoles = Collections.emptySet();
+
+    // SU (session-narrowed identity switch, session-only state — never persisted):
+    // authenticatedIdentity = the identity that AUTHENTICATED this connection; non-null iff the
+    // session has been switched (also the re-SU refusal marker). sessionRoleOverride = the role
+    // set that REPLACES every role source for privilege checks and row-policy matching, consulted
+    // in Auth.getRolesByUserWithLdap under the same current-identity guard as authenticatedRoles.
+    protected volatile UserIdentity authenticatedIdentity;
+    protected volatile Set<String> sessionRoleOverride;
     // Variables belong to this session.
     protected volatile SessionVariable sessionVariable;
     // Store user variable in this connection
@@ -384,6 +392,41 @@ public class ConnectContext {
         insertResult = null;
         command = MysqlCommand.COM_SLEEP;
         returnRows = 0;
+        // A narrowed session reverts to the AUTHENTICATED identity on connection reset —
+        // dropping only the override would widen the session to the target's full roles.
+        revertSessionNarrowing();
+    }
+
+    /** Revert an SU switch: back to the authenticated identity, override cleared. No-op if not switched. */
+    public void revertSessionNarrowing() {
+        UserIdentity authed = this.authenticatedIdentity;
+        if (authed != null) {
+            this.currentUserIdentity = authed;
+            this.authenticatedIdentity = null;
+            this.sessionRoleOverride = null;
+        }
+    }
+
+    /** Drop SU state without restoring identity — only for paths that fully re-authenticate. */
+    public void clearSessionNarrowing() {
+        this.authenticatedIdentity = null;
+        this.sessionRoleOverride = null;
+    }
+
+    public UserIdentity getAuthenticatedIdentity() {
+        return authenticatedIdentity;
+    }
+
+    public void setAuthenticatedIdentity(UserIdentity authenticatedIdentity) {
+        this.authenticatedIdentity = authenticatedIdentity;
+    }
+
+    public Set<String> getSessionRoleOverride() {
+        return sessionRoleOverride;
+    }
+
+    public void setSessionRoleOverride(Set<String> roles) {
+        this.sessionRoleOverride = roles == null ? null : Collections.unmodifiableSet(new HashSet<>(roles));
     }
 
     private void resetSessionVariable() {

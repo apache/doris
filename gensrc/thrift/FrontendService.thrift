@@ -65,9 +65,10 @@ struct TDescribeTablesParams {
   5: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
   6: optional bool show_hidden_columns = false
   7: optional string catalog
-  // Reserved for downstream field `current_roles` to keep thrift field ids
-  // wire-compatible across maintained branches. Do not reuse this id.
-  8: optional set<string> reserved_field_8
+  // Session-narrowed (SU) session: the active role subset the calling session runs under, so
+  // the handler narrows name visibility to that set. Unset = not narrowed. This id was
+  // reserved for exactly this field.
+  8: optional set<string> current_roles
   // Report COLUMN_KEY the way MySQL does. Forwarded from the schema scan node because
   // this request carries no session of its own.
   9: optional bool mysql_compatible_index_metadata = false
@@ -101,9 +102,10 @@ struct TGetDbsParams {
   4: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
   5: optional string catalog
   6: optional bool get_null_catalog  //if catalog is empty , get dbName ="NULL" and dbId = -1.
-  // Reserved for downstream field `current_roles` to keep thrift field ids
-  // wire-compatible across maintained branches. Do not reuse this id.
-  7: optional set<string> reserved_field_7
+  // Session-narrowed (SU) session: the active role subset the calling session runs under, so
+  // the handler narrows name visibility to that set. Unset = not narrowed. This id was
+  // reserved for exactly this field.
+  7: optional set<string> current_roles
 }
 
 // getDbNames returns a list of database names , database ids and catalog names ,catalog ids
@@ -128,9 +130,10 @@ struct TGetTablesParams {
   6: optional string type
   7: optional string catalog
   8: optional string table
-  // Reserved for downstream field `current_roles` to keep thrift field ids
-  // wire-compatible across maintained branches. Do not reuse this id.
-  9: optional set<string> reserved_field_9
+  // Session-narrowed (SU) session: the active role subset the calling session runs under, so
+  // the handler narrows name visibility to that set. Unset = not narrowed. This id was
+  // reserved for exactly this field.
+  9: optional set<string> current_roles
   // Columns needed by schema table callers. If unset, the callee returns the
   // full table status for backward compatibility.
   10: optional set<string> required_columns
@@ -422,10 +425,12 @@ struct TMasterOpRequest {
     32: optional bool moreResultExists // Server has more result to send
     33: optional map<string, string> connect_attributes
 
-    // Reserved for downstream fields `current_roles` and `is_su_user` to keep
-    // thrift field ids wire-compatible across maintained branches. Do not reuse these ids.
-    34: optional set<string> reserved_field_34
-    35: optional bool reserved_field_35
+    // Session-narrowed (SU) session: the active role subset that REPLACES the target's role
+    // union while the master executes this statement, and the flag that the session is
+    // switched. A switched session that carries no role list narrows to the empty set on the
+    // master (fail closed). Ids 34/35 were reserved for exactly these fields.
+    34: optional set<string> current_roles
+    35: optional bool is_su_user
     36: optional string connectingFeLocalResourceGroup
 
     // selectdb cloud
@@ -958,9 +963,10 @@ struct TMetadataTableRequestParams {
   12: optional PlanNodes.TMetaCacheStatsParams meta_cache_stats_params
   13: optional PlanNodes.TPartitionValuesMetadataParams partition_values_metadata_params
   14: optional PlanNodes.THudiMetadataParams hudi_metadata_params
-  // Reserved for downstream field `current_roles` to keep thrift field ids
-  // wire-compatible across maintained branches. Do not reuse this id.
-  15: optional set<string> reserved_field_15
+  // Session-narrowed (SU) session: the active role subset the calling session runs under, so
+  // the handler narrows its privilege checks to that set. Unset = not narrowed. This id was
+  // reserved for exactly this field.
+  15: optional set<string> current_roles
   16: optional PlanNodes.TLanceIndexMetadataParams lance_index_metadata_params
 }
 
@@ -973,9 +979,10 @@ struct TSchemaTableRequestParams {
     6: optional string time_zone // used for DATETIME field
     7: optional string frontend_conjuncts
     8: optional i64 thread_id // mysql connection id for fetching ConnectContext if needed
-    // Reserved for downstream field `current_roles` to keep thrift field ids
-    // wire-compatible across maintained branches. Do not reuse this id.
-    9: optional set<string> reserved_field_9
+    // Session-narrowed (SU) session: the active role subset the calling session runs under, so
+    // the handler narrows its privilege checks to that set. Unset = not narrowed. This id was
+    // reserved for exactly this field.
+    9: optional set<string> current_roles
     // The one table the query asked for, when it pinned one with `TABLE_NAME = '...'`.
     // Lets the FE answer from that table instead of walking the whole database.
     10: optional string table_name
@@ -1619,9 +1626,10 @@ struct TShowProcessListRequest {
     1: optional bool show_full_sql
     2: optional Types.TUserIdentity current_user_ident
     3: optional string time_zone
-    // Reserved for downstream field `current_roles` to keep thrift field ids
-    // wire-compatible across maintained branches. Do not reuse this id.
-    4: optional set<string> reserved_field_4
+    // Session-narrowed (SU) session: the active role subset the calling session runs under, so
+    // the handler narrows its privilege checks to that set. Unset = not narrowed. This id was
+    // reserved for exactly this field.
+    4: optional set<string> current_roles
 }
 
 struct TShowProcessListResult {

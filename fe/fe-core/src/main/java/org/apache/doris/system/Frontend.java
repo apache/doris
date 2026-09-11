@@ -19,6 +19,7 @@ package org.apache.doris.system;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.ha.BDBHA;
@@ -91,6 +92,11 @@ public class Frontend implements Writable {
 
     public String getVersion() {
         return version;
+    }
+
+    /** The build string this FE reports in its heartbeat; other FEs compare their own against it. */
+    public static String localBuildVersion() {
+        return Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
     }
 
     public String getLocalResourceGroup() {
