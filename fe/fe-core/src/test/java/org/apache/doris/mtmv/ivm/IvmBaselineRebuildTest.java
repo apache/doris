@@ -236,6 +236,24 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
     }
 
     @Test
+    public void testRenameTableBackKeepsIncrementalRefreshStartable() throws Exception {
+        String db = "ivm_broken_rename_table_back";
+        createPartitionedIvmTableAndMv(db);
+
+        executeSql("ALTER TABLE ivm_base RENAME ivm_base_renamed");
+        executeSql("ALTER TABLE ivm_base_renamed RENAME ivm_base");
+
+        // A rename changes no column, so it must not invalidate the baseline in either direction:
+        // once the table is renamed back, the MV query is analyzable again and a strict INCREMENTAL
+        // refresh has to be able to start. A "baseline rebuild required" flag left behind by the
+        // rename would reject every one of them until a COMPLETE refresh had been run, even though
+        // nothing the MV depends on ever changed.
+        MTMV mtmv = getMtmv(db);
+        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertDoesNotThrow(() -> mtmv.validateIvmRefreshStart(mtmv.getSchemaChangeVersion()));
+    }
+
+    @Test
     public void testReplaceTableMarksBaselineRebuild() throws Exception {
         String db = "ivm_broken_replace_table";
         createPartitionedIvmTableAndMv(db);

@@ -352,7 +352,14 @@ public class MTMVRelationManager implements MTMVHookService {
             // REPLACE TABLE already invalidates the IVM baseline explicitly, see Alter#processReplaceTable
             processBaseTableChange(newTableInfo.get(), "The base table has been updated:", false);
         }
-        processBaseTableChange(oldTableInfo, "The base table has been updated:", true);
+        // A RENAME leaves every column alone, and the failure it does cause -- the MV query still
+        // spells the old name -- is already reported by the refresh itself (MTMVTask#run resolves
+        // the base tables from the query before it ever looks at the baseline). Invalidating here
+        // would only leave a stale flag behind: rename the table back and the query is analyzable
+        // again, yet every strict INCREMENTAL refresh would stay rejected until a COMPLETE one ran.
+        boolean renamed = !isReplace && newTableInfo.isPresent()
+                && !Objects.equals(oldTableInfo.getTableName(), newTableInfo.get().getTableName());
+        processBaseTableChange(oldTableInfo, "The base table has been updated:", !renamed);
     }
 
     /**
