@@ -35,11 +35,15 @@ public class InvertedIndexProperties {
     public static String INVERTED_INDEX_PARSER_ICU = "icu";
     public static String INVERTED_INDEX_PARSER_BASIC = "basic";
     public static String INVERTED_INDEX_PARSER_IK = "ik";
+    public static String INVERTED_INDEX_PARSER_KUROMOJI = "kuromoji";
 
     public static String INVERTED_INDEX_PARSER_MODE_KEY = "parser_mode";
     public static String INVERTED_INDEX_PARSER_FINE_GRANULARITY = "fine_grained";
     public static String INVERTED_INDEX_PARSER_COARSE_GRANULARITY = "coarse_grained";
     public static String INVERTED_INDEX_PARSER_SMART = "ik_smart";
+    public static String INVERTED_INDEX_PARSER_KUROMOJI_NORMAL = "normal";
+    public static String INVERTED_INDEX_PARSER_KUROMOJI_SEARCH = "search";
+    public static String INVERTED_INDEX_PARSER_KUROMOJI_EXTENDED = "extended";
 
     public static String INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE = "char_filter_type";
     public static String INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN = "char_filter_pattern";
@@ -81,13 +85,24 @@ public class InvertedIndexProperties {
             return INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
         }
         String mode = properties.get(INVERTED_INDEX_PARSER_MODE_KEY);
+        if (mode != null) {
+            return mode;
+        }
         String parser = properties.get(INVERTED_INDEX_PARSER_KEY);
         if (parser == null) {
             parser = properties.get(INVERTED_INDEX_PARSER_KEY_ALIAS);
         }
-        return mode != null ? mode :
-            INVERTED_INDEX_PARSER_IK.equals(parser) ? INVERTED_INDEX_PARSER_SMART :
-                INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
+        if (INVERTED_INDEX_PARSER_IK.equals(parser)) {
+            return INVERTED_INDEX_PARSER_SMART;
+        }
+        if (INVERTED_INDEX_PARSER_KUROMOJI.equals(parser)) {
+            return INVERTED_INDEX_PARSER_KUROMOJI_SEARCH;
+        }
+        String analyzer = properties.get(INVERTED_INDEX_ANALYZER_NAME_KEY);
+        if (INVERTED_INDEX_PARSER_KUROMOJI.equals(analyzer)) {
+            return INVERTED_INDEX_PARSER_KUROMOJI_SEARCH;
+        }
+        return INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
     }
 
     public static String getInvertedIndexFieldPattern(Map<String, String> properties) {

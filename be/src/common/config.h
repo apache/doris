@@ -572,9 +572,6 @@ DECLARE_mDouble(sparse_column_compaction_threshold_percent);
 DECLARE_mBool(enable_rle_batch_put_optimization);
 DECLARE_Bool(enable_bmi2_optimizations);
 
-// If enabled, segments will be flushed column by column
-DECLARE_mBool(enable_vertical_segment_writer);
-
 // In ordered data compaction, min segment size for input rowset
 DECLARE_mInt32(ordered_data_compaction_min_segment_size);
 
@@ -1163,6 +1160,8 @@ DECLARE_mInt32(in_memory_file_size);
 
 // Max size of parquet page header in bytes
 DECLARE_mInt32(parquet_header_max_size_mb);
+// Max size of parquet file metadata in bytes
+DECLARE_mInt64(parquet_metadata_size_limit);
 // Max buffer size for parquet row group
 DECLARE_mInt32(parquet_rowgroup_max_buffer_mb);
 // Max buffer size for parquet chunk column
@@ -1376,14 +1375,9 @@ DECLARE_Int32(inverted_index_query_cache_shards);
 // inverted index match bitmap cache size
 DECLARE_String(inverted_index_query_cache_limit);
 
-// Process-wide emergency switch for CommonGrams query plans.
-DECLARE_mBool(enable_common_grams_query_plan);
 // Build-only CommonGrams kill switch. Logical index writers snapshot it at construction; changing
 // it affects only writers created after the transition and never changes query/cache semantics.
-DECLARE_mBool(enable_common_grams_index_build);
 // Release-calibrated query-planner coefficients. Both remain mutable for controlled recalibration.
-DECLARE_mInt32(common_grams_plan_cost_ratio_percent);
-DECLARE_mInt32(common_grams_position_verify_factor);
 
 // condition cache limit
 DECLARE_Int16(condition_cache_limit);
@@ -1396,11 +1390,6 @@ DECLARE_Int32(ann_index_result_cache_stale_sweep_time_sec);
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
 DECLARE_mInt32(inverted_index_max_buffered_docs);
-// G16-c: whether plain positions-tier (non-scoring) SNII indexes lay out freq
-// regions. Freq serves ONLY BM25 scoring (no production caller yet), so the
-// default (false) drops the layout; scoring-config indexes always keep freq.
-// Write-side only; segments are self-describing either way.
-DECLARE_mBool(snii_positions_index_write_freq);
 // G16-h: zstd levels for SNII dict blocks / prx windows. Default 3 (the
 // all-level-3 evaluation showed level 9 buys <=6.3% index size for 17-24%
 // import CPU; see the DEFINEs in config.cpp).
@@ -1460,6 +1449,8 @@ DECLARE_mInt64(snii_forced_spill_min_arena_bytes);
 DECLARE_mInt32(snii_spill_max_run_files_per_buffer);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
+// The kuromoji (Japanese) analyzer
+DECLARE_mBool(enable_kuromoji_analyzer);
 DECLARE_Int32(inverted_index_read_buffer_size);
 // tree depth for bkd index
 DECLARE_Int32(max_depth_in_bkd_tree);
@@ -1785,8 +1776,9 @@ DECLARE_mInt64(hive_sink_max_file_size);
 /** Iceberg sink configurations **/
 DECLARE_mInt64(iceberg_sink_max_file_size);
 
-/** Paimon file system configurations **/
-DECLARE_Strings(paimon_file_system_scheme_mappings);
+/** Paimon sink configurations **/
+// Hard upper bound for Doris-managed Paimon write-buffer memory per JNI writer.
+DECLARE_mInt64(paimon_jni_writer_memory_pool_limit_bytes);
 
 // Number of open tries, default 1 means only try to open once.
 // Retry the Open num_retries time waiting 100 milliseconds between retries.

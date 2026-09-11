@@ -762,6 +762,11 @@ public class TableProperty implements GsonPostProcessable {
         return invertedIndexFileStorageFormat;
     }
 
+    public TInvertedIndexFileStorageFormat getPartitionInvertedIndexFileStorageFormat() {
+        String format = properties.get(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT);
+        return format == null ? null : TInvertedIndexFileStorageFormat.valueOf(format);
+    }
+
     public DataSortInfo getDataSortInfo() {
         return dataSortInfo;
     }

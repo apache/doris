@@ -403,6 +403,54 @@ TEST_F(RuntimeFilterPartitionPrunerTest, ProjectedBoundariesSupportListValues) {
     EXPECT_TRUE(pruned.contains(2));
 }
 
+TEST_F(RuntimeFilterPartitionPrunerTest, ProjectedBoundariesSupportTimestampNs) {
+    const TimeStampNsValue lower(-1);
+    const TimeStampNsValue upper(1);
+    auto range_parsed =
+            parse_boundaries(TYPE_TIMESTAMP_NS,
+                             {range_boundary<TYPE_TIMESTAMP_NS>(
+                                     1, lower, upper, 0, TimeStampNsValue::FRACTIONAL_DIGITS)},
+                             false, 0, TimeStampNsValue::FRACTIONAL_DIGITS);
+    auto slot = slot_desc(TYPE_TIMESTAMP_NS, false, 0, TimeStampNsValue::FRACTIONAL_DIGITS);
+    auto target_expr = identity_wrapper_expr(slot.type());
+    VExprContext ctx(target_expr);
+    std::unordered_map<int64_t, TTargetExprMonotonicity::type> directions {
+            {1, TTargetExprMonotonicity::MONOTONIC_INCREASING}};
+
+    std::shared_ptr<const std::vector<ParsedBoundary>> projected_range;
+    ASSERT_TRUE(range_parsed
+                        ->get_or_compute_projected_boundaries(
+                                /*filter_id=*/301, target_expr, SLOT_ID,
+                                /*leaf_column_id=*/0, directions, &ctx, &projected_range)
+                        .ok());
+    ASSERT_EQ(projected_range->size(), 1);
+    const auto& range =
+            std::get<ColumnValueRange<TYPE_TIMESTAMP_NS>>(projected_range->at(0).boundary_cvr);
+    EXPECT_EQ(range.get_range_min_value(), lower);
+    EXPECT_EQ(range.get_range_max_value(), upper);
+
+    auto list_parsed = parse_boundaries(
+            TYPE_TIMESTAMP_NS,
+            {list_boundary<TYPE_TIMESTAMP_NS>(
+                    1,
+                    {literal_node<TYPE_TIMESTAMP_NS>(lower, 0, TimeStampNsValue::FRACTIONAL_DIGITS),
+                     literal_node<TYPE_TIMESTAMP_NS>(upper, 0,
+                                                     TimeStampNsValue::FRACTIONAL_DIGITS)})},
+            false, 0, TimeStampNsValue::FRACTIONAL_DIGITS);
+    std::shared_ptr<const std::vector<ParsedBoundary>> projected_list;
+    ASSERT_TRUE(list_parsed
+                        ->get_or_compute_projected_boundaries(
+                                /*filter_id=*/302, target_expr, SLOT_ID,
+                                /*leaf_column_id=*/0, directions, &ctx, &projected_list)
+                        .ok());
+    ASSERT_EQ(projected_list->size(), 1);
+    const auto& list =
+            std::get<ColumnValueRange<TYPE_TIMESTAMP_NS>>(projected_list->at(0).boundary_cvr);
+    EXPECT_TRUE(list.is_fixed_value_range());
+    EXPECT_TRUE(list.get_fixed_value_set().contains(lower));
+    EXPECT_TRUE(list.get_fixed_value_set().contains(upper));
+}
+
 TEST_F(RuntimeFilterPartitionPrunerTest, BloomPrunesListPartitionFixedValues) {
     int32_t one = 1;
     int32_t two = 2;
@@ -547,6 +595,8 @@ TEST_F(RuntimeFilterPartitionPrunerTest, ParseAndPrunePrimitiveTypeMatrix) {
     assert_parse_and_prune_type<TYPE_DATEV2>(date_v2(2024, 1, 1), date_v2(2024, 2, 1));
     assert_parse_and_prune_type<TYPE_DATETIMEV2>(datetime_v2(2024, 1, 1), datetime_v2(2024, 2, 1),
                                                  0, 6);
+    assert_parse_and_prune_type<TYPE_TIMESTAMP_NS>(TimeStampNsValue(-1), TimeStampNsValue(1), 0,
+                                                   TimeStampNsValue::FRACTIONAL_DIGITS);
     assert_parse_and_prune_type<TYPE_TIMESTAMPTZ>(timestamptz(2024, 1, 1), timestamptz(2024, 2, 1),
                                                   0, 6);
     assert_parse_and_prune_type<TYPE_DECIMAL32>(Decimal32(100), Decimal32(200), 9, 2);

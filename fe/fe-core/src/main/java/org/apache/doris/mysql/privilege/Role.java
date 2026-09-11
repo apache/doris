@@ -312,7 +312,7 @@ public class Role implements GsonPostProcessable {
             return true;
         }
         // if user has any privs of databases or tables in this catalog, and the wanted priv is SHOW, return true
-        if (ctl != null && wanted == PrivPredicate.SHOW && checkAnyPrivWithinCatalog(ctl)) {
+        if (wanted == PrivPredicate.SHOW && checkAnyPrivWithinCatalog(ctl)) {
             return true;
         }
         if (LOG.isDebugEnabled()) {
@@ -358,7 +358,7 @@ public class Role implements GsonPostProcessable {
         }
 
         // if user has any privs of table in this db, and the wanted priv is SHOW, return true
-        if (ctl != null && db != null && wanted == PrivPredicate.SHOW && checkAnyPrivWithinDb(ctl, db)) {
+        if (wanted == PrivPredicate.SHOW && checkAnyPrivWithinDb(ctl, db)) {
             return true;
         }
 
@@ -424,8 +424,7 @@ public class Role implements GsonPostProcessable {
         }
 
         // if user has any privs of col in this table, and the wanted priv is SHOW, return true
-        if (ctl != null && db != null && tbl != null && wanted == PrivPredicate.SHOW && checkAnyColPrivWithinTbl(ctl,
-                db, tbl)) {
+        if (wanted == PrivPredicate.SHOW && checkAnyColPrivWithinTbl(ctl, db, tbl)) {
             return true;
         }
 

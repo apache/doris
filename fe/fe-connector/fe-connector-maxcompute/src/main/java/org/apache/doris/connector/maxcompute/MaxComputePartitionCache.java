@@ -18,7 +18,10 @@
 package org.apache.doris.connector.maxcompute;
 
 import org.apache.doris.connector.cache.CacheSpec;
-import org.apache.doris.connector.cache.MetaCacheEntry;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.ScopePath;
 
 import com.aliyun.odps.Partition;
 
@@ -26,12 +29,11 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ForkJoinPool;
 
 /**
  * The MaxCompute connector's own partition-listing cache — a structural copy of the hive connector's
  * {@code HiveFileListingCache}, backed by the shared
- * {@code fe-connector-cache} framework ({@link CacheSpec} + {@link MetaCacheEntry}). It memoizes the (expensive)
+ * {@code fe-connector-cache} framework. It memoizes the (expensive)
  * per-table ODPS partition listing ({@code structureHelper.getPartitions}), keyed by {@code (db, table)} — the
  * ODPS project is constant per catalog, so it is NOT part of the key.
  *
@@ -53,7 +55,7 @@ import java.util.concurrent.ForkJoinPool;
  * refresh thread would not inherit the caller's pin). Mirrors {@code CachingHmsClient} / {@code
  * HiveFileListingCache}'s entry construction.
  *
- * <p><b>Failures are not cached.</b> The loader never caches a failed load (matching {@link MetaCacheEntry}'s
+ * <p><b>Failures are not cached.</b> The loader never caches a failed load (matching the framework's
  * null-is-a-miss / exception-propagates contract), so a transient ODPS failure does not poison the listing for
  * the whole TTL.
  */
@@ -84,17 +86,23 @@ public class MaxComputePartitionCache {
         List<Partition> list(String dbName, String tableName);
     }
 
-    private final MetaCacheEntry<PartitionKey, List<Partition>> cache;
+    private final CatalogMetaCache owner;
+    private final MetaCache<PartitionKey, List<Partition>> cache;
     private final PartitionLister lister;
 
     MaxComputePartitionCache(Map<String, String> properties, PartitionLister lister) {
+        this(new CatalogMetaCache(), properties, lister);
+    }
+
+    MaxComputePartitionCache(CatalogMetaCache owner, Map<String, String> properties, PartitionLister lister) {
+        this.owner = Objects.requireNonNull(owner, "owner can not be null");
         Map<String, String> props = properties == null ? Collections.emptyMap() : properties;
         CacheSpec spec = CacheSpec.fromProperties(props, ENGINE, ENTRY_PARTITION,
                 CacheSpec.of(true, DEFAULT_TTL_SECOND, DEFAULT_PARTITION_CAPACITY));
-        // Contextual-only + manual-miss so the slow getPartitions runs on the caller (TCCL-pinned) thread outside
-        // Caffeine's sync compute lock, deduplicated by a striped lock — mirrors CachingHmsClient's entries.
-        this.cache = new MetaCacheEntry<>("max_compute.partition", null, spec, ForkJoinPool.commonPool(),
-                false, true, 0L, true);
+        this.cache = owner.create(MetaCacheDefinition
+                .<PartitionKey, List<Partition>>builder("max-compute-partition", spec,
+                        key -> ScopePath.table(key.dbName, key.tableName))
+                .build());
         this.lister = Objects.requireNonNull(lister, "lister can not be null");
     }
 
@@ -111,24 +119,22 @@ public class MaxComputePartitionCache {
 
     /** Drops the cached partition listing for one table. Backs {@code REFRESH TABLE}. */
     public void invalidateTable(String dbName, String tableName) {
-        cache.invalidateIf(key -> key.matches(dbName, tableName));
+        owner.invalidateTable(dbName, tableName);
     }
 
     /** Drops every cached partition listing for one database (all its tables). Backs {@code REFRESH DATABASE}. */
     public void invalidateDb(String dbName) {
-        cache.invalidateIf(key -> key.matchesDb(dbName));
+        owner.invalidateDatabase(dbName);
     }
 
     /** Drops the whole partition cache. Backs {@code REFRESH CATALOG}. */
     public void invalidateAll() {
-        cache.invalidateAll();
+        owner.invalidateCatalog();
     }
 
     /** Current number of cached partition listings — for unit tests only (mirrors HiveFileListingCache.size()). */
     long size() {
-        long[] count = {0L};
-        cache.forEach((key, value) -> count[0]++);
-        return count[0];
+        return cache.size();
     }
 
     /**
@@ -142,14 +148,6 @@ public class MaxComputePartitionCache {
         PartitionKey(String dbName, String tableName) {
             this.dbName = dbName;
             this.tableName = tableName;
-        }
-
-        boolean matches(String db, String table) {
-            return Objects.equals(dbName, db) && Objects.equals(tableName, table);
-        }
-
-        boolean matchesDb(String db) {
-            return Objects.equals(dbName, db);
         }
 
         @Override

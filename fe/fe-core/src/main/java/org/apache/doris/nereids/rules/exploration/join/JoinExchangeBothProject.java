@@ -37,6 +37,7 @@ import com.google.common.collect.Lists;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -56,18 +57,24 @@ public class JoinExchangeBothProject extends OneExplorationRuleFactory {
     public Rule build() {
         return logicalProject(innerLogicalJoin(logicalProject(innerLogicalJoin()), logicalProject(innerLogicalJoin()))
                 .when(JoinExchangeBothProject::checkReorder)
-                .when(join -> join.left().isAllSlots() && join.right().isAllSlots())
                 .whenNot(join -> join.hasDistributeHint()
                         || join.left().child().hasDistributeHint() || join.right().child().hasDistributeHint()))
                 .then(topProject -> {
                     LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>,
                             LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>> topJoin = topProject.child();
-                    LogicalJoin<GroupPlan, GroupPlan> leftJoin = topJoin.left().child();
-                    LogicalJoin<GroupPlan, GroupPlan> rightJoin = topJoin.right().child();
-                    GroupPlan a = leftJoin.left();
-                    GroupPlan b = leftJoin.right();
-                    GroupPlan c = rightJoin.left();
-                    GroupPlan d = rightJoin.right();
+                    Optional<LogicalProject<LogicalJoin<Plan, Plan>>>
+                            normalizedLeftProject = ProjectJoinReorderHelper.normalize(topJoin.left());
+                    Optional<LogicalProject<LogicalJoin<Plan, Plan>>>
+                            normalizedRightProject = ProjectJoinReorderHelper.normalize(topJoin.right());
+                    if (!normalizedLeftProject.isPresent() || !normalizedRightProject.isPresent()) {
+                        return null;
+                    }
+                    LogicalJoin<Plan, Plan> leftJoin = normalizedLeftProject.get().child();
+                    LogicalJoin<Plan, Plan> rightJoin = normalizedRightProject.get().child();
+                    Plan a = leftJoin.left();
+                    Plan b = leftJoin.right();
+                    Plan c = rightJoin.left();
+                    Plan d = rightJoin.right();
 
                     Set<ExprId> acOutputExprIdSet = JoinUtils.getJoinOutputExprIdSet(a, c);
                     Set<ExprId> bdOutputExprIdSet = JoinUtils.getJoinOutputExprIdSet(b, d);
@@ -92,10 +99,10 @@ public class JoinExchangeBothProject extends OneExplorationRuleFactory {
                         return null;
                     }
 
-                    LogicalJoin<GroupPlan, GroupPlan> newLeftJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
+                    LogicalJoin<Plan, Plan> newLeftJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newLeftJoinHashJoinConjuncts, newLeftJoinOtherJoinConjuncts,
                             new DistributeHint(DistributeType.NONE), a, c, null);
-                    LogicalJoin<GroupPlan, GroupPlan> newRightJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
+                    LogicalJoin<Plan, Plan> newRightJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newRightJoinHashJoinConjuncts, newRightJoinOtherJoinConjuncts,
                             new DistributeHint(DistributeType.NONE), b, d, null);
                     Set<ExprId> topUsedExprIds = new HashSet<>();

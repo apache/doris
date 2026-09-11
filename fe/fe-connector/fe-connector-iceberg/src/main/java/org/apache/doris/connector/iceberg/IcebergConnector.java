@@ -17,7 +17,10 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
+import org.apache.doris.connector.iceberg.dlf.DLFCatalog;
+import org.apache.doris.connector.metastore.DlfMetaStoreProperties;
 import org.apache.doris.connector.metastore.iceberg.jdbc.IcebergJdbcMetaStoreProperties;
 import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.AbstractHmsMetaStoreProperties;
@@ -55,7 +58,6 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.BaseViewSessionCatalog;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.SessionCatalog;
-import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.hive.HiveHadoopUtil;
@@ -159,10 +161,6 @@ public class IcebergConnector implements Connector {
     static final int DEFAULT_TABLE_CACHE_CAPACITY = 1000;
 
     // Doris storage property keys (mirror StorageProperties without a fe-core dependency).
-    private static final String S3_ACCESS_KEY = "s3.access_key";
-    private static final String S3_SECRET_KEY = "s3.secret_key";
-    private static final String S3_ENDPOINT = "s3.endpoint";
-    private static final String S3_REGION = "s3.region";
     // Catalog property key gating the plugin-side Kerberos authenticator (value matches AuthType.KERBEROS).
     private static final String HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
     // Polaris REST catalog exposes its object-store base location under this key when the
@@ -235,9 +233,10 @@ public class IcebergConnector implements Connector {
             mvccPartitionViewCache;
     private final ConnectorMetadataCache<List<ConnectorPartitionInfo>> // null under session=user
             listPartitionsViewCache;
+    private final CatalogMetaCache metaCache = new CatalogMetaCache();
     // Manifest content cache — pure metadata, default-off (meta.cache.iceberg.manifest.enable), and consumed
     // ONLY after a per-user resolveTable(ForRead) -- exempt: no read path without a per-user load.
-    private final IcebergManifestCache manifestCache = new IcebergManifestCache();
+    private final IcebergManifestCache manifestCache = new IcebergManifestCache(metaCache);
 
     // Lazily-built plugin-side Kerberos authenticator (single-owner auth; see TcclPinningConnectorContext).
     // null for a non-Kerberos catalog. Its doAs acts on the PLUGIN's UserGroupInformation copy — the one the
@@ -271,7 +270,7 @@ public class IcebergConnector implements Connector {
         this.latestSnapshotCache = isUserSessionEnabled()
                 ? null
                 : new IcebergLatestSnapshotCache(
-                        resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
+                        metaCache, resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
         // PERF-01 cross-query RAW-table cache. Disabled (null) when the catalog's credentials are
         // query-dependent, because a cached raw Table carries its FileIO's credentials:
         //   - iceberg.rest.session=user: per-user delegated FileIO -> sharing across users leaks credentials.
@@ -284,7 +283,7 @@ public class IcebergConnector implements Connector {
                 || IcebergScanPlanProvider.restVendedCredentialsEnabled(this.properties))
                 ? null
                 : new IcebergTableCache(
-                        resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY,
+                        metaCache, resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY,
                         this::cachedTableCleanup, catalogResourceTracker);
         // PERF-02: partition-view cache. Authorization-sensitive projection: a shared (table+snapshot-keyed, no
         // user dimension) hit would disclose one user's partition list. Its readers are all downstream of a
@@ -295,13 +294,13 @@ public class IcebergConnector implements Connector {
         this.partitionCache = isUserSessionEnabled()
                 ? null
                 : new IcebergPartitionCache(
-                        resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
+                        metaCache, resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
         // PERF-03: inferred-file-format cache. Same authorization-sensitive treatment as partitionCache (disabled
         // under session=user, kept otherwise); readers already tolerate a null cache (resolveFileFormatName).
         this.formatCache = isUserSessionEnabled()
                 ? null
                 : new IcebergFormatCache(
-                        resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
+                        metaCache, resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
         // PERF-05: table-comment cache, built ONLY for a REST vended-credentials catalog that is NOT session=user.
         // Plain catalogs (tableCache on) already serve the comment path from tableCache; session=user is excluded
         // because a shared comment cache would bypass the per-user loadTable authorization (a metadata disclosure).
@@ -310,7 +309,7 @@ public class IcebergConnector implements Connector {
         this.commentCache = (IcebergScanPlanProvider.restVendedCredentialsEnabled(this.properties)
                 && !isUserSessionEnabled())
                 ? new IcebergCommentCache(
-                        resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY)
+                        metaCache, resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY)
                 : null;
         // PERF-06: derived partition-view cache A (generic ConnectorMetadataCache). Same
         // authorization-sensitive treatment as partitionCache -- disabled (null) under iceberg.rest.session=user so
@@ -319,10 +318,12 @@ public class IcebergConnector implements Connector {
         // framework's CacheSpec (default ON / 24h / 1000). Two typed instances (MVCC view + partition-info list).
         this.mvccPartitionViewCache = isUserSessionEnabled()
                 ? null
-                : new ConnectorMetadataCache<>("iceberg", "partition_view", this.properties);
+                : new ConnectorMetadataCache<>(metaCache, "iceberg.mvcc-partition-view",
+                        "iceberg", "partition_view", this.properties);
         this.listPartitionsViewCache = isUserSessionEnabled()
                 ? null
-                : new ConnectorMetadataCache<>("iceberg", "partition_view", this.properties);
+                : new ConnectorMetadataCache<>(metaCache, "iceberg.list-partitions-view",
+                        "iceberg", "partition_view", this.properties);
     }
 
     /**
@@ -377,7 +378,7 @@ public class IcebergConnector implements Connector {
         String catalogType = properties.getOrDefault(
                 IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, "");
 
-        // -- Metastore probe (REST, HMS, Glue, S3Tables) --
+        // -- Metastore probe (REST, HMS, Glue, DLF, S3Tables) --
         // Listing databases forces a real round-trip that validates the URI, auth and warehouse config.
         // This used to be REST-only here, which silently dropped the HMS/Glue/S3Tables coverage the legacy
         // fe-core Iceberg{HMS,Glue,S3Tables}ConnectivityTester family provided.
@@ -391,7 +392,7 @@ public class IcebergConnector implements Connector {
             }
         }
 
-        // -- Storage probe (only when the user supplied S3 credentials) --
+        // -- Storage probe (only when the bound S3-compatible storage has static credentials) --
         ConnectorTestResult storageResult = probeStorage(catalogType);
         if (storageResult != null) {
             return storageResult;
@@ -405,9 +406,10 @@ public class IcebergConnector implements Connector {
      * passes or is not applicable (no S3 credentials, or no resolvable s3:// location).
      */
     private ConnectorTestResult probeStorage(String catalogType) {
-        String accessKey = properties.get(S3_ACCESS_KEY);
-        String endpoint = properties.get(S3_ENDPOINT);
-        if (isBlank(accessKey) || isBlank(endpoint)) {
+        Optional<S3CompatibleFileSystemProperties> chosenStorage =
+                IcebergCatalogFactory.chooseS3Compatible(storage().getStorageProperties());
+        if (chosenStorage.isEmpty() || !chosenStorage.get().hasStaticCredentials()
+                || isBlank(chosenStorage.get().getEndpoint())) {
             // No S3 credentials supplied: nothing to probe.
             return null;
         }
@@ -422,16 +424,7 @@ public class IcebergConnector implements Connector {
 
         // Map Doris s3.* keys to Iceberg S3FileIO keys and force static credentials (disable
         // remote/vended signing) so the probe validates exactly what the user configured.
-        Map<String, String> ioProps = new HashMap<>();
-        ioProps.put("s3.endpoint", endpoint);
-        ioProps.put("s3.access-key-id", accessKey);
-        ioProps.put("s3.secret-access-key", properties.getOrDefault(S3_SECRET_KEY, ""));
-        ioProps.put("s3.path-style-access", "true");
-        ioProps.put("s3.remote-signing-enabled", "false");
-        String region = properties.get(S3_REGION);
-        if (!isBlank(region)) {
-            ioProps.put("client.region", region);
-        }
+        Map<String, String> ioProps = buildStorageProbeProperties(catalogType, chosenStorage.get());
 
         // Load S3FileIO reflectively via CatalogUtil so this module needs no compile-time AWS SDK
         // dependency; the AWS SDK is resolved from the shared runtime classpath at execution time.
@@ -472,6 +465,29 @@ public class IcebergConnector implements Connector {
         return probeStorageFromBackend(location);
     }
 
+    static Map<String, String> buildStorageProbeProperties(
+            String catalogType, S3CompatibleFileSystemProperties storageProperties) {
+        String endpoint = storageProperties.getEndpoint();
+        if (IcebergCatalogProperties.TYPE_DLF.equalsIgnoreCase(catalogType)
+                && "OSS".equals(storageProperties.providerName())) {
+            endpoint = DLFCatalog.toS3CompatibleEndpoint(endpoint, storageProperties.getRegion());
+        }
+        // The storage binder is the source of truth because DLF aliases are not necessarily present as s3.* keys.
+        Map<String, String> ioProps = new HashMap<>();
+        ioProps.put("s3.endpoint", endpoint);
+        ioProps.put("s3.access-key-id", storageProperties.getAccessKey());
+        ioProps.put("s3.secret-access-key", storageProperties.getSecretKey());
+        ioProps.put("s3.path-style-access", storageProperties.getUsePathStyle());
+        ioProps.put("s3.remote-signing-enabled", "false");
+        if (!isBlank(storageProperties.getSessionToken())) {
+            ioProps.put("s3.session-token", storageProperties.getSessionToken());
+        }
+        if (!isBlank(storageProperties.getRegion())) {
+            ioProps.put("client.region", storageProperties.getRegion());
+        }
+        return ioProps;
+    }
+
     /**
      * Asks a backend to reach {@code location} with the catalog's BE-facing credentials. Returns a failure
      * result if the backend rejects it, or {@code null} when it passes (or when there is no backend to ask,
@@ -500,7 +516,14 @@ public class IcebergConnector implements Connector {
      * (Iceberg {@code warehouse} or Polaris {@code default-base-location}).
      */
     private String resolveS3TestLocation(String catalogType) {
-        String location = toS3Location(properties.get(CatalogProperties.WAREHOUSE_LOCATION));
+        String warehouse = properties.get(CatalogProperties.WAREHOUSE_LOCATION);
+        if (IcebergCatalogProperties.TYPE_DLF.equalsIgnoreCase(catalogType)
+                && warehouse != null && warehouse.trim().toLowerCase(Locale.ROOT).startsWith("oss://")) {
+            // Reuse the selected storage binding so a virtual-hosted OSS authority is reduced to
+            // its real bucket before both FE and BE probes consume the S3-compatible location.
+            warehouse = storage().normalizeStorageUri(warehouse.trim());
+        }
+        String location = toS3Location(warehouse);
         if (location != null) {
             return location;
         }
@@ -541,7 +564,8 @@ public class IcebergConnector implements Connector {
         return IcebergCatalogProperties.TYPE_REST.equalsIgnoreCase(catalogType)
                 || IcebergCatalogProperties.TYPE_HMS.equalsIgnoreCase(catalogType)
                 || IcebergCatalogProperties.TYPE_GLUE.equalsIgnoreCase(catalogType)
-                || IcebergCatalogProperties.TYPE_S3_TABLES.equalsIgnoreCase(catalogType);
+                || IcebergCatalogProperties.TYPE_S3_TABLES.equalsIgnoreCase(catalogType)
+                || IcebergCatalogProperties.TYPE_DLF.equalsIgnoreCase(catalogType);
     }
 
     static String metaFailureMessage(String catalogType, Throwable cause) {
@@ -654,27 +678,7 @@ public class IcebergConnector implements Connector {
      */
     @Override
     public void invalidateTable(String dbName, String tableName) {
-        if (latestSnapshotCache != null) {
-            latestSnapshotCache.invalidate(TableIdentifier.of(dbName, tableName));
-        }
-        if (tableCache != null) {
-            tableCache.invalidate(TableIdentifier.of(dbName, tableName));
-        }
-        if (partitionCache != null) {
-            partitionCache.invalidate(TableIdentifier.of(dbName, tableName));
-        }
-        if (formatCache != null) {
-            formatCache.invalidate(TableIdentifier.of(dbName, tableName));
-        }
-        if (commentCache != null) {
-            commentCache.invalidate(TableIdentifier.of(dbName, tableName));
-        }
-        if (mvccPartitionViewCache != null) {
-            mvccPartitionViewCache.invalidateTable(dbName, tableName);
-        }
-        if (listPartitionsViewCache != null) {
-            listPartitionsViewCache.invalidateTable(dbName, tableName);
-        }
+        metaCache.invalidateTable(dbName, tableName);
     }
 
     /**
@@ -690,27 +694,7 @@ public class IcebergConnector implements Connector {
      */
     @Override
     public void invalidateDb(String dbName) {
-        if (latestSnapshotCache != null) {
-            latestSnapshotCache.invalidateDb(dbName);
-        }
-        if (tableCache != null) {
-            tableCache.invalidateDb(dbName);
-        }
-        if (partitionCache != null) {
-            partitionCache.invalidateDb(dbName);
-        }
-        if (formatCache != null) {
-            formatCache.invalidateDb(dbName);
-        }
-        if (commentCache != null) {
-            commentCache.invalidateDb(dbName);
-        }
-        if (mvccPartitionViewCache != null) {
-            mvccPartitionViewCache.invalidateDb(dbName);
-        }
-        if (listPartitionsViewCache != null) {
-            listPartitionsViewCache.invalidateDb(dbName);
-        }
+        metaCache.invalidateDatabase(dbName);
     }
 
     /**
@@ -722,28 +706,8 @@ public class IcebergConnector implements Connector {
      */
     @Override
     public void invalidateAll() {
-        if (latestSnapshotCache != null) {
-            latestSnapshotCache.invalidateAll();
-        }
-        if (tableCache != null) {
-            tableCache.invalidateAll();
-        }
-        if (partitionCache != null) {
-            partitionCache.invalidateAll();
-        }
-        if (formatCache != null) {
-            formatCache.invalidateAll();
-        }
-        if (commentCache != null) {
-            commentCache.invalidateAll();
-        }
-        if (mvccPartitionViewCache != null) {
-            mvccPartitionViewCache.invalidateAll();
-        }
-        if (listPartitionsViewCache != null) {
-            listPartitionsViewCache.invalidateAll();
-        }
-        manifestCache.invalidateAll();
+        metaCache.invalidateCatalog();
+        manifestCache.clearStats();
     }
 
     /**
@@ -871,6 +835,9 @@ public class IcebergConnector implements Connector {
         // avoidance). Correct only because the connector also carries per-field ids down its column tree
         // (parseSchema withUniqueId + IcebergTypeMapping withChildrenFieldIds), which the BE field-id scan
         // path matches nested leaves by; without them a nested leaf reads NULL. Inert pre-cutover (P6.6).
+        // SUPPORTS_STORAGE_PREDICATE_PRUNING: native Iceberg data scans use the Parquet/ORC readers that can
+        // consume inferred bare-column ranges for min/max pruning. PluginDrivenSysExternalTable opts metadata
+        // tables out separately, so this catalog-wide declaration applies only to normal data-table scans.
         // SUPPORTS_METADATA_PRELOAD: legacy IcebergExternalTable.supportsExternalMetadataPreload returns true so
         // the planner async pre-warms schema/snapshot before taking the read lock; the generic plugin-driven
         // path reproduces this ONLY under this capability (PluginDrivenExternalTable.supportsExternalMetadataPreload),
@@ -886,6 +853,7 @@ public class IcebergConnector implements Connector {
                 ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL,
                 ConnectorCapability.SUPPORTS_VIEW,
                 ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE,
+                ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING,
                 ConnectorCapability.SUPPORTS_METADATA_PRELOAD,
                 ConnectorCapability.SUPPORTS_SORT_ORDER,
                 ConnectorCapability.SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE);
@@ -1024,6 +992,10 @@ public class IcebergConnector implements Connector {
             return createS3TablesCatalog(catalogName, chosenS3);
         }
 
+        if (IcebergCatalogProperties.TYPE_DLF.equals(flavor)) {
+            return createDlfCatalog(catalogName, chosenS3);
+        }
+
         Map<String, String> catalogOptions =
                 IcebergCatalogFactory.buildCatalogProperties(catalogProps, chosenS3);
         Map<String, String> storageHadoopConfig = buildStorageHadoopConfig();
@@ -1090,6 +1062,23 @@ public class IcebergConnector implements Connector {
         keys = appendCacheKey(keys, "conf:hadoop.kerberos.principal");
         // Both settings are captured by the JVM-static SDK pool and must distinguish ALTER CATALOG generations.
         return appendCacheKey(keys, "conf:hive.metastore.sasl.enabled");
+    }
+
+    private Catalog createDlfCatalog(String catalogName,
+            Optional<S3CompatibleFileSystemProperties> chosenS3) {
+        if (!chosenS3.isPresent() || !"OSS".equals(chosenS3.get().providerName())) {
+            throw new DorisConnectorException("Iceberg dlf catalog requires OSS storage properties");
+        }
+        DlfMetaStoreProperties dlf = (DlfMetaStoreProperties) MetaStoreProviders.bindForType(
+                IcebergCatalogProperties.TYPE_DLF, properties, buildStorageHadoopConfig());
+        Configuration conf = IcebergCatalogFactory.buildDlfConfiguration(dlf.toDlfCatalogConf());
+        Map<String, String> catalogOptions = IcebergCatalogFactory.buildBaseCatalogProperties(properties);
+        return buildCatalogAuthenticated(IcebergCatalogProperties.TYPE_DLF, () -> {
+            DLFCatalog catalog = new DLFCatalog(chosenS3.get());
+            catalog.setConf(conf);
+            catalog.initialize(catalogName, catalogOptions);
+            return catalog;
+        });
     }
 
     static String appendCacheKey(String existing, String required) {
@@ -1689,7 +1678,8 @@ public class IcebergConnector implements Connector {
         if (tableCache != null) {
             tableCache.close();
         }
-        invalidateAll();
+        manifestCache.clearStats();
+        metaCache.close();
         Catalog c = icebergCatalog;
         BaseViewSessionCatalog sc = restSessionCatalog;
         icebergCatalog = null;

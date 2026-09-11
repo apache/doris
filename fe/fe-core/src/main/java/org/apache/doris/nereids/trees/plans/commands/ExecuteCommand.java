@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.TableScanParams;
@@ -46,6 +45,7 @@ import org.apache.doris.qe.PreparedStatementContext;
 import org.apache.doris.qe.ShortCircuitQueryContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -90,14 +90,14 @@ public class ExecuteCommand extends Command {
                     "prepare statement " + stmtName + " not found,  maybe expired");
         }
         PrepareCommand prepareCommand = preparedStmtCtx.command;
-        StatementContext statementContext = preparedStmtCtx.getStatementContext();
+        // Allocate a fresh StatementContext per EXECUTE so the per-statement state accumulated by
+        // prior executions (bound tables, CTE maps, statistics, snapshots, ...) is released
+        // promptly instead of living as long as the connection, which can OOM long-lived
+        // connections. The necessary cross-execution state (placeholder bindings, comparison
+        // slots, id generator positions, short-circuit flags) is carried over to the new context.
+        StatementContext statementContext = preparedStmtCtx.nextStatementContext();
         statementContext.setPrepareStage(false);
         statementContext.setIsInsert(false);
-        // A prepared EXECUTE reuses this one StatementContext across executions; drop the connector
-        // per-statement scope so a prior execution's cached tables/state never leak into this one (the
-        // scope key's queryId is a second line of defense). See StatementContext#resetConnectorStatementScope.
-        statementContext.resetConnectorStatementScope();
-        statementContext.resetMvccSnapshots();
         LogicalPlan logicalPlan = prepareCommand.getLogicalPlan();
         List<LogicalPlan> relationRoots = new ArrayList<>();
         if (logicalPlan instanceof InsertIntoTableCommand) {
@@ -157,6 +157,11 @@ public class ExecuteCommand extends Command {
                 && hasShortCircuitContext
                 && shortCircuitContextReusable
                 && !statementContext.hasNondeterministic()) {
+            // The fresh per-execution context carries the short-circuit flag but not the cached plan.
+            // Install the just-validated cache before the direct path: result sending reads it via
+            // statementContext.getShortCircuitQueryContext(), and the fallback (building one from a
+            // null planner, since this path skips planning) would NPE.
+            statementContext.setShortCircuitQueryContext(preparedStmtCtx.shortCircuitQueryContext.get());
             PointQueryExecutor.directExecuteShortCircuitQuery(executor, preparedStmtCtx, statementContext);
             return;
         }
@@ -181,11 +186,14 @@ public class ExecuteCommand extends Command {
         // early above, has just been refreshed here, or is stale and we are about to re-plan.
         preparedStmtCtx.shortCircuitQueryContext = Optional.empty();
         executor.execute();
-        if (executor.getContext().getStatementContext().isShortCircuitQuery()) {
-            // cache short-circuit plan
-            preparedStmtCtx.shortCircuitQueryContext = Optional.of(
-                    new ShortCircuitQueryContext(executor.planner(), (Queriable) executor.getParsedStmt()));
-            statementContext.setShortCircuitQueryContext(preparedStmtCtx.shortCircuitQueryContext.get());
+        StatementContext executedStatementContext = executor.getContext().getStatementContext();
+        ShortCircuitQueryContext shortCircuitQueryContext =
+                executedStatementContext.getShortCircuitQueryContext();
+        if (shortCircuitQueryContext != null) {
+            Preconditions.checkState(executedStatementContext.isShortCircuitQuery());
+            // Publish the exact context used by this execution so its topology generation stays
+            // bound to the cached partition pruner in the same planner scan node.
+            preparedStmtCtx.shortCircuitQueryContext = Optional.of(shortCircuitQueryContext);
         }
     }
 

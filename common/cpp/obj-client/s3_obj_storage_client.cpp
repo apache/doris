@@ -58,10 +58,14 @@ std::string object_identity(const ObjStoragePath& opts) {
 }
 
 std::string s3_error_message(const Aws::S3::S3Error& error, std::string_view message) {
+    // A failure raised by the client itself carries no request id, and a dangling
+    // `request_id=` has been read as a request id of the object storage.
+    std::string request_id =
+            error.GetRequestId().empty() ? "<empty>" : error.GetRequestId().c_str();
     return fmt::format("{}: {} {} code={}, type={}, request_id={}", message,
                        error.GetExceptionName(), error.GetMessage(),
                        static_cast<int>(error.GetResponseCode()),
-                       static_cast<int>(error.GetErrorType()), error.GetRequestId());
+                       static_cast<int>(error.GetErrorType()), request_id);
 }
 
 } // namespace
@@ -300,21 +304,25 @@ ObjStorageResponse S3ObjStorageClient::get_object(const ObjStoragePath& opts, vo
     if (!outcome.IsSuccess()) {
         record_s3_request_failed(outcome.GetError());
         return ObjStorageResponse {
-                .status = s3fs_error(outcome.GetError(), fmt::format("failed to get object: {}",
-                                                                     object_identity(opts))),
+                .status = s3fs_error(
+                        outcome.GetError(),
+                        fmt::format("failed to get object: bucket={} object={} offset={} size={}",
+                                    opts.bucket, object_identity(opts), offset, bytes_read)),
                 .http_code = static_cast<int>(outcome.GetError().GetResponseCode()),
                 .request_id = outcome.GetError().GetRequestId(),
         };
     }
     *size_return = outcome.GetResult().GetContentLength();
+    // Short read, or a server or a proxy answering a ranged read with the whole object.
     SYNC_POINT_CALLBACK("s3_obj_storage_client::get_object", size_return);
     if (*size_return != bytes_read) {
         const auto& request_id = outcome.GetResult().GetRequestId();
         return ObjStorageResponse {
                 .status = {ObjStorageStatus::INTERNAL_ERROR,
-                           fmt::format("incomplete read from {}, expect {}, got {}, request_id={}",
-                                       object_identity(opts), bytes_read, *size_return,
-                                       request_id)},
+                           fmt::format("incomplete read from bucket={} object={} offset={}, expect "
+                                       "{}, got {}, request_id={}",
+                                       opts.bucket, object_identity(opts), offset, bytes_read,
+                                       *size_return, request_id)},
                 .request_id = request_id};
     }
     return ObjStorageResponse::OK();

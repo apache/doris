@@ -34,7 +34,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Unit tests for {@link IcebergTableCache} (PERF-01). The cross-query RAW-table cache mirrors
- * {@link IcebergLatestSnapshotCache} exactly (same {@link org.apache.doris.connector.cache.MetaCacheEntry}
+ * {@link IcebergLatestSnapshotCache} exactly (same {@link org.apache.doris.connector.cache.MetaCache}
  * backing) but stores the whole {@link Table} instead of the {@code (snapshotId, schemaId)} pin, restoring the
  * table-caching half of the legacy {@code IcebergExternalMetaCache}. These tests cover the adapter's contract —
  * within-TTL stability, the {@code ttl <= 0} disable, invalidation, and the exception-propagation guarantee the
@@ -273,7 +273,7 @@ public class IcebergTableCacheTest {
     public void loaderExceptionPropagatesUnwrapped() {
         // The partition-view readers (listPartitions / listPartitionNames) catch NoSuchTableException to degrade
         // a concurrent-drop race to an empty list. Routing them through this cache must NOT wrap that exception,
-        // or the degradation would break and they'd throw instead. The MetaCacheEntry manual-miss-load path
+        // or the degradation would break and they'd throw instead. The MetaCache manual-miss-load path
         // re-throws the loader's RuntimeException verbatim. MUTATION: wrapping the loader exception ->
         // assertThrows(NoSuchTableException) fails (a different type is thrown) -> red.
         IcebergTableCache c = new IcebergTableCache(100, 1000);

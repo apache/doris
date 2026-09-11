@@ -4,3 +4,14 @@
 
 -- !having_project_2 --
 
+-- !having_map_lambda_local_slots --
+1	2
+
+-- !having_array_lambda_local_slots --
+1	2
+
+-- !scalar_subquery_having_true --
+1
+
+-- !scalar_subquery_having_false --
+

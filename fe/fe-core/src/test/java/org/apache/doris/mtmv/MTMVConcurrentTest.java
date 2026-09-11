@@ -20,6 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.utframe.TestWithFeService;
@@ -68,7 +69,8 @@ public class MTMVConcurrentTest extends TestWithFeService {
         });
 
         Thread refreshThread = new Thread(() -> {
-            relationManager.refreshComplete(mtmv, relation, mtmvTask);
+            Env.getCurrentEnv().addMTMVTaskResult(
+                    new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()), mtmvTask, relation, null);
         });
 
         // Start both threads

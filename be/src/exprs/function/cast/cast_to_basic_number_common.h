@@ -25,6 +25,7 @@
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "core/types.h"
@@ -393,6 +394,8 @@ Status static_cast_no_overflow(FunctionContext* context, Block& block,
             } else if constexpr (IsDatelikeV1Types<FromDataType>) {
                 CastToInt::from_datetime(reinterpret_cast<const VecDateTimeValue&>(vec_from[i]),
                                          vec_to[i], params);
+            } else if constexpr (std::is_same_v<FromDataType, DataTypeTimeStampNs>) {
+                CastToInt::from_datetime(vec_from[i].to_datetime(), vec_to[i], params);
             } else if constexpr (IsDateTimeV2Type<FromDataType>) {
                 CastToInt::from_datetime(
                         reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(vec_from[i]),
@@ -418,6 +421,8 @@ Status static_cast_no_overflow(FunctionContext* context, Block& block,
             } else if constexpr (IsDatelikeV1Types<FromDataType>) {
                 CastToFloat::from_datetime(reinterpret_cast<const VecDateTimeValue&>(vec_from[i]),
                                            vec_to[i], params);
+            } else if constexpr (std::is_same_v<FromDataType, DataTypeTimeStampNs>) {
+                CastToFloat::from_datetime(vec_from[i].to_datetime(), vec_to[i], params);
             } else if constexpr (IsDateTimeV2Type<FromDataType>) {
                 CastToFloat::from_datetime(
                         reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(vec_from[i]),
@@ -447,7 +452,8 @@ Status static_cast_no_overflow(FunctionContext* context, Block& block,
 template <typename T>
 constexpr static bool type_allow_cast_to_basic_number =
         std::is_same_v<T, DataTypeString> || IsDataTypeNumber<T> || IsDataTypeDecimal<T> ||
-        IsDatelikeV1Types<T> || IsDatelikeV2Types<T> || std::is_same_v<T, DataTypeTimeV2>;
+        IsDatelikeV1Types<T> || IsDatelikeV2Types<T> || std::is_same_v<T, DataTypeTimeStampNs> ||
+        std::is_same_v<T, DataTypeTimeV2>;
 
 // common implementation for casting string to basic number types,
 // including integer, float and double

@@ -153,6 +153,7 @@ import org.apache.doris.master.MetaHelper;
 import org.apache.doris.master.PartitionInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVAlterOpType;
 import org.apache.doris.mtmv.MTMVPartitionExprFactory;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
@@ -162,6 +163,7 @@ import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.authenticate.AuthenticatorManager;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -255,6 +257,7 @@ import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.QueryCancelWorker;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.AdmissionControl;
@@ -268,14 +271,14 @@ import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyPublishe
 import org.apache.doris.scheduler.manager.TransientTaskManager;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
-import org.apache.doris.statistics.AnalysisManager;
-import org.apache.doris.statistics.FollowerColumnSender;
-import org.apache.doris.statistics.StatisticsAutoCollector;
-import org.apache.doris.statistics.StatisticsCache;
-import org.apache.doris.statistics.StatisticsCleaner;
-import org.apache.doris.statistics.StatisticsJobAppender;
-import org.apache.doris.statistics.StatisticsMetricCollector;
+import org.apache.doris.statistics.analysis.AnalysisManager;
+import org.apache.doris.statistics.analysis.FollowerColumnSender;
+import org.apache.doris.statistics.analysis.StatisticsAutoCollector;
+import org.apache.doris.statistics.analysis.StatisticsJobAppender;
+import org.apache.doris.statistics.analysis.StatisticsMetricCollector;
+import org.apache.doris.statistics.cache.StatisticsCache;
 import org.apache.doris.statistics.query.QueryStats;
+import org.apache.doris.statistics.repository.StatisticsCleaner;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.HeartbeatMgr;
@@ -808,7 +811,9 @@ public class Env {
         this.tabletStatMgr = EnvFactory.getInstance().createTabletStatMgr();
 
         this.auth = new Auth();
-        this.accessManager = new AccessControllerManager(auth);
+        // A checkpoint Env only replays metadata; it authorizes nothing, so it must neither sweep the plugin
+        // directory nor build an authorization source - each one starts threads that nothing ever stops.
+        this.accessManager = new AccessControllerManager(auth, isCheckpointCatalog);
         this.authenticatorManager = new AuthenticatorManager(AuthenticateType.getAuthTypeConfigString());
         this.domainResolver = new DomainResolver(auth);
 
@@ -3855,16 +3860,16 @@ public class Env {
                     "get table read lock timeout, database=" + mtmv.getDBName() + ",table=" + mtmv.getName());
         }
         try {
+            boolean isIvm = mtmv.isIvm();
             StringBuilder sb = new StringBuilder("CREATE MATERIALIZED VIEW ");
             sb.append(mtmv.getName());
-            addColNameAndComment(mtmv, sb);
+            addColNameAndComment(mtmv, sb, isIvm);
             sb.append("\n");
             sb.append(mtmv.getRefreshInfo());
             addMTMVKeyInfo(mtmv, sb);
             addTableComment(mtmv, sb);
             addMTMVPartitionInfo(mtmv, sb);
-            DistributionInfo distributionInfo = mtmv.getDefaultDistributionInfo();
-            sb.append("\n").append(distributionInfo.toSql());
+            addMTMVDistributionInfo(mtmv, sb, isIvm);
             // properties
             sb.append("\nPROPERTIES (\n");
             addOlapTablePropertyInfo(mtmv, sb, false, false, null);
@@ -3879,17 +3884,39 @@ public class Env {
     }
 
     private static void addMTMVKeyInfo(MTMV mtmv, StringBuilder sb) {
-        if (!mtmv.isDuplicateWithoutKey()) {
-            String keySql = mtmv.getKeysType().toSql();
-            sb.append("\n").append(keySql).append("(");
-            List<String> keysColumnNames = Lists.newArrayList();
-            for (Column column : mtmv.getBaseSchema()) {
-                if (column.isKey()) {
-                    keysColumnNames.add("`" + column.getName() + "`");
-                }
+        if (mtmv.isDuplicateWithoutKey()) {
+            return;
+        }
+        List<String> keysColumnNames = Lists.newArrayList();
+        for (Column column : mtmv.getBaseSchema(false)) {
+            if (column.isKey()) {
+                keysColumnNames.add("`" + column.getName() + "`");
             }
+        }
+        if (!keysColumnNames.isEmpty()) {
+            String keySql = mtmv.isIvm() ? "KEY" : mtmv.getKeysType().toSql();
+            sb.append("\n").append(keySql).append("(");
             sb.append(Joiner.on(", ").join(keysColumnNames)).append(")");
         }
+    }
+
+    private static void addMTMVDistributionInfo(MTMV mtmv, StringBuilder sb, boolean isIvm) {
+        DistributionInfo distributionInfo = mtmv.getDefaultDistributionInfo();
+        if (isIvm && isIvmRowIdDistribution(distributionInfo)) {
+            sb.append("\n").append(new RandomDistributionInfo(
+                    distributionInfo.getBucketNum(), distributionInfo.getAutoBucket()).toSql());
+            return;
+        }
+        sb.append("\n").append(distributionInfo.toSql());
+    }
+
+    private static boolean isIvmRowIdDistribution(DistributionInfo distributionInfo) {
+        if (!(distributionInfo instanceof HashDistributionInfo)) {
+            return false;
+        }
+        List<Column> distributionColumns = ((HashDistributionInfo) distributionInfo).getDistributionColumns();
+        return distributionColumns.size() == 1
+                && Column.IVM_ROW_ID_COL.equalsIgnoreCase(distributionColumns.get(0).getName());
     }
 
     private static void addMTMVPartitionInfo(MTMV mtmv, StringBuilder sb) throws AnalysisException {
@@ -3907,13 +3934,22 @@ public class Env {
     }
 
     private static void addColNameAndComment(TableIf tableIf, StringBuilder sb) {
+        addColNameAndComment(tableIf, sb, false);
+    }
+
+    private static void addColNameAndComment(TableIf tableIf, StringBuilder sb, boolean filterIvmHiddenCols) {
         sb.append("\n(");
         List<Column> columns = tableIf.getBaseSchema();
+        boolean first = true;
         for (int i = 0; i < columns.size(); i++) {
-            if (i != 0) {
+            Column column = columns.get(i);
+            if (filterIvmHiddenCols && IvmUtil.isIvmHiddenColumn(column.getName())) {
+                continue;
+            }
+            if (!first) {
                 sb.append(",");
             }
-            Column column = columns.get(i);
+            first = false;
             // quote the column name to keep the generated DDL re-executable when the column name
             // contains special characters (e.g. created via string literal alias like select 1 as '(第一列)')
             sb.append(SqlUtils.getIdentSql(column.getName()));
@@ -4022,6 +4058,13 @@ public class Env {
         // inverted index storage type
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT).append("\" = \"");
         sb.append(olapTable.getInvertedIndexFileStorageFormat()).append("\"");
+        if (olapTable.getTableProperty() != null
+                && olapTable.getTableProperty().getPartitionInvertedIndexFileStorageFormat() != null) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT)
+                    .append("\" = \"")
+                    .append(olapTable.getTableProperty().getPartitionInvertedIndexFileStorageFormat())
+                    .append("\"");
+        }
 
         // compression type
         if (olapTable.getCompressionType() != TCompressionType.valueOf(Config.default_compression_type)) {
@@ -4036,14 +4079,16 @@ public class Env {
         }
 
         // unique key table with merge on write, always print this property for unique table
-        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
+        // but hide it for IVM materialized views (internal physical detail)
+        boolean isIvmMtmv = olapTable instanceof MTMV && ((MTMV) olapTable).isIvm();
+        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && !isIvmMtmv) {
             sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE).append("\" = \"");
             sb.append(olapTable.getEnableUniqueKeyMergeOnWrite()).append("\"");
         }
 
         // enable_unique_key_skip_bitmap, always print this property for merge-on-write unique table
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()
-                && olapTable.getEnableUniqueKeySkipBitmap()) {
+                && olapTable.getEnableUniqueKeySkipBitmap() && !isIvmMtmv) {
             sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN).append("\" = \"");
             sb.append(olapTable.getEnableUniqueKeySkipBitmap()).append("\"");
         }
@@ -4251,9 +4296,7 @@ public class Env {
             View view = (View) table;
 
             sb.append("CREATE VIEW `").append(table.getName()).append("`");
-            if (StringUtils.isNotBlank(table.getComment())) {
-                sb.append(" COMMENT '").append(table.getComment()).append("'");
-            }
+            addViewComment(table, sb);
             sb.append(" AS ").append(view.getInlineViewDef());
             createTableStmt.add(sb + ";");
             return;
@@ -4581,9 +4624,7 @@ public class Env {
             sb.append("CREATE VIEW `").append(table.getName()).append("`");
             addColNameAndComment(view, sb);
             sb.append("\n");
-            if (StringUtils.isNotBlank(table.getComment())) {
-                sb.append(" COMMENT '").append(table.getComment()).append("'");
-            }
+            addViewComment(table, sb);
             sb.append(" AS ").append(view.getInlineViewDef());
             createTableStmt.add(sb + ";");
             return;
@@ -6984,6 +7025,18 @@ public class Env {
                 throw new DdlException("Temp partition[" + partName + "] does not exist");
             }
         }
+        if (isStrictRange) {
+            Map<String, Long> replacedPartitions = Maps.newHashMapWithExpectedSize(partitionNames.size());
+            for (String partitionName : partitionNames) {
+                replacedPartitions.put(partitionName, olapTable.getPartition(partitionName).getId());
+            }
+            getMtmvService().getRelationManager().markIvmBaselineRebuildForPartitionChange(
+                    new BaseTableInfo(olapTable), replacedPartitions,
+                    "Base table partitions were replaced without row binlog");
+        } else {
+            getMtmvService().getRelationManager().markIvmBaselineRebuild(
+                    new BaseTableInfo(olapTable), "Base table partitions were replaced without row binlog");
+        }
         List<Long> replacedPartitionIds = olapTable.replaceTempPartitions(db.getId(), partitionNames,
                 tempPartitionNames, isStrictRange,
                 useTempPartitionName, isForceDropOld);
@@ -7524,6 +7577,19 @@ public class Env {
         }
     }
 
+    private static void addViewComment(TableIf table, StringBuilder sb) {
+        if (StringUtils.isNotBlank(table.getComment())) {
+            String comment = table.getComment();
+            sb.append(" COMMENT ");
+            // Keep the historical output unchanged when the comment is already safe in single quotes.
+            if (comment.indexOf('\'') >= 0 || comment.indexOf('\\') >= 0) {
+                sb.append(SqlUtils.quoteStringLiteral(comment, SqlModeHelper.hasNoBackSlashEscapes()));
+            } else {
+                sb.append('\'').append(comment).append('\'');
+            }
+        }
+    }
+
     public int getFollowerCount() {
         int count = 0;
         for (Frontend fe : frontends.values()) {
@@ -7604,10 +7670,12 @@ public class Env {
         this.alter.processAlterMTMV(alter, false);
     }
 
-    public void alterMTMVProperty(AlterMTMVPropertyInfo info) {
+    public void alterMTMVProperty(AlterMTMVPropertyInfo info) throws UserException {
         AlterMTMV alter = new AlterMTMV(info.getMvName(), MTMVAlterOpType.ALTER_PROPERTY);
         alter.setMvProperties(info.getProperties());
-        this.alter.processAlterMTMV(alter, false);
+        // Runs outside the tolerant processAlterMTMV catch so that failures (e.g. a
+        // partial IVM excluded-trigger-tables stream transition) reach the client.
+        this.alter.processAlterMTMVProperty(alter, false);
     }
 
     public void alterMTMVStatus(TableNameInfo mvName, MTMVStatus status) {

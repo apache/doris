@@ -18,14 +18,16 @@
 package org.apache.doris.connector.adbc;
 
 import org.apache.doris.connector.cache.CacheSpec;
-import org.apache.doris.connector.cache.MetaCacheEntry;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.ScopePath;
 
 import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ForkJoinPool;
 import java.util.function.Supplier;
 
 /**
@@ -85,19 +87,33 @@ public final class AdbcMetadataCache {
     /** The database listing is a single value, so it needs a single key. */
     private static final String THE_ONLY_KEY = "";
 
-    private final MetaCacheEntry<String, List<AdbcNamespace>> namespaces;
-    private final MetaCacheEntry<AdbcNamespace, List<String>> tableNames;
-    private final MetaCacheEntry<TableKey, Schema> tableSchemas;
+    private final CatalogMetaCache owner;
+    private final MetaCache<String, List<AdbcNamespace>> namespaces;
+    private final MetaCache<TableNameKey, List<String>> tableNames;
+    private final MetaCache<TableKey, Schema> tableSchemas;
 
     /**
      * Built in {@link AdbcConnector}'s constructor, which also runs on an FE replaying the edit log, so this
      * reads properties and nothing else -- no driver, no filesystem, no remote call.
      */
     public AdbcMetadataCache(Map<String, String> properties) {
+        this(new CatalogMetaCache(), properties);
+    }
+
+    AdbcMetadataCache(CatalogMetaCache owner, Map<String, String> properties) {
+        this.owner = Objects.requireNonNull(owner, "owner can not be null");
         CacheSpec spec = cacheSpec(properties);
-        this.namespaces = entry("adbc-namespaces", spec);
-        this.tableNames = entry("adbc-table-names", spec);
-        this.tableSchemas = entry("adbc-table-schema", spec);
+        this.namespaces = owner.create(MetaCacheDefinition
+                .<String, List<AdbcNamespace>>builder("adbc-namespaces", spec, ignored -> ScopePath.catalog())
+                .build());
+        this.tableNames = owner.create(MetaCacheDefinition
+                .<TableNameKey, List<String>>builder("adbc-table-names", spec,
+                        key -> ScopePath.database(key.dorisDbName))
+                .build());
+        this.tableSchemas = owner.create(MetaCacheDefinition
+                .<TableKey, Schema>builder("adbc-table-schema", spec,
+                        key -> ScopePath.table(key.dorisDbName, key.table))
+                .build());
     }
 
     static CacheSpec cacheSpec(Map<String, String> properties) {
@@ -114,15 +130,6 @@ public final class AdbcMetadataCache {
                 CacheSpec.of(true, DEFAULT_TTL_SECOND, DEFAULT_CAPACITY));
     }
 
-    /**
-     * Contextual-only with manual miss load, as the iceberg caches are: the remote read runs OUTSIDE
-     * Caffeine's compute lock, so a slow source does not stall unrelated keys, the driver's own exception
-     * arrives unwrapped, and a load that failed is not remembered as an answer.
-     */
-    private static <K, V> MetaCacheEntry<K, V> entry(String name, CacheSpec spec) {
-        return new MetaCacheEntry<>(name, null, spec, ForkJoinPool.commonPool(), false, true, 0L, true);
-    }
-
     // ========= reads =========
 
     List<AdbcNamespace> namespaces(Supplier<List<AdbcNamespace>> loader) {
@@ -136,12 +143,12 @@ public final class AdbcMetadataCache {
     }
 
     List<String> tableNames(AdbcNamespace namespace, Supplier<List<String>> loader) {
-        return tableNames.get(namespace, ignored -> loader.get());
+        return tableNames.get(TableNameKey.forNamespace(namespace), ignored -> loader.get());
     }
 
     /** Re-reads one database's table listing, replacing whatever was remembered. See the class note. */
     List<String> reloadTableNames(AdbcNamespace namespace, Supplier<List<String>> loader) {
-        tableNames.invalidateKey(namespace);
+        tableNames.invalidateKey(TableNameKey.forNamespace(namespace));
         return tableNames(namespace, loader);
     }
 
@@ -160,14 +167,16 @@ public final class AdbcMetadataCache {
      * new name in, and the one the user tried would appear to do nothing.
      */
     void invalidateTable(String dbName, String tableName) {
-        tableSchemas.invalidateIf(key -> key.is(dbName, tableName));
-        tableNames.invalidateIf(namespace -> namespace.dorisDatabaseName().equals(dbName));
+        owner.invalidateTable(dbName, tableName);
+        // A table refresh must also forget the parent name listing, so a remotely-created table can be found.
+        // This is an ancestor materialization, not a sibling-cache dependency, and therefore cannot be selected
+        // by the table's descendant scope.
+        tableNames.invalidateKey(TableNameKey.forDatabase(dbName));
     }
 
     /** {@code REFRESH DATABASE}: that database's table listing and every schema in it. */
     void invalidateDb(String dbName) {
-        tableSchemas.invalidateIf(key -> key.isIn(dbName));
-        tableNames.invalidateIf(namespace -> namespace.dorisDatabaseName().equals(dbName));
+        owner.invalidateDatabase(dbName);
     }
 
     /**
@@ -175,9 +184,38 @@ public final class AdbcMetadataCache {
      * names no database to invalidate and is reached for when the catalog's own shape changed.
      */
     void invalidateAll() {
-        namespaces.invalidateAll();
-        tableNames.invalidateAll();
-        tableSchemas.invalidateAll();
+        owner.invalidateCatalog();
+    }
+
+    /**
+     * A database's listing is addressed by the Doris database name. The remote namespace is carried only so
+     * the miss loader can query it; it is deliberately not part of identity because Doris cannot address two
+     * remote namespaces that project to the same database name separately.
+     */
+    private static final class TableNameKey {
+        private final String dorisDbName;
+
+        private TableNameKey(String dorisDbName) {
+            this.dorisDbName = Objects.requireNonNull(dorisDbName, "dorisDbName can not be null");
+        }
+
+        private static TableNameKey forNamespace(AdbcNamespace namespace) {
+            return new TableNameKey(namespace.dorisDatabaseName());
+        }
+
+        private static TableNameKey forDatabase(String database) {
+            return new TableNameKey(database);
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            return o instanceof TableNameKey && dorisDbName.equals(((TableNameKey) o).dorisDbName);
+        }
+
+        @Override
+        public int hashCode() {
+            return dorisDbName.hashCode();
+        }
     }
 
     /**
@@ -197,14 +235,6 @@ public final class AdbcMetadataCache {
             this.namespace = handle.getNamespace();
             this.table = handle.getRemoteTable();
             this.dorisDbName = handle.getDorisDbName();
-        }
-
-        private boolean is(String db, String tableName) {
-            return dorisDbName.equals(db) && table.equals(tableName);
-        }
-
-        private boolean isIn(String db) {
-            return dorisDbName.equals(db);
         }
 
         @Override
