@@ -18,6 +18,7 @@
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
 
 #include <arrow/array/builder_binary.h>
+#include <arrow/array/builder_nested.h>
 
 #include <algorithm>
 #include <cstring>
@@ -491,6 +492,62 @@ Status write_arrow(const IColumn& column, const NullMap* null_map, Builder& buil
     return status;
 }
 
+Status write_parquet_variant_storage(const IColumn& column, const NullMap* null_map,
+                                     arrow::StructBuilder& storage, size_t start, size_t end) {
+    const auto storage_type = storage.type();
+    const auto& struct_type = assert_cast<const arrow::StructType&>(*storage_type);
+    if (storage.num_fields() != 2 || struct_type.field(0)->name() != "metadata" ||
+        struct_type.field(0)->type()->id() != arrow::Type::BINARY ||
+        struct_type.field(0)->nullable() || struct_type.field(1)->name() != "value" ||
+        struct_type.field(1)->type()->id() != arrow::Type::BINARY ||
+        struct_type.field(1)->nullable()) {
+        return Status::InvalidArgument(
+                "Variant V2 Parquet storage requires non-nullable binary metadata/value fields");
+    }
+
+    auto& metadata = assert_cast<arrow::BinaryBuilder&>(*storage.field_builder(0));
+    auto& value = assert_cast<arrow::BinaryBuilder&>(*storage.field_builder(1));
+    int64_t metadata_bytes = 0;
+    int64_t value_bytes = 0;
+    visit_variant_v2_values(
+            column, start, end, forced_nulls(null_map), [](size_t) {},
+            [&](size_t, VariantRef variant) {
+                metadata_bytes += cast_set<int64_t>(variant.metadata.size);
+                value_bytes += cast_set<int64_t>(variant.value.size);
+            });
+
+    const auto rows = cast_set<int64_t>(end - start);
+    RETURN_IF_ERROR(checkArrowStatus(storage.Reserve(rows), column, storage));
+    RETURN_IF_ERROR(checkArrowStatus(metadata.Reserve(rows), column, metadata));
+    RETURN_IF_ERROR(checkArrowStatus(metadata.ReserveData(metadata_bytes), column, metadata));
+    RETURN_IF_ERROR(checkArrowStatus(value.Reserve(rows), column, value));
+    RETURN_IF_ERROR(checkArrowStatus(value.ReserveData(value_bytes), column, value));
+
+    arrow::Status status = arrow::Status::OK();
+    visit_variant_v2_values(
+            column, start, end, forced_nulls(null_map),
+            [&](size_t) {
+                if (status.ok()) {
+                    status = storage.AppendNull();
+                }
+            },
+            [&](size_t, VariantRef variant) {
+                if (!status.ok()) {
+                    return;
+                }
+                status = metadata.Append(variant.metadata.data,
+                                         cast_set<int32_t>(variant.metadata.size));
+                if (status.ok()) {
+                    status =
+                            value.Append(variant.value.data, cast_set<int32_t>(variant.value.size));
+                }
+                if (status.ok()) {
+                    status = storage.Append();
+                }
+            });
+    return checkArrowStatus(status, column, storage);
+}
+
 } // namespace
 
 void DataTypeVariantV2SerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
@@ -552,6 +609,11 @@ Status DataTypeVariantV2SerDe::write_column_to_arrow(const IColumn& column, cons
             return write_arrow(column, null_map,
                                assert_cast<arrow::LargeStringBuilder&>(*array_builder), first, last,
                                options);
+        }
+        if (array_builder->type()->id() == arrow::Type::STRUCT) {
+            return write_parquet_variant_storage(column, null_map,
+                                                 assert_cast<arrow::StructBuilder&>(*array_builder),
+                                                 first, last);
         }
         return Status::InvalidArgument("Unsupported arrow type for variant column: {}",
                                        array_builder->type()->name());
