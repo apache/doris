@@ -77,6 +77,9 @@ public:
         expect_incompatible([&] {
             _function->deserialize_and_merge_from_column(destination, *serialized, _arena);
         });
+        auto* fresh_direct_destination = create();
+        _function->merge(fresh_direct_destination, create(first), _arena);
+        expect_incompatible([&] { _function->merge(fresh_direct_destination, source, _arena); });
         auto* fresh_destination = create();
         auto serialized_first = serialize(create(first));
         _function->deserialize_and_merge_from_column(fresh_destination, *serialized_first, _arena);
@@ -85,8 +88,7 @@ public:
         });
     }
 
-    void check_sequence_merge(const Arguments& initial, const Arguments& incoming,
-                              bool serialized) {
+    void check_merge_result(const Arguments& initial, const Arguments& incoming, bool serialized) {
         auto* destination = create();
         auto* source = create();
         auto* expected = create();
@@ -113,6 +115,10 @@ public:
         auto* source = create();
         EXPECT_NO_THROW(_function->merge(destination, source, _arena));
         _function->reset(destination);
+        auto* configured = create(second);
+        auto serialized_reset = serialize(destination);
+        _function->deserialize_and_merge_from_column(configured, *serialized_reset, _arena);
+        EXPECT_TRUE(ColumnHelper::column_equal(result(configured), result(create(second))));
         auto serialized = serialize(create(second));
         EXPECT_NO_THROW(
                 _function->deserialize_and_merge_from_column(destination, *serialized, _arena));
@@ -363,10 +369,54 @@ TEST(AggregateStateParametersTest, SequenceEventlessParameters) {
         for (const auto& initial : {Arguments {}, eventless, contributing}) {
             for (const auto& incoming : {Arguments {}, eventless, contributing}) {
                 for (bool serialized : {false, true}) {
-                    checks.check_sequence_merge(initial, incoming, serialized);
+                    checks.check_merge_result(initial, incoming, serialized);
                 }
             }
         }
     }
+}
+
+TEST(AggregateStateParametersTest, WindowFunnelEventlessParameters) {
+    DateV2Value<DateTimeV2ValueType> time;
+    time.unchecked_set_time(2024, 1, 1, 0, 0, 0, 0);
+    auto timestamp = argument<DataTypeDateTimeV2>(time);
+    auto yes = argument<DataTypeUInt8>(1);
+    auto no = argument<DataTypeUInt8>(0);
+    for (const auto& name : {"window_funnel_v1", "window_funnel_v2"}) {
+        SCOPED_TRACE(name);
+        Arguments eventless {argument<DataTypeInt64>(0), argument<DataTypeString>("default"),
+                             timestamp, no, no};
+        for (const auto& event : {yes, no}) {
+            check_parameters(name, eventless,
+                             {argument<DataTypeInt64>(3), argument<DataTypeString>("default"),
+                              timestamp, event, no});
+            check_parameters(name, eventless,
+                             {argument<DataTypeInt64>(0), argument<DataTypeString>("fixed"),
+                              timestamp, event, no});
+        }
+        DataTypes types;
+        for (const auto& arg : eventless) {
+            types.push_back(arg.type);
+        }
+        auto function = AggregateFunctionSimpleFactory::instance().get(
+                name, types, nullptr, false, BeExecVersionManager::get_newest_version());
+        ASSERT_NE(function, nullptr);
+        function->set_version(BeExecVersionManager::get_newest_version());
+        StateParameterChecks checks(function);
+        Arguments contributing {argument<DataTypeInt64>(0), argument<DataTypeString>("default"),
+                                timestamp, yes, no};
+        for (const auto& initial : {Arguments {}, eventless, contributing}) {
+            for (const auto& incoming : {Arguments {}, eventless, contributing}) {
+                for (bool serialized : {false, true}) {
+                    checks.check_merge_result(initial, incoming, serialized);
+                }
+            }
+        }
+    }
+    // Even arguments that equal the fresh-state sentinels establish configuration.
+    check_parameters(
+            "window_funnel_v2",
+            {argument<DataTypeInt64>(-1), argument<DataTypeString>("invalid"), timestamp, no, no},
+            {argument<DataTypeInt64>(0), argument<DataTypeString>("default"), timestamp, no, no});
 }
 } // namespace doris

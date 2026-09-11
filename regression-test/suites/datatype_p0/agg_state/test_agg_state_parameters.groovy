@@ -108,6 +108,13 @@ suite("test_agg_state_parameters") {
                              "3, cast('default' as string), non_nullable(cast('2024-01-01' as datetime)), true, false"])
         cases.add([function, "1, cast('default' as string), non_nullable(cast('2024-01-01' as datetime)), true, false",
                              "1, cast('fixed' as string), non_nullable(cast('2024-01-01' as datetime)), true, false"])
+        // V2 stores no events for an all-false row, but its configuration still participates.
+        for (def event : ["true", "false"]) {
+            cases.add([function, "0, cast('default' as string), non_nullable(cast('2024-01-01' as datetime)), false, false",
+                                 "3, cast('default' as string), non_nullable(cast('2024-01-01' as datetime)), ${event}, false"])
+            cases.add([function, "0, cast('default' as string), non_nullable(cast('2024-01-01' as datetime)), false, false",
+                                 "0, cast('fixed' as string), non_nullable(cast('2024-01-01' as datetime)), ${event}, false"])
+        }
     }
 
     for (def entry : cases) {
