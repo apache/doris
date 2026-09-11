@@ -20,6 +20,7 @@ package org.apache.doris.nereids.glue.translator;
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.AnalyticWindow;
 import org.apache.doris.analysis.AssertNumRowsElement;
+import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.GroupingInfo;
@@ -167,6 +168,7 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.GroupJoinFusionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.RowStoreFetchChecker;
 import org.apache.doris.nereids.util.Utils;
@@ -185,6 +187,7 @@ import org.apache.doris.planner.EmptySetNode;
 import org.apache.doris.planner.ExceptNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.GroupCommitBlockSink;
+import org.apache.doris.planner.GroupJoinNode;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.IntersectNode;
 import org.apache.doris.planner.JoinNodeBase;
@@ -217,6 +220,8 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TBinlogScanType;
+import org.apache.doris.thrift.TGroupJoinAggOutputMode;
+import org.apache.doris.thrift.TGroupJoinAggSide;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TResultSinkType;
@@ -1180,6 +1185,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return visitBucketedFusion(aggregate, context);
         }
 
+        // V2: try GroupJoin fusion directly in translator
+        PlanFragment groupJoinFragment = maybeTranslateToGroupJoin(aggregate, context);
+        if (groupJoinFragment != null) {
+            return groupJoinFragment;
+        }
+
         PlanFragment inputPlanFragment = aggregate.child(0).accept(this, context);
         List<List<Expr>> distributeExprLists = getDistributeExprs(aggregate.child(0));
 
@@ -1447,8 +1458,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         PlanNode planNode = inputFragment.getPlanRoot();
-        // the three nodes don't support conjuncts, need create a SelectNode to filter data
-        if (planNode instanceof ExchangeNode || planNode instanceof SortNode || planNode instanceof UnionNode) {
+        // These nodes don't support conjuncts, so a SelectNode must filter the data:
+        // - Exchange/Sort/Union cannot carry conjuncts at all;
+        // - a fused GroupJoin (GROUP JOIN) node also cannot: it materializes the final
+        //   aggregate result per group, but unlike AggregationNode its BE operator never
+        //   evaluates conjuncts as a HAVING predicate. Folding a post-aggregation filter
+        //   (HAVING) into the node used to drop the predicate silently and returned groups
+        //   that should have been filtered out.
+        if (planNode instanceof ExchangeNode || planNode instanceof SortNode || planNode instanceof UnionNode
+                || planNode instanceof GroupJoinNode) {
             SelectNode selectNode = new SelectNode(context.nextPlanNodeId(), planNode);
             selectNode.setNereidsId(filter.getId());
             context.getNereidsIdToPlanNodeIdMap().put(filter.getId(), selectNode.getId());
@@ -3298,6 +3316,281 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             leftFragment.addChild(rightChild);
         }
         return leftFragment;
+    }
+
+    private PlanFragment connectGroupJoinNode(GroupJoinNode groupJoinNode, PlanFragment leftFragment,
+            PlanFragment rightFragment, PlanTranslatorContext context, AbstractPlan groupJoin) {
+        groupJoinNode.setChild(0, leftFragment.getPlanRoot());
+        groupJoinNode.setChild(1, rightFragment.getPlanRoot());
+        setPlanRoot(leftFragment, groupJoinNode, groupJoin);
+        context.mergePlanFragment(rightFragment, leftFragment);
+        for (PlanFragment rightChild : rightFragment.getChildren()) {
+            leftFragment.addChild(rightChild);
+        }
+        return leftFragment;
+    }
+
+    /**
+     * V2: Try to fuse HashAggregate(HashJoin) into GroupJoin directly in the translator stage.
+     * <p>
+     * When the aggregate's child is an INNER hash join with compatible group-by/join-key,
+     * generate a GroupJoinNode instead of separate AggregationNode + HashJoinNode.
+     * Returns null if conditions are not met — caller falls through to normal translation.
+     */
+    private PlanFragment maybeTranslateToGroupJoin(
+            Plan aggregate,
+            PlanTranslatorContext context) {
+        // Gate: session variable
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null
+                || !connectContext.getSessionVariable().isEnableGroupJoinFusion()) {
+            return null;
+        }
+        // Gate: spill not supported
+        if (connectContext.getSessionVariable().enableSpill) {
+            return null;
+        }
+
+        // Child must be PhysicalHashJoin (optionally through one pure-passthrough
+        // PhysicalProject; see the project gate in GroupJoinFusionUtils).
+        Plan child = aggregate.child(0);
+        PhysicalProject<?> project = null;
+        if (child instanceof PhysicalProject) {
+            project = (PhysicalProject<?>) child;
+            child = child.child(0);
+        }
+        if (!(child instanceof PhysicalHashJoin)) {
+            return null;
+        }
+        PhysicalHashJoin<?, ?> join = (PhysicalHashJoin<?, ?>) child;
+
+        // Full fusion eligibility (join shape + aggregate constraints) is decided by
+        // GroupJoinFusionUtils.alignedConjunctsForGroupJoin, the single source of truth shared
+        // with the AlignGroupJoinConjunctOrder post-processor that pre-aligns the child join's
+        // conjunct order with the group-by keys. The translator emits the join's conjuncts as
+        // they are, so fusion additionally requires the conjuncts to be listed in exactly the
+        // group-by order: the processor guarantees this for every eligible shape, and anything
+        // that is not aligned stays on the regular HashJoinNode + AggregationNode path.
+        List<Expression> alignedConjuncts = GroupJoinFusionUtils.alignedConjunctsForGroupJoin(
+                (Aggregate<?>) aggregate, project, join);
+        if (alignedConjuncts == null
+                || !GroupJoinFusionUtils.sameConjunctOrder(
+                        alignedConjuncts, join.getHashJoinConjuncts())) {
+            return null;
+        }
+
+        // All checks passed — generate GroupJoinNode
+        return translateToGroupJoinNode((Aggregate<?>) aggregate, join, context);
+    }
+
+    /** Translate Aggregate(HashJoin) pattern into a GroupJoinNode fragment. */
+    private PlanFragment translateToGroupJoinNode(
+            Aggregate<?> aggregate,
+            PhysicalHashJoin<?, ?> join,
+            PlanTranslatorContext context) {
+        PhysicalHashJoin<PhysicalPlan, PhysicalPlan> physicalJoin
+                = (PhysicalHashJoin<PhysicalPlan, PhysicalPlan>) join;
+
+        // maybeTranslateToGroupJoin only lets joins without residual conjuncts reach this
+        // point. Enforce it here as well: the fused operator has no per-pair filtering, so
+        // a residual conjunct that slipped through would be silently dropped and produce
+        // wrong aggregation results (the failure mode this guard exists for).
+        Preconditions.checkState(join.getOtherJoinConjuncts().isEmpty(),
+                "GroupJoin fusion requires the join to have no residual conjuncts, got: %s",
+                join.getOtherJoinConjuncts());
+
+        // maybeTranslateToGroupJoin also only lets aggregates whose inputs are all directly
+        // produced by the join children reach this point. Enforce it here as well: aggregate
+        // arguments that reference slots computed by an intermediate Project between the
+        // aggregate and the join (e.g. hoisted type-coercion casts of binary aggregates) do
+        // not exist on the join children, and translating them would abort fragment
+        // serialization with an NPE in GroupJoinNode.toThrift.
+        Set<Slot> joinChildrenOutputs = Sets.newHashSet();
+        joinChildrenOutputs.addAll(join.left().getOutputSet());
+        joinChildrenOutputs.addAll(join.right().getOutputSet());
+        Preconditions.checkState(joinChildrenOutputs.containsAll(aggregate.getInputSlots()),
+                "GroupJoin fusion requires all aggregate inputs to be join-child outputs, got: %s",
+                aggregate.getInputSlots());
+
+        // Visit children right-to-left (right = build, left = probe).
+        // connectGroupJoinNode merges both child fragments into this one, exactly like
+        // connectJoinNode does for a plain hash join, so the children must be translated under
+        // the same fragment-merge context. Without it a child aggregate could take the
+        // bucketed-aggregation path (shouldUseBucketedFusion), which drops the exchange that
+        // keeps its olap scan in its own fragment and leaves two olap scans inside the
+        // GroupJoin fragment: the scan-assignment job then rejects the fragment with
+        // "Not supported multiple scan multiple OlapTable but not contains colocate join or
+        // bucket shuffle join". The GroupJoin would also lose the hash distribution its
+        // PARTITIONED input relies on, since that exchange is what enforces it.
+        context.enterFragmentMergeChild();
+        PlanFragment rightFragment;
+        PlanFragment leftFragment;
+        try {
+            rightFragment = join.child(1).accept(this, context);
+            leftFragment = join.child(0).accept(this, context);
+        } finally {
+            context.exitFragmentMergeChild();
+        }
+        PlanNode leftPlanRoot = leftFragment.getPlanRoot();
+        PlanNode rightPlanRoot = rightFragment.getPlanRoot();
+
+        // Create GroupJoinNode
+        GroupJoinNode groupJoinNode = new GroupJoinNode(
+                context.nextPlanNodeId(), leftPlanRoot, rightPlanRoot);
+        groupJoinNode.setNereidsId(join.getId());
+        context.getNereidsIdToPlanNodeIdMap().put(join.getId(), groupJoinNode.getId());
+
+        // Join operator
+        groupJoinNode.setJoinOp(JoinType.toJoinOperator(join.getJoinType()));
+
+        // Distribute expr lists
+        List<List<Expr>> distributeExprLists = getDistributeExprs(
+                physicalJoin.left(), physicalJoin.right());
+        groupJoinNode.setChildrenDistributeExprLists(distributeExprLists);
+
+        // Equi-join conjuncts
+        List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts();
+        for (Expression hashConjunct : hashJoinConjuncts) {
+            EqualPredicate equalTo = JoinUtils.swapEqualToForChildrenOrder(
+                    (EqualPredicate) hashConjunct, join.left().getOutputSet());
+            groupJoinNode.addEqJoinConjunct(
+                    (BinaryPredicate) ExpressionTranslator.translate(equalTo, context));
+        }
+
+        // Group-by expressions
+        List<Expr> groupingExprs = new ArrayList<>();
+        for (Expression e : aggregate.getGroupByExpressions()) {
+            groupingExprs.add(ExpressionTranslator.translate(e, context));
+        }
+        groupJoinNode.setGroupingExprs(groupingExprs);
+
+        // Aggregate functions with side annotations
+        List<Expr> aggFuncExprs = new ArrayList<>();
+        List<TGroupJoinAggSide> aggSides = new ArrayList<>();
+        Set<Slot> rightOutput = join.right().getOutputSet();
+        Set<AggregateExpression> seen = new HashSet<>();
+        for (NamedExpression outputExpr : aggregate.getOutputExpressions()) {
+            for (AggregateExpression aggExpr : outputExpr
+                    .collect(AggregateExpression.class::isInstance).stream()
+                    .map(AggregateExpression.class::cast)
+                    .collect(Collectors.toList())) {
+                if (seen.add(aggExpr)) {
+                    aggFuncExprs.add(ExpressionTranslator.translate(aggExpr, context));
+                    boolean fromBuild = aggExpr.getInputSlots().stream()
+                            .anyMatch(rightOutput::contains);
+                    aggSides.add(fromBuild
+                            ? TGroupJoinAggSide.BUILD : TGroupJoinAggSide.PROBE);
+                }
+            }
+        }
+        groupJoinNode.setAggregateFunctions(aggFuncExprs);
+        groupJoinNode.setAggSides(aggSides);
+        groupJoinNode.setAggOutputMode(TGroupJoinAggOutputMode.FINAL_RESULT);
+
+        // Connect fragments
+        PlanFragment currentFragment = connectGroupJoinNode(
+                groupJoinNode, leftFragment, rightFragment, context, join);
+
+        // Distribution mode
+        if (JoinUtils.shouldColocateJoin(physicalJoin)) {
+            groupJoinNode.setColocate(true);
+            leftFragment.setHasColocatePlanNode(true);
+        } else if (JoinUtils.shouldBroadcastJoin(physicalJoin)) {
+            Preconditions.checkState(rightPlanRoot instanceof ExchangeNode,
+                    "right child of broadcast GroupJoin must be ExchangeNode");
+            ((ExchangeNode) rightPlanRoot).setRightChildOfBroadcastHashJoin(true);
+            groupJoinNode.setDistributionMode(DistributionMode.BROADCAST);
+        } else if (JoinUtils.shouldBucketShuffleJoin(physicalJoin)) {
+            groupJoinNode.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
+        } else {
+            groupJoinNode.setDistributionMode(DistributionMode.PARTITIONED);
+        }
+
+        // Runtime filters
+        context.getRuntimeTranslator().ifPresent(rt ->
+                rt.createLegacyRuntimeFilters(
+                        physicalJoin.getRuntimeFilters(), groupJoinNode, context));
+
+        // Output tuple descriptor
+        createGroupJoinOutputTuple(aggregate, join, groupJoinNode, context);
+
+        if (join.getStats() != null) {
+            groupJoinNode.setCardinality((long) join.getStats().getRowCount());
+        }
+        updateLegacyPlanIdToPhysicalPlan(currentFragment.getPlanRoot(), join);
+        return currentFragment;
+    }
+
+    /** Build output tuple descriptor for GroupJoinNode. */
+    private void createGroupJoinOutputTuple(
+            Aggregate<?> aggregate,
+            PhysicalHashJoin<?, ?> join,
+            GroupJoinNode groupJoinNode,
+            PlanTranslatorContext context) {
+        PlanNode leftNode = groupJoinNode.getChild(0);
+        PlanNode rightNode = groupJoinNode.getChild(1);
+
+        List<TupleDescriptor> leftTuples = context.getTupleDesc(leftNode);
+        List<SlotDescriptor> leftSlotDescriptors = leftTuples.stream()
+                .map(TupleDescriptor::getSlots)
+                .flatMap(Collection::stream)
+                .collect(Collectors.toList());
+        List<TupleDescriptor> rightTuples = context.getTupleDesc(rightNode);
+        List<SlotDescriptor> rightSlotDescriptors = rightTuples.stream()
+                .map(TupleDescriptor::getSlots)
+                .flatMap(Collection::stream)
+                .collect(Collectors.toList());
+
+        Map<ExprId, SlotReference> outputSlotRefMap = new HashMap<>();
+        for (Slot slot : join.getOutput()) {
+            SlotReference sf = (SlotReference) slot;
+            outputSlotRefMap.putIfAbsent(sf.getExprId(), sf);
+        }
+
+        // Intermediate tuple for hash output slots
+        TupleDescriptor intermediateDescriptor = context.generateTupleDesc();
+        Map<ExprId, SlotReference> leftOutputMap = join.left().getOutput().stream()
+                .map(SlotReference.class::cast)
+                .collect(Collectors.toMap(Slot::getExprId, s -> s,
+                        (existing, replacement) -> existing));
+
+        for (SlotDescriptor leftSlotDesc : leftSlotDescriptors) {
+            SlotReference sf = leftOutputMap.get(
+                    context.findExprId(leftSlotDesc.getId()));
+            if (sf != null && outputSlotRefMap.get(sf.getExprId()) != null) {
+                context.createSlotDesc(intermediateDescriptor, sf);
+                groupJoinNode.addSlotIdToHashOutputSlotIds(leftSlotDesc.getId());
+            }
+        }
+        Map<ExprId, SlotReference> rightOutputMap = join.right().getOutput().stream()
+                .map(SlotReference.class::cast)
+                .collect(Collectors.toMap(Slot::getExprId, s -> s,
+                        (existing, replacement) -> existing));
+        for (SlotDescriptor rightSlotDesc : rightSlotDescriptors) {
+            SlotReference sf = rightOutputMap.get(
+                    context.findExprId(rightSlotDesc.getId()));
+            if (sf != null && outputSlotRefMap.get(sf.getExprId()) != null) {
+                context.createSlotDesc(intermediateDescriptor, sf);
+                groupJoinNode.addSlotIdToHashOutputSlotIds(rightSlotDesc.getId());
+            }
+        }
+
+        // Output tuple
+        TupleDescriptor outputTupleDesc = context.generateTupleDesc();
+        for (Expression groupByExpr : aggregate.getGroupByExpressions()) {
+            if (groupByExpr instanceof SlotReference) {
+                context.createSlotDesc(outputTupleDesc, (SlotReference) groupByExpr);
+            }
+        }
+        for (NamedExpression outputExpr : aggregate.getOutputExpressions()) {
+            if (outputExpr.containsType(AggregateExpression.class)) {
+                Slot slot = outputExpr.toSlot();
+                if (slot instanceof SlotReference) {
+                    context.createSlotDesc(outputTupleDesc, (SlotReference) slot);
+                }
+            }
+        }
+        groupJoinNode.setMaterializedTupleDesc(outputTupleDesc);
     }
 
     /**

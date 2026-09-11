@@ -44,7 +44,7 @@ enum TPlanNodeType {
   OLAP_REWRITE_NODE = 15, // deprecated
   KUDU_SCAN_NODE = 16, // Deprecated
   BROKER_SCAN_NODE = 17,
-  EMPTY_SET_NODE = 18, 
+  EMPTY_SET_NODE = 18,
   UNION_NODE = 19,
   ES_SCAN_NODE = 20,
   ES_HTTP_SCAN_NODE = 21,
@@ -64,7 +64,8 @@ enum TPlanNodeType {
   REC_CTE_NODE = 35,
   REC_CTE_SCAN_NODE = 36,
   BUCKETED_AGGREGATION_NODE = 37,
-  LOCAL_EXCHANGE_NODE = 38
+  LOCAL_EXCHANGE_NODE = 38,
+  GROUP_JOIN_NODE = 39
 }
 
 struct TKeyRange {
@@ -228,7 +229,7 @@ struct TBrokerScanRangeParams {
 
     // If partition_ids is set, data that doesn't in this partition will be filtered.
     8: optional list<i64> partition_ids
-    
+
     // This is the mapping of dest slot id and src slot id in load expr
     // It excludes the slot id which has the transform expr
     9: optional map<Types.TSlotId, Types.TSlotId> dest_sid_to_src_sid_without_trans
@@ -257,7 +258,7 @@ struct TEsScanRange {
   1: required list<Types.TNetworkAddress> es_hosts  //  es hosts is used by be scan node to connect to es
   // has to set index and type here, could not set it in scannode
   // because on scan node maybe scan an es alias then it contains one or more indices
-  2: required string index   
+  2: required string index
   3: optional string type
   4: required i32 shard_id
 }
@@ -265,7 +266,7 @@ struct TEsScanRange {
 struct TFileTextScanRangeParams {
     1: optional string column_separator;
     2: optional string line_delimiter;
-    3: optional string collection_delimiter;// array ,map ,struct delimiter 
+    3: optional string collection_delimiter;// array ,map ,struct delimiter
     4: optional string mapkv_delimiter;
     5: optional i8 enclose;
     6: optional i8 escape;
@@ -322,10 +323,10 @@ struct TIcebergDeleteFileDesc {
     2: optional i64 position_lower_bound;
     3: optional i64 position_upper_bound;
     4: optional list<i32> field_ids;
-    // Iceberg file type, 0: data, 1: position delete, 2: equality delete, 3: deletion vector. 
+    // Iceberg file type, 0: data, 1: position delete, 2: equality delete, 3: deletion vector.
     5: optional i32 content;
     // 6 & 7 : iceberg v3 deletion vector.
-    // The content_offset and content_size_in_bytes fields are used to reference a specific blob for direct access to a deletion vector. 
+    // The content_offset and content_size_in_bytes fields are used to reference a specific blob for direct access to a deletion vector.
     6: optional i64 content_offset;
     7: optional i64 content_size_in_bytes;
     8: optional TFileFormatType file_format;
@@ -352,7 +353,7 @@ struct TIcebergFileDesc {
     7: optional i64 row_count;
     8: optional i32 partition_spec_id;
     9: optional string partition_data_json;
-    // Only for format_version >= 3, the starting _row_id to assign to rows added by ADDED data files. 
+    // Only for format_version >= 3, the starting _row_id to assign to rows added by ADDED data files.
     10: optional i64 first_row_id;
     // Only for format_version >= 3, the sequence number which last updated this file.
     11: optional i64 last_updated_sequence_number;
@@ -411,8 +412,8 @@ struct TTrinoConnectorFileDesc {
 }
 
 struct TMaxComputeFileDesc {
-    1: optional string partition_spec // deprecated 
-    2: optional string session_id 
+    1: optional string partition_spec // deprecated
+    2: optional string session_id
     3: optional string table_batch_read_session
     // for mc network configuration
     4: optional i32 connect_timeout
@@ -557,7 +558,7 @@ struct TFileScanRangeParams {
     20: optional list<Exprs.TExpr> pre_filter_exprs_list
     21: optional Types.TUniqueId load_id
     // Deprecated, hive text talbe is a special format, not a serde type
-    22: optional TTextSerdeType  text_serde_type 
+    22: optional TTextSerdeType  text_serde_type
     // used by flexible partial update
     23: optional string sequence_map_col
     // table from FE, used for jni scanner
@@ -644,7 +645,7 @@ struct TFileScanRange {
     // If file_scan_params in TExecPlanFragmentParams is set in TExecPlanFragmentParams
     // will use that field, otherwise, use this field.
     // file_scan_params in TExecPlanFragmentParams will always be set in query request,
-    // and TFileScanRangeParams here is used for some other request such as fetch table schema for tvf. 
+    // and TFileScanRangeParams here is used for some other request such as fetch table schema for tvf.
     2: optional TFileScanRangeParams params
     3: optional TSplitSource split_source
 }
@@ -1250,6 +1251,61 @@ struct TAggregationNode {
   10: optional TSortInfo agg_sort_info_by_group_key
 }
 
+enum TGroupJoinAggSide {
+  BUILD = 0,
+  PROBE = 1,
+}
+
+enum TGroupJoinAggOutputMode {
+  // 直接输出最终聚合结果。这是 GroupJoin 的主路径：
+  // hash join 已经按照 join/group key 做过数据分布，所以不需要下游 global agg merge。
+  // 目前第一版只支持FINAL_RESULT？
+  FINAL_RESULT = 0,
+  // 输出序列化的中间聚合状态。这个模式作为 fallback 保留：
+  // 当 GroupJoin 不能证明当前 instance 拥有完整 group 时，仍然可以交给下游 global agg merge。
+  SERIALIZED_STATE = 1,
+}
+
+struct TGroupJoinAggFunction {
+  // FE 生成的聚合函数表达式。这个表达式必须能在 join 行物化前，只基于某一侧 child 执行。
+  1: required Exprs.TExpr aggregate_function
+  // 聚合函数输入列来自哪一侧 child。
+  // BUILD 表示在消费 build child 时更新 state，drain 时按 probe 行数做 repeat。
+  // PROBE 表示在消费 probe child 时更新 state，drain 时按 build 行数做 repeat。
+  2: required TGroupJoinAggSide input_side
+  // 当前 demo 版本不支持带 ORDER BY 的顺序敏感聚合函数，例如 group_concat(v order by t)。
+  // 因为 GroupJoin 只保存单侧局部 state 和另一侧 row count，无法恢复 join 后完整行序。
+}
+
+struct TGroupJoinNode {
+  // Join 信息。
+  // 被融合的 join 类型。当前 BE 初版只支持 INNER_JOIN。
+  1: required TJoinOp join_op
+  // 等值 join 条件。当前 BE 初版里它们同时也是 group key 的来源：
+  // GROUP BY 表达式必须等价于这些等值条件中的某一侧。
+  2: required list<TEqJoinCondition> eq_join_conjuncts
+  // FE 选择的 join 分布方式。GroupJoin 复用 hash join 的分布规则，
+  // 要求相同 join/group key 的行被分发到同一个 BE instance。
+  3: optional TJoinDistributionType dist_type
+
+  // Aggregation 信息。字段号从 20 开始，和 join 信息分段。
+  // 被融合聚合的 group-by 表达式。它们描述输出 key 列，
+  // 并且必须和 eq_join_conjuncts 中的 join key 等价。
+  20: required list<Exprs.TExpr> grouping_exprs
+  // 被融合进 GroupJoin 的聚合函数。每个 item 自己携带 input side，
+  // BE 不需要维护 aggregate function list 和 side list 的下标对齐关系。
+  21: optional list<TGroupJoinAggFunction> aggregate_functions
+  // drain 阶段如何输出聚合列。FINAL_RESULT 是 inner partitioned GroupJoin 的主路径，
+  // 因为 hash join shuffle 已经保证每个 group key 在一个 BE instance 内是完整的。
+  22: required TGroupJoinAggOutputMode agg_output_mode
+  // 当前 GroupJoin 节点实际输出行的 tuple descriptor。agg_output_mode == FINAL_RESULT 时，
+  // 聚合 slot 使用最终结果类型；agg_output_mode == SERIALIZED_STATE 时，
+  // 聚合 slot 使用序列化 state 类型。
+  23: required Types.TTupleId output_tuple_id
+  // GroupJoin 产生的 runtime filter 描述复用 TPlanNode.runtime_filters 字段。
+  // FE 应该把 build 侧 join key 作为 src_expr，把可下推到 probe 侧 scan 的表达式作为 target expr。
+}
+
 struct TBucketedAggregationNode {
   1: optional list<Exprs.TExpr> grouping_exprs
   2: optional list<Exprs.TExpr> aggregate_functions
@@ -1283,7 +1339,7 @@ struct TMaterializationNode {
     // Separate list of expr for fetch data
     4: optional list<Exprs.TExpr> fetch_expr_lists
     // Fetch schema
-    5: optional list<list<Descriptors.TColumn>> column_descs_lists; 
+    5: optional list<list<Descriptors.TColumn>> column_descs_lists;
     // Add column in tuple offset
     6: optional list<list<i32>> slot_locs_lists; // [[1, 2], [4, 5]]
     // Whether fetch row store
@@ -1291,7 +1347,7 @@ struct TMaterializationNode {
     // Whethe to clear id map
     8: optional bool gc_id_map
     // 与 slot_locs_lists 类型 不过它代表的是 当前slot 在 表中的位置（第几列）
-    9: optional list<list<i32>> column_idxs_lists; 
+    9: optional list<list<i32>> column_idxs_lists;
 }
 
 struct TPreAggregationNode {
@@ -1312,8 +1368,8 @@ struct TSortNode {
   // This is the number of rows to skip before returning results
   3: optional i64 offset
 
-  // Indicates whether the imposed limit comes DEFAULT_ORDER_BY_LIMIT.           
-  6: optional bool is_default_limit                                              
+  // Indicates whether the imposed limit comes DEFAULT_ORDER_BY_LIMIT.
+  6: optional bool is_default_limit
   7: optional bool use_topn_opt // Deprecated
   8: optional bool merge_by_exchange
   9: optional bool is_analytic_sort
@@ -1529,7 +1585,7 @@ struct TBackendResourceProfile {
 
 // The maximum reservation for this plan node in bytes. MAX_INT64 means effectively
 // unlimited.
-2: required i64 max_reservation = 12188490189880;  // no max reservation limit 
+2: required i64 max_reservation = 12188490189880;  // no max reservation limit
 
 // The spillable buffer size in bytes to use for this node, chosen by the planner.
 // Set iff the node uses spillable buffers.
@@ -1566,13 +1622,13 @@ enum TRuntimeFilterType {
   BITMAP = 16
 }
 
-// generate min-max runtime filter for non-equal condition or equal condition. 
+// generate min-max runtime filter for non-equal condition or equal condition.
 enum TMinMaxRuntimeFilterType {
   // only min is valid, RF generated according to condition: n < col_A
   MIN = 1,
   // only max is valid, RF generated according to condition: m > col_A
   MAX = 2,
-  // both min/max are valid, 
+  // both min/max are valid,
   // support hash join condition: col_A = col_B
   // support other join condition: n < col_A and col_A < m
   MIN_MAX = 4
@@ -1594,9 +1650,9 @@ struct TPartitionTargetExprMonotonicity {
 
 struct TTopnFilterDesc {
   // topn node id
-  1: required i32 source_node_id 
+  1: required i32 source_node_id
   2: required bool is_asc
-  3: required bool null_first 
+  3: required bool null_first
   // scan node id -> expr on scan node
   4: required map<Types.TPlanNodeId, Exprs.TExpr> target_node_id_to_target_expr
 }
@@ -1643,12 +1699,12 @@ struct TRuntimeFilterDesc {
   11: optional bool bitmap_filter_not_in
 
   12: optional bool opt_remote_rf; // Deprecated
-  
+
   // for min/max rf
   13: optional TMinMaxRuntimeFilterType min_max_type;
 
   // true, if bloom filter size is calculated by ndv
-  // if bloom_filter_size_calculated_by_ndv=false, BE could calculate filter size according to the actural row count, and 
+  // if bloom_filter_size_calculated_by_ndv=false, BE could calculate filter size according to the actural row count, and
   // ignore bloom_filter_size_bytes
   14: optional bool bloom_filter_size_calculated_by_ndv;
 
@@ -1656,7 +1712,7 @@ struct TRuntimeFilterDesc {
   15: optional bool null_aware;
 
   16: optional bool sync_filter_size; // Deprecated
-  
+
   17: optional bool build_bf_by_runtime_size;
 
   // Per-filter wait time in ms. When set, overrides query-level runtime_filter_wait_time_ms.
@@ -1720,9 +1776,9 @@ struct TPlanNode {
   14: optional TMergeNode merge_node
   15: optional TExchangeNode exchange_node
   17: optional TMySQLScanNode mysql_scan_node
-  18: optional TOlapScanNode olap_scan_node  
-  19: optional TCsvScanNode csv_scan_node  
-  20: optional TBrokerScanNode broker_scan_node  
+  18: optional TOlapScanNode olap_scan_node
+  19: optional TCsvScanNode csv_scan_node
+  20: optional TBrokerScanNode broker_scan_node
   21: optional TPreAggregationNode pre_agg_node
   22: optional TSchemaScanNode schema_scan_node
   23: optional TMergeJoinNode merge_join_node
@@ -1737,7 +1793,7 @@ struct TPlanNode {
   33: optional TIntersectNode intersect_node
   34: optional TExceptNode except_node
   35: optional TOdbcScanNode odbc_scan_node
-  // Runtime filters assigned to this plan node, exist in HashJoinNode and ScanNode
+  // Runtime filters assigned to this plan node, exist in HashJoinNode, GroupJoinNode and ScanNode
   36: optional list<TRuntimeFilterDesc> runtime_filters
   37: optional TGroupCommitScanNode group_commit_scan_node
   38: optional TMaterializationNode materialization_node
@@ -1771,6 +1827,7 @@ struct TPlanNode {
   // whether a projected scan slot is the aggregate argument or merely the placeholder retained by
   // column pruning. Empty means row-count semantics; non-empty identifies explicit COUNT columns.
   55: optional list<Types.TSlotId> push_down_count_slot_ids
+  56: optional TGroupJoinNode group_join_node
 
   // projections is final projections, which means projecting into results and materializing them into the output block.
   101: optional list<Exprs.TExpr> projections
