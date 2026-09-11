@@ -71,6 +71,7 @@ import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
+import org.apache.doris.thrift.TPaimonWriteMode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -164,10 +165,16 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         Optional<CascadesContext> analyzeContext = Optional.of(
                 CascadesContext.initContext(ctx.getStatementContext(), planForAnalysis, PhysicalProperties.ANY)
         );
+        Optional<InsertCommandContext> normalizeInsertCtx = Optional.empty();
+        if (originLogicalQuery instanceof UnboundPaimonTableSink) {
+            PaimonInsertCommandContext paimonCtx = new PaimonInsertCommandContext();
+            paimonCtx.setOverwrite(true);
+            normalizeInsertCtx = Optional.of(paimonCtx);
+        }
         this.logicalQuery = Optional.of((LogicalPlan) InsertUtils.normalizePlan(
             planForAnalysis, (targetTableIf instanceof RemoteDorisExternalTable)
                         ? ((RemoteDorisExternalTable) targetTableIf).getOlapTable() : targetTableIf,
-                analyzeContext, Optional.empty()));
+                analyzeContext, normalizeInsertCtx));
         if (cte.isPresent()) {
             LogicalPlan logicalQuery = this.logicalQuery.get();
             this.logicalQuery = Optional.of(
@@ -442,6 +449,8 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                     sink.getPartitions(), false, TPartialUpdateNewRowPolicy.APPEND,
                     sink.getDMLCommandType(), (LogicalPlan) sink.child(0),
                     sink.getStaticPartitionKeyValues());
+            copySink = ((UnboundPaimonTableSink<?>) copySink)
+                    .withWriteMode(TPaimonWriteMode.OVERWRITE);
             PaimonInsertCommandContext paimonCtx = new PaimonInsertCommandContext();
             paimonCtx.setOverwrite(true);
             setStaticPartitionToContext(sink, paimonCtx);
@@ -512,7 +521,13 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         Optional<CascadesContext> analyzeContext = Optional.of(
                 CascadesContext.initContext(ctx.getStatementContext(), planForAnalysis, PhysicalProperties.ANY)
         );
-        return InsertUtils.normalizePlan(planForAnalysis, targetTable, analyzeContext, Optional.empty());
+        Optional<InsertCommandContext> explainInsertCtx = Optional.empty();
+        if (originLogicalQuery instanceof UnboundPaimonTableSink) {
+            PaimonInsertCommandContext paimonCtx = new PaimonInsertCommandContext();
+            paimonCtx.setOverwrite(true);
+            explainInsertCtx = Optional.of(paimonCtx);
+        }
+        return InsertUtils.normalizePlan(planForAnalysis, targetTable, analyzeContext, explainInsertCtx);
     }
 
     private UnboundLogicalSink<?> sinkCopyWithWriteSchemaContext(

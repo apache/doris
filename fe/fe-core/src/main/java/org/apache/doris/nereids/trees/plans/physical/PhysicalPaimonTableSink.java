@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.thrift.TPaimonWriteMode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -59,16 +60,19 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
         extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
     private final PaimonWriteTarget writeTarget;
     private final DMLCommandType dmlCommandType;
+    private final TPaimonWriteMode writeMode;
 
     public PhysicalPaimonTableSink(PaimonExternalDatabase database,
                                     PaimonWriteTarget writeTarget,
                                     List<Column> cols,
                                     List<NamedExpression> outputExprs,
                                     DMLCommandType dmlCommandType,
+                                    TPaimonWriteMode writeMode,
                                     Optional<GroupExpression> groupExpression,
                                     LogicalProperties logicalProperties,
                                     CHILD_TYPE child) {
-        this(database, writeTarget, cols, outputExprs, dmlCommandType, groupExpression, logicalProperties,
+        this(database, writeTarget, cols, outputExprs, dmlCommandType, writeMode,
+                groupExpression, logicalProperties,
                 PhysicalProperties.EXTERNAL_TABLE_SINK_UNPARTITIONED, null, child);
     }
 
@@ -77,6 +81,7 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
                                     List<Column> cols,
                                     List<NamedExpression> outputExprs,
                                     DMLCommandType dmlCommandType,
+                                    TPaimonWriteMode writeMode,
                                     Optional<GroupExpression> groupExpression,
                                     LogicalProperties logicalProperties,
                                     PhysicalProperties physicalProperties,
@@ -86,20 +91,21 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
                 groupExpression, logicalProperties, physicalProperties, statistics, child);
         this.writeTarget = writeTarget;
         this.dmlCommandType = dmlCommandType;
+        this.writeMode = writeMode;
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         return new PhysicalPaimonTableSink<>(
                 (PaimonExternalDatabase) database, writeTarget, cols, outputExprs, dmlCommandType,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics, children.get(0));
+                writeMode, groupExpression, getLogicalProperties(), physicalProperties, statistics, children.get(0));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalPaimonTableSink<>(
                 (PaimonExternalDatabase) database, writeTarget, cols, outputExprs, dmlCommandType,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
+                writeMode, groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
     }
 
     @Override
@@ -107,7 +113,7 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalPaimonTableSink<>(
                 (PaimonExternalDatabase) database, writeTarget, cols, outputExprs, dmlCommandType,
-                groupExpression, logicalProperties.get(), physicalProperties, statistics, children.get(0));
+                writeMode, groupExpression, logicalProperties.get(), physicalProperties, statistics, children.get(0));
     }
 
     @Override
@@ -115,7 +121,7 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
             PhysicalProperties physicalProperties, Statistics stats) {
         return new PhysicalPaimonTableSink<>(
                 (PaimonExternalDatabase) database, writeTarget, cols, outputExprs, dmlCommandType,
-                groupExpression, getLogicalProperties(), physicalProperties, stats, child());
+                writeMode, groupExpression, getLogicalProperties(), physicalProperties, stats, child());
     }
 
     @Override
@@ -307,6 +313,10 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
 
     public DMLCommandType getDmlCommandType() {
         return dmlCommandType;
+    }
+
+    public TPaimonWriteMode getWriteMode() {
+        return writeMode;
     }
 
     public boolean isChangelogWrite() {

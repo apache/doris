@@ -35,6 +35,7 @@ import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TPaimonTableSink;
+import org.apache.doris.thrift.TPaimonStorageDescriptor;
 import org.apache.doris.thrift.TPaimonWriteBackendType;
 import org.apache.doris.thrift.TPaimonWriteMode;
 
@@ -61,20 +62,25 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
     private final PaimonExternalTable targetTable;
     private final PaimonWriteTarget writeTarget;
     private final DMLCommandType dmlCommandType;
+    private final TPaimonWriteMode writeMode;
     private List<Expr> outputExprs;
     private List<Column> cols;
-    private String backendSelectionReason = "";
+    private TPaimonWriteBackendType backendType;
+    private TPaimonStorageDescriptor backendStorage;
+    private String backendSelectionReason;
 
     private static final HashSet<TFileFormatType> supportedTypes = new HashSet<TFileFormatType>() {{
             add(TFileFormatType.FORMAT_ORC);
             add(TFileFormatType.FORMAT_PARQUET);
         }};
 
-    public PaimonTableSink(PaimonWriteTarget writeTarget, DMLCommandType dmlCommandType) {
+    public PaimonTableSink(PaimonWriteTarget writeTarget, DMLCommandType dmlCommandType,
+            TPaimonWriteMode writeMode) {
         super();
         this.writeTarget = writeTarget;
         this.targetTable = writeTarget.getDorisTable();
         this.dmlCommandType = dmlCommandType;
+        this.writeMode = writeMode;
     }
 
     public void setCols(List<Column> cols) {
@@ -94,16 +100,40 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
     public String getExplainString(String prefix, TExplainLevel explainLevel) {
         StringBuilder strBuilder = new StringBuilder();
         strBuilder.append(prefix).append("PAIMON TABLE SINK\n");
-        if (tDataSink != null && tDataSink.isSetPaimonTableSink()) {
-            TPaimonTableSink sink = tDataSink.getPaimonTableSink();
-            strBuilder.append(prefix).append("  backend: ").append(sink.getBackendType())
-                    .append(" (").append(backendSelectionReason).append(")\n");
-        }
+        Preconditions.checkState(backendType != null,
+                "Paimon backend decision must be prepared during planning");
+        strBuilder.append(prefix).append("  backend: ").append(backendType)
+                .append(" (").append(backendSelectionReason).append(")\n");
         if (explainLevel == TExplainLevel.BRIEF) {
             return strBuilder.toString();
         }
         strBuilder.append(prefix).append("  table: ").append(targetTable.getName()).append("\n");
         return strBuilder.toString();
+    }
+
+    /** Select the runtime backend during planning so EXPLAIN and execution share one decision. */
+    public void prepareBackendDecision() throws AnalysisException {
+        List<String> outputColumnNames = outputColumnNames();
+        backendType = TPaimonWriteBackendType.JNI;
+        backendStorage = null;
+        backendSelectionReason = "JNI selected";
+
+        String writeBackend = ConnectContext.get() == null
+                ? "CPP" : ConnectContext.get().getSessionVariable().paimonWriteBackend;
+        if (!"CPP".equalsIgnoreCase(writeBackend)) {
+            return;
+        }
+
+        PaimonCppWriteSupport.Decision decision = PaimonCppWriteSupport.decide(
+                writeTarget.getTable(), outputColumnNames, writeMode,
+                targetTable.getCatalog().getCatalogProperty().getStoragePropertiesMap());
+        if (decision.isSupported()) {
+            backendType = TPaimonWriteBackendType.CPP;
+            backendStorage = decision.getStorage();
+            backendSelectionReason = "paimon-cpp supported";
+        } else {
+            backendSelectionReason = "JNI fallback: " + decision.getFallbackReason();
+        }
     }
 
     @Override
@@ -134,34 +164,29 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
         // Arrow conversion and the Java writer schema.
         List<String> outputColumnNames = outputColumnNames();
 
+        TPaimonWriteMode executionWriteMode = isChangelogWrite()
+                ? TPaimonWriteMode.CHANGELOG
+                : ctx.isOverwrite() ? TPaimonWriteMode.OVERWRITE : TPaimonWriteMode.APPEND;
+        if (executionWriteMode != writeMode) {
+            throw new AnalysisException("Paimon write mode differs between planning and execution: planned="
+                    + writeMode + ", execution=" + executionWriteMode);
+        }
+        if (backendType == null) {
+            throw new AnalysisException("Paimon backend decision was not prepared during planning");
+        }
+
         // Both SDKs construct their writer from the same FE-selected table definition.
         tSink.setTableDescriptor(binding.getTableDescriptor());
 
-        tSink.setBackendType(TPaimonWriteBackendType.JNI);
-        if (isChangelogWrite()) {
-            tSink.setWriteMode(TPaimonWriteMode.CHANGELOG);
-        } else if (ctx.isOverwrite()) {
-            tSink.setWriteMode(TPaimonWriteMode.OVERWRITE);
-        } else {
-            tSink.setWriteMode(TPaimonWriteMode.APPEND);
-        }
+        tSink.setBackendType(backendType);
+        tSink.setWriteMode(writeMode);
 
         tSink.setColumnNames(outputColumnNames);
 
-        String writeBackend = ConnectContext.get() == null
-                ? "CPP" : ConnectContext.get().getSessionVariable().paimonWriteBackend;
-        backendSelectionReason = "JNI selected";
-        if ("CPP".equalsIgnoreCase(writeBackend)) {
-            PaimonCppWriteSupport.Decision decision = PaimonCppWriteSupport.decide(
-                    binding.getTable(), outputColumnNames, tSink.getWriteMode(),
-                    targetTable.getCatalog().getCatalogProperty().getStoragePropertiesMap());
-            if (decision.isSupported()) {
-                tSink.getTableDescriptor().setStorage(decision.getStorage());
-                tSink.setBackendType(TPaimonWriteBackendType.CPP);
-                backendSelectionReason = "paimon-cpp supported";
-            } else {
-                backendSelectionReason = "JNI fallback: " + decision.getFallbackReason();
-            }
+        if (backendType == TPaimonWriteBackendType.CPP) {
+            Preconditions.checkState(backendStorage != null,
+                    "CPP Paimon backend requires a storage descriptor");
+            tSink.getTableDescriptor().setStorage(backendStorage);
         }
 
         tDataSink = new TDataSink(TDataSinkType.PAIMON_TABLE_SINK);

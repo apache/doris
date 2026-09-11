@@ -132,6 +132,12 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
             assertEquals(sql("SELECT * FROM t_append ORDER BY id"),
                     sql("SELECT * FROM ${tableName} ORDER BY id"))
         }
+        // Native v1 only supports APPEND. Planning must carry OVERWRITE into the
+        // backend decision so EXPLAIN and execution both select JNI.
+        explain {
+            sql "INSERT OVERWRITE TABLE t_append_write_only VALUES (8, 'overwrite', 80.0)"
+            contains "backend: JNI"
+        }
 
         // FT-002: Partitioned append-only
         sql """INSERT INTO t_append_part VALUES (1, 'alice', 95.5, 'east'), (2, 'bob', 87.0, 'west')"""

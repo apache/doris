@@ -964,7 +964,7 @@ public class BindSink implements AnalysisRuleFactory {
                     rowChange.getOutput().stream()
                             .map(NamedExpression.class::cast)
                             .collect(ImmutableList.toImmutableList()),
-                    sink.getDMLCommandType(),
+                    sink.getDMLCommandType(), sink.getWriteMode(),
                     Optional.empty(), Optional.empty(), rowChange);
         }
 
@@ -1039,7 +1039,7 @@ public class BindSink implements AnalysisRuleFactory {
                 child.getOutput().stream()
                         .map(NamedExpression.class::cast)
                         .collect(ImmutableList.toImmutableList()),
-                sink.getDMLCommandType(), Optional.empty(), Optional.empty(), child);
+                sink.getDMLCommandType(), sink.getWriteMode(), Optional.empty(), Optional.empty(), child);
         PaimonVariantWriteAnalyzer.validate(
                 writeTarget, writeColumns, columnToOutput);
         VariantWritePlanValidator.validateNoLossyCoercion(
