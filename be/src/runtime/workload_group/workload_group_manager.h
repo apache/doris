@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 
+#include <chrono>
 #include <map>
 #include <set>
 #include <shared_mutex>
@@ -194,10 +195,14 @@ private:
     // Handle a query paused due to PROCESS_MEMORY_EXCEEDED. The logic is:
     //   1. If any recently cancelled query exists globally, skip (wait for
     //      process-level memory release).
-    //   2. If the WG's usage exceeds its min_memory_limit, spill via
+    //   2. If the process is no longer above the soft memory limit, resume the
+    //      query immediately.
+    //   3. If the WG's usage exceeds its min_memory_limit, spill via
     //      release_query_memory_(stop_after_release=true) — one spill per round.
-    //   3. Otherwise, try to revoke memory from other overcommitted WGs by
+    //   4. Otherwise, try to revoke memory from other overcommitted WGs by
     //      cancelling their largest queries.
+    //   5. If nothing could be revoked and the query has waited for
+    //      spill_in_paused_queue_timeout_ms, cancel it via release_query_memory_.
     // Returns true if the caller should stop processing further queries/WGs.
     bool handle_process_memory_exceeded_(const WorkloadGroupPtr& wg, PausedQuerySet& queries_list,
                                          PausedQueryIterator& query_it,
@@ -217,9 +222,11 @@ private:
 
     // Attempt to resolve a single paused query: if revocable memory exists, trigger
     // spill; if under limit, resume; if no memory can be freed, cancel the query or
-    // disable reserve memory and resume. Returns true if the query was acted upon
-    // (spilled/cancelled/resumed), false if it should keep waiting (e.g., still has
-    // running tasks).
+    // disable reserve memory and resume. For PROCESS_MEMORY_EXCEEDED with no revocable
+    // memory, keep the query paused until it has waited spill_in_paused_queue_timeout_ms
+    // or the process reaches the hard memory limit, then cancel it. Returns true if the
+    // query was acted upon (spilled/cancelled/resumed), false if it should keep waiting
+    // (still has running tasks, or is within the process-memory grace period).
     bool handle_single_query_(const std::shared_ptr<ResourceContext>& requestor,
                               size_t size_to_reserve, int64_t time_in_queue, Status paused_reason);
 
