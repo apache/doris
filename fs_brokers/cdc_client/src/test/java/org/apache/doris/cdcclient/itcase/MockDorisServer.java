@@ -47,7 +47,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  *   <li>{@code PUT /api/streaming/commit_offset} — captures the committed offset payload and
  *       replies {@code {"code":0}}.
  *   <li>{@code POST /api/streaming/schema_change} — executes schema changes against mock metadata.
- *   <li>{@code GET /api/streaming/{db}/{table}/_schema} — returns mock table metadata.
+ *   <li>{@code GET /api/streaming/schema/{db}/{table}} — returns mock table metadata.
  * </ul>
  */
 final class MockDorisServer implements AutoCloseable {
@@ -100,7 +100,7 @@ final class MockDorisServer implements AutoCloseable {
                 this.committedOffset = new String(body, StandardCharsets.UTF_8);
                 response = "{\"code\":0,\"msg\":\"ok\"}";
             }
-        } else if (path.startsWith("/api/streaming/") && path.endsWith("/_schema")) {
+        } else if (path.startsWith("/api/streaming/schema/")) {
             schemaRequestCount.incrementAndGet();
             List<String> properties = new ArrayList<>();
             synchronized (schemaColumns) {

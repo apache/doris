@@ -32,7 +32,10 @@ import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.AntPathMatcher;
+import org.springframework.web.bind.annotation.RequestMapping;
 
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Collections;
@@ -106,6 +109,17 @@ public class StreamingJobActionSchemaChangeTest extends TestWithFeService {
         ResponseBody<?> responseBody = (ResponseBody<?>) result.getBody();
         Assertions.assertEquals(RestApiStatusCode.OK.code, responseBody.getCode());
         Assertions.assertEquals(200, ((Map<?, ?>) responseBody.getData()).get("status"));
+    }
+
+    @Test
+    public void testStreamingSchemaRouteDoesNotShadowCatalogRoute() throws Exception {
+        Method method = StreamingJobAction.class.getMethod(
+                "getTableSchema", String.class, String.class, HttpServletRequest.class);
+        String route = method.getAnnotation(RequestMapping.class).path()[0];
+        AntPathMatcher matcher = new AntPathMatcher();
+
+        Assertions.assertTrue(matcher.match(route, "/api/streaming/schema/db1/tbl1"));
+        Assertions.assertFalse(matcher.match(route, "/api/streaming/db1/tbl1/_schema"));
     }
 
     private HttpServletRequest tokenRequest() throws Exception {

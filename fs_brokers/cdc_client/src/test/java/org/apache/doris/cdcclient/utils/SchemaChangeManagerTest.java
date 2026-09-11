@@ -124,7 +124,7 @@ class SchemaChangeManagerTest {
     void schemaQueryFailureKeepsOriginalDdlFailure() throws Exception {
         respondToDdlWithUnknownError();
         server.createContext(
-                "/api/streaming/target_db/target_table/_schema",
+                "/api/streaming/schema/target_db/target_table",
                 exchange -> respond(exchange, "{\"code\":1,\"msg\":\"schema unavailable\"}"));
         SchemaChangeOperation operation =
                 SchemaChangeOperation.addColumn(
@@ -171,7 +171,7 @@ class SchemaChangeManagerTest {
 
     private void respondToSchemaWithColumns(String... columns) {
         server.createContext(
-                "/api/streaming/target_db/target_table/_schema",
+                "/api/streaming/schema/target_db/target_table",
                 exchange -> {
                     schemaRequests.incrementAndGet();
                     StringBuilder properties = new StringBuilder();

@@ -54,7 +54,7 @@ public class StreamingJobAction extends RestBaseController {
         this.tableSchemaAction = tableSchemaAction;
     }
 
-    @RequestMapping(path = "/api/streaming/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_schema",
+    @RequestMapping(path = "/api/streaming/schema/{" + DB_KEY + "}/{" + TABLE_KEY + "}",
             method = RequestMethod.GET)
     public Object getTableSchema(@PathVariable(value = DB_KEY) String dbName,
             @PathVariable(value = TABLE_KEY) String tblName, HttpServletRequest request) {

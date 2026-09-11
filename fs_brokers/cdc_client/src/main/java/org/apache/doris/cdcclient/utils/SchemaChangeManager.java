@@ -39,7 +39,7 @@ public class SchemaChangeManager {
 
     private static final Logger LOG = LoggerFactory.getLogger(SchemaChangeManager.class);
     private static final String SCHEMA_CHANGE_API = "http://%s/api/streaming/schema_change";
-    private static final String TABLE_SCHEMA_API = "http://%s/api/streaming/%s/%s/_schema";
+    private static final String TABLE_SCHEMA_API = "http://%s/api/streaming/schema/%s/%s";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String COLUMN_EXISTS_MSG = "Can not add column which already exists";
     private static final String COLUMN_NOT_EXISTS_MSG = "Column does not exists";
