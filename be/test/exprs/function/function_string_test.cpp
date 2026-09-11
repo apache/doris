@@ -81,6 +81,24 @@ DataSet make_md5_varbinary_dataset(const std::vector<std::string>& inputs) {
 
 } // namespace
 
+TEST(function_string_test, parse_data_size_nullable) {
+    const InputTypeSet input_types = {PrimitiveType::TYPE_STRING};
+    const DataSet data_set = {{{Null()}, Null()},
+                              {{std::string("1MB")}, LARGEINT(1048576)},
+                              {{Null()}, Null()},
+                              {{std::string("2.5MB")}, LARGEINT(2621440)},
+                              {{std::string("0B")}, LARGEINT(0)},
+                              {{Null()}, Null()}};
+    check_function_all_arg_comb<DataTypeInt128, true>("parse_data_size", input_types, data_set);
+    check_function_all_arg_comb<DataTypeInt128, true>("parse_data_size", input_types,
+                                                      {{{Null()}, Null()}, {{Null()}, Null()}});
+
+    const InputTypeSet not_null_types = {Notnull {PrimitiveType::TYPE_STRING}};
+    check_function_all_arg_comb<DataTypeInt128>(
+            "parse_data_size", not_null_types,
+            {{{std::string("1MB")}, LARGEINT(1048576)}, {{std::string("0B")}, LARGEINT(0)}});
+}
+
 TEST(function_string_test, function_auto_partition_name_case_insensitive_test) {
     const InputTypeSet list_input_types = {Consted {PrimitiveType::TYPE_VARCHAR},
                                            Consted {PrimitiveType::TYPE_VARCHAR}};
