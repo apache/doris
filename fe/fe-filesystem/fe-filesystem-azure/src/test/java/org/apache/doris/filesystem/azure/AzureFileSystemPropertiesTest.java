@@ -126,6 +126,112 @@ class AzureFileSystemPropertiesTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"SAS", "OAuth2"})
+    void nativeAuthentication_doesNotConsumeOtherProvidersStaticCredentials(String authType) {
+        Map<String, String> input = new HashMap<>(Map.of(
+                "azure.auth_type", authType,
+                "azure.endpoint", "https://account.blob.core.windows.net",
+                "s3.access_key", "s3-account", "s3.secret_key", "s3-secret",
+                "AWS_ACCESS_KEY", "aws-account", "AWS_SECRET_KEY", "aws-secret",
+                "access_key", "generic-account", "secret_key", "generic-secret"));
+        if (authType.equals("SAS")) {
+            input.put("azure.sas_token", "sig=azure-token");
+        } else {
+            input.putAll(Map.of(
+                    "azure.oauth2_account_host", "account.dfs.core.windows.net",
+                    "azure.oauth2_client_id", "client-id",
+                    "azure.oauth2_client_secret", "client-secret",
+                    "azure.oauth2_server_uri", "https://login.microsoftonline.com/tenant/oauth2/token"));
+        }
+
+        AzureFileSystemProperties properties = new AzureFileSystemProvider().bind(input);
+
+        Assertions.assertEquals("", properties.getAccountKey());
+        Assertions.assertEquals("account", properties.toMap().get("AZURE_ACCOUNT_NAME"));
+        Assertions.assertFalse(properties.toMap().containsKey("AZURE_ACCOUNT_KEY"));
+        Assertions.assertFalse(properties.matchedProperties().containsKey("s3.secret_key"));
+        Assertions.assertFalse(properties.matchedProperties().containsKey("AWS_SECRET_KEY"));
+    }
+
+    @Test
+    void sharedKey_doesNotSilentlyFillMissingAzureKeyFromS3() {
+        Assertions.assertThrows(IllegalArgumentException.class, () -> AzureFileSystemProperties.of(Map.of(
+                "azure.auth_type", "SharedKey", "azure.account_name", "account",
+                "azure.endpoint", "https://account.blob.core.windows.net",
+                "s3.access_key", "s3-account", "s3.secret_key", "s3-secret")));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"https://account.blob.core.windows.net", "https://account.dfs.core.usgovcloudapi.net"})
+    void sharedKey_preservesProviderQualifiedLegacyS3Credentials(String endpoint) {
+        Map<String, String> input = Map.of("s3.endpoint", endpoint,
+                "s3.access_key", "account", "s3.secret_key", "legacy-key");
+        AzureFileSystemProperties properties = new AzureFileSystemProvider().bind(input);
+
+        Assertions.assertEquals("account", properties.getAccountName());
+        Assertions.assertEquals("legacy-key", properties.toMap().get("AZURE_ACCOUNT_KEY"));
+        Assertions.assertEquals(input, properties.rawProperties());
+        Assertions.assertEquals(input, properties.matchedProperties());
+    }
+
+    @Test
+    void sharedKey_preservesExplicitAzureLegacyCredentialsForCustomEndpoints() {
+        AzureFileSystemProperties properties = new AzureFileSystemProvider().bind(Map.of(
+                "provider", "azure", "s3.endpoint", "https://proxy.example.test",
+                "s3.access_key", "account", "s3.secret_key", "legacy-key"));
+
+        Assertions.assertEquals("account", properties.getAccountName());
+        Assertions.assertEquals("legacy-key", properties.getAccountKey());
+        Assertions.assertEquals("https://proxy.example.test", properties.getEndpoint());
+        Assertions.assertTrue(new AzureFileSystemProvider().sensitivePropertyKeys().containsAll(
+                Set.of("s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY")));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "https://other.blob.core.windows.net",
+            "https://account.blob.core.chinacloudapi.cn"
+    })
+    void oauth2_rejectsAccountHostAndEndpointConflictsAtBinding(String endpoint) {
+        StoragePropertiesException error = Assertions.assertThrows(StoragePropertiesException.class,
+                () -> AzureFileSystemProperties.of(oauth2Properties(endpoint)));
+
+        Assertions.assertEquals("Azure OAuth2 account host does not match the storage endpoint", error.getMessage());
+        Assertions.assertNull(error.getCause());
+    }
+
+    @Test
+    void oauth2_rejectsAccountNameAndAccountHostConflictsAtBinding() {
+        Map<String, String> input = oauth2Properties("https://account.blob.core.windows.net");
+        input.put("azure.account_name", "other");
+
+        Assertions.assertThrows(StoragePropertiesException.class, () -> AzureFileSystemProperties.of(input));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "https://account.blob.core.windows.net",
+            "https://account.dfs.core.windows.net",
+            "https://proxy.example.test:8443"
+    })
+    void oauth2_acceptsMatchingAccountOrExplicitCustomTransport(String endpoint) {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(oauth2Properties(endpoint));
+        String path = "abfss://container@account.dfs.core.windows.net/dir/file.parquet";
+
+        Assertions.assertEquals(path, properties.validateAndNormalizeUri(path));
+        Assertions.assertEquals("account", properties.toMap().get("AZURE_ACCOUNT_NAME"));
+        Assertions.assertEquals(endpoint.replace(".dfs.", ".blob."), properties.getEndpoint());
+    }
+
+    private static Map<String, String> oauth2Properties(String endpoint) {
+        return new HashMap<>(Map.of(
+                "azure.auth_type", "OAuth2", "azure.endpoint", endpoint,
+                "azure.oauth2_account_host", "account.dfs.core.windows.net",
+                "azure.oauth2_client_id", "client-id", "azure.oauth2_client_secret", "client-secret",
+                "azure.oauth2_server_uri", "https://login.microsoftonline.com/tenant/oauth2/token"));
+    }
+
+    @ParameterizedTest
     @CsvSource({
             "AZURE_AUTH_TYPE, SAS",
             "AZURE_SAS_TOKEN, sig=wire-only",

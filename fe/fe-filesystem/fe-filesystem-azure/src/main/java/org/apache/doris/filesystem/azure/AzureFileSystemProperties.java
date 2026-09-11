@@ -106,14 +106,12 @@ public final class AzureFileSystemProperties
             description = "The endpoint of Azure Blob Storage.")
     private String endpoint = "";
 
-    @ConnectorProperty(names = {ACCOUNT_NAME, "azure.access_key", "s3.access_key",
-            "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key", "AZURE_ACCOUNT_NAME"},
+    @ConnectorProperty(names = {ACCOUNT_NAME, "azure.access_key", "AZURE_ACCOUNT_NAME"},
             required = false,
             description = "The Azure storage account name.")
     private String accountName = "";
 
-    @ConnectorProperty(names = {ACCOUNT_KEY, "azure.secret_key", "s3.secret_key",
-            "AWS_SECRET_KEY", "secret_key", "SECRET_KEY", "AZURE_ACCOUNT_KEY"},
+    @ConnectorProperty(names = {ACCOUNT_KEY, "azure.secret_key", "AZURE_ACCOUNT_KEY"},
             required = false,
             sensitive = true,
             description = "The Azure storage account key.")
@@ -192,10 +190,12 @@ public final class AzureFileSystemProperties
         // Defensive copy before wrapping: unmodifiableMap alone is only a read-only view,
         // so without the copy later mutations of the caller's map would leak through.
         this.rawProperties = Collections.unmodifiableMap(new HashMap<>(rawProperties));
-        this.matchedProperties = Collections.unmodifiableMap(collectMatchedProperties(rawProperties));
+        Map<String, String> matched = collectMatchedProperties(rawProperties);
         ConnectorPropertiesUtils.bindConnectorProperties(this, rawProperties);
         this.explicitEndpoint = StringUtils.isNotBlank(endpoint);
         this.authType = resolveAuthType();
+        bindLegacySharedKey(rawProperties, matched);
+        this.matchedProperties = Collections.unmodifiableMap(matched);
         azureAuthType = authType.propertyValue();
         this.accountHost = resolveAccountHostModel();
         endpoint = formatAzureEndpoint(endpoint, accountHost);
@@ -367,6 +367,58 @@ public final class AzureFileSystemProperties
                 throw new IllegalStateException("Unhandled Azure auth type: " + authType);
         }
         rules.validate("Invalid Azure filesystem properties");
+        if (authType == AzureAuthType.OAUTH2) {
+            if (StringUtils.isNotBlank(accountName) && !accountName.equalsIgnoreCase(accountHost.accountName())) {
+                throw new StoragePropertiesException("Azure OAuth2 account name does not match the account host");
+            }
+            // Standard Azure endpoints identify the account as well as the transport. A custom
+            // proxy does not: its exact HTTP origin is checked when binding a location instead.
+            if (explicitEndpoint && AzureBlobEndpointSignals.isAzureBlobEndpoint(endpoint, rawProperties)
+                    && !accountHost.blobHost().equalsIgnoreCase(AzureAccountHost.parse(endpoint).blobHost())) {
+                throw new StoragePropertiesException("Azure OAuth2 account host does not match the storage endpoint");
+            }
+        }
+    }
+
+    private void bindLegacySharedKey(Map<String, String> properties, Map<String, String> matched) {
+        if (authType != AzureAuthType.SHARED_KEY) {
+            return;
+        }
+        // Old Azure resources used S3 properties or generic uppercase wire fields. Keep that
+        // entry point explicitly qualified; an Azure SAS or an incomplete modern SharedKey
+        // binding must never borrow a different provider's account/secret from the catalog map.
+        boolean legacyAzure = "azure".equalsIgnoreCase(properties.get("provider"))
+                || "AZURE".equalsIgnoreCase(properties.get("_STORAGE_TYPE_"))
+                || Boolean.parseBoolean(properties.get("fs.azure.support"))
+                || matched.containsKey("AZURE_ACCOUNT_NAME")
+                || (StringUtils.isBlank(accountName)
+                        && Set.of("AWS_ACCESS_KEY", "ACCESS_KEY", "access_key").stream()
+                                .anyMatch(key -> StringUtils.isNotBlank(properties.get(key))))
+                || Set.of("s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "AZURE_ENDPOINT").stream()
+                        .map(properties::get).filter(StringUtils::isNotBlank)
+                        .anyMatch(value -> AzureBlobEndpointSignals.isAzureBlobEndpoint(value, properties));
+        if (!legacyAzure) {
+            return;
+        }
+        if (StringUtils.isBlank(accountName)) {
+            accountName = legacyValue(properties, matched,
+                    "s3.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key");
+        }
+        if (StringUtils.isBlank(accountKey)) {
+            accountKey = legacyValue(properties, matched,
+                    "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY");
+        }
+    }
+
+    private static String legacyValue(Map<String, String> properties, Map<String, String> matched, String... names) {
+        for (String name : names) {
+            String value = properties.get(name);
+            if (StringUtils.isNotBlank(value)) {
+                matched.put(name, value);
+                return value;
+            }
+        }
+        return "";
     }
 
     @Override

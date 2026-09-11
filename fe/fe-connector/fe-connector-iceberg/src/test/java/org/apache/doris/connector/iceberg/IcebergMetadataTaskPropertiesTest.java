@@ -45,6 +45,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.Map;
 import java.util.stream.Stream;
@@ -131,15 +132,31 @@ class IcebergMetadataTaskPropertiesTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"gs://bucket/table", "s3://bucket/table", "hdfs://namenode/table", "file:/tmp/table"})
+    void nonAzureMetadataDoesNotProbeTheOptionalFileIoClass(String tableRoot) throws Exception {
+        try (ResolvingFileIO fileIO = new ResolvingFileIO()) {
+            fileIO.initialize(Map.of(TOKEN_KEY, FIXED_SAS, EXPIRY_KEY, "invalid-unused-expiry"));
+            // GCSFileIO is not packaged in the plugin. ResolvingFileIO can fall back to Hadoop,
+            // but its ioClass() probe throws instead; Azure expiry must not invoke that probe.
+            Assertions.assertNull(IcebergMetadataTaskProperties.fixedSasExpiryMs(
+                    fileIO, metadataTask(fileIO, tableRoot)));
+        }
+    }
+
     private static FileScanTask metadataTask(FileIO fileIO) throws Exception {
+        return metadataTask(fileIO, TABLE_ROOT);
+    }
+
+    private static FileScanTask metadataTask(FileIO fileIO, String tableRoot) throws Exception {
         try (InMemoryCatalog catalog = new InMemoryCatalog()) {
             catalog.initialize("expiry-test", Map.of());
             catalog.createNamespace(Namespace.of("db"));
             Table source = catalog.createTable(TableIdentifier.of("db", "t"),
                     new Schema(Types.NestedField.required(1, "id", Types.LongType.get())),
-                    PartitionSpec.unpartitioned(), TABLE_ROOT, Map.of());
+                    PartitionSpec.unpartitioned(), tableRoot, Map.of());
             source.newFastAppend().appendFile(DataFiles.builder(source.spec())
-                    .withPath(TABLE_ROOT + "/data/one.parquet")
+                    .withPath(tableRoot + "/data/one.parquet")
                     .withFileSizeInBytes(16).withRecordCount(3).build()).commit();
             Table table = new BaseTable(new StaticTableOperations(
                     ((BaseTable) source).operations().current(), fileIO), source.name());

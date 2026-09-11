@@ -150,7 +150,8 @@ public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSyst
         Set<String> keys = ConnectorPropertiesUtils.getSensitiveKeys(AzureFileSystemProperties.class);
         // Wire secrets must stay masked independently of which spellings the input binder accepts.
         keys.addAll(Set.of(AzureFileSystemProperties.BACKEND_ACCOUNT_KEY,
-                AzureFileSystemProperties.BACKEND_CLIENT_SECRET, AzureFileSystemProperties.BACKEND_SAS_TOKEN));
+                AzureFileSystemProperties.BACKEND_CLIENT_SECRET, AzureFileSystemProperties.BACKEND_SAS_TOKEN,
+                "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"));
         return keys;
     }
 

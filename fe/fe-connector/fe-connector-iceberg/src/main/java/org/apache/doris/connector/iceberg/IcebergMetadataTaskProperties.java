@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.filesystem.Location;
 
 import com.azure.core.util.UrlBuilder;
 import com.azure.storage.blob.BlobUrlParts;
@@ -55,13 +56,6 @@ final class IcebergMetadataTaskProperties {
                 || !REMOTE_TASKS.contains(task.getClass().getName())) {
             return null;
         }
-        Map<String, String> properties = fileIO.properties();
-        String refreshEndpoint = RESTUtil.resolveEndpoint(properties.get(CatalogProperties.URI),
-                properties.get(AzureProperties.ADLS_REFRESH_CREDENTIALS_ENDPOINT));
-        if (PropertyUtil.propertyAsBoolean(properties, AzureProperties.ADLS_REFRESH_CREDENTIALS_ENABLED, true)
-                && refreshEndpoint != null && !refreshEndpoint.isEmpty()) {
-            return null;
-        }
         // The SDK's public JSON view exposes the remote task location without opening FileIO.
         // In particular, all-manifests task.file() would issue HEAD to populate the file size.
         // Never deserialize this JSON: it cannot preserve Hadoop configuration or scoped credentials.
@@ -71,8 +65,19 @@ final class IcebergMetadataTaskProperties {
             }
             return JsonUtil.getString("path", node.get("manifest-file"));
         });
+        // ResolvingFileIO.io() falls back to Hadoop when an optional provider such as GCS is
+        // absent, whereas ioClass() throws. Only probe the schemes it routes to ADLSFileIO;
+        // non-Azure tasks must retain their own FileIO resolution and credential lifecycle.
         if (fileIO instanceof ResolvingFileIO
-                && ((ResolvingFileIO) fileIO).ioClass(location) != ADLSFileIO.class) {
+                && (!Set.of("abfs", "abfss", "wasb", "wasbs").contains(Location.of(location).scheme())
+                        || ((ResolvingFileIO) fileIO).ioClass(location) != ADLSFileIO.class)) {
+            return null;
+        }
+        Map<String, String> properties = fileIO.properties();
+        String refreshEndpoint = RESTUtil.resolveEndpoint(properties.get(CatalogProperties.URI),
+                properties.get(AzureProperties.ADLS_REFRESH_CREDENTIALS_ENDPOINT));
+        if (PropertyUtil.propertyAsBoolean(properties, AzureProperties.ADLS_REFRESH_CREDENTIALS_ENABLED, true)
+                && refreshEndpoint != null && !refreshEndpoint.isEmpty()) {
             return null;
         }
         // Only the authority is relevant. Do not parse or rewrite raw ABFS object names (which

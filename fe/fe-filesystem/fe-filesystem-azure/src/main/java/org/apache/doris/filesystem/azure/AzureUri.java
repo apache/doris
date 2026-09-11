@@ -213,6 +213,11 @@ public final class AzureUri {
         return key;
     }
 
+    /** Replaces only the raw SDK object name, retaining the original container and authority. */
+    AzureUri withKey(String objectKey) {
+        return new AzureUri(scheme, authority, accountHost, container, objectKey);
+    }
+
     /**
      * Renders this URI with its original scheme and complete authority, including the cloud suffix.
      *
