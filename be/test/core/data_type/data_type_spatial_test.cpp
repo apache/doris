@@ -18,6 +18,7 @@
 #include "core/data_type/data_type_spatial.h"
 
 #include <arrow/array/builder_binary.h>
+#include <cctz/time_zone.h>
 #include <gtest/gtest.h>
 
 #include <cstring>
@@ -102,8 +103,7 @@ TEST(DataTypeSpatialTest, ArrowBinaryReadPreservesWkbForSpatialTypes) {
     for (const auto primitive_type : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
         const auto type = DataTypeFactory::instance().create_data_type(primitive_type, false);
         ColumnPtr column = type->create_column();
-        ASSERT_TRUE(arrow_column_to_doris_column(arrow_array.get(), 0, column, type, 1, "")
-                            .ok());
+        ASSERT_TRUE(arrow_column_to_doris_column(arrow_array.get(), 0, column, type, 1, "").ok());
 
         const auto& spatial = assert_cast<const ColumnSpatial&>(*column);
         EXPECT_EQ(primitive_type, spatial.get_primitive_type());
@@ -111,6 +111,37 @@ TEST(DataTypeSpatialTest, ArrowBinaryReadPreservesWkbForSpatialTypes) {
         const auto value = spatial.get_data_at(0);
         EXPECT_EQ(wkb.size(), value.size);
         EXPECT_EQ(0, memcmp(wkb.data(), value.data, value.size));
+    }
+}
+
+TEST(DataTypeSpatialTest, ArrowBinaryWritePreservesWkbForSpatialTypes) {
+    const std::string wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    const NullMap null_map = {0, 1};
+    cctz::time_zone timezone;
+
+    for (const auto primitive_type : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
+        const auto type = DataTypeFactory::instance().create_data_type(primitive_type, false);
+        auto column = type->create_column();
+        column->insert_data(wkb.data(), wkb.size());
+        column->insert_data(wkb.data(), wkb.size());
+
+        arrow::BinaryBuilder builder;
+        ASSERT_TRUE(type->get_serde()
+                            ->write_column_to_arrow(*column, &null_map, &builder, 0, column->size(),
+                                                    timezone)
+                            .ok());
+
+        std::shared_ptr<arrow::Array> array;
+        ASSERT_TRUE(builder.Finish(&array).ok());
+        const auto* binary = dynamic_cast<const arrow::BinaryArray*>(array.get());
+        ASSERT_NE(nullptr, binary);
+        ASSERT_EQ(2, binary->length());
+        ASSERT_FALSE(binary->IsNull(0));
+        ASSERT_TRUE(binary->IsNull(1));
+        ASSERT_EQ(wkb.size(), static_cast<size_t>(binary->value_length(0)));
+        const auto* value = binary->value_data()->data() + binary->value_offset(0);
+        EXPECT_EQ(0, memcmp(wkb.data(), value, wkb.size()));
     }
 }
 
