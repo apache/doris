@@ -315,7 +315,7 @@ std::unique_ptr<Block> AsyncResultWriter::_get_free_block(doris::Block* block, s
 
 template <typename T>
 void clear_blocks(moodycamel::ConcurrentQueue<T>& blocks,
-                  RuntimeProfile::Counter* memory_used_counter = nullptr);
+                  RuntimeProfile::Counter* memory_used_counter);
 void AsyncResultWriter::set_low_memory_mode() {
     _low_memory_mode = true;
     clear_blocks(_free_blocks, _memory_used_counter);
