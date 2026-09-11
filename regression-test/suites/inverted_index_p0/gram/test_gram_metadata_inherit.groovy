@@ -68,8 +68,16 @@ suite("test_gram_metadata_inherit", "p0") {
                 "inverted_index_storage_format"="SNII")"""
     // Row 1 is a dense3 false positive, but not a sparse4 candidate. Both indexes must
     // preserve row 0 and the scalar LIKE/REGEXP recheck must reject row 1.
+    // The sparse column carries context around the needle, and that is load-bearing rather than
+    // decoration. A sparse scheme cuts on content, so the grams of an occurrence depend on the
+    // bytes around it, and the writer solves its own density from the segment's data: on three
+    // tiny rows the solved rate is sparse enough that a bare eight-byte value promises no gram
+    // an eight-byte literal could ask for, and the compiler correctly answers ALL. Measured on
+    // a live cluster: with row 0 as 'abcdefgh' the sparse index reports candidates 0, filtered
+    // 0, gave-up 0 -- it never runs -- while with the context below it reports candidates 1,
+    // filtered 2. The dense column needs no context because its grams are fixed-length.
     sql """INSERT INTO test_gram_metadata_inherit VALUES
-        (0, 'abcdefgh', 'abcdefgh', 'red fox'),
+        (0, 'abcdefgh', 'prefix_abcdefgh_suffix', 'red fox'),
         (1, 'abc!bcd!cde!def!efg!fgh', 'abc!bcd!cde!def!efg!fgh', 'blue fox'),
         (2, 'unrelated', 'unrelated', 'green dog')"""
     sql "sync"
