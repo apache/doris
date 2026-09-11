@@ -192,6 +192,8 @@ public class StatementContext implements Closeable {
     // map placeholder id to comparison slot, which will used to replace conjuncts
     // directly
     private final Map<PlaceholderId, SlotReference> idToComparisonSlot = new TreeMap<>();
+    // Ordered placeholders from the IN predicate supported by multi-key point query.
+    private List<PlaceholderId> pointQueryInPlaceholderIds = Collections.emptyList();
 
     // collect all hash join conditions to compute node connectivity in join graph
     private final List<Expression> joinFilters = new ArrayList<>();
@@ -633,6 +635,10 @@ public class StatementContext implements Closeable {
         isShortCircuitQuery = shortCircuitQuery;
     }
 
+    public boolean isMultiKeyPointQuery() {
+        return isShortCircuitQuery && !pointQueryInPlaceholderIds.isEmpty();
+    }
+
     public ShortCircuitQueryContext getShortCircuitQueryContext() {
         return shortCircuitQueryContext;
     }
@@ -788,6 +794,14 @@ public class StatementContext implements Closeable {
 
     public Map<PlaceholderId, SlotReference> getIdToComparisonSlot() {
         return idToComparisonSlot;
+    }
+
+    public List<PlaceholderId> getPointQueryInPlaceholderIds() {
+        return pointQueryInPlaceholderIds;
+    }
+
+    public void setPointQueryInPlaceholderIds(List<PlaceholderId> placeholderIds) {
+        pointQueryInPlaceholderIds = ImmutableList.copyOf(placeholderIds);
     }
 
     public Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> getCteIdToConsumerGroup() {

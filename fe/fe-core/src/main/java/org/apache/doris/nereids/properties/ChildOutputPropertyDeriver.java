@@ -161,7 +161,9 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     @Override
     public PhysicalProperties visitPhysicalOlapScan(PhysicalOlapScan olapScan, PlanContext context) {
         // make sure only one fragment when use point query
-        if (context.getStatementContext().isShortCircuitQuery() && olapScan.getSelectedTabletIds().size() == 1) {
+        if (context.getStatementContext().isShortCircuitQuery()
+                && (olapScan.getSelectedTabletIds().size() == 1
+                        || context.getStatementContext().isMultiKeyPointQuery())) {
             return PhysicalProperties.GATHER;
         }
         return new PhysicalProperties(olapScan.getDistributionSpec());

@@ -413,6 +413,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SHORT_CIRCUIT_QUERY = "enable_short_circuit_query";
 
+    public static final String MAX_POINT_QUERY_IN_VALUES = "max_point_query_in_values";
+
     public static final String ENABLE_SHORT_CIRCUIT_QUERY_ACCESS_COLUMN_STORE
                     = "enable_short_circuit_query_access_column_store";
 
@@ -2007,6 +2009,12 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = ENABLE_SHORT_CIRCUIT_QUERY)
     private boolean enableShortCircuitQuery = true;
+
+    @VarAttrDef.VarAttr(name = MAX_POINT_QUERY_IN_VALUES, needForward = true,
+            checker = "checkMaxPointQueryInValues",
+            description = "Maximum number of values allowed in the single-column IN predicate of a multi-key "
+                    + "short-circuit point query; larger queries fall back to regular execution")
+    public int maxPointQueryInValues = 30;
 
     @VarAttrDef.VarAttr(name = ENABLE_SHORT_CIRCUIT_QUERY_ACCESS_COLUMN_STORE)
     private boolean enableShortCircuitQueryAcessColumnStore = true;
@@ -5061,6 +5069,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableShortCircuitQuery;
     }
 
+    public int getMaxPointQueryInValues() {
+        return maxPointQueryInValues;
+    }
+
     public boolean checkOverflowForDecimal() {
         return checkOverflowForDecimal;
     }
@@ -5360,6 +5372,14 @@ public class SessionVariable implements Serializable, Writable {
         LOG.warn("insertVisibleTimeoutReturnMode value is invalid, the invalid value is {}", mode);
         throw new UnsupportedOperationException(
                 "insertVisibleTimeoutReturnMode value is invalid, the invalid value is " + mode);
+    }
+
+    public void checkMaxPointQueryInValues(String newValue) {
+        int value = Integer.parseInt(newValue);
+        if (value <= 0) {
+            throw new UnsupportedOperationException(
+                    MAX_POINT_QUERY_IN_VALUES + " must be greater than 0");
+        }
     }
 
     public void checkMaxExecutionTimeMSValid(String newValue) {

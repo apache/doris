@@ -910,6 +910,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int max_point_query_retry_time = 2;
 
+    @ConfField(mutable = true, description = "Whether to enable multi-get for prepared point queries. Keep this "
+            + "disabled until all queryable backends have been upgraded to support batched point lookups.")
+    public static boolean enable_point_query_multi_get = false;
+
     /**
      * If set to true, FE may omit heavy reusable parameters (desc_tbl/output_expr/query_options)
      * in point lookup requests (PTabletKeyLookupRequest) when executing prepared statements.

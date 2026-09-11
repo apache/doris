@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ExprToThriftVisitor;
@@ -1201,6 +1202,95 @@ public class OlapScanNode extends ScanNode {
         if (useFixReplica >= 0) {
             throw new UserException("Required backend selection is incompatible with use_fix_replica");
         }
+    }
+
+    /** Immutable routing result for one expanded multi-key lookup tuple. */
+    public static final class PointQueryRoute {
+        private final long tabletId;
+        private final List<Long> candidateBackendIds;
+        private final boolean backendOrderBySelection;
+
+        private PointQueryRoute(long tabletId, List<Long> candidateBackendIds,
+                boolean backendOrderBySelection) {
+            this.tabletId = tabletId;
+            this.candidateBackendIds = candidateBackendIds;
+            this.backendOrderBySelection = backendOrderBySelection;
+        }
+
+        public long getTabletId() {
+            return tabletId;
+        }
+
+        public List<Long> getCandidateBackendIds() {
+            return candidateBackendIds;
+        }
+
+        public boolean isBackendOrderBySelection() {
+            return backendOrderBySelection;
+        }
+    }
+
+    /**
+     * Resolve one complete primary-key tuple for the multi-key point-query coordinator. Routing is
+     * serial because the reusable scan node owns mutable pruning state. The original predicates are
+     * restored before returning; only the copied route escapes this method.
+     *
+     * @return null when the tuple does not map to an existing non-empty partition or selected bucket
+     */
+    public PointQueryRoute routePointQueryKeyTuple(List<LiteralExpr> keyValues) throws UserException {
+        List<Column> keyColumns = olapTable.getBaseSchemaKeyColumns();
+        Preconditions.checkState(keyValues.size() == keyColumns.size(),
+                "Point-query key tuple has %s values but table requires %s",
+                keyValues.size(), keyColumns.size());
+
+        List<Expr> originalConjuncts = conjuncts;
+        List<Expr> routingConjuncts = new ArrayList<>(keyColumns.size());
+        for (int i = 0; i < keyColumns.size(); ++i) {
+            LiteralExpr value = keyValues.get(i);
+            Preconditions.checkState(value != null && !(value instanceof NullLiteral),
+                    "Multi-key point query cannot route a NULL key value");
+            SlotRef slot = Preconditions.checkNotNull(
+                    findPointQueryKeySlot(originalConjuncts, keyColumns.get(i).getName()),
+                    "Missing point-query predicate for key column %s", keyColumns.get(i).getName());
+            routingConjuncts.add(new BinaryPredicate(BinaryPredicate.Operator.EQ, slot, value));
+        }
+
+        try {
+            conjuncts = routingConjuncts;
+            // Unlike the ordinary point-query path, multi-get evaluates this mutable scan node
+            // repeatedly with different key tuples.
+            columnFilters.clear();
+            columnNameToRange.clear();
+            totalTabletsNum = 0;
+            selectedSplitNum = 0;
+            totalBytes = 0;
+            tabletBytes.clear();
+            lazyEvaluateRangeLocations();
+            if (scanTabletIds.isEmpty()) {
+                return null;
+            }
+            Preconditions.checkState(scanTabletIds.size() == 1,
+                    "Multi-key point query must route to exactly one tablet");
+            if (scanBackendIds.isEmpty()) {
+                throw new UserException("No queryable backend found for point-query tablet "
+                        + scanTabletIds.get(0));
+            }
+            return new PointQueryRoute(scanTabletIds.get(0), List.copyOf(scanBackendIds),
+                    scanBackendOrderBySelection);
+        } finally {
+            conjuncts = originalConjuncts;
+        }
+    }
+
+    private SlotRef findPointQueryKeySlot(List<Expr> predicates, String columnName) {
+        for (Expr predicate : predicates) {
+            Expr candidate = predicate.getChildWithoutCast(0);
+            if (candidate instanceof SlotRef
+                    && ((SlotRef) candidate).getColumnName().equalsIgnoreCase(columnName)) {
+                return (SlotRef) candidate;
+            }
+        }
+        return null;
     }
 
     @VisibleForTesting
