@@ -257,6 +257,16 @@ struct CastToDecimal {
         }
         to.value = static_cast<typename ToCppT::NativeType>(static_cast<double>(
                 from * static_cast<DoubleType>(scale_multiplier) + ((from >= 0) ? 0.5 : -0.5)));
+        if constexpr (IsDecimal256<ToCppT>) {
+            // Floating-point rounding can let an out-of-range value pass the check above.
+            if (to.value < min_result || to.value > max_result) {
+                if (params.is_strict) {
+                    params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(from, "float/double",
+                                                                   to_precision, to_scale);
+                }
+                return false;
+            }
+        }
         return true;
     }
 
