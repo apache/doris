@@ -371,6 +371,12 @@ public class MetaServiceClient {
                 .checkTxnConflict(request);
     }
 
+    public Cloud.GetTsoRecoveryTransactionsResponse getTsoRecoveryTransactions(
+            Cloud.GetTsoRecoveryTransactionsRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getTsoRecoveryTransactions(request);
+    }
+
     public Cloud.CleanTxnLabelResponse cleanTxnLabel(Cloud.CleanTxnLabelRequest request) {
         return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
                 .cleanTxnLabel(request);
