@@ -158,6 +158,23 @@ void BaseStorageEngine::_start_adaptive_thread_controller() {
                                         config::max_flush_thread_num_per_cpu,
                                         config::min_flush_thread_num_per_cpu);
     }
+
+    // Keep the two delete bitmap queues independent, while reusing the flush
+    // policy and per-CPU thread limits.
+    auto add_delete_bitmap_pool = [this](const std::string& name,
+                                         CalcDeleteBitmapExecutor* executor) {
+        if (executor) {
+            auto* pool = executor->thread_pool();
+            _adaptive_thread_controller.add(name, {pool},
+                                            AdaptiveThreadPoolController::make_flush_adjust_func(
+                                                    &_adaptive_thread_controller, pool),
+                                            config::max_flush_thread_num_per_cpu,
+                                            config::min_flush_thread_num_per_cpu);
+        }
+    };
+    add_delete_bitmap_pool("calc_delete_bitmap", _calc_delete_bitmap_executor.get());
+    add_delete_bitmap_pool("calc_delete_bitmap_for_load",
+                           _calc_delete_bitmap_executor_for_load.get());
 }
 
 Status BaseStorageEngine::init_stream_load_recorder(const std::string& stream_load_record_path) {
