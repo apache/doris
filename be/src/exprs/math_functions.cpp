@@ -133,26 +133,35 @@ StringRef MathFunctions::decimal_to_base(FunctionContext* ctx, int64_t src_num, 
 }
 
 bool MathFunctions::decimal_in_base_to_decimal(int64_t src_num, int8_t src_base, int64_t* result) {
-    uint64_t temp_num = std::abs(src_num);
-    int32_t place = 1;
-    *result = 0;
+    auto magnitude = static_cast<uint64_t>(src_num);
+    if (src_num < 0) {
+        magnitude = 0 - magnitude;
+    }
+    uint64_t divisor = 1;
+    uint64_t remaining = magnitude;
+    while (remaining >= 10) {
+        remaining /= 10;
+        divisor *= 10;
+    }
+
+    uint64_t value = 0;
+    constexpr uint64_t max_value = std::numeric_limits<uint64_t>::max();
+    const uint64_t max_div_base = max_value / src_base;
+    const uint64_t max_mod_base = max_value % src_base;
     do {
-        int32_t digit = temp_num % 10;
-        // Reset result if digit is not representable in src_base.
+        const int digit = static_cast<int>(magnitude / divisor);
+        // Keep the prefix preceding the first digit not representable in src_base.
         if (digit >= src_base) {
-            *result = 0;
-            place = 1;
-        } else {
-            *result += digit * place;
-            place *= src_base;
-            // Overflow.
-            if (UNLIKELY(*result < digit)) {
-                return false;
-            }
+            break;
         }
-        temp_num /= 10;
-    } while (temp_num > 0);
-    *result = (src_num < 0) ? -(*result) : *result;
+        if (UNLIKELY(value > max_div_base - (digit > max_mod_base))) {
+            return false;
+        }
+        value = value * src_base + digit;
+        magnitude %= divisor;
+        divisor /= 10;
+    } while (divisor > 0);
+    *result = static_cast<int64_t>(src_num < 0 ? 0 - value : value);
     return true;
 }
 
