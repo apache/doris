@@ -162,8 +162,10 @@ public class ExecuteCommand extends Command {
             // statementContext.getShortCircuitQueryContext(), and the fallback (building one from a
             // null planner, since this path skips planning) would NPE.
             statementContext.setShortCircuitQueryContext(preparedStmtCtx.shortCircuitQueryContext.get());
-            PointQueryExecutor.directExecuteShortCircuitQuery(executor, preparedStmtCtx, statementContext);
-            return;
+            if (PointQueryExecutor.directExecuteShortCircuitQuery(
+                    executor, preparedStmtCtx, statementContext)) {
+                return;
+            }
         }
         if (ctx.getSessionVariable().enableGroupCommitFullPrepare) {
             if (preparedStmtCtx.groupCommitPlanner.isPresent()) {

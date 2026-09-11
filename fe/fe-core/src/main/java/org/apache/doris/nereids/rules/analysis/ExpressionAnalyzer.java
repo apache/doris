@@ -92,6 +92,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.ArrayType;
@@ -920,13 +921,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         return visit(realExpr, context);
     }
 
-    // Register prepared statement placeholder id to related slot in comparison predicate.
-    // Used to replace expression in ShortCircuit plan
+    // Register each prepared-statement placeholder with its point-query key slot.
     private void registerPlaceholderIdToSlot(ComparisonPredicate cp,
                     ExpressionRewriteContext context, Expression left, Expression right) {
         if (ConnectContext.get() != null
                     && ConnectContext.get().getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
-            // Used to replace expression in ShortCircuit plan
             if (cp.right() instanceof Placeholder && left instanceof SlotReference) {
                 PlaceholderId id = ((Placeholder) cp.right()).getPlaceholderId();
                 context.cascadesContext.getStatementContext().getIdToComparisonSlot().put(id, (SlotReference) left);
@@ -941,12 +940,43 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     public Expression visitComparisonPredicate(ComparisonPredicate cp, ExpressionRewriteContext context) {
         Expression left = cp.left().accept(this, context);
         Expression right = cp.right().accept(this, context);
-        // Used to replace expression in ShortCircuit plan
         registerPlaceholderIdToSlot(cp, context, left, right);
+        ComparisonPredicate original = cp;
         cp = (ComparisonPredicate) cp.withChildren(left, right);
-        return isEqualityBetweenJoinChildren(cp)
+        Expression analyzed = isEqualityBetweenJoinChildren(cp)
                 ? TypeCoercionUtils.processJoinComparisonPredicate(cp)
                 : TypeCoercionUtils.processComparisonPredicate(cp);
+        registerPointQueryFixedKeyConstraint(original, analyzed, context);
+        return analyzed;
+    }
+
+    /**
+     * Keep fixed equality values distinct from prepared-statement placeholders. The point-query
+     * executor used to rediscover both from the translated scan conjuncts and then update every
+     * predicate sharing a column name. Once a row policy adds {@code key = constant}, that loses
+     * provenance and turns the policy constant into caller-controlled state.
+     */
+    private void registerPointQueryFixedKeyConstraint(ComparisonPredicate original,
+            Expression analyzed, ExpressionRewriteContext context) {
+        if (!(currentPlan instanceof LogicalFilter)
+                || !(original instanceof EqualTo)
+                || original.left() instanceof Placeholder
+                || original.right() instanceof Placeholder
+                || !(analyzed instanceof EqualTo)) {
+            return;
+        }
+        Expression left = analyzed.child(0);
+        Expression right = analyzed.child(1);
+        if (left instanceof SlotReference && right instanceof Literal) {
+            context.cascadesContext.getStatementContext().addPointQueryFixedKeyConstraint(
+                    (SlotReference) left, (Literal) right);
+        } else {
+            // The logical short-circuit shape checker currently peels one Cast from the key.
+            // A cast can be lossy (for example CAST(INT AS CHAR(1))), so it is not evidence for
+            // an exact physical lookup key. Keep the normal plan unless the fixed predicate is
+            // literally Slot = Literal.
+            context.cascadesContext.getStatementContext().markPointQueryFixedKeyConstraintsIncomplete();
+        }
     }
 
     private boolean isEqualityBetweenJoinChildren(ComparisonPredicate comparisonPredicate) {

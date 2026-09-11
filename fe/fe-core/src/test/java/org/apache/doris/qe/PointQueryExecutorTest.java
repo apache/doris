@@ -17,6 +17,8 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.OlapScanNode;
 
 import org.junit.jupiter.api.Assertions;
@@ -33,5 +35,22 @@ public class PointQueryExecutorTest {
 
         Mockito.when(scanNode.isScanBackendOrderBySelection()).thenReturn(true);
         Assertions.assertFalse(PointQueryExecutor.shouldShuffleCandidateBackends(scanNode));
+    }
+
+    @Test
+    public void testEmptyDecisionReturnsBeforeTabletPruning() throws Exception {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getBaseSchemaKeyColumns()).thenReturn(java.util.Collections.emptyList());
+        OlapScanNode scanNode = Mockito.mock(OlapScanNode.class);
+        Mockito.when(scanNode.getOlapTable()).thenReturn(table);
+        Mockito.when(scanNode.getTableNameInPlan()).thenReturn("tbl");
+        ShortCircuitQueryContext queryContext = new ShortCircuitQueryContext(scanNode, new StatementContext());
+        PointQueryExecutor executor = new PointQueryExecutor(queryContext,
+                ShortCircuitQueryContext.PointQueryExecutionContext.empty(), 1024);
+
+        Mockito.clearInvocations(scanNode);
+        Assertions.assertNotNull(executor.getNext());
+        // lazyEvaluateRangeLocations is the first operation that can resolve a tablet and lead to a BE RPC.
+        Mockito.verifyNoInteractions(scanNode);
     }
 }

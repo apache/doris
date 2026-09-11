@@ -73,6 +73,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -198,6 +199,28 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
                 }
                 computeColumnFilter(column, slotDesc, partitionsInfo);
             }
+        }
+    }
+
+    /**
+     * Build point-query pruning state from one execution's immutable key tuple. This avoids
+     * changing cached scan conjuncts (which are shared by every EXECUTE of a prepared handle)
+     * while still making partition and distribution pruning use the current parameter values.
+     */
+    protected void computePointQueryColumnFilters(Map<String, LiteralExpr> keyValues) {
+        columnFilters.clear();
+        columnNameToRange.clear();
+        for (Map.Entry<String, LiteralExpr> entry : keyValues.entrySet()) {
+            LiteralExpr literal = entry.getValue();
+            PartitionColumnFilter partitionFilter = new PartitionColumnFilter();
+            partitionFilter.setLowerBound(literal, true);
+            partitionFilter.setUpperBound(literal, true);
+            columnFilters.put(entry.getKey(), partitionFilter);
+
+            ColumnBound bound = ColumnBound.of(literal);
+            ColumnRange columnRange = ColumnRange.create();
+            columnRange.intersect(Collections.singletonList(Range.closed(bound, bound)));
+            columnNameToRange.put(entry.getKey(), columnRange);
         }
     }
 

@@ -103,6 +103,9 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
     // set short circuit flag and return the original plan
     private Plan shortCircuit(Plan root, OlapTable olapTable,
                 Set<Expression> conjuncts, StatementContext statementContext) {
+        if (!statementContext.arePointQueryFixedKeyConstraintsComplete()) {
+            return root;
+        }
         // All key columns in conjuncts
         Set<String> colNames = Sets.newHashSet();
         for (Expression expr : conjuncts) {
