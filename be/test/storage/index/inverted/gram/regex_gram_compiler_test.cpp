@@ -156,4 +156,35 @@ TEST(RegexGramCompilerTest, LikeEscapeConservative) {
     EXPECT_TRUE(q.is_all());
 }
 
+// A pattern is compiled into grams the index is then asked for, so a byte sequence that no
+// encoder emits must not be turned into one that does. `C0 AF` spells U+002F the way an overlong
+// encoding does; decoding it would ask the index for grams of `/`, while a row holding those raw
+// bytes stores no gram across them at all (the extractor stops at a non-ASCII byte), so the row
+// would be filtered away. The same holds for a surrogate half and for a value above U+10FFFF.
+TEST(RegexGramCompilerTest, IllFormedUtf8IsNotDecodedIntoTheCodePointItSpells) {
+    const std::string slash = dense("abc/def");
+    EXPECT_EQ(slash, R"(("/de" & "abc" & "bc/" & "c/d" & "def"))");
+
+    EXPECT_NE(dense("abc\xC0\xAF"
+                    "def"),
+              slash)
+            << "overlong C0 AF must not become '/'";
+    EXPECT_NE(dense("abc\xE0\x80\xAF"
+                    "def"),
+              slash)
+            << "overlong E0 80 AF must not become '/'";
+    // A surrogate half and an out-of-range value are ill-formed too; what matters is that each
+    // stays a separator, so the literal on either side is all the pattern can promise.
+    EXPECT_EQ(dense("abc\xED\xA0\x80"
+                    "def"),
+              R"(("abc" & "def"))");
+    EXPECT_EQ(dense("abc\xF5\x80\x80\x80"
+                    "def"),
+              R"(("abc" & "def"))");
+    // The ASCII runs on either side still constrain the query.
+    EXPECT_EQ(dense("abc\xC0\xAF"
+                    "def"),
+              R"(("abc" & "def"))");
+}
+
 } // namespace doris::segment_v2::gram

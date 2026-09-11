@@ -154,6 +154,9 @@ GramQuery GramQuery::and_(GramQuery a, GramQuery b) {
     if (r.grams.empty() && r.subs.size() == 1) {
         return std::move(r.subs[0]);
     }
+    if (r.leaf_count() > kMaxLeaves) {
+        return all();
+    }
     return r;
 }
 
@@ -212,6 +215,9 @@ GramQuery GramQuery::or_(GramQuery a, GramQuery b) {
     }
     if (r.grams.empty() && r.subs.size() == 1) {
         return std::move(r.subs[0]);
+    }
+    if (r.leaf_count() > kMaxLeaves) {
+        return all();
     }
     return r;
 }
