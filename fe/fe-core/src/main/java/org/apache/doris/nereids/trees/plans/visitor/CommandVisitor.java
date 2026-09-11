@@ -164,6 +164,7 @@ import org.apache.doris.nereids.trees.plans.commands.RecoverPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
+import org.apache.doris.nereids.trees.plans.commands.ResolveLanceIndexJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
@@ -229,6 +230,8 @@ import org.apache.doris.nereids.trees.plans.commands.ShowIndexNormalizerCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexTokenFilterCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexTokenizerCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowLanceIndexJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowLanceIndexJobsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
@@ -681,6 +684,18 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowCreateRepositoryCommand(ShowCreateRepositoryCommand showCreateRepositoryCommand, C context) {
         return visitCommand(showCreateRepositoryCommand, context);
+    }
+
+    default R visitResolveLanceIndexJobCommand(ResolveLanceIndexJobCommand resolveLanceIndexJobCommand, C context) {
+        return visitCommand(resolveLanceIndexJobCommand, context);
+    }
+
+    default R visitShowLanceIndexJobCommand(ShowLanceIndexJobCommand showLanceIndexJobCommand, C context) {
+        return visitCommand(showLanceIndexJobCommand, context);
+    }
+
+    default R visitShowLanceIndexJobsCommand(ShowLanceIndexJobsCommand showLanceIndexJobsCommand, C context) {
+        return visitCommand(showLanceIndexJobsCommand, context);
     }
 
     default R visitShowLastInsertCommand(ShowLastInsertCommand showLastInsertCommand, C context) {

@@ -4226,4 +4226,56 @@ public class Config extends ConfigBase {
                     + "可降低导入内存压力并提升随机分桶表的吞吐量，覆盖所有导入类型。"})
     public static boolean enable_adaptive_random_bucket_load = true;
 
+    @ConfField(mutable = true, masterOnly = true, varType = VariableAnnotation.EXPERIMENTAL, description = {
+            "是否启用 Lance 外表索引变更(CREATE/CREATE OR REPLACE/DROP INDEX)的 admission。默认关闭;"
+                    + "启用前需确认未决 job 配额均为正值。注意:在 dispatch(后续版本)与 FORCE_RELEASE(后续版本)就绪前"
+                    + "开启本开关会产生不可回收的 PENDING job 并冻结对应 catalog 的身份属性变更与 DROP CATALOG。",
+            "Enable admission of Lance index mutations (CREATE/CREATE OR REPLACE/DROP INDEX). "
+                    + "Disabled by default; unresolved-job quotas must be positive before enabling. "
+                    + "WARNING: enabling before dispatch and FORCE_RELEASE land in a later release creates "
+                    + "PENDING jobs that cannot be resolved and freezes catalog identity changes and DROP CATALOG."})
+    public static boolean enable_lance_index_mutation = false;
+
+    @ConfField(mutable = true, masterOnly = true,
+            callback = LanceIndexConfigValidator.PositiveLongConfigHandler.class,
+            description = {"单个 Lance 数据表(locator 身份)允许的最大未决索引 job 数。",
+                    "Max unresolved Lance index jobs per table (locator identity)."})
+    public static long lance_index_job_max_unresolved_per_table = 8;
+
+    @ConfField(mutable = true, masterOnly = true,
+            callback = LanceIndexConfigValidator.PositiveLongConfigHandler.class,
+            description = {"单个 Lance catalog 允许的最大未决索引 job 数。",
+                    "Max unresolved Lance index jobs per catalog."})
+    public static long lance_index_job_max_unresolved_per_catalog = 64;
+
+    @ConfField(mutable = true, masterOnly = true,
+            callback = LanceIndexConfigValidator.PositiveLongConfigHandler.class,
+            description = {"全部 catalog 合计允许的最大未决 Lance 索引 job 数。",
+                    "Max unresolved Lance index jobs across all catalogs (global)."})
+    public static long lance_index_job_max_unresolved_global = 256;
+
+    @ConfField(mutable = true, masterOnly = false,
+            callback = LanceIndexConfigValidator.PositiveIntConfigHandler.class,
+            description = {"Lance IVF_PQ 索引 num_partitions 的静态上限。",
+                    "Static upper bound for num_partitions of Lance IVF_PQ indexes."})
+    public static int lance_index_max_num_partitions = 4096;
+
+    @ConfField(mutable = true, masterOnly = false,
+            callback = LanceIndexConfigValidator.PositiveIntConfigHandler.class,
+            description = {"Lance IVF_PQ 索引 num_sub_vectors 的静态上限。",
+                    "Static upper bound for num_sub_vectors of Lance IVF_PQ indexes."})
+    public static int lance_index_max_num_sub_vectors = 256;
+
+    @ConfField(mutable = true, masterOnly = true,
+            callback = LanceIndexConfigValidator.PositiveLongConfigHandler.class,
+            description = {"Lance 索引已决 job 记录的最长留存时间(秒),超过后被清理;已决记录只服务审计。",
+                    "Max retention time in seconds for resolved Lance index jobs; resolved records serve audit only."})
+    public static long lance_index_job_keep_max_second = 7 * 24 * 3600;
+
+    @ConfField(mutable = true, masterOnly = true,
+            callback = LanceIndexConfigValidator.PositiveLongConfigHandler.class,
+            description = {"Lance 索引 job 留存清理线程的运行周期(秒)。",
+                    "Interval in seconds between Lance index job retention clean rounds."})
+    public static long lance_index_job_clean_interval_second = 3600;
+
 }

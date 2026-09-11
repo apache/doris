@@ -1239,6 +1239,18 @@ public enum ErrorCode {
     ERR_LANCE_INDEX_OPERATION_NOT_SUPPORTED(5101, new byte[]{'4', '2', '0', '0', '0'},
             "%s is not supported for Lance %s"),
 
+    ERR_LANCE_INDEX_MUTATION_DISABLED(5102, new byte[]{'4', '2', '0', '0', '0'},
+            "%s is disabled for Lance catalog tables (enable_lance_index_mutation = false)"),
+
+    ERR_LANCE_INDEX_JOB_NOT_FOUND(5103, new byte[]{'4', '2', '0', '0', '0'}, "Lance index job not found: %s"),
+
+    ERR_LANCE_INDEX_JOB_NOT_UNKNOWN(5104, new byte[]{'4', '2', '0', '0', '0'},
+            "Lance index job %s cannot be resolved: not in UNKNOWN state"),
+
+    ERR_LANCE_INDEX_JOB_RESOLUTION_INCOMPLETE(5105, new byte[]{'4', '2', '0', '0', '0'},
+            "Lance index job %s was not released: %s; the job remains UNKNOWN and still holds"
+                    + " its fence, quota and possible-live slot; fix the cause and retry"),
+
     ERR_NOT_CLOUD_MODE(6000, new byte[]{'4', '2', '0', '0', '0'},
             "Command only support in cloud mode.");
 

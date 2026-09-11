@@ -35,6 +35,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableSet;
@@ -138,6 +139,14 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
      */
     protected void writeEditLog(LanceIndexJob job) {
         Env.getCurrentEnv().getEditLog().logLanceIndexJob(job);
+    }
+
+    /**
+     * Edit-log seam of the retention GC: one batch removal record per clean
+     * round. Tests subclass and override to capture or swallow the removal.
+     */
+    protected void writeRemoveLog(List<Long> jobIds) {
+        Env.getCurrentEnv().getEditLog().logLanceIndexJobRemove(new LanceIndexJobRemoveOperation(jobIds));
     }
 
     // ------------------------------------------------------------------
@@ -497,6 +506,118 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
         }
     }
 
+    /**
+     * Durable FORCE_RELEASE of an UNKNOWN job, the operator escape hatch for a
+     * mutation whose outcome cannot be established. Validation order is fixed:
+     * unknown job -&gt; idempotent short-circuit on an already released record
+     * (deliberately ahead of the revision CAS, so an operator retry carrying the
+     * pre-release revision still observes the existing release record, unlike
+     * the stale-callback convention) -&gt; revision CAS -&gt; UNKNOWN state gate
+     * (a null mutation state is treated as UNKNOWN, the safe direction, mirroring
+     * {@link LanceIndexJob#isUnresolved()}).
+     *
+     * <p>The staged copy sets only the five FORCE audit fields and bumps
+     * revision and update time; {@code possibleLiveOwned} and
+     * {@code terminationProof} keep their values for audit. Swapping the record
+     * in flips {@link LanceIndexJob#isUnresolved()} and
+     * {@link LanceIndexJob#holdsPossibleLiveSlot()} to false, so
+     * {@link #applyToMemory(LanceIndexJob)} releases the fence, the quota
+     * charge, and the corrupt-admission blocker with no explicit teardown.
+     *
+     * @return false (with a warning) on an unknown job id, a revision mismatch,
+     * or a non-UNKNOWN state; true when the job is released or already was
+     * @throws DdlException when a bounded FORCE text field exceeds its limit
+     */
+    public boolean forceRelease(long jobId, long expectedRevision, String actor, String note, String warning)
+            throws DdlException {
+        writeLock();
+        try {
+            LanceIndexJob current = jobs.get(jobId);
+            if (current == null) {
+                LOG.warn("reject force release of unknown lance index job {}", jobId);
+                return false;
+            }
+            if (current.isForceReleased()) {
+                return true;
+            }
+            if (current.getRevision() != expectedRevision) {
+                LOG.warn("reject force release of lance index job {}: expected revision {}, current {}",
+                        jobId, expectedRevision, current);
+                return false;
+            }
+            if (current.getMutationState() != null
+                    && current.getMutationState() != LanceIndexJobMutationState.UNKNOWN) {
+                LOG.warn("reject force release of lance index job {} in mutation state {}: only UNKNOWN may be"
+                        + " force-released", jobId, current.getMutationState());
+                return false;
+            }
+            long now = System.currentTimeMillis();
+            LanceIndexJob updated = new LanceIndexJob(current);
+            try {
+                updated.setForceReleased(true);
+                updated.setForceActor(actor);
+                updated.setForceTimeMs(now);
+                updated.setForceNote(note);
+                updated.setForceWarning(warning);
+            } catch (IllegalArgumentException e) {
+                throw new DdlException("invalid lance index job force release: " + e.getMessage(), e);
+            }
+            updated.setRevision(current.getRevision() + 1);
+            updated.setUpdateTimeMs(now);
+            writeEditLog(updated);
+            applyToMemory(updated);
+            return true;
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    /**
+     * Retention GC of resolved job records, master-only: every record that
+     * stayed resolved for longer than {@code keepMs} (measured on the durable
+     * update time, bumped by every durable transition including the force
+     * release) is removed on all FEs through one batch edit-log record per
+     * round, so every FE serves the same SHOW LANCE INDEX JOBS view. An
+     * unresolved record is never removed, no matter its age (fail-closed). At
+     * most {@code maxPerRound} jobs are removed per round, oldest first.
+     *
+     * @return the ids actually removed, in oldest-first order
+     */
+    public List<Long> removeResolvedJobsOlderThan(long keepMs, int maxPerRound) {
+        writeLock();
+        try {
+            long now = System.currentTimeMillis();
+            List<LanceIndexJob> expired = new ArrayList<>();
+            for (LanceIndexJob job : jobs.values()) {
+                if (job != null && !job.isUnresolved() && now - job.getUpdateTimeMs() > keepMs) {
+                    expired.add(job);
+                }
+            }
+            expired.sort(Comparator.comparingLong(LanceIndexJob::getUpdateTimeMs)
+                    .thenComparingLong(LanceIndexJob::getJobId));
+            List<Long> jobIds = new ArrayList<>();
+            for (LanceIndexJob job : expired) {
+                if (jobIds.size() >= maxPerRound) {
+                    break;
+                }
+                jobIds.add(job.getJobId());
+            }
+            if (jobIds.isEmpty()) {
+                return jobIds;
+            }
+            writeRemoveLog(jobIds);
+            for (Long jobId : jobIds) {
+                jobs.remove(jobId);
+                // Unconditional, mirroring applyToMemory: the admission blocker must
+                // never outlive its job record.
+                corruptUnresolvedJobIds.remove(jobId);
+            }
+            return jobIds;
+        } finally {
+            writeUnlock();
+        }
+    }
+
     // ------------------------------------------------------------------
     // Replay (all FEs)
     // ------------------------------------------------------------------
@@ -524,6 +645,28 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
                 return;
             }
             applyToMemory(replayed);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    /**
+     * Apply one batch removal from the journal (retention GC). Idempotent and
+     * tolerant of ids that are already gone. No watermark is needed: the journal
+     * is ordered, so every upsert of a removed job precedes the removal, and an
+     * image is never older than the removals it includes, so no stale record can
+     * resurrect a removed job.
+     */
+    public void replayRemoveJob(List<Long> jobIds) {
+        if (jobIds == null || jobIds.isEmpty()) {
+            return;
+        }
+        writeLock();
+        try {
+            for (Long jobId : jobIds) {
+                jobs.remove(jobId);
+                corruptUnresolvedJobIds.remove(jobId);
+            }
         } finally {
             writeUnlock();
         }
@@ -610,6 +753,42 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
     }
 
     /**
+     * Returns a snapshot copy of every job, ordered by jobId. Used by SHOW LANCE INDEX JOBS.
+     */
+    public List<LanceIndexJob> getAllJobsSnapshot() {
+        readLock();
+        try {
+            List<LanceIndexJob> result = new ArrayList<>();
+            for (LanceIndexJob job : jobs.values()) {
+                if (job != null) {
+                    result.add(new LanceIndexJob(job));
+                }
+            }
+            result.sort(Comparator.comparingLong(LanceIndexJob::getJobId));
+            return result;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    /**
+     * Returns true if any unresolved job targets the given catalog. Used by catalog DDL guard (Section 4.4).
+     */
+    public boolean hasUnresolvedJobsForCatalog(long catalogId) {
+        readLock();
+        try {
+            for (LanceIndexJob job : jobs.values()) {
+                if (job != null && job.getCatalogId() == catalogId && job.isUnresolved()) {
+                    return true;
+                }
+            }
+            return false;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    /**
      * All jobs still holding a fence and unresolved quota: PENDING/RUNNING,
      * unforced UNKNOWN, and known terminal jobs with unfinished refresh.
      * Unresolved jobs that lack fence identity (corrupt records) hold no fence
@@ -636,7 +815,9 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
      * run, including jobs downgraded by the master-transfer sweep) or FAILED
      * (waiting for a retry). Both resume through the idempotent refresh path via
      * {@link #markRefreshRunning}; a FAILED job invisible here would hold its
-     * fence forever with no retry channel.
+     * fence forever with no retry channel. Force-released UNKNOWN jobs are
+     * excluded: they owe no refresh, and picking them up would only add audit
+     * noise.
      */
     public List<LanceIndexJob> getJobsNeedingRefresh() {
         readLock();
@@ -645,6 +826,7 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
             for (LanceIndexJob job : jobs.values()) {
                 if (job != null && job.getMutationState() != null && job.getMutationState().isTerminal()
                         && hasFenceIdentity(job)
+                        && !job.isForceReleased()
                         && (job.getRefreshState() == LanceIndexJobRefreshState.REQUIRED
                                 || job.getRefreshState() == LanceIndexJobRefreshState.FAILED)) {
                     result.add(new LanceIndexJob(job));

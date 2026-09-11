@@ -562,6 +562,65 @@ public class LanceIndexJobManagerReplayTest {
         Assertions.assertFalse(manager.isFenceHeld(newCreateJob(1L, "IdxB").fenceKey()));
     }
 
+    @Test
+    public void replayedRemovalConvergesWithTheSource() throws DdlException {
+        TestManager source = new TestManager();
+        source.createJob(newCreateJob(1L, "IdxGone"), 100, 100, 100);
+        source.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS);
+        source.completeWithResult(1L, 1L, INVOCATION_ID, BE_EPOCH, okResult());
+        source.markRefreshRunning(1L, 2L);
+        source.markRefreshDone(1L, 3L);
+        source.createJob(newCreateJob(2L, "IdxStay"), 100, 100, 100);
+        Assertions.assertEquals(Collections.singletonList(1L), source.removeResolvedJobsOlderThan(-1L, 1024));
+        Assertions.assertEquals(1, source.removeLog.size());
+
+        TestManager target = new TestManager();
+        // The journal is ordered: every upsert of a removed job precedes the batch
+        // removal record, and an image is never older than the removals it includes.
+        // A follower replaying in order therefore never sees a stale upsert after the
+        // removal, so no watermark is needed to keep a removed job from resurrecting.
+        for (LanceIndexJob record : source.editLog) {
+            target.replayUpsertJob(record);
+        }
+        Assertions.assertEquals(2, target.getJobCount());
+        target.replayRemoveJob(source.removeLog.get(0));
+
+        // The follower serves the same view as the master: the GC'd job is gone, the
+        // unresolved survivor keeps its fence and quota charge.
+        Assertions.assertNull(target.getJob(1L));
+        Assertions.assertNotNull(target.getJob(2L));
+        Assertions.assertEquals(1, target.getJobCount());
+        Assertions.assertEquals(1L, target.getQuota().getGlobalCount());
+        Assertions.assertTrue(target.isFenceHeld(target.getJob(2L).fenceKey()));
+        // Replay itself never writes the journal.
+        Assertions.assertTrue(target.editLog.isEmpty());
+        Assertions.assertTrue(target.removeLog.isEmpty());
+    }
+
+    @Test
+    public void replayedRemovalToleratesUnknownIdsAndRepeats() {
+        TestManager target = new TestManager();
+        // Tolerant of null, empty, and ids that were never present or are already gone.
+        target.replayRemoveJob(null);
+        target.replayRemoveJob(Collections.emptyList());
+        target.replayRemoveJob(Collections.singletonList(404L));
+        Assertions.assertEquals(0, target.getJobCount());
+
+        // The corrupt admission blocker leaves together with its job record.
+        target.replayUpsertJob(GsonUtils.GSON.fromJson(
+                "{\"jid\":5,\"rev\":0,\"ms\":\"UNKNOWN\"}", LanceIndexJob.class));
+        Assertions.assertEquals(Collections.singletonList(5L), target.getCorruptUnresolvedJobIds());
+        target.replayRemoveJob(Arrays.asList(5L, 404L));
+        Assertions.assertNull(target.getJob(5L));
+        Assertions.assertTrue(target.getCorruptUnresolvedJobIds().isEmpty());
+
+        // Replaying the same removal again is a no-op.
+        target.replayRemoveJob(Collections.singletonList(5L));
+        Assertions.assertEquals(0, target.getJobCount());
+        Assertions.assertTrue(target.editLog.isEmpty());
+        Assertions.assertTrue(target.removeLog.isEmpty());
+    }
+
     private static LanceIndexJob newCreateJob(long jobId, String displayName) {
         return new LanceIndexJob(jobId, "tester", CATALOG_ID, "db1", "tbl1",
                 LanceIndexFenceKey.PROVIDER_DIRECTORY, LOCATOR,
@@ -615,14 +674,20 @@ public class LanceIndexJobManagerReplayTest {
     }
 
     /**
-     * Edit-log seam: captures every durable record instead of writing the journal.
+     * Edit-log seams: capture every durable record instead of writing the journal.
      */
     private static class TestManager extends LanceIndexJobManager {
         private final List<LanceIndexJob> editLog = new ArrayList<>();
+        private final List<List<Long>> removeLog = new ArrayList<>();
 
         @Override
         protected void writeEditLog(LanceIndexJob job) {
             editLog.add(job);
+        }
+
+        @Override
+        protected void writeRemoveLog(List<Long> jobIds) {
+            removeLog.add(new ArrayList<>(jobIds));
         }
     }
 }

@@ -497,6 +497,8 @@ supportedShowStatement
     | SHOW WARM UP JOB wildWhere?                                                   #showWarmUpJob
     | SHOW PYTHON VERSIONS                                                           #showPythonVersions
     | SHOW PYTHON PACKAGES IN STRING_LITERAL                                         #showPythonPackages
+    | SHOW LANCE INDEX JOBS ((FROM | IN) db=multipartIdentifier)? (WHERE expression)?   #showLanceIndexJobs
+    | SHOW LANCE INDEX JOB jobId=INTEGER_VALUE                                          #showLanceIndexJob
     ;
 
 supportedLoadStatement
@@ -547,6 +549,8 @@ supportedOtherStatement
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #backup
     | START TRANSACTION (WITH CONSISTENT SNAPSHOT)?                                 #unsupportedStartTransaction
+    | RESOLVE LANCE INDEX JOB jobId=INTEGER_VALUE AS FORCE_RELEASE COMMENT comment=STRING_LITERAL
+        #resolveLanceIndexJob
     ;
 
 onTablesClause
@@ -2152,6 +2156,7 @@ nonReserved
     | FILE
     | FILTER
     | FIRST
+    | FORCE_RELEASE
     | FORMAT
     | FREE
     | FRONTENDS
@@ -2202,6 +2207,7 @@ nonReserved
     | JSON
     | JSONB
     | LABEL
+    | LANCE
     | LAST
     | LDAP
     | LDAP_ADMIN_PASSWORD
@@ -2311,6 +2317,7 @@ nonReserved
     | REPLAYER
     | REPOSITORIES
     | REPOSITORY
+    | RESOLVE
     | RESOURCE
     | RESOURCES
     | RESTORE
