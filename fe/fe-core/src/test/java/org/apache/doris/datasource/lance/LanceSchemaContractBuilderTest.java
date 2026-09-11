@@ -245,6 +245,40 @@ public class LanceSchemaContractBuilderTest {
     }
 
     @Test
+    public void testNegativeFieldIdFailsClosed() {
+        // A negative provider field id is a malformed schema fact: bounded error, no provider
+        // string echoed, same shape as the missing-field rejection.
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> LanceSchemaContractBuilder.build(Collections.singletonList(
+                        field(-1, "a", new ArrowType.Utf8(), true)), "a"));
+        Assertions.assertTrue(exception.getMessage().contains(
+                "unsupported schema contract: indexed field id must not be negative"));
+    }
+
+    @Test
+    public void testZeroFieldIdIsLegal() throws Exception {
+        // Field id 0 is a legitimate provider id; only negatives are rejected.
+        LanceIndexSchemaContract.IndexedField indexed = buildSingleField(
+                Collections.singletonList(field(0, "a", new ArrowType.Utf8(), true)), "a");
+        Assertions.assertEquals(0, indexed.getFieldId());
+    }
+
+    @Test
+    public void testNonPositiveFixedSizeListDimensionFailsClosed() {
+        for (int dimension : new int[] {0, -3}) {
+            LanceField element = field(2, "item",
+                    new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE), true);
+            LanceField vector = field(1, "embedding", new ArrowType.FixedSizeList(dimension),
+                    false, Collections.singletonList(element));
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> LanceSchemaContractBuilder.build(
+                            Collections.singletonList(vector), "embedding"));
+            Assertions.assertTrue(exception.getMessage().contains(
+                    "unsupported schema contract: fixed-size list dimension must be positive"));
+        }
+    }
+
+    @Test
     public void testNestedChildrenNeverEnterTheContract() throws Exception {
         // Only the indexed top-level field is represented; nested subfields of a struct stay
         // out of the contract even though they share the same LanceField tree.
