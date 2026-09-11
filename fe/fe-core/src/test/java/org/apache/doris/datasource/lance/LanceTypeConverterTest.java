@@ -105,12 +105,23 @@ public class LanceTypeConverterTest {
     /** Verifies Arrow Null and Duration mappings. */
     @Test
     public void testNullAndDurationMappings() {
-        Assertions.assertEquals(Type.NULL, LanceTypeConverter.toDorisType(
-                Field.nullable("null_col", ArrowType.Null.INSTANCE)));
+        Field nullField = Field.nullable("null_col", ArrowType.Null.INSTANCE);
+        Assertions.assertEquals(Type.NULL, LanceTypeConverter.toDorisType(nullField));
+        Assertions.assertTrue(LanceTypeConverter.requiresCurrentBeReader(nullField));
         for (TimeUnit unit : TimeUnit.values()) {
-            Assertions.assertEquals(Type.BIGINT, LanceTypeConverter.toDorisType(
-                    Field.nullable("duration_col", new ArrowType.Duration(unit))));
+            Field durationField =
+                    Field.nullable("duration_col", new ArrowType.Duration(unit));
+            Assertions.assertEquals(Type.BIGINT,
+                    LanceTypeConverter.toDorisType(durationField));
+            Assertions.assertTrue(
+                    LanceTypeConverter.requiresCurrentBeReader(durationField));
         }
+        Field durationList = new Field(
+                "duration_list",
+                FieldType.nullable(ArrowType.List.INSTANCE),
+                Collections.singletonList(
+                        Field.nullable("item", new ArrowType.Duration(TimeUnit.MICROSECOND))));
+        Assertions.assertTrue(LanceTypeConverter.requiresCurrentBeReader(durationList));
     }
 
     /** Verifies nested Null fields remain unsupported. */

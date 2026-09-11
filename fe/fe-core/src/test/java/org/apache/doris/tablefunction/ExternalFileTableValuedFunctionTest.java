@@ -30,6 +30,7 @@ import org.apache.doris.thrift.TFileFormatType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.arrow.vector.types.TimeUnit;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
@@ -163,12 +164,18 @@ public class ExternalFileTableValuedFunctionTest {
         LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
                 "s3://bucket/table.lance", 1L,
                 new Schema(Arrays.asList(
-                        jsonField, Field.nullable("ordinary", ArrowType.Utf8.INSTANCE))),
+                        jsonField,
+                        Field.nullable("null_value", ArrowType.Null.INSTANCE),
+                        Field.nullable("duration_value",
+                                new ArrowType.Duration(TimeUnit.MILLISECOND)),
+                        Field.nullable("ordinary", ArrowType.Utf8.INSTANCE))),
                 Collections.emptyList(), Collections.emptyMap());
 
         tvf.setLanceTableMetadata(metadata);
 
         Assert.assertTrue(tvf.requiresCurrentLanceReader("JSON_VALUE"));
+        Assert.assertTrue(tvf.requiresCurrentLanceReader("null_value"));
+        Assert.assertTrue(tvf.requiresCurrentLanceReader("DURATION_VALUE"));
         Assert.assertFalse(tvf.requiresCurrentLanceReader("ordinary"));
     }
 

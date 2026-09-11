@@ -49,8 +49,13 @@ public final class LanceTypeConverter {
         return toDorisType(field, true);
     }
 
-    /** Returns whether this field needs the current BE Lance extension materialization logic. */
+    /** Returns whether this field needs the current BE Lance materialization logic. */
     public static boolean requiresCurrentBeReader(Field field) {
+        ArrowType.ArrowTypeID typeId = field.getType().getTypeID();
+        if (typeId == ArrowType.ArrowTypeID.Null
+                || typeId == ArrowType.ArrowTypeID.Duration) {
+            return true;
+        }
         String extensionName = field.getMetadata() == null
                 ? null : field.getMetadata().get(ARROW_EXTENSION_NAME);
         if (ARROW_JSON_EXTENSION.equals(extensionName)

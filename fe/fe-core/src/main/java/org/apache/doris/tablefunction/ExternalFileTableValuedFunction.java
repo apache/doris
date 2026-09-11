@@ -170,7 +170,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         return lanceFragments;
     }
 
-    /** Returns whether a Lance column needs the current BE extension materialization logic. */
+    /** Returns whether a Lance column needs the current BE materialization logic. */
     public boolean requiresCurrentLanceReader(String columnName) {
         return lanceCurrentReaderColumns.contains(columnName.toLowerCase(Locale.ROOT));
     }

@@ -369,50 +369,85 @@ Status set_lance_nested_type(std::string_view field_name,
     return Status::OK();
 }
 
-// Remove registered ExtensionArray wrappers without converting their physical storage values.
-Status unwrap_lance_extension_arrays(const std::shared_ptr<arrow::Array>& array,
+// Check whether an Arrow type tree contains a registered extension wrapper.
+bool type_contains_registered_extension(const std::shared_ptr<arrow::DataType>& type) {
+    if (type->id() == arrow::Type::EXTENSION) {
+        return true;
+    }
+    for (const auto& field : type->fields()) {
+        if (type_contains_registered_extension(field->type())) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Remove registered ExtensionArray wrappers only along extension-bearing branches.
+Status unwrap_lance_extension_arrays(const std::shared_ptr<arrow::DataType>& expected_type,
+                                     const std::shared_ptr<arrow::Array>& array,
                                      std::shared_ptr<arrow::Array>* unwrapped) {
+    DORIS_CHECK(expected_type != nullptr);
+    DORIS_CHECK(array != nullptr);
+    DORIS_CHECK(unwrapped != nullptr);
+
+    auto storage_array = array;
+    auto expected_storage_type = expected_type;
+    if (expected_type->id() == arrow::Type::EXTENSION) {
+        const auto extension_type = std::dynamic_pointer_cast<arrow::ExtensionType>(expected_type);
+        if (extension_type == nullptr) {
+            return Status::InvalidArgument("invalid expected Arrow extension type {}",
+                                           expected_type->ToString());
+        }
+        expected_storage_type = extension_type->storage_type();
+    }
     if (array->type_id() == arrow::Type::EXTENSION) {
         const auto extension_array = std::dynamic_pointer_cast<arrow::ExtensionArray>(array);
         if (extension_array == nullptr) {
             return Status::InvalidArgument("invalid Arrow extension array: {}",
                                            array->type()->ToString());
         }
-        return unwrap_lance_extension_arrays(extension_array->storage(), unwrapped);
+        storage_array = extension_array->storage();
     }
 
-    const auto& child_data = array->data()->child_data;
-    const auto& child_fields = array->type()->fields();
+    const auto& child_data = storage_array->data()->child_data;
+    const auto& child_fields = expected_storage_type->fields();
     if (child_data.empty()) {
-        *unwrapped = array;
+        *unwrapped = std::move(storage_array);
         return Status::OK();
     }
     if (child_fields.size() != child_data.size()) {
         return Status::InvalidArgument(
                 "Arrow array type {} has {} child fields but its data has {} children",
-                array->type()->ToString(), child_fields.size(), child_data.size());
+                storage_array->type()->ToString(), child_fields.size(), child_data.size());
     }
 
     std::shared_ptr<arrow::ArrayData> unwrapped_data;
-    arrow::FieldVector unwrapped_fields = child_fields;
+    arrow::FieldVector unwrapped_fields;
     for (size_t child_idx = 0; child_idx < child_data.size(); ++child_idx) {
+        if (!type_contains_registered_extension(child_fields[child_idx]->type())) {
+            continue;
+        }
         auto child_array = arrow::MakeArray(child_data[child_idx]);
         std::shared_ptr<arrow::Array> unwrapped_child;
-        RETURN_IF_ERROR(unwrap_lance_extension_arrays(child_array, &unwrapped_child));
+        RETURN_IF_ERROR(unwrap_lance_extension_arrays(child_fields[child_idx]->type(), child_array,
+                                                      &unwrapped_child));
         if (unwrapped_child.get() == child_array.get()) {
             continue;
         }
         if (unwrapped_data == nullptr) {
-            unwrapped_data = array->data()->Copy();
+            unwrapped_data = storage_array->data()->Copy();
+            unwrapped_fields = storage_array->type()->fields();
         }
         unwrapped_data->child_data[child_idx] = unwrapped_child->data();
-        unwrapped_fields[child_idx] = child_fields[child_idx]->WithType(unwrapped_child->type());
+        unwrapped_fields[child_idx] =
+                unwrapped_fields[child_idx]->WithType(unwrapped_child->type());
     }
     if (unwrapped_data == nullptr) {
-        *unwrapped = array;
+        *unwrapped = std::move(storage_array);
         return Status::OK();
     }
-    RETURN_IF_ERROR(set_lance_nested_type("", array->type(), unwrapped_fields, &unwrapped_data));
+    RETURN_IF_ERROR(
+            set_lance_nested_type("", storage_array->type(), unwrapped_fields, &unwrapped_data));
     *unwrapped = arrow::MakeArray(std::move(unwrapped_data));
     return Status::OK();
 }
@@ -545,17 +580,11 @@ Status normalize_lance_arrow_array(const std::shared_ptr<arrow::Field>& field,
     RETURN_IF_ERROR(get_lance_extension(field, &extension_kind, &storage_type));
 
     auto storage_array = array;
-    if (array->type_id() == arrow::Type::EXTENSION) {
-        const auto extension_array = std::dynamic_pointer_cast<arrow::ExtensionArray>(array);
-        if (extension_array == nullptr) {
-            return Status::InvalidArgument("invalid Arrow extension array for Lance field '{}'",
-                                           field->name());
-        }
-        storage_array = extension_array->storage();
+    if (type_contains_registered_extension(field->type())) {
+        std::shared_ptr<arrow::Array> unwrapped_array;
+        RETURN_IF_ERROR(unwrap_lance_extension_arrays(field->type(), array, &unwrapped_array));
+        storage_array = std::move(unwrapped_array);
     }
-    std::shared_ptr<arrow::Array> unwrapped_array;
-    RETURN_IF_ERROR(unwrap_lance_extension_arrays(storage_array, &unwrapped_array));
-    storage_array = std::move(unwrapped_array);
     if (storage_array->type_id() != storage_type->id()) {
         return Status::InvalidArgument(
                 "Lance field '{}' storage type {} does not match array type {}", field->name(),
