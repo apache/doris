@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 
+#include <chrono>
 #include <shared_mutex>
 #include <unordered_map>
 
@@ -102,6 +103,13 @@ private:
 
     WorkloadGroupPtr get_or_create_workload_group(const WorkloadGroupInfo& workload_group_info);
 
+    // Attempt to resolve a single paused query: spill if it has revocable memory, resume
+    // if it is under its limit, otherwise cancel it. For PROCESS_MEMORY_EXCEEDED with no
+    // revocable memory, keep the query paused until it has waited
+    // spill_in_paused_queue_timeout_ms or the process reaches the hard memory limit, then
+    // cancel it. Returns true if the query was acted upon (spilled/cancelled/resumed),
+    // false if it should keep waiting (still has running tasks, or is within the
+    // process-memory grace period).
     bool handle_single_query_(const std::shared_ptr<ResourceContext>& requestor,
                               size_t size_to_reserve, int64_t time_in_queue, Status paused_reason);
     int64_t revoke_memory_from_other_groups_();

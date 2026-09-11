@@ -814,20 +814,9 @@ bool WorkloadGroupMgr::handle_single_query_(const std::shared_ptr<ResourceContex
             return true;
         }
     } else {
-        // Should not consider about process memory. For example, the query's limit is 100g, workload
-        // group's memlimit is 10g, process memory is 20g. The query reserve will always failed in wg
-        // limit, and process is always have memory, so that it will resume and failed reserve again.
-        const size_t test_memory_size = std::max<size_t>(size_to_reserve, 32L * 1024 * 1024);
-        if (!GlobalMemoryArbitrator::is_exceed_soft_mem_limit(test_memory_size)) {
-            LOG(INFO) << "Query: " << query_id
-                      << ", process limit not exceeded now, resume this query"
-                      << ", process memory info: "
-                      << GlobalMemoryArbitrator::process_memory_used_details_str()
-                      << ", wg info: " << wg->debug_string();
-            requestor->task_controller()->set_memory_sufficient(true);
-            return true;
-        }
-
+        // PROCESS_MEMORY_EXCEEDED. The caller (handle_process_memory_exceeded_) has already
+        // resumed the query if the process is no longer above the soft memory limit, so the
+        // process memory is still exceeded here.
         const bool exceed_hard_mem_limit = GlobalMemoryArbitrator::is_exceed_hard_mem_limit();
         if (time_in_queue < config::spill_in_paused_queue_timeout_ms && !exceed_hard_mem_limit) {
             // The query has no revocable memory, cancelling it will not release much memory.
