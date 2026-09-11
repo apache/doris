@@ -64,4 +64,45 @@ suite("shared_cte_reset_test", "rec_cte") {
         SELECT marketplace_account_id, reconciliation_group_id FROM mp_group
         ORDER BY organization_id, reconciliation_group_id
     """
+
+    // Each recursive controller must own its transitive ordinary CTE dependencies.
+    // Keep materialization enabled so this also checks that the planner enforces inlining.
+    sql "set enable_cte_materialize = true"
+    sql "set inline_cte_referenced_threshold = 1"
+    for (def input : ["base", "middle"]) {
+        def query = """
+            WITH RECURSIVE
+            base AS (
+                SELECT 1 AS src, 2 AS dst
+                UNION ALL SELECT 2, 3
+                UNION ALL SELECT 3, 4
+            ),
+            middle AS (
+                SELECT * FROM base
+                UNION ALL SELECT * FROM base
+            ),
+            edges AS (
+                SELECT * FROM ${input}
+                UNION ALL SELECT * FROM ${input}
+            ),
+            r1(n) AS (
+                SELECT 1
+                UNION ALL
+                SELECT e.dst FROM r1 r JOIN edges e ON r.n = e.src
+            ),
+            r2(n) AS (
+                SELECT 2
+                UNION ALL
+                SELECT e.dst FROM r2 r JOIN edges e ON r.n = e.src
+            )
+            SELECT r1.n, r2.n FROM r1 JOIN r2 ON r1.n = r2.n
+            ORDER BY r1.n, r2.n
+        """
+        explain {
+            sql query
+            notContains "MultiCastDataSinks"
+        }
+        // Exercise multiple rounds and final close, which previously raised NOT_FOUND.
+        sql query
+    }
 }
