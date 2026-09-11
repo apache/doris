@@ -31,18 +31,18 @@ DORIS_HOME=$(
 )
 export DORIS_HOME
 
-if [[ -z $(command -v clang-format) ]]; then
+CLANG_FORMAT="${CLANG_FORMAT_BINARY:-clang-format}"
+
+if [[ -z $(command -v "${CLANG_FORMAT}") ]]; then
     echo "clang-format not found, please install clang-format"
     exit 1
 fi
 
-CLANG_FORMAT_VERSION=$(clang-format --version | perl -nle 'print $& if m{version \K[0-9]+}')
+CLANG_FORMAT_VERSION=$("${CLANG_FORMAT}" --version | perl -nle 'print $& if m{version \K[0-9]+}')
 if [[ ${CLANG_FORMAT_VERSION} -ne 16 ]]; then
     echo "clang-format version is not 16, please install clang-format version 16 or upgrade your clang-format version to 16"
     exit 1
 fi
-
-CLANG_FORMAT="${CLANG_FORMAT_BINARY:=$(command -v clang-format)}"
 
 if command -v python3 &>/dev/null; then
     PYTHON=python3
