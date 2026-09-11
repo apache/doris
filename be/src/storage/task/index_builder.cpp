@@ -386,7 +386,14 @@ Status IndexBuilder::update_inverted_index_info() {
                             st = Status::Error<ErrorCode::INIT_FAILED>(
                                     "debug point: reader init error");
                         })
-                if (!st.ok() && !st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
+                // A missing container (the rowset predates every index) and an
+                // EMPTY one (the schema owns an index, but no logical index had
+                // anything to write -- an all-NULL VARIANT column) both mean the
+                // same thing here: there is nothing to carry over. Both leave the
+                // reader un-inited, so get_all_directories() yields an empty map
+                // and every requested index is built from the raw columns.
+                if (!st.ok() && !st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>() &&
+                    !st.is<ErrorCode::INVERTED_INDEX_BYPASS>()) {
                     return st;
                 }
                 _index_file_readers.emplace(
@@ -446,8 +453,24 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                       << " rowset_id=" << output_rowset_meta->rowset_id().to_string();
             return Status::OK();
         }
-        if (output_rs_tablet_schema->get_inverted_index_storage_format() !=
-            InvertedIndexStorageFormatPB::V1) {
+        // Dropping the last index leaves a schema that owns no index file at all,
+        // and a rowset must not keep a file its own schema does not claim: link,
+        // copy, upload, remove and CRC all decide whether to touch the container
+        // by asking has_inverted_or_ann_index() of the rowset's own schema, so a
+        // file written here would be linked by nobody and deleted by nobody.
+        // Both segment writer paths already gate container creation the same way;
+        // this is the one caller that did not. It used to be masked by
+        // ~LocalFileWriter deleting a file that was never closed -- an accident,
+        // not a design, and one that never held for remote storage.
+        const bool is_v1 = output_rs_tablet_schema->get_inverted_index_storage_format() ==
+                           InvertedIndexStorageFormatPB::V1;
+        const bool output_has_index_file = output_rs_tablet_schema->has_inverted_or_ann_index();
+        if (!is_v1 && !output_has_index_file) {
+            LOG(INFO) << "drop index removed the last index, no index file is written. tablet_id="
+                      << _tablet->tablet_id()
+                      << " rowset_id=" << output_rowset_meta->rowset_id().to_string();
+        }
+        if (!is_v1 && output_has_index_file) {
             const auto& fs = output_rowset_meta->fs();
 
             const auto& output_rowset_schema = output_rowset_meta->tablet_schema();
@@ -518,6 +541,17 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
         // create inverted or ann index writer
         const auto& fs = output_rowset_meta->fs();
         auto output_rowset_schema = output_rowset_meta->tablet_schema();
+        // Same invariant as the drop branch above, and it holds for every storage
+        // format: no index in the output schema, no index file. Reached when
+        // nothing the request asked for survived schema resolution (every
+        // requested column is missing) and the input rowset carried no index
+        // either -- SNII would otherwise seal a header-only container here.
+        if (!output_rowset_schema->has_inverted_or_ann_index()) {
+            LOG(INFO) << "no index in the output rowset schema, no index file is written."
+                      << " tablet_id=" << _tablet->tablet_id()
+                      << " rowset_id=" << output_rowset_meta->rowset_id().to_string();
+            return Status::OK();
+        }
         if (output_rowset_schema->get_inverted_index_storage_format() ==
             InvertedIndexStorageFormatPB::SNII) {
             return _handle_single_rowset_snii(output_rowset_meta, segments);
