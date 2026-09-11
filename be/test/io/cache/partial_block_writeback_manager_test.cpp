@@ -40,6 +40,7 @@
 #include "io/fs/path.h"
 #include "io/fs/read_ahead_metrics.h"
 #include "util/defer_op.h"
+#include "util/threadpool.h"
 
 namespace doris::io {
 namespace {
@@ -63,10 +64,12 @@ FileCacheSettings partial_writeback_cache_settings() {
 }
 
 PartialBlockWritebackOptions partial_writeback_options(size_t workers = 2,
-                                                       size_t pending_blocks = 4) {
+                                                       size_t pending_blocks = 4,
+                                                       int remote_read_threads = 2) {
     return PartialBlockWritebackOptions {
             .block_size = kBlockSize,
             .worker_count = workers,
+            .remote_read_thread_count = remote_read_threads,
             .max_pending_bytes = pending_blocks * kBlockSize,
             .hole_fill_coalesce =
                     {
@@ -137,6 +140,19 @@ public:
         _cv.notify_all();
     }
 
+    void release_read(size_t offset) {
+        {
+            std::lock_guard lock(_mutex);
+            _released_offsets.insert(offset);
+        }
+        _cv.notify_all();
+    }
+
+    bool wait_for_completed(size_t count) {
+        std::unique_lock lock(_mutex);
+        return _cv.wait_for(lock, 5s, [&]() { return _completed >= count; });
+    }
+
     size_t read_calls() const {
         std::lock_guard lock(_mutex);
         return _reads.size();
@@ -149,7 +165,10 @@ public:
 
     std::vector<ObservedRead> reads() const {
         std::lock_guard lock(_mutex);
-        return _reads;
+        auto result = _reads;
+        // GETs may enter in any order; callers compare ranges in file order.
+        std::ranges::sort(result, {}, &ObservedRead::offset);
+        return result;
     }
 
 protected:
@@ -181,10 +200,16 @@ protected:
             _reads.push_back(observed);
             _cv.notify_all();
             if (_block_reads) {
-                _cv.wait(lock, [&]() { return _release_reads; });
+                _cv.wait(lock,
+                         [&]() { return _release_reads || _released_offsets.contains(offset); });
             }
-            --_active_reads;
         }
+        Defer completed {[&]() {
+            std::lock_guard lock(_mutex);
+            --_active_reads;
+            ++_completed;
+            _cv.notify_all();
+        }};
 
         if (fail) {
             *bytes_read = 0;
@@ -209,10 +234,12 @@ private:
     bool _closed {false};
     bool _release_reads {false};
     size_t _entered {0};
+    size_t _completed {0};
     size_t _active_reads {0};
     size_t _max_active_reads {0};
     std::set<size_t> _failed_offsets;
     std::set<size_t> _short_offsets;
+    std::set<size_t> _released_offsets;
     std::vector<ObservedRead> _reads;
 };
 
@@ -755,7 +782,8 @@ TEST_F(PartialBlockWritebackManagerTest, UsesReadWorkersConcurrentlyAndDeduplica
     auto cache = create_cache("partial_block_concurrent", 8);
     auto* cache_writer = cache->async_write_manager();
     auto* index = cache->inflight_write_buffer_index();
-    auto manager = create_manager(partial_writeback_options(2, 2));
+    // Single-range reads use block workers independently of the remote-read pool.
+    auto manager = create_manager(partial_writeback_options(2, 2, 1));
     const std::string content = patterned_content('c');
     auto reader = std::make_shared<ControlledFileReader>(content, true);
     const auto first_hash = BlockFileCache::hash("partial_block_concurrent_first");
@@ -793,6 +821,190 @@ TEST_F(PartialBlockWritebackManagerTest, UsesReadWorkersConcurrentlyAndDeduplica
     EXPECT_EQ(metrics.hole_fill_active_blocks.get_value(), active_before);
     EXPECT_EQ(metrics.hole_fill_remote_bytes.get_value() - bytes_before, 2 * (kBlockSize - 1024));
     EXPECT_EQ(metrics.hole_fill_write_submitted_blocks.get_value() - submitted_before, 2);
+}
+
+TEST_F(PartialBlockWritebackManagerTest, ReadsHolesConcurrentlyWithinOneBlock) {
+    auto& metrics = read_ahead_bvars();
+    const auto requests_before = metrics.hole_fill_remote_requests.get_value();
+    const auto bytes_before = metrics.hole_fill_remote_bytes.get_value();
+    auto cache = create_cache("partial_block_parallel_holes");
+    auto* writer = cache->async_write_manager();
+    auto manager = create_manager(partial_writeback_options(1, 1, 2));
+    const auto hash = BlockFileCache::hash("partial_block_parallel_holes");
+    const auto content = patterned_content('p');
+    auto reader = std::make_shared<ControlledFileReader>(content, true);
+    Defer release {[&]() { reader->release_reads(); }};
+
+    ASSERT_EQ(manager->try_submit(make_request(writer, nullptr, reader, hash, content, 1024, 1024)),
+              PartialBlockSubmitResult::QUEUED);
+    ASSERT_TRUE(reader->wait_for_entered(2));
+    EXPECT_EQ(reader->max_active_reads(), 2);
+    EXPECT_EQ(manager->active_count(), 1);
+    EXPECT_EQ(writer->pending_count(), 0);
+    EXPECT_EQ(writer->buffer_memory_bytes(), kBlockSize);
+
+    reader->release_reads();
+    ASSERT_TRUE(wait_until([&]() { return manager->pending_count() == 0; }));
+    ASSERT_TRUE(wait_until([&]() { return writer->pending_count() == 0; }));
+    EXPECT_EQ(read_cached_block(cache.get(), hash), content);
+    EXPECT_EQ(metrics.hole_fill_remote_requests.get_value() - requests_before, 2);
+    EXPECT_EQ(metrics.hole_fill_remote_bytes.get_value() - bytes_before, kBlockSize - 1024);
+}
+
+TEST_F(PartialBlockWritebackManagerTest, SharesRemoteReadPoolLimitAcrossBlocks) {
+    auto cache = create_cache("partial_block_shared_read_pool", 8);
+    auto* writer = cache->async_write_manager();
+    auto manager = create_manager(partial_writeback_options(2, 2, 1));
+    const auto content = patterned_content('l');
+    auto reader = std::make_shared<ControlledFileReader>(content, true);
+    Defer release {[&]() { reader->release_reads(); }};
+    for (const auto* name : {"shared_read_pool_first", "shared_read_pool_second"}) {
+        ASSERT_EQ(
+                manager->try_submit(make_request(writer, nullptr, reader,
+                                                 BlockFileCache::hash(name), content, 1024, 1024)),
+                PartialBlockSubmitResult::QUEUED);
+    }
+    ASSERT_TRUE(reader->wait_for_entered(1));
+    ASSERT_TRUE(wait_until([&]() { return manager->_remote_read_pool->get_queue_size() == 3; }));
+    EXPECT_EQ(manager->active_count(), 2);
+    EXPECT_EQ(reader->read_calls(), 1);
+    EXPECT_EQ(reader->max_active_reads(), 1);
+    reader->release_reads();
+    ASSERT_TRUE(wait_until([&]() { return manager->pending_count() == 0; }));
+    ASSERT_TRUE(wait_until([&]() { return writer->pending_count() == 0; }));
+    EXPECT_EQ(reader->read_calls(), 4);
+    EXPECT_EQ(reader->max_active_reads(), 1);
+}
+
+TEST_F(PartialBlockWritebackManagerTest, ResizesRemoteReadPoolWithoutInterruptingActiveReads) {
+    auto cache = create_cache("partial_block_resize_read_pool");
+    auto* writer = cache->async_write_manager();
+    auto manager = create_manager(partial_writeback_options(1, 1, 1));
+    const auto content = patterned_content('r');
+    auto reader = std::make_shared<ControlledFileReader>(content, true);
+    Defer release {[&]() { reader->release_reads(); }};
+    const auto hash = BlockFileCache::hash("partial_block_resize_read_pool");
+    ASSERT_EQ(manager->try_submit(make_request(writer, nullptr, reader, hash, content, 1024, 1024)),
+              PartialBlockSubmitResult::QUEUED);
+    ASSERT_TRUE(reader->wait_for_entered(1));
+    ASSERT_TRUE(wait_until([&]() { return manager->_remote_read_pool->get_queue_size() == 1; }));
+    ASSERT_TRUE(manager->resize_remote_read_threads(2).ok());
+    ASSERT_TRUE(reader->wait_for_entered(2));
+    EXPECT_EQ(reader->max_active_reads(), 2);
+    ASSERT_TRUE(manager->resize_remote_read_threads(1).ok());
+    EXPECT_EQ(manager->_remote_read_pool->max_threads(), 1);
+    EXPECT_EQ(writer->pending_count(), 0);
+    reader->release_reads();
+    ASSERT_TRUE(wait_until([&]() { return manager->pending_count() == 0; }));
+    ASSERT_TRUE(wait_until([&]() { return writer->pending_count() == 0; }));
+    EXPECT_EQ(read_cached_block(cache.get(), hash), content);
+    ASSERT_TRUE(wait_until([&]() { return manager->_remote_read_pool->num_threads() <= 1; }));
+    EXPECT_FALSE(manager->resize_remote_read_threads(0).ok());
+    EXPECT_FALSE(manager->resize_remote_read_threads(-1).ok());
+    manager->shutdown();
+    EXPECT_FALSE(manager->resize_remote_read_threads(2).ok());
+}
+
+TEST_F(PartialBlockWritebackManagerTest, WaitsForOtherHolesAfterReadFailure) {
+    for (bool short_read : {false, true}) {
+        auto& metrics = read_ahead_bvars();
+        const auto failed_before = metrics.hole_fill_failed_blocks.get_value();
+        auto cache =
+                create_cache(short_read ? "parallel_hole_short_read" : "parallel_hole_failure");
+        auto* writer = cache->async_write_manager();
+        auto manager = create_manager(partial_writeback_options(1, 1, 2));
+        const auto content = patterned_content('f');
+        auto reader = std::make_shared<ControlledFileReader>(content, true);
+        Defer release {[&]() { reader->release_reads(); }};
+        if (short_read) {
+            reader->return_short_at(0);
+        } else {
+            reader->fail_at(0);
+        }
+        const auto hash = BlockFileCache::hash("parallel_hole_failure");
+        ASSERT_EQ(manager->try_submit(
+                          make_request(writer, nullptr, reader, hash, content, 1024, 1024)),
+                  PartialBlockSubmitResult::QUEUED);
+        ASSERT_TRUE(reader->wait_for_entered(2));
+        reader->release_read(0);
+        ASSERT_TRUE(reader->wait_for_completed(1));
+        EXPECT_EQ(manager->pending_count(), 1);
+        EXPECT_EQ(writer->pending_count(), 0);
+        EXPECT_EQ(writer->buffer_memory_bytes(), kBlockSize);
+        reader->release_reads();
+        ASSERT_TRUE(wait_until([&]() { return manager->pending_count() == 0; }));
+        EXPECT_EQ(writer->pending_count(), 0);
+        EXPECT_FALSE(cache_range_downloaded(cache.get(), hash));
+        EXPECT_EQ(metrics.hole_fill_failed_blocks.get_value() - failed_before, 1);
+        ASSERT_TRUE(wait_until([&]() { return writer->buffer_memory_bytes() == 0; }));
+    }
+}
+
+TEST_F(PartialBlockWritebackManagerTest, JoinsAcceptedReadsWhenSubmissionFails) {
+    auto& metrics = read_ahead_bvars();
+    const auto failed_before = metrics.hole_fill_failed_blocks.get_value();
+    auto cache = create_cache("partial_block_read_submit_failure");
+    auto* writer = cache->async_write_manager();
+    auto manager = create_manager(partial_writeback_options(1, 1, 1));
+    {
+        std::lock_guard lifecycle_lock(manager->_lifecycle_mutex);
+        // Release the worker's token before replacing its remote-read pool.
+        manager->_stop_workers_locked(0);
+        // One blocked GET occupies the only slot; the next submission must be rejected.
+        ASSERT_TRUE(ThreadPoolBuilder("HoleFillRemoteReadRejectTest")
+                            .set_min_threads(1)
+                            .set_max_threads(1)
+                            .set_max_queue_size(0)
+                            .build(&manager->_remote_read_pool)
+                            .ok());
+        ASSERT_TRUE(manager->_resize_workers_locked(1).ok());
+    }
+    const auto content = patterned_content('j');
+    auto reader = std::make_shared<ControlledFileReader>(content, true);
+    Defer release {[&]() { reader->release_reads(); }};
+    const auto hash = BlockFileCache::hash("partial_block_read_submit_failure");
+    ASSERT_EQ(manager->try_submit(make_request(writer, nullptr, reader, hash, content, 1024, 1024)),
+              PartialBlockSubmitResult::QUEUED);
+    ASSERT_TRUE(reader->wait_for_entered(1));
+    ASSERT_TRUE(wait_until(
+            [&]() { return manager->_remote_read_pool->thread_pool_submit_failed->value() == 1; }));
+    EXPECT_EQ(manager->pending_count(), 1);
+    EXPECT_EQ(writer->buffer_memory_bytes(), kBlockSize);
+    reader->release_reads();
+    ASSERT_TRUE(wait_until([&]() { return manager->pending_count() == 0; }));
+    EXPECT_EQ(reader->read_calls(), 1);
+    EXPECT_EQ(writer->pending_count(), 0);
+    EXPECT_FALSE(cache_range_downloaded(cache.get(), hash));
+    EXPECT_EQ(metrics.hole_fill_failed_blocks.get_value() - failed_before, 1);
+    ASSERT_TRUE(wait_until([&]() { return writer->buffer_memory_bytes() == 0; }));
+}
+
+TEST_F(PartialBlockWritebackManagerTest, ShutdownWaitsForActiveAndQueuedHoleReads) {
+    auto cache = create_cache("partial_block_shutdown_holes");
+    auto* writer = cache->async_write_manager();
+    auto manager = create_manager(partial_writeback_options(1, 1, 1));
+    const auto content = patterned_content('s');
+    auto reader = std::make_shared<ControlledFileReader>(content, true);
+    std::future<void> shutdown;
+    Defer release {[&]() { reader->release_reads(); }};
+    const auto hash = BlockFileCache::hash("partial_block_shutdown_holes");
+    ASSERT_EQ(manager->try_submit(make_request(writer, nullptr, reader, hash, content, 1024, 1024)),
+              PartialBlockSubmitResult::QUEUED);
+    ASSERT_TRUE(reader->wait_for_entered(1));
+    ASSERT_TRUE(wait_until([&]() { return manager->_remote_read_pool->get_queue_size() == 1; }));
+    shutdown = std::async(std::launch::async, [&]() { manager->shutdown(); });
+    EXPECT_EQ(shutdown.wait_for(50ms), std::future_status::timeout);
+    reader->release_read(0);
+    ASSERT_TRUE(reader->wait_for_entered(2));
+    EXPECT_EQ(shutdown.wait_for(50ms), std::future_status::timeout);
+    reader->release_reads();
+    ASSERT_EQ(shutdown.wait_for(5s), std::future_status::ready);
+    shutdown.get();
+    EXPECT_EQ(reader->read_calls(), 2);
+    EXPECT_EQ(manager->pending_count(), 0);
+    EXPECT_FALSE(manager->accepting());
+    ASSERT_TRUE(wait_until([&]() { return writer->pending_count() == 0; }));
+    EXPECT_EQ(read_cached_block(cache.get(), hash), content);
 }
 
 TEST_F(PartialBlockWritebackManagerTest, ResizesWorkersWithoutInterruptingActiveReads) {
@@ -1032,6 +1244,11 @@ TEST(PartialBlockWritebackOptionsTest, RejectsInvalidLimits) {
     options.worker_count = 129;
     EXPECT_FALSE(options.validate().ok());
     options = partial_writeback_options();
+    options.remote_read_thread_count = 0;
+    EXPECT_FALSE(options.validate().ok());
+    options.remote_read_thread_count = -1;
+    EXPECT_FALSE(options.validate().ok());
+    options = partial_writeback_options();
     options.max_pending_bytes = kBlockSize - 1;
     EXPECT_FALSE(options.validate().ok());
 }
@@ -1046,6 +1263,7 @@ TEST(PartialBlockWritebackOptionsTest, AcceptsProductionDefaults) {
     PartialBlockWritebackOptions options {
             .block_size = 1_mb,
             .worker_count = 32,
+            .remote_read_thread_count = 64,
             .max_pending_bytes = 256_mb,
             .hole_fill_coalesce =
                     {
@@ -1071,6 +1289,23 @@ TEST(PartialBlockWritebackOptionsTest, WorkerConfigIsMutableAndBounded) {
     EXPECT_TRUE(
             config::set_config("hole_fill_workers_per_be", std::to_string(new_worker_count)).ok());
     EXPECT_EQ(config::hole_fill_workers_per_be, new_worker_count);
+}
+
+TEST(PartialBlockWritebackOptionsTest, RemoteReadThreadConfigIsMutableAndPositive) {
+    const int32_t old_count = config::hole_fill_remote_read_threads_per_be;
+    Defer restore {[&]() {
+        EXPECT_TRUE(config::set_config("hole_fill_remote_read_threads_per_be",
+                                       std::to_string(old_count))
+                            .ok());
+    }};
+    EXPECT_FALSE(config::set_config("hole_fill_remote_read_threads_per_be", "0").ok());
+    EXPECT_FALSE(config::set_config("hole_fill_remote_read_threads_per_be", "-1").ok());
+    EXPECT_EQ(config::hole_fill_remote_read_threads_per_be, old_count);
+    const int32_t new_count = old_count == 1 ? 2 : 1;
+    EXPECT_TRUE(
+            config::set_config("hole_fill_remote_read_threads_per_be", std::to_string(new_count))
+                    .ok());
+    EXPECT_EQ(config::hole_fill_remote_read_threads_per_be, new_count);
 }
 
 } // namespace
