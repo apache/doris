@@ -808,17 +808,32 @@ bool WorkloadGroupMgr::handle_single_query_(const std::shared_ptr<ResourceContex
                       << ", wg info: " << wg->debug_string();
             requestor->task_controller()->set_memory_sufficient(true);
             return true;
+        } else if (time_in_queue < config::spill_in_paused_queue_timeout_ms) {
+            // The query has no revocable memory, cancelling it will not release much memory.
+            // Keep it paused so that it can be resumed once other queries release memory,
+            // and cancel it only after it has waited for `spill_in_paused_queue_timeout_ms`.
+            // If the process memory keeps growing, memory gc will cancel queries when the
+            // hard limit is reached.
+            LOG_EVERY_T(INFO, 1) << "Query: " << query_id
+                                 << " process memory is exceeded, and could not find task to "
+                                    "spill, keep it paused. Waited "
+                                 << time_in_queue
+                                 << " ms, timeout: " << config::spill_in_paused_queue_timeout_ms
+                                 << " ms, process memory info: "
+                                 << GlobalMemoryArbitrator::process_memory_used_details_str()
+                                 << ", wg info: " << wg->debug_string();
+            return false;
         } else {
-            // if cannot find any memory to release, then let the query continue to run as far as possible
-            // or cancelled by gc if memory is really not enough.
+            // Waited long enough and still could not find any memory to release,
+            // cancel the query to protect the process.
             Status error_status = Status::MemoryLimitExceeded(
                     "Query {} process memory is exceeded"
-                    ", and there is no cache now. And could not find task to spill, disable "
-                    "reserve memory and resume it. "
+                    ", and there is no cache now. And could not find task to spill after "
+                    "waiting {} ms in paused queue, try to cancel query. "
                     "Query memory usage: {}, limit: {}, reserved "
                     "size: {}, try to reserve: {}, wg info: {}."
                     " Maybe you should set the workload group's limit to a lower value. {}",
-                    query_id, PrettyPrinter::print_bytes(memory_usage),
+                    query_id, time_in_queue, PrettyPrinter::print_bytes(memory_usage),
                     PrettyPrinter::print_bytes(limit), PrettyPrinter::print_bytes(reserved_size),
                     PrettyPrinter::print_bytes(size_to_reserve), wg->memory_debug_string(),
                     doris::ProcessProfile::instance()
