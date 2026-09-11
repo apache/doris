@@ -110,7 +110,7 @@ final class MockDorisServer implements AutoCloseable {
                     "{\"code\":0,\"data\":{\"status\":200,\"properties\":["
                             + String.join(",", properties)
                             + "]}}";
-        } else if (path.contains("/api/query/")) {
+        } else if (path.equals("/api/streaming/schema_change")) {
             // FE schema-change endpoint: body is {"stmt":"<DDL>"}
             JsonNode node = MAPPER.readTree(body);
             executedDdls.add(node.path("stmt").asText(""));
