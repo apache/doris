@@ -90,4 +90,19 @@ class AzureAccountHostTest {
     void parse_rejectsEmptyHost() {
         Assertions.assertThrows(StoragePropertiesException.class, () -> AzureAccountHost.parse(" "));
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"https://proxy.dfs.internal", "http://proxy.dfs.internal:10000/base%2Fpath",
+            "https://account.dfs.core.windows.net.proxy.test:8443", "https://onelake.dfs.fabric.microsoft.com"})
+    void blobEndpoint_preservesNonAzureDfsEndpoints(String endpoint) {
+        Assertions.assertEquals(endpoint, AzureAccountHost.parse(endpoint).blobEndpoint());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"core.windows.net", "core.chinacloudapi.cn", "core.usgovcloudapi.net", "core.cloudapi.de"})
+    void blobEndpoint_convertsOfficialDfsHostsWithPorts(String suffix) {
+        String endpoint = "https://account.dfs." + suffix + ":8443/base%2Fpath";
+        Assertions.assertEquals("https://account.blob." + suffix + ":8443/base%2Fpath",
+                AzureAccountHost.parse(endpoint).blobEndpoint());
+    }
 }

@@ -825,6 +825,37 @@ TEST_F(S3ClientFactoryTest, NativeSharedKeyPreservesLegacyS3SpelledLocations) {
     EXPECT_EQ(uri.get_key(), "path%20with+encoding");
 }
 
+TEST_F(S3ClientFactoryTest, PreservesCustomEndpointsContainingDfsLabels) {
+    for (const auto* endpoint :
+         {"https://proxy.dfs.internal", "http://proxy.dfs.internal:10000/base",
+          "https://account.dfs.core.windows.net.proxy.test:8443"}) {
+        auto properties = native_azure_shared_key_properties();
+        properties["AZURE_ENDPOINT"] = endpoint;
+        S3URI uri("abfss://container@account.dfs.core.windows.net/path/file");
+        ASSERT_TRUE(uri.parse().ok());
+        S3Conf conf;
+        ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, uri, &conf).ok())
+                << endpoint;
+        EXPECT_EQ(conf.client_conf.endpoint, endpoint);
+    }
+}
+
+TEST_F(S3ClientFactoryTest, NormalizesOfficialDfsEndpointsWithExplicitPorts) {
+    for (const auto* suffix : {"core.windows.net", "core.chinacloudapi.cn",
+                               "core.usgovcloudapi.net", "core.cloudapi.de"}) {
+        auto properties = native_azure_shared_key_properties();
+        properties["AZURE_ENDPOINT"] =
+                fmt::format("https://account.dfs.{}:8443/base%2Fpath", suffix);
+        S3URI uri(fmt::format("https://account.dfs.{}:8443/container/path/file", suffix));
+        ASSERT_TRUE(uri.parse().ok());
+        S3Conf conf;
+        auto status = S3ClientFactory::convert_properties_to_s3_conf(properties, uri, &conf);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(conf.client_conf.endpoint,
+                  fmt::format("https://account.blob.{}:8443/base%2Fpath", suffix));
+    }
+}
+
 TEST_F(S3ClientFactoryTest, NativeAzurePreservesCloudSuffixAndCustomEndpointPath) {
     for (const auto* suffix : {"core.windows.net", "core.chinacloudapi.cn",
                                "core.usgovcloudapi.net", "core.cloudapi.de"}) {

@@ -94,6 +94,18 @@ class AzureFileSystemProviderTest {
             "https://account.dfs.core.chinacloudapi.cn", "https://ACCOUNT.BLOB.CORE.USGOVCLOUDAPI.NET"})
     void supportsGuess_recognizesDfsAndCaseInsensitiveAzureHosts(String endpoint) {
         Assertions.assertTrue(provider.supportsGuess(Map.of("azure.endpoint", endpoint)));
+        Assertions.assertTrue(provider.supports(Map.of("azure.endpoint", endpoint)));
+        Assertions.assertTrue(provider.supports(Map.of("AZURE_ENDPOINT", endpoint)));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"https://foo.blob.core.windows.net.proxy.test",
+            "https://foo.dfs.core.windows.net.proxy.test", "https://proxy.test/blob.core.windows.net",
+            "https://proxy.test?endpoint=account.blob.core.windows.net"})
+    void supports_matchesOnlyTheActualHostSuffix(String endpoint) {
+        Assertions.assertFalse(provider.supports(Map.of("azure.endpoint", endpoint)));
+        Assertions.assertFalse(provider.supports(Map.of("AZURE_ENDPOINT", endpoint)));
+        Assertions.assertFalse(provider.supportsGuess(Map.of("azure.endpoint", endpoint)));
     }
 
     // F21 — provider must recognise all four Azure sovereign-cloud blob host suffixes.

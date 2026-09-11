@@ -33,7 +33,7 @@ import java.util.Set;
  * <p>Registered via META-INF/services/org.apache.doris.filesystem.spi.FileSystemProvider.
  *
  * <p>Identified by the presence of Azure provider-owned account/SAS properties, or an endpoint
- * that contains a known Azure Blob Storage host suffix from one of the sovereign clouds.
+ * whose host matches a known Azure Blob/DFS suffix from one of the sovereign clouds.
  */
 public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSystemProperties> {
 
@@ -48,11 +48,6 @@ public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSyst
             AzureFileSystemProperties.ENDPOINT, "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT",
             "AZURE_ENDPOINT"};
 
-    /**
-     * Recognised Azure Blob Storage host suffixes across sovereign clouds.
-     * Includes Azure Public, Azure China, Azure US Government, and the deprecated
-     * Azure Germany cloud (still spec'd for completeness).
-     */
     @Override
     public boolean supports(Map<String, String> properties) {
         if (isExplicitAzure(properties)) {

@@ -134,7 +134,8 @@ public final class AzureFileSystemProperties
 
     @ConnectorProperty(names = {OAUTH_SERVER_URI},
             required = false,
-            description = "The Azure OAuth2 token endpoint.")
+            description = "The HTTPS Entra token endpoint: /{tenant}/oauth2/token or /{tenant}/oauth2/v2.0/token."
+                    + " The native SDK uses its authority and tenant, not an arbitrary token path.")
     private String oauthServerUri = "";
 
     @ConnectorProperty(names = {OAUTH_ACCOUNT_HOST},

@@ -260,6 +260,32 @@ class AzureFileSystemPropertiesTest {
                         "abfss://container@account.dfs.core.windows.net/dir/file.parquet"));
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"https://login.example.test/tenant/custom/token",
+            "ftp://login.example.test/tenant/oauth2/token",
+            "http://login.example.test/tenant/oauth2/token",
+            "https://private-material@login.example.test/tenant/oauth2/token",
+            "https://login.example.test/tenant/oauth2/token?sig=private-material",
+            "https://login.example.test/tenant/oauth2/token#private-material"})
+    void oauth2_rejectsUnsupportedTokenEndpointsWithoutEchoingCredentials(String tokenEndpoint) {
+        Map<String, String> input = oauth2Properties("https://account.blob.core.windows.net");
+        input.put("azure.oauth2_server_uri", tokenEndpoint);
+        StoragePropertiesException error = Assertions.assertThrows(StoragePropertiesException.class,
+                () -> AzureFileSystemProperties.of(input));
+        Assertions.assertNull(error.getCause());
+        Assertions.assertFalse(error.getMessage().contains("private-material"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"https://login.microsoftonline.com/tenant/oauth2/token",
+            "https://login.microsoftonline.us/tenant/oauth2/v2.0/token"})
+    void oauth2_acceptsSupportedEntraTokenEndpoints(String tokenEndpoint) {
+        Map<String, String> input = oauth2Properties("https://account.blob.core.windows.net");
+        input.put("azure.oauth2_server_uri", tokenEndpoint);
+        Assertions.assertEquals(tokenEndpoint,
+                AzureFileSystemProperties.of(input).toMap().get("AZURE_OAUTH_SERVER_URI"));
+    }
+
     @Test
     void sharedKeyKeepsLegacyS3UriWithCustomEndpoint() {
         AzureFileSystemProperties properties = new AzureFileSystemProvider().bind(Map.of(

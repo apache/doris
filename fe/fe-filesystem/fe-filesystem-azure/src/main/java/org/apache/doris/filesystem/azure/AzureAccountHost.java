@@ -21,8 +21,8 @@ import org.apache.doris.foundation.property.StoragePropertiesException;
 
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.Arrays;
 import java.util.Locale;
+import java.util.Set;
 
 /** Parsed Azure account authority and endpoint shared by provider configuration renderers. */
 public final class AzureAccountHost {
@@ -30,9 +30,9 @@ public final class AzureAccountHost {
     private static final String DEFAULT_CLOUD_SUFFIX = "core.windows.net";
     private static final String DFS_MARKER = ".dfs.";
     private static final String BLOB_MARKER = ".blob.";
-    private static final String[] AZURE_CLOUD_SUFFIXES = {
+    private static final Set<String> AZURE_CLOUD_SUFFIXES = Set.of(
             "core.windows.net", "core.chinacloudapi.cn", "core.usgovcloudapi.net",
-            "core.cloudapi.de"};
+            "core.cloudapi.de");
 
     private final String accountName;
     private final String cloudSuffix;
@@ -49,7 +49,7 @@ public final class AzureAccountHost {
     /**
      * Parses an account host or endpoint such as {@code account.dfs.core.windows.net}.
      * A URI scheme is optional. Explicit transport settings are retained when rendering a Blob
-     * endpoint; a custom host without a Blob/DFS service label is not rewritten.
+     * endpoint; only official Azure DFS endpoints are rewritten.
      */
     public static AzureAccountHost parse(String hostOrEndpoint) {
         if (hostOrEndpoint == null || hostOrEndpoint.isBlank()) {
@@ -97,12 +97,6 @@ public final class AzureAccountHost {
         }
     }
 
-    private static boolean isOfficialAzureServiceHost(String host, int serviceIndex, String service) {
-        String suffix = host.substring(serviceIndex + service.length() + 2);
-        return Arrays.stream(AZURE_CLOUD_SUFFIXES).anyMatch(suffix::equals)
-                && serviceIndex > 0 && host.charAt(serviceIndex - 1) != '.';
-    }
-
     /** Creates a public-cloud account host when only the account name is configured. */
     public static AzureAccountHost fromAccountName(String accountName) {
         if (accountName == null || accountName.isBlank()) {
@@ -128,15 +122,11 @@ public final class AzureAccountHost {
     }
 
     public String blobEndpoint() {
-        if (!dfsHost || !isOfficialAzureServiceHost(endpoint.getHost().toLowerCase(Locale.ROOT),
-                endpoint.getHost().toLowerCase(Locale.ROOT).indexOf(DFS_MARKER), "dfs")) {
+        if (!dfsHost || !AZURE_CLOUD_SUFFIXES.contains(cloudSuffix.toLowerCase(Locale.ROOT))) {
             return endpoint.toString();
         }
         String value = endpoint.toString();
         int hostStart = value.indexOf("://") + 3;
-        if (endpoint.getRawUserInfo() != null) {
-            hostStart += endpoint.getRawUserInfo().length() + 1;
-        }
         // Replace only the authority host: URI reconstruction would decode/re-encode paths.
         return value.substring(0, hostStart) + blobHost()
                 + value.substring(hostStart + endpoint.getHost().length());

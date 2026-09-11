@@ -226,10 +226,10 @@ class AzureIcebergFileIOPropertiesTest {
                 Map.of(dfsToken, token, "adls.sas-token.account.blob.core.chinacloudapi.cn", token));
     }
 
-    @ParameterizedTest
-    @MethodSource("invalidFileIOConnections")
-    void fileIOOutputRejectsInvalidConnectionsWithoutChangingGeneralBinding(Map<String, String> input) {
-        AzureFileSystemProperties storage = AzureFileSystemProperties.of(input);
+    @Test
+    void fileIOOutputRejectsIncompleteSasConnectionWithoutChangingGeneralBinding() {
+        AzureFileSystemProperties storage = AzureFileSystemProperties.of(
+                Map.of("azure.sas_token", "sig=private-material"));
         Assertions.assertDoesNotThrow(storage::validate);
 
         StoragePropertiesException error = Assertions.assertThrows(StoragePropertiesException.class,
@@ -244,15 +244,25 @@ class AzureIcebergFileIOPropertiesTest {
         Assertions.assertNull(connectionError.getCause());
     }
 
-    private static Stream<Map<String, String>> invalidFileIOConnections() {
-        Stream<Map<String, String>> embeddedCredentials = Stream.of(
+    @ParameterizedTest
+    @MethodSource("invalidEndpointConnections")
+    void bindingRejectsInvalidEndpointsBeforeFileIOOutput(Map<String, String> input) {
+        StoragePropertiesException error = Assertions.assertThrows(StoragePropertiesException.class,
+                () -> AzureFileSystemProperties.of(input));
+        Assertions.assertNull(error.getCause());
+        Assertions.assertFalse(error.getMessage().contains("private-material"));
+        Assertions.assertFalse(error.getMessage().contains("https://"));
+    }
+
+    private static Stream<Map<String, String>> invalidEndpointConnections() {
+        return Stream.of(
                 "https://account.blob.core.windows.net?sig=private-material",
                 "https://private-material@account.blob.core.windows.net",
-                "https://account.blob.core.windows.net#private-material").flatMap(endpoint -> Stream.of(
+                "https://account.blob.core.windows.net#private-material",
+                "ftp://account.blob.core.windows.net").flatMap(endpoint -> Stream.of(
                         Map.of("azure.account_name", "account", "azure.account_key", "test-key",
                                 "azure.endpoint", endpoint),
                         Map.of("azure.account_name", "account", "azure.sas_token", "sig=bound-sas",
                                 "azure.endpoint", endpoint)));
-        return Stream.concat(embeddedCredentials, Stream.of(Map.of("azure.sas_token", "sig=private-material")));
     }
 }

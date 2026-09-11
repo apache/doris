@@ -277,12 +277,15 @@ std::string normalize_azure_endpoint(std::string endpoint) {
 
     auto lower_authority = to_lower(authority);
     endpoint.replace(authority_begin, authority_length, lower_authority);
-    const auto dfs_pos = lower_authority.find(".dfs.");
-    const bool official_dfs = dfs_pos != std::string::npos &&
-                              (lower_authority.ends_with(".dfs.core.windows.net") ||
-                               lower_authority.ends_with(".dfs.core.chinacloudapi.cn") ||
-                               lower_authority.ends_with(".dfs.core.usgovcloudapi.net") ||
-                               lower_authority.ends_with(".dfs.core.cloudapi.de"));
+    // Match the host, not host:port, so explicit transport ports do not disable
+    // the official DFS-to-Blob conversion. Custom proxy hosts stay unchanged.
+    const auto host = lower_authority.substr(0, lower_authority.find(':'));
+    const auto dfs_pos = host.find(".dfs.");
+    const bool official_dfs =
+            dfs_pos != std::string::npos && (host.ends_with(".dfs.core.windows.net") ||
+                                             host.ends_with(".dfs.core.chinacloudapi.cn") ||
+                                             host.ends_with(".dfs.core.usgovcloudapi.net") ||
+                                             host.ends_with(".dfs.core.cloudapi.de"));
     if (official_dfs) {
         endpoint.replace(authority_begin + dfs_pos, 5, ".blob.");
     } else if (!has_scheme && authority.find('.') == std::string::npos &&
