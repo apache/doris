@@ -28,11 +28,7 @@ import static java.util.concurrent.TimeUnit.SECONDS
 // Expected: dropping a referenced column invalidates the IVM baseline, so a strict
 // INCREMENTAL refresh is rejected and the user is told to run a COMPLETE refresh.
 // Dropping an unreferenced column must still leave the incremental path untouched.
-suite("test_ivm_drop_referenced_column_baseline_rebuild", "nonConcurrent") {
-    if (isCloudMode()) {
-        return
-    }
-
+suite("test_ivm_drop_referenced_column_baseline_rebuild") {
     def tableName = "ivm_drop_ref_col_t"
     def mvName = "ivm_drop_ref_col_mv"
 
