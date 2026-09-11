@@ -17,6 +17,7 @@
 
 #include "io/fs/packed_file_system.h"
 
+#include <string>
 #include <string_view>
 #include <utility>
 
@@ -40,7 +41,8 @@ namespace {
 // Multi-segment rowsets usually come from large loads or memory-pressure flushes,
 // and continuing to buffer later segments in packed files can amplify memory usage.
 // Non-rowset file names keep the legacy behavior to avoid changing unrelated callers.
-bool should_use_packed_writer(std::string_view file_name) {
+bool should_use_packed_writer(std::string_view file_name, int64_t first_segment_id) {
+    DORIS_CHECK_GE(first_segment_id, 0);
     constexpr std::string_view kSegmentSuffix = ".dat";
     constexpr std::string_view kIndexSuffix = ".idx";
 
@@ -59,7 +61,7 @@ bool should_use_packed_writer(std::string_view file_name) {
         return true;
     }
 
-    return file_name.substr(pos + 1) == "0";
+    return file_name.substr(pos + 1) == std::to_string(first_segment_id);
 }
 
 } // namespace
@@ -92,7 +94,7 @@ Status PackedFileSystem::create_file_impl(const Path& file, FileWriterPtr* write
     FileWriterPtr inner_writer;
     RETURN_IF_ERROR(_inner_fs->create_file(file, &inner_writer, opts));
 
-    if (!should_use_packed_writer(file.filename().native())) {
+    if (!should_use_packed_writer(file.filename().native(), _append_info.first_segment_id)) {
         *writer = std::move(inner_writer);
         return Status::OK();
     }

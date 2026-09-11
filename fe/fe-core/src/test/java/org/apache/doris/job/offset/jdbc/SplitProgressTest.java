@@ -19,17 +19,17 @@ package org.apache.doris.job.offset.jdbc;
 
 import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider.SplitProgress;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class SplitProgressTest {
 
     @Test
     public void testDefaultStateIsAllNull() {
         SplitProgress p = new SplitProgress();
-        Assert.assertNull(p.getCurrentSplittingTable());
-        Assert.assertNull(p.getNextSplitStart());
-        Assert.assertNull(p.getNextSplitId());
+        Assertions.assertNull(p.getCurrentSplittingTable());
+        Assertions.assertNull(p.getNextSplitStart());
+        Assertions.assertNull(p.getNextSplitId());
     }
 
     @Test
@@ -40,21 +40,21 @@ public class SplitProgressTest {
         original.setNextSplitId(5);
 
         SplitProgress copy = original.copy();
-        Assert.assertEquals("db.tbl_a", copy.getCurrentSplittingTable());
-        Assert.assertArrayEquals(new Object[]{100L}, copy.getNextSplitStart());
-        Assert.assertEquals(Integer.valueOf(5), copy.getNextSplitId());
+        Assertions.assertEquals("db.tbl_a", copy.getCurrentSplittingTable());
+        Assertions.assertArrayEquals(new Object[]{100L}, copy.getNextSplitStart());
+        Assertions.assertEquals(Integer.valueOf(5), copy.getNextSplitId());
 
         // Mutating copy.nextSplitStart must not affect the original (deep copy).
         copy.getNextSplitStart()[0] = 999L;
-        Assert.assertEquals(100L, original.getNextSplitStart()[0]);
+        Assertions.assertEquals(100L, original.getNextSplitStart()[0]);
     }
 
     @Test
     public void testCopyHandlesNullFields() {
         SplitProgress original = new SplitProgress();
         SplitProgress copy = original.copy();
-        Assert.assertNull(copy.getCurrentSplittingTable());
-        Assert.assertNull(copy.getNextSplitStart());
-        Assert.assertNull(copy.getNextSplitId());
+        Assertions.assertNull(copy.getCurrentSplittingTable());
+        Assertions.assertNull(copy.getNextSplitStart());
+        Assertions.assertNull(copy.getNextSplitId());
     }
 }

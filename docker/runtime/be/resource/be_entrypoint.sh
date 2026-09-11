@@ -38,8 +38,6 @@ DORIS_ROOT=${DORIS_ROOT:-"/opt/apache-doris"}
 AUTH_PATH="/etc/basic_auth"
 DORIS_HOME=${DORIS_ROOT}/be
 BE_CONFIG=$DORIS_HOME/conf/be.conf
-# represents self in fe meta or not.
-REGISTERED=false
 
 DB_ADMIN_USER=${USER:-"root"}
 
@@ -452,19 +450,13 @@ function check_and_register()
     local addrArr=(${addrs//,/ })
     for addr in ${addrArr[@]}
     do
-        add_self $addr
-
-        if [[ $REGISTERED ]]; then
-            break;
+        if add_self $addr; then
+            return 0
         fi
     done
 
-    if [[ $REGISTERED ]]; then
-        return 0
-    else
-        log_stderr  "not find master in fe cluster, please use mysql connect to fe for verfing the master exist and verify domain connectivity with two pods in different node. "
-        exit 1
-    fi
+    log_stderr  "not find master in fe cluster, please use mysql connect to fe for verfing the master exist and verify domain connectivity with two pods in different node. "
+    return 1
 }
 
 function make_dir_for_workloadgroup() {
@@ -530,7 +522,7 @@ parse_tls_connection_variables
 collect_env_info
 wait_for_fqdn_ready || exit 1
 #add_self $fe_addr || exit $?
-check_and_register $fe_addrs
+check_and_register $fe_addrs || exit 1
 ./doris-debug --component be
 log_stderr "run start_be.sh"
 #allow create core file

@@ -37,6 +37,7 @@ suite("query71") {
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql "SET enable_dphyp_optimizer = true"
     sql "set max_table_count_use_cascades_join_reorder = 1"
+    sql 'set join_order_time_limit=10000'
     sql "set dphyper_limit=2600"
 
     def ds = """select i_brand_id brand_id, i_brand brand,t_hour,t_minute,

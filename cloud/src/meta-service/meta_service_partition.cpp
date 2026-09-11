@@ -30,6 +30,7 @@
 #include "common/lexical_util.h"
 #include "common/logging.h"
 #include "common/stats.h"
+#include "cpp/sync_point.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/table_stream_metadata_reader.h"
 #include "meta-store/blob_message.h"
@@ -1274,6 +1275,7 @@ void MetaServiceImpl::commit_table_stream_partition_internal(
     if (num_writes == 0) {
         return;
     }
+    TEST_SYNC_POINT("commit_table_stream_partition_internal::before_commit");
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);

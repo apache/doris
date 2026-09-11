@@ -57,6 +57,8 @@ public class AIResource extends Resource {
     private static final Logger LOG = LogManager.getLogger(AIResource.class);
     @SerializedName(value = "properties")
     private Map<String, String> properties;
+    @SerializedName(value = "createdByRoot")
+    private boolean createdByRoot;
 
     public AIResource() {
         super();
@@ -65,6 +67,14 @@ public class AIResource extends Resource {
     public AIResource(String name) {
         super(name, ResourceType.AI);
         properties = Maps.newHashMap();
+    }
+
+    public boolean isCreatedByRoot() {
+        return createdByRoot;
+    }
+
+    void setCreatedByRoot(boolean createdByRoot) {
+        this.createdByRoot = createdByRoot;
     }
 
     @Override

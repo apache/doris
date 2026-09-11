@@ -89,6 +89,9 @@ import static io.debezium.util.Strings.isNullOrEmpty;
  * <p>Line 940 : change Log Level info to debug.
  *
  * <p>Line 420 : exclude OceanBase heartbeat events from restart event counting.
+ *
+ * <p>Line 245 : use the Debezium progress heartbeat for the MySQL protocol heartbeat, capped by
+ * the keepalive-safe interval.
  */
 public class MySqlStreamingChangeEventSource
         implements StreamingChangeEventSource<MySqlPartition, MySqlOffsetContext> {
@@ -238,13 +241,13 @@ public class MySqlStreamingChangeEventSource
         final long keepAliveInterval =
                 configuration.getLong(MySqlConnectorConfig.KEEP_ALIVE_INTERVAL_MS);
         client.setKeepAliveInterval(keepAliveInterval);
-        // Considering heartbeatInterval should be less than keepAliveInterval, we use the
-        // heartbeatIntervalFactor
-        // multiply by keepAliveInterval and set the result value to heartbeatInterval.The default
-        // value of heartbeatIntervalFactor
-        // is 0.8, and we believe the left time (0.2 * keepAliveInterval) is enough to process the
-        // packet received from the MySQL server.
-        client.setHeartbeatInterval((long) (keepAliveInterval * heartbeatIntervalFactor));
+        final long maxHeartbeatInterval =
+                (long) (keepAliveInterval * heartbeatIntervalFactor);
+        final long heartbeatInterval = connectorConfig.getHeartbeatInterval().toMillis();
+        client.setHeartbeatInterval(
+                heartbeatInterval > 0
+                        ? Math.min(heartbeatInterval, maxHeartbeatInterval)
+                        : maxHeartbeatInterval);
 
         boolean filterDmlEventsByGtidSource =
                 configuration.getBoolean(MySqlConnectorConfig.GTID_SOURCE_FILTER_DML_EVENTS);

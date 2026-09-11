@@ -25,8 +25,8 @@ import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -40,9 +40,9 @@ import java.util.Map;
 public class KafkaUtilTest {
     @Test
     public void testGetInfoFailureMessageIncludesComputeGroup() {
-        Assert.assertEquals("failed to get info: no alive backends, compute group: routine-load-compute-group,",
+        Assertions.assertEquals("failed to get info: no alive backends, compute group: routine-load-compute-group,",
                 KafkaUtil.getInfoFailureMessage("no alive backends", "routine-load-compute-group"));
-        Assert.assertEquals("failed to get info: no alive backends,",
+        Assertions.assertEquals("failed to get info: no alive backends,",
                 KafkaUtil.getInfoFailureMessage("no alive backends", null));
     }
 
@@ -63,7 +63,7 @@ public class KafkaUtilTest {
 
             List<Long> backendIds = KafkaUtil.getBackendIdsForMetaRequest("routine-load-compute-group");
 
-            Assert.assertEquals(Collections.singletonList(routineLoadBackend.getId()), backendIds);
+            Assertions.assertEquals(Collections.singletonList(routineLoadBackend.getId()), backendIds);
             Mockito.verify(systemInfoService).getBackendsByClusterName("routine-load-compute-group");
             Mockito.verify(systemInfoService, Mockito.never()).getAllBackendIds(true);
         } finally {
@@ -97,7 +97,7 @@ public class KafkaUtilTest {
             List<Long> backendIds = KafkaUtil.getAvailableBackendIdsForMetaRequest(
                     Collections.singletonList(routineLoadBackendId), new HashSet<>());
 
-            Assert.assertEquals(Collections.singletonList(routineLoadBackendId), backendIds);
+            Assertions.assertEquals(Collections.singletonList(routineLoadBackendId), backendIds);
             Mockito.verify(systemInfoService, Mockito.never()).getBackend(otherComputeGroupBackendId);
         }
     }
@@ -111,13 +111,13 @@ public class KafkaUtilTest {
             Config.cloud_unique_id = "test-cloud";
             envStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
 
-            LoadException nullException = Assert.assertThrows(
+            LoadException nullException = Assertions.assertThrows(
                     LoadException.class, () -> KafkaUtil.getBackendIdsForMetaRequest(null));
-            LoadException emptyException = Assert.assertThrows(
+            LoadException emptyException = Assertions.assertThrows(
                     LoadException.class, () -> KafkaUtil.getBackendIdsForMetaRequest(""));
 
-            Assert.assertEquals("compute group is empty when getting kafka meta", nullException.getDetailMessage());
-            Assert.assertEquals("compute group is empty when getting kafka meta", emptyException.getDetailMessage());
+            Assertions.assertEquals("compute group is empty when getting kafka meta", nullException.getDetailMessage());
+            Assertions.assertEquals("compute group is empty when getting kafka meta", emptyException.getDetailMessage());
             Mockito.verifyNoInteractions(systemInfoService);
         } finally {
             Config.cloud_unique_id = originalCloudUniqueId;
@@ -135,7 +135,7 @@ public class KafkaUtilTest {
             Config.cloud_unique_id = "";
             envStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
 
-            Assert.assertEquals(allBackendIds, KafkaUtil.getBackendIdsForMetaRequest(null));
+            Assertions.assertEquals(allBackendIds, KafkaUtil.getBackendIdsForMetaRequest(null));
             Mockito.verify(systemInfoService).getAllBackendIds(true);
         } finally {
             Config.cloud_unique_id = originalCloudUniqueId;

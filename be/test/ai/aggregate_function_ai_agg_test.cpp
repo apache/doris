@@ -20,8 +20,11 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <cstdlib>
+#include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "core/arena.h"
@@ -66,7 +69,7 @@ public:
         _agg_function->set_query_context(_query_ctx.get());
     }
 
-    void TearDown() override {}
+    void TearDown() override { unsetenv("AI_TEST_RESULT"); }
 
 protected:
     std::unique_ptr<MockRuntimeState> _runtime_state;
@@ -514,6 +517,46 @@ TEST_F(AggregateFunctionAIAggTest, mock_resource_send_request_test) {
     std::string result(result_ref.data, result_ref.size);
 
     _agg_function->destroy(place);
+}
+
+TEST_F(AggregateFunctionAIAggTest, openai_responses_preserves_model_output_as_one_result) {
+    TAIResource ai_resource;
+    ai_resource.provider_type = "OPENAI";
+    ai_resource.model_name = "test_model";
+    ai_resource.endpoint = "https://api.openai.com/v1/responses";
+    _query_ctx->set_ai_resources(
+            std::map<std::string, TAIResource> {{"openai_response", ai_resource}});
+
+    const std::vector<std::pair<std::string, std::string>> test_cases = {
+            {R"({"object":"response","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"[\"north\",\"south\"]"}]}]})",
+             R"(["north","south"])"},
+            {R"({"object":"response","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"[]"}]}]})",
+             "[]"}};
+
+    for (const auto& [response, expected] : test_cases) {
+        setenv("AI_TEST_RESULT", response.c_str(), 1);
+
+        auto resource_col = ColumnString::create();
+        auto text_col = ColumnString::create();
+        auto task_col = ColumnString::create();
+        resource_col->insert_data("openai_response", 15);
+        text_col->insert_data("test input", 10);
+        task_col->insert_data("summarize", 9);
+
+        std::unique_ptr<char[]> memory(new char[_agg_function->size_of_data()]);
+        AggregateDataPtr place = memory.get();
+        _agg_function->create(place);
+
+        const IColumn* columns[3] = {resource_col.get(), text_col.get(), task_col.get()};
+        _agg_function->add(place, columns, 0, _arena);
+
+        ColumnString result_column;
+        _agg_function->insert_result_into(place, result_column);
+        StringRef result_ref = result_column.get_data_at(0);
+        EXPECT_EQ(std::string(result_ref.data, result_ref.size), expected);
+
+        _agg_function->destroy(place);
+    }
 }
 
 TEST_F(AggregateFunctionAIAggTest, missing_ai_resources_metadata_test) {

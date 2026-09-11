@@ -40,6 +40,7 @@ static const std::string VERSION_COL = "__DORIS_VERSION_COL__";
 static const std::string SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";
 static const std::string SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
 static const std::string COMMIT_TSO_COL = "__DORIS_COMMIT_TSO_COL__";
+static const std::string ROW_LSN_COL = "__DORIS_ROW_LSN_COL__";
 static const std::string BINLOG_TSO_COL = "__DORIS_BINLOG_TSO__";
 static const std::string BINLOG_LSN_COL = "__DORIS_BINLOG_LSN__";
 static const std::string BINLOG_OP_COL = "__DORIS_BINLOG_OP__";
@@ -170,8 +171,7 @@ bool valid_unsigned_number(const std::string& value_str) {
 
 bool valid_decimal(const std::string& value_str, const uint32_t precision, const uint32_t frac);
 
-// Validate for date/datetime roughly. The format is 'yyyy-MM-dd HH:mm:ss'
-// TODO: support 'yyyy-MM-dd HH:mm:ss.SSS'
+// Validate date/datetime format and fractional-second scale roughly.
 bool valid_datetime(const std::string& value_str, const uint32_t scale);
 
 bool valid_bool(const std::string& value_str);

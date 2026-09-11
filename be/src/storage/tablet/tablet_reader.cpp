@@ -159,12 +159,11 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.read_row_binlog = read_params.read_row_binlog;
     _reader_context.version = read_params.version;
     _reader_context.tablet_schema = _tablet_schema;
-    _reader_context.need_ordered_result = need_ordered_result;
+    _reader_context.need_ordered_result = need_ordered_result || read_params.force_key_ordered_read;
     _reader_context.topn_filter_source_node_ids = read_params.topn_filter_source_node_ids;
     _reader_context.read_orderby_key_reverse = read_params.read_orderby_key_reverse;
     _reader_context.use_insert_order_when_same =
             read_params.use_insert_order_when_same || read_params.read_row_binlog;
-    _reader_context.force_key_ordered_read = read_params.force_key_ordered_read;
     _reader_context.read_orderby_key_limit = read_params.read_orderby_key_limit;
     _reader_context.read_schema = _read_schema;
     _reader_context.read_orderby_key_columns =

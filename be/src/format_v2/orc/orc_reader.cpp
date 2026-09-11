@@ -945,8 +945,15 @@ Status OrcReader::init(RuntimeState* state) {
         if (is_orc_stop(_io_ctx.get(), e)) {
             return Status::EndOfFile("stop");
         }
+        // invoker maybe just skip Status.NotFound and continue
+        // so we need distinguish between it and other kinds of errors
+        const std::string err_msg = e.what();
+        if (err_msg.find("No such file or directory") != std::string::npos ||
+            err_msg.find("NoSuchKey") != std::string::npos) {
+            return Status::NotFound(err_msg);
+        }
         return Status::InternalError("Failed to open ORC file {}: {}", _file_description->path,
-                                     e.what());
+                                     err_msg);
     }
     return Status::OK();
 }
@@ -1751,6 +1758,8 @@ void OrcReader::_skip_condition_cache_false_granules(size_t* rows, bool* eof) {
     }
     if (target_row > _state->condition_cache_next_row) {
         DORIS_CHECK(target_row <= file_total_rows);
+        DBUG_EXECUTE_IF("OrcReader._skip_condition_cache_false_granules.before_seek_to_row",
+                        DBUG_RUN_CALLBACK());
         _state->row_reader->seekToRow(target_row);
         if (_io_ctx != nullptr) {
             _io_ctx->condition_cache_filtered_rows += target_row - _state->condition_cache_next_row;
@@ -1939,11 +1948,13 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
 
     bool has_next = false;
     while (true) {
-        _skip_condition_cache_false_granules(rows, eof);
-        if (*eof) {
-            return Status::OK();
-        }
         try {
+            // Condition-cache seeks can perform I/O, so keep them in the same cancellation
+            // boundary as next().
+            _skip_condition_cache_false_granules(rows, eof);
+            if (*eof) {
+                return Status::OK();
+            }
             _state->orc_lazy_selection_valid = false;
             _state->orc_lazy_selected_rows.clear();
             _state->orc_lazy_input_rows = 0;

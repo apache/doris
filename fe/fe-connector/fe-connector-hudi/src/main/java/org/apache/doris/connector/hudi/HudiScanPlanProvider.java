@@ -292,32 +292,32 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                 .enable(HoodieTableMetadataUtil.isFilesPartitionAvailable(metaClient))
                 .build();
         HoodieLocalEngineContext engineCtx = new HoodieLocalEngineContext(metaClient.getStorageConf());
-        HoodieTableFileSystemView fsView = FileSystemViewManager.createInMemoryFileSystemView(
-                engineCtx, metaClient, metadataConfig);
+        try (HoodieTableFileSystemView fsView = FileSystemViewManager.createInMemoryFileSystemView(
+                engineCtx, metaClient, metadataConfig)) {
+            // Resolve partitions
+            List<String> partitionPaths = resolvePartitions(hudiHandle, metaClient);
 
-        // Resolve partitions
-        List<String> partitionPaths = resolvePartitions(hudiHandle, metaClient);
+            List<ConnectorScanRange> ranges = new ArrayList<>();
+            for (String partitionPath : partitionPaths) {
+                Map<String, String> partValues = parsePartitionValues(
+                        partitionPath, hudiHandle.getPartitionKeyNames());
 
-        List<ConnectorScanRange> ranges = new ArrayList<>();
-        for (String partitionPath : partitionPaths) {
-            Map<String, String> partValues = parsePartitionValues(
-                    partitionPath, hudiHandle.getPartitionKeyNames());
-
-            if (useNativeCowPath) {
-                collectCowSplits(fsView, partitionPath, queryInstant,
-                        basePath, partValues, ranges, schemaIdResolver);
-            } else {
-                collectMorSplits(fsView, partitionPath, queryInstant,
-                        basePath, inputFormat, serdeLib,
-                        columnNames, columnTypes, partValues, forceJni, ranges, schemaIdResolver);
+                if (useNativeCowPath) {
+                    collectCowSplits(fsView, partitionPath, queryInstant,
+                            basePath, partValues, ranges, schemaIdResolver);
+                } else {
+                    collectMorSplits(fsView, partitionPath, queryInstant,
+                            basePath, inputFormat, serdeLib,
+                            columnNames, columnTypes, partValues, forceJni, ranges, schemaIdResolver);
+                }
             }
+
+            LOG.info("Hudi scan planning: {}.{} type={} partitions={} splits={}",
+                    hudiHandle.getDbName(), hudiHandle.getTableName(),
+                    hudiHandle.getHudiTableType(), partitionPaths.size(), ranges.size());
+
+            return ranges;
         }
-
-        LOG.info("Hudi scan planning: {}.{} type={} partitions={} splits={}",
-                hudiHandle.getDbName(), hudiHandle.getTableName(),
-                hudiHandle.getHudiTableType(), partitionPaths.size(), ranges.size());
-
-        return ranges;
     }
 
     @Override
@@ -802,7 +802,14 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         HoodieTableMetadata tableMetadata = HoodieTableMetadata.create(
                 engineCtx, metaClient.getStorage(), metadataConfig,
                 metaClient.getBasePath().toString(), true);
-        return tableMetadata.getAllPartitionPaths();
+        return listAllPartitionPaths(tableMetadata::getAllPartitionPaths, tableMetadata);
+    }
+
+    static List<String> listAllPartitionPaths(
+            java.util.concurrent.Callable<List<String>> loader, AutoCloseable resource) throws Exception {
+        try (AutoCloseable owned = resource) {
+            return loader.call();
+        }
     }
 
     /**

@@ -26,6 +26,7 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
+#include "storage/binlog.h"
 #include "storage/schema.h"
 
 namespace doris {
@@ -52,6 +53,20 @@ TabletColumnPtr create_struct_column(int32_t unique_id) {
     column->add_sub_column(*first_child);
     column->add_sub_column(*second_child);
     return column;
+}
+
+TabletSchemaSPtr create_row_binlog_schema_with_colliding_names() {
+    auto schema = std::make_shared<TabletSchema>();
+    schema->append_column(*create_int_column(10, "key", true));
+    schema->append_column(*create_int_column(11, "v"));
+    schema->append_column(*create_int_column(12, "__BEFORE__v__"));
+    schema->append_column(*create_int_column(13, binlog::build_before_column_name("v")));
+    schema->append_column(
+            *create_int_column(14, binlog::build_before_column_name("__BEFORE__v__")));
+    schema->append_column(*create_int_column(15, BINLOG_TSO_COL));
+    schema->append_column(*create_int_column(16, BINLOG_LSN_COL));
+    schema->append_column(*create_int_column(17, BINLOG_OP_COL));
+    return schema;
 }
 
 TEST(ReadSchemaTest, DefaultColumnsAreVisible) {
@@ -123,6 +138,43 @@ TEST(ReadSchemaTest, AppendedDroppedColumnDoesNotExtendReadBlock) {
     EXPECT_EQ(suffix_ordinal, read_schema.ordinal_by_uid(11));
     EXPECT_TRUE(read_schema.data_type(suffix_ordinal)->equals(*dropped_column->get_vec_type()));
     EXPECT_EQ(2, read_schema.create_read_block().columns());
+}
+
+TEST(ReadSchemaTest, RowBinlogMappingsUsePhysicalSchemaOrdinals) {
+    auto tablet_schema = create_row_binlog_schema_with_colliding_names();
+    // Reorder the two AFTER values and their BEFORE companions to verify that ReadSchema stores
+    // dense read ordinals resolved by unique id, rather than physical tablet column ids or names.
+    ReadSchema read_schema(project_columns_by_ordinal(
+            tablet_schema->columns(), std::vector<ColumnId> {0, 2, 1, 4, 3, 5, 6, 7}));
+
+    read_schema.init_row_binlog_column_mappings(*tablet_schema);
+
+    EXPECT_TRUE(read_schema.row_binlog_value_pairs_complete());
+    EXPECT_EQ(read_schema.row_binlog_value_column_pairs(),
+              (ReadSchema::RowBinlogValueColumnPairs {{2, 4}, {1, 3}}));
+    EXPECT_EQ(4, read_schema.before_column_ordinal(2));
+    EXPECT_EQ(3, read_schema.before_column_ordinal(1));
+    for (ColumnId ordinal : {0, 3, 4, 5, 6, 7}) {
+        EXPECT_EQ(ordinal, read_schema.before_column_ordinal(ordinal));
+    }
+}
+
+TEST(ReadSchemaTest, MalformedRowBinlogLayoutKeepsConservativeNameMapping) {
+    TabletSchema tablet_schema;
+    tablet_schema.append_column(*create_int_column(10, "key", true));
+    tablet_schema.append_column(*create_int_column(11, "v"));
+    tablet_schema.append_column(*create_int_column(12, binlog::build_before_column_name("v")));
+    tablet_schema.append_column(*create_int_column(13, "orphan"));
+    tablet_schema.append_column(*create_int_column(14, BINLOG_TSO_COL));
+    tablet_schema.append_column(*create_int_column(15, BINLOG_LSN_COL));
+    tablet_schema.append_column(*create_int_column(16, BINLOG_OP_COL));
+    ReadSchema read_schema(tablet_schema.columns());
+
+    read_schema.init_row_binlog_column_mappings(tablet_schema);
+
+    EXPECT_FALSE(read_schema.row_binlog_value_pairs_complete());
+    EXPECT_TRUE(read_schema.row_binlog_value_column_pairs().empty());
+    EXPECT_EQ(2, read_schema.before_column_ordinal(1));
 }
 
 } // namespace

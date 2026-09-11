@@ -345,11 +345,12 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
     [[maybe_unused]] std::string instance_id;                                                 \
     [[maybe_unused]] bool drop_request = false;                                               \
     [[maybe_unused]] KVStats stats;                                                           \
-    [[maybe_unused]] MsStressDecision ms_stress_decision;                                     \
-    if (config::enable_ms_rate_limit || config::enable_ms_rate_limit_injection) {             \
-        ms_stress_decision = get_ms_stress_decision();                                        \
-        if (RpcRateLimitWhitelist::instance().should_rate_limit(#func_name) &&                \
-            ms_stress_decision.under_great_stress()) {                                        \
+    [[maybe_unused]] MsStressDecision ms_stress_decision = get_ms_stress_decision();          \
+    if (config::enable_ms_rate_limit &&                                                       \
+        RpcRateLimitWhitelist::instance().should_rate_limit(#func_name) &&                    \
+        ms_stress_decision.under_great_stress()) {                                            \
+        record_ms_rate_limit_triggers(ms_stress_decision);                                    \
+        if (!config::enable_ms_rate_limit_dry_run) {                                          \
             drop_request = true;                                                              \
             msg = ms_stress_decision.debug_string();                                          \
             code = MetaServiceCode::MS_TOO_BUSY;                                              \

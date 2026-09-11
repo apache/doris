@@ -26,9 +26,10 @@
 #include "storage/index/snii/query/query_profile.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 
-// wildcard_query -- MATCH_WILDCARD semantics over dictionary terms. `*` matches
-// any byte sequence, `?` matches one byte, and all other bytes match literally.
-// Matching terms are executed as a sorted deduplicated docid union.
+// wildcard_query -- MATCH_WILDCARD semantics over UTF-8 dictionary terms. `*`
+// matches any code-point sequence, `?` matches one code point, and all other code
+// points match literally. Matching terms are executed as a sorted deduplicated
+// docid union.
 namespace doris::snii::query {
 
 Status wildcard_query(const reader::LogicalIndexReader& idx, std::string_view pattern,

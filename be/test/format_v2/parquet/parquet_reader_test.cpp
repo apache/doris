@@ -114,7 +114,14 @@ public:
     Int32GreaterThanExpr(int column_id, int32_t value)
             : VExpr(std::make_shared<DataTypeUInt8>(), false),
               _column_id(column_id),
-              _value(value) {}
+              _value(value) {
+        _fn.name.function_name = "gt";
+        const auto int_type = std::make_shared<DataTypeInt32>();
+        // Keep the test double structurally equivalent to a scalar comparison because Page Index
+        // admission resolves the physical probe from expression children.
+        add_child(VSlotRef::create_shared(column_id, column_id, -1, int_type, "c0"));
+        add_child(VLiteral::create_shared(int_type, Field::create_field<TYPE_INT>(value)));
+    }
 
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override {
@@ -3196,13 +3203,33 @@ TEST_F(NewParquetReaderTest, NativeFooterCacheDoesNotReuseMutableUnknownVersion)
     EXPECT_EQ(second_profile.get_counter("FileFooterHitCache")->value(), 0);
 }
 
+TEST_F(NewParquetReaderTest, NativeFooterAcceptsMetadataAboveThriftMessageLimit) {
+    constexpr uint32_t metadata_size = 128UL << 20;
+    constexpr size_t file_size = 512UL << 20;
+    static_assert(metadata_size > 100UL << 20);
+
+    EXPECT_EQ(config::parquet_metadata_size_limit, 256UL << 20);
+    EXPECT_TRUE(
+            format::parquet::detail::validate_native_footer_size(metadata_size, file_size).ok());
+}
+
 TEST_F(NewParquetReaderTest, NativeFooterSizeIsBoundedBeforeMetadataAllocation) {
-    constexpr size_t file_size = 256UL << 20;
-    constexpr size_t metadata_limit = 100UL << 20;
+    constexpr size_t file_size = 512UL << 20;
     const auto status = format::parquet::detail::validate_native_footer_size(
-            static_cast<uint32_t>(metadata_limit + 1), file_size, metadata_limit);
+            static_cast<uint32_t>(config::parquet_metadata_size_limit + 1), file_size);
     EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
     EXPECT_NE(status.to_string().find("metadata limit"), std::string::npos);
+}
+
+TEST_F(NewParquetReaderTest, NativeFooterSizeCannotExceedFileSize) {
+    constexpr size_t file_size = 256UL << 20;
+    EXPECT_TRUE(format::parquet::detail::validate_native_footer_size(
+                        static_cast<uint32_t>(file_size - 8), file_size)
+                        .ok());
+    const auto status = format::parquet::detail::validate_native_footer_size(
+            static_cast<uint32_t>(file_size - 7), file_size);
+    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+    EXPECT_NE(status.to_string().find("file size"), std::string::npos);
 }
 
 TEST_F(NewParquetReaderTest, UnknownMtimeUsesPageCacheForImmutableFile) {

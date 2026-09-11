@@ -97,6 +97,10 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
     case TYPE_DATEV2:
         *result = std::make_shared<arrow::Date32Type>();
         break;
+    case TYPE_TIMESTAMP_NS:
+        // TIMESTAMP_NS is stored as signed epoch nanoseconds, but its SQL type has no timezone.
+        *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::NANO);
+        break;
     case TYPE_TIMESTAMPTZ:
     case TYPE_DATETIMEV2: {
         arrow::TimeUnit::type time_unit;
@@ -203,11 +207,12 @@ std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
 }
 
 Status get_arrow_schema_from_block(const Block& block, std::shared_ptr<arrow::Schema>* result,
-                                   const std::string& timezone) {
+                                   const std::string& timezone, bool datetime_naive) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     for (const auto& type_and_name : block) {
         std::shared_ptr<arrow::DataType> arrow_type;
-        RETURN_IF_ERROR(convert_to_arrow_type(type_and_name.type, &arrow_type, timezone));
+        RETURN_IF_ERROR(
+                convert_to_arrow_type(type_and_name.type, &arrow_type, timezone, datetime_naive));
         auto field = create_arrow_field_with_metadata(type_and_name.name, arrow_type,
                                                       type_and_name.type->is_nullable(),
                                                       type_and_name.type->get_primitive_type());

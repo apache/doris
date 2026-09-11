@@ -90,6 +90,14 @@ public class RuntimeFilterContext {
         return limits;
     }
 
+    /** Generate pruning metadata once, while the runtime filter still owns its Nereids target scan. */
+    public void generateRuntimeFilterPruneMetadata(RuntimeFilter filter) {
+        RuntimeFilterPruneClassifier.Classification classification =
+                RuntimeFilterPruneClassifier.classify(filter, sessionVariable);
+        filter.setPruningMetadata(
+                classification.canPruneBuckets(), classification.getPartitionMonotonicity());
+    }
+
     public void setTargetExprIdToFilter(ExprId id, RuntimeFilter filter) {
         Preconditions.checkArgument(filter.getTargetSlot().getExprId() == id);
         this.targetExprIdToFilter.computeIfAbsent(id, k -> Lists.newArrayList()).add(filter);

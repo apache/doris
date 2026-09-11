@@ -36,6 +36,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type_serde/data_type_serde.h"
@@ -71,6 +72,7 @@
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
 #include "testutil/variant_util.h"
+#include "util/debug_points.h"
 #include "util/jsonb_writer.h"
 
 using namespace doris;
@@ -386,6 +388,109 @@ TEST(VariantPathBuilderTest, CachedBinarySerdeFollowsFloatingPromotion) {
     ASSERT_TRUE(builder.write_sparse_cell(1, &binary).ok());
     ASSERT_FALSE(binary.empty());
     EXPECT_EQ(static_cast<FieldType>(binary.front()), FieldType::OLAP_FIELD_TYPE_BIGINT);
+}
+
+TEST(VariantPathBuilderTest, MaterializesTimestampNsWithoutLosingNanoseconds) {
+    VariantBatchBuilder value_builder;
+    auto before_epoch = value_builder.begin_row();
+    before_epoch.add_timestamp_nanos(-1, false);
+    before_epoch.finish();
+    auto epoch = value_builder.begin_row();
+    epoch.add_timestamp_nanos(0, false);
+    epoch.finish();
+    auto normal = value_builder.begin_row();
+    normal.add_timestamp_nanos(123456789, false);
+    normal.finish();
+    VariantBatchBuilder values = value_builder.finish_batch();
+
+    segment_v2::VariantPathBuilder builder(PathInData("timestamp_ns"));
+    ASSERT_TRUE(builder.append(values.value_at(0), 0).ok());
+    ASSERT_TRUE(builder.append(values.value_at(1), 1).ok());
+    ASSERT_TRUE(builder.append(values.value_at(2), 2).ok());
+    ASSERT_EQ(remove_nullable(builder.type())->get_primitive_type(), TYPE_TIMESTAMP_NS);
+
+    ColumnPtr materialized;
+    ASSERT_TRUE(builder.materialize(&materialized).ok());
+    const auto& nullable = assert_cast<const ColumnNullable&>(*materialized);
+    const auto& data =
+            assert_cast<const ColumnTimeStampNs&>(nullable.get_nested_column()).get_data();
+    ASSERT_EQ(data.size(), 3);
+    EXPECT_EQ(data[0].epoch_nanos(), -1);
+    EXPECT_EQ(data[1].epoch_nanos(), 0);
+    EXPECT_EQ(data[2].epoch_nanos(), 123456789);
+}
+
+TEST(VariantPathBuilderTest, PromotesTimestampMicrosAndNanosInEitherOrder) {
+    const auto verify = [](bool nanos_first) {
+        VariantBatchBuilder value_builder;
+        auto first = value_builder.begin_row();
+        if (nanos_first) {
+            first.add_timestamp_nanos(123456789, false);
+        } else {
+            first.add_timestamp_micros(-1, false);
+        }
+        first.finish();
+        auto second = value_builder.begin_row();
+        if (nanos_first) {
+            second.add_timestamp_micros(-1, false);
+        } else {
+            second.add_timestamp_nanos(123456789, false);
+        }
+        second.finish();
+        VariantBatchBuilder values = value_builder.finish_batch();
+
+        segment_v2::VariantPathBuilder builder(PathInData("mixed_timestamp"));
+        ASSERT_TRUE(builder.append(values.value_at(0), 0).ok());
+        ASSERT_TRUE(builder.append(values.value_at(1), 1).ok());
+        ASSERT_EQ(remove_nullable(builder.type())->get_primitive_type(), TYPE_TIMESTAMP_NS);
+
+        ColumnPtr materialized;
+        ASSERT_TRUE(builder.materialize(&materialized).ok());
+        const auto& nullable = assert_cast<const ColumnNullable&>(*materialized);
+        const auto& data =
+                assert_cast<const ColumnTimeStampNs&>(nullable.get_nested_column()).get_data();
+        ASSERT_EQ(data.size(), 2);
+        EXPECT_EQ(data[nanos_first ? 0 : 1].epoch_nanos(), 123456789);
+        EXPECT_EQ(data[nanos_first ? 1 : 0].epoch_nanos(), -1000);
+    };
+
+    verify(false);
+    verify(true);
+}
+
+TEST(VariantPathBuilderTest, PreservesOutOfRangeTimestampWhenPromotingToNanos) {
+    const auto verify = [](bool nanos_first) {
+        VariantBatchBuilder value_builder;
+        const auto append = [&](bool nanos) {
+            auto row = value_builder.begin_row();
+            if (nanos) {
+                row.add_timestamp_nanos(123456789, false);
+            } else {
+                // 2500-01-01 is valid for DATETIMEV2 but outside TIMESTAMP_NS's Int64 range.
+                row.add_timestamp_micros(16725225600000000, false);
+            }
+            row.finish();
+        };
+        append(nanos_first);
+        append(!nanos_first);
+        VariantBatchBuilder values = value_builder.finish_batch();
+
+        segment_v2::VariantPathBuilder builder(PathInData("mixed_timestamp"));
+        ASSERT_TRUE(builder.append(values.value_at(0), 0).ok());
+        ASSERT_TRUE(builder.append(values.value_at(1), 1).ok());
+        EXPECT_EQ(remove_nullable(builder.type())->get_primitive_type(), TYPE_JSONB);
+        EXPECT_EQ(builder.non_null_rows(), 2);
+
+        ColumnPtr materialized;
+        ASSERT_TRUE(builder.materialize(&materialized).ok());
+        const auto& nullable = assert_cast<const ColumnNullable&>(*materialized);
+        ASSERT_EQ(nullable.size(), 2);
+        EXPECT_FALSE(nullable.is_null_at(0));
+        EXPECT_FALSE(nullable.is_null_at(1));
+    };
+
+    verify(false);
+    verify(true);
 }
 
 TEST(VariantPathBuilderTest, PromotesCompatibleDecimalScalesInEitherOrderAndInsideArrays) {
@@ -6199,6 +6304,101 @@ TEST_F(VariantColumnWriterReaderTest, test_storage_parse_kv_reduces_sparse_parse
     EXPECT_EQ(kv_result.sparse_columns, 1);
     EXPECT_GT(parse_time_result.segment_file_size, static_cast<uint64_t>(0));
     EXPECT_GT(kv_result.segment_file_size, static_cast<uint64_t>(0));
+}
+
+TEST_F(VariantColumnWriterReaderTest,
+       test_extracted_subcolumn_writer_uses_parent_bloom_filter_fpp) {
+    constexpr int kRows = 2;
+    constexpr double kExpectedFpp = 0.013;
+
+    auto old_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add_with_params("BloomFilterIndexWriter::create",
+                                             {{"fpp", std::to_string(kExpectedFpp)}});
+    Defer defer([old_enable_debug_points]() {
+        DebugPoints::instance()->remove("BloomFilterIndexWriter::create");
+        config::enable_debug_points = old_enable_debug_points;
+    });
+
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "V1",
+                     /*variant_max_subcolumns_count=*/2,
+                     /*is_key=*/false,
+                     /*is_nullable=*/false,
+                     /*variant_sparse_hash_shard_count=*/0,
+                     /*variant_enable_doc_mode=*/false);
+    auto* bf_index = schema_pb.add_index();
+    bf_index->set_index_id(10009);
+    bf_index->set_index_name("idx_v1_bf");
+    bf_index->set_index_type(IndexType::BLOOMFILTER);
+    bf_index->add_col_unique_id(1);
+    (*bf_index->mutable_properties())["bloom_filter_fpp"] = std::to_string(kExpectedFpp);
+
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _tablet_schema->init_from_pb(schema_pb);
+
+    TabletColumn parent_column = _tablet_schema->column(0);
+    TabletColumn extracted;
+    extracted.set_name(parent_column.name_lower_case() + ".hot");
+    extracted.set_type(FieldType::OLAP_FIELD_TYPE_BIGINT);
+    extracted.set_parent_unique_id(parent_column.unique_id());
+    extracted.set_path_info(PathInData(parent_column.name_lower_case() + ".hot"));
+    extracted.set_is_nullable(true);
+    extracted.set_is_bf_column(true);
+    _tablet_schema->append_column(extracted);
+
+    init_tablet_from_current_schema(33007, TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
+
+    io::FileWriterPtr file_writer;
+    auto file_path = local_segment_path(_tablet->tablet_path(), "0", 0);
+    auto st = io::global_local_filesystem()->create_file(file_path, &file_writer);
+    ASSERT_TRUE(st.ok()) << st.msg();
+
+    SegmentFooterPB footer;
+    RowsetWriterContext rowset_ctx;
+    rowset_ctx.write_type = DataWriteType::TYPE_DIRECT;
+    rowset_ctx.tablet_schema = _tablet_schema;
+
+    ColumnWriterOptions opts;
+    opts.meta = footer.add_columns();
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.file_writer = file_writer.get();
+    opts.footer = &footer;
+    opts.rowset_ctx = &rowset_ctx;
+    opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+    _init_column_meta(opts.meta, 0, parent_column, opts);
+
+    std::unique_ptr<ColumnWriter> writer;
+    ASSERT_TRUE(ColumnWriter::create(opts, &parent_column, file_writer.get(), &writer).ok());
+    ASSERT_TRUE(writer->init().ok());
+
+    auto strings = ColumnString::create();
+    const std::vector<std::string> jsons = {R"({"hot":1,"cold":10})", R"({"hot":2,"cold":20})"};
+    for (const auto& json : jsons) {
+        strings->insert_data(json.data(), json.size());
+    }
+
+    ParseConfig parse_cfg;
+    parse_cfg.deprecated_enable_flatten_nested = false;
+    parse_cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
+    auto variant_column =
+            ColumnVariant::create(parent_column.variant_max_subcolumns_count(), false);
+    variant_util::parse_json_to_variant(*variant_column, *strings, parse_cfg);
+
+    auto variant_data = std::make_unique<VariantColumnData>();
+    variant_data->column_data = variant_column.get();
+    variant_data->row_pos = 0;
+    const auto* data = reinterpret_cast<const uint8_t*>(variant_data.get());
+    ASSERT_TRUE(writer->append_data(&data, kRows).ok());
+
+    // `finish()` materializes the extracted BF-enabled subcolumn and creates its inner scalar
+    // writer. The debug point verifies that the writer receives the parent bloom filter index fpp.
+    ASSERT_TRUE(writer->finish().ok());
+    ASSERT_TRUE(writer->write_data().ok());
+    ASSERT_TRUE(writer->write_ordinal_index().ok());
+    ASSERT_TRUE(writer->write_zone_map().ok());
+    ASSERT_TRUE(file_writer->close().ok());
 }
 
 TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {

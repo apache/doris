@@ -131,17 +131,32 @@ suite("test_olap_table_stream_history_query") {
 
     sql "SET show_hidden_columns=true;"
 
-    // verify select * exposes the hidden stream columns with the same real sequence value
-    def checkStreamHistoryWithHiddenColumns = { streamName ->
+    // verify hidden stream columns with the same real sequence value
+    def checkMowStreamHistoryWithHiddenColumns = { streamName ->
         long seq = fetchHistorySeq(streamName)
         assertEquals([[1, "s1", seq, "APPEND"], [2, "s2", seq, "APPEND"], [3, "s3", seq, "APPEND"]],
-                sql("select * from ${streamName} order by sid"))
+                sql("""select sid, sname, __DORIS_STREAM_SEQUENCE_COL__, __DORIS_STREAM_CHANGE_TYPE_COL__
+                        from ${streamName} order by sid"""))
+    }
+
+    def checkDupStreamHistoryWithHiddenColumns = { streamName ->
+        long seq = fetchHistorySeq(streamName)
+        def rows = sql("""select sid, sname, __DORIS_STREAM_SEQUENCE_COL__,
+                                  __DORIS_STREAM_LSN_COL__, __DORIS_STREAM_CHANGE_TYPE_COL__
+                           from ${streamName} order by sid""")
+        assertEquals([[1, "s1", seq, "APPEND"], [2, "s2", seq, "APPEND"], [3, "s3", seq, "APPEND"]],
+                rows.collect { [it[0], it[1], it[2], it[4]] })
+        def lsns = rows.collect { it[3] as long }
+        lsns.each { lsn -> assertTrue(lsn > 0, "stream lsn should be positive but got ${lsn}") }
+        for (int i = 1; i < lsns.size(); i++) {
+            assertTrue(lsns[i - 1] < lsns[i], "stream lsn should be increasing but got ${lsns}")
+        }
     }
 
     checkStreamHistory("s1")
     checkStreamHistory("s2")
-    checkStreamHistoryWithHiddenColumns("s1")
-    checkStreamHistoryWithHiddenColumns("s2")
+    checkMowStreamHistoryWithHiddenColumns("s1")
+    checkDupStreamHistoryWithHiddenColumns("s2")
 
     sql "DROP DATABASE IF EXISTS test_olap_table_stream_history_query_db"
 }

@@ -105,6 +105,8 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .binlog_scan_type = params.binlog_scan_type}),
           _start_tso(params.start_tso),
           _end_tso(params.end_tso),
+          _bucket_seq(params.bucket_seq),
+          _bucket_num(params.bucket_num),
           _initial_file_cache_stats(std::move(params.initial_file_cache_stats)) {
     _tablet_reader_params.set_read_source(std::move(params.read_source),
                                           _state->skip_delete_bitmap());
@@ -330,13 +332,14 @@ Status OlapScanner::_init_tso_predicates() {
 
     const auto* tso_column = read_schema->column(tso_ordinal);
     const auto& tso_data_type = read_schema->data_type(tso_ordinal);
+    // The TSO scan range is left-closed right-open [start_tso, end_tso).
     if (_start_tso.has_value()) {
-        _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
+        _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::GE>(
                 tso_ordinal, tso_column->name(), tso_data_type,
                 Field::create_field<TYPE_BIGINT>(*_start_tso), false));
     }
     if (_end_tso.has_value()) {
-        _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::LE>(
+        _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::LT>(
                 tso_ordinal, tso_column->name(), tso_data_type,
                 Field::create_field<TYPE_BIGINT>(*_end_tso), false));
     }
@@ -650,11 +653,24 @@ Status OlapScanner::_init_read_schema() {
     return Status::OK();
 }
 
-bool OlapScanner::check_partition_pruned() const {
-    if (!_local_state) {
-        return false;
-    }
-    return _local_state->is_partition_pruned(_tablet_reader_params.tablet->partition_id());
+bool OlapScanner::is_pruned_by_runtime_filter() const {
+    DCHECK(_local_state != nullptr);
+    auto* olap_local_state = assert_cast<OlapScanLocalState*>(_local_state);
+    return olap_local_state->_is_tablet_pruned_by_runtime_filter(
+            _tablet_reader_params.tablet->partition_id(), _bucket_seq, _bucket_num);
+}
+
+void OlapScanner::release_unopened_resources() {
+    DORIS_CHECK(!_is_open);
+
+    _tablet_reader.reset();
+    _tablet_reader_params = TabletReader::ReaderParams {};
+    _common_expr_ctxs_push_down.clear();
+    _virtual_column_exprs.clear();
+    _score_runtime.reset();
+    _ann_topn_runtime.reset();
+
+    Scanner::release_unopened_resources();
 }
 
 doris::TabletStorageType OlapScanner::get_storage_type() {
@@ -866,6 +882,8 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.inverted_index_searcher_cache_miss);
     COUNTER_UPDATE(local_state->_inverted_index_downgrade_count_counter,
                    stats.inverted_index_downgrade_count);
+    COUNTER_UPDATE(local_state->_inverted_index_conjuncts_short_circuited_counter,
+                   stats.inverted_index_conjuncts_short_circuited);
     COUNTER_UPDATE(local_state->_inverted_index_analyzer_timer,
                    stats.inverted_index_analyzer_timer);
     COUNTER_UPDATE(local_state->_inverted_index_lookup_timer, stats.inverted_index_lookup_timer);

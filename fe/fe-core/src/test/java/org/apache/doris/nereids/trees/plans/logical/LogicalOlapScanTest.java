@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -219,4 +220,28 @@ public class LogicalOlapScanTest {
         Assertions.assertSame(scanSlot2, replaceMap.get(mvSlot2));
         Assertions.assertSame(scanSlot3, replaceMap.get(mvSlot3));
     }
+
+    @Test
+    public void testWithPreSnapshotReturnsStreamSnapshotScan() {
+        LogicalOlapScan scan = createMockScan(ImmutableList.of());
+        OlapTableStream stream = Mockito.mock(OlapTableStream.class);
+
+        LogicalPlan snapshot = scan.withPreSnapshot(Optional.of(stream));
+        Assertions.assertInstanceOf(LogicalOlapTableStreamScan.class, snapshot);
+        LogicalOlapTableStreamScan streamScan = (LogicalOlapTableStreamScan) snapshot;
+        Assertions.assertTrue(streamScan.isSnapshot());
+        Assertions.assertFalse(streamScan.isIncremental());
+        Assertions.assertFalse(streamScan.isReset());
+    }
+
+    @Test
+    public void testWithPostSnapshotReturnsRegularScan() {
+        LogicalOlapScan scan1 = createMockScan(ImmutableList.of());
+        LogicalPlan snapshot = scan1.withPostSnapshot();
+
+        Assertions.assertInstanceOf(LogicalOlapScan.class, snapshot);
+        Assertions.assertFalse(snapshot instanceof LogicalOlapTableStreamScan);
+        Assertions.assertNotSame(scan1, snapshot);
+    }
+
 }

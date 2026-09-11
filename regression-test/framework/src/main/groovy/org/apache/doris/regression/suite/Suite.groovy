@@ -113,6 +113,10 @@ class Suite implements GroovyInterceptable {
     private AmazonS3 s3Client = null
     private FileSystem fs = null
 
+    // MTMV task ids that a wait in this suite already returned as terminal. A task that just
+    // finished is briefly absent from tasks(), so a later wait can fall back to one of these.
+    private final Set<String> finishedMTMVTaskIds = Collections.synchronizedSet(new HashSet<>())
+
     Suite(String name, String group, SuiteContext context, SuiteCluster cluster) {
         this.name = name
         this.group = group
@@ -135,14 +139,10 @@ class Suite implements GroovyInterceptable {
             return Collections.emptyList()
         }
 
-        String tlsVerifyMode = getConf("tlsVerifyMode", "strict")
-        boolean skipHostnameVerification = !tlsVerifyMode.equalsIgnoreCase("strict")
-        String excludedProtocols = getConf("tlsExcludedProtocols", "")
         return [
                 "--doris-enable-tls", "true",
                 "--doris-tls-ca-certificate-path", getConf("trustCACert"),
-                "--doris-tls-skip-hostname-verification", skipHostnameVerification.toString(),
-                "--doris-tls-excluded-protocols", excludedProtocols
+                "--doris-tls-skip-hostname-verification", "false"
         ]
     }
 
@@ -2023,6 +2023,89 @@ class Suite implements GroovyInterceptable {
         return debugPoint
     }
 
+    /**
+     * Poll a tasks('type'='mv') query until the newest row is terminal and return that row.
+     * A task that just finished is briefly missing from tasks(): the job removes it from its
+     * running list before the MV history gets it, so while that window is open the newest row
+     * is the previous task of the same MV. A terminal row is therefore trusted only when the
+     * same task was already seen running by this wait, or is seen terminal twice in a row and
+     * no earlier wait returned it; the window lasts tens of milliseconds, far less than the
+     * poll interval, so one extra poll is enough to tell the new task from the previous one
+     * even when the previous task was not waited for before.
+     * poll() runs the query once, log() receives the progress messages, and the two intervals
+     * exist so tests can shorten them. The last row seen is returned when the timeout expires,
+     * so callers can report a status.
+     */
+    static List<Object> pollMTMVTaskTerminal(String showTasks, String caller, Set<String> finishedTaskIds,
+            Closure<List<List<Object>>> poll, Closure<String> log, long pollIntervalMs, long skipFinishedMs) {
+        String status = "NULL"
+        String runningTaskId = null
+        String confirmedTaskId = null
+        String lastLoggedStatus = null
+        List<Object> taskRow = null
+        long skipFinishedDeadline = 0
+        long timeoutTimestamp = System.currentTimeMillis() + 5 * 60 * 1000 // 5 min
+        while (timeoutTimestamp > System.currentTimeMillis()) {
+            List<List<Object>> result = poll()
+            if (result.isEmpty()) {
+                if (lastLoggedStatus != "NULL") {
+                    log("${caller} task row is empty")
+                    lastLoggedStatus = "NULL"
+                }
+                confirmedTaskId = null
+                Thread.sleep(pollIntervalMs);
+                continue;
+            }
+            taskRow = result[0]
+            String taskId = taskRow.get(0).toString()
+            status = taskRow.get(1).toString()
+            if (lastLoggedStatus != status) {
+                log("The state of ${showTasks} is ${status}, taskId is ${taskId}")
+                lastLoggedStatus = status
+            }
+            if (status == 'PENDING' || status == 'RUNNING') {
+                runningTaskId = taskId
+                confirmedTaskId = null
+                Thread.sleep(pollIntervalMs);
+                continue;
+            }
+            if (finishedTaskIds.contains(taskId)) {
+                // A wait already returned this task, so it is the previous task and the one
+                // being waited for is still in the gap. Skip it for as long as any real gap
+                // could last; a caller that waits twice for the same task (nothing new was
+                // submitted) then falls back to it instead of hitting the 5 minute timeout.
+                if (skipFinishedDeadline == 0) {
+                    skipFinishedDeadline = System.currentTimeMillis() + skipFinishedMs
+                }
+                if (System.currentTimeMillis() < skipFinishedDeadline) {
+                    confirmedTaskId = null
+                    Thread.sleep(pollIntervalMs);
+                    continue;
+                }
+            }
+            if (taskId == runningTaskId || taskId == confirmedTaskId) {
+                finishedTaskIds.add(taskId)
+                return taskRow
+            }
+            // The first sighting of a terminal task may be the previous task seen through the
+            // gap described above; confirm the same task once more before trusting it.
+            confirmedTaskId = taskId
+            Thread.sleep(pollIntervalMs);
+        }
+        return taskRow
+    }
+
+    /**
+     * Wait for the newest MTMV task matching showTasks to reach a terminal state and return
+     * its row. See pollMTMVTaskTerminal for why a terminal row needs to be confirmed.
+     */
+    List<Object> waitMTMVTaskTerminal(String showTasks, String caller,
+            long pollIntervalMs = 500, long skipFinishedMs = 30 * 1000) {
+        return pollMTMVTaskTerminal(showTasks, caller, finishedMTMVTaskIds,
+                { -> sql(showTasks) }, { String message -> logger.info(message) },
+                pollIntervalMs, skipFinishedMs)
+    }
+
     def waitingMTMVTaskFinishedByMvName = { mvName, dbName = context.dbName ->
         // Wait for the newly submitted MTMV task to become visible in tasks().
         Thread.sleep(2000);
@@ -2031,31 +2114,8 @@ class Suite implements GroovyInterceptable {
                 where MvDatabaseName = '${dbName}' and MvName = '${mvName}'
                 order by CreateTime DESC limit 1
                 """
-        String status = "NULL"
-        List<List<Object>> result
-        long timeoutTimestamp = System.currentTimeMillis() + 5 * 60 * 1000 // 5 min
-        String lastLoggedStatus = null
-        List<Object> toCheckTaskRow = null
-        while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL')) {
-            result = sql(showTasks)
-            if (result.isEmpty()) {
-                if (lastLoggedStatus != "NULL") {
-                    logger.info("waitingMTMVTaskFinishedByMvName toCheckTaskRow is empty")
-                    lastLoggedStatus = "NULL"
-                }
-                Thread.sleep(500);
-                continue;
-            }
-            toCheckTaskRow = result[0]
-            status = toCheckTaskRow.get(1).toString()
-            if (lastLoggedStatus != status) {
-                logger.info("The state of ${showTasks} is ${status}, taskId is ${toCheckTaskRow.get(0)}")
-                lastLoggedStatus = status
-            }
-            if (status == 'PENDING' || status == 'RUNNING' || status == 'NULL') {
-                Thread.sleep(500);
-            }
-        }
+        List<Object> toCheckTaskRow = waitMTMVTaskTerminal(showTasks, "waitingMTMVTaskFinishedByMvName")
+        String status = toCheckTaskRow == null ? "NULL" : toCheckTaskRow.get(1).toString()
         if (status != "SUCCESS") {
             logger.info("status is ${status}")
         }
@@ -2075,31 +2135,8 @@ class Suite implements GroovyInterceptable {
                 order by CreateTime DESC limit 1
                 """
 
-        String status = "NULL"
-        List<List<Object>> result
-        long timeoutTimestamp = System.currentTimeMillis() + 5 * 60 * 1000 // 5 min
-        String lastLoggedStatus = null
-        List<Object> toCheckTaskRow = null
-        while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'  || status == 'NULL')) {
-            result = sql(showTasks)
-            if (result.isEmpty()) {
-                if (lastLoggedStatus != "NULL") {
-                    logger.info("waitingMTMVTaskFinishedByMvName toCheckTaskRow is empty")
-                    lastLoggedStatus = "NULL"
-                }
-                Thread.sleep(500);
-                continue;
-            }
-            toCheckTaskRow = result[0]
-            status = toCheckTaskRow.get(1).toString()
-            if (lastLoggedStatus != status) {
-                logger.info("The state of ${showTasks} is ${status}, taskId is ${toCheckTaskRow.get(0)}")
-                lastLoggedStatus = status
-            }
-            if (status == 'PENDING' || status == 'RUNNING' || status == 'NULL' || status == 'CANCELED') {
-                Thread.sleep(500);
-            }
-        }
+        List<Object> toCheckTaskRow = waitMTMVTaskTerminal(showTasks, "waitingMTMVTaskFinishedByMvNameAllowCancel")
+        String status = toCheckTaskRow == null ? "NULL" : toCheckTaskRow.get(1).toString()
         if (status != "SUCCESS") {
             logger.info("status is not success")
             Assert.assertNotNull(toCheckTaskRow)
@@ -2187,31 +2224,8 @@ class Suite implements GroovyInterceptable {
                 select TaskId, Status, MvName, MvDatabaseName from tasks('type'='mv')
                 where JobName = '${jobName}' order by CreateTime DESC limit 1
                 """
-        String status = "NULL"
-        List<List<Object>> result
-        long timeoutTimestamp = System.currentTimeMillis() + 5 * 60 * 1000 // 5 min
-        String lastLoggedStatus = null
-        List<Object> taskRow = null
-        do {
-            result = sql(showTasks)
-            if (result.isEmpty()) {
-                if (lastLoggedStatus != "NULL") {
-                    logger.info("waitingMTMVTaskFinished task row is empty")
-                    lastLoggedStatus = "NULL"
-                }
-                status = "NULL"
-            } else {
-                taskRow = result[0]
-                status = taskRow.get(1).toString()
-                if (lastLoggedStatus != status) {
-                    logger.info("The state of ${showTasks} is ${status}, taskId is ${taskRow.get(0)}")
-                    lastLoggedStatus = status
-                }
-            }
-            if (status == 'PENDING' || status == 'RUNNING' || status == 'NULL') {
-                Thread.sleep(500);
-            }
-        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL'))
+        List<Object> taskRow = waitMTMVTaskTerminal(showTasks, "waitingMTMVTaskFinished")
+        String status = taskRow == null ? "NULL" : taskRow.get(1).toString()
         if (status != "SUCCESS") {
             logger.info("status is ${status}")
         }
@@ -2230,31 +2244,8 @@ class Suite implements GroovyInterceptable {
                 select TaskId, Status from tasks('type'='mv')
                 where JobName = '${jobName}' order by CreateTime DESC limit 1
                 """
-        String status = "NULL"
-        List<List<Object>> result
-        long timeoutTimestamp = System.currentTimeMillis() + 5 * 60 * 1000 // 5 min
-        String lastLoggedStatus = null
-        List<Object> taskRow = null
-        do {
-            result = sql(showTasks)
-            if (result.isEmpty()) {
-                if (lastLoggedStatus != "NULL") {
-                    logger.info("waitingMTMVTaskFinishedWithoutAnalyze task row is empty")
-                    lastLoggedStatus = "NULL"
-                }
-                status = "NULL"
-            } else {
-                taskRow = result[0]
-                status = taskRow.get(1).toString()
-                if (lastLoggedStatus != status) {
-                    logger.info("The state of ${showTasks} is ${status}, taskId is ${taskRow.get(0)}")
-                    lastLoggedStatus = status
-                }
-            }
-            if (status == 'PENDING' || status == 'RUNNING' || status == 'NULL') {
-                Thread.sleep(500);
-            }
-        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL'))
+        List<Object> taskRow = waitMTMVTaskTerminal(showTasks, "waitingMTMVTaskFinishedWithoutAnalyze")
+        String status = taskRow == null ? "NULL" : taskRow.get(1).toString()
         if (status != "SUCCESS") {
             logger.info("status is not success")
         }
@@ -2268,31 +2259,8 @@ class Suite implements GroovyInterceptable {
                 select TaskId, Status from tasks('type'='mv')
                 where JobName = '${jobName}' order by CreateTime DESC limit 1
                 """
-        String status = "NULL"
-        List<List<Object>> result
-        long timeoutTimestamp = System.currentTimeMillis() + 5 * 60 * 1000 // 5 min
-        String lastLoggedStatus = null
-        List<Object> taskRow = null
-        do {
-            result = sql(showTasks)
-            if (result.isEmpty()) {
-                if (lastLoggedStatus != "NULL") {
-                    logger.info("waitingMTMVTaskFinishedNotNeedSuccess task row is empty")
-                    lastLoggedStatus = "NULL"
-                }
-                status = "NULL"
-            } else {
-                taskRow = result[0]
-                status = taskRow.get(1).toString()
-                if (lastLoggedStatus != status) {
-                    logger.info("The state of ${showTasks} is ${status}, taskId is ${taskRow.get(0)}")
-                    lastLoggedStatus = status
-                }
-            }
-            if (status == 'PENDING' || status == 'RUNNING' || status == 'NULL') {
-                Thread.sleep(500);
-            }
-        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL'))
+        List<Object> taskRow = waitMTMVTaskTerminal(showTasks, "waitingMTMVTaskFinishedNotNeedSuccess")
+        String status = taskRow == null ? "NULL" : taskRow.get(1).toString()
         if (status != "SUCCESS") {
             logger.info("status is not success")
         }

@@ -20,23 +20,33 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <chrono>
 #include <thread>
 #include <vector>
 
 #include "cloud/config.h"
 #include "util/cpu_info.h"
+#include "util/time.h"
 
 namespace doris::cloud {
 
 // Basic tests using uniform QPS constructor (completely independent of config and CPU cores)
 class HostLevelMSRpcRateLimitersTest : public testing::Test {
 protected:
-    void SetUp() override { _saved_enable = config::enable_ms_rpc_host_level_rate_limit; }
+    void SetUp() override {
+        _saved_enable = config::enable_ms_rpc_host_level_rate_limit;
+        _saved_dry_run = config::enable_ms_rpc_host_level_rate_limit_dry_run;
+        config::enable_ms_rpc_host_level_rate_limit_dry_run = false;
+    }
 
-    void TearDown() override { config::enable_ms_rpc_host_level_rate_limit = _saved_enable; }
+    void TearDown() override {
+        config::enable_ms_rpc_host_level_rate_limit = _saved_enable;
+        config::enable_ms_rpc_host_level_rate_limit_dry_run = _saved_dry_run;
+    }
 
 private:
     bool _saved_enable;
+    bool _saved_dry_run;
 };
 
 // Test that limit returns 0 when rate limiting is disabled
@@ -79,6 +89,55 @@ TEST_F(HostLevelMSRpcRateLimitersTest, RateLimitingThrottles) {
 
     // With rate limiting, requests beyond burst should be throttled
     EXPECT_GT(total_sleep_ns, 0) << "Rate limiting should have caused some sleep";
+}
+
+// Test that dry-run mode evaluates throttling without delaying requests, regardless of the
+// enforcement switch.
+TEST_F(HostLevelMSRpcRateLimitersTest, DryRunObservesWithoutThrottling) {
+    config::enable_ms_rpc_host_level_rate_limit_dry_run = true;
+
+    for (bool rate_limit_enabled : {false, true}) {
+        config::enable_ms_rpc_host_level_rate_limit = rate_limit_enabled;
+        HostLevelMSRpcRateLimiters limiters(1);
+
+        EXPECT_EQ(limiters.limit(MetaServiceRPC::GET_TABLET_META), 0);
+        auto start = std::chrono::steady_clock::now();
+        for (int i = 0; i < 4; ++i) {
+            EXPECT_EQ(limiters.limit(MetaServiceRPC::GET_TABLET_META), 0);
+        }
+        auto elapsed = std::chrono::steady_clock::now() - start;
+
+        size_t idx = static_cast<size_t>(MetaServiceRPC::GET_TABLET_META);
+        auto limiter = limiters._limiters[idx].load();
+        ASSERT_NE(limiter, nullptr);
+        EXPECT_EQ(limiter->latency_recorder->count(), 4);
+        EXPECT_LT(elapsed, std::chrono::seconds(2));
+    }
+}
+
+TEST_F(HostLevelMSRpcRateLimitersTest, DryRunReservationIsSharedWithEnforcement) {
+    config::enable_ms_rpc_host_level_rate_limit = false;
+    config::enable_ms_rpc_host_level_rate_limit_dry_run = true;
+    HostLevelMSRpcRateLimiters limiters(10);
+
+    for (int i = 0; i < 11; ++i) {
+        EXPECT_EQ(limiters.limit(MetaServiceRPC::GET_TABLET_META), 0);
+    }
+
+    config::enable_ms_rpc_host_level_rate_limit = true;
+    config::enable_ms_rpc_host_level_rate_limit_dry_run = false;
+    EXPECT_GT(limiters.limit(MetaServiceRPC::GET_TABLET_META), 0);
+}
+
+TEST_F(HostLevelMSRpcRateLimitersTest, RateLimitLogIsRateLimitedPerRpc) {
+    RpcRateLimiter get_tablet_meta_limiter(1, "rate limit log get tablet meta test");
+    RpcRateLimiter get_rowset_limiter(1, "rate limit log get rowset test");
+    constexpr int64_t first_log_time_us = 100;
+
+    EXPECT_TRUE(get_tablet_meta_limiter.should_log(first_log_time_us));
+    EXPECT_FALSE(get_tablet_meta_limiter.should_log(first_log_time_us + MICROS_PER_SEC - 1));
+    EXPECT_TRUE(get_rowset_limiter.should_log(first_log_time_us + MICROS_PER_SEC - 1));
+    EXPECT_TRUE(get_tablet_meta_limiter.should_log(first_log_time_us + MICROS_PER_SEC));
 }
 
 // Test multiple RPC types have independent rate limiters

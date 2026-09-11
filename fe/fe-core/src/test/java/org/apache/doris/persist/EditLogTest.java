@@ -22,18 +22,19 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.journal.bdbje.Timestamp;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 
 public class EditLogTest {
@@ -44,10 +45,10 @@ public class EditLogTest {
     private String originalDeployMode;
     private String originalCloudUniqueId;
 
-    @Rule
-    public TemporaryFolder temporaryFolder = new TemporaryFolder();
+    @TempDir
+    public Path temporaryFolder;
 
-    @Before
+    @BeforeEach
     public void setUpEditLogRollConfig() {
         originalEditLogType = Config.edit_log_type;
         originalEditLogRollNum = Config.edit_log_roll_num;
@@ -61,7 +62,7 @@ public class EditLogTest {
         Config.cloud_unique_id = "";
     }
 
-    @After
+    @AfterEach
     public void restoreEditLogRollConfig() {
         Config.edit_log_type = originalEditLogType;
         Config.edit_log_roll_num = originalEditLogRollNum;
@@ -151,7 +152,7 @@ public class EditLogTest {
     public void testCloudModeTimeBasedEditLogRoll() throws Exception {
         Config.deploy_mode = "cloud";
 
-        File imageDir = temporaryFolder.newFolder("time_based_roll");
+        File imageDir = Files.createDirectories(temporaryFolder.resolve("time_based_roll")).toFile();
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.getImageDir()).thenReturn(imageDir.getAbsolutePath());
         try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
@@ -164,9 +165,9 @@ public class EditLogTest {
 
                 editLog.logTimestamp(new Timestamp());
 
-                Assert.assertTrue(new File(imageDir, "edits.2").exists());
+                Assertions.assertTrue(new File(imageDir, "edits.2").exists());
                 long txId = Deencapsulation.getField(editLog, "txId");
-                Assert.assertEquals(0L, txId);
+                Assertions.assertEquals(0L, txId);
             } finally {
                 editLog.close();
             }
@@ -177,7 +178,7 @@ public class EditLogTest {
     public void testNonCloudModeDoesNotRollEditLogByTime() throws Exception {
         Config.deploy_mode = "share_nothing";
 
-        File imageDir = temporaryFolder.newFolder("non_cloud_time_based_roll");
+        File imageDir = Files.createDirectories(temporaryFolder.resolve("non_cloud_time_based_roll")).toFile();
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.getImageDir()).thenReturn(imageDir.getAbsolutePath());
         try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
@@ -190,12 +191,12 @@ public class EditLogTest {
 
                 editLog.logTimestamp(new Timestamp());
 
-                Assert.assertFalse(new File(imageDir, "edits.2").exists());
+                Assertions.assertFalse(new File(imageDir, "edits.2").exists());
 
                 Config.edit_log_roll_num = 2;
                 editLog.logTimestamp(new Timestamp());
 
-                Assert.assertTrue(new File(imageDir, "edits.3").exists());
+                Assertions.assertTrue(new File(imageDir, "edits.3").exists());
             } finally {
                 editLog.close();
             }
@@ -206,7 +207,7 @@ public class EditLogTest {
     public void testRollEditLogResetsCloudRollTime() throws Exception {
         Config.deploy_mode = "cloud";
 
-        File imageDir = temporaryFolder.newFolder("reset_time_after_roll");
+        File imageDir = Files.createDirectories(temporaryFolder.resolve("reset_time_after_roll")).toFile();
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.getImageDir()).thenReturn(imageDir.getAbsolutePath());
         try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
@@ -221,8 +222,8 @@ public class EditLogTest {
                 editLog.rollEditLog();
                 editLog.logTimestamp(new Timestamp());
 
-                Assert.assertTrue(new File(imageDir, "edits.2").exists());
-                Assert.assertFalse(new File(imageDir, "edits.3").exists());
+                Assertions.assertTrue(new File(imageDir, "edits.2").exists());
+                Assertions.assertFalse(new File(imageDir, "edits.3").exists());
             } finally {
                 editLog.close();
             }
@@ -235,7 +236,7 @@ public class EditLogTest {
         int[] disabledIntervals = {0, -1};
         for (int i = 0; i < disabledIntervals.length; i++) {
             Config.cloud_edit_log_roll_interval_second = disabledIntervals[i];
-            File imageDir = temporaryFolder.newFolder("disabled_time_based_roll_" + i);
+            File imageDir = Files.createDirectories(temporaryFolder.resolve("disabled_time_based_roll_" + i)).toFile();
             Env env = Mockito.mock(Env.class);
             Mockito.when(env.getImageDir()).thenReturn(imageDir.getAbsolutePath());
             try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
@@ -248,12 +249,12 @@ public class EditLogTest {
 
                     editLog.logTimestamp(new Timestamp());
 
-                    Assert.assertFalse(new File(imageDir, "edits.2").exists());
+                    Assertions.assertFalse(new File(imageDir, "edits.2").exists());
 
                     Config.edit_log_roll_num = 2;
                     editLog.logTimestamp(new Timestamp());
 
-                    Assert.assertTrue(new File(imageDir, "edits.3").exists());
+                    Assertions.assertTrue(new File(imageDir, "edits.3").exists());
                     Config.edit_log_roll_num = Integer.MAX_VALUE;
                 } finally {
                     editLog.close();

@@ -38,6 +38,10 @@ suite("test_show_create_table_and_views_nereids", "show") {
 
     def ret = sql "SHOW FRONTEND CONFIG like '%enable_feature_binlog%';"
     logger.info("${ret}")
+    if (isCloudMode()) {
+        logger.info("This SHOW CREATE TABLE case has no cloud-specific expected results, skip it in cloud mode.")
+        return
+    }
     if (ret.size() != 0 && ret[0].size() > 1 && ret[0][1] == 'false') {
         logger.info("enable_feature_binlog=false in frontend config, no need to run this case.")
         return

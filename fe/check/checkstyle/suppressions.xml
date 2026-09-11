@@ -23,6 +23,16 @@ under the License.
     "https://checkstyle.org/dtds/suppressions_1_2.dtd">
 
 <suppressions>
+    <!--
+      TEMPORARY. be-java-extensions is the one place left with JUnit 4 tests; those modules are
+      being rewritten in apache/doris#66729, so they are migrated there rather than conflicted
+      with here. Delete this suppression once that lands, and junit-vintage-engine in fe/pom.xml
+      with it - at that point nothing in this reactor runs a JUnit 4 test, and junit:junit stops
+      reaching the build. (The workflow's pkg:maven/junit/junit exception stays: the standalone
+      samples/ projects still declare junit:junit directly.)
+    -->
+    <suppress files="[\\/]be-java-extensions[\\/]" id="banJUnit4"/>
+
     <!-- Excludes test files from having Javadocs for classes and methods -->
     <suppress files="[\\/]jmockit[\\/]" checks=".*" />
     <suppress files="[\\/]test[\\/]" checks="MissingJavadocMethod" />

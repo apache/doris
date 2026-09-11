@@ -83,11 +83,11 @@ suite("one_key_range_part_test") {
     }
     explain {
         sql("SELECT a, dt, c FROM key_1_fixed_range_date_part WHERE date_trunc('month', dt) = '2023-03-01 00:00:00';")
-        contains "2/14 (p_202302,p_202303)"
+        contains "1/14 (p_202303)"
     }
     explain {
         sql("SELECT a, dt, c FROM key_1_fixed_range_date_part WHERE date_trunc('month', dt) BETWEEN '2023-04-01 00:00:00' AND '2023-05-01 00:00:00';")
-        contains "3/14 (p_202303,p_202304,p_202305)"
+        contains "2/14 (p_202304,p_202305)"
     }
     explain {
         sql("SELECT a, dt, c FROM key_1_fixed_range_date_part WHERE date_add(dt, INTERVAL 1 MONTH) = '2023-11-15 10:00:00';")
@@ -214,11 +214,11 @@ suite("one_key_range_part_test") {
     }
     explain {
         sql("SELECT a, dt, c FROM key_1_special_fixed_range_date_part WHERE date_trunc('month', dt) = '2023-03-01 00:00:00';")
-        contains "1/10 (p_202302)"
+        contains "0:VEMPTYSET"
     }
     explain {
         sql("SELECT a, dt, c FROM key_1_special_fixed_range_date_part WHERE date_trunc('month', dt) BETWEEN '2023-06-01 00:00:00' AND '2023-07-01 00:00:00';")
-        contains "2/10 (p_202305,p_202306)"
+        contains "1/10 (p_202306)"
     }
     explain {
         sql("SELECT a, dt, c FROM key_1_special_fixed_range_date_part WHERE date_add(dt, INTERVAL 1 MONTH) = '2023-11-15 10:00:00';")

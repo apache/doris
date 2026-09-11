@@ -429,7 +429,7 @@ class IndexCompactionUtils {
             const TabletSharedPtr& tablet, bool is_index_compaction, RowsetSharedPtr& rowset_ptr,
             const std::function<void(const BaseCompaction&, const RowsetWriterContext&)>
                     custom_check = nullptr,
-            int64_t max_rows_per_segment = 100000,
+            int64_t max_rows_per_segment = 100000, int32_t output_segment_start_id = 0,
             const std::optional<StorageResource>& output_storage_resource = std::nullopt) {
         config::inverted_index_compaction_enable = is_index_compaction;
         // control max rows in one block
@@ -447,6 +447,9 @@ class IndexCompactionUtils {
         // Empty for a local output rowset, which is what is_local_rowset() keys off.
         ctx.storage_resource = output_storage_resource;
         RETURN_IF_ERROR(compaction.construct_output_rowset_writer(ctx));
+        if (output_segment_start_id != 0) {
+            compaction._output_rs_writer->set_segment_start_id(output_segment_start_id);
+        }
 
         compaction._stats.rowid_conversion = compaction._rowid_conversion.get();
         RETURN_IF_ERROR(Merger::vertical_merge_rowsets(
@@ -572,19 +575,19 @@ class IndexCompactionUtils {
                                     const std::map<int, QueryData>& query_map) {
         CHECK_EQ(output_rowset->num_segments(), 1);
         // check rowset meta and file
-        int seg_id = 0;
+        auto seg = output_rowset->segment(0);
         // meta
-        const auto& index_info = output_rowset->_rowset_meta->inverted_index_file_info(seg_id);
+        auto index_info = seg.inverted_index_file_info();
         EXPECT_TRUE(index_info.has_index_size());
         const auto& fs = output_rowset->_rowset_meta->fs();
         const auto& file_name = fmt::format("{}/{}_{}.idx", output_rowset->tablet_path(),
-                                            output_rowset->rowset_id().to_string(), seg_id);
+                                            output_rowset->rowset_id().to_string(), seg.id());
         int64_t file_size = 0;
         EXPECT_TRUE(fs->file_size(file_name, &file_size).ok());
         EXPECT_EQ(index_info.index_size(), file_size);
 
         // file
-        const auto& seg_path = output_rowset->segment_path(seg_id);
+        auto seg_path = seg.path();
         EXPECT_TRUE(seg_path.has_value());
         const auto& index_file_path_prefix =
                 InvertedIndexDescriptor::get_index_file_path_prefix(seg_path.value());
@@ -734,19 +737,21 @@ class IndexCompactionUtils {
 
             // check rowset meta and file -- local only: the paths below are local, so a remote
             // rowset would always report size 0 here.
-            for (int seg_id = 0; rowsets[i]->is_local() && seg_id < rowsets[i]->num_segments();
-                 seg_id++) {
-                const auto& index_info = rowsets[i]->_rowset_meta->inverted_index_file_info(seg_id);
+            if (!rowsets[i]->is_local()) {
+                continue;
+            }
+            for (auto seg : rowsets[i]->segments()) {
+                auto index_info = seg.inverted_index_file_info();
                 EXPECT_TRUE(index_info.has_index_size());
                 const auto& fs = rowsets[i]->_rowset_meta->fs();
                 const auto& file_name = fmt::format("{}/{}_{}.idx", rowsets[i]->tablet_path(),
-                                                    rowsets[i]->rowset_id().to_string(), seg_id);
+                                                    rowsets[i]->rowset_id().to_string(), seg.id());
                 int64_t file_size = 0;
                 Status st = fs->file_size(file_name, &file_size);
                 EXPECT_TRUE(st.ok()) << st.to_string();
                 EXPECT_EQ(index_info.index_size(), file_size);
 
-                const auto& seg_path = rowsets[i]->segment_path(seg_id);
+                auto seg_path = seg.path();
                 EXPECT_TRUE(seg_path.has_value());
                 const auto& index_file_path_prefix =
                         InvertedIndexDescriptor::get_index_file_path_prefix(seg_path.value());

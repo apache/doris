@@ -773,7 +773,7 @@ TEST(ArrayMapFunctionTest, LargeLambdaProducesCorrectResult) {
     EXPECT_EQ(values.get_element(99999), 100000);
 }
 
-TEST(ArrayMapFunctionTest, VariableLengthCaptureUsesOuterBatchSize) {
+TEST(ArrayMapFunctionTest, VariableLengthCaptureUsesLargerBatch) {
     auto int_type = std::make_shared<DataTypeInt32>();
     auto string_type = std::make_shared<DataTypeString>();
     auto array_int_type = std::make_shared<DataTypeArray>(int_type);
@@ -800,14 +800,12 @@ TEST(ArrayMapFunctionTest, VariableLengthCaptureUsesOuterBatchSize) {
     ColumnPtr result;
     auto status = root->execute_column(&context, &block, nullptr, block.rows(), result);
     ASSERT_TRUE(status.ok()) << status.to_string();
-    ASSERT_EQ(observed_batch_sizes.size(), 3);
-    EXPECT_EQ(observed_batch_sizes[0], 2);
-    EXPECT_EQ(observed_batch_sizes[1], 2);
-    EXPECT_EQ(observed_batch_sizes[2], 1);
+    ASSERT_EQ(observed_batch_sizes.size(), 1);
+    EXPECT_EQ(observed_batch_sizes[0], 5);
     EXPECT_EQ(get_int_array_values(result).size(), 5);
 }
 
-TEST(ArrayMapFunctionTest, ComplexLambdaUsesOuterBatchSize) {
+TEST(ArrayMapFunctionTest, FixedLengthComplexLambdaUsesLargerBatch) {
     constexpr size_t intermediate_count = 100;
     constexpr size_t nested_count = 1000;
     constexpr int outer_batch_size = 256;
@@ -840,14 +838,8 @@ TEST(ArrayMapFunctionTest, ComplexLambdaUsesOuterBatchSize) {
     auto status = root->execute_column(&context, &block, nullptr, 1, result);
     ASSERT_TRUE(status.ok()) << status.to_string();
 
-    size_t observed_rows = 0;
-    for (size_t batch_rows : observed_batch_sizes) {
-        EXPECT_EQ(batch_rows,
-                  std::min(static_cast<size_t>(outer_batch_size), nested_count - observed_rows));
-        observed_rows += batch_rows;
-    }
-    EXPECT_EQ(observed_rows, nested_count);
-    EXPECT_EQ(observed_batch_sizes.size(), 4);
+    ASSERT_EQ(observed_batch_sizes.size(), 1);
+    EXPECT_EQ(observed_batch_sizes[0], nested_count);
 
     const auto& values = get_int_array_values(result);
     ASSERT_EQ(values.size(), nested_count);
@@ -855,7 +847,7 @@ TEST(ArrayMapFunctionTest, ComplexLambdaUsesOuterBatchSize) {
     EXPECT_EQ(values.get_element(nested_count - 1), nested_count);
 }
 
-TEST(ArrayMapFunctionTest, FixedLengthInputsUseOuterBatchSize) {
+TEST(ArrayMapFunctionTest, FixedLengthInputsUseLargerBatch) {
     constexpr size_t capture_count = 64;
     constexpr size_t nested_count = 1000;
     constexpr int outer_batch_size = 128;
@@ -891,14 +883,8 @@ TEST(ArrayMapFunctionTest, FixedLengthInputsUseOuterBatchSize) {
     auto status = root->execute_column(&context, &block, nullptr, block.rows(), result);
     ASSERT_TRUE(status.ok()) << status.to_string();
 
-    size_t observed_rows = 0;
-    for (size_t batch_rows : observed_batch_sizes) {
-        EXPECT_EQ(batch_rows,
-                  std::min(static_cast<size_t>(outer_batch_size), nested_count - observed_rows));
-        observed_rows += batch_rows;
-    }
-    EXPECT_EQ(observed_rows, nested_count);
-    EXPECT_EQ(observed_batch_sizes.size(), 8);
+    ASSERT_EQ(observed_batch_sizes.size(), 1);
+    EXPECT_EQ(observed_batch_sizes[0], nested_count);
     EXPECT_EQ(get_int_array_values(result).size(), nested_count);
 }
 
@@ -957,7 +943,8 @@ TEST(ArrayMapFunctionTest, FixedLengthInputsUsePreferredBlockSizeBudget) {
 
 TEST(ArrayMapFunctionTest, MultiBatchPreservesCaptureMappingAcrossSelectedArrayRows) {
     constexpr size_t selected_array_size = 300;
-    constexpr int outer_batch_size = 400;
+    constexpr int outer_batch_size = 64;
+    constexpr int lambda_batch_size = outer_batch_size;
     auto int_type = std::make_shared<DataTypeInt32>();
     auto array_int_type = std::make_shared<DataTypeArray>(int_type);
     std::vector<size_t> observed_batch_sizes;
@@ -1001,9 +988,15 @@ TEST(ArrayMapFunctionTest, MultiBatchPreservesCaptureMappingAcrossSelectedArrayR
     ASSERT_TRUE(status.ok()) << status.to_string();
 
     const size_t total_nested_rows = 2 * selected_array_size;
-    ASSERT_EQ(observed_batch_sizes.size(), 2);
-    EXPECT_EQ(observed_batch_sizes[0], outer_batch_size);
-    EXPECT_EQ(observed_batch_sizes[1], total_nested_rows - outer_batch_size);
+    const size_t expected_full_batches = total_nested_rows / lambda_batch_size;
+    const size_t expected_last_batch_size = total_nested_rows % lambda_batch_size;
+    ASSERT_EQ(observed_batch_sizes.size(), expected_full_batches + (expected_last_batch_size > 0));
+    for (size_t i = 0; i < expected_full_batches; ++i) {
+        EXPECT_EQ(observed_batch_sizes[i], lambda_batch_size);
+    }
+    if (expected_last_batch_size > 0) {
+        EXPECT_EQ(observed_batch_sizes.back(), expected_last_batch_size);
+    }
 
     const auto& result_array = assert_cast<const ColumnArray&>(*result);
     ASSERT_EQ(result_array.size(), 3);
@@ -1016,10 +1009,9 @@ TEST(ArrayMapFunctionTest, MultiBatchPreservesCaptureMappingAcrossSelectedArrayR
     EXPECT_EQ(values.get_element(0), 10);
     EXPECT_EQ(values.get_element(selected_array_size - 1), 309);
     EXPECT_EQ(values.get_element(selected_array_size), 1050);
-    EXPECT_EQ(values.get_element(outer_batch_size - 1),
-              50 + 1000 + static_cast<int32_t>(outer_batch_size - selected_array_size - 1));
-    EXPECT_EQ(values.get_element(outer_batch_size),
-              50 + 1000 + static_cast<int32_t>(outer_batch_size - selected_array_size));
+    EXPECT_EQ(values.get_element(lambda_batch_size - 1),
+              10 + static_cast<int32_t>(lambda_batch_size - 1));
+    EXPECT_EQ(values.get_element(lambda_batch_size), 10 + lambda_batch_size);
     EXPECT_EQ(values.get_element(total_nested_rows - 1), 1349);
 }
 

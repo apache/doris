@@ -27,11 +27,13 @@
 #include <algorithm>
 #include <cctype>
 // IWYU pragma: no_include <bits/std_abs.h>
+#include <charconv>
 #include <cmath> // IWYU pragma: keep
 #include <memory>
 #include <ostream>
 #include <vector>
 
+#include "common/check.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
 #include "common/status.h"
@@ -39,6 +41,7 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/string_ref.h"
+#include "core/types.h"
 #include "exec/common/hex.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/aggregate_function_state_union.h"
@@ -97,6 +100,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = FieldType::OLAP_FIELD_TYPE_DATEV2;
     } else if (0 == upper_type_str.compare("DATETIMEV2")) {
         type = FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
+    } else if (0 == upper_type_str.compare("TIMESTAMP_NS")) {
+        type = FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS;
     } else if (0 == upper_type_str.compare("DATETIME")) {
         type = FieldType::OLAP_FIELD_TYPE_DATETIME;
     } else if (0 == upper_type_str.compare("TIMESTAMPTZ")) {
@@ -240,6 +245,8 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
 
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
         return "DATETIMEV2";
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS:
+        return "TIMESTAMP_NS";
 
     case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
         return "TIMESTAMPTZ";
@@ -355,6 +362,7 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
     case TPrimitiveType::DATETIME:
         return 8;
     case TPrimitiveType::DATETIMEV2:
+    case TPrimitiveType::TIMESTAMP_NS:
     case TPrimitiveType::TIMESTAMPTZ:
         return 8;
     case TPrimitiveType::FLOAT:
@@ -468,6 +476,10 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (_has_default_value) {
         _default_value = column.default_value();
     }
+    _has_default_value_expr = column.has_default_value_expr();
+    if (_has_default_value_expr) {
+        _default_value_expr = column.default_value_expr();
+    }
 
     if (column.has_precision()) {
         _is_decimal = true;
@@ -567,6 +579,9 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_is_on_update_current_timestamp(_is_on_update_current_timestamp);
     if (_has_default_value) {
         column->set_default_value(_default_value);
+    }
+    if (_has_default_value_expr) {
+        column->set_default_value_expr(_default_value_expr);
     }
     if (_is_decimal) {
         column->set_precision(_precision);
@@ -871,6 +886,8 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
         _skip_bitmap_col_idx = _num_columns;
     } else if (UNLIKELY(column.name() == COMMIT_TSO_COL)) {
         _commit_tso_col_idx = _num_columns;
+    } else if (UNLIKELY(column.name() == ROW_LSN_COL)) {
+        _row_lsn_col_idx = _num_columns;
     } else if (UNLIKELY(column.name() == BINLOG_TSO_COL)) {
         _binlog_tso_col_idx = _num_columns;
     } else if (UNLIKELY(column.name() == BINLOG_LSN_COL)) {
@@ -1080,6 +1097,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _version_col_idx = schema.version_col_idx();
     _skip_bitmap_col_idx = schema.skip_bitmap_col_idx();
     _commit_tso_col_idx = schema.commit_tso_col_idx();
+    _row_lsn_col_idx = schema.row_lsn_col_idx();
     _binlog_tso_col_idx = schema.binlog_tso_col_idx();
     _binlog_lsn_col_idx = schema.binlog_lsn_col_idx();
     _binlog_op_col_idx = schema.binlog_op_col_idx();
@@ -1187,6 +1205,7 @@ void TabletSchema::shawdow_copy_without_columns(const TabletSchema& tablet_schem
     _version_col_idx = -1;
     _skip_bitmap_col_idx = -1;
     _commit_tso_col_idx = -1;
+    _row_lsn_col_idx = -1;
     _binlog_tso_col_idx = -1;
     _binlog_lsn_col_idx = -1;
     _binlog_op_col_idx = -1;
@@ -1255,6 +1274,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _version_col_idx = -1;
     _skip_bitmap_col_idx = -1;
     _commit_tso_col_idx = -1;
+    _row_lsn_col_idx = -1;
     _binlog_tso_col_idx = -1;
     _binlog_lsn_col_idx = -1;
     _binlog_op_col_idx = -1;
@@ -1285,6 +1305,8 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
             _skip_bitmap_col_idx = _num_columns;
         } else if (UNLIKELY(column->name() == COMMIT_TSO_COL)) {
             _commit_tso_col_idx = _num_columns;
+        } else if (UNLIKELY(column->name() == ROW_LSN_COL)) {
+            _row_lsn_col_idx = _num_columns;
         } else if (UNLIKELY(column->name() == BINLOG_TSO_COL)) {
             _binlog_tso_col_idx = _num_columns;
         } else if (UNLIKELY(column->name() == BINLOG_LSN_COL)) {
@@ -1415,6 +1437,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_version_col_idx(_version_col_idx);
     tablet_schema_pb->set_skip_bitmap_col_idx(_skip_bitmap_col_idx);
     tablet_schema_pb->set_commit_tso_col_idx(_commit_tso_col_idx);
+    tablet_schema_pb->set_row_lsn_col_idx(_row_lsn_col_idx);
     tablet_schema_pb->set_binlog_tso_col_idx(_binlog_tso_col_idx);
     tablet_schema_pb->set_binlog_lsn_col_idx(_binlog_lsn_col_idx);
     tablet_schema_pb->set_binlog_op_col_idx(_binlog_op_col_idx);
@@ -1689,6 +1712,31 @@ const TabletIndex* TabletSchema::get_ngram_bf_index(int32_t col_unique_id) const
     return nullptr;
 }
 
+double TabletSchema::get_bloom_filter_fpp(int32_t col_unique_id) const {
+    const auto* bloom_filter_index = get_index(col_unique_id, IndexType::BLOOMFILTER, "");
+    if (bloom_filter_index != nullptr) {
+        const auto& properties = bloom_filter_index->properties();
+        auto iter = properties.find("bloom_filter_fpp");
+        if (iter != properties.end()) {
+            StringParser::ParseResult parse_result = StringParser::PARSE_FAILURE;
+            auto index_level_fpp = StringParser::string_to_float<Float64>(
+                    iter->second.data(), iter->second.size(), &parse_result);
+            if (parse_result != StringParser::PARSE_SUCCESS) {
+                return BLOOM_FILTER_DEFAULT_FPP;
+            }
+            return index_level_fpp;
+        }
+        return BLOOM_FILTER_DEFAULT_FPP;
+    }
+    return has_bf_fpp() ? bloom_filter_fpp() : BLOOM_FILTER_DEFAULT_FPP;
+}
+
+double TabletSchema::get_bloom_filter_fpp(const TabletColumn& column) const {
+    const int32_t col_unique_id =
+            column.is_extracted_column() ? column.parent_unique_id() : column.unique_id();
+    return get_bloom_filter_fpp(col_unique_id);
+}
+
 const TabletIndex* TabletSchema::get_index(int32_t col_unique_id, IndexType index_type,
                                            const std::string& suffix_path) const {
     IndexKey index_key(index_type, col_unique_id, suffix_path);
@@ -1731,6 +1779,10 @@ bool operator==(const TabletColumn& a, const TabletColumn& b) {
     if (a._has_default_value != b._has_default_value) return false;
     if (a._has_default_value) {
         if (a._default_value != b._default_value) return false;
+    }
+    if (a._has_default_value_expr != b._has_default_value_expr) return false;
+    if (a._has_default_value_expr) {
+        if (a._default_value_expr != b._default_value_expr) return false;
     }
     if (a._is_decimal != b._is_decimal) return false;
     if (a._is_decimal) {
@@ -1775,6 +1827,7 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._version_col_idx != b._version_col_idx) return false;
     if (a._skip_bitmap_col_idx != b._skip_bitmap_col_idx) return false;
     if (a._commit_tso_col_idx != b._commit_tso_col_idx) return false;
+    if (a._row_lsn_col_idx != b._row_lsn_col_idx) return false;
     if (a._binlog_tso_col_idx != b._binlog_tso_col_idx) return false;
     if (a._binlog_lsn_col_idx != b._binlog_lsn_col_idx) return false;
     if (a._binlog_op_col_idx != b._binlog_op_col_idx) return false;

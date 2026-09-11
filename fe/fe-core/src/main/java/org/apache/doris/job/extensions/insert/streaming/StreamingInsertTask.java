@@ -20,7 +20,9 @@ package org.apache.doris.job.extensions.insert.streaming;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.job.base.Job;
@@ -30,16 +32,22 @@ import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
+import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.base.Preconditions;
 import lombok.Getter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.StringUtils;
@@ -49,6 +57,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TreeMap;
+import java.util.stream.Collectors;
 
 @Log4j2
 @Getter
@@ -61,6 +71,8 @@ public class StreamingInsertTask extends AbstractStreamingTask {
     private StreamingJobProperties jobProperties;
     private Map<String, String> originTvfProps;
     private String cloudCluster;
+    private String auditSql;
+    private final boolean auditEnabled;
     SourceOffsetProvider offsetProvider;
 
     public StreamingInsertTask(long jobId,
@@ -79,10 +91,12 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         this.jobProperties = jobProperties;
         this.originTvfProps = originTvfProps;
         this.cloudCluster = cloudCluster;
+        this.auditEnabled = S3TableValuedFunction.NAME.equalsIgnoreCase(offsetProvider.getSourceType());
     }
 
     @Override
     public void before() throws Exception {
+        auditSql = null;
         if (getIsCanceled().get()) {
             log.info("streaming insert task has been canceled, task id is {}", getTaskId());
             return;
@@ -111,6 +125,14 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         this.taskCommand = offsetProvider.rewriteTvfParams(baseCommand, runningOffset, getTaskId());
         this.taskCommand.setLabelName(Optional.of(labelName));
         this.stmtExecutor = new StmtExecutor(ctx, new LogicalPlanAdapter(taskCommand, ctx.getStatementContext()));
+        if (auditEnabled) {
+            ctx.setExecutor(stmtExecutor);
+            try {
+                this.auditSql = buildAuditSql();
+            } catch (Exception e) {
+                log.warn("Failed to prepare audit SQL, label {}; skipping audit for this attempt", labelName, e);
+            }
+        }
     }
 
     @Override
@@ -121,6 +143,9 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         }
         log.info("start to run streaming insert task, label {}, offset is {}", labelName, runningOffset.toString());
         String errMsg = null;
+        if (auditEnabled) {
+            ctx.setStartTime();
+        }
         try {
             taskCommand.run(ctx, stmtExecutor);
             if (ctx.getState().getStateType() == QueryState.MysqlStateType.OK) {
@@ -130,10 +155,34 @@ public class StreamingInsertTask extends AbstractStreamingTask {
             }
             throw new JobException(errMsg);
         } catch (Exception e) {
+            String errorMessage = Util.getRootCauseMessage(e);
+            if (auditEnabled && ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
+                ctx.getState().setError(ErrorCode.ERR_INTERNAL_ERROR, errorMessage);
+            }
             log.warn("execute insert task error, label is {},offset is {}", taskCommand.getLabelName(),
                     runningOffset.toString(), e);
-            throw new JobException(Util.getRootCauseMessage(e));
+            throw new JobException(errorMessage);
+        } finally {
+            if (auditSql != null) {
+                AuditLogHelper.logAuditLog(ctx, auditSql, stmtExecutor.getParsedStmt(),
+                        stmtExecutor.getQueryStatisticsForAuditLog(), true);
+            }
         }
+    }
+
+    private String buildAuditSql() {
+        TreeMap<Pair<Integer, Integer>, String> replacements = new TreeMap<>(new Pair.PairComparator<>());
+        new NereidsParser().parseForEncryption(sql, replacements);
+        List<UnboundTVFRelation> tvfRelations = taskCommand.getAllTVFRelation();
+        Preconditions.checkState(replacements.size() == 1 && tvfRelations.size() == 1,
+                "S3 streaming insert must contain exactly one TVF");
+        String rewrittenProperties = tvfRelations.get(0).getProperties().getMap().entrySet().stream()
+                .map(entry -> SqlLiteralUtils.quoteStringLiteral(entry.getKey()) + " = "
+                        + SqlLiteralUtils.quoteStringLiteral(entry.getValue()))
+                .collect(Collectors.joining(", "));
+        Pair<Integer, Integer> tvfPropertiesRange = replacements.firstKey();
+        replacements.replace(tvfPropertiesRange, rewrittenProperties);
+        return BaseViewInfo.rewriteSql(replacements, sql);
     }
 
     @Override

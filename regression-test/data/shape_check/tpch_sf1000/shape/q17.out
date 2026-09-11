@@ -6,15 +6,17 @@ PhysicalResultSink
 ------PhysicalDistribute[DistributionSpecGather]
 --------hashAgg[LOCAL]
 ----------PhysicalProject
-------------filter((cast(lineitem.l_quantity as DECIMALV3(38, 5)) < (0.2 * avg(l_quantity) OVER(PARTITION BY p_partkey))))
---------------PhysicalWindow
-----------------PhysicalQuickSort[LOCAL_SORT]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF0 p_partkey->l_partkey
+------------hashJoin[INNER_JOIN broadcast] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=((cast(lineitem.l_quantity as DECIMALV3(38, 5)) < (0.2 * avg(l_quantity)))) build RFs:RF1 p_partkey->l_partkey
+--------------PhysicalProject
+----------------PhysicalOlapScan[lineitem] apply RFs: RF1
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineitem.l_partkey = part.p_partkey)) otherCondition=() build RFs:RF0 p_partkey->l_partkey
+------------------hashAgg[GLOBAL]
+--------------------PhysicalDistribute[DistributionSpecHash]
+----------------------hashAgg[LOCAL]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[lineitem] apply RFs: RF0
-------------------------PhysicalProject
---------------------------filter((part.p_brand = 'Brand#23') and (part.p_container = 'MED BOX'))
-----------------------------PhysicalOlapScan[part]
+------------------PhysicalProject
+--------------------filter((part.p_brand = 'Brand#23') and (part.p_container = 'MED BOX'))
+----------------------PhysicalOlapScan[part]
 

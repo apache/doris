@@ -53,9 +53,10 @@ struct TTabletSchema {
     24: optional i64 storage_dict_page_size = 262144
     25: optional list<Types.TColumnGroup> seq_map
     26: optional i32 commit_tso_col_idx = -1
-    27: optional i32 binlog_tso_idx = -1
-    28: optional i32 binlog_lsn_idx = -1
-    29: optional i32 binlog_op_idx = -1
+    27: optional i32 row_lsn_col_idx = -1
+    28: optional i32 binlog_tso_idx = -1
+    29: optional i32 binlog_lsn_idx = -1
+    30: optional i32 binlog_op_idx = -1
 }
 
 // this enum stands for different storage format in src_backends
@@ -105,7 +106,7 @@ enum TCredProviderType {
     ENV = 3,  // EnvironmentAWSCredentialsProvider
     SYSTEM_PROPERTIES = 4,  // SystemPropertiesCredentialsProvider
     WEB_IDENTITY = 5,  // STSAssumeRoleWebIdentityCredentialsProvider
-    CONTAINER = 6,  // TaskRoleCredentialsProvider
+    CONTAINER = 6,  // GeneralHTTPCredentialsProvider, for ECS task roles and EKS Pod Identity
     ANONYMOUS = 7  // AnonymousAWSCredentialsProvider
 }
 

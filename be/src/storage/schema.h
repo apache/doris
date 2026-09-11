@@ -25,6 +25,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "common/consts.h"
@@ -58,6 +59,7 @@ std::vector<TabletColumnPtr> project_columns_by_ordinal(
 class ReadSchema {
 public:
     using SequenceMap = std::unordered_map<ColumnId, std::vector<ColumnId>>;
+    using RowBinlogValueColumnPairs = std::vector<std::pair<ColumnId, ColumnId>>;
 
     explicit ReadSchema(std::vector<TabletColumnPtr> columns);
 
@@ -87,6 +89,12 @@ public:
 
     const SequenceMap& sequence_map() const { return _sequence_map; }
 
+    // Initialize all row-binlog column relationships from the physical tablet schema and map
+    // them to this ReadSchema's dense ordinals. Physical pairing avoids ambiguous column-name
+    // lookup, while schemas without a complete physical layout retain the name-based BEFORE
+    // mapping initialized by the constructor.
+    void init_row_binlog_column_mappings(const TabletSchema& tablet_schema);
+
     // Return the matching before-image ordinal for a Row Binlog value column. For example, in
     // [v1, v2, __BEFORE__v1__, __BEFORE__v2__], 0 maps to 2 and 1 maps to 3. Columns without a
     // before image, including TSO/LSN/OP, map to themselves.
@@ -94,6 +102,12 @@ public:
         DCHECK_LT(ordinal, _before_column_ordinals.size());
         return _before_column_ordinals[ordinal];
     }
+
+    const RowBinlogValueColumnPairs& row_binlog_value_column_pairs() const {
+        return _row_binlog_value_column_pairs;
+    }
+
+    bool row_binlog_value_pairs_complete() const { return _row_binlog_value_pairs_complete; }
 
     const TabletColumn* column(size_t ordinal) const { return _read_columns[ordinal].get(); }
 
@@ -224,6 +238,8 @@ private:
     std::unordered_map<int32_t, int32_t> _uid_to_ordinal;
     SequenceMap _sequence_map;
     std::vector<ColumnId> _before_column_ordinals;
+    RowBinlogValueColumnPairs _row_binlog_value_column_pairs;
+    bool _row_binlog_value_pairs_complete = false;
 };
 
 } // namespace doris

@@ -22,8 +22,10 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ResourceMgr;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Status;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
@@ -36,8 +38,8 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -48,7 +50,11 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class StmtExecutorTest extends TestWithFeService {
@@ -75,7 +81,40 @@ public class StmtExecutorTest extends TestWithFeService {
     public void testShowNull() throws Exception {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+    }
+
+    // The deferral gate (#67503): a coordinator is kept alive past GetFlightInfo only when the BE
+    // still fetches splits from it (Coordinator.hasBatchSplitSource), and the execution timeout it
+    // ran with is frozen at that moment. SET_VAR hint values are reverted when execute() ends, so
+    // the idle reaper must not read the session value later.
+    @Test
+    public void testDeferForArrowFlightFreezesExecTimeoutInEffect() throws Exception {
+        int savedQueryTimeout = connectContext.getSessionVariable().getQueryTimeoutS();
+        int savedIdleTimeout = Config.arrow_flight_deferred_query_idle_timeout_second;
+        connectContext.setQueryId(new TUniqueId(0x67503L, 0x1L));
+        try {
+            Config.arrow_flight_deferred_query_idle_timeout_second = 1;
+            connectContext.getSessionVariable().setQueryTimeoutS(1234);
+            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
+            Assertions.assertFalse(stmtExecutor.isDeferredForArrowFlight());
+            Assertions.assertEquals(-1, stmtExecutor.getDeferredExecTimeoutS());
+
+            stmtExecutor.deferForArrowFlight();
+
+            Assertions.assertTrue(stmtExecutor.isDeferredForArrowFlight());
+            Assertions.assertEquals(1234, stmtExecutor.getDeferredExecTimeoutS());
+            // the reaper's bound is floored at the frozen value ...
+            Assertions.assertEquals(1234L, connectContext.getFlightSqlDeferredExecutorsIdleTimeoutS());
+            // ... even after the session value moved on, as it does when a SET_VAR hint is reverted
+            connectContext.getSessionVariable().setQueryTimeoutS(5);
+            Assertions.assertEquals(1234, stmtExecutor.getDeferredExecTimeoutS());
+            Assertions.assertEquals(1234L, connectContext.getFlightSqlDeferredExecutorsIdleTimeoutS());
+        } finally {
+            connectContext.closeFlightSqlDeferredExecutors();
+            connectContext.getSessionVariable().setQueryTimeoutS(savedQueryTimeout);
+            Config.arrow_flight_deferred_query_idle_timeout_second = savedIdleTimeout;
+        }
     }
 
     // Arrow Flight SQL keeps a query's coordinator alive across GetFlightInfo -> DoGet (see #62259);
@@ -97,47 +136,47 @@ public class StmtExecutorTest extends TestWithFeService {
 
         // Simulate the in-flight query whose results DoGet is still pulling.
         QeProcessorImpl.INSTANCE.registerQuery(queryId, new QeProcessorImpl.QueryInfo(coord));
-        Assert.assertNotNull(QeProcessorImpl.INSTANCE.getCoordinator(queryId));
+        Assertions.assertNotNull(QeProcessorImpl.INSTANCE.getCoordinator(queryId));
 
         try {
             stmtExecutor.finalizeArrowFlightQuery();
-            Assert.fail("expected coord.close() failure to propagate after the query is unregistered");
+            Assertions.fail("expected coord.close() failure to propagate after the query is unregistered");
         } catch (RuntimeException e) {
-            Assert.assertEquals("coord close failed", e.getMessage());
+            Assertions.assertEquals("coord close failed", e.getMessage());
         }
 
         // The coordinator close was attempted (releases SplitSource + query queue slot) ...
         Mockito.verify(coord).close();
         // ... and despite it failing, the query registration was still released (no leak).
-        Assert.assertNull(QeProcessorImpl.INSTANCE.getCoordinator(queryId));
+        Assertions.assertNull(QeProcessorImpl.INSTANCE.getCoordinator(queryId));
     }
 
     @Test
     public void testKill() throws Exception {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test
     public void testKillOtherFail() throws Exception {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "kill 1000");
         stmtExecutor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
     }
 
     @Test
     public void testKillNoCtx() throws Exception {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "kill 1");
         stmtExecutor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
     }
 
     @Test
     public void testSet() throws Exception {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test
@@ -149,35 +188,35 @@ public class StmtExecutorTest extends TestWithFeService {
                 + "                + \"   \\\"catalog\\\" = \\\"kafka\\\"\\n\"\n"
                 + "                + \");");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
     }
 
     @Test
     public void testUse() throws Exception {
         StmtExecutor executor = new StmtExecutor(connectContext, "use testDb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test
     public void testUseFail() throws Exception {
         StmtExecutor executor = new StmtExecutor(connectContext, "use nondb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
     }
 
     @Test
     public void testUseWithCatalog() throws Exception {
         StmtExecutor executor = new StmtExecutor(connectContext, "use internal.testDb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test
     public void testUseWithCatalogFail() throws Exception {
         StmtExecutor executor = new StmtExecutor(connectContext, "use internal.nondb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
     }
 
     @Test
@@ -196,7 +235,7 @@ public class StmtExecutorTest extends TestWithFeService {
         } catch (Exception ignore) {
             // do nothing
             ignore.printStackTrace();
-            Assert.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
+            Assertions.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
         }
 
         Config.block_sql_ast_names = "AlterStmt, CreateFileCommand";
@@ -208,7 +247,7 @@ public class StmtExecutorTest extends TestWithFeService {
             executor.execute();
         } catch (Exception ignore) {
             ignore.printStackTrace();
-            Assert.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
+            Assertions.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
         }
 
         Config.block_sql_ast_names = "CreateFunctionStmt, CreateFileCommand";
@@ -223,18 +262,18 @@ public class StmtExecutorTest extends TestWithFeService {
             executor.execute();
         } catch (Exception ignore) {
             ignore.printStackTrace();
-            Assert.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
+            Assertions.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
         }
 
         executor = new StmtExecutor(connectContext, "use testDb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
 
         Config.block_sql_ast_names = "";
         StmtExecutor.initBlockSqlAstNames();
         executor = new StmtExecutor(connectContext, "use testDb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test
@@ -330,6 +369,131 @@ public class StmtExecutorTest extends TestWithFeService {
 
         StmtExecutor executor = new StmtExecutor(mockCtx, stmt, false);
         executor.sendBinaryResultRow(resultSet);
+    }
+
+    @Test
+    public void testSendBinaryTimestampNsResultRow() throws IOException {
+        ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
+        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
+        Mockito.when(mockCtx.getConnectType()).thenReturn(ConnectType.MYSQL);
+        Mockito.when(mockCtx.getMysqlChannel()).thenReturn(channel);
+        MysqlSerializer mysqlSerializer = MysqlSerializer.newInstance();
+        Mockito.when(channel.getSerializer()).thenReturn(mysqlSerializer);
+        Mockito.when(mockCtx.getSessionVariable()).thenReturn(VariableMgr.newSessionVariable());
+
+        String value = "2025-01-01 01:02:03.123456789";
+        List<List<String>> rows = Lists.newArrayList();
+        rows.add(Lists.newArrayList(value));
+        ResultSet resultSet = new CommonResultSet(
+                new CommonResultSetMetaData(Lists.newArrayList(
+                        new Column("timestamp_ns", ScalarType.createTimeStampNsType()))),
+                rows);
+        Mockito.doAnswer(invocation -> {
+            byte[] valueBytes = value.getBytes(StandardCharsets.UTF_8);
+            byte[] expected = new byte[valueBytes.length + 3];
+            expected[2] = (byte) valueBytes.length;
+            System.arraycopy(valueBytes, 0, expected, 3, valueBytes.length);
+            ByteBuffer buffer = invocation.getArgument(0);
+            Assertions.assertArrayEquals(expected, buffer.array());
+            return null;
+        }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
+
+        StmtExecutor executor = new StmtExecutor(mockCtx, new OriginStatement("", 1), false);
+        executor.sendBinaryResultRow(resultSet);
+    }
+
+    @Test
+    public void testCursorFetchMetadataTerminatorDependsOnConnectorJVersion() throws IOException {
+        List<byte[]> connector82Packets = sendEmptyResultSet(true, "MySQL Connector/J", "8.2.0");
+        Assertions.assertEquals(3, connector82Packets.size());
+        Assertions.assertEquals(0xFE, Byte.toUnsignedInt(connector82Packets.get(2)[0]));
+        Assertions.assertTrue(connector82Packets.get(2).length > 5);
+
+        Assertions.assertEquals(3, sendEmptyResultSet(true, "MySQL Connector Java", "5.1.49").size());
+        Assertions.assertEquals(3, sendEmptyResultSet(true, "MySQL Connector/J", "6.0.6").size());
+        Assertions.assertEquals(3, sendEmptyResultSet(true, "MySQL Connector/J", "9.4.0").size());
+        Assertions.assertEquals(2, sendEmptyResultSet(true, "MySQL Connector/J", "9.5.0").size());
+        Assertions.assertEquals(2, sendEmptyResultSet(false, "MySQL Connector/J", "8.2.0").size());
+        Assertions.assertEquals(2, sendEmptyResultSet(true, "MariaDB Connector/J", "3.5.6").size());
+        Assertions.assertEquals(3, sendEmptyResultSet(true, Collections.emptyMap()).size());
+
+        List<byte[]> legacyEofPackets = sendEmptyResultSet(true, "MySQL Connector/J", "8.2.0", false);
+        Assertions.assertEquals(3, legacyEofPackets.size());
+        Assertions.assertEquals(5, legacyEofPackets.get(2).length);
+    }
+
+    @Test
+    public void testPrepareMetadataTerminatorsFollowNegotiatedCapability() throws IOException {
+        Assertions.assertEquals(3, sendPrepareMetadata(false).size());
+        Assertions.assertEquals(2, sendPrepareMetadata(true).size());
+    }
+
+    private List<byte[]> sendPrepareMetadata(boolean clientDeprecatedEof) throws IOException {
+        ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
+        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
+        Mockito.when(mockCtx.getConnectType()).thenReturn(ConnectType.MYSQL);
+        Mockito.when(mockCtx.getMysqlChannel()).thenReturn(channel);
+        Mockito.when(mockCtx.getState()).thenReturn(new QueryState());
+        Mockito.when(mockCtx.getSessionVariable()).thenReturn(new SessionVariable());
+        Mockito.when(channel.clientDeprecatedEOF()).thenReturn(clientDeprecatedEof);
+        Mockito.when(channel.getSerializer()).thenReturn(MysqlSerializer.newInstance());
+
+        List<byte[]> packets = new ArrayList<>();
+        Mockito.doAnswer(invocation -> {
+            ByteBuffer packet = invocation.getArgument(0);
+            byte[] copy = new byte[packet.remaining()];
+            packet.duplicate().get(copy);
+            packets.add(copy);
+            return null;
+        }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
+
+        new StmtExecutor(mockCtx, new OriginStatement("", 0), true).sendStmtPrepareOK(
+                1, Collections.singletonList("p"), Collections.emptyList());
+        return packets;
+    }
+
+    private List<byte[]> sendEmptyResultSet(boolean cursorFetchRequested, String clientName,
+            String clientVersion) throws IOException {
+        return sendEmptyResultSet(cursorFetchRequested, clientName, clientVersion, true);
+    }
+
+    private List<byte[]> sendEmptyResultSet(boolean cursorFetchRequested, String clientName,
+            String clientVersion, boolean clientDeprecatedEof) throws IOException {
+        return sendEmptyResultSet(cursorFetchRequested, ImmutableMap.of(
+                "_client_name", clientName, "_client_version", clientVersion), clientDeprecatedEof);
+    }
+
+    private List<byte[]> sendEmptyResultSet(boolean cursorFetchRequested,
+            Map<String, String> connectAttributes) throws IOException {
+        return sendEmptyResultSet(cursorFetchRequested, connectAttributes, true);
+    }
+
+    private List<byte[]> sendEmptyResultSet(boolean cursorFetchRequested,
+            Map<String, String> connectAttributes, boolean clientDeprecatedEof) throws IOException {
+        ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
+        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
+        Mockito.when(mockCtx.getConnectType()).thenReturn(ConnectType.MYSQL);
+        Mockito.when(mockCtx.getMysqlChannel()).thenReturn(channel);
+        Mockito.when(mockCtx.getState()).thenReturn(new QueryState());
+        Mockito.when(mockCtx.getSessionVariable()).thenReturn(VariableMgr.newSessionVariable());
+        Mockito.when(mockCtx.isCursorFetchRequested()).thenReturn(cursorFetchRequested);
+        Mockito.when(mockCtx.getConnectAttributes()).thenReturn(connectAttributes);
+        Mockito.when(channel.clientDeprecatedEOF()).thenReturn(clientDeprecatedEof);
+        Mockito.when(channel.getSerializer()).thenReturn(MysqlSerializer.newInstance());
+
+        List<byte[]> packets = new ArrayList<>();
+        Mockito.doAnswer(invocation -> {
+            ByteBuffer packet = invocation.getArgument(0);
+            byte[] copy = new byte[packet.remaining()];
+            packet.duplicate().get(copy);
+            packets.add(copy);
+            return null;
+        }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
+
+        List<Column> columns = Collections.singletonList(new Column("c", PrimitiveType.INT));
+        ResultSet resultSet = new CommonResultSet(new CommonResultSetMetaData(columns), Collections.emptyList());
+        new StmtExecutor(mockCtx, new OriginStatement("", 0), true).sendResultSet(resultSet);
+        return packets;
     }
 
     @Test
@@ -577,6 +741,20 @@ public class StmtExecutorTest extends TestWithFeService {
         Method getStmtForLoggingBeforeParse = StmtExecutor.class.getDeclaredMethod("getStmtForLoggingBeforeParse");
         getStmtForLoggingBeforeParse.setAccessible(true);
         Assertions.assertEquals(MASKED_STMT_FALLBACK, getStmtForLoggingBeforeParse.invoke(executor));
+    }
+
+    @Test
+    public void testCancelForwardsToCancelDelegate() {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
+        AtomicInteger forwarded = new AtomicInteger();
+        stmtExecutor.setCancelDelegate(status -> forwarded.incrementAndGet());
+        stmtExecutor.cancel(Status.CANCELLED, false);
+        Assertions.assertEquals(1, forwarded.get());
+        // The delegate is scoped to the nested work only: once cleared, later
+        // cancellations on this executor must not reach it again.
+        stmtExecutor.clearCancelDelegate();
+        stmtExecutor.cancel(Status.CANCELLED, false);
+        Assertions.assertEquals(1, forwarded.get());
     }
 
     private void createResource(String sql) throws Exception {

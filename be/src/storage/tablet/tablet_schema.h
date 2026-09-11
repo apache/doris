@@ -128,11 +128,17 @@ public:
     }
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
+    bool has_default_value_expr() const { return _has_default_value_expr; }
+    const std::string& default_value_expr() const { return _default_value_expr; }
     int32_t length() const { return _length; }
     void set_length(int32_t length) { _length = length; }
     void set_default_value(const std::string& default_value) {
         _default_value = default_value;
         _has_default_value = true;
+    }
+    void set_default_value_expr(const std::string& default_value_expr) {
+        _default_value_expr = default_value_expr;
+        _has_default_value_expr = true;
     }
     int32_t index_length() const { return _index_length; }
     void set_index_length(int32_t index_length) { _index_length = index_length; }
@@ -299,6 +305,8 @@ private:
 
     bool _has_default_value = false;
     std::string _default_value;
+    bool _has_default_value_expr = false;
+    std::string _default_value_expr;
 
     bool _is_decimal = false;
     int32_t _precision = -1;
@@ -522,6 +530,7 @@ public:
     int32_t skip_bitmap_col_idx() const { return _skip_bitmap_col_idx; }
     bool is_tso_enabled() const { return _commit_tso_col_idx != -1 || _binlog_tso_col_idx != -1; }
     int32_t commit_tso_col_idx() const { return _commit_tso_col_idx; }
+    int32_t row_lsn_col_idx() const { return _row_lsn_col_idx; }
     int32_t binlog_tso_col_idx() const { return _binlog_tso_col_idx; }
     int32_t binlog_lsn_col_idx() const { return _binlog_lsn_col_idx; }
     int32_t binlog_op_col_idx() const { return _binlog_op_col_idx; }
@@ -624,6 +633,8 @@ public:
 
     bool has_ngram_bf_index(int32_t col_unique_id) const;
     const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
+    double get_bloom_filter_fpp(int32_t col_unique_id) const;
+    double get_bloom_filter_fpp(const TabletColumn& column) const;
     const TabletIndex* get_index(int32_t col_unique_id, IndexType index_type,
                                  const std::string& suffix_path) const;
     void update_indexes_from_thrift(const std::vector<doris::TOlapTableIndex>& indexes);
@@ -821,6 +832,7 @@ private:
     int32_t _version_col_idx = -1;
     int32_t _skip_bitmap_col_idx = -1;
     int32_t _commit_tso_col_idx = -1;
+    int32_t _row_lsn_col_idx = -1;
     int32_t _binlog_tso_col_idx = -1;
     int32_t _binlog_lsn_col_idx = -1;
     int32_t _binlog_op_col_idx = -1;

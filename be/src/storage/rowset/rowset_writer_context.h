@@ -21,9 +21,12 @@
 #include <glog/logging.h>
 
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 #include "cloud/config.h"
 #include "common/status.h"
@@ -70,7 +73,11 @@ struct RowsetWriterContext {
     RowsetTypePB rowset_type {BETA_ROWSET};
 
     TabletSchemaSPtr tablet_schema;
-
+    // Immutable inverted-index file format inherited from the owner tablet.
+    std::optional<InvertedIndexStorageFormatPB> inverted_index_storage_format;
+    // Whether the owner tablet persists the format in its top-level metadata.
+    // This is derived from TabletMeta and keeps rowset metadata consistent with it.
+    bool persist_inverted_index_storage_format = false;
     // PREPARED/COMMITTED for pending rowset
     // VISIBLE for non-pending rowset
     RowsetStatePB rowset_state {PREPARED};
@@ -139,6 +146,10 @@ struct RowsetWriterContext {
     // This describes whether we *want* to try small-file merging.
     bool allow_packed_file = true;
 
+    // Physical id of the first segment in this rowset. It can be nonzero for writers that
+    // allocate segment ids from a configured range.
+    int64_t first_segment_id = 0;
+
     // Effective flag: whether this context actually ends up using MergeFileSystem for writes.
     // This is decided inside fs() based on enable_merge_file plus other conditions
     // (cloud mode, S3 filesystem, V1 inverted index, global config, etc.), and once
@@ -149,6 +160,12 @@ struct RowsetWriterContext {
     // This prevents creating multiple MergeFileSystem instances and ensures
     // packed_file_active flag remains consistent.
     mutable io::FileSystemSPtr _cached_fs = nullptr;
+
+    void set_first_segment_id(int64_t segment_id) {
+        DORIS_CHECK_GE(segment_id, 0);
+        DORIS_CHECK(_cached_fs == nullptr);
+        first_segment_id = segment_id;
+    }
 
     // For collect segment statistics for compaction
     std::vector<RowsetReaderSharedPtr> input_rs_readers;
@@ -169,6 +186,29 @@ struct RowsetWriterContext {
     std::optional<EncryptionAlgorithmPB> encrypt_algorithm;
 
     std::string job_id;
+
+    // Per-segment LSNs allocated before memtable flush. The same storage feeds
+    // both the base row LSN column and row-binlog LSN column.
+    std::shared_ptr<segment_v2::SegmentAllocatedLsnMap> allocated_lsn_map = nullptr;
+    bool _need_allocate_lsn = false;
+
+    void insert_segment_allocated_lsns(int64_t segment_id,
+                                       ConstAllocatedLsnVectorSharedPtr allocated_lsns) {
+        DCHECK(allocated_lsn_map != nullptr);
+        allocated_lsn_map->insert_segment_allocated_lsns(segment_id, std::move(allocated_lsns));
+    }
+
+    void remove_segment_allocated_lsns(int64_t segment_id) {
+        DCHECK(allocated_lsn_map != nullptr);
+        allocated_lsn_map->remove_segment(segment_id);
+    }
+
+    ConstAllocatedLsnVectorSharedPtr get_segment_allocated_lsns(int64_t segment_id) const {
+        DCHECK(allocated_lsn_map != nullptr);
+        return allocated_lsn_map->get_segment_allocated_lsns(segment_id);
+    }
+
+    bool need_allocated_lsn() const { return _need_allocate_lsn; }
 
     bool is_local_rowset() const { return !storage_resource; }
 
@@ -235,6 +275,7 @@ struct RowsetWriterContext {
             io::PackedAppendContext append_info;
             append_info.tablet_id = tablet_id;
             append_info.rowset_id = rowset_id.to_string();
+            append_info.first_segment_id = first_segment_id;
             append_info.txn_id = txn_id;
             append_info.expiration_time = file_cache_ttl_sec > 0 && newest_write_timestamp > 0
                                                   ? newest_write_timestamp + file_cache_ttl_sec

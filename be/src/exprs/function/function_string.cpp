@@ -18,6 +18,7 @@
 #include <ctype.h>
 #include <math.h>
 #include <re2/stringpiece.h>
+#include <unicode/locid.h>
 #include <unicode/schriter.h>
 #include <unicode/uchar.h>
 #include <unicode/unistr.h>
@@ -593,7 +594,7 @@ struct TransferImpl {
         icu::StringPiece sp;
         sp.set(data, size);
         icu::UnicodeString unicode_str = icu::UnicodeString::fromUTF8(sp);
-        unicode_str.toUpper();
+        unicode_str.toUpper(icu::Locale::getRoot());
         unicode_str.toUTF8String(result);
     }
 
@@ -601,7 +602,7 @@ struct TransferImpl {
         icu::StringPiece sp;
         sp.set(data, size);
         icu::UnicodeString unicode_str = icu::UnicodeString::fromUTF8(sp);
-        unicode_str.toLower();
+        unicode_str.toLower(icu::Locale::getRoot());
         unicode_str.toUTF8String(result);
     }
 };
@@ -683,7 +684,7 @@ struct InitcapImpl {
         icu::StringPiece sp;
         sp.set(data, size);
         icu::UnicodeString unicode_str = icu::UnicodeString::fromUTF8(sp);
-        unicode_str.toLower();
+        unicode_str.toLower(icu::Locale::getRoot());
         icu::UnicodeString output_str;
         bool need_capitalize = true;
         icu::StringCharacterIterator iter(unicode_str);

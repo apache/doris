@@ -308,10 +308,7 @@ public:
     typename FieldType::NativeType get_scale_multiplier() const {
         return get_scale_multiplier(scale);
     }
-    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
-        scalar_type->set_precision(precision);
-        scalar_type->set_scale(scale);
-    }
+    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override;
 
     /// @returns multiplier for U to become T with correct scale
     template <PrimitiveType U>

@@ -24,9 +24,8 @@ import org.apache.doris.proto.InternalService;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.FutureCallback;
 import org.apache.thrift.TException;
-import org.junit.Assert;
-import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 
@@ -42,7 +41,7 @@ public class ResultReceiverConsumerTest {
                 System.currentTimeMillis() + 3600);
         Status status = new Status();
 
-        Assert.assertFalse(consumer.isEos());
+        Assertions.assertFalse(consumer.isEos());
         Assertions.assertThrows(UserException.class, () -> consumer.getNext(status));
     }
 
@@ -87,13 +86,13 @@ public class ResultReceiverConsumerTest {
 
         for (int i = 0; i < 5; i++) {
             RowBatch batch = consumer.getNext(status);
-            Assert.assertFalse(consumer.isEos());
-            Assert.assertFalse(batch.isEos());
+            Assertions.assertFalse(consumer.isEos());
+            Assertions.assertFalse(batch.isEos());
         }
 
         RowBatch batch = consumer.getNext(status);
-        Assert.assertTrue(consumer.isEos());
-        Assert.assertTrue(batch.isEos());
+        Assertions.assertTrue(consumer.isEos());
+        Assertions.assertTrue(batch.isEos());
     }
 
     @Test
@@ -125,7 +124,7 @@ public class ResultReceiverConsumerTest {
         Mockito.when(receiver2.getNext(ArgumentMatchers.any(Status.class))).thenThrow(new TException("Network error"));
 
         RowBatch batch = consumer.getNext(status);
-        Assert.assertFalse(batch.isEos());
+        Assertions.assertFalse(batch.isEos());
         Assertions.assertThrows(TException.class, () -> consumer.getNext(status));
     }
 

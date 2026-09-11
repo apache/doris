@@ -182,6 +182,9 @@ Status create_column_writer(uint32_t cid, const TabletColumn& column,
     }
     opt->need_zone_map = tablet_schema->keys_type() != KeysType::AGG_KEYS;
     opt->need_bloom_filter = column.is_bf_column();
+    if (opt->need_bloom_filter) {
+        opt->bf_options.fpp = tablet_schema->get_bloom_filter_fpp(column);
+    }
     const auto& parent_index = tablet_schema->inverted_indexs(column.parent_unique_id());
 
     if (segment_v2::IndexColumnWriter::check_support_inverted_index(column)) {

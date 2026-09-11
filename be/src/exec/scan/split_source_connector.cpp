@@ -17,6 +17,8 @@
 
 #include "exec/scan/split_source_connector.h"
 
+#include <gen_cpp/Status_types.h>
+
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 

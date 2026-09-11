@@ -20,11 +20,12 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -42,12 +43,22 @@ public class TablePropertyTest {
     // A non-whitelisted dynamic_partition.* key is ignored (skipped via continue), so it is not
     // collected at all and the table is neither built as dynamic nor flagged as incomplete.
     @Test
+    public void testPartitionInvertedIndexStorageFormat() {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "SNII");
+        TableProperty tableProperty = new TableProperty(properties);
+
+        Assertions.assertEquals(TInvertedIndexFileStorageFormat.SNII,
+                tableProperty.getPartitionInvertedIndexFileStorageFormat());
+    }
+
+    @Test
     public void testIgnoreInvalidDynamicPartitionPropertyKey() {
         Map<String, String> properties = Maps.newHashMap();
         properties.put(DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX + "not_a_real_key", "1");
         TableProperty tableProperty = new TableProperty(properties).buildDynamicProperty();
-        Assert.assertFalse(tableProperty.getDynamicPartitionProperty().isExist());
-        Assert.assertFalse(tableProperty.hasInvalidDynamicPartition());
+        Assertions.assertFalse(tableProperty.getDynamicPartitionProperty().isExist());
+        Assertions.assertFalse(tableProperty.hasInvalidDynamicPartition());
     }
 
     // Only storage_medium (a leftover from a failed ALTER on a non-dynamic table): incomplete,
@@ -57,8 +68,8 @@ public class TablePropertyTest {
         Map<String, String> properties = Maps.newHashMap();
         properties.put(DynamicPartitionProperty.STORAGE_MEDIUM, "hdd");
         TableProperty tableProperty = new TableProperty(properties).buildDynamicProperty();
-        Assert.assertFalse(tableProperty.getDynamicPartitionProperty().isExist());
-        Assert.assertTrue(tableProperty.hasInvalidDynamicPartition());
+        Assertions.assertFalse(tableProperty.getDynamicPartitionProperty().isExist());
+        Assertions.assertTrue(tableProperty.hasInvalidDynamicPartition());
     }
 
     // Symmetric to storage_medium: a leftover storage_policy alone is also incomplete.
@@ -67,8 +78,8 @@ public class TablePropertyTest {
         Map<String, String> properties = Maps.newHashMap();
         properties.put(DynamicPartitionProperty.STORAGE_POLICY, "test_policy");
         TableProperty tableProperty = new TableProperty(properties).buildDynamicProperty();
-        Assert.assertFalse(tableProperty.getDynamicPartitionProperty().isExist());
-        Assert.assertTrue(tableProperty.hasInvalidDynamicPartition());
+        Assertions.assertFalse(tableProperty.getDynamicPartitionProperty().isExist());
+        Assertions.assertTrue(tableProperty.hasInvalidDynamicPartition());
     }
 
     // time_unit present but end missing: still incomplete (covers the END required-key branch).
@@ -77,8 +88,8 @@ public class TablePropertyTest {
         Map<String, String> properties = Maps.newHashMap();
         properties.put(DynamicPartitionProperty.TIME_UNIT, "DAY");
         TableProperty tableProperty = new TableProperty(properties).buildDynamicProperty();
-        Assert.assertFalse(tableProperty.getDynamicPartitionProperty().isExist());
-        Assert.assertTrue(tableProperty.hasInvalidDynamicPartition());
+        Assertions.assertFalse(tableProperty.getDynamicPartitionProperty().isExist());
+        Assertions.assertTrue(tableProperty.hasInvalidDynamicPartition());
     }
 
     // time_unit + end present but prefix missing (covers the PREFIX required-key branch).
@@ -88,8 +99,8 @@ public class TablePropertyTest {
         properties.put(DynamicPartitionProperty.TIME_UNIT, "DAY");
         properties.put(DynamicPartitionProperty.END, "3");
         TableProperty tableProperty = new TableProperty(properties).buildDynamicProperty();
-        Assert.assertFalse(tableProperty.getDynamicPartitionProperty().isExist());
-        Assert.assertTrue(tableProperty.hasInvalidDynamicPartition());
+        Assertions.assertFalse(tableProperty.getDynamicPartitionProperty().isExist());
+        Assertions.assertTrue(tableProperty.hasInvalidDynamicPartition());
     }
 
     // time_unit + end + prefix present but buckets missing (covers the BUCKETS required-key branch).
@@ -100,8 +111,8 @@ public class TablePropertyTest {
         properties.put(DynamicPartitionProperty.END, "3");
         properties.put(DynamicPartitionProperty.PREFIX, "p");
         TableProperty tableProperty = new TableProperty(properties).buildDynamicProperty();
-        Assert.assertFalse(tableProperty.getDynamicPartitionProperty().isExist());
-        Assert.assertTrue(tableProperty.hasInvalidDynamicPartition());
+        Assertions.assertFalse(tableProperty.getDynamicPartitionProperty().isExist());
+        Assertions.assertTrue(tableProperty.hasInvalidDynamicPartition());
     }
 
     // All required keys present: a real DynamicPartitionProperty is built, not downgraded.
@@ -114,10 +125,10 @@ public class TablePropertyTest {
         properties.put(DynamicPartitionProperty.PREFIX, "p");
         properties.put(DynamicPartitionProperty.BUCKETS, "1");
         TableProperty tableProperty = new TableProperty(properties).buildDynamicProperty();
-        Assert.assertTrue(tableProperty.getDynamicPartitionProperty().isExist());
-        Assert.assertFalse(tableProperty.hasInvalidDynamicPartition());
-        Assert.assertEquals(3, tableProperty.getDynamicPartitionProperty().getEnd());
-        Assert.assertEquals(1, tableProperty.getDynamicPartitionProperty().getBuckets());
+        Assertions.assertTrue(tableProperty.getDynamicPartitionProperty().isExist());
+        Assertions.assertFalse(tableProperty.hasInvalidDynamicPartition());
+        Assertions.assertEquals(3, tableProperty.getDynamicPartitionProperty().getEnd());
+        Assertions.assertEquals(1, tableProperty.getDynamicPartitionProperty().getBuckets());
     }
 
     @Test
@@ -133,9 +144,9 @@ public class TablePropertyTest {
 
             TStorageMedium expectedStorageMedium = storageMediumValue.equalsIgnoreCase("hdd")
                     ? TStorageMedium.HDD : TStorageMedium.SSD;
-            Assert.assertEquals(expectedStorageMedium, tableProperty.getStorageMedium());
-            Assert.assertEquals(expectedStorageMedium, deserialized.getStorageMedium());
-            Assert.assertEquals(storageMediumValue,
+            Assertions.assertEquals(expectedStorageMedium, tableProperty.getStorageMedium());
+            Assertions.assertEquals(expectedStorageMedium, deserialized.getStorageMedium());
+            Assertions.assertEquals(storageMediumValue,
                     deserialized.getProperties().get(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM));
         }
     }
@@ -164,9 +175,9 @@ public class TablePropertyTest {
 
         tableProperty.gsonPostProcess();
 
-        Assert.assertTrue(tableProperty.getProperties().containsKey(DEFAULT_REPLICATION_NUM));
-        Assert.assertTrue(tableProperty.getProperties().containsKey(DEFAULT_REPLICATION_ALLOCATION));
-        Assert.assertEquals(Short.valueOf((short) 3),
+        Assertions.assertTrue(tableProperty.getProperties().containsKey(DEFAULT_REPLICATION_NUM));
+        Assertions.assertTrue(tableProperty.getProperties().containsKey(DEFAULT_REPLICATION_ALLOCATION));
+        Assertions.assertEquals(Short.valueOf((short) 3),
                 tableProperty.getReplicaAllocation().getReplicaNumByTag(Tag.DEFAULT_BACKEND_TAG));
     }
 
@@ -180,10 +191,10 @@ public class TablePropertyTest {
         ReplicaAllocation restoredReplicaAllocation = new ReplicaAllocation((short) 2);
         tableProperty.resetPropertiesForRestore(false, false, restoredReplicaAllocation);
 
-        Assert.assertFalse(tableProperty.getProperties().containsKey(DEFAULT_REPLICATION_NUM));
-        Assert.assertEquals(restoredReplicaAllocation.toCreateStmt(),
+        Assertions.assertFalse(tableProperty.getProperties().containsKey(DEFAULT_REPLICATION_NUM));
+        Assertions.assertEquals(restoredReplicaAllocation.toCreateStmt(),
                 tableProperty.getProperties().get(DEFAULT_REPLICATION_ALLOCATION));
-        Assert.assertEquals((short) 2, tableProperty.getReplicaAllocation().getTotalReplicaNum());
+        Assertions.assertEquals((short) 2, tableProperty.getReplicaAllocation().getTotalReplicaNum());
     }
 
     @Test
@@ -198,20 +209,20 @@ public class TablePropertyTest {
         tableProperty.modifyTableProperties(modifiedProperties);
         tableProperty.buildReplicaAllocation();
 
-        Assert.assertFalse(tableProperty.getProperties().containsKey(DEFAULT_REPLICATION_ALLOCATION));
-        Assert.assertEquals(Short.valueOf((short) 2),
+        Assertions.assertFalse(tableProperty.getProperties().containsKey(DEFAULT_REPLICATION_ALLOCATION));
+        Assertions.assertEquals(Short.valueOf((short) 2),
                 tableProperty.getReplicaAllocation().getReplicaNumByTag(Tag.DEFAULT_BACKEND_TAG));
     }
 
     private void assertReplicaAllocationWins(TableProperty tableProperty) {
-        Assert.assertFalse(tableProperty.getProperties().containsKey(DEFAULT_REPLICATION_NUM));
-        Assert.assertEquals(Short.valueOf((short) 1),
+        Assertions.assertFalse(tableProperty.getProperties().containsKey(DEFAULT_REPLICATION_NUM));
+        Assertions.assertEquals(Short.valueOf((short) 1),
                 tableProperty.getReplicaAllocation()
                         .getReplicaNumByTag(Tag.createNotCheck(Tag.TYPE_LOCATION, "group_0")));
-        Assert.assertEquals(Short.valueOf((short) 1),
+        Assertions.assertEquals(Short.valueOf((short) 1),
                 tableProperty.getReplicaAllocation()
                         .getReplicaNumByTag(Tag.createNotCheck(Tag.TYPE_LOCATION, "group_1")));
-        Assert.assertEquals(Short.valueOf((short) 1),
+        Assertions.assertEquals(Short.valueOf((short) 1),
                 tableProperty.getReplicaAllocation()
                         .getReplicaNumByTag(Tag.createNotCheck(Tag.TYPE_LOCATION, "group_2")));
     }

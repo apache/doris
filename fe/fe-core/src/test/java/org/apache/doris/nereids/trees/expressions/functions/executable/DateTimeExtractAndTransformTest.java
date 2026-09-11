@@ -19,13 +19,19 @@ package org.apache.doris.nereids.trees.expressions.functions.executable;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -34,6 +40,45 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 class DateTimeExtractAndTransformTest {
+    @Test
+    void testAdditionalTimestampNsCalendarFunctions() {
+        TimeStampNsLiteral leapDay = new TimeStampNsLiteral("2024-02-29 12:34:56.123456789");
+        Assertions.assertEquals(new SmallIntLiteral((short) 2004),
+                DateTimeExtractAndTransform.yearOfWeek(
+                        new TimeStampNsLiteral("2005-01-01 23:59:59.999999999")));
+        Assertions.assertEquals(new IntegerLiteral(45296),
+                DateTimeExtractAndTransform.timeToSec(leapDay));
+        Assertions.assertEquals(new DoubleLiteral(1),
+                DateTimeExtractAndTransform.monthsBetween(
+                        new TimeStampNsLiteral("2024-03-31 23:59:59.999999999"),
+                        new TimeStampNsLiteral("2024-02-29 00:00:00.000000001"),
+                        BooleanLiteral.TRUE));
+        Assertions.assertEquals(new DateV2Literal("2262-04-14"),
+                DateTimeExtractAndTransform.nextDay(
+                        TimeStampNsLiteral.getMaxValue(), new StringLiteral("MON")));
+        Assertions.assertEquals(new DateV2Literal("1677-09-20"),
+                DateTimeExtractAndTransform.previousDay(
+                        TimeStampNsLiteral.getMinValue(), new StringLiteral("MON")));
+    }
+
+    @Test
+    void testUnixTimestampMatchesBeDstTransitionPolicy() {
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("America/New_York");
+        context.setThreadLocalInfo();
+        try {
+            DecimalV3Literal gap = (DecimalV3Literal) DateTimeExtractAndTransform.unixTimestamp(
+                    new TimeStampNsLiteral("2024-03-10 02:30:00.123456789"));
+            Assertions.assertEquals(new BigDecimal("1710054000.123456789"), gap.getValue());
+
+            DecimalV3Literal overlap = (DecimalV3Literal) DateTimeExtractAndTransform.unixTimestamp(
+                    new TimeStampNsLiteral("2024-11-03 01:30:00.123456789"));
+            Assertions.assertEquals(new BigDecimal("1730611800.123456789"), overlap.getValue());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
     @Test
     void testSpecialDateWeeks() {
         // test week/yearweek for 0000-01-01/02
@@ -166,6 +211,37 @@ class DateTimeExtractAndTransformTest {
         DecimalV3Literal dec = new DecimalV3Literal(big);
         Assertions.assertThrows(AnalysisException.class,
                 () -> DateTimeExtractAndTransform.fromUnixTime(dec));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.fromUnixTime(new BigIntLiteral(Long.MAX_VALUE)));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.fromUnixTime(
+                        new DecimalV3Literal(new BigDecimal("100000000000000000000"))));
+    }
+
+    @Test
+    void testFromUnixTimeNanosecondFractionFormats() {
+        VarcharLiteral microsecondFormat = new VarcharLiteral("%s.%f");
+        Assertions.assertEquals(new VarcharLiteral("00.000000"),
+                DateTimeExtractAndTransform.fromUnixTime(
+                        new DecimalV3Literal(new BigDecimal("0.000000001")), microsecondFormat));
+        Assertions.assertEquals(new VarcharLiteral("00.123456"),
+                DateTimeExtractAndTransform.fromUnixTime(
+                        new DecimalV3Literal(new BigDecimal("0.123456499")), microsecondFormat));
+        Assertions.assertEquals(new VarcharLiteral("00.123457"),
+                DateTimeExtractAndTransform.fromUnixTime(
+                        new DecimalV3Literal(new BigDecimal("0.123456500")), microsecondFormat));
+        Assertions.assertEquals(new VarcharLiteral("01.000000"),
+                DateTimeExtractAndTransform.fromUnixTime(
+                        new DecimalV3Literal(new BigDecimal("0.999999500")), microsecondFormat));
+
+        Assertions.assertEquals(new VarcharLiteral("00.999999500"),
+                DateTimeExtractAndTransform.fromUnixTime(
+                        new DecimalV3Literal(new BigDecimal("0.999999500")),
+                        new VarcharLiteral("%s.%n")));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.fromUnixTime(
+                        new DecimalV3Literal(new BigDecimal("0.999999500")),
+                        new VarcharLiteral("%s.%f|%n")));
     }
 
     @Test
@@ -208,5 +284,49 @@ class DateTimeExtractAndTransformTest {
                         new DateTimeV2Literal("2021-10-31 03:00:00"),
                         new VarcharLiteral("Europe/Paris"),
                         new VarcharLiteral("UTC")));
+    }
+
+    // from_second and from_millisecond widen their argument to microseconds BEFORE the range
+    // check in fromMicroSecond runs. Without an overflow-checked multiply the product wraps back
+    // into the accepted range and folds to a bogus datetime instead of reporting the argument as
+    // out of range: 18446744073710 * 1_000_000 wraps to 448384, and 18446744073709552 * 1000
+    // wraps to 384. The BE rejects both, so only FE constant folding disagreed.
+    @Test
+    void testFromSecondRejectsOverflowingArgument() {
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.fromSecond(new BigIntLiteral(18446744073710L)));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.fromSecond(new BigIntLiteral(Long.MAX_VALUE)));
+
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.fromMilliSecond(new BigIntLiteral(18446744073709552L)));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.fromMilliSecond(new BigIntLiteral(Long.MAX_VALUE)));
+    }
+
+    // The pre-existing range check must keep rejecting a value that is out of range without
+    // overflowing, and negative arguments must still be rejected.
+    @Test
+    void testFromSecondStillRejectsOutOfRangeArgument() {
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.fromSecond(new BigIntLiteral(253402272000L)));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.fromSecond(new BigIntLiteral(-20L)));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.fromMilliSecond(new BigIntLiteral(-20L)));
+    }
+
+    // In-range arguments must still fold. The exact datetime depends on the session time zone,
+    // so this only asserts that folding happens and produces a datetime literal.
+    @Test
+    void testFromSecondStillFoldsInRangeArgument() {
+        Assertions.assertInstanceOf(DateTimeV2Literal.class,
+                DateTimeExtractAndTransform.fromSecond(new BigIntLiteral(0L)));
+        Assertions.assertInstanceOf(DateTimeV2Literal.class,
+                DateTimeExtractAndTransform.fromSecond(new BigIntLiteral(1735689600L)));
+        Assertions.assertInstanceOf(DateTimeV2Literal.class,
+                DateTimeExtractAndTransform.fromMilliSecond(new BigIntLiteral(1735689600000L)));
+        Assertions.assertInstanceOf(DateTimeV2Literal.class,
+                DateTimeExtractAndTransform.fromMicroSecond(new BigIntLiteral(1735689600000000L)));
     }
 }

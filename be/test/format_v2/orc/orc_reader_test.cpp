@@ -18,6 +18,7 @@
 #include "format_v2/orc/orc_reader.h"
 
 #include <cctz/time_zone.h>
+#include <errno.h>
 #include <gtest/gtest.h>
 #include <unistd.h>
 
@@ -4732,6 +4733,39 @@ TEST_F(NewOrcReaderTest, AggregatePushdownReturnsCountFromFileMetadata) {
     EXPECT_TRUE(aggregate_result.columns.empty());
 }
 
+// Only ENOENT-style errors map to NotFound so FileScannerV2 does not silently skip unhealthy splits.
+TEST_F(NewOrcReaderTest, InitKeepsInternalErrorForDirectory) {
+    auto system_properties = std::make_shared<io::FileSystemProperties>();
+    system_properties->system_type = TFileType::FILE_LOCAL;
+    auto file_description = std::make_unique<io::FileDescription>();
+    file_description->path = _test_dir; // open() on a directory succeeds, read fails with EISDIR
+    file_description->file_size = 4096;
+    format::orc::OrcReader reader(system_properties, file_description, nullptr, nullptr,
+                                  std::nullopt);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto st = reader.init(&state);
+    ASSERT_FALSE(st.ok());
+    EXPECT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st;
+}
+
+// ENOENT injected at the file layer surfaces as NotFound so FileScannerV2 can skip the split.
+TEST_F(NewOrcReaderTest, InitRestoresNotFoundFromReadFailure) {
+    const auto old_enable = config::enable_debug_points;
+    config::enable_debug_points = true;
+    const std::string point = "LocalFileReader::read_at_impl.io_error";
+    DebugPoints::instance()->add_with_params(point, {{"errno", std::to_string(ENOENT)}});
+
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto st = reader->init(&state);
+
+    DebugPoints::instance()->remove(point);
+    config::enable_debug_points = old_enable;
+
+    ASSERT_FALSE(st.ok());
+    EXPECT_TRUE(st.is<ErrorCode::NOT_FOUND>()) << st;
+}
+
 TEST_F(NewOrcReaderTest, AggregatePushdownCountUsesOnlySplitStripes) {
     const auto multi_stripe_file_path = (_test_dir / "aggregate_count_split.orc").string();
     write_multi_stripe_orc_int_file(multi_stripe_file_path);
@@ -6131,6 +6165,54 @@ TEST_F(NewOrcReaderTest, ConditionCacheHitSkipsFalseGranulesBeforeColumnRead) {
     ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
     EXPECT_TRUE(eof);
     EXPECT_EQ(rows, 0);
+}
+
+TEST_F(NewOrcReaderTest, ConditionCacheSeekReturnsCleanEofWhenCancelled) {
+    constexpr int64_t row_count = ConditionCacheContext::GRANULE_SIZE * 2;
+    const auto file_path = (_test_dir / "condition_cache_cancelled_seek.orc").string();
+    write_large_orc_int_file(file_path, row_count);
+
+    auto io_ctx = std::make_shared<io::IOContext>();
+    auto reader = create_reader_for_path(file_path, nullptr, io_ctx);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 1);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->non_predicate_columns = {field_projection(0)};
+    request->local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableInt32GreaterThanExpr>(
+                    0, ConditionCacheContext::GRANULE_SIZE)));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto ctx = std::make_shared<ConditionCacheContext>();
+    ctx->is_hit = true;
+    ctx->filter_result =
+            std::make_shared<std::vector<bool>>(std::vector<bool> {false, true, false});
+    reader->set_condition_cache_context(ctx);
+
+    int injection_count = 0;
+    ScopedDebugPoint debug_point(
+            "OrcReader._skip_condition_cache_false_granules.before_seek_to_row", [&]() {
+                ++injection_count;
+                io_ctx->should_stop = true;
+                throw ::orc::ParseError("stop");
+            });
+
+    Block block = build_file_block(schema);
+    size_t rows = 123;
+    bool eof = false;
+    auto status = reader->get_block(&block, &rows, &eof);
+    EXPECT_EQ(injection_count, 1);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(eof);
+    EXPECT_EQ(rows, 0);
+    EXPECT_EQ(block.rows(), 0);
 }
 
 TEST_F(NewOrcReaderTest, ConditionCacheHitHandlesSplitWithoutSelectedStripe) {

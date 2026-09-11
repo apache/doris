@@ -2,6 +2,18 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20260909
+
+- Modified: snappy 1.1.10 -> 1.2.1. Enable x86 SSE4.2 paths and AVX2 by default;
+  use `USE_AVX2=0` or `OFF` when building third-party libraries for a non-AVX2 BE.
+  Enable ARM CRC32 hashing through `ARM_MARCH` (default `armv8-a+crc`).
+  Retain RTTI for `SnappySlicesSource` and remove the sign-compare patch already
+  included upstream.
+
+## 20260824
+
+- Modified: thrift 0.16.0 -> 0.24.0
+
 ## 20260819
 
 - Added: `installed/include/hadoop_hdfs` and `installed/lib/hadoop_hdfs` are symlinks to
@@ -27,10 +39,6 @@ This file contains version of the third-party dependency libraries in the build-
 ## 20260816
 
 - Modified: hadoop-libs 3.4.2.3 -> 3.4.2.4
-
-## 20260814
-
-- Modified: hadoop-libs 3.4.2.2 -> 3.4.2.3
 
 ## 20260206
 

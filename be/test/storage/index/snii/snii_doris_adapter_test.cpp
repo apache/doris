@@ -317,9 +317,8 @@ Status resolve_prx_range(const doris::snii::reader::LogicalIndexReader& reader,
     doris::snii::format::FrqPreludeReader prelude;
     RETURN_IF_ERROR(doris::snii::reader::fetch_windowed_prelude(reader, entry, frq_base, &prelude));
     doris::snii::reader::WindowAbsRange window_range;
-    RETURN_IF_ERROR(doris::snii::reader::windowed_window_range(reader, entry, frq_base, prx_base,
-                                                               prelude, 0, /*want_positions=*/true,
-                                                               /*want_freq=*/false, &window_range));
+    RETURN_IF_ERROR(doris::snii::reader::windowed_window_range(
+            reader, entry, frq_base, prx_base, prelude, 0, /*want_positions=*/true, &window_range));
     range->offset = window_range.prx_off;
     range->len = window_range.prx_len;
     return Status::OK();
@@ -390,7 +389,9 @@ protected:
         _file_reader->_snii_segment_reader = std::move(segment_reader);
         _file_reader->_inited = true;
         _index_reader = SniiIndexReader::create_shared(&_meta, _file_reader,
-                                                       InvertedIndexReaderType::FULLTEXT);
+                                                       InvertedIndexReaderType::FULLTEXT,
+                                                       /*rows_of_segment=*/kDocCount,
+                                                       /*column_is_array=*/false);
 
         _previous_query_cache = ExecEnv::GetInstance()->get_inverted_index_query_cache();
         _query_cache.reset(InvertedIndexQueryCache::create_global_cache(1024 * 1024, 1));

@@ -69,7 +69,7 @@
 #include "storage/segment/column_meta_accessor.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_loader.h"
-#include "storage/segment/segment_writer.h"
+#include "storage/segment/vertical_segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_column_object_pool.h"
@@ -81,12 +81,12 @@ namespace doris::variant_segment_benchmark {
 namespace {
 
 // P0 workload: 200 top-level BIGINT paths, with one hot path and 29 additional paths per row.
-// Ingest cases parse the same canonical JSON before SegmentWriter. Read cases use the same
+// Ingest cases parse the same canonical JSON before VerticalSegmentWriter. Read cases use the same
 // V1-written physical segment and only switch the requested V1/V2 output representation. Input
 // generation, buffer destruction, warmup, checksum, physical-layout validation, and route
 // validation are paused. Scan-and-rewrite cases query key plus whole Variant from that prevalidated
 // source, then time scan/writer initialization, read, append, and destination finalize; destination
-// validation is paused. Ingest rotates SegmentWriter at
+// validation is paused. Ingest rotates VerticalSegmentWriter at
 // DORIS_VARIANT_BENCHMARK_ROWS_PER_SEGMENT; read cases retain their historical single-segment
 // semantics.
 constexpr uint32_t DEFAULT_ROWS = 1'000'000;
@@ -165,7 +165,7 @@ struct PreparedSegment {
 struct PreparedScan {
     PreparedSegment* fixture = nullptr;
     TabletSchemaSPtr query_schema;
-    SchemaSPtr scan_schema;
+    ReadSchemaSPtr scan_schema;
     ColumnId output_column_id = 0;
     ReadTarget target = ReadTarget::WHOLE;
 };
@@ -538,8 +538,8 @@ public:
 
         prepared->fixture = fixture;
         prepared->query_schema = std::move(query_schema);
-        prepared->scan_schema = std::make_shared<Schema>(prepared->query_schema->columns(),
-                                                         std::vector<ColumnId> {output_id});
+        prepared->scan_schema = std::make_shared<ReadSchema>(project_columns_by_ordinal(
+                prepared->query_schema->columns(), std::vector<ColumnId> {output_id}));
         prepared->output_column_id = output_id;
         prepared->target = target;
         return Status::OK();
@@ -553,10 +553,10 @@ public:
         if (key_id < 0 || root_id < 0) {
             return Status::InternalError("Variant rewrite benchmark columns are missing");
         }
-        prepared->scan_schema =
-                std::make_shared<Schema>(prepared->query_schema->columns(),
-                                         std::vector<ColumnId> {static_cast<ColumnId>(key_id),
-                                                                static_cast<ColumnId>(root_id)});
+        prepared->scan_schema = std::make_shared<ReadSchema>(
+                project_columns_by_ordinal(prepared->query_schema->columns(),
+                                           std::vector<ColumnId> {static_cast<ColumnId>(key_id),
+                                                                  static_cast<ColumnId>(root_id)}));
         return Status::OK();
     }
 
@@ -593,23 +593,18 @@ public:
         rowset_context.tablet_schema = destination_schema;
         rowset_context.tablet_path = _directory;
 
-        segment_v2::SegmentWriterOptions writer_options;
+        segment_v2::VerticalSegmentWriterOptions writer_options;
         writer_options.num_rows_per_block = BATCH_ROWS;
         writer_options.max_rows_per_segment = _rows_per_segment;
         writer_options.compression_type = CompressionTypePB::LZ4;
         writer_options.rowset_ctx = &rowset_context;
         writer_options.write_type = DataWriteType::TYPE_DIRECT;
-        segment_v2::SegmentWriter writer(file_writer.get(), 0, destination_schema, nullptr, nullptr,
-                                         writer_options, nullptr);
+        segment_v2::VerticalSegmentWriter writer(file_writer.get(), 0, destination_schema, nullptr,
+                                                 nullptr, writer_options, nullptr);
         RETURN_IF_ERROR(writer.init());
         result->writer_init_ns += elapsed_ns(writer_init_start);
 
-        const int32_t key_id = prepared.query_schema->field_index(KEY_UID);
-        const int32_t root_id = prepared.query_schema->field_index(ROOT_UID);
-        DORIS_CHECK_GE(key_id, 0);
-        DORIS_CHECK_GE(root_id, 0);
-        Block block = prepared.query_schema->create_block_by_cids(
-                {static_cast<uint32_t>(key_id), static_cast<uint32_t>(root_id)});
+        Block block = prepared.scan_schema->create_read_block();
         bool checked_representation = false;
         while (true) {
             const auto read_start = std::chrono::steady_clock::now();
@@ -643,8 +638,8 @@ public:
         }
 
         const auto finalize_start = std::chrono::steady_clock::now();
-        RETURN_IF_ERROR(writer.finalize(&result->destination_segment_bytes,
-                                        &result->destination_index_bytes));
+        RETURN_IF_ERROR(writer.finalize_columns(&result->destination_index_bytes));
+        RETURN_IF_ERROR(writer.finalize_footer(&result->destination_segment_bytes));
         result->finalize_ns += elapsed_ns(finalize_start);
         result->source_segment_bytes = prepared.fixture->segment_bytes;
         return Status::OK();
@@ -673,15 +668,15 @@ public:
                 rowset_context.tablet_schema = schema;
                 rowset_context.tablet_path = _directory;
 
-                segment_v2::SegmentWriterOptions options;
+                segment_v2::VerticalSegmentWriterOptions options;
                 options.num_rows_per_block = BATCH_ROWS;
                 options.max_rows_per_segment = _rows_per_segment;
                 options.compression_type = CompressionTypePB::LZ4;
                 options.rowset_ctx = &rowset_context;
                 options.write_type = DataWriteType::TYPE_DIRECT;
 
-                segment_v2::SegmentWriter writer(file_writer.get(), segment_id, schema, nullptr,
-                                                 nullptr, options, nullptr);
+                segment_v2::VerticalSegmentWriter writer(file_writer.get(), segment_id, schema,
+                                                         nullptr, nullptr, options, nullptr);
                 RETURN_IF_ERROR(writer.init());
                 result->init_ns += elapsed_ns(init_start);
 
@@ -725,7 +720,8 @@ public:
                 uint64_t bytes = 0;
                 uint64_t index_bytes = 0;
                 const auto finalize_start = std::chrono::steady_clock::now();
-                RETURN_IF_ERROR(writer.finalize(&bytes, &index_bytes));
+                RETURN_IF_ERROR(writer.finalize_columns(&index_bytes));
+                RETURN_IF_ERROR(writer.finalize_footer(&bytes));
                 result->finalize_ns += elapsed_ns(finalize_start);
                 result->segment_bytes += bytes;
                 result->index_bytes += index_bytes;
@@ -817,8 +813,7 @@ public:
         RowwiseIteratorUPtr iterator;
         RETURN_IF_ERROR(
                 prepared.fixture->segment->new_iterator(prepared.scan_schema, options, &iterator));
-        Block block = prepared.query_schema->create_block_by_cids(
-                {static_cast<uint32_t>(prepared.output_column_id)});
+        Block block = prepared.scan_schema->create_read_block();
         while (true) {
             Status status = iterator->next_batch(&block);
             if (status.is<ErrorCode::END_OF_FILE>()) {
@@ -1508,8 +1503,9 @@ private:
         };
         const uint32_t hot_id = append_path(HOT_PATH);
         const uint32_t sparse_id = append_path(SPARSE_PATH);
-        std::vector<uint32_t> return_columns {0, static_cast<uint32_t>(root_index), hot_id,
-                                              sparse_id};
+        auto read_schema = std::make_shared<ReadSchema>(project_columns_by_ordinal(
+                query_schema->columns(),
+                std::vector<ColumnId> {0, static_cast<ColumnId>(root_index), hot_id, sparse_id}));
 
         RowsetReaderSharedPtr reader;
         RETURN_IF_ERROR(output->create_reader(&reader));
@@ -1518,7 +1514,7 @@ private:
         context.reader_type = ReaderType::READER_QUERY;
         context.tablet_schema = query_schema;
         context.need_ordered_result = true;
-        context.return_columns = &return_columns;
+        context.read_schema = read_schema;
         context.stats = &statistics;
         RETURN_IF_ERROR(reader->init(&context));
 
@@ -1531,7 +1527,7 @@ private:
         uint32_t sparse_hits = 0;
         bool saw_current_compactor = false;
         while (true) {
-            Block block = query_schema->create_block_by_cids(return_columns);
+            Block block = read_schema->create_read_block();
             Status status = reader->next_batch(&block);
             if (status.is<ErrorCode::END_OF_FILE>()) {
                 break;

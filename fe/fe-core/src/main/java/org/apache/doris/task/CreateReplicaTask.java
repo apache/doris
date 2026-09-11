@@ -316,17 +316,21 @@ public class CreateReplicaTask extends AgentTask {
         int sequenceCol = -1;
         int versionCol = -1;
         int commitTsoCol = -1;
+        int rowLsnCol = -1;
         List<TColumn> tColumns = null;
         Object tCols = objectPool.get(columns);
         if (tCols != null) {
             tColumns = (List<TColumn>) tCols;
         } else {
             tColumns = new ArrayList<>();
+            Set<String> bfIndexColumns = Index.getBfIndexColumns(indexes);
             for (int i = 0; i < columns.size(); i++) {
                 Column column = columns.get(i);
                 TColumn tColumn = ColumnToThrift.toThrift(column);
+                String nonShadowColumnName = column.getNonShadowName();
                 // is bloom filter column
-                if (bfColumns != null && bfColumns.contains(column.getName())) {
+                if ((bfColumns != null && bfColumns.contains(nonShadowColumnName))
+                        || bfIndexColumns.contains(nonShadowColumnName)) {
                     tColumn.setIsBloomFilterColumn(true);
                 }
                 // when doing schema change, some modified column has a prefix in name.
@@ -354,12 +358,16 @@ public class CreateReplicaTask extends AgentTask {
             if (column.isCommitTsoColumn()) {
                 commitTsoCol = i;
             }
+            if (column.isRowLsnColumn()) {
+                rowLsnCol = i;
+            }
         }
         tSchema.setColumns(tColumns);
         tSchema.setDeleteSignIdx(deleteSign);
         tSchema.setSequenceColIdx(sequenceCol);
         tSchema.setVersionColIdx(versionCol);
         tSchema.setCommitTsoColIdx(commitTsoCol);
+        tSchema.setRowLsnColIdx(rowLsnCol);
         tSchema.setRowStoreColCids(rowStoreColumnUniqueIds);
         if (!CollectionUtils.isEmpty(clusterKeyUids)) {
             tSchema.setClusterKeyUids(clusterKeyUids);
@@ -381,7 +389,7 @@ public class CreateReplicaTask extends AgentTask {
             tSchema.setIndexes(tIndexes);
         }
 
-        if (bfColumns != null) {
+        if (bfColumns != null && !bfColumns.isEmpty()) {
             tSchema.setBloomFilterFpp(bfFpp);
         }
         tSchema.setIsInMemory(isInMemory);

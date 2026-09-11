@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.glue.translator;
 
+import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -40,6 +41,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -55,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -141,11 +144,23 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 + "'enable_unique_key_merge_on_write' = 'false',"
                 + "'sequence_mapping.s1' = 'v1',"
                 + "'sequence_mapping.s2' = 'v2');");
+        // Bump the base table with a real (positive) tso before creating the stream so that the
+        // stream records a positive consumption offset at creation time; hasConsumedData() only
+        // treats a positive offset as a real baseline, otherwise every partition would be pruned out
+        // of the snapshot scan.
+        Database database = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_db");
+        OlapTable binlogScanSchemaTable =
+                (OlapTable) database.getTableOrMetaException("binlog_scan_schema_t");
+        bumpPartitionsAndReplicas(binlogScanSchemaTable, 2L, 100L);
         createTable("create stream test_db.binlog_scan_schema_stream "
                 + "on table test_db.binlog_scan_schema_t properties('type' = 'append_only')");
-        Database database = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_db");
-        bumpPartitionsAndReplicas(
-                (OlapTable) database.getTableOrMetaException("binlog_scan_schema_t"), 2L);
+        // Advance the base table tso again after the stream is created so the partition has new data
+        // beyond the recorded consumption offset, driving the snapshot scan down the rebuild path
+        // (base scan wrapped in OlapTableWrapper unioned with the binlog before-image).
+        bumpPartitionsAndReplicas(binlogScanSchemaTable, 3L, 200L);
+        createTable("create table test_db.t_topn_lazy(c1 int, c2 int, c3 int) "
+                + "duplicate key(c1) distributed by hash(c1) buckets 1 "
+                + "properties('replication_num' = '1', 'light_schema_change' = 'true');");
         connectContext.getSessionVariable().setDisableNereidsRules("prune_empty_partition");
     }
 
@@ -237,10 +252,9 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 .collect(Collectors.toList());
 
         Assertions.assertTrue(scanColumns.containsAll(ImmutableList.of(
-                "k1", "k2", "v1", Column.generateBeforeColName("v1"),
+                "k1", "k2", "v1", "v2", Column.generateBeforeColName("v1"),
+                Column.generateBeforeColName("v2"),
                 Column.BINLOG_OPERATION_COL, Column.BINLOG_TSO_COL)));
-        Assertions.assertFalse(scanColumns.contains("v2"));
-        Assertions.assertFalse(scanColumns.contains(Column.generateBeforeColName("v2")));
         Assertions.assertFalse(scanColumns.contains(Column.BINLOG_LSN_COL));
 
         Assertions.assertTrue(scanNode.getExtraKeyColumnSlotIds().isEmpty());
@@ -404,7 +418,7 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         boolean oldDisableJoinReorder = connectContext.getSessionVariable().isDisableJoinReorder();
         try {
             connectContext.getSessionVariable().setRuntimeFilterType(TRuntimeFilterType.MIN_MAX.getValue());
-            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(false);
+            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(true);
             connectContext.getSessionVariable().setEnableRuntimeFilterPrune(false);
             connectContext.getSessionVariable().setDisableJoinReorder(true);
 
@@ -423,7 +437,7 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                     .orElseThrow();
             Assertions.assertEquals(2, partitionedScan.getSelectedPartitionIds().size());
 
-            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(true);
+            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(false);
             TPlanNode thriftScanNode = partitionedScan.treeToThrift().getNodes().get(0);
 
             Assertions.assertTrue(thriftScanNode.olap_scan_node.isSetPartitionBoundaries());
@@ -539,10 +553,10 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         return scanNodes;
     }
 
-    private static void bumpPartitionsAndReplicas(OlapTable table, long newVersion) {
+    private static void bumpPartitionsAndReplicas(OlapTable table, long newVersion, long tso) {
         for (Partition partition : table.getPartitions()) {
             long timestamp = System.currentTimeMillis();
-            partition.setVisibleVersionAndTime(newVersion, timestamp, timestamp);
+            partition.setVisibleVersionAndTime(newVersion, timestamp, tso);
             partition.setNextVersion(newVersion + 1);
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                 for (Tablet tablet : index.getTablets()) {
@@ -598,5 +612,88 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 ImmutableList.of(singleVariantSubColumnSlot)));
         Assertions.assertFalse(PhysicalPlanTranslator.canUseRowStoreForLazySlots(
                 ImmutableList.of(variantRootSlot, variantSubColumnSlot)));
+    }
+
+    @Test
+    public void testRootFragmentOutputExprsUseFinalAggregateTuple() throws Exception {
+        Planner planner = getSQLPlanner("select count(*) from test_db.t");
+        PlanFragment rootFragment = planner.getFragments().get(0);
+
+        Assertions.assertEquals(1, rootFragment.getOutputExprs().size());
+        Assertions.assertInstanceOf(AggregationNode.class, rootFragment.getPlanRoot());
+        Assertions.assertInstanceOf(SlotRef.class, rootFragment.getOutputExprs().get(0));
+
+        AggregationNode aggregationNode = (AggregationNode) rootFragment.getPlanRoot();
+        SlotRef outputExpr = (SlotRef) rootFragment.getOutputExprs().get(0);
+        TupleDescriptor outputTuple = planner.getDescTable().getTupleDesc(aggregationNode.getOutputTupleIds().get(0));
+
+        Assertions.assertEquals(outputTuple.getSlots().get(0).getId(), outputExpr.getDesc().getId());
+    }
+
+    @Test
+    public void testRootFragmentOutputExprsPruneTopNOrderByOnlySlots() throws Exception {
+        Planner planner = getSQLPlanner(
+                "select Status from tasks('type'='mv') order by CreateTime desc limit 1");
+        PlanFragment rootFragment = planner.getFragments().get(0);
+
+        Assertions.assertEquals(1, rootFragment.getOutputExprs().size());
+        Assertions.assertInstanceOf(SlotRef.class, rootFragment.getOutputExprs().get(0));
+        Assertions.assertEquals("Status", ((SlotRef) rootFragment.getOutputExprs().get(0)).getColumnName());
+    }
+
+    @Test
+    public void testCountDistinctNullFragmentOutputExprsAreBound() throws Exception {
+        Planner planner = getSQLPlanner("select count(distinct NULL) from test_db.t");
+
+        Assertions.assertNotNull(planner);
+        Assertions.assertFalse(planner.getFragments().isEmpty());
+        Assertions.assertEquals(1, planner.getFragments().get(0).getOutputExprs().size());
+        Assertions.assertInstanceOf(SlotRef.class, planner.getFragments().get(0).getOutputExprs().get(0));
+
+        for (PlanFragment fragment : planner.getFragments()) {
+            if (fragment.getOutputExprs() == null) {
+                continue;
+            }
+            for (Expr outputExpr : fragment.getOutputExprs()) {
+                Assertions.assertNotNull(outputExpr);
+            }
+        }
+    }
+
+    @Test
+    public void testComputedProjectionAboveDeferredTopNIsTranslated() throws Exception {
+        boolean originEnableTwoPhaseReadOpt = connectContext.getSessionVariable().enableTwoPhaseReadOpt;
+        long originTopnOptLimitThreshold = connectContext.getSessionVariable().topnOptLimitThreshold;
+        int originTopnLazyMaterializationThreshold =
+                connectContext.getSessionVariable().topNLazyMaterializationThreshold;
+        try {
+            connectContext.getSessionVariable().enableTwoPhaseReadOpt = true;
+            connectContext.getSessionVariable().topnOptLimitThreshold = 1000;
+            connectContext.getSessionVariable().topNLazyMaterializationThreshold = -1;
+
+            String sql = "select c1 + 1, c2 + 1 from "
+                    + "(select c1, c2 from test_db.t_topn_lazy order by c1 limit 10) t";
+            PlanChecker checker = PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .implement();
+            PhysicalPlan plan = checker.getPhysicalPlan();
+            plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+            PlanFragment rootFragment = new PhysicalPlanTranslator(
+                    new PlanTranslatorContext(checker.getCascadesContext())).translatePlan(plan);
+
+            Assertions.assertEquals(2, rootFragment.getOutputExprs().size());
+            rootFragment.getOutputExprs().forEach(Assertions::assertNotNull);
+            Assertions.assertTrue(rootFragment.getOutputExprs().stream().allMatch(SlotRef.class::isInstance));
+            Assertions.assertNotNull(rootFragment.getPlanRoot().getProjectList());
+            Assertions.assertEquals(2, rootFragment.getPlanRoot().getProjectList().size());
+            Assertions.assertTrue(rootFragment.getPlanRoot().getProjectList().stream()
+                    .allMatch(ArithmeticExpr.class::isInstance));
+        } finally {
+            connectContext.getSessionVariable().enableTwoPhaseReadOpt = originEnableTwoPhaseReadOpt;
+            connectContext.getSessionVariable().topnOptLimitThreshold = originTopnOptLimitThreshold;
+            connectContext.getSessionVariable().topNLazyMaterializationThreshold =
+                    originTopnLazyMaterializationThreshold;
+        }
     }
 }

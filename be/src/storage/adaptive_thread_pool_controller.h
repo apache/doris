@@ -80,7 +80,7 @@ public:
     static constexpr int kQueueThreshold = 10;
     static constexpr int kIOBusyThresholdPercent = 90;
     static constexpr int kCPUBusyThresholdPercent = 90;
-    static constexpr int kS3QueueBusyThreshold = 100;
+    static constexpr int kS3QueueBusyThreshold = 10;
 
     AdaptiveThreadPoolController() = default;
     ~AdaptiveThreadPoolController() { stop(); }

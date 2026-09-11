@@ -98,7 +98,8 @@ public class HudiConnectorHmsCacheTest {
     @Test
     public void invalidateTableFlushesCache() {
         FakeHmsClient delegate = new FakeHmsClient(ONE_PARTITION);
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        HudiConnector connector = connector();
+        CachingHmsClient cache = (CachingHmsClient) connector.wrapWithCache(delegate);
         // Populate the (db,t) partition-name cache: two reads = ONE delegate hit (cached).
         cache.listPartitionNames("db", "t", -1);
         cache.listPartitionNames("db", "t", -1);
@@ -106,7 +107,7 @@ public class HudiConnectorHmsCacheTest {
 
         // REFRESH TABLE -> the connector must flush this table from the cache (MUTATION: an empty override -> the
         // next read stays cached -> cachedCalls==1 -> red).
-        connector().invalidateTable(cache, "db", "t");
+        connector.invalidateTable("db", "t");
         cache.listPartitionNames("db", "t", -1);
         Assertions.assertEquals(2, delegate.cachedCalls, "after REFRESH TABLE the next read must miss the cache");
     }
@@ -114,12 +115,13 @@ public class HudiConnectorHmsCacheTest {
     @Test
     public void invalidateDbFlushesCache() {
         FakeHmsClient delegate = new FakeHmsClient(ONE_PARTITION);
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        HudiConnector connector = connector();
+        CachingHmsClient cache = (CachingHmsClient) connector.wrapWithCache(delegate);
         cache.listPartitionNames("db", "t", -1);
         cache.listPartitionNames("db", "t", -1);
         Assertions.assertEquals(1, delegate.cachedCalls);
 
-        connector().invalidateDb(cache, "db");
+        connector.invalidateDb("db");
         cache.listPartitionNames("db", "t", -1);
         Assertions.assertEquals(2, delegate.cachedCalls, "after REFRESH DATABASE the next read must miss the cache");
     }
@@ -127,12 +129,13 @@ public class HudiConnectorHmsCacheTest {
     @Test
     public void invalidateAllFlushesCache() {
         FakeHmsClient delegate = new FakeHmsClient(ONE_PARTITION);
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        HudiConnector connector = connector();
+        CachingHmsClient cache = (CachingHmsClient) connector.wrapWithCache(delegate);
         cache.listPartitionNames("db", "t", -1);
         cache.listPartitionNames("db", "t", -1);
         Assertions.assertEquals(1, delegate.cachedCalls);
 
-        connector().invalidateAll(cache);
+        connector.invalidateAll();
         cache.listPartitionNames("db", "t", -1);
         Assertions.assertEquals(2, delegate.cachedCalls, "after REFRESH CATALOG the next read must miss the cache");
     }

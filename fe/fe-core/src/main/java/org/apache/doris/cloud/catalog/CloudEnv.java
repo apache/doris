@@ -26,7 +26,9 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.CacheHotspotManager;
 import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.CloudWarmUpJob.JobState;
@@ -499,6 +501,70 @@ public class CloudEnv extends Env {
         if (this.clusterSnapshotFile != null) {
             this.cloudSnapshotHandler.cloneSnapshot(this.clusterSnapshotFile);
         }
+    }
+
+    @Override
+    public void compactTablet(long tabletId, String type) throws DdlException {
+        TabletMeta tabletMeta = Env.getCurrentInvertedIndex().getTabletMeta(tabletId);
+        if (tabletMeta == null) {
+            throw new DdlException("Unknown tablet: " + tabletId);
+        }
+
+        Database db = getInternalCatalog().getDbNullable(tabletMeta.getDbId());
+        if (db == null) {
+            throw new DdlException("Unknown database for tablet: " + tabletId);
+        }
+        Table table = db.getTableNullable(tabletMeta.getTableId());
+        if (!(table instanceof OlapTable)) {
+            throw new DdlException("Unknown OLAP table for tablet: " + tabletId);
+        }
+        OlapTable olapTable = (OlapTable) table;
+
+        List<PendingCloudCompactionTablet> pending = new ArrayList<>();
+        olapTable.readLock();
+        try {
+            Partition partition = olapTable.getPartition(tabletMeta.getPartitionId());
+            if (partition == null) {
+                throw new DdlException("Unknown partition for tablet: " + tabletId);
+            }
+            MaterializedIndex index = partition.getIndex(tabletMeta.getIndexId());
+            if (index == null || !index.getState().isVisible()) {
+                throw new DdlException("Tablet " + tabletId + " is not in a visible index");
+            }
+            Tablet tablet = index.getTablet(tabletId);
+            if (tablet == null) {
+                throw new DdlException("Tablet " + tabletId + " does not belong to its metadata index");
+            }
+
+            int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
+            LOG.info("Cloud tablet compaction. database={}, table={}, tablet={}, type={}",
+                    db.getFullName(), olapTable.getName(), tabletId, type);
+            for (Replica replica : tablet.getReplicas()) {
+                pending.add(new PendingCloudCompactionTablet(partition.getId(), index.getId(), tabletId,
+                        schemaHash, replica));
+            }
+        } finally {
+            olapTable.readUnlock();
+        }
+
+        AgentBatchTask batchTask = new AgentBatchTask();
+        for (PendingCloudCompactionTablet pendingTablet : pending) {
+            long backendId;
+            try {
+                backendId = pendingTablet.replica.getBackendId();
+            } catch (UserException e) {
+                throw new DdlException("failed to resolve backend for tablet " + tabletId
+                        + ": " + e.getMessage());
+            }
+            batchTask.addTask(new CompactionTask(backendId, db.getId(), olapTable.getId(),
+                    pendingTablet.partitionId, pendingTablet.indexId, pendingTablet.tabletId,
+                    pendingTablet.schemaHash, type));
+        }
+
+        if (batchTask.getTaskNum() == 0) {
+            throw new DdlException("No replica found for tablet: " + tabletId);
+        }
+        AgentTaskExecutor.submit(batchTask);
     }
 
     @Override

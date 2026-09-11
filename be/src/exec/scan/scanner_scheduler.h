@@ -138,7 +138,11 @@ public:
 protected:
     int _min_active_scan_threads;
 
-private:
+    // Execute one admitted task for both scheduler implementations. The return value is consumed
+    // by TaskExecutor to distinguish terminal EOS/error tasks from scanners that remain runnable.
+    static bool execute_scan_task(const std::shared_ptr<ScannerContext>& ctx,
+                                  const std::shared_ptr<ScanTask>& scan_task);
+
     static void _scanner_scan(std::shared_ptr<ScannerContext> ctx,
                               std::shared_ptr<ScanTask> scan_task);
 
@@ -240,12 +244,13 @@ public:
                               std::unique_lock<std::mutex>& transfer_lock) override;
 
 private:
+    void _run_context(std::shared_ptr<ScannerContext> scanner_ctx);
+
     std::unique_ptr<ThreadPool> _scan_thread_pool;
     std::atomic<bool> _is_stop;
     std::weak_ptr<CgroupCpuCtl> _cgroup_cpu_ctl;
     std::string _sched_name;
     std::string _workload_group;
-    std::shared_mutex _lock;
 };
 
 class TaskExecutorSimplifiedScanScheduler final : public ScannerScheduler {

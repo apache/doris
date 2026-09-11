@@ -26,6 +26,8 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.BuiltinFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.LambdaBindingSpec;
+import org.apache.doris.nereids.trees.expressions.functions.LambdaBindingSpecs;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseToVariant;
@@ -108,6 +110,23 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
         Expression canonicalFunction = canonicalBuilder.build("bitmap_and_not_count", arguments).first;
         Assertions.assertInstanceOf(BitmapAndNotCount.class, canonicalFunction);
         Assertions.assertFalse(canonicalFunction.nullable());
+    }
+
+    @Test
+    public void testLambdaBindingSpecComesFromFunctionRegistration() {
+        FunctionRegistry functionRegistry = new FunctionRegistry();
+
+        assertLambdaBindingSpec(functionRegistry, "array_map", LambdaBindingSpecs.ARRAY_ZIP);
+        assertLambdaBindingSpec(functionRegistry, "array_sort", LambdaBindingSpecs.ARRAY_COMPARATOR);
+        assertLambdaBindingSpec(functionRegistry, "map_filter", LambdaBindingSpecs.MAP_ENTRIES);
+        Assertions.assertTrue(functionRegistry.tryGetBuiltinBuilders("abs").get().stream()
+                .allMatch(builder -> !builder.getLambdaBindingSpec().isPresent()));
+    }
+
+    private void assertLambdaBindingSpec(
+            FunctionRegistry functionRegistry, String functionName, LambdaBindingSpec expectedSpec) {
+        Assertions.assertTrue(functionRegistry.tryGetBuiltinBuilders(functionName).get().stream()
+                .allMatch(builder -> builder.getLambdaBindingSpec().orElse(null) == expectedSpec));
     }
 
     @Test

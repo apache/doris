@@ -18,13 +18,14 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.CacheSpec;
-import org.apache.doris.connector.cache.MetaCacheEntry;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 
-import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 
-import java.util.concurrent.ForkJoinPool;
 import java.util.function.Supplier;
 
 /**
@@ -44,7 +45,7 @@ import java.util.function.Supplier;
  * the partition style must come from that same metadata generation; otherwise later spec evolution could make
  * an empty scan expose live partition metadata.
  *
- * <p>Backed by the shared {@link MetaCacheEntry} framework (independent-copy meta-cache migration): a
+ * <p>Backed by the shared {@link MetaCache} framework (independent-copy meta-cache migration): a
  * contextual, access-TTL entry whose per-query loader is supplied at {@link #getOrLoad}. TTL is
  * {@code meta.cache.iceberg.table.ttl-second}: {@code <= 0} disables caching (every read goes live, matching
  * the legacy "no-cache" catalog); a positive value is Caffeine {@code expireAfterAccess} with a
@@ -72,18 +73,26 @@ final class IcebergLatestSnapshotCache {
         }
     }
 
-    private final MetaCacheEntry<TableIdentifier, CachedSnapshot> entry;
+    private final CatalogMetaCache owner;
+    private final MetaCache<TableIdentifier, CachedSnapshot> entry;
 
     IcebergLatestSnapshotCache(long ttlSeconds, int maxSize) {
+        this(new CatalogMetaCache(), ttlSeconds, maxSize);
+    }
+
+    IcebergLatestSnapshotCache(CatalogMetaCache owner, long ttlSeconds, int maxSize) {
+        this.owner = owner;
         // "<= 0 disables" connector TTL contract, folded to CacheSpec's disable sentinel (CacheSpec.ofConnectorTtl).
         CacheSpec spec = CacheSpec.ofConnectorTtl(ttlSeconds, maxSize);
-        this.entry = new MetaCacheEntry<>("iceberg-latest-snapshot", null, spec,
-                ForkJoinPool.commonPool(), false, true, 0L, true);
+        this.entry = owner.create(MetaCacheDefinition
+                .<TableIdentifier, CachedSnapshot>builder(
+                        "iceberg-latest-snapshot", spec, IcebergLatestSnapshotCache::scope)
+                .build());
     }
 
     /** Caching is on only when the TTL is positive; ttl-second &lt;= 0 means "always read live". */
     boolean isEnabled() {
-        return entry.stats().isEffectiveEnabled();
+        return entry.isEnabled();
     }
 
     /**
@@ -99,7 +108,7 @@ final class IcebergLatestSnapshotCache {
 
     /** Drops the cached entry for one table so the next read goes live (REFRESH TABLE). */
     void invalidate(TableIdentifier identifier) {
-        entry.invalidateKey(identifier);
+        owner.invalidateTable(identifier.namespace().toString(), identifier.name());
     }
 
     /**
@@ -109,19 +118,20 @@ final class IcebergLatestSnapshotCache {
      * {@code IcebergConnectorMetadata.beginQuerySnapshot}), so a db match is namespace equality.
      */
     void invalidateDb(String dbName) {
-        Namespace ns = Namespace.of(dbName);
-        entry.invalidateIf(id -> id.namespace().equals(ns));
+        owner.invalidateDatabase(dbName);
     }
 
     /** Drops all cached entries. */
     void invalidateAll() {
-        entry.invalidateAll();
+        owner.invalidateCatalog();
     }
 
     /** Test-only: current number of cached entries (accurate map membership, not Caffeine's estimate). */
     int size() {
-        int[] count = {0};
-        entry.forEach((key, value) -> count[0]++);
-        return count[0];
+        return Math.toIntExact(entry.size());
+    }
+
+    private static ScopePath scope(TableIdentifier identifier) {
+        return ScopePath.table(identifier.namespace().toString(), identifier.name());
     }
 }

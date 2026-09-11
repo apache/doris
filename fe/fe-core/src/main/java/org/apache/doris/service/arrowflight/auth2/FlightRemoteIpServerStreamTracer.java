@@ -33,7 +33,7 @@ import java.net.SocketAddress;
  * seed the remote IP into the gRPC Context for Basic credential validation.
  */
 public class FlightRemoteIpServerStreamTracer extends ServerStreamTracer {
-    static final String UNKNOWN_REMOTE_IP = "0.0.0.0";
+    public static final String UNKNOWN_REMOTE_IP = "0.0.0.0";
     private static final Context.Key<RemoteIpHolder> REMOTE_IP_CONTEXT_KEY =
             Context.key("doris.arrow.flight.remote_ip");
 

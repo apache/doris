@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_backup_restore_colocate", "backup_restore,external") {
+    // Prevent CBO from masking restored colocate metadata with a broadcast plan for these tiny tables.
+    sql "set broadcast_row_count_limit = 0"
+
     String suiteName = "test_backup_restore_colocate"
     String repoName = "${suiteName}_repo_" + UUID.randomUUID().toString().replace("-", "")
     String dbName = "${suiteName}_db"
@@ -352,6 +355,9 @@ suite("test_backup_restore_colocate", "backup_restore,external") {
 }
 
 suite("test_backup_restore_colocate_with_partition", "backup_restore") {
+    // Prevent CBO from masking restored colocate metadata with a broadcast plan for these tiny tables.
+    sql "set broadcast_row_count_limit = 0"
+
     String suiteName = "test_backup_restore_colocate_with_partition"
     String repoName = "${suiteName}_repo_" + UUID.randomUUID().toString().replace("-", "")
     String dbName = "${suiteName}_db"
