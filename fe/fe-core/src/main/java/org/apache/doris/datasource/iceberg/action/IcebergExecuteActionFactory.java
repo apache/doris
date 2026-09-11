@@ -46,6 +46,7 @@ public class IcebergExecuteActionFactory {
     public static final String REWRITE_DATA_FILES = "rewrite_data_files";
     public static final String PUBLISH_CHANGES = "publish_changes";
     public static final String REWRITE_MANIFESTS = "rewrite_manifests";
+    public static final String COMPUTE_PARTITION_STATS = "compute_partition_stats";
 
     /**
      * Create an Iceberg-specific ExecuteAction instance.
@@ -94,6 +95,9 @@ public class IcebergExecuteActionFactory {
             case REWRITE_MANIFESTS:
                 return new IcebergRewriteManifestsAction(properties, partitionNamesInfo,
                         whereCondition, metadataOps);
+            case COMPUTE_PARTITION_STATS:
+                return new IcebergComputePartitionStatsAction(properties, partitionNamesInfo,
+                        whereCondition, metadataOps);
             default:
                 throw new DdlException("Unsupported Iceberg procedure: " + actionType
                         + ". Supported procedures: " + String.join(", ", getSupportedActions()));
@@ -133,7 +137,8 @@ public class IcebergExecuteActionFactory {
                 EXPIRE_SNAPSHOTS,
                 REWRITE_DATA_FILES,
                 PUBLISH_CHANGES,
-                REWRITE_MANIFESTS
+                REWRITE_MANIFESTS,
+                COMPUTE_PARTITION_STATS
         };
     }
 }
