@@ -35,6 +35,8 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.load.LoadJobInfoFormatter;
+import org.apache.doris.load.LoadJobHistoryRecord;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -43,6 +45,7 @@ import org.apache.doris.persist.CleanLabelOperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TLoadJob;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -611,6 +614,92 @@ public class LoadManager implements Writable {
         } finally {
             readUnlock();
         }
+    }
+
+    /**
+     * Returns final-state (FINISHED / CANCELLED) load jobs whose finish timestamp is
+     * >= minFinishTimeMs. Used by {@link org.apache.doris.load.LoadsHistorySyncer} to persist
+     * unified history snapshots into loads_history; running, pending or retrying jobs never
+     * enter the history table.
+     */
+    public List<LoadJob> getFinalStateJobs(long minFinishTimeMs) {
+        return idToLoadJob.values().stream()
+                .filter(job -> job.getState().isFinalState())
+                .filter(job -> job.getFinishTimestamp() >= minFinishTimeMs)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Collect final-state (FINISHED / CANCELLED) LoadManager jobs with finish timestamp
+     * >= minFinishTimeMs as unified loads_history records. Used by
+     * {@link org.apache.doris.load.LoadsHistorySyncer}.
+     *
+     * <p>The dedup key for a job that has a job id is {@code TYPE + ":" + JOB_ID}; job id is
+     * globally unique and persisted, so re-scanning the same job upserts the same history row.
+     * Running / pending / retrying jobs are excluded by {@link #getFinalStateJobs(long)}.
+     */
+    public List<LoadJobHistoryRecord> getLoadJobHistoryRecords(long minFinishTimeMs) {
+        List<LoadJobHistoryRecord> records = Lists.newArrayList();
+        for (LoadJob job : getFinalStateJobs(minFinishTimeMs)) {
+            try {
+                TLoadJob row = toTLoadJob(job.getShowInfo());
+                if (row == null) {
+                    continue;
+                }
+                String recordKey = row.getType() + ":" + row.getJobId();
+                records.add(new LoadJobHistoryRecord(recordKey, job.getFinishTimestamp(), row));
+            } catch (Exception e) {
+                LOG.warn("Skip load job for loads_history, job id: {}", job.getId(), e);
+            }
+        }
+        return records;
+    }
+
+    /**
+     * Maps one row of {@link LoadJob#getShowInfo()} (LOAD_TITLE_NAMES order) to the unified
+     * TLoadJob row served by information_schema.loads. Kept here so the fetchLoadJob RPC and
+     * the loads_history sync interpret show info identically. Returns null when the row is
+     * shorter than the legacy 20-field SHOW LOAD row.
+     */
+    public static TLoadJob toTLoadJob(List<Comparable> jobInfo) {
+        if (jobInfo == null || jobInfo.size() < 20) {
+            return null;
+        }
+        TLoadJob tJob = new TLoadJob();
+        // Based on LOAD_TITLE_NAMES order:
+        // JobId, Label, State, Progress, Type, EtlInfo, TaskInfo, ErrorMsg, CreateTime,
+        // EtlStartTime, EtlFinishTime, LoadStartTime, LoadFinishTime, URL, JobDetails,
+        // TransactionId, ErrorTablets, User, Comment, FirstErrorMsg
+        tJob.setJobId(String.valueOf(jobInfo.get(0)));
+        tJob.setLabel(String.valueOf(jobInfo.get(1)));
+        tJob.setState(String.valueOf(jobInfo.get(2)));
+        tJob.setProgress(String.valueOf(jobInfo.get(3)));
+        tJob.setType(String.valueOf(jobInfo.get(4)));
+        tJob.setEtlInfo(LoadJobInfoFormatter.buildEtlInfo(
+                String.valueOf(jobInfo.get(5)),
+                String.valueOf(jobInfo.get(9)),
+                String.valueOf(jobInfo.get(10))));
+        tJob.setTaskInfo(LoadJobInfoFormatter.buildTaskInfo(
+                String.valueOf(jobInfo.get(6)),
+                String.valueOf(jobInfo.get(14))));
+        tJob.setErrorMsg(String.valueOf(jobInfo.get(7)));
+        tJob.setCreateTime(String.valueOf(jobInfo.get(8)));
+        tJob.setEtlStartTime(String.valueOf(jobInfo.get(9)));
+        tJob.setEtlFinishTime(String.valueOf(jobInfo.get(10)));
+        tJob.setLoadStartTime(String.valueOf(jobInfo.get(11)));
+        tJob.setLoadFinishTime(String.valueOf(jobInfo.get(12)));
+        tJob.setUrl(String.valueOf(jobInfo.get(13)));
+        tJob.setJobDetails(String.valueOf(jobInfo.get(14)));
+        tJob.setTransactionId(String.valueOf(jobInfo.get(15)));
+        tJob.setErrorTablets(String.valueOf(jobInfo.get(16)));
+        tJob.setUser(String.valueOf(jobInfo.get(17)));
+        tJob.setComment(String.valueOf(jobInfo.get(18)));
+        tJob.setFirstErrorMsg(String.valueOf(jobInfo.get(19)));
+        tJob.setErrorDetail(LoadJobInfoFormatter.buildErrorDetail(
+                String.valueOf(jobInfo.get(13)),
+                String.valueOf(jobInfo.get(16)),
+                String.valueOf(jobInfo.get(7))));
+        return tJob;
     }
 
     public List<List<Comparable>> getAllLoadJobInfos() {

@@ -52,6 +52,12 @@ public:
     Status get_batch(const std::string& start, int batch_size,
                      std::map<std::string, std::string>* stream_load_records);
 
+    // Return the newest `count` records (descending finish-time order). Used by the
+    // information_schema.loads on-demand read so one call per BE returns the most recent
+    // records without forward-pagination from the oldest entry.
+    Status get_batch_desc(int count,
+                          std::map<std::string, std::string>* stream_load_records);
+
 private:
     std::string _root_path;
     std::unique_ptr<rocksdb::DBWithTTL> _db;

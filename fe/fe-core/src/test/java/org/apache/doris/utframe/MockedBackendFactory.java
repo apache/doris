@@ -421,6 +421,11 @@ public class MockedBackendFactory {
         }
 
         @Override
+        public TStreamLoadRecordResult getStreamLoadRecordDesc(long count) throws TException {
+            return new TStreamLoadRecordResult(Maps.newHashMap());
+        }
+
+        @Override
         public TCheckStorageFormatResult checkStorageFormat() throws TException {
             return new TCheckStorageFormatResult();
         }
