@@ -22,6 +22,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/stream_sink_file_writer.h"
 #include "storage/index/index_file_writer.h"
+#include "storage/index/index_writer.h"
 #include "storage/olap_common.h"
 
 namespace doris {

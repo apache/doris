@@ -31,6 +31,7 @@
 #include "load/channel/load_stream_mgr.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/frontend_info.h"
+#include "storage/index/index_writer.h" // TmpFileDirs, completed here rather than in the header
 #include "storage/olap_define.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
@@ -43,6 +44,9 @@ namespace doris {
 void ExecEnv::set_inverted_index_searcher_cache(
         segment_v2::InvertedIndexSearcherCache* inverted_index_searcher_cache) {
     _inverted_index_searcher_cache = inverted_index_searcher_cache;
+}
+void ExecEnv::set_tmp_file_dir(std::unique_ptr<segment_v2::TmpFileDirs> tmp_file_dirs) {
+    _tmp_file_dirs = std::move(tmp_file_dirs);
 }
 void ExecEnv::set_storage_engine(std::unique_ptr<BaseStorageEngine>&& engine) {
     _storage_engine = std::move(engine);

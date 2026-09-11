@@ -23,6 +23,7 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_storage_format_v1.h"
 #include "storage/index/index_storage_format_v2.h"
+#include "storage/index/index_writer.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/storage_engine.h"
 

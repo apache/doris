@@ -36,7 +36,6 @@
 #include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/cluster_info.h"
 #include "runtime/frontend_info.h" // TODO(zhiqiang): find a way to remove this include header
-#include "storage/index/inverted/inverted_index_writer.h"
 #include "storage/options.h"
 #include "storage/tablet/tablet_fwd.h"
 #include "util/threadpool.h"
@@ -318,11 +317,14 @@ public:
     }
 
 #ifdef BE_TEST
-    void set_tmp_file_dir(std::unique_ptr<segment_v2::TmpFileDirs> tmp_file_dirs) {
-        this->_tmp_file_dirs = std::move(tmp_file_dirs);
-    }
-    void set_ready() { this->_s_ready = true; }
-    void set_not_ready() { this->_s_ready = false; }
+    // Defined out of line on purpose: assigning the unique_ptr destroys the old
+    // pointee, which would require TmpFileDirs to be COMPLETE in every translation
+    // unit that includes this header -- and this header is included by most of the
+    // backend. Keeping the body in the .cpp lets the forward declaration above
+    // suffice.
+    void set_tmp_file_dir(std::unique_ptr<segment_v2::TmpFileDirs> tmp_file_dirs);
+    void set_ready() { _s_ready = true; }
+    void set_not_ready() { _s_ready = false; }
     void set_memtable_memory_limiter(MemTableMemoryLimiter* limiter) {
         _memtable_memory_limiter.reset(limiter);
     }
