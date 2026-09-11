@@ -17,6 +17,7 @@
 
 #include "io/cache/partial_block_writeback_manager.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <iterator>
@@ -106,6 +107,8 @@ struct PartialBlockWritebackManager::Task {
     CacheAdmissionContext admission_ctx;
     AsyncCacheWriteEpoch write_epoch;
     FileRangeReadIOContext io_context;
+    // Set at successful queue admission under the manager mutex; merges leave it unchanged.
+    std::chrono::steady_clock::time_point enqueued_at;
     // Valid only while this task is in the manager queue; accessed under the manager mutex.
     Queue::iterator queue_position;
     // A queued task may absorb foreground fragments while unrelated queue operations proceed.
@@ -169,6 +172,9 @@ Status PartialBlockWritebackOptions::validate() const {
     if (remote_read_thread_count <= 0) {
         return Status::InvalidArgument("partial block remote-read thread count must be positive");
     }
+    if (merge_delay_ms < 0) {
+        return Status::InvalidArgument("partial block merge delay must be nonnegative");
+    }
     if (max_pending_bytes < block_size) {
         return Status::InvalidArgument(
                 "partial block writeback pending bytes {} must hold at least one block of {} bytes",
@@ -180,6 +186,7 @@ Status PartialBlockWritebackOptions::validate() const {
 PartialBlockWritebackManager::PartialBlockWritebackManager(PartialBlockWritebackOptions options)
         : _options(std::move(options)),
           _max_pending_tasks(_options.max_pending_bytes / _options.block_size),
+          _merge_delay(_options.merge_delay_ms),
           _configured_worker_count(_options.worker_count) {
     DORIS_CHECK(_max_pending_tasks > 0);
     read_ahead_bvars().hole_fill_pending_bytes << 0;
@@ -377,6 +384,7 @@ PartialBlockWritebackManager::EnqueueResult PartialBlockWritebackManager::_enque
             DORIS_CHECK(inserted);
             static_cast<void>(entry);
         }
+        candidate->enqueued_at = std::chrono::steady_clock::now();
         if (discarded_task != nullptr) {
             read_ahead_bvars().hole_fill_dropped_blocks << 1;
         } else {
@@ -475,6 +483,15 @@ Status PartialBlockWritebackManager::resize_remote_read_threads(int remote_read_
     return _remote_read_pool->set_max_threads(remote_read_thread_count);
 }
 
+void PartialBlockWritebackManager::set_merge_delay_ms(int32_t merge_delay_ms) {
+    DORIS_CHECK(merge_delay_ms >= 0);
+    {
+        std::lock_guard lock(_mutex);
+        _merge_delay = std::chrono::milliseconds(merge_delay_ms);
+    }
+    _queue_cv.notify_all();
+}
+
 void PartialBlockWritebackManager::_stop_workers_locked(size_t keep_worker_count) {
     DORIS_CHECK(keep_worker_count <= _workers.size());
     if (keep_worker_count == _workers.size()) {
@@ -535,9 +552,12 @@ PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::_take_task(
                 return nullptr;
             }
 
-            task = _take_runnable_task_locked(&discarded_tasks);
+            auto next_wakeup = std::chrono::steady_clock::time_point::max();
+            task = _take_runnable_task_locked(&discarded_tasks, &next_wakeup);
             if (task == nullptr && discarded_tasks.empty()) {
-                _queue_cv.wait_for(lock, kCapacityRetryInterval);
+                // A queued task must have supplied an aggregation deadline or a capacity retry time.
+                DCHECK(next_wakeup != std::chrono::steady_clock::time_point::max());
+                _queue_cv.wait_until(lock, next_wakeup);
             }
         }
         if (task != nullptr) {
@@ -547,14 +567,22 @@ PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::_take_task(
 }
 
 PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::_take_runnable_task_locked(
-        Queue* discarded_tasks) {
+        Queue* discarded_tasks, std::chrono::steady_clock::time_point* next_wakeup) {
     DORIS_CHECK(discarded_tasks != nullptr);
+    const auto now = std::chrono::steady_clock::now();
     for (auto iterator = _queue.begin(); iterator != _queue.end();) {
         const auto& candidate = *iterator;
         DORIS_CHECK(!candidate->is_active());
         if (candidate->should_discard_before_read()) {
             const auto discarded = iterator++;
             _discard_queued_task_locked(discarded, discarded_tasks);
+            continue;
+        }
+
+        const auto ready_at = candidate->enqueued_at + _merge_delay;
+        if (now < ready_at) {
+            *next_wakeup = std::min(*next_wakeup, ready_at);
+            ++iterator;
             continue;
         }
 
@@ -572,6 +600,7 @@ PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::_take_runnab
             read_ahead_bvars().hole_fill_active_blocks << 1;
             return task;
         }
+        *next_wakeup = std::min(*next_wakeup, now + kCapacityRetryInterval);
         ++iterator;
     }
     return nullptr;

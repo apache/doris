@@ -337,6 +337,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                 .block_size = cast_set<size_t>(config::file_cache_each_block_size),
                 .worker_count = cast_set<size_t>(config::hole_fill_workers_per_be),
                 .remote_read_thread_count = config::hole_fill_remote_read_threads_per_be,
+                .merge_delay_ms = config::hole_fill_merge_delay_ms,
                 .max_pending_bytes = cast_set<size_t>(config::hole_fill_max_pending_bytes_per_be),
                 .hole_fill_coalesce =
                         {
@@ -1118,6 +1119,13 @@ DEFINE_ON_UPDATE(hole_fill_remote_read_threads_per_be, [](int32_t old_value, int
     if (manager != nullptr && old_value != new_value) {
         WARN_IF_ERROR(manager->resize_remote_read_threads(new_value),
                       "Failed to resize partial block remote-read pool");
+    }
+});
+
+DEFINE_ON_UPDATE(hole_fill_merge_delay_ms, [](int32_t, int32_t new_value) {
+    auto* manager = ExecEnv::GetInstance()->partial_block_writeback_manager();
+    if (manager != nullptr) {
+        manager->set_merge_delay_ms(new_value);
     }
 });
 

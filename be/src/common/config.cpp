@@ -1767,6 +1767,9 @@ DEFINE_Validator(hole_fill_workers_per_be, [](int32_t value) { return value > 0 
 // With 32 block workers, allow two pooled hole reads per active block on average.
 DEFINE_mInt32(hole_fill_remote_read_threads_per_be, "64");
 DEFINE_Validator(hole_fill_remote_read_threads_per_be, [](int32_t value) { return value > 0; });
+// Minimum aggregation time from first partial-block admission; zero disables the delay.
+DEFINE_mInt32(hole_fill_merge_delay_ms, "10"); // 10 ms
+DEFINE_Validator(hole_fill_merge_delay_ms, [](int32_t value) { return value >= 0; });
 // Enable segment file cache block prefetch for compaction
 DEFINE_mBool(enable_compaction_segment_file_cache_prefetch, "false");
 // Number of blocks to prefetch ahead in segment iterator for compaction
