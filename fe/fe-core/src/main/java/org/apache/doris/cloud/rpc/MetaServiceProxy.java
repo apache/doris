@@ -476,6 +476,12 @@ public class MetaServiceProxy {
                 Cloud.GetTsoRecoveryTransactionsResponse::getStatus);
     }
 
+    public Cloud.AdvanceTsoFenceResponse advanceTsoFence(Cloud.AdvanceTsoFenceRequest request)
+            throws RpcException {
+        return executeWithMetrics("advanceTsoFence", (client) -> client.advanceTsoFence(request),
+                Cloud.AdvanceTsoFenceResponse::getStatus);
+    }
+
     public Cloud.CleanTxnLabelResponse cleanTxnLabel(Cloud.CleanTxnLabelRequest request)
             throws RpcException {
         return executeWithMetrics("cleanTxnLabel", (client) -> client.cleanTxnLabel(request),

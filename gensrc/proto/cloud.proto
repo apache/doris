@@ -514,6 +514,11 @@ message TxnIndexPB {
     optional int64 parent_txn_id = 2;
 }
 
+// Current-state FE master epoch fence. This key is intentionally not versioned.
+message TxnTsoFencePB {
+    optional int64 fence_tso = 1;
+}
+
 message TxnInfoPB {
     optional int64 db_id = 1;
     repeated int64 table_ids = 2;
@@ -1115,6 +1120,8 @@ message CommitTxnResponse {
     // The lazy commit has only completed its first phase. FE must not notify BE to make
     // temporary rowsets visible until BE observes the final metadata from meta-service.
     optional bool is_lazy_commit_incomplete = 9;
+    // The current master fence when commit_tso is rejected as stale.
+    optional int64 tso_fence = 10;
 }
 
 message AbortTxnRequest {
@@ -1264,6 +1271,8 @@ message GetTsoRecoveryTransactionsRequest {
     optional int32 batch_size = 3;
     optional bytes start_key = 4;
     optional string request_ip = 5;
+    // Only committed TSO transactions at or below this inclusive fence are recovered.
+    optional int64 tso_fence = 6;
 }
 
 message GetTsoRecoveryTransactionsResponse {
@@ -1272,6 +1281,18 @@ message GetTsoRecoveryTransactionsResponse {
     repeated TxnInfoPB txn_infos = 2;
     // Always present on success; empty means the full instance has been scanned.
     optional bytes next_start_key = 3;
+}
+
+message AdvanceTsoFenceRequest {
+    optional string cloud_unique_id = 1; // For auth
+    // Inclusive upper bound rejected by transaction commit.
+    optional int64 proposed_fence_tso = 2;
+    optional string request_ip = 3;
+}
+
+message AdvanceTsoFenceResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional int64 tso_fence = 2;
 }
 
 message CleanTxnLabelRequest {
@@ -1967,6 +1988,8 @@ enum MetaServiceCode {
     STALE_TABLET_CACHE = 2012;
     STALE_PREPARE_ROWSET = 2013;
     TXN_ALREADY_COMMITED = 2014;
+    // The transaction commit TSO belongs to an earlier FE master epoch.
+    TXN_COMMIT_TSO_FENCED = 2015;
 
     CLUSTER_NOT_FOUND = 3001;
     ALREADY_EXISTED = 3002;
@@ -2427,6 +2450,7 @@ service MetaService {
     rpc create_meta_sync_point(CreateMetaSyncPointRequest) returns (CreateMetaSyncPointResponse);
     rpc check_txn_conflict(CheckTxnConflictRequest) returns (CheckTxnConflictResponse);
     rpc get_tso_recovery_transactions(GetTsoRecoveryTransactionsRequest) returns (GetTsoRecoveryTransactionsResponse);
+    rpc advance_tso_fence(AdvanceTsoFenceRequest) returns (AdvanceTsoFenceResponse);
     rpc clean_txn_label(CleanTxnLabelRequest) returns (CleanTxnLabelResponse);
     rpc get_txn_id(GetTxnIdRequest) returns (GetTxnIdResponse);
     rpc begin_sub_txn(BeginSubTxnRequest) returns (BeginSubTxnResponse);

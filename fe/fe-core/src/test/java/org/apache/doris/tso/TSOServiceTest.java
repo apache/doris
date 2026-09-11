@@ -58,6 +58,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -67,6 +68,7 @@ public class TSOServiceTest {
 
     private TSOService tsoService;
     private Env env;
+    private GlobalTransactionMgrIface globalTxnMgr;
     private MockedStatic<Env> mockedEnv;
 
     private int originalMaxGetTSORetryCount;
@@ -76,7 +78,7 @@ public class TSOServiceTest {
     private long originalClockBackwardThresholdMs;
 
     @BeforeEach
-    public void setUp() {
+    public void setUp() throws Exception {
         mockedEnv = Mockito.mockStatic(Env.class);
 
         originalMaxGetTSORetryCount = Config.tso_max_get_retry_count;
@@ -92,7 +94,11 @@ public class TSOServiceTest {
         Config.tso_clock_backward_startup_threshold_ms = 30L * 60 * 1000;
 
         env = Mockito.mock(Env.class);
+        globalTxnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
         mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+        Mockito.when(env.getGlobalTransactionMgr()).thenReturn(globalTxnMgr);
+        Mockito.when(globalTxnMgr.advanceTsoFence(Mockito.anyLong()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
 
         tsoService = new TSOService();
     }
@@ -258,7 +264,8 @@ public class TSOServiceTest {
             MetricRepo.isInit = false;
             MetricRepo.COUNTER_TSO_CLOCK_UPDATE_FAILED = null;
             Mockito.when(env.isReady()).thenReturn(true);
-            Mockito.when(env.isMaster()).thenThrow(new RuntimeException("injected update failure"));
+            Mockito.when(env.isMaster()).thenReturn(true)
+                    .thenThrow(new RuntimeException("injected update failure"));
             tsoService.runAfterCatalogReady();
         } finally {
             Config.enable_feature_binlog = originalEnableFeatureBinlog;
@@ -371,7 +378,7 @@ public class TSOServiceTest {
 
             TSOService.TSOStatusSnapshot statusSnapshot = tsoService.getStatusSnapshot();
             Assertions.assertFalse(statusSnapshot.isInitialized());
-            Assertions.assertTrue(statusSnapshot.getCurrentTso() > 0L);
+            Assertions.assertEquals(0L, statusSnapshot.getCurrentTso());
             Assertions.assertEquals(0L, statusSnapshot.getWindowEndPhysicalTime());
 
             try {
@@ -410,6 +417,138 @@ public class TSOServiceTest {
         invokeCalibrateTimestamp(tsoService);
 
         Assertions.assertFalse(getFatalClockBackwardReportedFlag(tsoService));
+    }
+
+    @Test
+    public void testCloudCalibrationPersistsWindowBeforePublishingFenceAndCatchesUp() throws Exception {
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        mockPersistReady();
+        AtomicBoolean firstRequest = new AtomicBoolean(true);
+        Mockito.when(globalTxnMgr.advanceTsoFence(Mockito.anyLong())).thenAnswer(invocation -> {
+            long proposed = invocation.getArgument(0);
+            Assertions.assertFalse(tsoService.getStatusSnapshot().isInitialized());
+            Assertions.assertTrue(tsoService.getWindowEndTSO()
+                    >= TSOTimestamp.extractPhysicalTime(proposed) + Config.tso_service_window_duration_ms);
+            if (firstRequest.getAndSet(false)) {
+                return TSOTimestamp.composePhysicalTimestamp(TSOTimestamp.extractPhysicalTime(proposed) + 10);
+            }
+            return proposed;
+        });
+
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class)) {
+            config.when(Config::isCloudMode).thenReturn(true);
+            invokeCalibrateTimestamp(tsoService);
+        }
+
+        Mockito.verify(globalTxnMgr, Mockito.times(2)).advanceTsoFence(Mockito.anyLong());
+        Assertions.assertTrue(tsoService.getStatusSnapshot().isInitialized());
+    }
+
+    @Test
+    public void testCloudCalibrationRetriesThePersistedFenceAfterRpcFailure() throws Exception {
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        mockPersistReady();
+        AtomicBoolean failFirstRequest = new AtomicBoolean(true);
+        long[] proposedFence = {-1};
+        Mockito.when(globalTxnMgr.advanceTsoFence(Mockito.anyLong())).thenAnswer(invocation -> {
+            long proposed = invocation.getArgument(0);
+            if (failFirstRequest.getAndSet(false)) {
+                proposedFence[0] = proposed;
+                throw new UserException("injected fence RPC failure");
+            }
+            Assertions.assertEquals(proposedFence[0], proposed);
+            return proposed;
+        });
+
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class)) {
+            config.when(Config::isCloudMode).thenReturn(true);
+            Assertions.assertThrows(InvocationTargetException.class,
+                    () -> invokeCalibrateTimestamp(tsoService));
+            invokeCalibrateTimestamp(tsoService);
+        }
+
+        Mockito.verify(env.getEditLog(), Mockito.times(1))
+                .logTSOTimestampWindowEnd(Mockito.any());
+        Assertions.assertTrue(tsoService.getStatusSnapshot().isInitialized());
+    }
+
+    @Test
+    public void testFencedCommitRetryReplacesRegisteredTso() throws Exception {
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        setInitializedFlag(tsoService, true);
+        setGlobalTimestamp(tsoService, 100, 0);
+        long rejectedTso = tsoService.getCommitTSO(1, 10, Collections.singleton(100L));
+        long fenceTso = TSOTimestamp.composePhysicalTimestamp(101);
+        setGlobalTimestamp(tsoService, 101, 0);
+
+        long replacementTso = tsoService.getCommitTSOAfterFence(
+                1, 10, Set.of(100L, 200L), rejectedTso, fenceTso);
+
+        Assertions.assertTrue(replacementTso > fenceTso);
+        Field trackerField = TSOService.class.getDeclaredField("transactionTracker");
+        trackerField.setAccessible(true);
+        TSOTransactionTracker tracker = (TSOTransactionTracker) trackerField.get(tsoService);
+        Assertions.assertEquals(replacementTso, tracker.getOldestPendingTso());
+        Assertions.assertEquals(1, tracker.getPendingCount());
+    }
+
+    @Test
+    public void testFencedCommitRetryRegistersTransactionOnNewMaster() throws Exception {
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        setInitializedFlag(tsoService, true);
+        long fenceTso = TSOTimestamp.composePhysicalTimestamp(101);
+        setGlobalTimestamp(tsoService, 101, 0);
+
+        long replacementTso = tsoService.getCommitTSOAfterFence(
+                1, 10, Set.of(100L), TSOTimestamp.composePhysicalTimestamp(100), fenceTso);
+
+        Assertions.assertTrue(replacementTso > fenceTso);
+        Field trackerField = TSOService.class.getDeclaredField("transactionTracker");
+        trackerField.setAccessible(true);
+        TSOTransactionTracker tracker = (TSOTransactionTracker) trackerField.get(tsoService);
+        Assertions.assertEquals(replacementTso, tracker.getOldestPendingTso());
+        Assertions.assertEquals(1, tracker.getPendingCount());
+    }
+
+    @Test
+    public void testFencedCommitRetryDoesNotAdvanceStaleMasterClock() throws Exception {
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        setInitializedFlag(tsoService, true);
+        setGlobalTimestamp(tsoService, 100, 0);
+        long fenceTso = TSOTimestamp.composePhysicalTimestamp(101);
+
+        RuntimeException failure = Assertions.assertThrows(RuntimeException.class,
+                () -> tsoService.getCommitTSOAfterFence(1, 10, Set.of(100L),
+                        TSOTimestamp.composePhysicalTimestamp(100), fenceTso));
+
+        Assertions.assertTrue(failure.getMessage().contains("TXN_COMMIT_TSO_FENCED"));
+        Field trackerField = TSOService.class.getDeclaredField("transactionTracker");
+        trackerField.setAccessible(true);
+        Assertions.assertEquals(0,
+                ((TSOTransactionTracker) trackerField.get(tsoService)).getPendingCount());
+    }
+
+    @Test
+    public void testDemotionInvalidatesAllocationState() throws Exception {
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        setInitializedFlag(tsoService, true);
+        setGlobalTimestamp(tsoService, 100, 0);
+        tsoService.getCommitTSO(1, 10, Collections.singleton(100L));
+        Mockito.when(env.isMaster()).thenReturn(false);
+
+        tsoService.runAfterCatalogReady();
+
+        Assertions.assertFalse(tsoService.getStatusSnapshot().isInitialized());
+        Field trackerField = TSOService.class.getDeclaredField("transactionTracker");
+        trackerField.setAccessible(true);
+        Assertions.assertEquals(0,
+                ((TSOTransactionTracker) trackerField.get(tsoService)).getPendingCount());
     }
 
     @Test
@@ -468,7 +607,7 @@ public class TSOServiceTest {
         TSOTransactionTracker tracker = (TSOTransactionTracker) trackerField.get(tsoService);
         GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
         Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(1000L);
-        Mockito.when(txnMgr.getTsoRecoveryTransactions(1000L, ByteString.EMPTY))
+        Mockito.when(txnMgr.getTsoRecoveryTransactions(Mockito.eq(1000L), Mockito.anyLong(), Mockito.eq(ByteString.EMPTY)))
                     .thenReturn(TSOTransactionTrackerTest.recoveryBatch(ByteString.EMPTY));
         tracker.checkTransactions(txnMgr, Long.MAX_VALUE);
         try (MockedStatic<Config> config = Mockito.mockStatic(Config.class)) {
@@ -491,7 +630,7 @@ public class TSOServiceTest {
             field.setAccessible(true);
             GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
             Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(1000L);
-            Mockito.when(txnMgr.getTsoRecoveryTransactions(1000L, ByteString.EMPTY))
+            Mockito.when(txnMgr.getTsoRecoveryTransactions(Mockito.eq(1000L), Mockito.anyLong(), Mockito.eq(ByteString.EMPTY)))
                     .thenReturn(TSOTransactionTrackerTest.recoveryBatch(ByteString.EMPTY));
             ((TSOTransactionTracker) field.get(tsoService)).checkTransactions(txnMgr, Long.MAX_VALUE);
         }
@@ -567,7 +706,7 @@ public class TSOServiceTest {
         TSOTransactionTracker tracker = (TSOTransactionTracker) trackerField.get(tsoService);
         GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
         Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(1000L);
-        Mockito.when(txnMgr.getTsoRecoveryTransactions(1000L, ByteString.EMPTY))
+        Mockito.when(txnMgr.getTsoRecoveryTransactions(Mockito.eq(1000L), Mockito.anyLong(), Mockito.eq(ByteString.EMPTY)))
                     .thenReturn(TSOTransactionTrackerTest.recoveryBatch(ByteString.EMPTY));
         tracker.checkTransactions(txnMgr, Long.MAX_VALUE);
         try (MockedStatic<Config> config = Mockito.mockStatic(Config.class)) {
@@ -605,11 +744,9 @@ public class TSOServiceTest {
             TSOTransactionTracker tracker = (TSOTransactionTracker) trackerField.get(tsoService);
             GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
             Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(1000L);
-            Mockito.when(txnMgr.getTsoRecoveryTransactions(1000L, ByteString.EMPTY))
+            Mockito.when(txnMgr.getTsoRecoveryTransactions(Mockito.eq(1000L), Mockito.anyLong(), Mockito.eq(ByteString.EMPTY)))
                     .thenReturn(TSOTransactionTrackerTest.recoveryBatch(ByteString.EMPTY));
-            long afterRecoveryDelay = System.nanoTime()
-                    + TimeUnit.MILLISECONDS.toNanos(Config.tso_service_window_duration_ms + 1001L);
-            tracker.checkTransactions(txnMgr, afterRecoveryDelay);
+            tracker.checkTransactions(txnMgr, System.nanoTime());
             long reservedWindow = tsoService.getWindowEndTSO();
             Field lastPersist = TSOService.class.getDeclaredField("lastPersistNanos");
             lastPersist.setAccessible(true);

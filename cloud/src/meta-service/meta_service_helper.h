@@ -61,6 +61,11 @@ inline std::pair<MetaServiceCode, std::string> resolve_response_code_and_msg(Met
                "[TXN_ALREADY_COMMITED will be converted to code=UNDEFINED_ERR for old version "
                "clients]";
         return {MetaServiceCode::UNDEFINED_ERR, std::move(msg)};
+    case MetaServiceCode::TXN_COMMIT_TSO_FENCED:
+        msg += std::string((msg.empty() ? "" : ", ")) +
+               "[TXN_COMMIT_TSO_FENCED will be converted to code=UNDEFINED_ERR for old "
+               "version clients]";
+        return {MetaServiceCode::UNDEFINED_ERR, std::move(msg)};
     default:
         return {code, std::move(msg)};
     }

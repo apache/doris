@@ -148,10 +148,14 @@ public interface GlobalTransactionMgrIface extends Writable {
     public void finishTransaction(long dbId, long transactionId, Map<Long, Long> partitionVisibleVersions,
             Map<Long, Set<Long>> backendPartitions) throws UserException;
 
-    /** Fetch a batch of running transactions below the exclusive recovery transaction bound. */
-    default GetTsoRecoveryTransactionsResponse getTsoRecoveryTransactions(long endTransactionId, ByteString startKey)
-            throws UserException {
+    /** Fetch committed TSO transactions below the exclusive recovery transaction bound. */
+    default GetTsoRecoveryTransactionsResponse getTsoRecoveryTransactions(long endTransactionId,
+            long tsoFence, ByteString startKey) throws UserException {
         throw new UserException("TSO recovery is only supported in cloud mode");
+    }
+
+    default long advanceTsoFence(long proposedFenceTso) throws UserException {
+        throw new UserException("TSO fence is only supported in cloud mode");
     }
 
     public boolean isPreviousTransactionsFinished(long endTransactionId, long dbId, List<Long> tableIdList)

@@ -1286,6 +1286,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithFailedLazyCommitTaskTest) {
     recovery_req.set_cloud_unique_id("test_cloud_unique_id");
     recovery_req.set_end_txn_id(txn_id + 1);
     recovery_req.set_batch_size(256);
+    recovery_req.set_tso_fence(12345);
     GetTsoRecoveryTransactionsResponse recovery_res;
     meta_service->get_tso_recovery_transactions(&cntl, &recovery_req, &recovery_res, nullptr);
     ASSERT_EQ(recovery_res.status().code(), MetaServiceCode::OK);

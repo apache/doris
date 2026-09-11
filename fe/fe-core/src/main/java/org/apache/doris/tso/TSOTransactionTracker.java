@@ -53,10 +53,10 @@ final class TSOTransactionTracker {
     private final Condition transactionsChanged;
     private final Map<Pair<Long, Long>, PendingTransaction> pendingByTxn = new HashMap<>();
     private final TreeMap<Long, PendingTransaction> pendingByTso = new TreeMap<>();
-    // Recovered transactions may have no persisted TSO yet. Keep them out of the TSO index.
+    // Recovery entries stay separate so the durable committed prefix remains frozen until all finish.
     private final TreeMap<Long, PendingTransaction> recoveryByTxn = new TreeMap<>();
     private long generation;
-    private long recoveryDeadlineNanos;
+    private long recoveryFenceTso;
     private long recoveryWatermark;
     private boolean recoveryReady;
     private boolean recoveryLoaded;
@@ -87,13 +87,24 @@ final class TSOTransactionTracker {
         this.transactionsChanged = lock.newCondition();
     }
 
-    void reset(long nowNanos, long recoveryDelayMs) {
+    void reset(long fenceTso) {
         Preconditions.checkState(lock.isHeldByCurrentThread());
+        Preconditions.checkArgument(fenceTso > 0, "recovery fence TSO must be positive");
+        clearForNewGeneration();
+        recoveryFenceTso = fenceTso;
+    }
+
+    void invalidate() {
+        Preconditions.checkState(lock.isHeldByCurrentThread());
+        clearForNewGeneration();
+        recoveryFenceTso = 0;
+    }
+
+    private void clearForNewGeneration() {
         generation++;
         pendingByTxn.clear();
         pendingByTso.clear();
         recoveryByTxn.clear();
-        recoveryDeadlineNanos = nowNanos + TimeUnit.MILLISECONDS.toNanos(recoveryDelayMs);
         recoveryWatermark = 0;
         recoveryReady = false;
         recoveryLoaded = false;
@@ -121,6 +132,31 @@ final class TSOTransactionTracker {
         Preconditions.checkState(pendingByTso.put(tso, pending) == null);
     }
 
+    void replaceFenced(Pair<Long, Long> identity, long rejectedTso, long fenceTso, long newTso,
+            long nowNanos, Set<Long> tableIds) {
+        Preconditions.checkState(lock.isHeldByCurrentThread());
+        Preconditions.checkArgument(!tableIds.isEmpty(), "commit registration requires table IDs");
+        Preconditions.checkArgument(rejectedTso <= fenceTso, "rejected TSO must be fenced");
+        Preconditions.checkArgument(newTso > fenceTso, "replacement TSO must be above the fence");
+        PendingTransaction existing = pendingByTxn.get(identity);
+        Set<Long> mergedTableIds = new HashSet<>();
+        if (existing != null) {
+            Preconditions.checkState(existing.tso <= fenceTso,
+                    "registered transaction TSO must be fenced");
+            Preconditions.checkState(pendingByTso.remove(existing.tso) == existing);
+            mergedTableIds.addAll(existing.tableIds);
+        }
+        mergedTableIds.addAll(tableIds);
+        PendingTransaction replacement = new PendingTransaction(identity, newTso, nowNanos, mergedTableIds);
+        pendingByTxn.put(identity, replacement);
+        Preconditions.checkState(pendingByTso.put(newTso, replacement) == null);
+        PendingTransaction recovered = recoveryByTxn.get(identity.second);
+        if (recovered != null) {
+            recovered.tableIds.addAll(tableIds);
+        }
+        transactionsChanged.signalAll();
+    }
+
     /** Called with the allocator lock after validating endTso against its current clock. */
     WaitResult awaitTransactions(Map<Long, List<Long>> dbToTableIds, long endTso, long remainingNanos)
             throws InterruptedException {
@@ -133,8 +169,7 @@ final class TSOTransactionTracker {
         List<PendingTransaction> remaining = new ArrayList<>();
         for (PendingTransaction pending : recoveryByTxn.values()) {
             List<Long> tables = dbToTableIds.get(pending.identity.first);
-            if ((pending.tso <= 0 || pending.tso <= endTso)
-                    && tables != null && !Collections.disjoint(tables, pending.tableIds)) {
+            if (pending.tso <= endTso && tables != null && !Collections.disjoint(tables, pending.tableIds)) {
                 remaining.add(pending);
             }
         }
@@ -193,6 +228,7 @@ final class TSOTransactionTracker {
     void checkTransactions(GlobalTransactionMgrIface txnMgr, long nowNanos) throws UserException {
         long checkGeneration;
         long watermark;
+        long fenceTso;
         boolean checkRecovery;
         ByteString startKey;
         List<PendingTransaction> batch = new ArrayList<>();
@@ -200,7 +236,8 @@ final class TSOTransactionTracker {
         try {
             checkGeneration = generation;
             watermark = recoveryWatermark;
-            checkRecovery = !recoveryLoaded && nowNanos - recoveryDeadlineNanos >= 0;
+            fenceTso = recoveryFenceTso;
+            checkRecovery = !recoveryLoaded;
             startKey = recoveryStartKey;
             if (!pendingByTso.isEmpty()) {
                 // Always check the transaction blocking the prefix, then rotate through the rest.
@@ -269,20 +306,22 @@ final class TSOTransactionTracker {
                 }
             }
             while (true) {
-                GetTsoRecoveryTransactionsResponse response = txnMgr.getTsoRecoveryTransactions(watermark, startKey);
+                GetTsoRecoveryTransactionsResponse response =
+                        txnMgr.getTsoRecoveryTransactions(watermark, fenceTso, startKey);
                 lock.lock();
                 try {
                     if (generation != checkGeneration) {
                         return;
                     }
                     for (TxnInfoPB info : response.getTxnInfosList()) {
-                        Preconditions.checkState(info.getStatus() != TxnStatusPB.TXN_STATUS_VISIBLE
-                                        && info.getStatus() != TxnStatusPB.TXN_STATUS_ABORTED,
-                                "TSO recovery batch contains a terminal transaction: %s", info.getTxnId());
+                        Preconditions.checkState(info.getStatus() == TxnStatusPB.TXN_STATUS_COMMITTED,
+                                "TSO recovery batch contains a non-committed transaction: %s", info.getTxnId());
+                        Preconditions.checkState(info.hasCommitTso() && info.getCommitTso() > 0
+                                        && info.getCommitTso() <= fenceTso,
+                                "TSO recovery transaction exceeds fence: %s", info.getTxnId());
                         Pair<Long, Long> identity = Pair.of(info.getDbId(), info.getTxnId());
                         PendingTransaction recovered = new PendingTransaction(identity,
-                                info.hasCommitTso() ? info.getCommitTso() : 0,
-                                nowNanos, info.getTableIdsList());
+                                info.getCommitTso(), nowNanos, info.getTableIdsList());
                         PendingTransaction local = pendingByTxn.get(identity);
                         if (local != null) {
                             recovered.tableIds.addAll(local.tableIds);
@@ -294,8 +333,8 @@ final class TSOTransactionTracker {
                     if (startKey.isEmpty()) {
                         recoveryLoaded = true;
                         updateRecoveryReady();
-                        LOG.info("Loaded TSO recovery transactions, watermark={}, pending={}",
-                                watermark, recoveryByTxn.size());
+                        LOG.info("Loaded TSO recovery transactions, watermark={}, fenceTso={}, pending={}",
+                                watermark, fenceTso, recoveryByTxn.size());
                         return;
                     }
                 } finally {
