@@ -65,6 +65,18 @@ protected:
         }
     }
 
+    void expect_cached_failure(const Status& reason) {
+        auto* handle = _mgr->_load_state_channels->lookup(_load_id.to_string());
+        ASSERT_NE(handle, nullptr);
+        auto* value =
+                static_cast<LoadChannelMgr::CacheValue*>(_mgr->_load_state_channels->value(handle));
+        EXPECT_NE(value, nullptr);
+        if (value != nullptr) {
+            EXPECT_EQ(value->_cancel_reason, reason.to_string());
+        }
+        _mgr->_load_state_channels->release(handle);
+    }
+
     UniqueId _load_id {1, 2};
     std::unique_ptr<FragmentMgr> _fragment_mgr;
     std::unique_ptr<LoadChannelMgr> _mgr;
@@ -123,15 +135,7 @@ TEST_F(LoadChannelMgrTest, PublicCancelCachesAlreadyPublishedFailure) {
     EXPECT_EQ(channel->cancel_status().to_string(), first_failure.to_string());
     EXPECT_TRUE(_mgr->_load_channels.empty());
 
-    auto* handle = _mgr->_load_state_channels->lookup(_load_id.to_string());
-    ASSERT_NE(handle, nullptr);
-    auto* value =
-            static_cast<LoadChannelMgr::CacheValue*>(_mgr->_load_state_channels->value(handle));
-    EXPECT_NE(value, nullptr);
-    if (value != nullptr) {
-        EXPECT_EQ(value->_cancel_reason, first_failure.to_string());
-    }
-    _mgr->_load_state_channels->release(handle);
+    expect_cached_failure(first_failure);
 
     PTabletWriterOpenRequest open_request;
     *open_request.mutable_id() = _load_id.to_proto();
@@ -193,15 +197,7 @@ TEST_F(LoadChannelMgrTest, FinishDoesNotOverwritePublishedFailure) {
     ASSERT_TRUE(_mgr->_cancel_load_channel(channel, Status::InternalError("later failure")).ok());
     _mgr->_finish_load_channel(channel);
 
-    auto* handle = _mgr->_load_state_channels->lookup(_load_id.to_string());
-    ASSERT_NE(handle, nullptr);
-    auto* value =
-            static_cast<LoadChannelMgr::CacheValue*>(_mgr->_load_state_channels->value(handle));
-    EXPECT_NE(value, nullptr);
-    if (value != nullptr) {
-        EXPECT_EQ(value->_cancel_reason, reason.to_string());
-    }
-    _mgr->_load_state_channels->release(handle);
+    expect_cached_failure(reason);
 }
 
 TEST_F(LoadChannelMgrTest, FailureStillCancelsOriginalAfterFinish) {
