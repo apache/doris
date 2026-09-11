@@ -205,6 +205,19 @@ public:
     void set_full_compaction_cnt(int64_t cnt) { _full_compaction_cnt = cnt; }
     void set_cumulative_layer_point(int64_t new_point);
 
+    // Effective `disable_auto_compaction` of this tablet, initialized from the tablet schema at
+    // load time and refreshed by sync_meta(). The property is carried by TabletSchema in the
+    // protocol, but TabletSchema objects are shared across tablets through TabletSchemaCache and
+    // must never be mutated in place, so the current value is kept here instead. Always read this
+    // accessor; `tablet_meta()->tablet_schema()->disable_auto_compaction()` only reflects the
+    // value at load time.
+    bool disable_auto_compaction() const {
+        return _disable_auto_compaction.load(std::memory_order_relaxed);
+    }
+    void set_disable_auto_compaction(bool disable) {
+        _disable_auto_compaction.store(disable, std::memory_order_relaxed);
+    }
+
     int64_t last_cumu_compaction_failure_time() { return _last_cumu_compaction_failure_millis; }
     void set_last_cumu_compaction_failure_time(int64_t millis) {
         _last_cumu_compaction_failure_millis = millis;
@@ -469,6 +482,8 @@ private:
     std::atomic<int64_t> _approximate_cumu_num_rowsets {-1};
     // Number of sorted arrays (e.g. for rowset with N segments, if rowset is overlapping, delta is N, otherwise 1) after cumu point
     std::atomic<int64_t> _approximate_cumu_num_deltas {-1};
+    // See disable_auto_compaction()
+    std::atomic<bool> _disable_auto_compaction {false};
 
     // timestamp of last cumu compaction failure
     std::atomic<int64_t> _last_cumu_compaction_failure_millis;

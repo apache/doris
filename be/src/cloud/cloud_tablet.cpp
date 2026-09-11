@@ -148,7 +148,11 @@ bvar::LatencyRecorder g_file_cache_warm_up_rowset_all_segments_latency(
         "file_cache_warm_up_rowset_all_segments_latency");
 
 CloudTablet::CloudTablet(CloudStorageEngine& engine, TabletMetaSharedPtr tablet_meta)
-        : BaseTablet(std::move(tablet_meta)), _engine(engine) {}
+        : BaseTablet(std::move(tablet_meta)), _engine(engine) {
+    if (_tablet_meta != nullptr && _tablet_meta->tablet_schema() != nullptr) {
+        set_disable_auto_compaction(_tablet_meta->tablet_schema()->disable_auto_compaction());
+    }
+}
 
 CloudTablet::~CloudTablet() = default;
 
@@ -1588,11 +1592,12 @@ Status CloudTablet::sync_meta() {
             _tablet_meta->set_time_series_compaction_level_threshold(
                     new_time_series_compaction_level_threshold);
         }
-        if (_tablet_meta->tablet_schema()->disable_auto_compaction() !=
-            new_disable_auto_compaction) {
-            _tablet_meta->mutable_tablet_schema()->set_disable_auto_compaction(
-                    new_disable_auto_compaction);
-        }
+        // `disable_auto_compaction` lives in TabletSchema, which is shared across tablets via
+        // TabletSchemaCache (keyed by the serialized schema). Mutating the shared schema in place
+        // pollutes the cache entry of the current schema: a later tablet meta fetched from Meta
+        // Service with the original schema resolves to the same polluted object, so the flag can
+        // never be switched back. Keep the effective value on the tablet itself instead.
+        set_disable_auto_compaction(new_disable_auto_compaction);
         if (_tablet_meta->vertical_compaction_num_columns_per_group() !=
             new_vertical_compaction_num_columns_per_group) {
             _tablet_meta->set_vertical_compaction_num_columns_per_group(

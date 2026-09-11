@@ -169,7 +169,7 @@ TEST_F(CloudCompactionTest, failure_base_compaction_tablet_sleep_test) {
                     .count() -
             100000);
     tablet1->set_last_base_compaction_failure_time(0);
-    tablet1->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
+    tablet1->set_disable_auto_compaction(false);
     tablet1->_approximate_num_rowsets = 10;
     tablet1->_approximate_cumu_num_rowsets = 0;
     mgr.put_tablet_for_UT(tablet1);
@@ -213,7 +213,7 @@ TEST_F(CloudCompactionTest, failure_cumu_compaction_tablet_sleep_test) {
                     .count() -
             100000);
     tablet1->set_last_cumu_compaction_failure_time(0);
-    tablet1->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
+    tablet1->set_disable_auto_compaction(false);
     tablet1->_approximate_cumu_num_deltas = 10;
     mgr.put_tablet_for_UT(tablet1);
 
@@ -240,6 +240,42 @@ TEST_F(CloudCompactionTest, failure_cumu_compaction_tablet_sleep_test) {
     ASSERT_EQ(tablets.size(), 0);
 }
 
+TEST_F(CloudCompactionTest, disable_auto_compaction_toggle_is_read_from_tablet) {
+    auto filter_out = [](CloudTablet* t) { return false; };
+    CloudTabletMgr mgr(_engine);
+
+    std::vector<RowsetMetaSharedPtr> rs_metas;
+    init_rs_meta_small_base(&rs_metas);
+
+    CloudTabletSPtr tablet1 = std::make_shared<CloudTablet>(_engine, _tablet_meta);
+    for (auto& rs_meta : rs_metas) {
+        static_cast<void>(_tablet_meta->add_rs_meta(rs_meta));
+    }
+    tablet1->tablet_meta()->_tablet_id = 10000;
+    tablet1->set_last_cumu_compaction_failure_time(0);
+    tablet1->_approximate_cumu_num_deltas = 10;
+    mgr.put_tablet_for_UT(tablet1);
+
+    CompactionScoreStats score_stats;
+    std::vector<std::shared_ptr<CloudTablet>> tablets {};
+
+    // ALTER TABLE ... SET ("disable_auto_compaction" = "true") synced to the tablet
+    tablet1->set_disable_auto_compaction(true);
+    Status st = mgr.get_topn_tablets_to_compact(1, CompactionType::CUMULATIVE_COMPACTION,
+                                                filter_out, &tablets, &score_stats);
+    ASSERT_EQ(st, Status::OK());
+    ASSERT_EQ(tablets.size(), 0);
+    // The shared TabletSchema object is never mutated by the per-tablet flag
+    ASSERT_FALSE(tablet1->tablet_meta()->tablet_schema()->disable_auto_compaction());
+
+    // ALTER TABLE ... SET ("disable_auto_compaction" = "false") synced again
+    tablet1->set_disable_auto_compaction(false);
+    st = mgr.get_topn_tablets_to_compact(1, CompactionType::CUMULATIVE_COMPACTION, filter_out,
+                                         &tablets, &score_stats);
+    ASSERT_EQ(st, Status::OK());
+    ASSERT_EQ(tablets.size(), 1);
+}
+
 TEST_F(CloudCompactionTest, binlog_compaction_max_score_ignores_normal_tablets) {
     auto filter_out = [](CloudTablet* t) { return !t->is_row_binlog_tablet(); };
     CloudTabletMgr mgr(_engine);
@@ -248,7 +284,7 @@ TEST_F(CloudCompactionTest, binlog_compaction_max_score_ignores_normal_tablets) 
     normal_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_DATA);
     CloudTabletSPtr normal_tablet = std::make_shared<CloudTablet>(_engine, normal_meta);
     normal_tablet->tablet_meta()->_tablet_id = 10001;
-    normal_tablet->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
+    normal_tablet->set_disable_auto_compaction(false);
     normal_tablet->_approximate_cumu_num_deltas = 10;
     mgr.put_tablet_for_UT(normal_tablet);
 
@@ -256,7 +292,7 @@ TEST_F(CloudCompactionTest, binlog_compaction_max_score_ignores_normal_tablets) 
     binlog_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
     CloudTabletSPtr binlog_tablet = std::make_shared<CloudTablet>(_engine, binlog_meta);
     binlog_tablet->tablet_meta()->_tablet_id = 10002;
-    binlog_tablet->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
+    binlog_tablet->set_disable_auto_compaction(false);
     binlog_tablet->_approximate_cumu_num_deltas = 7;
     mgr.put_tablet_for_UT(binlog_tablet);
 
@@ -283,7 +319,7 @@ TEST_F(CloudCompactionTest, split_cumu_compaction_score_stats_before_filter) {
         tablet_meta->_tablet_id = tablet_id;
         tablet_meta->set_compaction_policy(std::string(compaction_policy));
         auto tablet = std::make_shared<CloudTablet>(_engine, tablet_meta);
-        tablet->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
+        tablet->set_disable_auto_compaction(false);
         tablet->_approximate_cumu_num_deltas = score;
         mgr.put_tablet_for_UT(tablet);
         return tablet;
@@ -312,7 +348,7 @@ TEST_F(CloudCompactionTest, generate_cloud_compaction_tasks_updates_policy_metri
     tablet_meta->_tablet_id = 11000;
     tablet_meta->set_compaction_policy(std::string(CUMULATIVE_SIZE_BASED_POLICY));
     auto tablet = std::make_shared<CloudTablet>(_engine, tablet_meta);
-    tablet->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
+    tablet->set_disable_auto_compaction(false);
     tablet->_approximate_cumu_num_deltas = 7;
     mgr.put_tablet_for_UT(tablet);
 
@@ -341,7 +377,7 @@ TEST_F(CloudCompactionTest, generate_cloud_compaction_tasks_updates_policy_metri
     time_series_meta->_tablet_id = 11001;
     time_series_meta->set_compaction_policy(std::string(CUMULATIVE_TIME_SERIES_POLICY));
     auto time_series = std::make_shared<CloudTablet>(_engine, time_series_meta);
-    time_series->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
+    time_series->set_disable_auto_compaction(false);
     time_series->_approximate_cumu_num_deltas = 13;
     mgr.put_tablet_for_UT(time_series);
 
@@ -360,7 +396,7 @@ TEST_F(CloudCompactionTest, generate_cloud_binlog_compaction_tasks_updates_only_
     normal_meta->_tablet_id = 11002;
     normal_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_DATA);
     auto normal_tablet = std::make_shared<CloudTablet>(_engine, normal_meta);
-    normal_tablet->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
+    normal_tablet->set_disable_auto_compaction(false);
     normal_tablet->_approximate_cumu_num_deltas = 10;
     mgr.put_tablet_for_UT(normal_tablet);
 
@@ -368,7 +404,7 @@ TEST_F(CloudCompactionTest, generate_cloud_binlog_compaction_tasks_updates_only_
     binlog_meta->_tablet_id = 11003;
     binlog_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
     auto binlog_tablet = std::make_shared<CloudTablet>(_engine, binlog_meta);
-    binlog_tablet->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
+    binlog_tablet->set_disable_auto_compaction(false);
     binlog_tablet->_approximate_cumu_num_deltas = 7;
     mgr.put_tablet_for_UT(binlog_tablet);
 
