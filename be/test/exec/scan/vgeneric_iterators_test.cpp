@@ -32,7 +32,12 @@
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "runtime/runtime_state.h"
 #include "storage/olap_common.h"
+#include "storage/olap_define.h"
+#include "storage/olap_tuple.h"
+#include "storage/predicate/block_column_predicate.h"
+#include "storage/predicate/null_predicate.h"
 #include "storage/row_cursor.h"
 #include "storage/schema.h"
 #include "storage/segment/column_reader.h"
@@ -182,6 +187,166 @@ TEST(VGenericIteratorsTest, StatisticsIteratorPreservesNullForNullableChar) {
     ASSERT_TRUE(iterator.next_batch(&block).is<ErrorCode::END_OF_FILE>());
 
     ASSERT_TRUE(fs->delete_directory(test_dir).ok());
+}
+
+// A string zone map bound is cut to 512 bytes, and a cut bound is not a value the column holds:
+// the min is a prefix of the smallest value and the max was raised past the largest one. FE pushes
+// MIN/MAX down for every string column, so the segment is the one that has to notice and hand the
+// query back to a normal read.
+class StatisticsIteratorStringBoundsTest : public testing::Test {
+protected:
+    static constexpr auto kTestDir = "./ut_dir/statistics_string_bounds_test";
+
+    void SetUp() override {
+        _fs = io::global_local_filesystem();
+        ASSERT_TRUE(_fs->delete_directory(kTestDir).ok());
+        ASSERT_TRUE(_fs->create_directory(kTestDir).ok());
+    }
+    void TearDown() override { EXPECT_TRUE(_fs->delete_directory(kTestDir).ok()); }
+
+    static TabletSchemaSPtr make_schema() {
+        auto tablet_schema = std::make_shared<TabletSchema>();
+        TabletColumn key;
+        key.set_name("c1");
+        key.set_unique_id(0);
+        key.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+        key.set_length(4);
+        key.set_index_length(4);
+        key.set_is_key(true);
+        key.set_is_nullable(false);
+        tablet_schema->append_column(key);
+
+        TabletColumn value;
+        value.set_name("c2");
+        value.set_unique_id(1);
+        value.set_type(FieldType::OLAP_FIELD_TYPE_VARCHAR);
+        value.set_length(65535);
+        value.set_is_key(false);
+        value.set_is_nullable(false);
+        value.set_aggregation_method(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE);
+        tablet_schema->append_column(value);
+        tablet_schema->set_storage_page_size(4096);
+        return tablet_schema;
+    }
+
+    // Writes one segment holding `values` in the VARCHAR column and returns the iterator that a
+    // pushed-down MIN/MAX would run on. `accept_cut_bound` is what statistics collection sets:
+    // it takes an inexact min/max as an approximation instead of reading the data.
+    // `with_delete` adds a delete predicate, which leaves the zone map covering removed rows.
+    std::unique_ptr<RowwiseIterator> minmax_iterator_for(const std::string& name,
+                                                         const std::vector<std::string>& values,
+                                                         bool accept_cut_bound = false,
+                                                         bool with_delete = false) {
+        auto tablet_schema = make_schema();
+        const std::string segment_path = std::string(kTestDir) + "/" + name + ".dat";
+
+        io::FileWriterPtr file_writer;
+        EXPECT_TRUE(_fs->create_file(segment_path, &file_writer).ok());
+        SegmentWriterOptions writer_options;
+        writer_options.num_rows_per_block = 1024;
+        TestSegmentWriter writer(file_writer.get(), 0, tablet_schema, nullptr, nullptr,
+                                 writer_options, nullptr);
+        EXPECT_TRUE(writer.init().ok());
+
+        RowCursor row;
+        OlapTuple tuple;
+        for (size_t i = 0; i < tablet_schema->num_columns(); ++i) {
+            tuple.add_null();
+        }
+        EXPECT_EQ(Status::OK(), row.init(tablet_schema, tuple));
+        for (size_t i = 0; i < values.size(); ++i) {
+            row.mutable_field(0) = Field::create_field<TYPE_INT>(static_cast<int32_t>(i));
+            row.mutable_field(1) = Field::create_field<TYPE_STRING>(String(values[i]));
+            EXPECT_TRUE(writer.append_row(row).ok());
+        }
+        uint64_t file_size = 0;
+        uint64_t index_size = 0;
+        EXPECT_TRUE(writer.finalize(&file_size, &index_size).ok());
+        EXPECT_TRUE(file_writer->close().ok());
+
+        std::shared_ptr<segment_v2::Segment> segment;
+        EXPECT_TRUE(segment_v2::Segment::open(_fs, segment_path, 100, 0, RowsetId {.version = 1},
+                                              tablet_schema, io::FileReaderOptions {}, &segment)
+                            .ok());
+
+        std::vector<ColumnId> column_ids {0, 1};
+        auto schema = std::make_shared<ReadSchema>(
+                project_columns_by_ordinal(tablet_schema->columns(), column_ids));
+        StorageReadOptions read_options;
+        read_options.push_down_agg_type_opt = TPushAggOp::MINMAX;
+        read_options.stats = &_stats;
+        read_options.tablet_schema = tablet_schema;
+
+        if (with_delete) {
+            auto del_pred = NullPredicate::create_shared(0, "c1", true, PrimitiveType::TYPE_INT);
+            read_options.delete_condition_predicates->add_column_predicate(
+                    SingleColumnBlockPredicate::create_unique(del_pred));
+        }
+
+        auto state = std::make_unique<RuntimeState>();
+        TQueryOptions query_options;
+        query_options.__set_enable_pushdown_string_minmax(accept_cut_bound);
+        state->set_query_options(query_options);
+        read_options.runtime_state = state.get();
+        // The iterator keeps a copy of read_options, so the state has to outlive it.
+        _states.push_back(std::move(state));
+
+        std::unique_ptr<RowwiseIterator> iter;
+        EXPECT_TRUE(segment->new_iterator(schema, read_options, &iter).ok());
+        return iter;
+    }
+
+    std::shared_ptr<io::FileSystem> _fs;
+    OlapReaderStatistics _stats;
+    std::vector<std::unique_ptr<RuntimeState>> _states;
+};
+
+TEST_F(StatisticsIteratorStringBoundsTest, ShortBoundsAnswerFromTheZoneMap) {
+    // Every value fits well inside the 512-byte bound, so the stored min/max are the real ones.
+    auto iter = minmax_iterator_for("short", {"aaa", "bbb", "ccc"});
+    EXPECT_NE(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr)
+            << "exact bounds can answer MIN/MAX without reading the data";
+}
+
+TEST_F(StatisticsIteratorStringBoundsTest, CutBoundsFallBackToReadingTheData) {
+    // The longest value runs past the 512-byte cut, so the stored max is a raised prefix and not a
+    // value in the column. Answering MIN/MAX from it would return a string the table never held.
+    auto iter = minmax_iterator_for("cut", {"aaa", "bbb", std::string(600, 'c')});
+    EXPECT_EQ(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr)
+            << "a cut bound is not a value from the data, so the query has to read the rows";
+}
+
+// A VARCHAR(512) column full to its declared length was cut too, and FE used to push MIN/MAX down
+// for it because the length is not over 512.
+TEST_F(StatisticsIteratorStringBoundsTest, BoundsCutExactlyAtTheLimitFallBack) {
+    auto iter = minmax_iterator_for("exact", {"aaa", std::string(MAX_ZONE_MAP_INDEX_SIZE, 'z')});
+    EXPECT_EQ(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr);
+}
+
+// Statistics collection only needs an approximation, and reading the data instead would scan the
+// whole table. It keeps the statistics iterator even when the stored bounds were cut.
+TEST_F(StatisticsIteratorStringBoundsTest, CutBoundsAnswerWhenTheCallerTakesAnApproximation) {
+    auto iter = minmax_iterator_for("cut_approx", {"aaa", "bbb", std::string(600, 'c')},
+                                    /*accept_cut_bound=*/true);
+    EXPECT_NE(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr)
+            << "statistics collection reads the cut bound rather than scanning the rows";
+}
+
+// A delete predicate leaves the zone map covering rows that are gone, so its min/max may name a
+// value the table no longer holds. That is a real answer for every query but statistics
+// collection, which takes the approximation to avoid scanning the table.
+TEST_F(StatisticsIteratorStringBoundsTest, DeletePredicateFallsBackToReadingTheData) {
+    auto iter = minmax_iterator_for("del_exact", {"aaa", "bbb"}, /*accept_cut_bound=*/false,
+                                    /*with_delete=*/true);
+    EXPECT_EQ(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr)
+            << "a deleted row may still sit inside the zone map bounds";
+}
+
+TEST_F(StatisticsIteratorStringBoundsTest, DeletePredicateAnswersWhenApproximationIsAccepted) {
+    auto iter = minmax_iterator_for("del_approx", {"aaa", "bbb"}, /*accept_cut_bound=*/true,
+                                    /*with_delete=*/true);
+    EXPECT_NE(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr)
+            << "statistics collection keeps the zone map even with a delete predicate";
 }
 
 TEST(VGenericIteratorsTest, Union) {

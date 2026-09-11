@@ -143,11 +143,22 @@ Status build_segment_zonemap_context(Segment* segment, const ReadSchema& schema,
     return Status::OK();
 }
 
-// The statistics iterator answers pushed-down aggregates from the segment zone maps alone. An
-// invalid zone map has no min/max to answer with, so the caller has to read the data instead.
+// Statistics collection reads the zone map as it is, even when its min/max is not a value the data
+// holds right now: the bound may have been cut, or it may still cover rows a delete predicate
+// removed. An approximation is all it needs, and reading the rows instead would scan the whole
+// table. Every other query needs the real value. Without a runtime state, keep what the segment
+// did before.
+bool accepts_inexact_min_max(const StorageReadOptions& read_options) {
+    return read_options.runtime_state == nullptr ||
+           read_options.runtime_state->query_options().enable_pushdown_string_minmax;
+}
+
+// The statistics iterator answers pushed-down aggregates from the segment zone maps alone. A zone
+// map with no usable min/max sends the caller back to reading the data instead.
 Status segment_zone_maps_can_answer_agg(Segment* segment, const ReadSchema& schema,
                                         const StorageReadOptions& read_options, bool* usable) {
     *usable = true;
+    const bool accept_cut_bound = accepts_inexact_min_max(read_options);
     for (size_t ordinal = 0; ordinal < schema.num_block_columns(); ++ordinal) {
         // The commit-tso column is only served correctly once its reader is created with the
         // rowset's commit_tso as a const value. Creating it here without one would cache a reader
@@ -169,7 +180,31 @@ Status segment_zone_maps_can_answer_agg(Segment* segment, const ReadSchema& sche
         }
         ZoneMap zone_map;
         RETURN_IF_ERROR(reader->get_segment_zone_map(&zone_map));
+        const bool is_string_column = is_string_type(schema.column(ordinal)->type());
+
+        // Statistics collection reads a string zone map as it is. A string zone map gives up its
+        // range on read, never on write, so its bounds were parsed and still hold what the
+        // segment stored, cut or not.
+        if (accept_cut_bound && is_string_column) {
+            continue;
+        }
+
+        // The zone map gave up its range, so it has no min/max left to answer with.
         if (zone_map.pass_all) {
+            *usable = false;
+            return Status::OK();
+        }
+
+        // Only a string bound is cut at MAX_ZONE_MAP_INDEX_SIZE, and a column of nothing but
+        // nulls stored no bound to look at.
+        if (!is_string_column || !zone_map.has_not_null) {
+            continue;
+        }
+
+        // A cut bound is not a value the column holds: the min is a prefix of the smallest value
+        // and the max was raised past the largest one. Neither can answer MIN()/MAX().
+        if (zone_map.min_value.as_string_view().size() >= MAX_ZONE_MAP_INDEX_SIZE ||
+            zone_map.max_value.as_string_view().size() >= MAX_ZONE_MAP_INDEX_SIZE) {
             *usable = false;
             return Status::OK();
         }
@@ -503,8 +538,13 @@ Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& re
         RETURN_IF_ERROR(load_index(read_options.stats, &read_options.io_ctx));
     }
 
+    // A delete predicate leaves the zone map covering rows that are gone, so its min/max may be a
+    // value the table no longer holds. Statistics collection takes that approximation; every other
+    // query has to read the rows.
+    const bool delete_free =
+            read_options.delete_condition_predicates->num_of_column_predicate() == 0;
     bool use_statistics_iterator =
-            read_options.delete_condition_predicates->num_of_column_predicate() == 0 &&
+            (delete_free || accepts_inexact_min_max(read_options)) &&
             read_options.push_down_agg_type_opt != TPushAggOp::NONE &&
             read_options.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX;
     // COUNT only fills defaults, every other pushed-down aggregate reads min/max out of the

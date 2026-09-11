@@ -38,8 +38,10 @@
 #include "storage/segment/encoding_info.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
+#include "storage/utils.h"
 #include "util/slice.h"
 #include "util/unaligned.h"
+#include "util/utf8_check.h"
 
 namespace doris {
 struct uint24_t;
@@ -83,6 +85,17 @@ Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_ty
         if (!zone_map_info.pass_all) {
             parse_bound(zone_map.min(), zone_map_info.min_value);
             parse_bound(zone_map.max(), zone_map_info.max_value);
+        }
+
+        // Lower the raised byte back to what the data held, then run the writer's check on it.
+        // A max that came from 0xff wrapped to 0x00, and old segments still carry such a max.
+        if (!zone_map_info.pass_all && is_string_type(field_type) &&
+            zone_map.max().size() == MAX_ZONE_MAP_INDEX_SIZE) {
+            std::string max_before_raise = zone_map.max();
+            max_before_raise.back() -= 1;
+            if (!validate_utf8(max_before_raise.data(), max_before_raise.size())) {
+                zone_map_info.pass_all = true;
+            }
         }
 
         // NaN and infinity only set the flags below, never min/max, so a page holding nothing
