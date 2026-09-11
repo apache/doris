@@ -28,6 +28,18 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
     String catalogName = "test_pw_ao_catalog"
     String dbName = "test_pw_ao_db"
 
+    def writeOnlyTables = [t_append_write_only: "parquet",
+                           t_append_write_only_orc: "orc", t_append_write_only_avro: "avro"]
+    String writeOnlyDdls = writeOnlyTables.collect { tableName, format ->
+        """
+        DROP TABLE IF EXISTS paimon.${dbName}.${tableName};
+        CREATE TABLE paimon.${dbName}.${tableName} (
+            id INT, name STRING, score DOUBLE
+        ) USING paimon
+        TBLPROPERTIES ('bucket'='-1', 'file.format'='${format}', 'write-only'='true');
+        """
+    }.join("\n")
+
     // Create fixtures through Spark and verify Doris writes against the same tables.
     spark_paimon_multi """
         CREATE DATABASE IF NOT EXISTS paimon.${dbName};
@@ -36,11 +48,7 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
             id INT, name STRING, score DOUBLE
         ) USING paimon;
 
-        DROP TABLE IF EXISTS paimon.${dbName}.t_append_write_only;
-        CREATE TABLE paimon.${dbName}.t_append_write_only (
-            id INT, name STRING, score DOUBLE
-        ) USING paimon
-        TBLPROPERTIES ('bucket'='-1', 'file.format'='parquet', 'write-only'='true');
+        ${writeOnlyDdls}
 
         DROP TABLE IF EXISTS paimon.${dbName}.t_append_part;
         CREATE TABLE paimon.${dbName}.t_append_part (
@@ -102,8 +110,9 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
         // FT-001: Reuse the same writes for default and paimon-cpp-compatible tables.
         // Honor the session setting, including external fuzzy testing.
         String appendBackend = sql("SELECT UPPER(@@paimon_write_backend)")[0][0]
-        [t_append: "JNI", t_append_write_only: appendBackend].each {
-            tableName, expectedBackend ->
+        def appendTables = [t_append: "JNI"]
+        writeOnlyTables.keySet().each { tableName -> appendTables[tableName] = appendBackend }
+        appendTables.each { tableName, expectedBackend ->
             explain {
                 sql "INSERT INTO ${tableName} VALUES (1, 'alice', 95.5)"
                 contains "backend: ${expectedBackend}"
@@ -119,8 +128,10 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
             sql "INSERT INTO ${tableName} (name, id) VALUES ('grace', 7)"
             assertTableEquals(tableName, "ORDER BY id")
         }
-        assertEquals(sql("SELECT * FROM t_append ORDER BY id"),
-                sql("SELECT * FROM t_append_write_only ORDER BY id"))
+        writeOnlyTables.keySet().each { tableName ->
+            assertEquals(sql("SELECT * FROM t_append ORDER BY id"),
+                    sql("SELECT * FROM ${tableName} ORDER BY id"))
+        }
 
         // FT-002: Partitioned append-only
         sql """INSERT INTO t_append_part VALUES (1, 'alice', 95.5, 'east'), (2, 'bob', 87.0, 'west')"""

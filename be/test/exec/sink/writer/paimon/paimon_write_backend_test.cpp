@@ -37,6 +37,7 @@ TEST(CppPaimonWriteBackendTest, LinkedFormatsAndCommitVersion) {
     // Exercise link-time registration without dlopen. An SDK upgrade must revalidate the
     // native serializer against Java FE before changing this expected version.
     EXPECT_NE(nullptr, paimon::FactoryCreator::GetInstance()->Create("parquet"));
+    EXPECT_NE(nullptr, paimon::FactoryCreator::GetInstance()->Create("orc"));
     EXPECT_NE(nullptr, paimon::FactoryCreator::GetInstance()->Create("avro"));
     EXPECT_EQ(12, paimon::CommitMessage::CurrentVersion());
 }

@@ -256,7 +256,8 @@ public:
                                  "SDK pool limit excludes conversion, IO and non-pool allocations");
         io::FSPropertiesRef fs_properties(storage.file_type);
         fs_properties.properties = &storage.properties;
-        io::FileDescription file_description {.path = storage.root_path};
+        io::FileDescription file_description;
+        file_description.path = storage.root_path;
         auto fs = with_paimon_resource_context(
                 context, [&] { return FileFactory::create_fs(fs_properties, file_description); });
         if (!fs.has_value()) return fs.error();
@@ -342,7 +343,8 @@ public:
             });
         }
         _schema.reset();
-        if (_sdk_pool_peak && _pool) COUNTER_SET(_sdk_pool_peak, _pool->MaxMemoryUsage());
+        if (_sdk_pool_peak && _pool)
+            COUNTER_SET(_sdk_pool_peak, static_cast<int64_t>(_pool->MaxMemoryUsage()));
         if (_conversion_peak && _arrow_pool)
             COUNTER_SET(_conversion_peak, _arrow_pool->max_memory());
         _arrow_pool.reset();

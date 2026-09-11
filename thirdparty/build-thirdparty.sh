@@ -1103,8 +1103,21 @@ build_paimon_cpp() {
         touch doris-table-schema.patched
     fi
     local paimon_runtime_flags="" paimon_install_rpath='$ORIGIN'
+    local -a paimon_runtime_libraries=()
     if [[ "${KERNEL}" == "Linux" ]]; then
-        paimon_runtime_flags="$(bash "${TP_DIR}/paimon-cpp-runtime.sh" link-flags "${CXX:-c++}")"
+        # LDB's unversioned C++ runtime libraries are linker scripts selecting static
+        # archives. Link the real DSOs before the compiler's implicit runtime libraries.
+        local soname library
+        for soname in libstdc++.so.6 libgcc_s.so.1; do
+            library="$("${CXX}" "-print-file-name=${soname}")"
+            if [[ "${library}" != /* || ! -f "${library}" ]]; then
+                echo "Cannot locate ${soname} from ${CXX}: ${library}" >&2
+                return 1
+            fi
+            paimon_runtime_libraries+=("${library}")
+            paimon_runtime_flags+=" \"${library}\""
+        done
+        paimon_runtime_flags="-Wl,--push-state,--no-as-needed${paimon_runtime_flags} -Wl,--pop-state"
     elif [[ "${KERNEL}" == "Darwin" ]]; then
         paimon_install_rpath='@loader_path'
     fi
@@ -1127,15 +1140,15 @@ build_paimon_cpp() {
         -DPAIMON_BUILD_TESTS=OFF -DPAIMON_BUILD_BENCHMARKS=OFF \
         -DPAIMON_USE_ASAN="${PAIMON_USE_ASAN:-OFF}" \
         -DLIBUNWIND_LIBRARY:FILEPATH= \
-        -DPAIMON_ENABLE_AVRO=ON -DPAIMON_ENABLE_ORC=OFF \
+        -DPAIMON_ENABLE_AVRO=ON -DPAIMON_ENABLE_ORC=ON \
         -DPAIMON_ENABLE_S3=OFF -DPAIMON_ENABLE_JINDO=OFF \
         -DPAIMON_ENABLE_LUCENE=OFF -DPAIMON_ENABLE_LUMINA=OFF \
         -DPAIMON_ENABLE_TANTIVY=OFF
     "${CMAKE_CMD}" --build doris-build --parallel "${PARALLEL}"
     "${CMAKE_CMD}" --install doris-build
     if [[ "${KERNEL}" == "Linux" ]]; then
-        bash "${TP_DIR}/paimon-cpp-runtime.sh" install "${CXX:-c++}" "${TP_INSTALL_DIR}/paimon-cpp/lib"
-        bash "${TP_DIR}/paimon-cpp-runtime.sh" check "${TP_INSTALL_DIR}/paimon-cpp/lib"
+        # Dereference toolchain symlinks so the installed package is relocatable.
+        cp -L "${paimon_runtime_libraries[@]}" "${TP_INSTALL_DIR}/paimon-cpp/lib/"
     fi
     # Expose only Paimon headers, never its private Arrow headers, to Doris compilation.
     mkdir -p "${TP_INSTALL_DIR}/paimon-cpp/doris-include"

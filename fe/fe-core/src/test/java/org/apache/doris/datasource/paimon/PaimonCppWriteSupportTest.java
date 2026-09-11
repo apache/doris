@@ -117,14 +117,18 @@ public class PaimonCppWriteSupportTest {
     }
 
     @Test
-    public void testUnsupportedOptionsAndModes() {
+    public void testWriteFormatsOptionsAndModes() {
+        for (String format : Arrays.asList("parquet", "orc", "avro")) {
+            Assert.assertNull(unsupportedReason(
+                    table(Collections.singletonMap("file.format", format)), COLUMNS, TPaimonWriteMode.APPEND));
+        }
         Assert.assertNull(unsupportedReason(
                 table(Collections.singletonMap("owner", "hadoop")), COLUMNS, TPaimonWriteMode.APPEND));
         for (Map<String, String> options : Arrays.asList(
                 Collections.singletonMap("unknown-option", "true"),
                 Collections.singletonMap("bucket", "4"),
                 Collections.singletonMap("write-only", "false"),
-                Collections.singletonMap("file.format", "orc"),
+                Collections.singletonMap("file.format", "csv"),
                 Collections.singletonMap("variant.inferShreddingSchema", "true"),
                 Collections.singletonMap("changelog-producer", "input"))) {
             Assert.assertNotNull(unsupportedReason(

@@ -37,7 +37,7 @@ include_directories(SYSTEM "${DORIS_PAIMON_INCLUDE}")
 # Format factories register when their shared libraries are loaded. Keep these fixed
 # dependencies at link time instead of loading plugins from each writer.
 set(DORIS_PAIMON_FORMAT_LIBRARIES)
-foreach(plugin paimon_parquet_file_format paimon_avro_file_format)
+foreach(plugin paimon_parquet_file_format paimon_orc_file_format paimon_avro_file_format)
     find_library(DORIS_PAIMON_${plugin} NAMES ${plugin}
         PATHS "${DORIS_PAIMON_PREFIX}/lib" NO_DEFAULT_PATH NO_CACHE REQUIRED)
     add_library(doris_${plugin} SHARED IMPORTED)

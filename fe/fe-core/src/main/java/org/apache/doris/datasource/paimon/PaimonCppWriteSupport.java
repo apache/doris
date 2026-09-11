@@ -99,8 +99,10 @@ public final class PaimonCppWriteSupport {
         if (!"-1".equals(options.getOrDefault("bucket", "-1"))) {
             return "v1 requires unaware bucket (-1)";
         }
-        if (!"parquet".equalsIgnoreCase(options.getOrDefault("file.format", "orc"))) {
-            return "v1 requires Parquet data files";
+        String fileFormat = options.getOrDefault("file.format", "orc");
+        if (!"parquet".equalsIgnoreCase(fileFormat) && !"orc".equalsIgnoreCase(fileFormat)
+                && !"avro".equalsIgnoreCase(fileFormat)) {
+            return "paimon-cpp supports Parquet, ORC and Avro data files";
         }
         if (!"avro".equalsIgnoreCase(options.getOrDefault("manifest.format", "avro"))) {
             return "v1 requires Avro manifests";
