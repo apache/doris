@@ -291,15 +291,8 @@ protected:
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 
-    void stage_target_rowset(int64_t txn_id, int64_t partition_id, int64_t tablet_id,
-                             bool include_row_binlog_mapping = false) {
+    void stage_target_rowset(int64_t txn_id, int64_t partition_id, int64_t tablet_id) {
         doris::RowsetMetaCloudPB rowset = create_rowset(txn_id, tablet_id, partition_id, -1, 100);
-        if (include_row_binlog_mapping) {
-            auto* mapping = rowset.mutable_row_binlog_column_mappings()->add_entries();
-            mapping->set_source_column_unique_id(1);
-            mapping->set_current_column_unique_id(10);
-            mapping->set_before_column_unique_id(11);
-        }
         auto call = [&](bool prepare) {
             CreateRowsetRequest request;
             request.set_cloud_unique_id(cloud_unique_id_);
@@ -1148,14 +1141,14 @@ TEST_F(MetaServiceTableStreamTest, CommitTargetRowsetAndOffsetAtomically) {
     EXPECT_EQ(target_version.version(), 1);
 
     int64_t committed_txn_id = begin_target_transaction("consume-target-rowset");
-    stage_target_rowset(committed_txn_id, kTargetPartitionId, kTargetTabletId, true);
+    stage_target_rowset(committed_txn_id, kTargetPartitionId, kTargetTabletId);
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     ASSERT_EQ(txn->get(meta_rowset_tmp_key({instance_id_, committed_txn_id, kTargetTabletId}),
                        &value),
               TxnErrorCode::TXN_OK);
     doris::RowsetMetaCloudPB staged_rowset;
     ASSERT_TRUE(staged_rowset.ParseFromString(value));
-    EXPECT_TRUE(staged_rowset.has_row_binlog_column_mappings());
+    EXPECT_FALSE(staged_rowset.has_row_binlog_column_mappings());
     CommitTxnRequest commit_request = make_consume_request(committed_txn_id, kSourcePartitionId,
                                                            TABLE_STREAM_OFFSET_CONSUMED, 100, 120);
     commit_request.set_commit_tso(999);

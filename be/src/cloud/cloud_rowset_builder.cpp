@@ -172,17 +172,8 @@ Status CloudGroupRowsetBuilder::init() {
         }
         cfg.column_mappings = std::move(*mappings);
 
-        auto* persisted_mappings =
-                _data_builder->rowset_writer()->rowset_meta()->mutable_row_binlog_column_mappings();
-        persisted_mappings->set_need_historical_value(cfg.need_historical_value);
-        for (const auto& mapping : source_index_schema->row_binlog_column_mappings) {
-            auto* entry = persisted_mappings->add_entries();
-            entry->set_source_column_unique_id(mapping.source_uid);
-            entry->set_current_column_unique_id(mapping.current_uid);
-            if (mapping.before_uid.has_value()) {
-                entry->set_before_column_unique_id(*mapping.before_uid);
-            }
-        }
+        _attach_row_binlog.need_historical_value = cfg.need_historical_value;
+        _attach_row_binlog.column_mappings = source_index_schema->row_binlog_column_mappings;
     }
 
     _rowset_writer = std::move(group_writer);
@@ -214,14 +205,13 @@ Status CloudGroupRowsetBuilder::commit_rowset(const std::string& job_id, int64_t
 }
 
 Status CloudGroupRowsetBuilder::set_txn_related_info() {
-    RowBinlogTxnInfo attach_row_binlog;
-    attach_row_binlog.rowset = _row_binlog_builder->rowset();
-    attach_row_binlog.tablet = _row_binlog_builder->tablet_sptr();
+    _attach_row_binlog.rowset = _row_binlog_builder->rowset();
+    _attach_row_binlog.tablet = _row_binlog_builder->tablet_sptr();
     if (_data_builder->tablet()->enable_unique_key_merge_on_write()) {
-        attach_row_binlog.delete_bitmap =
+        _attach_row_binlog.delete_bitmap =
                 std::make_shared<DeleteBitmap>(_row_binlog_builder->tablet()->tablet_id());
     }
-    RETURN_IF_ERROR(_data_builder->attach_row_binlog_to_txn(attach_row_binlog));
+    RETURN_IF_ERROR(_data_builder->attach_row_binlog_to_txn(_attach_row_binlog));
     RETURN_IF_ERROR(_data_builder->set_txn_related_info());
     return _row_binlog_builder->set_txn_related_info();
 }

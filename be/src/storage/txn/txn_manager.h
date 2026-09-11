@@ -45,6 +45,7 @@
 #include "storage/segment/vertical_segment_writer.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_meta.h"
+#include "storage/tablet_info.h"
 #include "util/time.h"
 
 namespace doris {
@@ -68,6 +69,9 @@ struct RowBinlogTxnInfo {
     BaseTabletSPtr tablet;
     // Delete bitmap deltas that should be applied to the independent binlog tablet.
     DeleteBitmapPtr delete_bitmap;
+    // Write-time snapshot, owned by the transaction independently of the writer and bitmap LRU.
+    bool need_historical_value = false;
+    std::vector<RowBinlogColumnUidMapping> column_mappings;
 };
 
 struct TxnPublishInfo {
