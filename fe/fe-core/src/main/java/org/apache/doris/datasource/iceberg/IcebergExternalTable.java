@@ -316,7 +316,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         return getBaseSchemaForDisplay(Util.showHiddenColumns() || needInternalHiddenColumns());
     }
 
-    /** DESCRIBE and SHOW CREATE use declared nullability, independently of scan nullability. */
+    /** Schema display uses declared nullability, independently of scan nullability. */
     public List<Column> getBaseSchemaForDisplay(boolean full) {
         if (isView()) {
             return getBaseSchema(full);

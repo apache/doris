@@ -23,12 +23,14 @@ suite("test_iceberg_show_nullable", "p0,external,doris,external_docker,external_
     }
 
     String catalogName = "test_iceberg_show_nullable"
-    String dbName = "iceberg_show_nullable_db_" + UUID.randomUUID().toString().replace("-", "")
+    String suffix = UUID.randomUUID().toString().replace("-", "")
+    String dbName = "iceberg_show_nullable_db_" + suffix
+    String tblName = "required_tbl_" + suffix
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String hmsPort = context.config.otherConfigs.get("hive2HmsPort")
     String hdfsPort = context.config.otherConfigs.get("hive2HdfsPort")
     String defaultFs = "hdfs://${externalEnvIp}:${hdfsPort}"
-    String tableName = "${catalogName}.${dbName}.required_tbl"
+    String tableName = "${catalogName}.${dbName}.${tblName}"
 
     sql """drop catalog if exists ${catalogName}"""
     sql """create catalog ${catalogName} properties (
@@ -57,6 +59,29 @@ suite("test_iceberg_show_nullable", "p0,external,doris,external_docker,external_
             assertTrue(ddl.contains("`value` text " + (valueIsRequired ? "NOT NULL" : "NULL")))
             assertTrue(ddl.contains("`event_time` datetimev2(6) NULL"))
             assertTrue(ddl.contains("required value"))
+
+            def expected = [id: "NO", value: valueIsRequired ? "NO" : "YES", event_time: "YES"]
+            [false, true].each { full ->
+                String command = full ? "show full columns" : "show columns"
+                int nullIndex = full ? 3 : 2
+                def columns = sql("${command} from ${tableName}")
+                assertEquals(expected, columns.collectEntries { row -> [(row[0]): row[nullIndex]] })
+                def likeColumns = sql("${command} from ${tableName} like 'id'")
+                assertEquals([id: "NO"], likeColumns.collectEntries { row -> [(row[0]): row[nullIndex]] })
+                // WHERE is rewritten to information_schema.columns, unlike the direct and LIKE paths.
+                ["NO", "YES"].each { nullableFlag ->
+                    def filtered = sql("${command} from ${tableName} where `Null` = '${nullableFlag}'")
+                    assertEquals(expected.findAll { name, flag -> flag == nullableFlag },
+                            filtered.collectEntries { row -> [(row[0]): row[nullIndex]] })
+                }
+            }
+
+            String metadataQuery = """select COLUMN_NAME, IS_NULLABLE
+                from ${catalogName}.information_schema.columns
+                where TABLE_SCHEMA in ('${dbName}', '${catalogName}.${dbName}') and TABLE_NAME = '${tblName}'"""
+            assertEquals(expected, sql(metadataQuery).collectEntries { row -> [(row[0]): row[1]] })
+            assertEquals(expected.findAll { name, flag -> flag == "NO" },
+                    sql(metadataQuery + " and IS_NULLABLE = 'NO'").collectEntries { row -> [(row[0]): row[1]] })
         }
 
         // Empty tables have no snapshot yet, but still have a declared schema.

@@ -17,14 +17,23 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.proc.IndexInfoProcDir;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.commands.ShowColumnsCommand;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.FrontendServiceImpl;
+import org.apache.doris.thrift.TDescribeTablesParams;
+import org.apache.doris.thrift.TDescribeTablesResult;
 
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.PartitionSpec;
@@ -39,13 +48,16 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
 class IcebergSchemaDisplayTest {
+    private IcebergExternalCatalog catalog;
     private IcebergExternalDatabase database;
     private IcebergExternalTable table;
     private TableOperations operations;
@@ -73,10 +85,10 @@ class IcebergSchemaDisplayTest {
         Mockito.when(operations.io()).thenReturn(Mockito.mock(FileIO.class));
         Mockito.when(operations.locationProvider()).thenReturn(Mockito.mock(LocationProvider.class));
 
-        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        catalog = Mockito.mock(IcebergExternalCatalog.class);
         Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() { });
         Mockito.when(catalog.getEnableMappingVarbinary()).thenReturn(true);
-        database = new IcebergExternalDatabase(catalog, 2L, "db", "db");
+        database = Mockito.spy(new IcebergExternalDatabase(catalog, 2L, "db", "db"));
         table = Mockito.spy(new IcebergExternalTable(3, "required_tbl", "required_tbl", catalog, database));
         Mockito.doNothing().when(table).makeSureInitialized();
         Mockito.doReturn(new BaseTable(operations, "required_tbl")).when(table).getIcebergTable();
@@ -177,6 +189,100 @@ class IcebergSchemaDisplayTest {
         List<List<String>> rows = new IndexInfoProcDir(database, otherTable).lookup("4").fetchResult().getRows();
         Assertions.assertEquals("Yes", rows.get(0).get(2));
         Mockito.verify(otherTable).getBaseSchema();
+    }
+
+    @Test
+    void testShowColumnsUsesDeclaredNullability() throws Exception {
+        try (MockedStatic<Env> ignored = mockMetadataEnv()) {
+            for (boolean full : new boolean[] {false, true}) {
+                int nullIndex = full ? 3 : 2;
+                ShowColumnsCommand command = new ShowColumnsCommand(full,
+                        new TableNameInfo("iceberg", "db", "required_tbl"), null, null, null);
+                List<List<String>> rows = command.doRun(context, null).getResultRows();
+                Assertions.assertEquals("NO", rows.get(0).get(nullIndex));
+                Assertions.assertEquals("NO", rows.get(1).get(nullIndex));
+                Assertions.assertEquals("YES", rows.get(2).get(nullIndex));
+                ShowColumnsCommand filtered = new ShowColumnsCommand(full,
+                        new TableNameInfo("iceberg", "db", "required_tbl"), null, "id", null);
+                List<List<String>> filteredRows = filtered.doRun(context, null).getResultRows();
+                Assertions.assertEquals(1, filteredRows.size());
+                Assertions.assertEquals("id", filteredRows.get(0).get(0));
+                Assertions.assertEquals("NO", filteredRows.get(0).get(nullIndex));
+            }
+        }
+        Assertions.assertTrue(scanColumns.stream().allMatch(Column::isAllowNull));
+    }
+
+    @Test
+    void testDescribeTablesUsesDeclaredNullabilityWithoutSessionContext() throws Exception {
+        try (MockedStatic<Env> ignored = mockMetadataEnv()) {
+            // information_schema requests arrive on an RPC thread, without a SQL session context.
+            ConnectContext.remove();
+            TDescribeTablesResult result = describeTables("required_tbl");
+            Assertions.assertEquals(Collections.singletonList(scanColumns.size()), result.getTablesOffset());
+            Assertions.assertFalse(result.getColumns().get(0).getColumnDesc().isIsAllowNull());
+            Assertions.assertFalse(result.getColumns().get(1).getColumnDesc().isIsAllowNull());
+            Assertions.assertTrue(result.getColumns().get(2).getColumnDesc().isIsAllowNull());
+            Assertions.assertEquals("value doc", result.getColumns().get(1).getComment());
+        }
+        Assertions.assertTrue(scanColumns.stream().allMatch(Column::isAllowNull));
+        Assertions.assertTrue(scanColumns.get(3).getChildren().get(0).isAllowNull());
+    }
+
+    @Test
+    void testDescribeTablesKeepsOffsetsWhenDisplaySchemaFails() throws Exception {
+        try (MockedStatic<Env> ignored = mockMetadataEnv()) {
+            IcebergExternalTable unavailable = Mockito.mock(IcebergExternalTable.class);
+            Mockito.when(unavailable.getBaseSchemaForDisplay()).thenThrow(new RuntimeException("schema unavailable"));
+            Mockito.doReturn(unavailable).when(database).getTableNullableIfException("unavailable");
+            TDescribeTablesResult result = describeTables("unavailable", "required_tbl");
+            Assertions.assertEquals(Arrays.asList(0, scanColumns.size()), result.getTablesOffset());
+            Assertions.assertEquals(scanColumns.size(), result.getColumns().size());
+            Assertions.assertFalse(result.getColumns().get(0).getColumnDesc().isIsAllowNull());
+        }
+    }
+
+    @Test
+    void testDescribeTablesChecksPrivilegesBeforeLoadingSchema() throws Exception {
+        try (MockedStatic<Env> ignored = mockMetadataEnv()) {
+            Mockito.when(Env.getCurrentEnv().getAccessManager().checkTblPriv(Mockito.any(UserIdentity.class),
+                    Mockito.eq("iceberg"), Mockito.eq("db"), Mockito.eq("required_tbl"),
+                    Mockito.eq(PrivPredicate.SHOW))).thenReturn(false);
+            TDescribeTablesResult result = describeTables("required_tbl");
+            Assertions.assertTrue(result.getColumns().isEmpty());
+            Mockito.verify(table, Mockito.never()).getBaseSchemaForDisplay();
+        }
+    }
+
+    private MockedStatic<Env> mockMetadataEnv() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+        Mockito.doReturn(catalog).when(catalogMgr).getCatalogOrAnalysisException("iceberg");
+        Mockito.doReturn(catalog).when(catalogMgr).getCatalogOrException(Mockito.eq("iceberg"), Mockito.any());
+        Mockito.doReturn(database).when(catalog).getDbOrAnalysisException("db");
+        Mockito.doReturn(database).when(catalog).getDbNullable("db");
+        Mockito.doReturn(table).when(database).getTableOrAnalysisException("required_tbl");
+        Mockito.doReturn(table).when(database).getTableNullableIfException("required_tbl");
+        Mockito.when(accessManager.checkTblPriv(Mockito.any(ConnectContext.class), Mockito.anyString(),
+                Mockito.anyString(), Mockito.anyString(), Mockito.eq(PrivPredicate.SHOW))).thenReturn(true);
+        Mockito.when(accessManager.checkTblPriv(Mockito.any(UserIdentity.class), Mockito.anyString(),
+                Mockito.anyString(), Mockito.anyString(), Mockito.eq(PrivPredicate.SHOW))).thenReturn(true);
+        MockedStatic<Env> mocked = Mockito.mockStatic(Env.class);
+        mocked.when(Env::getCurrentEnv).thenReturn(env);
+        return mocked;
+    }
+
+    private TDescribeTablesResult describeTables(String... names) throws Exception {
+        TDescribeTablesParams params = new TDescribeTablesParams();
+        params.setCatalog("iceberg");
+        params.setDb("db");
+        params.setTablesName(Arrays.asList(names));
+        params.setCurrentUserIdent(UserIdentity.ROOT.toThrift());
+        // The RPC handler does not need the background report thread started by its constructor.
+        return Mockito.mock(FrontendServiceImpl.class, Mockito.CALLS_REAL_METHODS).describeTables(params);
     }
 
     private List<List<String>> describe() throws Exception {
