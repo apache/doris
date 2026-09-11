@@ -684,8 +684,26 @@ public:
         }
     }
 
-    // (UTC 9999-12-31 23:59:59) - 24 * 3600
-    static const int64_t TIMESTAMP_VALID_MAX = 253402243199L;
+    struct TimeZoneState {
+        int64_t max_timestamp;
+    };
+
+    static int64_t get_max_timestamp(const cctz::time_zone& time_zone) {
+        return cctz::convert(cctz::civil_second(9999, 12, 31, 23, 59, 59), time_zone)
+                .time_since_epoch()
+                .count();
+    }
+
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::FRAGMENT_LOCAL) {
+            auto state = std::make_shared<TimeZoneState>();
+            // Compute the session time zone's boundary once, keeping date conversion out of
+            // the row loop (including its cold branches, which can inhibit loop optimization).
+            state->max_timestamp = get_max_timestamp(context->state()->timezone_obj());
+            context->set_function_state(scope, state);
+        }
+        return IFunction::open(context, scope);
+    }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
@@ -694,6 +712,10 @@ public:
                                               ColumnInt32, ColumnInt8>;
         using ResItemType = typename ResColType::value_type;
         auto res = ResColType::create();
+        const auto max_timestamp =
+                static_cast<const TimeZoneState*>(
+                        context->get_function_state(FunctionContext::FRAGMENT_LOCAL))
+                        ->max_timestamp;
 
         const auto* ts_col =
                 assert_cast<const ArgColType*>(block.get_by_position(arguments[0]).column.get());
@@ -705,10 +727,9 @@ public:
                 const auto seconds = ts_col->get_intergral_part(i);
                 const auto fraction = ts_col->get_fractional_part(i);
 
-                if (seconds < 0 || seconds > TIMESTAMP_VALID_MAX) {
+                if (seconds < 0 || seconds > max_timestamp) [[unlikely]] {
                     return Status::InvalidArgument(
-                            "The input value of TimeFiled(from_unixtime()) must between 0 and "
-                            "253402243199L");
+                            "The input value of {} is out of range in the session time zone", name);
                 }
 
                 ResItemType value = Impl::extract_field(fraction, scale);
@@ -719,10 +740,9 @@ public:
             for (int i = 0; i < input_rows_count; ++i) {
                 auto date = ts_col->get_element(i);
 
-                if (date < 0 || date > TIMESTAMP_VALID_MAX) {
+                if (date < 0 || date > max_timestamp) [[unlikely]] {
                     return Status::InvalidArgument(
-                            "The input value of TimeFiled(from_unixtime()) must between 0 and "
-                            "253402243199L");
+                            "The input value of {} is out of range in the session time zone", name);
                 }
 
                 ResItemType value = Impl::extract_field(date, ctz);
