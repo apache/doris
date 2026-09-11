@@ -26,6 +26,7 @@ import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.cdc.request.CommitOffsetRequest;
 import org.apache.doris.job.cdc.request.TaskFailureRequest;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
@@ -62,7 +63,8 @@ public class StreamingJobAction extends RestBaseController {
             return ResponseEntityBuilder.okWithCommonError("Table schema must be queried on the master FE");
         }
         try (AutoCloseConnectContext ignored = new AutoCloseConnectContext(createJobContext(request))) {
-            return tableSchemaAction.getSchema(InternalCatalog.INTERNAL_CATALOG_NAME, dbName, tblName);
+            return tableSchemaAction.getSchema(
+                    InternalCatalog.INTERNAL_CATALOG_NAME, dbName, tblName, PrivPredicate.SHOW);
         }
     }
 

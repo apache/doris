@@ -141,6 +141,7 @@ suite("test_streaming_mysql_job_priv", "p0,external,mysql,external_docker,extern
 
         def jobResult = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
         log.info("show jobResult: " + jobResult)
+        sql """REVOKE select_priv ON ${dbName}.* FROM ${user}"""
 
         // A token-authenticated schema change must still check the job creator's ALTER privilege.
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
@@ -162,9 +163,11 @@ suite("test_streaming_mysql_job_priv", "p0,external,mysql,external_docker,extern
         sql """GRANT alter_priv ON ${dbName}.* TO ${user}"""
         Awaitility.await().atMost(180, SECONDS).pollInterval(2, SECONDS).until({
             def columns = sql "DESC ${tableName}"
+            if (!columns.any { it[0] == "cdc_auth_col" }) {
+                return false
+            }
             def rows = sql "SELECT cdc_auth_col FROM ${tableName} WHERE name = 'SchemaChangePriv'"
-            columns.any { it[0] == "cdc_auth_col" }
-                    && rows.size() == 1 && rows[0][0] == "created_by_job_user"
+            rows.size() == 1 && rows[0][0] == "created_by_job_user"
         })
 
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {

@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TokenManager;
 import org.apache.doris.httpv2.entity.ResponseBody;
@@ -40,6 +41,7 @@ import java.util.Map;
 public class StreamingJobActionSchemaChangeTest extends TestWithFeService {
     private static final String DB_NAME = "streaming_schema_change_test";
     private static final String TABLE_NAME = "token_auth_tbl";
+    private static final String LOAD_ONLY_USER = "streaming_schema_load_only";
     private final StreamingJobAction action = new StreamingJobAction(new TableSchemaAction());
 
     @Override
@@ -52,6 +54,15 @@ public class StreamingJobActionSchemaChangeTest extends TestWithFeService {
         Mockito.when(job.getCreateUser()).thenReturn(connectContext.getCurrentUserIdentity());
         Mockito.when(job.getCurrentDbName()).thenReturn(DB_NAME);
         Env.getCurrentEnv().getJobManager().createJobInternal(job, true);
+
+        addUser(LOAD_ONLY_USER, false);
+        grantPriv("GRANT LOAD_PRIV ON " + DB_NAME + "." + TABLE_NAME + " TO " + LOAD_ONLY_USER + "@'%'");
+        StreamingInsertJob loadOnlyJob = Mockito.mock(StreamingInsertJob.class);
+        Mockito.when(loadOnlyJob.getJobId()).thenReturn(124L);
+        Mockito.when(loadOnlyJob.getCreateUser())
+                .thenReturn(UserIdentity.createAnalyzedUserIdentWithIp(LOAD_ONLY_USER, "%"));
+        Mockito.when(loadOnlyJob.getCurrentDbName()).thenReturn(DB_NAME);
+        Env.getCurrentEnv().getJobManager().createJobInternal(loadOnlyJob, true);
     }
 
     @Test
@@ -89,7 +100,7 @@ public class StreamingJobActionSchemaChangeTest extends TestWithFeService {
 
     @Test
     public void testGetTableSchemaWithToken() throws Exception {
-        HttpServletRequest request = tokenRequest();
+        HttpServletRequest request = tokenRequest(124L);
         ResponseEntity<?> result = (ResponseEntity<?>) action.getTableSchema(DB_NAME, TABLE_NAME, request);
 
         ResponseBody<?> responseBody = (ResponseBody<?>) result.getBody();
@@ -98,9 +109,13 @@ public class StreamingJobActionSchemaChangeTest extends TestWithFeService {
     }
 
     private HttpServletRequest tokenRequest() throws Exception {
+        return tokenRequest(123L);
+    }
+
+    private HttpServletRequest tokenRequest(long jobId) throws Exception {
         HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
         Mockito.when(request.getRemoteAddr()).thenReturn("127.0.0.1");
-        Mockito.when(request.getHeader("jobId")).thenReturn("123");
+        Mockito.when(request.getHeader("jobId")).thenReturn(String.valueOf(jobId));
         Mockito.when(request.getHeader("token"))
                 .thenReturn(Env.getCurrentEnv().getTokenManager().acquireToken());
         String invalidBasic = Base64.getEncoder().encodeToString(
