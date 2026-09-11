@@ -105,6 +105,24 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
     }
 
     @Test
+    public void testDropColumnMarksBaselineRebuildOnlyWhenReferenced() throws Exception {
+        String db = "ivm_broken_drop_column";
+        createPartitionedIvmTableAndMv(db);
+        MTMV mtmv = getMtmv(db);
+
+        // ivm_mv selects dt, k1, v1. Dropping a column it does not use must leave the baseline alone.
+        executeSql("ALTER TABLE ivm_base ADD COLUMN spare int");
+        executeSql("ALTER TABLE ivm_base DROP COLUMN spare");
+        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired());
+
+        // Dropping a column the MV uses makes the MV query unanalyzable: the change is metadata-only
+        // and emits no binlog, so an incremental refresh would silently keep the rows of the old
+        // column. The baseline has to be invalidated instead.
+        executeSql("ALTER TABLE ivm_base DROP COLUMN v1");
+        Assertions.assertTrue(mtmv.getIvmInfo().isBaselineRebuildRequired());
+    }
+
+    @Test
     public void testPublishedPctPartitionUsesPartitionsBaselineRebuild() throws Exception {
         String db = "ivm_partitions_baseline_rebuild";
         createPartitionedIvmTableAndMv(db);
