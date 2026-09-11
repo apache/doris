@@ -791,19 +791,22 @@ public class TypeCoercionUtilsTest {
     }
 
     @Test
-    public void testVariantCommonTypeRequiresSameStorageProperties() {
+    public void testVariantCommonTypeIgnoresStorageProperties() {
         VariantType v1 = new VariantType(100);
         VariantType anotherV1 = new VariantType(200);
 
-        Assertions.assertTrue(
-                TypeCoercionUtils.findWiderTypeForTwo(v1, anotherV1, false, true).isEmpty());
-        Assertions.assertTrue(TypeCoercionUtils.findWiderTypeForTwo(
-                ArrayType.of(v1), ArrayType.of(anotherV1), false, true).isEmpty());
+        Assertions.assertEquals(VariantType.INSTANCE,
+                TypeCoercionUtils.findWiderTypeForTwo(v1, anotherV1, false, true).get());
+        Assertions.assertEquals(VariantType.INSTANCE,
+                TypeCoercionUtils.findWiderTypeForTwo(anotherV1, v1, false, true).get());
+        Assertions.assertEquals(ArrayType.of(VariantType.INSTANCE), TypeCoercionUtils.findWiderTypeForTwo(
+                ArrayType.of(v1), ArrayType.of(anotherV1), false, true).get());
 
-        Assertions.assertTrue(
-                TypeCoercionUtils.findCommonPrimitiveTypeForCaseWhen(v1, anotherV1).isEmpty());
-        Assertions.assertTrue(TypeCoercionUtils.findWiderCommonTypeForCaseWhen(
-                ImmutableList.of(ArrayType.of(v1), ArrayType.of(anotherV1))).isEmpty());
+        Assertions.assertEquals(VariantType.INSTANCE,
+                TypeCoercionUtils.findCommonPrimitiveTypeForCaseWhen(v1, anotherV1).get());
+        Assertions.assertEquals(ArrayType.of(VariantType.INSTANCE),
+                TypeCoercionUtils.findWiderCommonTypeForCaseWhen(
+                        ImmutableList.of(ArrayType.of(v1), ArrayType.of(anotherV1))).get());
 
         Assertions.assertEquals(v1,
                 TypeCoercionUtils.findWiderTypeForTwo(v1, new VariantType(100), false, true).get());
