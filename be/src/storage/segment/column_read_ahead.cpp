@@ -44,19 +44,18 @@ void ColumnReadAheadRequest::sanity_check() const {
 }
 
 Status ColumnReadAheadOptions::validate() const {
-    if (high_watermark_bytes == 0) {
-        return Status::InvalidArgument("column read-ahead high watermark must be positive");
-    }
-    if (low_watermark_bytes >= high_watermark_bytes) {
-        return Status::InvalidArgument(
-                "column read-ahead low watermark must be smaller than high watermark");
+    if (window_bytes == 0) {
+        return Status::InvalidArgument("column read-ahead window bytes must be positive");
     }
     return Status::OK();
 }
 
 ColumnReadAhead::ColumnReadAhead(std::vector<ColumnReadAheadPage> pages,
                                  ColumnReadAheadOptions options, bool reverse)
-        : _pages(std::move(pages)), _options(options), _reverse(reverse) {
+        : _pages(std::move(pages)),
+          _options(options),
+          _reverse(reverse),
+          _next_page_index(reverse ? cast_set<int64_t>(_pages.size()) - 1 : 0) {
     DORIS_CHECK(!_pages.empty());
     for (size_t index = 0; index < _pages.size(); ++index) {
         const auto& page = _pages[index];
@@ -91,14 +90,21 @@ void ColumnReadAhead::plan(const rowid_t* current_rowids, size_t count,
 
     _discard_passed_pages(current_rowids, count, output);
     for (size_t index = 0; index < count; ++index) {
-        _add_page(_page_for_ordinal(current_rowids[index]), output);
-    }
+        const auto& page = _page_for_ordinal(current_rowids[_reverse ? count - index - 1 : index]);
+        _add_page(page, output);
 
-    _sync_future_cursor(current_rowids, count, scan_rowids);
-    const bool replenish = !_planned_once || _pending_bytes <= _options.low_watermark_bytes;
-    _planned_once = true;
-    if (replenish && _pending_bytes < _options.high_watermark_bytes) {
-        _extend_window(scan_rowids, output);
+        // First access and a jump beyond the previous window share the same restart path.
+        const bool beyond_window = _reverse ? page.page_index <= _next_page_index
+                                            : page.page_index >= _next_page_index;
+        if (beyond_window) {
+            _next_page_index = page.page_index;
+            _extend_window(scan_rowids, output);
+        }
+        if (_next_trigger_page_index >= 0 &&
+            (_reverse ? page.page_index <= _next_trigger_page_index
+                      : page.page_index >= _next_trigger_page_index)) {
+            _extend_window(scan_rowids, output);
+        }
     }
 }
 
@@ -151,47 +157,39 @@ void ColumnReadAhead::_discard_passed_pages(const rowid_t* current_rowids, size_
     }
 }
 
-void ColumnReadAhead::_sync_future_cursor(const rowid_t* current_rowids, size_t count,
-                                          const roaring::Roaring& scan_rowids) {
-    if (!_reverse) {
-        const auto next_rank = cast_set<int64_t>(scan_rowids.rank(current_rowids[count - 1]));
-        if (!_planned_once || _next_scan_rank < next_rank) {
-            _next_scan_rank = next_rank;
-        }
-    } else {
-        const uint64_t preceding_rows =
-                current_rowids[0] == 0 ? 0 : scan_rowids.rank(current_rowids[0] - 1);
-        const auto next_rank = cast_set<int64_t>(preceding_rows) - 1;
-        if (!_planned_once || _next_scan_rank > next_rank) {
-            _next_scan_rank = next_rank;
-        }
-    }
-}
-
 void ColumnReadAhead::_extend_window(const roaring::Roaring& scan_rowids,
                                      ColumnReadAheadPlan* output) {
+    _next_trigger_page_index = -1;
+    if (_next_page_index < 0 || _next_page_index >= cast_set<int64_t>(_pages.size())) {
+        return;
+    }
+
+    const auto rank_before = [&scan_rowids](ordinal_t ordinal) -> int64_t {
+        return ordinal == 0 ? 0
+                            : cast_set<int64_t>(scan_rowids.rank(cast_set<rowid_t>(ordinal - 1)));
+    };
+    const auto& first_page = _pages[_next_page_index];
+    int64_t next_rank = _reverse ? rank_before(first_page.last_ordinal + 1) - 1
+                                 : rank_before(first_page.first_ordinal);
     const auto cardinality = cast_set<int64_t>(scan_rowids.cardinality());
-    while (_pending_bytes < _options.high_watermark_bytes && _next_scan_rank >= 0 &&
-           _next_scan_rank < cardinality) {
+    size_t window_bytes = 0;
+    size_t page_count = 0;
+    while (window_bytes < _options.window_bytes && next_rank >= 0 && next_rank < cardinality) {
         uint32_t ordinal = 0;
-        const bool selected = scan_rowids.select(cast_set<uint32_t>(_next_scan_rank), &ordinal);
+        const bool selected = scan_rowids.select(cast_set<uint32_t>(next_rank), &ordinal);
         DORIS_CHECK(selected);
         const auto& page = _page_for_ordinal(ordinal);
         _add_page(page, output);
-        _advance_future_cursor_past(page, scan_rowids);
+        DORIS_CHECK(page.range.size <= std::numeric_limits<size_t>::max() - window_bytes);
+        window_bytes += page.range.size;
+        if (page_count < 2) {
+            _next_trigger_page_index = page.page_index;
+        }
+        ++page_count;
+        _next_page_index = cast_set<int64_t>(page.page_index) + (_reverse ? -1 : 1);
+        next_rank =
+                _reverse ? rank_before(page.first_ordinal) - 1 : rank_before(page.last_ordinal + 1);
     }
-}
-
-void ColumnReadAhead::_advance_future_cursor_past(const ColumnReadAheadPage& page,
-                                                  const roaring::Roaring& scan_rowids) {
-    if (!_reverse) {
-        _next_scan_rank = cast_set<int64_t>(scan_rowids.rank(cast_set<rowid_t>(page.last_ordinal)));
-        return;
-    }
-    const uint64_t preceding_rows =
-            page.first_ordinal == 0 ? 0
-                                    : scan_rowids.rank(cast_set<rowid_t>(page.first_ordinal - 1));
-    _next_scan_rank = cast_set<int64_t>(preceding_rows) - 1;
 }
 
 void ColumnReadAhead::_complete(const ColumnReadAheadPage& page, WindowEntry* entry) {
