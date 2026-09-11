@@ -50,10 +50,13 @@ public:
     // fits after it, so the last max_gram_len-1 positions of a window cannot carry coverage.
     // Counting them made an earlier version optimistic -- it asked for 95% of 12-byte literals
     // on URL paths and delivered 86%.
-    DensitySolver(size_t min_literal_len, size_t max_gram_len);
+    // `lower_case` mirrors the scheme: the extractor folds ASCII case before it hashes byte
+    // pairs, so the evidence has to be folded the same way or it describes another corpus.
+    DensitySolver(size_t min_literal_len, size_t max_gram_len, bool lower_case = false);
 
     // Feeds one column value. Only ASCII runs contribute, since they are the only bytes the
-    // extractor indexes.
+    // extractor indexes, and a NUL byte ends a run the way a non-ASCII byte does: the
+    // extractor emits no gram across one, so no window across one can count as covered.
     void observe(std::string_view value);
 
     // Windows seen so far. Zero means nothing of the promised length was present and solve()
@@ -64,6 +67,17 @@ public:
     // windows, clamped to the bounds above. With no evidence it returns the ceiling rather
     // than inventing a rate.
     uint16_t solve(uint32_t coverage_permille) const;
+    // What solve() clamps away. `required_permille` is the unclamped answer; when it lies
+    // outside the bounds, the clamped `density_permille` keeps only
+    // `achieved_coverage_permille` of the observed windows instead of the requested share,
+    // and the caller must say so rather than record the clamped rate as if it met the target.
+    struct Solution {
+        uint16_t density_permille = kMaxSolvedDensityPermille;
+        uint32_t required_permille = 0;
+        uint32_t achieved_coverage_permille = 0;
+        bool clamped = false;
+    };
+    Solution solve_detailed(uint32_t coverage_permille) const;
 
     // Fixed regardless of how much has been observed.
     static constexpr size_t heap_bytes() { return kHashValues * sizeof(uint32_t); }
@@ -73,6 +87,7 @@ private:
 
     size_t _min_literal_len;
     size_t _max_gram_len;
+    bool _lower_case;
     uint64_t _windows = 0;
     // Counts of per-window minimum hashes, indexed by the hash itself.
     std::vector<uint32_t> _histogram;
