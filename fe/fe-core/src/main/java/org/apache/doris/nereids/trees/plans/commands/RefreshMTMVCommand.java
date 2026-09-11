@@ -186,13 +186,13 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
                             "EXPLAIN REFRESH INCREMENTAL only supports IVM materialized views");
                 }
                 statementContext.setIvmRewriteContext(Optional.of(
-                        IvmRewriteContext.incremental(mtmv, includeExhaustedStreams)));
+                        IvmRewriteContext.incrementalExplain(mtmv, includeExhaustedStreams)));
                 // Excluded trigger tables must not be validated for binlog / key-type support.
                 statementContext.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
                 return createIvmIncrRefreshManager().buildInsertCommand(mtmv);
             case COMPLETE:
                 if (mtmv.isIvm()) {
-                    statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
+                    statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.fullExplain(mtmv)));
                 }
                 statementContext.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
                 return UpdateMvByPartitionCommand.from(
@@ -216,6 +216,9 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
         if (explainPlan != null) {
             return;
         }
+        // createRefreshCommand installs an EXPLAIN-kind rewrite context for both the
+        // INCREMENTAL and COMPLETE branches, so guards that protect real execution (and
+        // dry-run data reads) skip plan-only generation.
         LogicalPlan refreshCommand = createRefreshCommand(mtmv, statementContext);
         if (refreshCommand instanceof Explainable) {
             Explainable explainable = (Explainable) refreshCommand;

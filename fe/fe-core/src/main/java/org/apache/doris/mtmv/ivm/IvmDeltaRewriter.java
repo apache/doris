@@ -18,9 +18,12 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
@@ -70,6 +73,20 @@ public class IvmDeltaRewriter {
                     refreshContext.getConnectContext().getStatementContext().getNextRelationId(),
                     sinkChild.getOutput());
         }
+        // A non-empty delta reaches this point, and only an aggregate delta joins the MV's
+        // old rows with the new delta. If the previous refresh txn committed but its data is
+        // not yet visible (an MV partition's committed version is ahead of its visible
+        // version), that join misses the old rows and the delta is permanently lost. Fail
+        // here; the fallback chain recomputes from the base tables without reading old MV
+        // state. EXPLAIN REFRESH is exempt: it only produces a plan and neither executes it
+        // nor reads MV data.
+        if (!rewriteContext.isExplain()
+                && rewriteResult.isAggMv()
+                && hasUnpublishedCommittedMvData(rewriteContext.getMtmv())) {
+            throw new IvmException(IvmFailureReason.MV_COMMIT_NOT_VISIBLE,
+                    "previous refresh txn committed but its MV data is not visible yet; "
+                            + "aggregate delta would join stale old MV rows");
+        }
         Plan deltaPlan = deltaResult.get().plan;
         IvmDeltaRewriteResult result = deltaResult.get();
         IvmDeltaRewriteResult mergedResult = new IvmDeltaRewriteResult(deltaPlan,
@@ -87,6 +104,24 @@ public class IvmDeltaRewriter {
         IvmDeltaRewriteVisitor visitor = new IvmDeltaRewriteVisitor(
                 new IvmLinearDeltaHandler(), new IvmJoinDeltaHandler(), new IvmAggDeltaHandler(), rewriteState);
         return visitor.rewritePlan(plan, ctx);
+    }
+
+    /**
+     * A refresh txn assigns the next partition version when it commits, while the
+     * partition's visible version only advances when the txn publishes. Any MV
+     * partition whose committed version is still ahead of its visible version
+     * therefore holds unpublished refresh data.
+     */
+    private boolean hasUnpublishedCommittedMvData(MTMV mtmv) {
+        if (Config.isCloudMode()) {
+            return false;
+        }
+        for (Partition partition : mtmv.getPartitions()) {
+            if (partition.getCommittedVersion() > partition.getVisibleVersion()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static Pair<Plan, Map<Slot, Slot>> preSnapshot(Plan plan, IvmDeltaRewriteState rewriteState) {

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.parser;
 
 import org.antlr.v4.runtime.CharStream;
+import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.IntStream;
 import org.antlr.v4.runtime.misc.Interval;
 
@@ -29,6 +30,19 @@ public class CaseInsensitiveStream implements CharStream {
 
     public CaseInsensitiveStream(CharStream stream) {
         this.stream = stream;
+    }
+
+    /**
+     * Avoid copying strings whose UTF-16 indices already equal code-point indices.
+     * Strings containing surrogates keep ANTLR's code-point stream and indexing semantics.
+     */
+    public static CharStream fromString(String input) {
+        for (int index = 0; index < input.length(); index++) {
+            if (Character.isSurrogate(input.charAt(index))) {
+                return new CaseInsensitiveStream(CharStreams.fromString(input));
+            }
+        }
+        return new CaseInsensitiveStringStream(input);
     }
 
     @Override
@@ -43,8 +57,13 @@ public class CaseInsensitiveStream implements CharStream {
 
     @Override
     public int LA(int i) {
-        int result = stream.LA(i);
+        return toUpperCase(stream.LA(i));
+    }
 
+    private static int toUpperCase(int result) {
+        if (result >= 'a' && result <= 'z') {
+            return result - ('a' - 'A');
+        }
         switch (result) {
             case 0:
             case IntStream.EOF:
@@ -82,5 +101,75 @@ public class CaseInsensitiveStream implements CharStream {
     @Override
     public String getSourceName() {
         return stream.getSourceName();
+    }
+
+    private static final class CaseInsensitiveStringStream implements CharStream {
+        private final String input;
+        private int position;
+
+        CaseInsensitiveStringStream(String input) {
+            this.input = input;
+        }
+
+        @Override
+        public String getText(Interval interval) {
+            int start = Math.min(interval.a, input.length());
+            int length = Math.min(interval.b - interval.a + 1, input.length() - start);
+            return input.substring(start, start + length);
+        }
+
+        @Override
+        public void consume() {
+            if (position == input.length()) {
+                throw new IllegalStateException("cannot consume EOF");
+            }
+            position++;
+        }
+
+        @Override
+        public int LA(int offset) {
+            int index;
+            switch (Integer.signum(offset)) {
+                case -1:
+                    index = position + offset;
+                    return index < 0 ? IntStream.EOF : toUpperCase(input.charAt(index));
+                case 0:
+                    return 0;
+                case 1:
+                    index = position + offset - 1;
+                    return index >= input.length() ? IntStream.EOF : toUpperCase(input.charAt(index));
+                default:
+                    throw new UnsupportedOperationException("Not reached");
+            }
+        }
+
+        @Override
+        public int mark() {
+            return -1;
+        }
+
+        @Override
+        public void release(int marker) {
+        }
+
+        @Override
+        public int index() {
+            return position;
+        }
+
+        @Override
+        public void seek(int index) {
+            position = index;
+        }
+
+        @Override
+        public int size() {
+            return input.length();
+        }
+
+        @Override
+        public String getSourceName() {
+            return IntStream.UNKNOWN_SOURCE_NAME;
+        }
     }
 }

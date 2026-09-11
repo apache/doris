@@ -457,7 +457,7 @@ suite("test_iceberg_schema_time_travel_matrix",
 
         // Scenario TC02/T03/T04: complex-field time travel uses the pre-change nested schema.
         List<List<Object>> dorisNestedCp0Time = sql("""
-            select date_format(date_add(committed_at, interval 1 second), '%Y-%m-%d %H:%i:%s'),
+            select date_format(committed_at, '%Y-%m-%d %H:%i:%s.%f'),
                    cast(unix_timestamp(committed_at) * 1000 + 999 as bigint)
             from ${dorisNestedTable}\$snapshots
             where snapshot_id = ${dorisNestedCp0}
@@ -561,7 +561,7 @@ suite("test_iceberg_schema_time_travel_matrix",
 
         // Scenario T03/T04: string and numeric epoch-millis time travel both resolve the snapshot.
         List<List<Object>> cp0TimeRows = sql("""
-            select date_format(date_add(committed_at, interval 1 second), '%Y-%m-%d %H:%i:%s'),
+            select date_format(committed_at, '%Y-%m-%d %H:%i:%s.%f'),
                    cast(unix_timestamp(committed_at) * 1000 + 999 as bigint)
             from ${topTable}\$snapshots
             where snapshot_id = ${topCp0}

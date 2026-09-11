@@ -197,7 +197,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         IvmIncrRefreshContext ctx = newRefreshContext(normalizedPlan, rewriteResult);
         Plan mergedPlan = runWithIvmRewriteContext(ctx, () -> new IvmDeltaRewriter().generateIncrRefreshPlan(
                 normalizedPlan, rewriteResult,
-                IvmRewriteContext.incremental(ctx.getMtmv(), true), ctx.getConnectContext()));
+                IvmRewriteContext.incrementalExplain(ctx.getMtmv(), true), ctx.getConnectContext()));
         LogicalUnion union = findOnlyUnion(mergedPlan);
 
         Assertions.assertEquals(2, union.children().size());

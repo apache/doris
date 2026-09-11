@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -41,6 +42,7 @@ public class FEOpExecutorDelegatedCredentialTest {
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             ConnectContext context = new ConnectContext();
+            context.setCapability(MysqlCapability.DEFAULT_CAPABILITY);
             context.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("alice", "%"));
             context.setRemoteIP("127.0.0.1");
             context.setSessionContext(SessionContext.of(new DelegatedCredential(

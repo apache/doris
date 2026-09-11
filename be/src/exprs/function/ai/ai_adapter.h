@@ -24,6 +24,7 @@
 #include <cctype>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -133,7 +134,8 @@ public:
 
     // Parse response from AI service and extract generated text results
     virtual Status parse_response(const std::string& response_body,
-                                  std::vector<std::string>& results) const {
+                                  std::vector<std::string>& results,
+                                  bool /* expand_batch */ = true) const {
         return Status::NotSupported("{} don't support text generation", _config.provider_type);
     }
 
@@ -171,8 +173,15 @@ protected:
     // Example:
     // provider response -> choices[0].message.content = "[\"1\",\"0\",\"1\"]"
     // this helper       -> appends "1", "0", "1" into `results`
+    // Set expand_batch to false when AI_AGG needs the complete generated text as one result.
     static Status append_parsed_text_result(std::string_view text,
-                                            std::vector<std::string>& results) {
+                                            std::vector<std::string>& results,
+                                            bool expand_batch = true) {
+        if (!expand_batch) {
+            results.emplace_back(text.data(), text.size());
+            return Status::OK();
+        }
+
         size_t begin = 0;
         size_t end = text.size();
         while (begin < end && std::isspace(static_cast<unsigned char>(text[begin]))) {
@@ -455,8 +464,8 @@ public:
         return Status::OK();
     }
 
-    Status parse_response(const std::string& response_body,
-                          std::vector<std::string>& results) const override {
+    Status parse_response(const std::string& response_body, std::vector<std::string>& results,
+                          bool expand_batch = true) const override {
         rapidjson::Document doc;
         doc.Parse(response_body.c_str());
 
@@ -475,26 +484,29 @@ public:
                 if (choices[i].HasMember("message") && choices[i]["message"].HasMember("content") &&
                     choices[i]["message"]["content"].IsString()) {
                     RETURN_IF_ERROR(append_parsed_text_result(
-                            choices[i]["message"]["content"].GetString(), results));
+                            choices[i]["message"]["content"].GetString(), results, expand_batch));
                 } else if (choices[i].HasMember("text") && choices[i]["text"].IsString()) {
                     // Some local LLMs use a simpler format
-                    RETURN_IF_ERROR(
-                            append_parsed_text_result(choices[i]["text"].GetString(), results));
+                    RETURN_IF_ERROR(append_parsed_text_result(choices[i]["text"].GetString(),
+                                                              results, expand_batch));
                 }
             }
         } else if (doc.HasMember("text") && doc["text"].IsString()) {
             // Format 2: Simple response with just "text" or "content" field
-            RETURN_IF_ERROR(append_parsed_text_result(doc["text"].GetString(), results));
+            RETURN_IF_ERROR(
+                    append_parsed_text_result(doc["text"].GetString(), results, expand_batch));
         } else if (doc.HasMember("content") && doc["content"].IsString()) {
-            RETURN_IF_ERROR(append_parsed_text_result(doc["content"].GetString(), results));
+            RETURN_IF_ERROR(
+                    append_parsed_text_result(doc["content"].GetString(), results, expand_batch));
         } else if (doc.HasMember("response") && doc["response"].IsString()) {
             // Format 3: Response field (Ollama `generate` format)
-            RETURN_IF_ERROR(append_parsed_text_result(doc["response"].GetString(), results));
+            RETURN_IF_ERROR(
+                    append_parsed_text_result(doc["response"].GetString(), results, expand_batch));
         } else if (doc.HasMember("message") && doc["message"].IsObject() &&
                    doc["message"].HasMember("content") && doc["message"]["content"].IsString()) {
             // Format 4: message/content field (Ollama `chat` format)
-            RETURN_IF_ERROR(
-                    append_parsed_text_result(doc["message"]["content"].GetString(), results));
+            RETURN_IF_ERROR(append_parsed_text_result(doc["message"]["content"].GetString(),
+                                                      results, expand_batch));
         } else {
             return Status::NotSupported("Unsupported response format from local AI.");
         }
@@ -807,8 +819,8 @@ public:
         return Status::OK();
     }
 
-    Status parse_response(const std::string& response_body,
-                          std::vector<std::string>& results) const override {
+    Status parse_response(const std::string& response_body, std::vector<std::string>& results,
+                          bool expand_batch = true) const override {
         rapidjson::Document doc;
         doc.Parse(response_body.c_str());
 
@@ -817,37 +829,101 @@ public:
                                          response_body);
         }
 
-        if (doc.HasMember("output") && doc["output"].IsArray()) {
+        const bool is_responses_response =
+                doc.HasMember("output") ||
+                (doc.HasMember("object") && doc["object"].IsString() &&
+                 std::string_view(doc["object"].GetString(), doc["object"].GetStringLength()) ==
+                         "response");
+        if (is_responses_response) {
             /// for responses endpoint
             /*{
               "output": [
+                {
+                  "id": "rs_123",
+                  "type": "reasoning",
+                  "content": [],
+                  "summary": []
+                },
                 {
                   "id": "msg_123",
                   "type": "message",
                   "role": "assistant",
                   "content": [
                     {
-                      "type": "text",
+                      "type": "output_text",
                       "text": "result text here"   <- result
                     }
                   ]
                 }
               ]
             }*/
+            if (doc.HasMember("status")) {
+                if (!doc["status"].IsString()) {
+                    return Status::InternalError("Invalid status in {} response: {}",
+                                                 _config.provider_type, response_body);
+                }
+                if (std::string_view(doc["status"].GetString(), doc["status"].GetStringLength()) !=
+                    "completed") {
+                    return Status::InternalError("{} response is not completed: {}",
+                                                 _config.provider_type, response_body);
+                }
+            }
+
+            if (!doc.HasMember("output") || !doc["output"].IsArray()) {
+                return Status::InternalError("Invalid output format in {} response: {}",
+                                             _config.provider_type, response_body);
+            }
+
             const auto& output = doc["output"];
-            results.reserve(output.Size());
+            std::string response_text;
+            bool has_output_text = false;
 
             for (rapidjson::SizeType i = 0; i < output.Size(); i++) {
-                if (!output[i].HasMember("content") || !output[i]["content"].IsArray() ||
-                    output[i]["content"].Empty() || !output[i]["content"][0].HasMember("text") ||
-                    !output[i]["content"][0]["text"].IsString()) {
+                const auto& item = output[i];
+                if (!item.IsObject() || !item.HasMember("type") || !item["type"].IsString()) {
                     return Status::InternalError("Invalid output format in {} response: {}",
                                                  _config.provider_type, response_body);
                 }
 
-                RETURN_IF_ERROR(append_parsed_text_result(
-                        output[i]["content"][0]["text"].GetString(), results));
+                // Responses output is heterogeneous. Reasoning and tool items are not final text.
+                if (std::string_view(item["type"].GetString(), item["type"].GetStringLength()) !=
+                    "message") {
+                    continue;
+                }
+
+                if (!item.HasMember("content") || !item["content"].IsArray()) {
+                    return Status::InternalError("Invalid output format in {} response: {}",
+                                                 _config.provider_type, response_body);
+                }
+
+                const auto& content = item["content"];
+                for (rapidjson::SizeType j = 0; j < content.Size(); j++) {
+                    const auto& part = content[j];
+                    if (!part.IsObject() || !part.HasMember("type") || !part["type"].IsString()) {
+                        return Status::InternalError("Invalid output format in {} response: {}",
+                                                     _config.provider_type, response_body);
+                    }
+
+                    if (std::string_view(part["type"].GetString(),
+                                         part["type"].GetStringLength()) != "output_text") {
+                        continue;
+                    }
+
+                    if (!part.HasMember("text") || !part["text"].IsString()) {
+                        return Status::InternalError("Invalid output format in {} response: {}",
+                                                     _config.provider_type, response_body);
+                    }
+
+                    has_output_text = true;
+                    response_text.append(part["text"].GetString(), part["text"].GetStringLength());
+                }
             }
+
+            if (!has_output_text) {
+                return Status::InternalError("No output text in {} response: {}",
+                                             _config.provider_type, response_body);
+            }
+            RETURN_IF_ERROR(append_parsed_text_result(response_text, results, expand_batch));
         } else if (doc.HasMember("choices") && doc["choices"].IsArray()) {
             /// for completions endpoint
             /*{
@@ -877,7 +953,7 @@ public:
                 }
 
                 RETURN_IF_ERROR(append_parsed_text_result(
-                        choices[i]["message"]["content"].GetString(), results));
+                        choices[i]["message"]["content"].GetString(), results, expand_batch));
             }
         } else {
             return Status::InternalError("Invalid {} response format: {}", _config.provider_type,
@@ -1216,8 +1292,8 @@ public:
         return Status::OK();
     }
 
-    Status parse_response(const std::string& response_body,
-                          std::vector<std::string>& results) const override {
+    Status parse_response(const std::string& response_body, std::vector<std::string>& results,
+                          bool expand_batch = true) const override {
         rapidjson::Document doc;
         doc.Parse(response_body.c_str());
 
@@ -1258,7 +1334,8 @@ public:
             }
 
             RETURN_IF_ERROR(append_parsed_text_result(
-                    candidates[i]["content"]["parts"][0]["text"].GetString(), results));
+                    candidates[i]["content"]["parts"][0]["text"].GetString(), results,
+                    expand_batch));
         }
         return Status::OK();
     }
@@ -1522,8 +1599,8 @@ public:
         return Status::OK();
     }
 
-    Status parse_response(const std::string& response_body,
-                          std::vector<std::string>& results) const override {
+    Status parse_response(const std::string& response_body, std::vector<std::string>& results,
+                          bool expand_batch = true) const override {
         rapidjson::Document doc;
         doc.Parse(response_body.c_str());
         if (doc.HasParseError() || !doc.IsObject()) {
@@ -1561,7 +1638,7 @@ public:
             }
         }
 
-        return append_parsed_text_result(result, results);
+        return append_parsed_text_result(result, results, expand_batch);
     }
 };
 
@@ -1584,9 +1661,9 @@ public:
         return Status::OK();
     }
 
-    Status parse_response(const std::string& response_body,
-                          std::vector<std::string>& results) const override {
-        return append_parsed_text_result(response_body, results);
+    Status parse_response(const std::string& response_body, std::vector<std::string>& results,
+                          bool expand_batch = true) const override {
+        return append_parsed_text_result(response_body, results, expand_batch);
     }
 
     Status build_embedding_request(const std::vector<std::string>& inputs,
