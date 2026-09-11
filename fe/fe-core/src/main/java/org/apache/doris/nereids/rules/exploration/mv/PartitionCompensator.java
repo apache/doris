@@ -221,9 +221,15 @@ public class PartitionCompensator {
     }
 
     /**
-     * Check if need union compensate or not
-     * If query base table all partitions with ALL_PARTITIONS or ALL_PARTITIONS_LIST, should not do union compensate
-     * because it means query all partitions from base table and prune partition failed
+     * Check whether an async partitioned MV is eligible for partition UNION compensation.
+     *
+     * <p>This method only selects the compensation path; {@code calcInvalidPartitions} later decides whether the
+     * current query actually needs MV partitions removed or base-table partitions added. Eligibility requires a
+     * partitioned async MV with partition-column mappings and reliable query partition-pruning information.
+     *
+     * <p>If an external related table cannot report internally pruned partitions, or the query partition collector
+     * reports {@link #ALL_PARTITIONS}, compensation is disabled. Treating those cases as a partial partition read
+     * could repeatedly union the original base-table branch during nested rewrites.
      */
     public static boolean needUnionRewrite(MaterializationContext materializationContext,
                                            StatementContext statementContext) throws AnalysisException {
