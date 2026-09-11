@@ -1552,21 +1552,40 @@ public class StmtExecutor {
         if (statementContext.isShortCircuitQuery()) {
             ShortCircuitQueryContext shortCircuitQueryContext = statementContext.getShortCircuitQueryContext();
             if (shortCircuitQueryContext == null) {
-                shortCircuitQueryContext = new ShortCircuitQueryContext(planner, (Queriable) parsedStmt);
+                shortCircuitQueryContext = new ShortCircuitQueryContext(
+                        planner, (Queriable) parsedStmt, statementContext);
                 // ExecuteCommand publishes this same context after a successful first prepared execution.
                 statementContext.setShortCircuitQueryContext(shortCircuitQueryContext);
             }
-            coordBase = new PointQueryExecutor(shortCircuitQueryContext,
-                    context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
-            context.getState().setIsQuery(true);
-        } else if (planner instanceof NereidsPlanner && ((NereidsPlanner) planner).getDistributedPlans() != null) {
+            ShortCircuitQueryContext.PointQueryExecutionContext pointQueryExecutionContext =
+                    statementContext.getPointQueryExecutionContext();
+            if (pointQueryExecutionContext == null) {
+                pointQueryExecutionContext = shortCircuitQueryContext
+                        .createPointQueryExecutionContext(statementContext);
+                statementContext.setPointQueryExecutionContext(pointQueryExecutionContext);
+            }
+            if (pointQueryExecutionContext.getDecision()
+                    == ShortCircuitQueryContext.PointQueryExecutionContext.Decision.FALLBACK) {
+                // The physical plan is still a valid normal plan. If an execution value cannot be
+                // safely reduced to an exact typed key, use the Coordinator instead of failing the
+                // statement or guessing a lookup key.
+                statementContext.setShortCircuitQuery(false);
+                statementContext.setShortCircuitQueryContext(null);
+            } else {
+                coordBase = new PointQueryExecutor(shortCircuitQueryContext, pointQueryExecutionContext,
+                        context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
+                context.getState().setIsQuery(true);
+            }
+        }
+        if (coordBase == null
+                && planner instanceof NereidsPlanner && ((NereidsPlanner) planner).getDistributedPlans() != null) {
             coord = new NereidsCoordinator(context,
                     (NereidsPlanner) planner, context.getStatsErrorEstimator());
             profile.addExecutionProfile(coord.getExecutionProfile());
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                     new QueryInfo(context, originStmt.originStmt, coord));
             coordBase = coord;
-        } else {
+        } else if (coordBase == null) {
             coord = EnvFactory.getInstance().createCoordinator(
                     context, planner, context.getStatsErrorEstimator());
             profile.addExecutionProfile(coord.getExecutionProfile());

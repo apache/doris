@@ -17,14 +17,10 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.LiteralExprUtils;
-import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -35,13 +31,11 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.KeyTuple;
+import org.apache.doris.qe.ShortCircuitQueryContext.PointQueryExecutionContext;
+import org.apache.doris.qe.ShortCircuitQueryContext.PointQueryExecutionContext.Decision;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.rpc.TCustomProtocolFactory;
@@ -56,7 +50,6 @@ import org.apache.doris.thrift.TStatusCode;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TDeserializer;
@@ -68,8 +61,6 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -89,10 +80,13 @@ public class PointQueryExecutor implements CoordInterface {
     private List<Long> snapshotVisibleVersions;
 
     private final ShortCircuitQueryContext shortCircuitQueryContext;
+    private final PointQueryExecutionContext executionContext;
 
-    public PointQueryExecutor(ShortCircuitQueryContext ctx, int maxMessageSize) {
+    public PointQueryExecutor(ShortCircuitQueryContext ctx,
+            PointQueryExecutionContext executionContext, int maxMessageSize) {
         ctx.sanitize();
         this.shortCircuitQueryContext = ctx;
+        this.executionContext = executionContext;
         this.maxMsgSizeOfResultReceiver = maxMessageSize;
     }
 
@@ -116,7 +110,7 @@ public class PointQueryExecutor implements CoordInterface {
     void setScanRangeLocations() throws Exception {
         OlapScanNode scanNode = shortCircuitQueryContext.scanNode;
         // compute scan range
-        List<TScanRangeLocations> locations = scanNode.lazyEvaluateRangeLocations();
+        List<TScanRangeLocations> locations = scanNode.lazyEvaluateRangeLocations(executionContext.getKeyValues());
         Preconditions.checkNotNull(locations);
         if (scanNode.getScanTabletIds().isEmpty()) {
             return;
@@ -151,53 +145,29 @@ public class PointQueryExecutor implements CoordInterface {
     }
 
     // execute query without analyze & plan
-    public static void directExecuteShortCircuitQuery(StmtExecutor executor,
+    public static boolean directExecuteShortCircuitQuery(StmtExecutor executor,
             PreparedStatementContext preparedStmtCtx,
             StatementContext statementContext) throws Exception {
         Preconditions.checkNotNull(preparedStmtCtx.shortCircuitQueryContext);
         ShortCircuitQueryContext shortCircuitQueryContext = preparedStmtCtx.shortCircuitQueryContext.get();
-        // update conjuncts
-        Map<String, Expr> colNameToConjunct = Maps.newHashMap();
-        for (Entry<PlaceholderId, SlotReference> entry : statementContext.getIdToComparisonSlot().entrySet()) {
-            String colName = entry.getValue().getOriginalColumn().get().getName();
-            Expr conjunctVal = ((Literal)  statementContext.getIdToPlaceholderRealExpr()
-                    .get(entry.getKey())).toLegacyLiteral();
-            colNameToConjunct.put(colName, conjunctVal);
+        PointQueryExecutionContext executionContext =
+                shortCircuitQueryContext.createPointQueryExecutionContext(statementContext);
+        if (executionContext.getDecision() == Decision.FALLBACK) {
+            // The copied prepared StatementContext still carries the previous execution's
+            // short-circuit flag. Clear all fast-path state before normal planning; otherwise
+            // planner construction can treat an unplanned statement as a point-query plan and
+            // try to build a ShortCircuitQueryContext from an empty scan-node list.
+            statementContext.setShortCircuitQuery(false);
+            statementContext.setShortCircuitQueryContext(null);
+            statementContext.setPointQueryExecutionContext(null);
+            return false;
         }
-        if (colNameToConjunct.size() != preparedStmtCtx.command.placeholderCount()) {
-            throw new AnalysisException("Mismatched conjuncts values size with prepared"
-                    + "statement parameters size, expected "
-                    + preparedStmtCtx.command.placeholderCount()
-                    + ", but meet " + colNameToConjunct.size());
-        }
-        updateScanNodeConjuncts(shortCircuitQueryContext.scanNode, colNameToConjunct);
+        statementContext.setPointQueryExecutionContext(executionContext);
         // short circuit plan and execution
         executor.executeAndSendResult(false, false,
                 shortCircuitQueryContext.analzyedQuery, executor.getContext()
                         .getMysqlChannel(), null, null);
-    }
-
-    private static void updateScanNodeConjuncts(OlapScanNode scanNode,
-                Map<String, Expr> colNameToConjunct) {
-        for (Expr conjunct : scanNode.getConjuncts()) {
-            BinaryPredicate binaryPredicate = (BinaryPredicate) conjunct;
-            SlotRef slot = null;
-            int updateChildIdx = 0;
-            if (binaryPredicate.getChild(0) instanceof LiteralExpr) {
-                slot = (SlotRef) binaryPredicate.getChildWithoutCast(1);
-            } else if (binaryPredicate.getChild(1) instanceof LiteralExpr) {
-                slot = (SlotRef) binaryPredicate.getChildWithoutCast(0);
-                updateChildIdx = 1;
-            } else {
-                Preconditions.checkState(false, "Should contains literal in "
-                        + binaryPredicate.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
-            }
-            // not a placeholder to replace
-            if (!colNameToConjunct.containsKey(slot.getColumnName())) {
-                continue;
-            }
-            binaryPredicate.setChild(updateChildIdx, colNameToConjunct.get(slot.getColumnName()));
-        }
+        return true;
     }
 
     public void setTimeout(long timeoutMs) {
@@ -207,21 +177,13 @@ public class PointQueryExecutor implements CoordInterface {
     void addKeyTuples(
             InternalService.PTabletKeyLookupRequest.Builder requestBuilder) throws TException {
         // TODO handle IN predicates
-        Map<String, Expr> columnExpr = Maps.newHashMap();
         KeyTuple.Builder kBuilder = KeyTuple.newBuilder();
-        for (Expr expr : shortCircuitQueryContext.scanNode.getConjuncts()) {
-            BinaryPredicate predicate = (BinaryPredicate) expr;
-            Expr left = predicate.getChild(0);
-            Expr right = predicate.getChild(1);
-            SlotRef columnSlot = left.unwrapSlotRef();
-            columnExpr.put(columnSlot.getColumnName(), right);
-        }
         // Serialize each literal expr as TExprNode bytes for typed value transfer.
         // BE deserializes the TExprNode and uses DataType::get_field() to extract
         // typed Field values directly, avoiding string parsing.
         TSerializer serializer = new TSerializer();
         for (Column column : shortCircuitQueryContext.scanNode.getOlapTable().getBaseSchemaKeyColumns()) {
-            Expr literalExpr = columnExpr.get(column.getName());
+            Expr literalExpr = executionContext.getKeyValues().get(column.getName());
             // Ensure the literal type matches the column type for proper TExprNode
             // deserialization on BE side. Prepared statement parameters may have
             // mismatched types (e.g., setBigDecimal for INT column produces a
@@ -261,6 +223,13 @@ public class PointQueryExecutor implements CoordInterface {
 
     @Override
     public RowBatch getNext() throws Exception {
+        // A NULL placeholder or a fixed security constraint that disagrees with the bound
+        // key makes the full WHERE predicate false/unknown. Return before tablet pruning,
+        // cloud version lookup, or any BE RPC.
+        if (executionContext.getDecision() == Decision.EMPTY) {
+            return new RowBatch();
+        }
+        Preconditions.checkState(executionContext.getDecision() == Decision.LOOKUP);
         setScanRangeLocations();
         // No partition/tablet found return emtpy row batch
         if (candidateBackends == null || candidateBackends.isEmpty()) {
