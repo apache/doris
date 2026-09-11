@@ -31,10 +31,8 @@
 namespace doris::segment_v2 {
 
 struct ColumnReadAheadOptions {
-    /// Refill target measured in compressed data-page bytes; the final page may overshoot it.
-    size_t high_watermark_bytes {1};
-    /// Refill trigger measured after consumed/discarded pages leave pending-byte accounting.
-    size_t low_watermark_bytes {0};
+    /// Compressed data-page bytes in each read-ahead window; the final page may overshoot it.
+    size_t window_bytes {1};
 
     Status validate() const;
     bool operator==(const ColumnReadAheadOptions&) const = default;
@@ -81,10 +79,10 @@ struct ColumnReadAheadContext {
 };
 
 struct ColumnReadAheadRequest {
-    /// Sorted row IDs needed by the current batch; their pages enter the window before extension.
+    /// Sorted row IDs needed by the current batch; all their pages are included in the plan.
     const rowid_t* current_rowids {nullptr};
     size_t current_rowid_count {0};
-    /// All row IDs still eligible in scan order, used only to extend beyond the current batch.
+    /// All eligible scan row IDs, used to select pages when extending a window.
     const roaring::Roaring* scan_rowids {nullptr};
     const ColumnReadAheadContext* context {nullptr};
     ColumnReadAheadRole role {ColumnReadAheadRole::EAGER};
@@ -106,9 +104,9 @@ public:
     static Status create(std::vector<ColumnReadAheadPage> pages, ColumnReadAheadOptions options,
                          bool reverse, std::unique_ptr<ColumnReadAhead>* output);
 
-    /// Adds every page touched by the current batch, discards predictions already passed by the
-    /// scan, and extends through remaining scan rowids when the window reaches its low watermark.
-    /// Current-batch pages may take the window beyond the high watermark.
+    /// Adds every page touched by the current batch and discards predictions passed by the scan.
+    /// Reaching a window's trigger page appends the next byte-sized window. A read beyond the
+    /// planned coverage starts a new window at that page, including on the first call.
     void plan(const rowid_t* current_rowids, size_t count, const roaring::Roaring& scan_rowids,
               ColumnReadAheadPlan* output);
 
@@ -136,22 +134,21 @@ private:
     /// Remove window entries strictly behind the current batch in the configured scan direction.
     void _discard_passed_pages(const rowid_t* current_rowids, size_t count,
                                ColumnReadAheadPlan* output);
-    /// Move the future-row cursor past the current batch without moving it backward.
-    void _sync_future_cursor(const rowid_t* current_rowids, size_t count,
-                             const roaring::Roaring& scan_rowids);
-    /// Add whole pages selected by future scan rows until the high watermark is reached.
+    /// Add one window from _next_page_index using only pages selected by scan_rowids. Its second
+    /// selected page triggers the next window; a one-page window uses its only page.
     void _extend_window(const roaring::Roaring& scan_rowids, ColumnReadAheadPlan* output);
-    void _advance_future_cursor_past(const ColumnReadAheadPage& page,
-                                     const roaring::Roaring& scan_rowids);
     void _complete(const ColumnReadAheadPage& page, WindowEntry* entry);
 
     const std::vector<ColumnReadAheadPage> _pages;
     const ColumnReadAheadOptions _options;
     const bool _reverse;
     std::map<int32_t, WindowEntry> _window;
+    /// Pending-page accounting only; completing a page does not advance the scan position.
     size_t _pending_bytes {0};
-    int64_t _next_scan_rank {0};
-    bool _planned_once {false};
+    /// First page beyond the latest planned window, in scan order; may be outside _pages at EOF.
+    int64_t _next_page_index;
+    /// Scan position that triggers the next window; -1 means there is no trigger.
+    int32_t _next_trigger_page_index {-1};
 };
 
 } // namespace doris::segment_v2

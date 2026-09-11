@@ -1735,16 +1735,12 @@ DEFINE_Validator(read_ahead_max_bytes_per_query, [](int64_t value) { return valu
 // BE-level resident read-ahead buffer limit
 DEFINE_Int64(read_ahead_max_bytes_per_be, "1073741824"); // 1 GiB
 DEFINE_Validator(read_ahead_max_bytes_per_be, [](int64_t value) { return value > 0; });
-// Per-column eager read-ahead byte window
-DEFINE_mInt64(read_ahead_eager_high_watermark_bytes, "8388608"); // 8 MiB
-DEFINE_Validator(read_ahead_eager_high_watermark_bytes, [](int64_t value) { return value > 0; });
-DEFINE_mInt64(read_ahead_eager_low_watermark_bytes, "4194304"); // 4 MiB
-DEFINE_Validator(read_ahead_eager_low_watermark_bytes, [](int64_t value) { return value >= 0; });
-// Per-column lazy read-ahead byte window
-DEFINE_mInt64(read_ahead_lazy_high_watermark_bytes, "262144"); // 256 KiB
-DEFINE_Validator(read_ahead_lazy_high_watermark_bytes, [](int64_t value) { return value > 0; });
-DEFINE_mInt64(read_ahead_lazy_low_watermark_bytes, "131072"); // 128 KiB
-DEFINE_Validator(read_ahead_lazy_low_watermark_bytes, [](int64_t value) { return value >= 0; });
+// Compressed page bytes per eager read-ahead window; entering its trigger page appends the next.
+DEFINE_mInt64(read_ahead_eager_window_bytes, "4194304"); // 4 MiB
+DEFINE_Validator(read_ahead_eager_window_bytes, [](int64_t value) { return value > 0; });
+// Compressed page bytes per lazy read-ahead window.
+DEFINE_mInt64(read_ahead_lazy_window_bytes, "131072"); // 128 KiB
+DEFINE_Validator(read_ahead_lazy_window_bytes, [](int64_t value) { return value > 0; });
 // Foreground file-range coalescing and cache-block completion policy
 DEFINE_mInt64(read_ahead_max_gap_bytes, "65536"); // 64 KiB
 DEFINE_Validator(read_ahead_max_gap_bytes, [](int64_t value) { return value >= 0; });

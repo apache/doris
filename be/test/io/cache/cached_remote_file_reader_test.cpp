@@ -342,14 +342,13 @@ TEST_F(AsyncCachedRemoteFileReaderTest, cached_read_ahead_does_not_submit_writeb
                         .ok());
     ASSERT_NE(read_ahead, nullptr);
     std::unique_ptr<segment_v2::ColumnReadAhead> column;
-    ASSERT_TRUE(segment_v2::ColumnReadAhead::create(
-                        {{.page_index = 0,
-                          .first_ordinal = 0,
-                          .last_ordinal = 99,
-                          .range = {.offset = 1024, .size = data.size()}}},
-                        {.high_watermark_bytes = data.size(), .low_watermark_bytes = 0}, false,
-                        &column)
-                        .ok());
+    ASSERT_TRUE(
+            segment_v2::ColumnReadAhead::create({{.page_index = 0,
+                                                  .first_ordinal = 0,
+                                                  .last_ordinal = 99,
+                                                  .range = {.offset = 1024, .size = data.size()}}},
+                                                {.window_bytes = data.size()}, false, &column)
+                    .ok());
     const segment_v2::rowid_t rowid = 0;
     roaring::Roaring rows;
     rows.addRange(0, 100);

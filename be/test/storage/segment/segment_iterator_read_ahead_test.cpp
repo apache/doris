@@ -101,10 +101,8 @@ TabletSchemaSPtr make_tablet_schema(size_t column_count) {
 }
 
 ColumnReadAheadContext make_context() {
-    return {.eager_options = {.high_watermark_bytes = 8 * 1024 * 1024,
-                              .low_watermark_bytes = 4 * 1024 * 1024},
-            .lazy_options = {.high_watermark_bytes = 256 * 1024,
-                             .low_watermark_bytes = 128 * 1024}};
+    return {.eager_options = {.window_bytes = 4 * 1024 * 1024},
+            .lazy_options = {.window_bytes = 128 * 1024}};
 }
 
 class SegmentIteratorReadAheadTest : public testing::Test {

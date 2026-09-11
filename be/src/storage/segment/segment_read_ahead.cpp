@@ -215,12 +215,10 @@ Status SegmentReadAhead::create_for_query(io::FileReaderSPtr source_reader, Exec
     DORIS_CHECK(context != nullptr);
 
     ColumnReadAheadOptions eager_options {
-            .high_watermark_bytes = cast_set<size_t>(config::read_ahead_eager_high_watermark_bytes),
-            .low_watermark_bytes = cast_set<size_t>(config::read_ahead_eager_low_watermark_bytes),
+            .window_bytes = cast_set<size_t>(config::read_ahead_eager_window_bytes),
     };
     ColumnReadAheadOptions lazy_options {
-            .high_watermark_bytes = cast_set<size_t>(config::read_ahead_lazy_high_watermark_bytes),
-            .low_watermark_bytes = cast_set<size_t>(config::read_ahead_lazy_low_watermark_bytes),
+            .window_bytes = cast_set<size_t>(config::read_ahead_lazy_window_bytes),
     };
     RETURN_IF_ERROR(eager_options.validate());
     RETURN_IF_ERROR(lazy_options.validate());

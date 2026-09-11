@@ -147,9 +147,7 @@ std::unique_ptr<ColumnReadAhead> make_window(size_t page_count, size_t page_size
                                              size_t first_offset = 0) {
     std::unique_ptr<ColumnReadAhead> window;
     EXPECT_TRUE(ColumnReadAhead::create(make_pages(page_count, page_size, first_offset),
-                                        {.high_watermark_bytes = page_size * page_count,
-                                         .low_watermark_bytes = page_count == 1 ? 0 : page_size},
-                                        false, &window)
+                                        {.window_bytes = page_size * page_count}, false, &window)
                         .ok());
     return window;
 }
@@ -279,8 +277,7 @@ TEST(SegmentReadAheadTest, PrefetchesExactRowIdsAcrossColumnsInOneSubmission) {
     auto read_ahead = make_segment_read_ahead(
             source, scheduler.get(),
             {.range_plan = plan_options(), .page_cache_probe = {}, .range_consumer_factory = {}},
-            {.high_watermark_bytes = 64, .low_watermark_bytes = 16},
-            {.high_watermark_bytes = 32, .low_watermark_bytes = 8});
+            {.window_bytes = 64}, {.window_bytes = 32});
     auto first_window = make_window(1, 16, 0);
     auto second_window = make_window(1, 16, 24);
     ExactRowIdColumn first(first_window.get());
