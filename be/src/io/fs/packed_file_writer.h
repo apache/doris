@@ -89,9 +89,10 @@ private:
     std::string _buffer;
     size_t _bytes_appended = 0;
     State _state = State::OPENED;
-    bool _is_direct_write = false;                      // Whether to use direct write mode
-    PackedFileManager* _packed_file_manager = nullptr;  // Packed file manager instance
-    mutable PackedSliceLocation _packed_slice_location; // Packed slice info (mutable for lazy init)
+    bool _is_direct_write = false;                     // Whether to use direct write mode
+    PackedFileManager* _packed_file_manager = nullptr; // Packed file manager instance
+    // Handle to this file's slice, shared with PackedFileManager
+    PackedSliceHandlePtr _packed_slice_handle;
     PackedAppendContext _append_info;
     std::optional<std::chrono::steady_clock::time_point> _first_append_timestamp;
     bool _close_latency_recorded = false;
