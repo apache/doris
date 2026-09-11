@@ -20,13 +20,13 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.DataMaskSpec;
 import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
-import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
@@ -43,8 +43,13 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * The leading hint rebuilds the join from the plans which are remembered in the analysis phase, so the plans
@@ -90,25 +95,25 @@ public class LeadingHintRowPolicyTest extends TestWithFeService {
 
         // the data mask policy is provided by the external auth plugin, mock it for the masked table
         AccessControllerManager spyAcm = Mockito.spy(Env.getCurrentEnv().getAccessManager());
+        // Masks are asked for one table at a time, keyed by the lower-cased column name - that is the shape
+        // the planner asks in and reads back, so a stub on the per-column method would never be reached.
         Mockito.doAnswer(invocation -> {
             String tbl = invocation.getArgument(3);
-            String col = invocation.getArgument(4);
-            return tbl.equalsIgnoreCase(MASKED_TABLE)
-                    ? Optional.of(new DataMaskPolicy() {
-                        @Override
-                        public String getMaskTypeDef() {
-                            return String.format("concat(%s, '_****_', %s)", col, col);
-                        }
-
-                        @Override
-                        public String getPolicyIdent() {
-                            return String.format("custom policy: concat(%s, '_****_', %s)", col, col);
-                        }
-                    })
-                    : Optional.empty();
-        }).when(spyAcm).evalDataMaskPolicy(
+            Set<String> cols = invocation.getArgument(4);
+            if (!tbl.equalsIgnoreCase(MASKED_TABLE)) {
+                return Collections.<String, DataMaskSpec>emptyMap();
+            }
+            Map<String, DataMaskSpec> masks = new LinkedHashMap<>();
+            for (String col : cols) {
+                String column = col.toLowerCase(Locale.ROOT);
+                masks.put(column, new DataMaskSpec(
+                        String.format("custom policy: concat(%s, '_****_', %s)", column, column),
+                        String.format("concat(%s, '_****_', %s)", column, column)));
+            }
+            return masks;
+        }).when(spyAcm).evalDataMaskPolicies(
                 Mockito.any(UserIdentity.class), Mockito.anyString(),
-                Mockito.anyString(), Mockito.anyString(), Mockito.anyString());
+                Mockito.anyString(), Mockito.anyString(), Mockito.anySet());
         Deencapsulation.setField(Env.getCurrentEnv(), "accessManager", spyAcm);
     }
 
