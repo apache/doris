@@ -2368,6 +2368,7 @@ nonReserved
     | DOY
     | DRY
     | DUAL
+    | DUMP
     | DYNAMIC
     | E
     | ENABLE
