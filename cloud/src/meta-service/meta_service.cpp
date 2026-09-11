@@ -3355,6 +3355,30 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
         }
         VLOG_DEBUG << "tablet_id=" << tablet_id << " stats=" << proto_to_json(tablet_stat);
 
+        if (request->need_alter_job_info()) {
+            // The requester caches this tablet in NOT_READY state. Report whether the
+            // tablet still has an active schema change job, so that BE can tell an
+            // in-progress schema change new tablet from an abandoned shadow tablet
+            // whose job has been cancelled or removed. The schema change job is
+            // registered under the new tablet's own job key when the job starts and
+            // cleared from it when the job is committed or aborted.
+            auto job_key = job_tablet_key({instance_id, idx.table_id(), idx.index_id(),
+                                           idx.partition_id(), tablet_id});
+            std::string job_val;
+            TxnErrorCode job_err = txn->get(job_key, &job_val);
+            if (job_err != TxnErrorCode::TXN_OK && job_err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                code = cast_as<ErrCategory::READ>(job_err);
+                msg = fmt::format("failed to get tablet job, tablet_id={}, err={}", tablet_id,
+                                  job_err);
+                LOG(WARNING) << msg;
+                return;
+            }
+            TabletJobInfoPB job_pb;
+            response->set_has_alter_job(job_err == TxnErrorCode::TXN_OK &&
+                                        job_pb.ParseFromString(job_val) &&
+                                        job_pb.has_schema_change());
+        }
+
         int64_t bc_cnt = tablet_stat.base_compaction_cnt();
         int64_t cc_cnt = tablet_stat.cumulative_compaction_cnt();
         int64_t fc_cnt =

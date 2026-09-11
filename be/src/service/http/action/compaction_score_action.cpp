@@ -57,6 +57,8 @@ namespace doris {
 const std::string TOP_N = "top_n";
 const std::string SYNC_META = "sync_meta";
 const std::string COMPACTION_SCORE = "compaction_score";
+const std::string TABLET_STATE = "tablet_state";
+const std::string NOT_SCHEDULED_REASON = "not_scheduled_reason";
 constexpr size_t DEFAULT_TOP_N = std::numeric_limits<size_t>::max();
 constexpr bool DEFAULT_SYNC_META = false;
 
@@ -73,7 +75,9 @@ std::vector<CompactionScoreResult> calculate_compaction_scores(
     std::ranges::transform(tablets, std::back_inserter(result),
                            [](const std::shared_ptr<T>& tablet) -> CompactionScoreResult {
                                return {.tablet_id = tablet->tablet_id(),
-                                       .compaction_score = tablet->get_real_compaction_score()};
+                                       .compaction_score = tablet->get_real_compaction_score(),
+                                       .tablet_state = {},
+                                       .not_scheduled_reason = {}};
                            });
     return result;
 }
@@ -99,6 +103,29 @@ struct CloudCompactionScoresAccessor final : CompactionScoresAccessor {
         return calculate_compaction_scores(s);
     }
 
+    // Only evaluated for the top-n entries about to be returned, so the cost is
+    // bounded by `top_n` regardless of how many tablets this BE caches.
+    void fill_details(std::span<CompactionScoreResult> entries) override {
+        std::unordered_map<int64_t, CompactionScoreResult*> by_id;
+        by_id.reserve(entries.size());
+        for (auto& entry : entries) {
+            by_id.emplace(entry.tablet_id, &entry);
+        }
+        for (auto& weak_tablet : tablet_mgr.get_weak_tablets()) {
+            auto tablet = weak_tablet.lock();
+            if (tablet == nullptr) {
+                continue;
+            }
+            auto it = by_id.find(tablet->tablet_id());
+            if (it == by_id.end()) {
+                continue;
+            }
+            it->second->tablet_state =
+                    tablet->tablet_state() == TABLET_RUNNING ? "RUNNING" : "NOTREADY";
+            it->second->not_scheduled_reason = tablet->compaction_not_scheduled_reason();
+        }
+    }
+
     Status sync_meta() {
         auto tablets = get_all_tablets();
         LOG(INFO) << "start to sync meta from ms";
@@ -122,8 +149,16 @@ struct CloudCompactionScoresAccessor final : CompactionScoresAccessor {
         std::vector<CloudTabletSPtr> tablets;
         tablets.reserve(weak_tablets.size());
         for (auto& weak_tablet : weak_tablets) {
+            // Include RUNNING tablets and in-progress schema change new tablets, so
+            // that the result is consistent with what the compaction scheduler (and
+            // the max compaction score metric) sees. Abandoned shadow tablets of
+            // cancelled schema change jobs are excluded, see
+            // CloudTablet::is_zombie_tablet()
             if (auto tablet = weak_tablet.lock();
-                tablet != nullptr and tablet->tablet_state() == TABLET_RUNNING) {
+                tablet != nullptr and
+                (tablet->tablet_state() == TABLET_RUNNING ||
+                 (tablet->tablet_state() == TABLET_NOTREADY &&
+                  tablet->has_active_alter_job()))) {
                 tablets.push_back(std::move(tablet));
             }
         }
@@ -153,6 +188,24 @@ static rapidjson::Value jsonfy_tablet_compaction_score(
     node.AddMember(score_key, score_val, allocator);
 
     node.AddMember(tablet_id_key, tablet_id_val, allocator);
+
+    if (!result.tablet_state.empty()) {
+        rapidjson::Value state_key;
+        state_key.SetString(TABLET_STATE.data(), cast_set<int32_t>(TABLET_STATE.size()), allocator);
+        rapidjson::Value state_val;
+        state_val.SetString(result.tablet_state.c_str(),
+                            cast_set<int32_t>(result.tablet_state.length()), allocator);
+        node.AddMember(state_key, state_val, allocator);
+    }
+    if (!result.not_scheduled_reason.empty()) {
+        rapidjson::Value reason_key;
+        reason_key.SetString(NOT_SCHEDULED_REASON.data(),
+                             cast_set<int32_t>(NOT_SCHEDULED_REASON.size()), allocator);
+        rapidjson::Value reason_val;
+        reason_val.SetString(result.not_scheduled_reason.c_str(),
+                             cast_set<int32_t>(result.not_scheduled_reason.length()), allocator);
+        node.AddMember(reason_key, reason_val, allocator);
+    }
     return node;
 }
 
@@ -220,6 +273,7 @@ Status CompactionScoreAction::_handle(size_t top_n, bool sync_meta, std::string*
     auto scores = _accessor->get_all_tablet_compaction_scores();
     top_n = std::min(top_n, scores.size());
     std::partial_sort(scores.begin(), scores.begin() + top_n, scores.end(), std::greater<>());
+    _accessor->fill_details({scores.begin(), scores.begin() + top_n});
 
     rapidjson::Document root;
     root.SetArray();
