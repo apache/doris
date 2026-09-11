@@ -294,6 +294,8 @@ struct TQueryOptions {
 
   104: optional i64 min_revocable_mem = 0
 
+  // memory limit of streaming aggregation. When reached, the operator switches to
+  // pass-through mode instead of spilling, regardless of whether query spill is enabled.
   105: optional i64 spill_streaming_agg_mem_limit = 0;
 
   // max rows of each sub-queue in DataQueue.
