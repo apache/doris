@@ -3138,7 +3138,7 @@ TEST_F(ColumnReaderTest, ArrayOffsetOnlyReadByRowidsFillsItemsWithoutReadingThem
             create_test_reader(false, 10, FieldType::OLAP_FIELD_TYPE_ARRAY),
             std::move(offset_iterator), std::move(item_iterator), nullptr);
     array_iterator.set_column_name("a");
-    TColumnAccessPaths offset_path {create_access_path({"a", ColumnIterator::ACCESS_OFFSET})};
+    TColumnAccessPaths offset_path {create_meta_access_path({"a", ColumnIterator::ACCESS_OFFSET})};
     auto st = array_iterator.set_access_paths(offset_path, {});
     ASSERT_TRUE(st.ok()) << "set_access_paths failed: " << st.to_string();
     ASSERT_TRUE(array_iterator.read_offset_only());
