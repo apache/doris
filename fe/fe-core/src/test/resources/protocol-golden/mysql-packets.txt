@@ -1,0 +1,351 @@
+=== case select-literal ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_QUERY select 1
+  packet seq=1 len=1 kind=PAYLOAD
+    0000  01                                               |.|
+  packet seq=2 len=23 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 01 31 00 0c 21 00 04 00 00  |.def....1..!....|
+    0010  00 01 00 00 00 00 00                             |.......|
+  packet seq=3 len=2 kind=PAYLOAD
+    0000  01 31                                            |.1|
+  packet seq=4 len=8 kind=EOF flushed
+    0000  fe 00 00 00 00 00 00 00                          |........|
+
+=== case select-two-columns ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_QUERY select 1, 'a'
+  packet seq=1 len=1 kind=PAYLOAD
+    0000  02                                               |.|
+  packet seq=2 len=23 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 01 31 00 0c 21 00 04 00 00  |.def....1..!....|
+    0010  00 01 00 00 00 00 00                             |.......|
+  packet seq=3 len=23 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 01 61 00 0c 21 00 ff 00 00  |.def....a..!....|
+    0010  00 fe 00 00 00 00 00                             |.......|
+  packet seq=4 len=4 kind=PAYLOAD
+    0000  01 31 01 61                                      |.1.a|
+  packet seq=5 len=8 kind=EOF flushed
+    0000  fe 00 00 00 00 00 00 00                          |........|
+
+=== case select-session-variable ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_QUERY select @@wait_timeout
+  packet seq=1 len=1 kind=PAYLOAD
+    0000  01                                               |.|
+  packet seq=2 len=36 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 0e 40 40 77 61 69 74 5f 74  |.def....@@wait_t|
+    0010  69 6d 65 6f 75 74 00 0c 21 00 0b 00 00 00 03 00  |imeout..!.......|
+    0020  00 00 00 00                                      |....|
+  packet seq=3 len=6 kind=PAYLOAD
+    0000  05 32 38 38 30 30                                |.28800|
+  packet seq=4 len=8 kind=EOF flushed
+    0000  fe 00 00 00 00 00 00 00                          |........|
+
+=== case select-null-literal ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_QUERY select null
+  packet seq=1 len=1 kind=PAYLOAD
+    0000  01                                               |.|
+  packet seq=2 len=26 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 04 6e 75 6c 6c 00 0c 21 00  |.def....null..!.|
+    0010  ff 00 00 00 fe 00 00 00 00 00                    |..........|
+  packet seq=3 len=1 kind=PAYLOAD
+    0000  fb                                               |.|
+  packet seq=4 len=8 kind=EOF flushed
+    0000  fe 00 00 00 00 00 00 00                          |........|
+
+=== case select-empty-result ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_QUERY select k1 from golden_tbl where 1 = 0
+  packet seq=1 len=1 kind=PAYLOAD
+    0000  01                                               |.|
+  packet seq=2 len=64 kind=PAYLOAD
+    0000  03 64 65 66 12 70 72 6f 74 6f 63 6f 6c 5f 67 6f  |.def.protocol_go|
+    0010  6c 64 65 6e 5f 64 62 0a 67 6f 6c 64 65 6e 5f 74  |lden_db.golden_t|
+    0020  62 6c 0a 67 6f 6c 64 65 6e 5f 74 62 6c 02 6b 31  |bl.golden_tbl.k1|
+    0030  02 6b 31 0c 21 00 0b 00 00 00 03 00 00 00 00 00  |.k1.!...........|
+  packet seq=3 len=8 kind=EOF flushed
+    0000  fe 00 00 00 00 00 00 00                          |........|
+
+=== case select-literal-legacy-eof ===
+client capability: deprecate_eof=false multi_statements=false
+--> COM_QUERY select 1
+  packet seq=1 len=1 kind=PAYLOAD
+    0000  01                                               |.|
+  packet seq=2 len=23 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 01 31 00 0c 21 00 04 00 00  |.def....1..!....|
+    0010  00 01 00 00 00 00 00                             |.......|
+  packet seq=3 len=5 kind=EOF
+    0000  fe 00 00 00 00                                   |.....|
+  packet seq=4 len=2 kind=PAYLOAD
+    0000  01 31                                            |.1|
+  packet seq=5 len=5 kind=EOF flushed
+    0000  fe 00 00 00 00                                   |.....|
+
+=== case show-variables ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_QUERY show variables like 'wait_timeout'
+  packet seq=1 len=1 kind=PAYLOAD
+    0000  04                                               |.|
+  packet seq=2 len=48 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 0d 56 61 72 69 61 62 6c 65  |.def....Variable|
+    0010  5f 6e 61 6d 65 0d 56 61 72 69 61 62 6c 65 5f 6e  |_name.Variable_n|
+    0020  61 6d 65 0c 21 00 ff 00 00 00 fe 00 00 00 00 00  |ame.!...........|
+  packet seq=3 len=32 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 05 56 61 6c 75 65 05 56 61  |.def....Value.Va|
+    0010  6c 75 65 0c 21 00 ff 00 00 00 fe 00 00 00 00 00  |lue.!...........|
+  packet seq=4 len=48 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 0d 44 65 66 61 75 6c 74 5f  |.def....Default_|
+    0010  56 61 6c 75 65 0d 44 65 66 61 75 6c 74 5f 56 61  |Value.Default_Va|
+    0020  6c 75 65 0c 21 00 ff 00 00 00 fe 00 00 00 00 00  |lue.!...........|
+  packet seq=5 len=36 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 07 43 68 61 6e 67 65 64 07  |.def....Changed.|
+    0010  43 68 61 6e 67 65 64 0c 21 00 ff 00 00 00 fe 00  |Changed.!.......|
+    0020  00 00 00 00                                      |....|
+  packet seq=6 len=27 kind=PAYLOAD
+    0000  0c 77 61 69 74 5f 74 69 6d 65 6f 75 74 05 32 38  |.wait_timeout.28|
+    0010  38 30 30 05 32 38 38 30 30 01 30                 |800.28800.0|
+  packet seq=7 len=8 kind=EOF flushed
+    0000  fe 00 00 00 00 00 00 00                          |........|
+
+=== case show-variables-legacy-eof ===
+client capability: deprecate_eof=false multi_statements=false
+--> COM_QUERY show variables like 'wait_timeout'
+  packet seq=1 len=1 kind=PAYLOAD
+    0000  04                                               |.|
+  packet seq=2 len=48 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 0d 56 61 72 69 61 62 6c 65  |.def....Variable|
+    0010  5f 6e 61 6d 65 0d 56 61 72 69 61 62 6c 65 5f 6e  |_name.Variable_n|
+    0020  61 6d 65 0c 21 00 ff 00 00 00 fe 00 00 00 00 00  |ame.!...........|
+  packet seq=3 len=32 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 05 56 61 6c 75 65 05 56 61  |.def....Value.Va|
+    0010  6c 75 65 0c 21 00 ff 00 00 00 fe 00 00 00 00 00  |lue.!...........|
+  packet seq=4 len=48 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 0d 44 65 66 61 75 6c 74 5f  |.def....Default_|
+    0010  56 61 6c 75 65 0d 44 65 66 61 75 6c 74 5f 56 61  |Value.Default_Va|
+    0020  6c 75 65 0c 21 00 ff 00 00 00 fe 00 00 00 00 00  |lue.!...........|
+  packet seq=5 len=36 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 07 43 68 61 6e 67 65 64 07  |.def....Changed.|
+    0010  43 68 61 6e 67 65 64 0c 21 00 ff 00 00 00 fe 00  |Changed.!.......|
+    0020  00 00 00 00                                      |....|
+  packet seq=6 len=5 kind=EOF
+    0000  fe 00 00 00 00                                   |.....|
+  packet seq=7 len=27 kind=PAYLOAD
+    0000  0c 77 61 69 74 5f 74 69 6d 65 6f 75 74 05 32 38  |.wait_timeout.28|
+    0010  38 30 30 05 32 38 38 30 30 01 30                 |800.28800.0|
+  packet seq=8 len=5 kind=EOF flushed
+    0000  fe 00 00 00 00                                   |.....|
+
+=== case describe-table ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_QUERY desc golden_tbl
+  packet seq=1 len=1 kind=PAYLOAD
+    0000  06                                               |.|
+  packet seq=2 len=32 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 05 46 69 65 6c 64 05 46 69  |.def....Field.Fi|
+    0010  65 6c 64 0c 21 00 ff 00 00 00 fe 00 00 00 00 00  |eld.!...........|
+  packet seq=3 len=30 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 04 54 79 70 65 04 54 79 70  |.def....Type.Typ|
+    0010  65 0c 21 00 ff 00 00 00 fe 00 00 00 00 00        |e.!...........|
+  packet seq=4 len=30 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 04 4e 75 6c 6c 04 4e 75 6c  |.def....Null.Nul|
+    0010  6c 0c 21 00 ff 00 00 00 fe 00 00 00 00 00        |l.!...........|
+  packet seq=5 len=28 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 03 4b 65 79 03 4b 65 79 0c  |.def....Key.Key.|
+    0010  21 00 ff 00 00 00 fe 00 00 00 00 00              |!...........|
+  packet seq=6 len=36 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 07 44 65 66 61 75 6c 74 07  |.def....Default.|
+    0010  44 65 66 61 75 6c 74 0c 21 00 ff 00 00 00 fe 00  |Default.!.......|
+    0020  00 00 00 00                                      |....|
+  packet seq=7 len=32 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 05 45 78 74 72 61 05 45 78  |.def....Extra.Ex|
+    0010  74 72 61 0c 21 00 ff 00 00 00 fe 00 00 00 00 00  |tra.!...........|
+  packet seq=8 len=18 kind=PAYLOAD
+    0000  02 6b 31 03 69 6e 74 03 59 65 73 04 74 72 75 65  |.k1.int.Yes.true|
+    0010  fb 00                                            |..|
+  packet seq=9 len=31 kind=PAYLOAD
+    0000  02 6b 32 0b 76 61 72 63 68 61 72 28 33 32 29 03  |.k2.varchar(32).|
+    0010  59 65 73 05 66 61 6c 73 65 fb 04 4e 4f 4e 45     |Yes.false..NONE|
+  packet seq=10 len=8 kind=EOF flushed
+    0000  fe 00 00 00 00 00 00 00                          |........|
+
+=== case set-session-variable ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_QUERY set sql_select_limit = 100
+  packet seq=1 len=8 kind=OK flushed
+    0000  00 00 00 00 00 00 00 00                          |........|
+
+=== case use-database ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_QUERY use protocol_golden_db
+  packet seq=1 len=8 kind=OK flushed
+    0000  00 00 00 00 00 00 00 00                          |........|
+
+=== case explain-select ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_QUERY explain select 1
+  kinds: PAYLOAD (repeated), EOF flushed
+
+=== case syntax-error ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_QUERY select from
+  kinds: ERR flushed
+  err: errorCode=1105 sqlState=HY000 message="errCode = 2, detailMessage = \nmismatched input 'from' expecting {'(', '..."
+
+=== case unknown-table ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_QUERY select * from no_such_table
+  packet seq=1 len=124 kind=ERR flushed
+    0000  ff 51 04 23 48 59 30 30 30 65 72 72 43 6f 64 65  |.Q.#HY000errCode|
+    0010  20 3d 20 32 2c 20 64 65 74 61 69 6c 4d 65 73 73  | = 2, detailMess|
+    0020  61 67 65 20 3d 20 54 61 62 6c 65 20 5b 6e 6f 5f  |age = Table [no_|
+    0030  73 75 63 68 5f 74 61 62 6c 65 5d 20 64 6f 65 73  |such_table] does|
+    0040  20 6e 6f 74 20 65 78 69 73 74 20 69 6e 20 64 61  | not exist in da|
+    0050  74 61 62 61 73 65 20 5b 70 72 6f 74 6f 63 6f 6c  |tabase [protocol|
+    0060  5f 67 6f 6c 64 65 6e 5f 64 62 5d 2e 28 6c 69 6e  |_golden_db].(lin|
+    0070  65 20 31 2c 20 70 6f 73 20 31 34 29              |e 1, pos 14)|
+
+=== case error-then-next-command ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_QUERY select * from no_such_table
+  packet seq=1 len=124 kind=ERR flushed
+    0000  ff 51 04 23 48 59 30 30 30 65 72 72 43 6f 64 65  |.Q.#HY000errCode|
+    0010  20 3d 20 32 2c 20 64 65 74 61 69 6c 4d 65 73 73  | = 2, detailMess|
+    0020  61 67 65 20 3d 20 54 61 62 6c 65 20 5b 6e 6f 5f  |age = Table [no_|
+    0030  73 75 63 68 5f 74 61 62 6c 65 5d 20 64 6f 65 73  |such_table] does|
+    0040  20 6e 6f 74 20 65 78 69 73 74 20 69 6e 20 64 61  | not exist in da|
+    0050  74 61 62 61 73 65 20 5b 70 72 6f 74 6f 63 6f 6c  |tabase [protocol|
+    0060  5f 67 6f 6c 64 65 6e 5f 64 62 5d 2e 28 6c 69 6e  |_golden_db].(lin|
+    0070  65 20 31 2c 20 70 6f 73 20 31 34 29              |e 1, pos 14)|
+--> COM_QUERY select 1
+  packet seq=1 len=1 kind=PAYLOAD
+    0000  01                                               |.|
+  packet seq=2 len=23 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 01 31 00 0c 21 00 04 00 00  |.def....1..!....|
+    0010  00 01 00 00 00 00 00                             |.......|
+  packet seq=3 len=2 kind=PAYLOAD
+    0000  01 31                                            |.1|
+  packet seq=4 len=8 kind=EOF flushed
+    0000  fe 00 00 00 00 00 00 00                          |........|
+
+=== case multi-statement-with-capability ===
+client capability: deprecate_eof=true multi_statements=true
+--> COM_QUERY select 1; select 2
+  packet seq=1 len=1 kind=PAYLOAD
+    0000  01                                               |.|
+  packet seq=2 len=23 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 01 31 00 0c 21 00 04 00 00  |.def....1..!....|
+    0010  00 01 00 00 00 00 00                             |.......|
+  packet seq=3 len=2 kind=PAYLOAD
+    0000  01 31                                            |.1|
+  packet seq=4 len=8 kind=EOF flushed
+    0000  fe 00 00 08 00 00 00 00                          |........|
+  packet seq=5 len=1 kind=PAYLOAD
+    0000  01                                               |.|
+  packet seq=6 len=23 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 01 32 00 0c 21 00 04 00 00  |.def....2..!....|
+    0010  00 01 00 00 00 00 00                             |.......|
+  packet seq=7 len=2 kind=PAYLOAD
+    0000  01 32                                            |.2|
+  packet seq=8 len=8 kind=EOF flushed
+    0000  fe 00 00 00 00 00 00 00                          |........|
+
+=== case multi-statement-without-capability ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_QUERY select 1; select 2
+  packet seq=1 len=1 kind=PAYLOAD
+    0000  01                                               |.|
+  packet seq=2 len=23 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 01 31 00 0c 21 00 04 00 00  |.def....1..!....|
+    0010  00 01 00 00 00 00 00                             |.......|
+  packet seq=3 len=2 kind=PAYLOAD
+    0000  01 31                                            |.1|
+  packet seq=4 len=1 kind=PAYLOAD
+    0000  01                                               |.|
+  packet seq=5 len=23 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 01 32 00 0c 21 00 04 00 00  |.def....2..!....|
+    0010  00 01 00 00 00 00 00                             |.......|
+  packet seq=6 len=2 kind=PAYLOAD
+    0000  01 32                                            |.2|
+  packet seq=7 len=8 kind=EOF flushed
+    0000  fe 00 00 00 00 00 00 00                          |........|
+
+=== case com-field-list ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_FIELD_LIST golden_tbl
+  packet seq=1 len=65 kind=PAYLOAD
+    0000  03 64 65 66 12 70 72 6f 74 6f 63 6f 6c 5f 67 6f  |.def.protocol_go|
+    0010  6c 64 65 6e 5f 64 62 0a 67 6f 6c 64 65 6e 5f 74  |lden_db.golden_t|
+    0020  62 6c 0a 67 6f 6c 64 65 6e 5f 74 62 6c 02 6b 31  |bl.golden_tbl.k1|
+    0030  02 6b 31 0c 21 00 0b 00 00 00 03 00 00 00 00 00  |.k1.!...........|
+    0040  00                                               |.|
+  packet seq=2 len=65 kind=PAYLOAD
+    0000  03 64 65 66 12 70 72 6f 74 6f 63 6f 6c 5f 67 6f  |.def.protocol_go|
+    0010  6c 64 65 6e 5f 64 62 0a 67 6f 6c 64 65 6e 5f 74  |lden_db.golden_t|
+    0020  62 6c 0a 67 6f 6c 64 65 6e 5f 74 62 6c 02 6b 32  |bl.golden_tbl.k2|
+    0030  02 6b 32 0c 21 00 ff 00 00 00 fe 00 00 00 00 00  |.k2.!...........|
+    0040  00                                               |.|
+  packet seq=3 len=8 kind=EOF flushed
+    0000  fe 00 00 00 00 00 00 00                          |........|
+
+=== case com-stmt-prepare ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_STMT_PREPARE select ?
+  packet seq=1 len=13 kind=OK
+    0000  00 00 00 00 80 01 00 01 00 00 00 00 01           |.............|
+  packet seq=2 len=26 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 02 24 30 02 24 30 0c 21 00  |.def....$0.$0.!.|
+    0010  ff 00 00 00 fc 00 00 00 00 00                    |..........|
+  packet seq=3 len=44 kind=PAYLOAD flushed
+    0000  03 64 65 66 00 00 00 0b 5f 5f 6c 69 74 65 72 61  |.def....__litera|
+    0010  6c 5f 30 0b 5f 5f 6c 69 74 65 72 61 6c 5f 30 0c  |l_0.__literal_0.|
+    0020  21 00 ff 00 00 00 fc 00 00 00 00 00              |!...........|
+
+=== case com-stmt-close ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_STMT_CLOSE 1
+  <no response packet>
+
+=== case com-set-option ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_SET_OPTION 0
+  packet seq=1 len=8 kind=OK flushed
+    0000  00 00 00 00 00 00 00 00                          |........|
+
+=== case com-reset-connection ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_RESET_CONNECTION
+  packet seq=1 len=8 kind=OK flushed
+    0000  00 00 00 00 00 00 00 00                          |........|
+
+=== case com-ping ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_PING
+  packet seq=1 len=8 kind=OK flushed
+    0000  00 00 00 00 00 00 00 00                          |........|
+
+=== case com-init-db ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_INIT_DB protocol_golden_db
+  packet seq=1 len=8 kind=OK flushed
+    0000  00 00 00 00 00 00 00 00                          |........|
+
+=== case com-statistics ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_STATISTICS
+  packet seq=1 len=8 kind=OK flushed
+    0000  00 00 00 00 00 00 00 00                          |........|
+
+=== case com-unknown ===
+client capability: deprecate_eof=true multi_statements=false
+--> unknown command 0x2A
+  packet seq=1 len=28 kind=ERR flushed
+    0000  ff 17 04 23 30 38 53 30 31 55 6e 6b 6e 6f 77 6e  |...#08S01Unknown|
+    0010  20 63 6f 6d 6d 61 6e 64 28 34 32 29              | command(42)|
+
+=== case com-quit ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_QUIT
+  packet seq=1 len=8 kind=OK flushed
+    0000  00 00 00 00 00 00 00 00                          |........|
+
