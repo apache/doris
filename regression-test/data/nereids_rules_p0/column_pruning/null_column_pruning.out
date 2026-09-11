@@ -105,3 +105,28 @@
 
 -- !34 --
 
+-- !35 --
+1	4
+2	13
+3	\N
+4	\N
+
+-- !36 --
+1	n1	off1
+2	\N	longer_offset
+3	n3	\N
+4	\N	\N
+
+-- !37 --
+2
+4
+
+-- !38 --
+1
+2
+
+-- !39 --
+1	false	off1
+2	false	longer_offset
+3	false	\N
+

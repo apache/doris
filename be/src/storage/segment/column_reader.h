@@ -542,7 +542,11 @@ protected:
     // Normalize the wire encoding, strip this iterator's column name, and explicitly partition
     // paths consumed by this iterator from paths that must be routed to descendants. This helper is
     // intentionally side-effect free; callers apply DATA/predicate read requirements explicitly.
-    Result<AccessPathSplit> _split_access_paths(TColumnAccessPaths access_paths) const;
+    // owns_offset_meta tells whether this iterator has current-level offsets. When it does not
+    // (Struct), a legacy OFFSET tail is a data field named "offset" and stays a descendant path,
+    // and a typed META OFFSET request is an FE/BE contract violation.
+    Result<AccessPathSplit> _split_access_paths(TColumnAccessPaths access_paths,
+                                                bool owns_offset_meta) const;
     ColumnIteratorOptions _opts;
 
     ReadRequirement _read_requirement {ReadRequirement::NORMAL};
