@@ -59,6 +59,11 @@ struct ColumnReadAheadPlan {
     std::vector<ColumnReadAheadPage> new_pages;
     /// Window entries that the scan has passed; the coordinator drops any remaining registration.
     std::vector<ColumnReadAheadPage> released_pages;
+    /// Per-call elapsed times, collected even when no pages enter or leave the window.
+    int64_t window_discard_ns {0};
+    /// Includes window_extend_ns; their difference isolates the remaining current-rowid loop.
+    int64_t current_batch_plan_ns {0};
+    int64_t window_extend_ns {0};
 
     bool empty() const { return new_pages.empty() && released_pages.empty(); }
 };
