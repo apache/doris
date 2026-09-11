@@ -15,6 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.action.ProfileAction
+
+import java.util.regex.Pattern
+
 // stop-gram end to end: an index built with the posting lists of very common grams dropped
 // must still answer LIKE/REGEXP exactly, and must actually have dropped them.
 //
@@ -59,6 +63,10 @@ suite("test_gram_stop_gram", "p0") {
             def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id),
                     backendId_to_backendHttpPort.get(backend_id), key, value)
             logger.info("update ${key}=${value}: code=${code}, out=${out}, err=${err}")
+            // A phase that runs against a config that never changed proves nothing.
+            assertEquals(0, code, "updating ${key} on backend ${backend_id} failed: ${err}")
+            assertTrue(out.toString().contains("OK"),
+                    "updating ${key} on backend ${backend_id} was refused: ${out}")
         }
     }
 
@@ -133,6 +141,10 @@ suite("test_gram_stop_gram", "p0") {
     try {
         sql "SET enable_sql_cache=false"
         sql "SET enable_condition_cache=false"
+        // The inverted-index result cache is keyed by the raw query bytes, so a second pass
+        // over the same queries could be served the first pass's bitmaps without touching
+        // the index at all; every phase below has to reach the index.
+        sql "SET enable_inverted_index_query_cache=false"
 
         // One batch keeps all 4000 rows in a single segment: above the row floor, dropping
         // is in effect.
@@ -170,6 +182,42 @@ suite("test_gram_stop_gram", "p0") {
         assertTrue(droppedBytes * 2 < keptBytes,
                 "the single-segment index (${droppedBytes} bytes) should be far smaller than " +
                 "the five-segment one (${keptBytes} bytes): its common postings were not dropped")
+
+        // A dropped entry has to reach the query path physically, not only through answers
+        // that a scan would give as well. This pattern's grams straddle the line: the ones of
+        // `common_text` sit in every row and were dropped, `rare_marker_1000` sits in one row
+        // and was kept. The AND resolves both in the dictionary, leaves the dropped ones out
+        // as match-all and reads the kept posting, so the profile must show a handful of
+        // candidates, thousands of rows pruned and no gate give-up.
+        def parseProfileCounter = { String profileString, String name ->
+            def exact = Pattern.compile(Pattern.quote(name) + ":\\s*[^\\(\\n]*\\((\\d+)\\)")
+                    .matcher(profileString)
+            if (exact.find()) {
+                return Long.parseLong(exact.group(1))
+            }
+            def plain = Pattern.compile(Pattern.quote(name) + ":\\s*(\\d+)").matcher(profileString)
+            assertTrue(plain.find(), "${name} is not parseable from profile")
+            return Long.parseLong(plain.group(1))
+        }
+        def profileAction = new ProfileAction(context)
+        def gramCounters = ["RowsGramIndexFiltered", "GramIndexCandidateRows", "GramIndexGateGaveUp"]
+        sql "SET enable_inverted_index_query=true"
+        sql "SET enable_profile=true"
+        sql "SET profile_level=2"
+        def straddling = sql """/* gram_stop_gram_straddle */ SELECT COUNT(*) FROM ${oneSegment}
+            WHERE msg REGEXP 'common_text rare_marker_1000 '"""
+        def straddleProfile = profileAction.getProfileBySql("gram_stop_gram_straddle", gramCounters)
+        sql "SET enable_profile=false"
+        assertEquals(1L, straddling[0][0] as long, "exactly one row carries rare_marker_1000")
+        def candidates = parseProfileCounter(straddleProfile, "GramIndexCandidateRows")
+        def pruned = parseProfileCounter(straddleProfile, "RowsGramIndexFiltered")
+        def gaveUp = parseProfileCounter(straddleProfile, "GramIndexGateGaveUp")
+        logger.info("straddling pattern: candidates=${candidates} pruned=${pruned} gaveUp=${gaveUp}")
+        assertEquals(0L, gaveUp, "the retained gram keeps the node under budget; the gate must not give up")
+        assertTrue(candidates >= 1L && candidates <= 4L,
+                "the kept posting (df 4) bounds the candidates, got ${candidates}: the dropped " +
+                "grams must read as match-all and the kept one must still be read")
+        assertTrue(pruned >= rows - 4L, "the index pruned only ${pruned} of ${rows} rows")
 
         // The gate could otherwise mask a broken dropped-gram path by giving up first, so
         // check again with its fallback ratio disabled. The gate's primary budget comes from
