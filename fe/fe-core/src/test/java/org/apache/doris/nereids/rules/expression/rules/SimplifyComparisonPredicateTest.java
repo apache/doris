@@ -1091,12 +1091,39 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
                     ExpressionUtils.trueOrNull(nullableCast));
         }
 
+        SlotReference nonNullableInt = new SlotReference("int_slot", IntegerType.INSTANCE, false);
+        DecimalV3Type narrowDecimal = DecimalV3Type.createDecimalV3Type(2, 0);
+        DecimalV3Literal decimalMin = new DecimalV3Literal(new BigDecimal("-99"));
+        DecimalV3Literal decimalMax = new DecimalV3Literal(new BigDecimal("99"));
+        List<Cast> nullableDecimalCasts = ImmutableList.of(
+                new Cast(nonNullableInt, narrowDecimal),
+                new TryCast(nonNullableInt, narrowDecimal));
+        for (Cast nullableCast : nullableDecimalCasts) {
+            assertRewrite(new LessThanEqual(nullableCast, decimalMax),
+                    ExpressionUtils.trueOrNull(nullableCast));
+            assertRewrite(new GreaterThanEqual(nullableCast, decimalMin),
+                    ExpressionUtils.trueOrNull(nullableCast));
+            assertRewrite(new GreaterThan(nullableCast, decimalMax),
+                    ExpressionUtils.falseOrNull(nullableCast));
+            assertRewrite(new LessThan(nullableCast, decimalMin),
+                    ExpressionUtils.falseOrNull(nullableCast));
+        }
+
         SlotReference nonNullableTinyInt = new SlotReference("tinyint_slot", TinyIntType.INSTANCE, false);
         List<Cast> safeCasts = ImmutableList.of(
                 new Cast(nonNullableTinyInt, SmallIntType.INSTANCE),
                 new TryCast(nonNullableTinyInt, SmallIntType.INSTANCE));
         for (Cast safeCast : safeCasts) {
             assertRewrite(new GreaterThan(safeCast, new SmallIntLiteral((short) 127)),
+                    BooleanLiteral.FALSE);
+        }
+
+        DecimalV3Type widerDecimal = DecimalV3Type.createDecimalV3Type(3, 0);
+        List<Cast> safeDecimalCasts = ImmutableList.of(
+                new Cast(nonNullableTinyInt, widerDecimal),
+                new TryCast(nonNullableTinyInt, widerDecimal));
+        for (Cast safeCast : safeDecimalCasts) {
+            assertRewrite(new GreaterThan(safeCast, new DecimalV3Literal(new BigDecimal("127"))),
                     BooleanLiteral.FALSE);
         }
     }
