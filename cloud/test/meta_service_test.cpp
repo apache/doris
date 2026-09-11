@@ -11235,6 +11235,321 @@ TEST(MetaServiceTest, StaleCommitRowset) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().code();
 }
 
+TEST(MetaServiceTest, DeleteRowsetSchemaStaysRowsetLocal) {
+    const bool old_write_schema_kv = config::write_schema_kv;
+    config::write_schema_kv = true;
+
+    std::string instance_id;
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        config::write_schema_kv = old_write_schema_kv;
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    constexpr int32_t schema_version = 1;
+    doris::TabletSchemaCloudPB full_schema;
+    full_schema.set_schema_version(schema_version);
+    auto* first_column = full_schema.add_column();
+    first_column->set_unique_id(1);
+    first_column->set_name("c1");
+    first_column->set_type("INT");
+    auto* second_column = full_schema.add_column();
+    second_column->set_unique_id(2);
+    second_column->set_name("c2");
+    second_column->set_type("INT");
+    auto* index = full_schema.add_index();
+    index->set_index_id(101);
+    index->set_index_name("c1_idx");
+    index->set_index_type(doris::INVERTED);
+    index->add_col_unique_id(1);
+
+    doris::TabletSchemaCloudPB delete_schema;
+    delete_schema.set_schema_version(schema_version);
+    delete_schema.add_column()->CopyFrom(full_schema.column(0));
+
+    int case_id = 0;
+    for (MultiVersionStatus status : {MULTI_VERSION_DISABLED, MULTI_VERSION_READ_WRITE}) {
+        for (bool delete_first : {true, false}) {
+            ++case_id;
+            SCOPED_TRACE(fmt::format("status={}, delete_first={}", MultiVersionStatus_Name(status),
+                                     delete_first));
+
+            auto meta_service = get_meta_service(false);
+            const int64_t id_base = 100400 + case_id * 100;
+            const int64_t table_id = id_base + 1;
+            const int64_t index_id = id_base + 2;
+            const int64_t partition_id = id_base + 3;
+            const int64_t tablet_id = id_base + 4;
+            const int64_t delete_txn_id = id_base + 5;
+            const int64_t load_txn_id = id_base + 6;
+            instance_id = fmt::format("delete_rowset_schema_{}", case_id);
+
+            InstanceInfoPB instance;
+            instance.set_instance_id(instance_id);
+            instance.set_multi_version_status(status);
+            {
+                std::unique_ptr<Transaction> txn;
+                ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+                txn->put(instance_key(instance_id), instance.SerializeAsString());
+                ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+            }
+            ASSERT_EQ(meta_service->resource_mgr()->refresh_instance(instance_id).first,
+                      MetaServiceCode::OK);
+
+            ASSERT_NO_FATAL_FAILURE(
+                    create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id));
+
+            auto delete_rowset = create_rowset(delete_txn_id, tablet_id, partition_id);
+            delete_rowset.mutable_tablet_schema()->CopyFrom(delete_schema);
+            delete_rowset.mutable_delete_predicate()->set_version(-1);
+            delete_rowset.mutable_delete_predicate()->add_sub_predicates("c1 = 1");
+            CreateRowsetResponse res;
+            ASSERT_NO_FATAL_FAILURE(prepare_rowset(meta_service.get(), delete_rowset, res));
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+            res.Clear();
+            ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), delete_rowset, res));
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+            doris::RowsetMetaCloudPB stored_delete_rowset;
+            {
+                std::unique_ptr<Transaction> txn;
+                ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+                const std::string schema_key =
+                        meta_schema_key({instance_id, index_id, schema_version});
+                ValueBuf schema_buf;
+                ASSERT_EQ(blob_get(txn.get(), schema_key, &schema_buf),
+                          TxnErrorCode::TXN_KEY_NOT_FOUND);
+
+                const std::string versioned_schema_key =
+                        versioned::meta_schema_key({instance_id, index_id, schema_version});
+                doris::TabletSchemaCloudPB stored_schema;
+                ASSERT_EQ(document_get(txn.get(), versioned_schema_key, &stored_schema),
+                          TxnErrorCode::TXN_KEY_NOT_FOUND);
+
+                std::string rowset_value;
+                ASSERT_EQ(txn->get(meta_rowset_tmp_key({instance_id, delete_txn_id, tablet_id}),
+                                   &rowset_value),
+                          TxnErrorCode::TXN_OK);
+                ASSERT_TRUE(stored_delete_rowset.ParseFromString(rowset_value));
+                ASSERT_TRUE(stored_delete_rowset.has_tablet_schema());
+                EXPECT_EQ(stored_delete_rowset.tablet_schema().column_size(), 1);
+                EXPECT_EQ(stored_delete_rowset.tablet_schema().index_size(), 0);
+            }
+
+            auto load_rowset = create_rowset(load_txn_id, tablet_id, partition_id);
+            load_rowset.mutable_tablet_schema()->CopyFrom(full_schema);
+            res.Clear();
+            ASSERT_NO_FATAL_FAILURE(prepare_rowset(meta_service.get(), load_rowset, res));
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+            res.Clear();
+            ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), load_rowset, res));
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+            doris::RowsetMetaCloudPB stored_load_rowset;
+            {
+                std::unique_ptr<Transaction> txn;
+                ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+                const std::string schema_key =
+                        meta_schema_key({instance_id, index_id, schema_version});
+                ValueBuf schema_buf;
+                ASSERT_EQ(blob_get(txn.get(), schema_key, &schema_buf), TxnErrorCode::TXN_OK);
+                doris::TabletSchemaCloudPB stored_schema;
+                ASSERT_TRUE(schema_buf.to_pb(&stored_schema));
+                EXPECT_EQ(stored_schema.column_size(), 2);
+                EXPECT_EQ(stored_schema.index_size(), 1);
+
+                const std::string versioned_schema_key =
+                        versioned::meta_schema_key({instance_id, index_id, schema_version});
+                stored_schema.Clear();
+                const auto versioned_schema_err =
+                        document_get(txn.get(), versioned_schema_key, &stored_schema);
+                if (status == MULTI_VERSION_READ_WRITE) {
+                    ASSERT_EQ(versioned_schema_err, TxnErrorCode::TXN_OK);
+                    EXPECT_EQ(stored_schema.column_size(), 2);
+                    EXPECT_EQ(stored_schema.index_size(), 1);
+                } else {
+                    ASSERT_EQ(versioned_schema_err, TxnErrorCode::TXN_KEY_NOT_FOUND);
+                }
+
+                std::string rowset_value;
+                ASSERT_EQ(txn->get(meta_rowset_tmp_key({instance_id, load_txn_id, tablet_id}),
+                                   &rowset_value),
+                          TxnErrorCode::TXN_OK);
+                ASSERT_TRUE(stored_load_rowset.ParseFromString(rowset_value));
+                EXPECT_FALSE(stored_load_rowset.has_tablet_schema());
+                EXPECT_EQ(stored_load_rowset.schema_version(), schema_version);
+            }
+
+            auto conflicting_delete_rowset = delete_rowset;
+            conflicting_delete_rowset.set_txn_id(load_txn_id);
+            conflicting_delete_rowset.set_rowset_id_v2(delete_rowset.rowset_id_v2() + "_retry");
+            res.Clear();
+            ASSERT_NO_FATAL_FAILURE(
+                    prepare_rowset(meta_service.get(), conflicting_delete_rowset, res));
+            ASSERT_EQ(res.status().code(), MetaServiceCode::ALREADY_EXISTED) << res.status().msg();
+            ASSERT_TRUE(res.has_existed_rowset_meta());
+            ASSERT_TRUE(res.existed_rowset_meta().has_tablet_schema());
+            EXPECT_EQ(res.existed_rowset_meta().tablet_schema().column_size(), 2);
+            EXPECT_EQ(res.existed_rowset_meta().tablet_schema().index_size(), 1);
+
+            auto visible_delete_rowset = stored_delete_rowset;
+            auto visible_full_rowset = load_rowset;
+            visible_full_rowset.set_rowset_id_v2(load_rowset.rowset_id_v2() + "_inline");
+            auto visible_schema_ref_rowset = stored_load_rowset;
+            visible_schema_ref_rowset.set_rowset_id_v2(load_rowset.rowset_id_v2() + "_ref");
+
+            const int64_t delete_version = delete_first ? 2 : 3;
+            const int64_t full_schema_version = delete_first ? 3 : 2;
+            const int64_t schema_ref_version = 4;
+            auto set_rowset_version = [](doris::RowsetMetaCloudPB* rowset, int64_t version) {
+                rowset->set_start_version(version);
+                rowset->set_end_version(version);
+            };
+            set_rowset_version(&visible_delete_rowset, delete_version);
+            set_rowset_version(&visible_full_rowset, full_schema_version);
+            set_rowset_version(&visible_schema_ref_rowset, schema_ref_version);
+
+            {
+                std::unique_ptr<Transaction> txn;
+                ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+                for (const auto* rowset :
+                     {&visible_delete_rowset, &visible_full_rowset, &visible_schema_ref_rowset}) {
+                    if (status == MULTI_VERSION_READ_WRITE) {
+                        const std::string key = versioned::meta_rowset_load_key(
+                                {instance_id, tablet_id, rowset->end_version()});
+                        ASSERT_TRUE(versioned::document_put(txn.get(), key,
+                                                            doris::RowsetMetaCloudPB(*rowset)));
+                    } else {
+                        const std::string key =
+                                meta_rowset_key({instance_id, tablet_id, rowset->end_version()});
+                        txn->put(key, rowset->SerializeAsString());
+                    }
+                }
+                ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+            }
+
+            brpc::Controller cntl;
+            GetRowsetRequest req;
+            auto* tablet_idx = req.mutable_idx();
+            tablet_idx->set_db_id(1);
+            tablet_idx->set_table_id(table_id);
+            tablet_idx->set_index_id(index_id);
+            tablet_idx->set_partition_id(partition_id);
+            tablet_idx->set_tablet_id(tablet_id);
+            req.set_start_version(2);
+            req.set_end_version(4);
+            req.set_base_compaction_cnt(0);
+            req.set_cumulative_compaction_cnt(0);
+            req.set_cumulative_point(2);
+
+            GetRowsetResponse get_res;
+            meta_service->get_rowset(&cntl, &req, &get_res, nullptr);
+            ASSERT_EQ(get_res.status().code(), MetaServiceCode::OK)
+                    << get_res.status().ShortDebugString();
+            ASSERT_EQ(get_res.rowset_meta_size(), 3);
+            for (int i = 0; i < get_res.rowset_meta_size(); ++i) {
+                EXPECT_EQ(get_res.rowset_meta(i).end_version(), i + 2);
+            }
+
+            for (const auto& rowset : get_res.rowset_meta()) {
+                ASSERT_TRUE(rowset.has_tablet_schema()) << rowset.ShortDebugString();
+                if (rowset.end_version() == delete_version) {
+                    EXPECT_TRUE(rowset.has_delete_predicate());
+                    EXPECT_EQ(rowset.tablet_schema().column_size(), 1);
+                    EXPECT_EQ(rowset.tablet_schema().index_size(), 0);
+                } else {
+                    EXPECT_FALSE(rowset.has_delete_predicate());
+                    EXPECT_EQ(rowset.tablet_schema().column_size(), 2);
+                    EXPECT_EQ(rowset.tablet_schema().index_size(), 1);
+                }
+            }
+
+            constexpr int32_t restore_schema_version = 2;
+            constexpr int64_t restore_rowset_version = 5;
+            auto restore_delete_rowset = visible_delete_rowset;
+            restore_delete_rowset.set_rowset_id_v2(delete_rowset.rowset_id_v2() + "_restore");
+            restore_delete_rowset.mutable_tablet_schema()->set_schema_version(
+                    restore_schema_version);
+            set_rowset_version(&restore_delete_rowset, restore_rowset_version);
+
+            RestoreJobRequest prepare_restore_req;
+            prepare_restore_req.set_tablet_id(tablet_id);
+            prepare_restore_req.set_expiration(time(nullptr) + 3600);
+            prepare_restore_req.set_action(RestoreJobRequest::PREPARE);
+            auto* restore_tablet_meta = prepare_restore_req.mutable_tablet_meta();
+            restore_tablet_meta->set_table_id(table_id);
+            restore_tablet_meta->set_index_id(index_id);
+            restore_tablet_meta->set_partition_id(partition_id);
+            restore_tablet_meta->set_tablet_id(tablet_id);
+            restore_tablet_meta->set_schema_version(restore_schema_version);
+            restore_tablet_meta->add_rs_metas()->CopyFrom(restore_delete_rowset);
+
+            RestoreJobResponse restore_res;
+            meta_service->prepare_restore_job(&cntl, &prepare_restore_req, &restore_res, nullptr);
+            ASSERT_EQ(restore_res.status().code(), MetaServiceCode::OK)
+                    << restore_res.status().ShortDebugString();
+
+            RestoreJobRequest commit_restore_req;
+            commit_restore_req.set_tablet_id(tablet_id);
+            commit_restore_req.set_action(RestoreJobRequest::COMMIT);
+            restore_res.Clear();
+            meta_service->commit_restore_job(&cntl, &commit_restore_req, &restore_res, nullptr);
+            ASSERT_EQ(restore_res.status().code(), MetaServiceCode::OK)
+                    << restore_res.status().ShortDebugString();
+
+            {
+                std::unique_ptr<Transaction> txn;
+                ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+                const std::string schema_key =
+                        meta_schema_key({instance_id, index_id, restore_schema_version});
+                ValueBuf schema_buf;
+                ASSERT_EQ(blob_get(txn.get(), schema_key, &schema_buf),
+                          TxnErrorCode::TXN_KEY_NOT_FOUND);
+
+                const std::string versioned_schema_key =
+                        versioned::meta_schema_key({instance_id, index_id, restore_schema_version});
+                doris::TabletSchemaCloudPB stored_schema;
+                ASSERT_EQ(document_get(txn.get(), versioned_schema_key, &stored_schema),
+                          TxnErrorCode::TXN_KEY_NOT_FOUND);
+
+                std::string rowset_value;
+                ASSERT_EQ(
+                        txn->get(meta_rowset_key({instance_id, tablet_id, restore_rowset_version}),
+                                 &rowset_value),
+                        TxnErrorCode::TXN_OK);
+                doris::RowsetMetaCloudPB restored_rowset;
+                ASSERT_TRUE(restored_rowset.ParseFromString(rowset_value));
+                ASSERT_TRUE(restored_rowset.has_tablet_schema());
+                EXPECT_EQ(restored_rowset.tablet_schema().column_size(), 1);
+                EXPECT_EQ(restored_rowset.tablet_schema().index_size(), 0);
+
+                if (status == MULTI_VERSION_READ_WRITE) {
+                    Versionstamp versionstamp;
+                    restored_rowset.Clear();
+                    const std::string versioned_rowset_key = versioned::meta_rowset_load_key(
+                            {instance_id, tablet_id, restore_rowset_version});
+                    ASSERT_EQ(versioned::document_get(txn.get(), versioned_rowset_key,
+                                                      &restored_rowset, &versionstamp),
+                              TxnErrorCode::TXN_OK);
+                    ASSERT_TRUE(restored_rowset.has_tablet_schema());
+                    EXPECT_EQ(restored_rowset.tablet_schema().column_size(), 1);
+                    EXPECT_EQ(restored_rowset.tablet_schema().index_size(), 0);
+                }
+            }
+        }
+    }
+}
+
 TEST(MetaServiceTest, CommitRowsetCheckTmpAndRecycleKeyExclusion) {
     auto meta_service = get_meta_service();
 
