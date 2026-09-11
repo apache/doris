@@ -326,6 +326,16 @@ class AzureVendedCredentialsTest {
     }
 
     @Test
+    void bindVended_rejectsCanonicalEndpointAccountConflictWhenReplacingCredentials() {
+        StoragePropertiesException error = Assertions.assertThrows(StoragePropertiesException.class,
+                () -> provider.bindVended(Map.of(TOKEN_KEY, TOKEN), Map.of(
+                        "azure.endpoint", "https://old-account.blob.core.windows.net")));
+
+        Assertions.assertEquals("Azure vended credential account does not match the legacy endpoint",
+                error.getMessage());
+    }
+
+    @Test
     void bindVended_rejectsUppercaseLegacyEndpointAccountConflictWhenReplacingCredentials() {
         StoragePropertiesException error = Assertions.assertThrows(StoragePropertiesException.class,
                 () -> provider.bindVended(Map.of(TOKEN_KEY, TOKEN), Map.of(

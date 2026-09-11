@@ -100,6 +100,8 @@ public final class AzureFileSystemProperties
     private static final Set<String> PROVIDER_ENDPOINT_ALIASES = Set.of(ENDPOINT, "AZURE_ENDPOINT");
     private static final Set<String> LEGACY_ENDPOINT_ALIASES = Set.of(
             "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "AZURE_ENDPOINT");
+    private static final Set<String> ALL_ENDPOINT_ALIASES = Set.of(
+            ENDPOINT, "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "AZURE_ENDPOINT");
 
     // In each @ConnectorProperty below, the first name is the canonical key, kept as a
     // constant because other code references it. The remaining literal names are input aliases
@@ -509,7 +511,7 @@ public final class AzureFileSystemProperties
                         "Azure vended credential account does not match the legacy account");
             }
         }
-        for (String key : LEGACY_ENDPOINT_ALIASES) {
+        for (String key : ALL_ENDPOINT_ALIASES) {
             String legacyEndpoint = properties.get(key);
             if (StringUtils.isBlank(legacyEndpoint)
                     || !AzureBlobEndpointSignals.isAzureBlobEndpoint(legacyEndpoint, properties)) {
