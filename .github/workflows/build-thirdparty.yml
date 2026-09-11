@@ -196,6 +196,11 @@ jobs:
           #./build-thirdparty.sh -j "$(nproc)"
           ./build-thirdparty.sh -j 2
 
+          # CI has no 64 KiB-page aarch64 host; this drives the libunwind just built
+          # through an emulated one, so it also runs on this x86_64 4 KiB runner.
+          cd "${GITHUB_WORKSPACE}"
+          thirdparty/test/libunwind-page-size-test.sh
+
   build_macos:
     name: Build Third Party Libraries (macOS)
     needs: changes
