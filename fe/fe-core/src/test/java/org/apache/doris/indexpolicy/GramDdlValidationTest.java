@@ -84,6 +84,50 @@ public class GramDdlValidationTest {
     // ------------- validateAnalyzerGraphLocked (R31, triggered via createIndexPolicy) -------------
 
     @Test
+    public void testOmittedMaxGramIsValidatedAgainstTheDefaultBackendApplies() {
+        // GramScheme defaults an absent max_gram to 4. FE used to assume 16 here, so this DDL
+        // was accepted and the first load then failed on the backend with
+        // "max_gram(4) < min_gram(5)" -- a table that looked created but could not be written.
+        Map<String, String> tooLong = new HashMap<>();
+        tooLong.put("type", "ngram");
+        tooLong.put("mode", "sparse");
+        tooLong.put("min_gram", "5");
+        UserException e = Assertions.assertThrows(UserException.class,
+                () -> manager.createIndexPolicy(false, "omitted_max_tok",
+                        IndexPolicyTypeEnum.TOKENIZER, tooLong));
+        Assertions.assertTrue(e.getMessage().contains("min_gram (5) must be <= max_gram (4)"),
+                e.getMessage());
+
+        // Spelling out a max_gram the min fits under is still accepted, and so is a min_gram
+        // that fits under the default. This harness has no EditLog, so a definition that passes
+        // validation goes on to fail in the persist step; reaching that step is the proof.
+        Map<String, String> spelled = new HashMap<>();
+        spelled.put("type", "ngram");
+        spelled.put("mode", "sparse");
+        spelled.put("min_gram", "5");
+        spelled.put("max_gram", "8");
+        expectValidationAccepts("spelled_max_tok", spelled);
+
+        Map<String, String> withinDefault = new HashMap<>();
+        withinDefault.put("type", "ngram");
+        withinDefault.put("mode", "sparse");
+        withinDefault.put("min_gram", "3");
+        expectValidationAccepts("within_default_tok", withinDefault);
+    }
+
+    // Validation accepted the tokenizer iff createIndexPolicy got past it; without an EditLog
+    // the persist step then throws, and that throw is the signal.
+    private void expectValidationAccepts(String name, Map<String, String> props) {
+        try {
+            manager.createIndexPolicy(false, name, IndexPolicyTypeEnum.TOKENIZER, props);
+        } catch (UserException e) {
+            Assertions.fail("validation rejected " + name + ": " + e.getMessage());
+        } catch (RuntimeException expectedWithoutEditLog) {
+            // Reaching the persist step is the proof that validation accepted the tokenizer.
+        }
+    }
+
+    @Test
     public void testLowercaseFilterRejectedWithSparseMode() {
         Map<String, String> props = new HashMap<>();
         props.put("tokenizer", "gram_sparse_tok");
