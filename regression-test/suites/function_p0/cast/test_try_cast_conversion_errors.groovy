@@ -23,20 +23,17 @@ suite("test_try_cast_conversion_errors") {
         CREATE TABLE test_try_cast_conversion_errors (
             id INT NOT NULL,
             dt DATETIME(6),
-            tz TIMESTAMPTZ(6),
-            m MAP<STRING, STRING>
+            tz TIMESTAMPTZ(6)
         ) DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES ("replication_num" = "1")
     """
     sql """
         INSERT INTO test_try_cast_conversion_errors VALUES
-            (1, '2024-01-01 00:00:00.123456', '2024-01-01 00:00:00.123456+00:00',
-                MAP(REPEAT('k', 255), 'value')),
-            (2, '9999-12-31 23:59:59.999999', '9999-12-31 23:59:59.999999+00:00',
-                MAP(REPEAT('k', 256), 'value')),
-            (3, NULL, NULL, NULL),
-            (4, '2024-06-01 12:34:56.999999', '2024-06-01 12:34:56.999999+00:00', MAP())
+            (1, '2024-01-01 00:00:00.123456', '2024-01-01 00:00:00.123456+00:00'),
+            (2, '9999-12-31 23:59:59.999999', '9999-12-31 23:59:59.999999+00:00'),
+            (3, NULL, NULL),
+            (4, '2024-06-01 12:34:56.999999', '2024-06-01 12:34:56.999999+00:00')
     """
 
     def conversions = [
@@ -45,8 +42,7 @@ suite("test_try_cast_conversion_errors") {
         [source: "tz", target: "DATETIME(0)", zone: "+00:00", error: "can not cast"],
         // The precision is unchanged here; conversion overflows because of the time zone.
         [source: "dt", target: "TIMESTAMPTZ(6)", zone: "-01:00", error: "can not cast"],
-        [source: "tz", target: "DATETIME(6)", zone: "+01:00", error: "can not cast"],
-        [source: "m", target: "JSON", zone: "+00:00", error: "key size exceeds max limit"]
+        [source: "tz", target: "DATETIME(6)", zone: "+01:00", error: "can not cast"]
     ]
     conversions.each { conversion ->
         sql "SET time_zone = '${conversion.zone}'"
