@@ -198,19 +198,38 @@ suite("test_gram_metadata_inherit", "p0") {
     // container at all -- which is exactly what this phase exists to read.
     sql "SET enable_inverted_index_query_cache=false"
 
+    // Answers with the index on and off, for one setting of enable_inverted_index_query.
+    def runStopped = { boolean useIndex ->
+        sql "SET enable_inverted_index_query=${useIndex}"
+        def out = [:]
+        // A literal whose grams were dropped: the index cannot narrow it and has to say so.
+        out.common = sql("""SELECT COUNT(*) FROM test_gram_inherit_stopped
+            WHERE msg LIKE '%shared_prefix_common%'""")[0][0] as long
+        // A literal whose grams were kept, so the index really does filter here.
+        out.rare = sql("""SELECT id FROM test_gram_inherit_stopped
+            WHERE msg LIKE '%rare_marker_%' ORDER BY id""").collect { it[0] as int }
+        out.regexp = sql("""SELECT COUNT(*) FROM test_gram_inherit_stopped
+            WHERE msg REGEXP 'shared_prefix_[a-z]+'""")[0][0] as long
+        return out
+    }
+
+    // Asserted rather than compared against a golden file: this suite runs only on a non-cloud
+    // cluster, so -forceGenOut on a cloud one emits no block for these tags and the comparison
+    // could never be regenerated. The parity of the two arms is what the phase is for, and the
+    // corpus is fixed, so the absolute answers are pinned too -- without them a phase that
+    // silently stopped matching anything would still agree with itself.
     def checkStopped = { String phaseName ->
-        [false, true].each { useIndex ->
-            sql "SET enable_inverted_index_query=${useIndex}"
-            // A literal whose grams were dropped. The index cannot narrow it and must say so.
-            "order_qt_stopped_${phaseName}_${useIndex}_common"("""SELECT COUNT(*)
-                FROM test_gram_inherit_stopped WHERE msg LIKE '%shared_prefix_common%'""")
-            // A literal whose grams were kept, so the index really does filter here.
-            "order_qt_stopped_${phaseName}_${useIndex}_rare"("""SELECT id
-                FROM test_gram_inherit_stopped WHERE msg LIKE '%rare_marker_%' ORDER BY id""")
-            "order_qt_stopped_${phaseName}_${useIndex}_regexp"("""SELECT COUNT(*)
-                FROM test_gram_inherit_stopped WHERE msg REGEXP 'shared_prefix_[a-z]+'""")
-        }
+        def scanned = runStopped(false)
+        def indexed = runStopped(true)
         sql "SET enable_inverted_index_query=true"
+        assertEquals(scanned, indexed,
+                "[${phaseName}] the gram index changed the answer: ${scanned} vs ${indexed}")
+        assertEquals(4000L, scanned.common,
+                "[${phaseName}] every row carries the common literal")
+        assertEquals([0, 1000, 2000, 3000], scanned.rare,
+                "[${phaseName}] the rare marker sits on one row in a thousand")
+        assertEquals(4000L, scanned.regexp,
+                "[${phaseName}] every row matches the common regexp")
     }
 
     checkStopped("before")
