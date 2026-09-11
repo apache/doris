@@ -5684,6 +5684,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 // compaction notify update tablet stats
                 CloudTabletStatMgr.getInstance().addActiveTablets(tabletIds);
             }
+        } catch (UserException e) {
+            LOG.warn("failed to refresh versions for reported commit, txnId: {}", request.getTxnId(), e);
+            return new TStatus(TStatusCode.INTERNAL_ERROR).setErrorMsgs(Collections.singletonList(e.getMessage()));
         } catch (InvalidProtocolBufferException e) {
             // Handle the exception, log it, or take appropriate action
             e.printStackTrace();

@@ -228,7 +228,7 @@ public interface GlobalTransactionMgrIface extends Writable {
     public void replayBatchRemoveTransactionV2(BatchRemoveTransactionsOperationV2 operation) throws Exception;
 
     public void afterCommitTxnResp(CommitTxnResponse commitTxnResponse, List<TabletCommitInfo> tabletCommitInfos,
-            List<Long> tabletIds);
+            List<Long> tabletIds) throws UserException;
 
     public void addSubTransaction(long dbId, long transactionId, long subTransactionId);
 

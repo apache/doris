@@ -476,7 +476,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     private boolean checkTransactionStateBeforeCommit(long dbId, long transactionId)
-            throws TransactionCommitFailedException {
+            throws UserException {
         // if this txn has been calculated by previously task but commit rpc is timeout,
         // be will send another commit request to fe, so if txn is committed or visible,
         // no need to calculate delete bitmap again, just return ok to be to finish this commit.
@@ -491,6 +491,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         + "] is already aborted. abort reason: " + transactionState.getReason());
             } else if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED
                     || transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
+                if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
+                    refreshPartitionVersions(dbId, transactionId, transactionState.getTableIdList());
+                }
                 LOG.info("txn={}, status={} not need to calculate delete bitmap again, just return ",
                         transactionId,
                         transactionState.getTransactionStatus().toString());
@@ -518,7 +521,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
      * @param tabletCommitInfos tablet commit infos containing backend and tablet mapping
      */
     public void afterCommitTxnResp(CommitTxnResponse commitTxnResponse, List<TabletCommitInfo> tabletCommitInfos,
-            List<Long> tabletIds) {
+            List<Long> tabletIds) throws UserException {
         // ========================================
         // notify BEs to make temporary rowsets visible
         // ========================================
@@ -586,7 +589,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
-    private Map<Long, List<Long>> updateVersion(CommitTxnResponse commitTxnResponse) {
+    private Map<Long, List<Long>> updateVersion(CommitTxnResponse commitTxnResponse) throws UserException {
         if (DebugPointUtil.isEnable("FE.CloudGlobalTransactionMgr.updateVersion.disabled")) {
             LOG.info("FE.CloudGlobalTransactionMgr.updateVersion.disabled");
             return Collections.emptyMap();
@@ -597,6 +600,12 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 ? commitTxnResponse.getTxnInfo().getCommitTso() : -1;
         int totalPartitionNum = commitTxnResponse.getPartitionIdsList().size();
         if (totalPartitionNum == 0 && commitTxnResponse.getTableStatsList().isEmpty()) {
+            // MS can return only txn_info when a retried commit is already visible. The top-level
+            // table_ids list is also empty in this case; txn_info still identifies the affected tables.
+            if (commitTxnResponse.getTxnInfo().getStatus() == TxnStatusPB.TXN_STATUS_VISIBLE
+                    && !(commitTxnResponse.getIsLazyCommit() && commitTxnResponse.getIsLazyCommitIncomplete())) {
+                refreshPartitionVersions(dbId, txnId, commitTxnResponse.getTxnInfo().getTableIdsList());
+            }
             return Collections.emptyMap();
         }
         Env env = Env.getCurrentEnv();
@@ -669,6 +678,39 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         // notify follower and observer FE to update their version cache
         ((CloudEnv) env).getCloudFEVersionSynchronizer().pushVersionAsync(dbId, tableVersions, partitionVersionMap);
         return tablePartitionMap;
+    }
+
+    private void refreshPartitionVersions(long dbId, long txnId, List<Long> tableIds) throws UserException {
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+        if (db == null) {
+            // The database may have been dropped after the original commit.
+            return;
+        }
+        List<CloudPartition> partitions = new ArrayList<>();
+        for (long tableId : tableIds) {
+            Table table = db.getTableNullable(tableId);
+            if (table == null || !table.isManagedTable()) {
+                continue;
+            }
+            table.readLock();
+            try {
+                for (Partition partition : ((OlapTable) table).getAllPartitions()) {
+                    partitions.add((CloudPartition) partition);
+                }
+            } finally {
+                table.readUnlock();
+            }
+        }
+        try {
+            for (List<CloudPartition> batch : Lists.partition(partitions, Config.cloud_get_version_task_batch_size)) {
+                CloudPartition.getSnapshotVisibleVersionFromMs(batch, false);
+            }
+        } catch (RpcException e) {
+            throw new UserException("Transaction " + txnId + " is already visible, but refreshing partition versions"
+                    + " failed for db " + dbId + ": " + e.getMessage(), e);
+        }
+        LOG.info("Refreshed partition versions for visible transaction {}, db {}, partitions {}",
+                txnId, dbId, partitions.size());
     }
 
     private Set<Long> getBaseTabletsFromTables(List<Table> tableList, List<TabletCommitInfo> tabletCommitInfos)
@@ -815,8 +857,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         try {
-            txnState = commitTxn(commitTxnRequest, transactionId, is2PC, tabletCommitInfos, tabletIds);
+            CommitTxnResponse response = commitTxn(commitTxnRequest, transactionId, is2PC);
+            txnState = TxnUtil.transactionStateFromPb(response.getTxnInfo());
+            // A cache refresh failure must not make callbacks treat a durable commit as failed.
             txnOperated = true;
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_TXN_SUCCESS.increase(1L);
+                MetricRepo.HISTO_TXN_EXEC_LATENCY.update(txnState.getCommitTime() - txnState.getPrepareTime());
+            }
+            afterCommitTxnResp(response, tabletCommitInfos, tabletIds);
             if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.commitTransaction.timeout")) {
                 throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
                         "test delete bitmap update lock timeout, transactionId:" + transactionId);
@@ -854,12 +903,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
-    private TransactionState commitTxn(CommitTxnRequest commitTxnRequest, long transactionId, boolean is2PC,
-            List<TabletCommitInfo> tabletCommitInfos, List<Long> tabletIds) throws UserException {
+    private CommitTxnResponse commitTxn(CommitTxnRequest commitTxnRequest, long transactionId, boolean is2PC)
+            throws UserException {
         checkCommitInfo(commitTxnRequest);
 
         CommitTxnResponse commitTxnResponse = null;
-        TransactionState txnState = null;
         int retryTime = 0;
 
         try {
@@ -910,13 +958,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             throw new UserException("internal error, " + internalMsgBuilder.toString());
         }
 
-        txnState = TxnUtil.transactionStateFromPb(commitTxnResponse.getTxnInfo());
-        if (MetricRepo.isInit) {
-            MetricRepo.COUNTER_TXN_SUCCESS.increase(1L);
-            MetricRepo.HISTO_TXN_EXEC_LATENCY.update(txnState.getCommitTime() - txnState.getPrepareTime());
-        }
-        afterCommitTxnResp(commitTxnResponse, tabletCommitInfos, tabletIds);
-        return txnState;
+        return commitTxnResponse;
     }
 
     private void checkCommitInfo(CommitTxnRequest commitTxnRequest) throws UserException {
