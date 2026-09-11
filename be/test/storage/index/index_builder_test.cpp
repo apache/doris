@@ -706,7 +706,9 @@ TEST_F(IndexBuilderTest, DropInvertedIndexTest) {
             new_dat_file_count++;
         }
     }
-    // The index should have been removed
+    // The index should have been removed. Dropping the last index leaves a schema
+    // that owns no index file at all, so the output rowset must carry none --
+    // nothing would ever link, copy, upload or remove it.
     EXPECT_EQ(old_idx_file_count, 1) << "Tablet path should have 1 .idx file before drop";
     EXPECT_EQ(old_dat_file_count, 1) << "Tablet path should have 1 .dat file before drop";
     EXPECT_EQ(new_idx_file_count, 0) << "Tablet path should have no .idx file after drop";
@@ -1023,6 +1025,121 @@ TEST_F(IndexBuilderTest, BuildInvertedIndexAfterWritingDataTest) {
     //auto tablet_schema = _tablet->tablet_schema();
     //EXPECT_TRUE(tablet_schema->has_inverted_index_with_index_id(1));
     //EXPECT_TRUE(tablet_schema->has_inverted_index_with_index_id(2));
+}
+
+// A schema may legitimately own an inverted index whose container holds nothing.
+// An all-NULL VARIANT column extracts no subcolumn, so no logical index directory
+// is ever opened and the closed container is zero bytes. ALTER on such a rowset
+// must read that exactly like a rowset written before any index existed: there is
+// nothing to carry over, and every requested index is built from the raw columns.
+TEST_F(IndexBuilderTest, BuildIndexOverEmptyIndexFileTest) {
+    // 0. prepare tablet path
+    auto tablet_path = _absolute_dir + "/" + std::to_string(14695);
+    _tablet->_tablet_path = tablet_path;
+    ASSERT_TRUE(io::global_local_filesystem()->delete_directory(tablet_path).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(tablet_path).ok());
+
+    // 1. The schema already owns an index, so the rowset owns a container file
+    TabletIndex initial_index;
+    initial_index._index_id = 1;
+    initial_index._index_name = "k1_index";
+    initial_index._index_type = IndexType::INVERTED;
+    initial_index._col_unique_ids.push_back(1); // unique_id for k1
+    _tablet_schema->append_index(std::move(initial_index));
+
+    // 2. Create a rowset writer context
+    RowsetSharedPtr rowset;
+    const int num_rows = 1000;
+    RowsetWriterContext writer_context;
+    writer_context.rowset_id.init(15695);
+    writer_context.tablet_id = 15695;
+    writer_context.tablet_schema_hash = 567997577;
+    writer_context.partition_id = 10;
+    writer_context.rowset_type = BETA_ROWSET;
+    writer_context.tablet_path = _absolute_dir + "/" + std::to_string(15695);
+    writer_context.rowset_state = VISIBLE;
+    writer_context.tablet_schema = _tablet_schema;
+    writer_context.version.first = 10;
+    writer_context.version.second = 10;
+
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.tablet_path).ok());
+
+    auto res = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto rowset_writer = std::move(res).value();
+
+    // 3. Write data to the rowset
+    {
+        Block block = _tablet_schema->create_storage_block();
+        auto columns = std::move(block).mutate_columns();
+        for (int i = 0; i < num_rows; ++i) {
+            int32_t k1 = i * 10;
+            columns[0]->insert_data((const char*)&k1, sizeof(k1));
+            int32_t k2 = i % 100;
+            columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        }
+        block.set_columns(std::move(columns));
+        ASSERT_TRUE(rowset_writer->add_block(&block).ok());
+        ASSERT_TRUE(rowset_writer->flush().ok());
+        ASSERT_TRUE(rowset_writer->build(rowset).ok());
+        ASSERT_TRUE(_tablet->add_rowset(rowset).ok());
+    }
+
+    // 4. Empty the container in place. This is the on-disk shape a segment whose
+    //    logical indexes wrote nothing leaves behind once the empty file is
+    //    closed rather than deleted by the local writer's destructor.
+    const auto segment_path = rowset->segment_path(0);
+    ASSERT_TRUE(segment_path.has_value()) << segment_path.error();
+    const std::string index_path_prefix {
+            segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(segment_path.value())};
+    const auto index_path =
+            segment_v2::InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+    std::error_code ec;
+    std::filesystem::resize_file(index_path, 0, ec);
+    ASSERT_FALSE(ec) << ec.message();
+    {
+        auto reader = std::make_unique<segment_v2::IndexFileReader>(
+                io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
+        auto st = reader->init();
+        ASSERT_TRUE(st.is<ErrorCode::INVERTED_INDEX_BYPASS>()) << st;
+    }
+
+    // 5. ADD INDEX over that rowset
+    TOlapTableIndex index2;
+    index2.index_id = 2;
+    index2.columns.emplace_back("k2");
+    index2.index_name = "k2_index";
+    index2.index_type = TIndexType::INVERTED;
+    _alter_indexes.push_back(index2);
+
+    IndexBuilder builder(ExecEnv::GetInstance()->storage_engine().to_local(), _tablet, _columns,
+                         _alter_indexes, false);
+    ASSERT_TRUE(builder.init().ok());
+    auto status = builder.do_build_inverted_index();
+    // Without tolerating the empty container this fails with
+    // [E-6004]inverted index file ... is empty.
+    EXPECT_TRUE(status.ok()) << status.to_string();
+
+    // 6. The output rowset carries a real container holding the requested index
+    std::vector<io::FileInfo> new_files;
+    bool new_dir_exists = false;
+    ASSERT_TRUE(io::global_local_filesystem()
+                        ->list(tablet_path, true, &new_files, &new_dir_exists)
+                        .ok());
+    ASSERT_TRUE(new_dir_exists);
+    int new_idx_file_count = 0;
+    for (const auto& file : new_files) {
+        if (file.file_name.find(".idx") == std::string::npos) {
+            continue;
+        }
+        new_idx_file_count++;
+        int64_t file_size = 0;
+        ASSERT_TRUE(io::global_local_filesystem()
+                            ->file_size(tablet_path + "/" + file.file_name, &file_size)
+                            .ok());
+        EXPECT_GT(file_size, 0) << file.file_name << " should hold the newly built index";
+    }
+    EXPECT_EQ(new_idx_file_count, 1) << "New directory should contain exactly 1 .idx file";
 }
 
 TEST_F(IndexBuilderTest, BuildAnnIndexAfterWritingDataTest) {
