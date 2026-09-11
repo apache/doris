@@ -124,6 +124,111 @@ TEST(VGeoFunctionsTest, function_geo_st_as_text_with_spatial_wkb) {
     }
 }
 
+TEST(VGeoFunctionsTest, function_geo_st_distance_rejects_geometry) {
+    const std::string wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    auto geometry_type = std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY);
+    auto left_column = ColumnSpatial::create(TYPE_GEOMETRY);
+    auto right_column = ColumnSpatial::create(TYPE_GEOMETRY);
+    left_column->insert_data(wkb.data(), wkb.size());
+    right_column->insert_data(wkb.data(), wkb.size());
+
+    ColumnsWithTypeAndName arguments {{std::move(left_column), geometry_type, "left"},
+                                      {std::move(right_column), geometry_type, "right"}};
+    auto result_type = make_nullable(std::make_shared<DataTypeFloat64>());
+    auto function =
+            SimpleFunctionFactory::instance().get_function("st_distance", arguments, result_type);
+    ASSERT_NE(nullptr, function);
+
+    Block block;
+    block.insert(arguments[0]);
+    block.insert(arguments[1]);
+    block.insert({nullptr, result_type, "result"});
+    const auto status = function->execute(nullptr, block, {0, 1}, 2, 1);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("GEOGRAPHY(OGC:CRS84, spherical)"), std::string::npos)
+            << status.to_string();
+}
+
+TEST(VGeoFunctionsTest, function_geo_st_distance_accepts_supported_geography) {
+    const std::string wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    auto geography_type =
+            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "spherical");
+    auto left_column = ColumnSpatial::create(TYPE_GEOGRAPHY);
+    auto right_column = ColumnSpatial::create(TYPE_GEOGRAPHY);
+    left_column->insert_data(wkb.data(), wkb.size());
+    right_column->insert_data(wkb.data(), wkb.size());
+
+    ColumnsWithTypeAndName arguments {{std::move(left_column), geography_type, "left"},
+                                      {std::move(right_column), geography_type, "right"}};
+    auto result_type = make_nullable(std::make_shared<DataTypeFloat64>());
+    auto function =
+            SimpleFunctionFactory::instance().get_function("st_distance", arguments, result_type);
+    ASSERT_NE(nullptr, function);
+
+    Block block;
+    block.insert(arguments[0]);
+    block.insert(arguments[1]);
+    block.insert({nullptr, result_type, "result"});
+    EXPECT_TRUE(function->execute(nullptr, block, {0, 1}, 2, 1).ok());
+}
+
+TEST(VGeoFunctionsTest, function_geo_st_distance_rejects_unsupported_geography_metadata) {
+    const std::string wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    for (const auto& geography_type : std::vector<DataTypePtr> {
+                 std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "EPSG:4326", "spherical"),
+                 std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "vincenty")}) {
+        auto left_column = ColumnSpatial::create(TYPE_GEOGRAPHY);
+        auto right_column = ColumnSpatial::create(TYPE_GEOGRAPHY);
+        left_column->insert_data(wkb.data(), wkb.size());
+        right_column->insert_data(wkb.data(), wkb.size());
+
+        ColumnsWithTypeAndName arguments {{std::move(left_column), geography_type, "left"},
+                                          {std::move(right_column), geography_type, "right"}};
+        auto result_type = make_nullable(std::make_shared<DataTypeFloat64>());
+        auto function = SimpleFunctionFactory::instance().get_function("st_distance", arguments,
+                                                                       result_type);
+        ASSERT_NE(nullptr, function);
+
+        Block block;
+        block.insert(arguments[0]);
+        block.insert(arguments[1]);
+        block.insert({nullptr, result_type, "result"});
+        const auto status = function->execute(nullptr, block, {0, 1}, 2, 1);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("GEOGRAPHY(OGC:CRS84, spherical)"), std::string::npos)
+                << status.to_string();
+    }
+}
+
+TEST(VGeoFunctionsTest, function_geo_st_contains_rejects_geometry) {
+    const std::string wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    auto geometry_type = std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY);
+    auto left_column = ColumnSpatial::create(TYPE_GEOMETRY);
+    auto right_column = ColumnSpatial::create(TYPE_GEOMETRY);
+    left_column->insert_data(wkb.data(), wkb.size());
+    right_column->insert_data(wkb.data(), wkb.size());
+
+    ColumnsWithTypeAndName arguments {{std::move(left_column), geometry_type, "left"},
+                                      {std::move(right_column), geometry_type, "right"}};
+    auto result_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    auto function =
+            SimpleFunctionFactory::instance().get_function("st_contains", arguments, result_type);
+    ASSERT_NE(nullptr, function);
+
+    Block block;
+    block.insert(arguments[0]);
+    block.insert(arguments[1]);
+    block.insert({nullptr, result_type, "result"});
+    const auto status = function->execute(nullptr, block, {0, 1}, 2, 1);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("GEOGRAPHY(OGC:CRS84, spherical)"), std::string::npos)
+            << status.to_string();
+}
+
 TEST(VGeoFunctionsTest, function_geo_point_accessors_with_spatial_wkb) {
     const std::string wkb(
             "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);

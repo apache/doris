@@ -32,6 +32,7 @@
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/string_ref.h"
@@ -44,6 +45,23 @@ namespace doris {
 static bool is_spatial_type(const DataTypePtr& type) {
     const auto primitive_type = remove_nullable(type)->get_primitive_type();
     return primitive_type == TYPE_GEOMETRY || primitive_type == TYPE_GEOGRAPHY;
+}
+
+static Status validate_geography_semantics(const DataTypePtr& type, const char* function_name) {
+    const auto& nested_type = remove_nullable(type);
+    if (!is_spatial_type(nested_type)) {
+        return Status::OK();
+    }
+
+    const auto* spatial_type = dynamic_cast<const DataTypeSpatial*>(nested_type.get());
+    DCHECK(spatial_type != nullptr);
+    if (spatial_type != nullptr && spatial_type->get_primitive_type() == TYPE_GEOGRAPHY &&
+        spatial_type->crs() == "OGC:CRS84" && spatial_type->algorithm() == "spherical") {
+        return Status::OK();
+    }
+    return Status::NotSupported(
+            "Function {} requires GEOGRAPHY(OGC:CRS84, spherical) for spatial inputs",
+            function_name);
 }
 
 static std::unique_ptr<GeoShape> decode_geo_shape(StringRef value, const DataTypePtr& type) {
@@ -305,6 +323,9 @@ struct StAngle {
         const auto& p1_type = block.get_data_type(arguments[0]);
         const auto& p2_type = block.get_data_type(arguments[1]);
         const auto& p3_type = block.get_data_type(arguments[2]);
+        RETURN_IF_ERROR(validate_geography_semantics(p1_type, NAME));
+        RETURN_IF_ERROR(validate_geography_semantics(p2_type, NAME));
+        RETURN_IF_ERROR(validate_geography_semantics(p3_type, NAME));
         const auto size = p1->size();
         auto res = ColumnFloat64::create();
         res->reserve(size);
@@ -361,6 +382,8 @@ struct StAzimuth {
         const auto& right_col = block.get_by_position(arguments[1]).column;
         const auto& left_type = block.get_data_type(arguments[0]);
         const auto& right_type = block.get_data_type(arguments[1]);
+        RETURN_IF_ERROR(validate_geography_semantics(left_type, NAME));
+        RETURN_IF_ERROR(validate_geography_semantics(right_type, NAME));
 
         const auto size = left_col->size();
         auto res = ColumnFloat64::create();
@@ -403,6 +426,7 @@ struct StAreaSquareMeters {
 
         auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto& input_type = block.get_data_type(arguments[0]);
+        RETURN_IF_ERROR(validate_geography_semantics(input_type, NAME));
         const auto size = col->size();
         auto res = ColumnFloat64::create();
         res->reserve(size);
@@ -444,6 +468,7 @@ struct StAreaSquareKm {
 
         auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto& input_type = block.get_data_type(arguments[0]);
+        RETURN_IF_ERROR(validate_geography_semantics(input_type, NAME));
         const auto size = col->size();
         auto res = ColumnFloat64::create();
         res->reserve(size);
@@ -533,6 +558,8 @@ struct StRelationFunction {
         const auto& right_col = block.get_by_position(arguments[1]).column;
         const auto& left_type = block.get_data_type(arguments[0]);
         const auto& right_type = block.get_data_type(arguments[1]);
+        RETURN_IF_ERROR(validate_geography_semantics(left_type, NAME));
+        RETURN_IF_ERROR(validate_geography_semantics(right_type, NAME));
 
         const auto size = left_col->size();
 
@@ -741,6 +768,7 @@ struct StLength {
 
         auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto& input_type = block.get_data_type(arguments[0]);
+        RETURN_IF_ERROR(validate_geography_semantics(input_type, NAME));
         const auto size = col->size();
         auto res = ColumnFloat64::create();
         res->reserve(size);
@@ -816,6 +844,9 @@ struct StDistance {
                 unpack_if_const(block.get_by_position(arguments[1]).column);
         const auto& left_type = block.get_data_type(arguments[0]);
         const auto& right_type = block.get_data_type(arguments[1]);
+
+        RETURN_IF_ERROR(validate_geography_semantics(left_type, NAME));
+        RETURN_IF_ERROR(validate_geography_semantics(right_type, NAME));
 
         const auto size = std::max(left_column->size(), right_column->size());
 
