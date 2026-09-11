@@ -81,11 +81,20 @@ void SniiIndexColumnWriter::_apply_gram_family_scheme(
 // what a segment gets when the feature is off, when the sample carries no window of the
 // promised length, or when nothing at all is written.
 void SniiIndexColumnWriter::_arm_density_calibration() {
-    if (!_gram_scheme.has_value() || !config::enable_gram_index_adaptive_density) {
+    // Density is a sparse-scheme parameter: a dense index cuts every position whatever the
+    // rate, so holding its rows back would settle nothing and cost every dense writer the
+    // sample, the histogram and a replay.
+    if (!_gram_scheme.has_value() || _gram_scheme->mode != gram::GramMode::SPARSE ||
+        !config::enable_gram_index_adaptive_density) {
         return;
     }
-    const auto min_literal = static_cast<size_t>(config::gram_index_min_literal_bytes);
-    _density_solver = std::make_unique<gram::DensitySolver>(min_literal, _gram_scheme->max_len);
+    // A literal shorter than a gram can never hold a whole one, so the promise cannot be
+    // shorter than max_gram: a tokenizer with a longer max_gram solves for the shortest
+    // literal it can actually keep instead of collecting no evidence at all.
+    _density_promise_bytes = std::max<size_t>(
+            static_cast<size_t>(config::gram_index_min_literal_bytes), _gram_scheme->max_len);
+    _density_solver = std::make_unique<gram::DensitySolver>(
+            _density_promise_bytes, _gram_scheme->max_len, _gram_scheme->lower_case);
     _density_calibrating = true;
 }
 
@@ -282,11 +291,15 @@ Status SniiIndexColumnWriter::add_values(const std::string /*name*/, const void*
     const auto* v = reinterpret_cast<const Slice*>(values);
     for (size_t i = 0; i < count; ++i) {
         if (_density_calibrating) {
-            // Held back, not dropped: this row is tokenized once the rate is known. Feeding
-            // the solver here costs one linear pass over the row and retains nothing of it.
-            _density_solver->observe(std::string_view(v->data, v->size));
-            _density_sample.emplace_back(_rid, std::string(v->data, v->size));
-            _density_sample_bytes += static_cast<int64_t>(v->size);
+            // Held back, not dropped: this row is tokenized once the rate is known. The
+            // solver sees exactly the bytes the extractor will see -- a CHAR value ends at
+            // its first NUL, as in _add_value_tokens -- and the sample is charged at what it
+            // really retains: the payload plus the vector element and string header that
+            // hold it, so a run of empty or tiny rows still reaches the cap.
+            const size_t logical_size = _is_char ? strnlen(v->data, v->size) : v->size;
+            _density_solver->observe(std::string_view(v->data, logical_size));
+            _density_sample.emplace_back(_rid, std::string(v->data, logical_size));
+            _density_sample_bytes += static_cast<int64_t>(logical_size) + kDensitySampleRowOverhead;
             _report_density_sample_capacity();
             ++v;
             ++_rid;
@@ -449,11 +462,22 @@ Status SniiIndexColumnWriter::_finish_density_calibration() {
         return Status::OK();
     }
     _density_calibrating = false;
-    const uint16_t solved = _density_solver->solve(
-            cast_set<uint32_t>(config::gram_index_density_coverage_permille));
+    const auto coverage = cast_set<uint32_t>(config::gram_index_density_coverage_permille);
+    const gram::DensitySolver::Solution solution = _density_solver->solve_detailed(coverage);
     if (_density_solver->observed_windows() > 0) {
-        _gram_scheme->density_permille = solved;
-        _pending_density_permille = solved;
+        _gram_scheme->density_permille = solution.density_permille;
+        _pending_density_permille = solution.density_permille;
+        if (solution.clamped && solution.achieved_coverage_permille < coverage) {
+            // The sample asked for a rate outside the solver's bounds, so the recorded rate
+            // does not keep the promise. Say so: a segment that silently misses its target
+            // reads as an index that does not work on literals it was supposed to find.
+            LOG(WARNING) << "gram index " << _index_meta->index_id()
+                         << ": adaptive density clamped to " << solution.density_permille
+                         << " permille; " << solution.required_permille
+                         << " permille would be needed to cover " << coverage << " permille of "
+                         << _density_promise_bytes << "-byte literals, the clamped rate covers "
+                         << solution.achieved_coverage_permille << " permille";
+        }
     }
     // Free the histogram before replaying: it is 256 KB that nothing needs again.
     _density_solver.reset();
@@ -480,7 +504,13 @@ void SniiIndexColumnWriter::_report_density_sample_capacity(bool release_all) {
     if (_memory_reporter == nullptr) {
         return;
     }
-    const int64_t now = release_all ? 0 : _density_sample_bytes;
+    // The solver's histogram is resident for exactly as long as the sample is.
+    const int64_t now =
+            release_all ? 0
+                        : _density_sample_bytes +
+                                  (_density_solver != nullptr
+                                           ? static_cast<int64_t>(gram::DensitySolver::heap_bytes())
+                                           : 0);
     if (now != _density_sample_charged_bytes) {
         _memory_reporter->report(now - _density_sample_charged_bytes);
         _density_sample_charged_bytes = now;

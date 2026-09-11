@@ -83,6 +83,9 @@ public:
     ::doris::snii::format::IndexConfig config_for_test() const { return _config; }
     bool writes_norms_for_test() const { return _writes_norms; }
     const std::optional<gram::GramScheme>& gram_scheme_for_test() const { return _gram_scheme; }
+    bool density_calibrating_for_test() const { return _density_calibrating; }
+    int64_t density_sample_bytes_for_test() const { return _density_sample_bytes; }
+    size_t density_promise_bytes_for_test() const { return _density_promise_bytes; }
     void set_analysis_for_test(inverted_index::ReaderPtr reader,
                                std::shared_ptr<lucene::analysis::Analyzer> analyzer) {
         _should_analyzer = true;
@@ -161,7 +164,13 @@ private:
     // solved, applied, and the held-back rows are tokenized with it.
     std::unique_ptr<gram::DensitySolver> _density_solver;
     std::vector<std::pair<uint32_t, std::string>> _density_sample;
+    // Per held-back row: the vector element and the string header it carries, on top of the
+    // payload. Charged so that the sample cap is reached by row count as well as by bytes.
+    static constexpr int64_t kDensitySampleRowOverhead =
+            static_cast<int64_t>(sizeof(std::pair<uint32_t, std::string>));
     int64_t _density_sample_bytes = 0;
+    // The literal length the solve promises, after the max_gram floor was applied.
+    size_t _density_promise_bytes = 0;
     int64_t _density_sample_charged_bytes = 0;
     bool _density_calibrating = false;
     // Set when the rate has been solved but the tokenizer has not been obtained yet; applied

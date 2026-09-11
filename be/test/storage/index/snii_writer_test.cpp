@@ -539,7 +539,7 @@ TEST(SniiWriterTest, GramTokenizerForcesDocsOnlyAndIsRecognised) {
     }
     std::ranges::sort(terms);
     // Non-ASCII text contributes no terms: only the ASCII segment of the row is indexed.
-    std::vector<std::string> expected {" Unavai", "ailable", "cod", "ode = U", "or: co"};
+    std::vector<std::string> expected {" Una", "aila", "cod", "ode ", "or: "};
     std::ranges::sort(expected);
     EXPECT_EQ(terms, expected);
 }

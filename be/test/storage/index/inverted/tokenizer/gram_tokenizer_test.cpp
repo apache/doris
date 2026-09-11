@@ -98,7 +98,7 @@ TEST(GramTokenizerTest, DenseModeAndAutoAlias) {
     EXPECT_EQ(f2.gram_scheme()->mode, gram::GramMode::SPARSE); // P0: auto = sparse
 }
 
-// When min/max_gram are absent the defaults come from GramScheme's member initializers (3/16);
+// When min/max_gram are absent the defaults come from GramScheme's member initializers (3/4);
 // the factory no longer injects a copy of its own.
 TEST(GramTokenizerTest, GramDefaultsComeFromGramScheme) {
     NGramTokenizerFactory factory;
@@ -106,7 +106,7 @@ TEST(GramTokenizerTest, GramDefaultsComeFromGramScheme) {
     factory.initialize(Settings(args));
     ASSERT_TRUE(factory.gram_scheme().has_value());
     EXPECT_EQ(factory.gram_scheme()->min_len, 3U);
-    EXPECT_EQ(factory.gram_scheme()->max_len, 16U);
+    EXPECT_EQ(factory.gram_scheme()->max_len, 4U);
 }
 
 // With lower_case=true the folding happens before the split (the boundary hash is computed over

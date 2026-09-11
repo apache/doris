@@ -29,12 +29,12 @@ TEST(GramSchemeTest, DefaultsAndRoundTrip) {
     GramScheme s;
     EXPECT_EQ(s.mode, GramMode::SPARSE);
     EXPECT_EQ(s.min_len, 3U);
-    EXPECT_EQ(s.max_len, 16U);
+    EXPECT_EQ(s.max_len, 4U);
     EXPECT_EQ(s.density_permille, 250U);
     GramScheme back;
     ASSERT_TRUE(GramScheme::from_properties(s.to_properties(), &back).ok());
     EXPECT_TRUE(s == back);
-    EXPECT_EQ(s.cache_key(), "gram:v1:sparse:3:16:250:lc0");
+    EXPECT_EQ(s.cache_key(), "gram:v1:sparse:3:4:250:lc0");
 }
 
 TEST(GramSchemeTest, ParsesTokenizerProperties) {

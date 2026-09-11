@@ -76,7 +76,7 @@ public:
     // parsing (R16, DRY). When "mode" is absent, *out is set to nullopt and OK is returned
     // (legacy ngram); on an illegal value (an unknown mode, an out-of-range min/max_gram, ...)
     // InvalidArgument is returned and *out stays nullopt. Every key that is absent falls back to
-    // GramScheme's own member initializer (min_gram=3, max_gram=16, ...).
+    // GramScheme's own member initializer (min_gram=3, max_gram=4, ...).
     static Status parse_gram_scheme(const Settings& settings, std::optional<gram::GramScheme>* out);
 
 private:

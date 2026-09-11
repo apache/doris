@@ -165,4 +165,116 @@ TEST(GramDensityTest, DegenerateInputFallsBackWithinBounds) {
     EXPECT_LE(solve_density_permille(log_like_rows(), 12, 4, 1000), kMaxSolvedDensityPermille);
 }
 
+// The byte whose self-pair hashes highest among printable ASCII: rows made of it alone put
+// every window's minimum at that hash, which is far above the ceiling's threshold.
+namespace {
+unsigned char highest_self_pair_byte() {
+    unsigned char best = '!';
+    for (int c = '!'; c <= '~'; ++c) {
+        const auto b = static_cast<unsigned char>(c);
+        if (boundary_hash16(b, b) > boundary_hash16(best, best)) {
+            best = b;
+        }
+    }
+    return best;
+}
+} // namespace
+
+// Exactly one window per start position: a run of n bytes holds n - L + 1 windows of length L
+// whatever max_gram is. The scan used to run through every byte pair and count max_gram - 2
+// windows that extend past the run's end.
+TEST(GramDensityTest, CountsExactlyOneWindowPerStartPosition) {
+    for (const size_t max_gram : std::vector<size_t> {2, 3, 4, 8}) {
+        for (const size_t len : std::vector<size_t> {24, 25, 40}) {
+            DensitySolver solver(12, max_gram);
+            std::string row(len, 'a');
+            for (size_t i = 0; i < len; ++i) {
+                row[i] = static_cast<char>('a' + (i * 7) % 26);
+            }
+            solver.observe(row);
+            EXPECT_EQ(solver.observed_windows(), len - 12 + 1)
+                    << "len " << len << " max_gram " << max_gram;
+        }
+    }
+    DensitySolver one(12, 4);
+    one.observe("abcdefghijkl");
+    EXPECT_EQ(one.observed_windows(), 1U) << "a run as long as the promise is one window";
+    DensitySolver none(12, 4);
+    none.observe("abcdefghijk");
+    EXPECT_EQ(none.observed_windows(), 0U) << "a shorter run is no window at all";
+}
+
+// NUL ends a run the way a non-ASCII byte does: the extractor never emits a gram across one,
+// so a window across one is not evidence of anything findable.
+TEST(GramDensityTest, NulEndsARunLikeNonAscii) {
+    DensitySolver with_nul(3, 2);
+    with_nul.observe(std::string("A\0B", 3));
+    EXPECT_EQ(with_nul.observed_windows(), 0U);
+
+    DensitySolver split(12, 4);
+    std::string row = "abcdefghijklmn"; // 14 bytes: 3 windows
+    row.push_back('\0');
+    row += "opqrstuvwxyzabc"; // 15 bytes: 4 windows
+    split.observe(row);
+    EXPECT_EQ(split.observed_windows(), 3U + 4U) << "not the 19 of an unbroken 30-byte run";
+}
+
+// With lower_case the evidence is folded exactly as the extractor folds the row before it
+// hashes, so upper-case rows through a folding solver solve to what their lower-case twins
+// solve to through a plain one.
+TEST(GramDensityTest, FoldsCaseWhenTheSchemeDoes) {
+    std::vector<std::string> lower = log_like_rows();
+    for (std::string& row : lower) {
+        for (char& ch : row) {
+            if (ch >= 'A' && ch <= 'Z') {
+                ch = static_cast<char>(ch - 'A' + 'a');
+            }
+        }
+    }
+    std::vector<std::string> upper = lower;
+    for (std::string& row : upper) {
+        for (char& ch : row) {
+            if (ch >= 'a' && ch <= 'z') {
+                ch = static_cast<char>(ch - 'a' + 'A');
+            }
+        }
+    }
+    DensitySolver folded(12, 4, /*lower_case=*/true);
+    DensitySolver plain(12, 4, /*lower_case=*/false);
+    for (size_t i = 0; i < lower.size(); ++i) {
+        folded.observe(upper[i]);
+        plain.observe(lower[i]);
+    }
+    EXPECT_EQ(folded.observed_windows(), plain.observed_windows());
+    EXPECT_EQ(folded.solve(950), plain.solve(950));
+}
+
+// A corpus whose quantile lies past the ceiling is clamped, and the solution says so together
+// with the share the clamped rate really keeps -- here none, since the only pair hash in these
+// rows is above the ceiling's threshold. An ordinary corpus is neither clamped nor short.
+TEST(GramDensityTest, ReportsAClampedSolveAndItsRealCoverage) {
+    const unsigned char b = highest_self_pair_byte();
+    ASSERT_GE(boundary_hash16(b, b), 32768U)
+            << "the test needs a self-pair above the ceiling's threshold";
+    DensitySolver flat(12, 4);
+    for (int i = 0; i < 50; ++i) {
+        flat.observe(std::string(40, static_cast<char>(b)));
+    }
+    const DensitySolver::Solution s = flat.solve_detailed(950);
+    EXPECT_TRUE(s.clamped);
+    EXPECT_EQ(s.density_permille, kMaxSolvedDensityPermille);
+    EXPECT_GT(s.required_permille, kMaxSolvedDensityPermille);
+    EXPECT_EQ(s.achieved_coverage_permille, 0U);
+    EXPECT_EQ(flat.solve(950), kMaxSolvedDensityPermille);
+
+    DensitySolver ordinary(12, 4);
+    for (const std::string& row : log_like_rows()) {
+        ordinary.observe(row);
+    }
+    const DensitySolver::Solution t = ordinary.solve_detailed(950);
+    EXPECT_FALSE(t.clamped);
+    EXPECT_GE(t.achieved_coverage_permille, 950U);
+    EXPECT_EQ(t.density_permille, t.required_permille);
+}
+
 } // namespace doris::segment_v2::gram

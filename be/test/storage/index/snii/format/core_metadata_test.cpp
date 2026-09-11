@@ -336,14 +336,14 @@ TEST(SniiCoreMetadata, GramSchemeRoundTrip) {
 
 TEST(SniiCoreMetadata, GramSchemeSparseRoundTrip) {
     auto expected = sample_core();
-    expected.gram_scheme = GramScheme {}; // member defaults: SPARSE / 3 / 16 / 250 / lc0 / v1
+    expected.gram_scheme = GramScheme {}; // member defaults: SPARSE / 3 / 4 / 250 / lc0 / v1
 
     CoreMetadata actual;
     ASSERT_TRUE(decode_core_metadata(Slice(encode(expected)), &actual).ok());
     ASSERT_TRUE(actual.gram_scheme.has_value());
     EXPECT_EQ(actual.gram_scheme->mode, GramMode::SPARSE);
     EXPECT_EQ(actual.gram_scheme->min_len, 3U);
-    EXPECT_EQ(actual.gram_scheme->max_len, 16U);
+    EXPECT_EQ(actual.gram_scheme->max_len, 4U);
     EXPECT_EQ(actual.gram_scheme->density_permille, 250U);
     expect_core_eq(expected, actual);
 }
