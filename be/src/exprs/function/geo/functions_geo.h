@@ -53,6 +53,8 @@ struct StContainsState {
     std::vector<std::shared_ptr<GeoShape>> shapes;
 };
 
+Status validate_spatial_wkb_inputs(const Block& block, const ColumnNumbers& arguments);
+
 template <typename Impl>
 class GeoFunction : public IFunction {
 public:
@@ -69,6 +71,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
+        RETURN_IF_ERROR(validate_spatial_wkb_inputs(block, arguments));
         return Impl::execute(block, arguments, result);
     }
 };
