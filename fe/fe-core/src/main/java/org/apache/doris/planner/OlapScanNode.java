@@ -1136,6 +1136,18 @@ public class OlapScanNode extends ScanNode {
         selectedIndexId = olapTable.getBaseIndexId();
         // Only key columns
         computeColumnsFilter(olapTable.getBaseSchemaKeyColumns(), olapTable.getPartitionInfo());
+        return evaluatePointQueryRangeLocations();
+    }
+
+    // Prepared point queries use execution-owned values so the cached conjunct template stays immutable.
+    public List<TScanRangeLocations> lazyEvaluateRangeLocations(
+            Map<String, LiteralExpr> keyValues) throws UserException {
+        selectedIndexId = olapTable.getBaseIndexId();
+        computePointQueryColumnFilters(keyValues);
+        return evaluatePointQueryRangeLocations();
+    }
+
+    private List<TScanRangeLocations> evaluatePointQueryRangeLocations() throws UserException {
         computePartitionInfo();
         scanBackendIds.clear();
         selectionHint = null;
