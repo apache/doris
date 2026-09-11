@@ -422,6 +422,14 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         createTable(create);
         expectException("ALTER TABLE test." + tableName + " MODIFY COLUMN v1 BIGINT", "Table With binlog<row>");
 
+        // 1b) RENAME COLUMN / REORDER COLUMNS are not allowed on row binlog tables either.
+        // This matters for IVM: dropping a column an MV references invalidates the IVM baseline, so
+        // every other way of changing a referenced column has to be rejected here. If one of them
+        // were ever allowed, it would become a new way to leave an MV stale without being noticed.
+        expectException("ALTER TABLE test." + tableName + " RENAME COLUMN v1 TO v1_renamed",
+                "Table With binlog<row>");
+        expectException("ALTER TABLE test." + tableName + " ORDER BY (k1, v1)", "Table With binlog<row>");
+
         // 2) VARIANT not supported
         String createVariant = "CREATE TABLE test.binlog_variant (k1 INT NOT NULL, v1 VARIANT) "
                 + "UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "

@@ -39,7 +39,7 @@ namespace doris {
 class Block;
 
 namespace segment_v2 {
-class SegmentWriter;
+class VerticalSegmentWriter;
 } // namespace segment_v2
 
 class LoadStreamStub;

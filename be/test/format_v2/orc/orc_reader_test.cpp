@@ -18,6 +18,7 @@
 #include "format_v2/orc/orc_reader.h"
 
 #include <cctz/time_zone.h>
+#include <errno.h>
 #include <gtest/gtest.h>
 #include <unistd.h>
 
@@ -4730,6 +4731,39 @@ TEST_F(NewOrcReaderTest, AggregatePushdownReturnsCountFromFileMetadata) {
     ASSERT_TRUE(status.ok()) << status;
     EXPECT_EQ(aggregate_result.count, ROW_COUNT);
     EXPECT_TRUE(aggregate_result.columns.empty());
+}
+
+// Only ENOENT-style errors map to NotFound so FileScannerV2 does not silently skip unhealthy splits.
+TEST_F(NewOrcReaderTest, InitKeepsInternalErrorForDirectory) {
+    auto system_properties = std::make_shared<io::FileSystemProperties>();
+    system_properties->system_type = TFileType::FILE_LOCAL;
+    auto file_description = std::make_unique<io::FileDescription>();
+    file_description->path = _test_dir; // open() on a directory succeeds, read fails with EISDIR
+    file_description->file_size = 4096;
+    format::orc::OrcReader reader(system_properties, file_description, nullptr, nullptr,
+                                  std::nullopt);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto st = reader.init(&state);
+    ASSERT_FALSE(st.ok());
+    EXPECT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st;
+}
+
+// ENOENT injected at the file layer surfaces as NotFound so FileScannerV2 can skip the split.
+TEST_F(NewOrcReaderTest, InitRestoresNotFoundFromReadFailure) {
+    const auto old_enable = config::enable_debug_points;
+    config::enable_debug_points = true;
+    const std::string point = "LocalFileReader::read_at_impl.io_error";
+    DebugPoints::instance()->add_with_params(point, {{"errno", std::to_string(ENOENT)}});
+
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto st = reader->init(&state);
+
+    DebugPoints::instance()->remove(point);
+    config::enable_debug_points = old_enable;
+
+    ASSERT_FALSE(st.ok());
+    EXPECT_TRUE(st.is<ErrorCode::NOT_FOUND>()) << st;
 }
 
 TEST_F(NewOrcReaderTest, AggregatePushdownCountUsesOnlySplitStripes) {

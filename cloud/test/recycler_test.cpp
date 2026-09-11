@@ -817,8 +817,8 @@ static void create_delete_bitmaps(Transaction* txn, int64_t tablet_id, std::stri
                 std::string val {"test_data"};
                 txn->put(key, val);
             } else {
-                std::string val(1000, 'A');
-                cloud::blob_put(txn, key, val, 0, 300);
+                std::string val(MIN_BLOB_SPLIT_SIZE + 1, 'A');
+                cloud::blob_put(txn, key, val, 0, MIN_BLOB_SPLIT_SIZE);
             }
         }
     }
@@ -3686,6 +3686,78 @@ TEST(RecyclerTest, recycle_tablet_packed_file_ref_count) {
     ASSERT_FALSE(list_iter->has_next());
 }
 
+TEST(RecyclerTest, delete_bitmap_collect_shard_keys) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    constexpr std::string_view kResourceId = "delete_bitmap_shard_keys";
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id(std::string(kResourceId));
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix(std::string(kResourceId));
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    constexpr int64_t tablet_id = 50001;
+    const std::string rowset_id = "rowset_for_delete_bitmap";
+
+    // Build a delete bitmap storage stored in FDB whose serialized value is
+    // large enough to be split into multiple KVs (shards).
+    DeleteBitmapStoragePB storage;
+    storage.set_store_in_fdb(true);
+    auto* delete_bitmap = storage.mutable_delete_bitmap();
+    delete_bitmap->add_rowset_ids(rowset_id);
+    delete_bitmap->add_segment_ids(0);
+    delete_bitmap->add_versions(1);
+    // The serialized value exceeds the default blob split size (90KB), so it is
+    // stored as multiple shard KVs.
+    delete_bitmap->add_segment_delete_bitmaps(std::string(200 * 1000, 'x'));
+
+    std::string dbm_key = versioned::meta_delete_bitmap_key({instance_id, tablet_id, rowset_id});
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    cloud::blob_put(txn.get(), dbm_key, storage, 0);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    // Collect the actual shard keys to compare against.
+    std::vector<std::string> expected_keys;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::unique_ptr<RangeGetIterator> it;
+    std::string begin_key = dbm_key;
+    std::string end_key = dbm_key;
+    encode_int64(INT64_MAX, &end_key);
+    while (it == nullptr || it->more()) {
+        ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+        while (it->has_next()) {
+            auto [k, _] = it->next();
+            expected_keys.emplace_back(k.data(), k.size());
+        }
+        begin_key = it->next_begin_key();
+    }
+    ASSERT_GT(expected_keys.size(), 1);
+
+    // Collect shard keys and verify to_pb still works afterwards.
+    std::vector<std::string> keys;
+    InstanceRecycler::DeleteBitmapStorageType storage_type =
+            InstanceRecycler::DeleteBitmapStorageType::NOT_FOUND;
+    ASSERT_EQ(0, recycler.decrement_delete_bitmap_packed_file_ref_counts(tablet_id, rowset_id,
+                                                                         &storage_type, &keys));
+
+    // The value is split into several shard keys and all of them are returned.
+    EXPECT_EQ(keys, expected_keys);
+    EXPECT_GT(keys.size(), 1);
+    // to_pb succeeded after collecting keys: function returned 0 and resolved IN_FDB.
+    EXPECT_EQ(storage_type, InstanceRecycler::DeleteBitmapStorageType::IN_FDB);
+}
+
 TEST(RecyclerTest, recycle_indexes) {
     config::retention_seconds = 0;
     auto txn_kv = std::make_shared<MemTxnKv>();
@@ -6380,8 +6452,9 @@ TEST(CheckerTest, delete_bitmap_inverted_check_normal) {
                 // delete bitmaps may be spilitted into mulitiple KVs if too large
                 auto delete_bitmap_key =
                         meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
-                std::string delete_bitmap_val(1000, 'A');
-                cloud::blob_put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
+                std::string delete_bitmap_val(MIN_BLOB_SPLIT_SIZE + 1, 'A');
+                cloud::blob_put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0,
+                                MIN_BLOB_SPLIT_SIZE);
             }
         }
         if (is_last_tablet) {
@@ -6613,8 +6686,9 @@ TEST(CheckerTest, delete_bitmap_inverted_check_abnormal) {
                 // delete bitmaps may be spilitted into mulitiple KVs if too large
                 auto delete_bitmap_key =
                         meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
-                std::string delete_bitmap_val(1000, 'A');
-                cloud::blob_put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
+                std::string delete_bitmap_val(MIN_BLOB_SPLIT_SIZE + 1, 'A');
+                cloud::blob_put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0,
+                                MIN_BLOB_SPLIT_SIZE);
             }
         }
     }
@@ -11869,4 +11943,128 @@ TEST(RecyclerTest, RecycleInstanceFilterReadsConfigDynamically) {
     EXPECT_FALSE(filter_out_instance("instance1"));
     EXPECT_TRUE(filter_out_instance("instance2"));
 }
+
+TEST(RecyclerTest, delete_versioned_delete_bitmap_by_rowset) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    // Test 1: Empty input - should succeed
+    {
+        std::vector<std::vector<std::string>> empty_groups;
+        EXPECT_EQ(delete_versioned_delete_bitmap_by_rowset(txn_kv.get(), empty_groups), 0);
+    }
+
+    // Test 2: Single rowset with multiple shard keys - should commit atomically
+    {
+        std::vector<std::vector<std::string>> single_rowset_groups;
+        std::vector<std::string> rowset1_keys = {"key1_shard0", "key1_shard1", "key1_shard2"};
+        single_rowset_groups.push_back(rowset1_keys);
+
+        // Pre-populate keys
+        for (const auto& key : rowset1_keys) {
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+            txn->put(key, "value");
+            ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        }
+
+        // Delete via function
+        EXPECT_EQ(delete_versioned_delete_bitmap_by_rowset(txn_kv.get(), single_rowset_groups), 0);
+
+        // Verify all keys are deleted
+        for (const auto& key : rowset1_keys) {
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            EXPECT_EQ(txn->get(key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+        }
+    }
+
+    // Test 3: Multiple rowsets
+    {
+        std::vector<std::vector<std::string>> multi_rowset_groups;
+        std::vector<std::string> rowset1_keys = {"r1_shard0", "r1_shard1", "r1_shard2"};
+        multi_rowset_groups.push_back(rowset1_keys);
+        std::vector<std::string> rowset2_keys = {"r2_shard0", "r2_shard1", "r2_shard2",
+                                                 "r2_shard3"};
+        multi_rowset_groups.push_back(rowset2_keys);
+        std::vector<std::string> rowset3_keys = {"r3_shard0", "r3_shard1"};
+        multi_rowset_groups.push_back(rowset3_keys);
+
+        // Pre-populate all keys
+        for (const auto& group : multi_rowset_groups) {
+            for (const auto& key : group) {
+                std::unique_ptr<Transaction> txn;
+                ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+                txn->put(key, "value");
+                ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+            }
+        }
+
+        // Delete via function
+        EXPECT_EQ(delete_versioned_delete_bitmap_by_rowset(txn_kv.get(), multi_rowset_groups), 0);
+
+        // Verify all keys are deleted
+        for (const auto& group : multi_rowset_groups) {
+            for (const auto& key : group) {
+                std::unique_ptr<Transaction> txn;
+                ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+                std::string val;
+                EXPECT_EQ(txn->get(key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+            }
+        }
+    }
+
+    // Test 4: Batching with byte limit
+    {
+        config::max_txn_commit_byte = 800;
+        DORIS_CLOUD_DEFER {
+            config::max_txn_commit_byte = 10000000;
+        };
+
+        std::vector<std::vector<std::string>> large_groups;
+        for (int i = 0; i < 15; ++i) {
+            std::vector<std::string> rowset_keys;
+            for (int j = 0; j < 3; ++j) {
+                // Each key is ~30 bytes: "large_rowset_0000_shard_0000"
+                rowset_keys.push_back(fmt::format("large_rowset_{:04d}_shard_{:04d}", i, j));
+            }
+            large_groups.push_back(rowset_keys);
+        }
+
+        // Pre-populate - each group is ~90 bytes (3 keys * 30 bytes), so 800 limit allows ~8 groups per txn
+        for (const auto& group : large_groups) {
+            for (const auto& key : group) {
+                std::unique_ptr<Transaction> txn;
+                ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+                txn->put(key, "v");
+                ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+            }
+        }
+
+        // Track commits
+        std::atomic<int> commit_count {0};
+        auto sp = SyncPoint::get_instance();
+        DORIS_CLOUD_DEFER {
+            sp->clear_all_call_backs();
+        };
+        sp->set_call_back("delete_versioned_delete_bitmap_by_rowset::commit_result",
+                          [&](auto&&) { commit_count++; });
+        sp->enable_processing();
+
+        EXPECT_EQ(delete_versioned_delete_bitmap_by_rowset(txn_kv.get(), large_groups), 0);
+        EXPECT_GT(commit_count.load(), 1) << "Should batch into multiple transactions";
+
+        // Verify all deleted
+        for (const auto& group : large_groups) {
+            for (const auto& key : group) {
+                std::unique_ptr<Transaction> txn;
+                ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+                std::string val;
+                EXPECT_EQ(txn->get(key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+            }
+        }
+    }
+}
+
 } // namespace doris::cloud

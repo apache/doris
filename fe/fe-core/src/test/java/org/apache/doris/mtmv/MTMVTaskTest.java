@@ -816,12 +816,46 @@ public class MTMVTaskTest {
         Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
 
         Deencapsulation.invoke(task, "validateIvmBaselineBeforePartitionSync", request);
-        Assertions.assertTrue((Boolean) Deencapsulation.invoke(task, "handlePendingIvmBaselineRebuild",
-                Mockito.mock(MTMVRefreshContext.class), request, new ConnectContext()));
-        Assertions.assertEquals(MTMVTask.MTMVTaskRefreshMode.NOT_REFRESH,
-                Deencapsulation.getField(task, "refreshMode"));
+        List<Object> attempts = Lists.newArrayList();
+        attempts.addAll(Deencapsulation.invoke(task, "buildAttempts", request, false));
+        Assertions.assertEquals("[PARTITIONS, COMPLETE]", attempts.toString());
+
+        Deencapsulation.invoke(task, "handlePendingIvmBaselineRebuild",
+                Mockito.mock(MTMVRefreshContext.class), request, new ConnectContext(), attempts);
+
+        // A pending COMPLETE rebuild reshapes the attempt list instead of rebuilding inline, so
+        // PARTITIONS FALLBACK rebuilds the whole MV through the COMPLETE attempt it keeps.
+        Assertions.assertEquals("[COMPLETE]", attempts.toString());
         Assertions.assertEquals(IvmFailureReason.BINLOG_BROKEN.name(),
                 Deencapsulation.getField(task, "ivmFallbackReason"));
+        // The barrier is released by the caller once the reshaped attempts have run.
+        Mockito.verify(mtmv, Mockito.never()).releaseIvmBaselineRebuild(Mockito.anyLong());
+    }
+
+    @Test
+    public void testDroppedBaselinePartitionsReleaseBarrierWithoutRebuild() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        IvmInfo ivmInfo = new IvmInfo();
+        ivmInfo.addPendingBaselineRebuildPartitions(Sets.newHashSet(poneName));
+        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
+        // Partition sync already dropped the partition the barrier named, so nothing is left to
+        // pre-rebuild and the surviving partitions catch up through the attempts themselves.
+        Mockito.when(mtmv.getPartitionNames()).thenReturn(Sets.newHashSet(ptwoName));
+        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.PARTITIONS, true, null));
+        Deencapsulation.setField(task, "mtmvSchemaChangeVersion", 7L);
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+
+        List<Object> attempts = Lists.newArrayList();
+        attempts.addAll(Deencapsulation.invoke(task, "buildAttempts", request, false));
+        Deencapsulation.invoke(task, "handlePendingIvmBaselineRebuild",
+                Mockito.mock(MTMVRefreshContext.class), request, new ConnectContext(), attempts);
+
+        Assertions.assertEquals("[PARTITIONS, COMPLETE]", attempts.toString());
+        Assertions.assertNull(Deencapsulation.getField(task, "refreshMode"));
+        Assertions.assertEquals(IvmFailureReason.BINLOG_BROKEN.name(),
+                Deencapsulation.getField(task, "ivmFallbackReason"));
+        Mockito.verify(mtmv).releaseIvmBaselineRebuild(7L);
     }
 
     @Test
@@ -925,6 +959,50 @@ public class MTMVTaskTest {
         executeCompleteRefresh(task, signature, signature);
 
         Assertions.assertNull(task.getRefreshedIvmPlanSignature());
+    }
+
+    @Test
+    public void testUnionPreloadFailurePreservesCompletedGroupProgress() throws Exception {
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        Mockito.when(mtmv.getRefreshPartitionNum()).thenReturn(1);
+        Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(Collections.emptySet());
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        Deencapsulation.setField(task, "needRefreshPartitions", Lists.newArrayList(poneName, ptwoName));
+
+        MTMVRefreshContext refreshContext = Mockito.mock(MTMVRefreshContext.class);
+        Mockito.when(refreshContext.preparePartitionSnapshots(Sets.newHashSet(poneName, ptwoName)))
+                .thenThrow(new AnalysisException("union preload failed"));
+        MTMVRefreshPartitionSnapshot firstSnapshot = Mockito.mock(MTMVRefreshPartitionSnapshot.class);
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.generatePartitionSnapshots(
+                Mockito.same(refreshContext), Mockito.anySet(), Mockito.eq(Sets.newHashSet(poneName))))
+                .thenReturn(ImmutableMap.of(poneName, firstSnapshot));
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.generatePartitionSnapshots(
+                Mockito.same(refreshContext), Mockito.anySet(), Mockito.eq(Sets.newHashSet(ptwoName))))
+                .thenThrow(new AnalysisException("second group failed"));
+
+        ConnectContext mtmvCtx = new ConnectContext();
+        mtmvCtx.setQueryId(new TUniqueId(1L, 2L));
+        UpdateMvByPartitionCommand command = Mockito.mock(UpdateMvByPartitionCommand.class);
+        try (MockedStatic<MTMVPlanUtil> mtmvPlanUtilStatic = Mockito.mockStatic(MTMVPlanUtil.class);
+                MockedStatic<UpdateMvByPartitionCommand> updateMvStatic
+                        = Mockito.mockStatic(UpdateMvByPartitionCommand.class)) {
+            mtmvPlanUtilStatic.when(() -> MTMVPlanUtil.createMTMVContext(
+                    Mockito.eq(mtmv), Mockito.anyList())).thenReturn(mtmvCtx);
+            updateMvStatic.when(() -> UpdateMvByPartitionCommand.from(
+                    Mockito.eq(mtmv), Mockito.anySet(), Mockito.anyMap(), Mockito.any(StatementContext.class)))
+                    .thenReturn(command);
+
+            AnalysisException failure = Assertions.assertThrows(AnalysisException.class,
+                    () -> Deencapsulation.invoke(task, "executePartitionBasedRefresh",
+                            refreshContext, RefreshMode.COMPLETE, mtmvCtx));
+            Assertions.assertTrue(failure.getMessage().contains("second group failed"));
+        }
+
+        Assertions.assertEquals(Collections.singletonList(poneName),
+                Deencapsulation.getField(task, "completedPartitions"));
+        Map<String, MTMVRefreshPartitionSnapshot> snapshots = Deencapsulation.getField(task, "partitionSnapshots");
+        Assertions.assertSame(firstSnapshot, snapshots.get(poneName));
+        Assertions.assertFalse(snapshots.containsKey(ptwoName));
     }
 
     @Test

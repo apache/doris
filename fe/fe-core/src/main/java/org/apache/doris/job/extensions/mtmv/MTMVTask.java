@@ -319,9 +319,7 @@ public class MTMVTask extends AbstractTask {
                 throw new JobException(e.getMessage(), e);
             }
             MTMVRefreshContext refreshContext = buildRefreshContext(tableIfs);
-            if (handlePendingIvmBaselineRebuild(refreshContext, request, ctx)) {
-                return;
-            }
+            handlePendingIvmBaselineRebuild(refreshContext, request, ctx, attempts);
             boolean disablePartitionRefresh = false;
             for (RefreshAttemptType attemptType : attempts) {
                 switch (attemptType) {
@@ -397,7 +395,7 @@ public class MTMVTask extends AbstractTask {
                     }
                 }
                 try {
-                    syncPartitions = MTMVPartitionUtil.alignMvPartition(mtmv);
+                    syncPartitions = MTMVPartitionUtil.alignMvPartition(mtmv, snapshots);
                 } catch (Exception e) {
                     throw new PartitionPlanningException(e.getMessage(), e);
                 }
@@ -542,7 +540,7 @@ public class MTMVTask extends AbstractTask {
     private MTMVRefreshContext buildRefreshContext(List<TableIf> tableIfs) throws AnalysisException {
         MetaLockUtils.readLockTables(tableIfs);
         try {
-            return MTMVRefreshContext.buildContext(mtmv, Maps.newHashMap());
+            return MTMVRefreshContext.buildContext(mtmv, Maps.newHashMap(), snapshots);
         } finally {
             MetaLockUtils.readUnlockTables(tableIfs);
         }
@@ -558,28 +556,56 @@ public class MTMVTask extends AbstractTask {
         executePartitionBasedRefresh(context, RefreshMode.COMPLETE, ctx);
     }
 
-    private boolean handlePendingIvmBaselineRebuild(MTMVRefreshContext context, RefreshRequest request,
-            ConnectContext ctx)
+    /**
+     * Rebuild the MV partitions whose IVM baseline is broken, before the normal refresh runs.
+     *
+     * <p>This is a pre-step, not a terminal branch: the caller keeps running {@code attempts}
+     * afterwards, so a broken baseline no longer skips the refresh entirely. The list is rewritten
+     * in place when the baseline demands a different set of attempts.
+     *
+     * <p>Partition sync drops the MV partitions whose base partition disappeared, which is exactly
+     * what the barrier recorded when that base partition was dropped. Those partitions are resolved
+     * by the drop itself (the partition and its IVM offsets are both gone), so only the partitions
+     * that still exist need a rebuild. The barrier is released either way, otherwise the IVM attempt
+     * that follows would be rejected by {@link MTMV#validateIvmRefreshStart}.
+     */
+    private void handlePendingIvmBaselineRebuild(MTMVRefreshContext context,
+            RefreshRequest request, ConnectContext ctx, List<RefreshAttemptType> attempts)
             throws JobException, AnalysisException {
         if (!mtmv.isIvm() || request.refreshMode == RefreshMode.COMPLETE
                 || !mtmv.getIvmInfo().isBaselineRebuildRequired()) {
-            return false;
+            return;
         }
         ivmFallbackReason = IvmFailureReason.BINLOG_BROKEN.name();
         IvmInfo ivmInfo = mtmv.getIvmInfo();
+        // A lone COMPLETE attempt rebuilds every partition anyway, so a partial pre-rebuild here
+        // would be redundant; it also releases the barrier by itself once it succeeds.
+        if (attempts.size() == 1 && attempts.get(0) == RefreshAttemptType.COMPLETE) {
+            LOG.info("IVM baseline barrier is covered by the pending COMPLETE attempt, mv={}, taskId={}",
+                    mtmv.getName(), getTaskId());
+            return;
+        }
         if (ivmInfo.requiresCompleteBaselineRebuild()) {
-            executeCompleteAttempt(context, ctx);
-            return true;
+            LOG.warn("IVM baseline requires a complete rebuild, mv={}, taskId={}. "
+                    + "Continuing with COMPLETE refresh.", mtmv.getName(), getTaskId());
+            attempts.clear();
+            attempts.add(RefreshAttemptType.COMPLETE);
+            return;
         }
-        this.needRefreshPartitions = Lists.newArrayList(Sets.intersection(
+        List<String> baselinePartitions = Lists.newArrayList(Sets.intersection(
                 ivmInfo.getPendingBaselineRebuildPartitions(), mtmv.getPartitionNames()));
-        this.needRefreshPartitions.sort(String::compareTo);
-        this.refreshMode = generateRefreshMode(needRefreshPartitions);
-        if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
-            return true;
+        if (baselinePartitions.isEmpty()) {
+            // Partition sync has already dropped every partition the barrier named, so there is
+            // nothing left to rebuild. The surviving partitions are picked up by the attempts below.
+            LOG.info("IVM baseline partitions were removed by partition sync, mv={}, taskId={}",
+                    mtmv.getName(), getTaskId());
+        } else {
+            baselinePartitions.sort(String::compareTo);
+            this.needRefreshPartitions = baselinePartitions;
+            this.refreshMode = generateRefreshMode(baselinePartitions);
+            executePartitionBasedRefresh(context, RefreshMode.PARTITIONS, ctx);
         }
-        executePartitionBasedRefresh(context, RefreshMode.PARTITIONS, ctx);
-        return true;
+        mtmv.releaseIvmBaselineRebuild(mtmvSchemaChangeVersion);
     }
 
     private void validateIvmBaselineBeforePartitionSync(RefreshRequest request) throws JobException {
@@ -764,6 +790,17 @@ public class MTMVTask extends AbstractTask {
             }
         }
         this.completedPartitions = Lists.newCopyOnWriteArrayList();
+        try {
+            // Snapshot persistence happens after refresh partitions are split into execution groups. Load the
+            // complete union here so the default one-partition group size cannot turn a large Hive MTMV into
+            // one metadata request per MV partition; generatePartitionSnapshots reuses this context cache.
+            context.preparePartitionSnapshots(Sets.newHashSet(needRefreshPartitions));
+        } catch (Exception e) {
+            // Preloading is only a batching optimization. Retrying through the existing per-group load below
+            // preserves completed-group progress when a later chunk of the union fails.
+            LOG.warn("Failed to preload partition snapshots for mv={}, taskId={}; "
+                    + "falling back to per-group loading", mtmv.getName(), getTaskId(), e);
+        }
         int refreshPartitionNum = mtmv.getRefreshPartitionNum();
         long execNum = (needRefreshPartitions.size() / refreshPartitionNum) + ((needRefreshPartitions.size()
                 % refreshPartitionNum) > 0 ? 1 : 0);

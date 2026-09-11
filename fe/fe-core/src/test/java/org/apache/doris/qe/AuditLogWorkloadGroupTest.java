@@ -152,7 +152,8 @@ public class AuditLogWorkloadGroupTest {
 
     @Test
     public void testFlightSqlHandleQueryResolvesWorkloadGroup() throws Exception {
-        ConnectContext ctx = newContextWithSessionWorkloadGroup(SESSION_WORKLOAD_GROUP);
+        ConnectContext ctx = withSessionWorkloadGroup(ConnectContext.forFlight("test-peer-identity"),
+                SESSION_WORKLOAD_GROUP);
         RecordingFlightSqlProcessor processor = new RecordingFlightSqlProcessor(ctx);
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
@@ -260,7 +261,10 @@ public class AuditLogWorkloadGroupTest {
     }
 
     private ConnectContext newContextWithSessionWorkloadGroup(String wg) {
-        ConnectContext ctx = new ConnectContext();
+        return withSessionWorkloadGroup(new ConnectContext(), wg);
+    }
+
+    private ConnectContext withSessionWorkloadGroup(ConnectContext ctx, String wg) {
         ctx.setCurrentUserIdentity(UserIdentity.ROOT);
         ctx.getSessionVariable().setWorkloadGroup(wg);
         ctx.setThreadLocalInfo();

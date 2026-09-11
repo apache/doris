@@ -2,6 +2,14 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20260909
+
+- Modified: snappy 1.1.10 -> 1.2.1. Enable x86 SSE4.2 paths and AVX2 by default;
+  use `USE_AVX2=0` or `OFF` when building third-party libraries for a non-AVX2 BE.
+  Enable ARM CRC32 hashing through `ARM_MARCH` (default `armv8-a+crc`).
+  Retain RTTI for `SnappySlicesSource` and remove the sign-compare patch already
+  included upstream.
+
 ## 20260824
 
 - Modified: thrift 0.16.0 -> 0.24.0

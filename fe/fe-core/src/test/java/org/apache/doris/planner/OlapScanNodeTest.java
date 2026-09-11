@@ -46,7 +46,9 @@ import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TOlapScanNode;
 import org.apache.doris.thrift.TPaloScanRange;
@@ -64,6 +66,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.time.Instant;
+import java.time.format.DateTimeFormatter;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -73,6 +77,28 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public class OlapScanNodeTest {
+    @Test
+    public void testParseChangeTimestampRange() {
+        DateTimeFormatter format = TimeUtils.getDatetimeFormatWithTimeZone();
+        Assertions.assertEquals(0L, OlapScanNode.parseChangeTimestamp("0"));
+        Assertions.assertEquals(1700000000000L,
+                OlapScanNode.parseChangeTimestamp(format.format(Instant.ofEpochMilli(1700000000000L))));
+        // The parser accepts whole seconds; these straddle the physical limit 35184372088831 ms.
+        Assertions.assertEquals(35184372088000L,
+                OlapScanNode.parseChangeTimestamp(format.format(Instant.ofEpochMilli(35184372088000L))));
+        ParseException error = Assertions.assertThrows(ParseException.class,
+                () -> OlapScanNode.parseChangeTimestamp(format.format(Instant.ofEpochMilli(35184372089000L))));
+        Assertions.assertTrue(error.getMessage().contains("Timestamp exceeds supported TSO range"));
+        Assertions.assertThrows(ParseException.class,
+                () -> OlapScanNode.parseChangeTimestamp("4000-01-01 00:00:00"));
+        Assertions.assertThrows(ParseException.class,
+                () -> OlapScanNode.parseChangeTimestamp("9999-01-01 00:00:00"));
+        Assertions.assertThrows(ParseException.class,
+                () -> OlapScanNode.parseChangeTimestamp(format.format(Instant.ofEpochMilli(-1000L))));
+        Assertions.assertThrows(ParseException.class, () -> OlapScanNode.parseChangeTimestamp("invalid"));
+        Assertions.assertThrows(ParseException.class, () -> OlapScanNode.parseChangeTimestamp(null));
+    }
+
     private MaterializedIndex createMaterializedIndex(List<Long> tabletIds) {
         MaterializedIndex index = new MaterializedIndex();
         List<Tablet> tablets = Lists.newArrayListWithExpectedSize(tabletIds.size());

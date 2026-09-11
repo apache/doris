@@ -88,8 +88,8 @@ struct ObservedIndexPreload {
 };
 
 struct WriterFlushCounters {
-    int vertical_segment_writer_flush = 0;
-    int segment_writer_final_flush = 0;
+    int write_block_path_flush = 0;
+    int append_path_final_flush = 0;
 };
 
 struct S3WriteCounters {
@@ -132,14 +132,12 @@ protected:
         _origin_enable_flush_file_cache_async = config::enable_flush_file_cache_async;
         _origin_cloud_unique_id = config::cloud_unique_id;
         _origin_enable_packed_file = config::enable_packed_file;
-        _origin_enable_vertical_segment_writer = config::enable_vertical_segment_writer;
 
         config::enable_file_cache_write_index_file_only = true;
         config::enable_file_cache = true;
         config::enable_flush_file_cache_async = false;
         config::cloud_unique_id = "cloud_file_cache_write_index_only_e2e";
         config::enable_packed_file = false;
-        config::enable_vertical_segment_writer = true;
 
         ASSERT_TRUE(io::global_local_filesystem()->delete_directory(std::string(kTestDir)).ok());
         ASSERT_TRUE(io::global_local_filesystem()->create_directory(std::string(kTestDir)).ok());
@@ -218,7 +216,6 @@ protected:
         config::enable_flush_file_cache_async = _origin_enable_flush_file_cache_async;
         config::cloud_unique_id = _origin_cloud_unique_id;
         config::enable_packed_file = _origin_enable_packed_file;
-        config::enable_vertical_segment_writer = _origin_enable_vertical_segment_writer;
     }
 
     TabletSchemaSPtr create_schema(bool with_inverted_index = false,
@@ -421,17 +418,17 @@ protected:
                 },
                 load_guard);
         sp->set_call_back(
-                "SegmentFlusher::flush_vertical_segment_writer",
+                "SegmentFlusher::write_block_path",
                 [writer_flush_counters](auto&& args) {
                     static_cast<void>(try_any_cast<uint32_t*>(args[0]));
-                    ++writer_flush_counters->vertical_segment_writer_flush;
+                    ++writer_flush_counters->write_block_path_flush;
                 },
                 vertical_writer_guard);
         sp->set_call_back(
                 "VerticalBetaRowsetWriter::final_flush_segment_writer",
                 [writer_flush_counters](auto&& args) {
                     static_cast<void>(try_any_cast<uint32_t*>(args[0]));
-                    ++writer_flush_counters->segment_writer_final_flush;
+                    ++writer_flush_counters->append_path_final_flush;
                 },
                 segment_writer_guard);
     }
@@ -498,7 +495,6 @@ protected:
     bool _origin_enable_flush_file_cache_async = false;
     std::string _origin_cloud_unique_id;
     bool _origin_enable_packed_file = false;
-    bool _origin_enable_vertical_segment_writer = false;
     int64_t _next_rowset_id = 20000;
 };
 
@@ -608,7 +604,7 @@ TEST_F(CloudFileCacheWriteIndexOnlyConfigTest,
 }
 
 TEST_F(CloudFileCacheWriteIndexOnlyTest,
-       LoadUsesVerticalSegmentWriterAndPreloadsAfterAllSegmentFilesClosed) {
+       LoadUsesTheWholeBlockWritePathAndPreloadsAfterAllSegmentFilesClosed) {
     auto tablet_schema = create_schema(true);
     RowsetWriterContext context = create_context(tablet_schema);
 
@@ -648,8 +644,8 @@ TEST_F(CloudFileCacheWriteIndexOnlyTest,
     ASSERT_NE(rowset, nullptr);
     EXPECT_EQ(rowset->rowset_meta()->num_segments(), 2);
 
-    EXPECT_EQ(writer_flush_counters.vertical_segment_writer_flush, 2);
-    EXPECT_EQ(writer_flush_counters.segment_writer_final_flush, 0);
+    EXPECT_EQ(writer_flush_counters.write_block_path_flush, 2);
+    EXPECT_EQ(writer_flush_counters.append_path_final_flush, 0);
     EXPECT_EQ(preload_task_count, 2);
     ASSERT_EQ(observed.size(), 4);
     std::vector<int> ranges_per_segment(2, 0);
@@ -672,7 +668,7 @@ TEST_F(CloudFileCacheWriteIndexOnlyTest,
 }
 
 TEST_F(CloudFileCacheWriteIndexOnlyTest,
-       VerticalCompactionUsesSegmentWriterAndPreloadsAfterAllSegmentFilesClosed) {
+       VerticalCompactionUsesTheColumnGroupAppendPathAndPreloadsAfterAllSegmentFilesClosed) {
     auto tablet_schema = create_schema(true);
     RowsetWriterContext context = create_context(tablet_schema, DataWriteType::TYPE_COMPACTION,
                                                  ReaderType::READER_CUMULATIVE_COMPACTION);
@@ -730,8 +726,8 @@ TEST_F(CloudFileCacheWriteIndexOnlyTest,
     ASSERT_NE(rowset, nullptr);
     EXPECT_EQ(rowset->rowset_meta()->num_segments(), 2);
 
-    EXPECT_EQ(writer_flush_counters.vertical_segment_writer_flush, 0);
-    EXPECT_EQ(writer_flush_counters.segment_writer_final_flush, 2);
+    EXPECT_EQ(writer_flush_counters.write_block_path_flush, 0);
+    EXPECT_EQ(writer_flush_counters.append_path_final_flush, 2);
     EXPECT_EQ(preload_task_count, 2);
     ASSERT_EQ(observed.size(), 6);
     std::vector<int> ranges_per_segment(2, 0);
@@ -796,8 +792,8 @@ TEST_F(CloudFileCacheWriteIndexOnlyTest,
     auto st = rowset_writer->add_columns(&key_block, key_column_ids, true, 4, false);
     ASSERT_TRUE(st.ok()) << st;
 
-    EXPECT_EQ(writer_flush_counters.vertical_segment_writer_flush, 0);
-    EXPECT_EQ(writer_flush_counters.segment_writer_final_flush, 0);
+    EXPECT_EQ(writer_flush_counters.write_block_path_flush, 0);
+    EXPECT_EQ(writer_flush_counters.append_path_final_flush, 0);
     EXPECT_EQ(preload_task_count, 0);
     EXPECT_EQ(index_writer_create_count, 1);
     expect_segment_write_bypasses_file_cache(created_files);

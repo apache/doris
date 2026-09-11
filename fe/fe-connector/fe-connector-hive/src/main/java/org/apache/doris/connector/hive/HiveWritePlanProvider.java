@@ -328,7 +328,7 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
         }
         List<String> partitionNames = hmsClient.listPartitionNames(
                 table.getDbName(), table.getTableName(), -1);
-        List<HmsPartitionInfo> hmsPartitions = hmsClient.getPartitions(
+        List<HmsPartitionInfo> hmsPartitions = hmsClient.getExistingPartitions(
                 table.getDbName(), table.getTableName(), partitionNames);
         for (HmsPartitionInfo partition : hmsPartitions) {
             THivePartition hivePartition = new THivePartition();

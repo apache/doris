@@ -23,7 +23,6 @@ import org.apache.doris.nereids.DorisParser.MultiStatementsContext;
 import org.apache.doris.nereids.parser.CaseInsensitiveStream;
 import org.apache.doris.nereids.parser.NereidsParser;
 
-import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 
 /**
@@ -45,7 +44,7 @@ public final class SingleStatementValidator {
         }
 
         try {
-            DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
+            DorisLexer lexer = new DorisLexer(CaseInsensitiveStream.fromString(sql));
             lexer.isNoBackslashEscapes = noBackslashEscapes;
             CommonTokenStream tokens = new CommonTokenStream(lexer);
             MultiStatementsContext parsed = (MultiStatementsContext) NereidsParser.toAst(

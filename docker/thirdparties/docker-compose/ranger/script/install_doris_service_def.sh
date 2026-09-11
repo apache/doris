@@ -1,3 +1,4 @@
+#!/bin/bash
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
 # this work for additional information regarding copyright ownership.
@@ -12,16 +13,74 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#!/bin/bash
 set -ex
 
-curl -O https://s3BucketName.s3Endpoint/regression/docker/ranger-plugins/ranger-servicedef-doris.json
-until curl -f http://localhost:6080; do
+ADMIN=http://localhost:6080
+AUTH=admin:Ranger1234
+# Bind mounted from docker-compose/ranger/cache, fetched on the host.
+SERVICE_DEF=/opt/doris-ranger-artifacts/ranger-servicedef-doris.json
+# Only used by the admin UI's resource lookup, never by policy evaluation, so a
+# Doris that is not up yet (the usual case here) costs nothing.
+DORIS_JDBC_URL="${DORIS_JDBC_URL:-jdbc:mysql://host.docker.internal:9030}"
+DORIS_JDBC_USER="${DORIS_JDBC_USER:-root}"
+
+# Polled far more often than the container healthcheck's own 30s interval on purpose: `--wait` on the
+# compose stack returns as soon as that healthcheck passes, so anything slower here can hand a "ready"
+# stack back to the caller with neither the Doris service definition nor its instance registered yet.
+until curl -f "${ADMIN}"; do
     echo "Waiting for service to be healthy..."
-    sleep 30
+    sleep 2
 done
-curl -u admin:Ranger1234 -X POST \
-    -H "Accept: application/json" \
-    -H "Content-Type: application/json" \
-    http://localhost:6080/service/plugins/definitions \
-    -d@ranger-servicedef-doris.json
+
+# Both steps are idempotent: this script reruns on every container restart, and
+# a 400 "duplicate" out of `set -e` would take the whole stack down. The existence
+# probe in front of each POST is what makes that safe, so the POSTs themselves keep
+# `-f`: without it a real failure is swallowed and the stack comes up healthy with
+# neither the Doris service definition nor its instance registered.
+#
+# Skipping is enough because the definition does not outlive the stack: start_ranger
+# takes the compose stack down before every up, ranger-mysql keeps its data in the
+# container's own layer with no volume behind it, and the host copy of
+# ranger-servicedef-doris.json is re-downloaded on every start. So a definition that
+# is already here came from the file that is here now. The one case it does not cover
+# is a bare `docker restart` of this container after the file changed on the host;
+# recreate the stack for that.
+if curl -sf -u "${AUTH}" "${ADMIN}/service/plugins/definitions/name/doris" >/dev/null; then
+    echo "Doris service definition already registered"
+else
+    curl -fsS -u "${AUTH}" -X POST \
+        -H "Accept: application/json" \
+        -H "Content-Type: application/json" \
+        "${ADMIN}/service/plugins/definitions" \
+        -d@"${SERVICE_DEF}"
+fi
+
+# The regression suites create policies under a service *instance* named
+# `doris` -- that is the name RangerDorisAccessControllerFactory asks for.
+if curl -sf -u "${AUTH}" "${ADMIN}/service/plugins/services/name/doris" >/dev/null; then
+    echo "Doris service instance already exists"
+else
+    curl -fsS -u "${AUTH}" -X POST \
+        -H "Accept: application/json" \
+        -H "Content-Type: application/json" \
+        "${ADMIN}/service/plugins/services" \
+        -d "{
+              \"name\": \"doris\",
+              \"type\": \"doris\",
+              \"description\": \"Doris regression test service\",
+              \"isEnabled\": true,
+              \"configs\": {
+                \"username\": \"${DORIS_JDBC_USER}\",
+                \"password\": \"\",
+                \"jdbc.driver_class\": \"com.mysql.cj.jdbc.Driver\",
+                \"jdbc.url\": \"${DORIS_JDBC_URL}\"
+              }
+            }"
+fi
+
+# The container healthcheck tests for this, so `compose up --wait` returns when Ranger knows about Doris
+# rather than when its admin port answers - which is the very URL the loop above waits for, and would let a
+# caller start a suite against a Ranger with no Doris service registered. Written last, and under `set -e`,
+# so it can only exist once everything above succeeded. ranger-entrypoint.sh removes it at boot.
+touch /tmp/doris-ranger-ready
+echo "Doris service definition and service instance are in place"

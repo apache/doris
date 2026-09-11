@@ -51,17 +51,16 @@ public class Column implements GsonPostProcessable {
     public static final String HIDDEN_COLUMN_PREFIX = "__DORIS_";
     // all shadow indexes should have this prefix in name
     public static final String SHADOW_NAME_PREFIX = "__doris_shadow_";
-    public static final String IVM_HIDDEN_COLUMN_PREFIX = "__DORIS_IVM_";
     // NOTE: you should name hidden column start with '__DORIS_' !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     public static final String WHERE_SIGN = "__DORIS_WHERE_SIGN__";
     public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
     public static final String GLOBAL_ROWID_COL = "__DORIS_GLOBAL_ROWID_COL__";
-    public static final String IVM_ROW_ID_COL = "__DORIS_IVM_ROW_ID_COL__";
-    public static final String IVM_AGG_COUNT_COL = "__DORIS_IVM_AGG_COUNT_COL__";
-    public static final String IVM_DML_FACTOR_COL = "__DORIS_IVM_DML_FACTOR_COL__";
-    public static final String IVM_BASE_OP_COL = "__DORIS_IVM_BASE_OP_COL__";
-    public static final String IVM_DELTA_GROUP_COUNT_COL = "__DORIS_IVM_DELTA_GROUP_COUNT_COL__";
+    public static final String IVM_HIDDEN_COLUMN_PREFIX = HIDDEN_COLUMN_PREFIX + "IVM_";
+    public static final String IVM_ROW_ID_COL = IVM_HIDDEN_COLUMN_PREFIX + "ROW_ID_COL__";
+    public static final String IVM_AGG_COUNT_COL = IVM_HIDDEN_COLUMN_PREFIX + "AGG_COUNT_COL__";
+    public static final String IVM_DML_FACTOR_COL = IVM_HIDDEN_COLUMN_PREFIX + "DML_FACTOR_COL__";
+    public static final String IVM_DELTA_GROUP_COUNT_COL = IVM_HIDDEN_COLUMN_PREFIX + "DELTA_GROUP_COUNT_COL__";
     // Prefix for sink-level IVM identity key hidden columns (__DORIS_IVM_KEY_).
     public static final String IVM_KEY_COL_PREFIX = IVM_HIDDEN_COLUMN_PREFIX + "KEY_";
     // Prefix for union arm-index columns (__DORIS_IVM_UNION_ARM_INDEX_).
@@ -300,7 +299,6 @@ public class Column implements GsonPostProcessable {
         this(name, type, isKey, aggregateType, isAllowNull, -1, null, comment, visible, null, colUniqueId, null,
                 false, null, null,  Sets.newHashSet(), null);
     }
-
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
                   String defaultValue, String comment, boolean visible, int colUniqueId) {
