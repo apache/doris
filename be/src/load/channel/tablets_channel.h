@@ -110,6 +110,11 @@ public:
     // no-op when this channel has been closed or cancelled
     virtual Status cancel();
 
+    // Set before publishing the channel or opening any writers.
+    void set_delete_bitmap_cancellation(std::shared_ptr<DeleteBitmapCancellation> cancellation) {
+        _delete_bitmap_cancellation = std::move(cancellation);
+    }
+
     void refresh_profile();
 
     size_t total_received_rows() const { return _total_received_rows; }
@@ -164,6 +169,7 @@ protected:
     State _state;
 
     UniqueId _load_id;
+    std::shared_ptr<DeleteBitmapCancellation> _delete_bitmap_cancellation;
 
     // initialized in open function
     int64_t _txn_id = -1;
