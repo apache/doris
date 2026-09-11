@@ -96,12 +96,6 @@ public:
              double max_threads_per_cpu, double min_threads_per_cpu,
              int64_t interval_ms = kDefaultIntervalMs);
 
-    // Register a group with absolute thread limits, e.g. a delete bitmap pool whose
-    // maximum is configured independently of the number of CPUs.
-    void add_with_thread_limits(std::string name, std::vector<ThreadPool*> pools,
-                                AdjustFunc adjust_func, int max_threads, int min_threads,
-                                int64_t interval_ms = kDefaultIntervalMs);
-
     // Cancel the timer chain and remove the pool group. Blocks until any
     // in-flight callback finishes, then returns. Safe to call before pool teardown.
     void cancel(const std::string& name);
@@ -129,10 +123,13 @@ private:
         std::string name;
         std::vector<ThreadPool*> pools;
         AdjustFunc adjust_func;
-        int max_threads = 0;
-        int min_threads = 1;
+        double max_threads_per_cpu = 4.0;
+        double min_threads_per_cpu = 0.5;
         int current_threads = 0;
         TimerArg* timer_arg = nullptr; // owned; freed by cancel()
+
+        int get_max_threads() const;
+        int get_min_threads() const;
     };
 
     // Run one group's adjustment. Called from _on_timer (no lock on entry).
