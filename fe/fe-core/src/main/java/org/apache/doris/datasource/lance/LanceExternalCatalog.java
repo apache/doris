@@ -25,6 +25,7 @@ import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.lance.job.LanceIndexDatasetLocator;
 import org.apache.doris.datasource.property.metastore.AbstractLanceProperties;
 import org.apache.doris.datasource.property.metastore.LanceFileSystemMetastoreProperties;
 import org.apache.doris.datasource.property.metastore.LanceRestMetastoreProperties;
@@ -92,6 +93,45 @@ public class LanceExternalCatalog extends ExternalCatalog {
     private transient String rootDatabase;
     private transient Map<String, String> namespaceStorageOptions = Collections.emptyMap();
     private transient Object namespaceLock = new Object();
+
+    // Local admission epoch; accessed only under CatalogMgr's lock. It need not survive restart,
+    // because no admission snapshot survives restart. Bump before even a tentative identity ALTER.
+    private transient long indexTargetVersion;
+
+    public long getIndexTargetVersion() {
+        return indexTargetVersion;
+    }
+
+    public void advanceIndexTargetVersion() {
+        indexTargetVersion++;
+    }
+
+    /**
+     * Resolves the dataset the given (db, table) names currently point at, through the
+     * same table-access resolution the readers use, and returns its durable locator form
+     * ({@link LanceIndexDatasetLocator#normalize}).
+     *
+     * <p>This exists for SHOW-authorization revalidation of persisted Lance index jobs:
+     * once a job reaches a terminal state and releases its guard, a legitimate catalog
+     * ALTER can repoint the same db.table names at a different dataset, and the job must
+     * stop being readable through table-level SHOW on the new target. Any failure - the
+     * catalog is not initialized, the provider is unreachable, credentials expired, or
+     * the names no longer resolve - yields {@code null}; callers must treat null as
+     * "not resolved" (the orphan, ADMIN-only visibility rule), never as an authorization
+     * grant.
+     *
+     * @return the normalized locator of the dataset the names currently point at, or
+     *         null when it cannot be resolved
+     */
+    public String resolveCurrentIndexJobLocator(String dbName, String tableName) {
+        try {
+            makeSureInitialized();
+            ResolvedTableAccess tableAccess = resolveTableAccess(dbName, tableName);
+            return LanceIndexDatasetLocator.normalize(tableAccess.datasetUri);
+        } catch (Exception e) {
+            return null;
+        }
+    }
 
     public LanceExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
             String comment) {
@@ -410,6 +450,59 @@ public class LanceExternalCatalog extends ExternalCatalog {
             throw indexMetadataLoadFailure(
                     dbName, tableName, e, datasetUri, runtimeStorageOptions);
         }
+    }
+
+    /**
+     * Loads the pinned latest-snapshot admission view (version, schema fields, logical and
+     * physical indexes) for a Directory table. REST catalogs are rejected before any
+     * resolution, exactly like {@link #loadTableIndexMetadata}.
+     */
+    public LanceIndexAdmissionSnapshot loadTableIndexAdmissionSnapshot(
+            String dbName, String tableName) throws Exception {
+        if (isRestCatalogConfigured()) {
+            throw new AnalysisException(
+                    "Lance index admission is not supported for Lance REST catalogs");
+        }
+        try {
+            makeSureInitialized();
+        } catch (Exception e) {
+            throw indexAdmissionSnapshotLoadFailure(
+                    dbName, tableName, e, null, namespaceStorageOptions);
+        }
+
+        ResolvedTableAccess tableAccess = null;
+        try {
+            // Same ownership split as loadTableIndexMetadata: the caller resolves the table
+            // through the catalog's shared namespace, while the deadline-bound task owns the
+            // allocator backing its Dataset/JNI read.
+            tableAccess = resolveTableAccess(dbName, tableName);
+            String datasetUri = tableAccess.datasetUri;
+            Map<String, String> storageOptions = tableAccess.storageOptions;
+            return LanceMetadataReadExecutor.execute(() -> {
+                try (BufferAllocator readAllocator = new RootAllocator(ALLOCATOR_LIMIT)) {
+                    return LanceIndexMetadataLoader.loadAdmissionSnapshot(
+                            datasetUri, storageOptions, readAllocator);
+                }
+            });
+        } catch (Exception e) {
+            String datasetUri = tableAccess == null ? null : tableAccess.datasetUri;
+            Map<String, String> runtimeStorageOptions = tableAccess == null
+                    ? namespaceStorageOptions : tableAccess.storageOptions;
+            throw indexAdmissionSnapshotLoadFailure(
+                    dbName, tableName, e, datasetUri, runtimeStorageOptions);
+        }
+    }
+
+    @VisibleForTesting
+    RuntimeException indexAdmissionSnapshotLoadFailure(String dbName, String tableName,
+            Throwable throwable, String datasetUri, Map<String, String> runtimeStorageOptions) {
+        String sanitizedMessage = sanitizedRootCauseMessage(
+                throwable, datasetUri, runtimeStorageOptions);
+        Throwable sanitizedCause = throwable instanceof IllegalArgumentException
+                ? new IllegalArgumentException(sanitizedMessage)
+                : new RuntimeException(sanitizedMessage);
+        return new RuntimeException("Failed to load Lance index admission snapshot for "
+                + dbName + "." + tableName + ": " + sanitizedMessage, sanitizedCause);
     }
 
     @VisibleForTesting

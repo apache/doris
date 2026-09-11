@@ -48,9 +48,10 @@ import org.mockito.Mockito;
 /**
  * Routes-and-rejection coverage for Lance index DDL: top-level CREATE [OR REPLACE] INDEX and
  * DROP INDEX against Lance catalog tables run the static validation matrix and are then
- * rejected with typed messages (reject-all mode), ALTER TABLE ADD/DROP INDEX keeps the generic
- * external-table rejection, the ALTER privilege check precedes the typed rejection, and no
- * Env.getNextId() allocation happens on any rejected path.
+ * rejected with the mutation-disabled error while the admission gate stays off (the default),
+ * ALTER TABLE ADD/DROP INDEX keeps the generic external-table rejection, the ALTER privilege
+ * check precedes the typed rejection, and no Env.getNextId() allocation happens on any rejected
+ * path.
  */
 public class AlterTableCommandLanceIndexTest {
     private static final String CTL = "lance_ctl";
@@ -199,7 +200,9 @@ public class AlterTableCommandLanceIndexTest {
             String message = runAndGetMessage(
                     "CREATE INDEX idx ON " + CTL + "." + DB + "." + TBL + " (v) USING ANN "
                             + VALID_ANN_PROPERTIES);
-            Assertions.assertEquals("CREATE INDEX is not supported for Lance catalog tables", message);
+            Assertions.assertEquals(
+                    "CREATE INDEX is disabled for Lance catalog tables (enable_lance_index_mutation = false)",
+                    message);
             Mockito.verify(fixture.env, Mockito.never()).getNextId();
         }
     }
@@ -209,7 +212,9 @@ public class AlterTableCommandLanceIndexTest {
         try (LanceFixture fixture = new LanceFixture(false, true)) {
             String message = runAndGetMessage(
                     "CREATE OR REPLACE INDEX idx ON " + CTL + "." + DB + "." + TBL + " (c) USING BTREE");
-            Assertions.assertEquals("CREATE OR REPLACE INDEX is not supported for Lance catalog tables",
+            Assertions.assertEquals(
+                    "CREATE OR REPLACE INDEX is disabled for Lance catalog tables "
+                            + "(enable_lance_index_mutation = false)",
                     message);
             Mockito.verify(fixture.env, Mockito.never()).getNextId();
         }
@@ -218,24 +223,26 @@ public class AlterTableCommandLanceIndexTest {
     @Test
     public void testDropIndexOnLanceTableIsTypedRejected() throws Exception {
         try (LanceFixture fixture = new LanceFixture(false, true)) {
-            Assertions.assertEquals("DROP INDEX is not supported for Lance catalog tables",
+            Assertions.assertEquals(
+                    "DROP INDEX is disabled for Lance catalog tables (enable_lance_index_mutation = false)",
                     runAndGetMessage("DROP INDEX idx ON " + CTL + "." + DB + "." + TBL));
-            // Reject-all mode is uniform: IF EXISTS does not change the outcome.
-            Assertions.assertEquals("DROP INDEX is not supported for Lance catalog tables",
+            // Gate-off rejection is uniform: IF EXISTS does not change the outcome.
+            Assertions.assertEquals(
+                    "DROP INDEX is disabled for Lance catalog tables (enable_lance_index_mutation = false)",
                     runAndGetMessage("DROP INDEX IF EXISTS idx ON " + CTL + "." + DB + "." + TBL));
             Mockito.verify(fixture.env, Mockito.never()).getNextId();
         }
     }
 
     @Test
-    public void testFilesystemCatalogRejectionsExposeNotSupportedErrorCode() throws Exception {
+    public void testFilesystemCatalogRejectionsExposeMutationDisabledErrorCode() throws Exception {
         try (LanceFixture fixture = new LanceFixture(false, true)) {
             for (String sql : new String[] {
                     "CREATE INDEX idx ON " + CTL + "." + DB + "." + TBL + " (c) USING BTREE",
                     "CREATE OR REPLACE INDEX idx ON " + CTL + "." + DB + "." + TBL + " (c) USING BTREE",
                     "DROP INDEX idx ON " + CTL + "." + DB + "." + TBL}) {
                 AnalysisException exception = runAndGetCommonAnalysisException(sql);
-                Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_OPERATION_NOT_SUPPORTED,
+                Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_MUTATION_DISABLED,
                         exception.getMysqlErrorCode());
             }
         }

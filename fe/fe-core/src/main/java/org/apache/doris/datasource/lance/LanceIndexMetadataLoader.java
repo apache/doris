@@ -30,6 +30,7 @@ import org.lance.Dataset;
 import org.lance.index.Index;
 import org.lance.index.IndexCriteria;
 import org.lance.index.IndexDescription;
+import org.lance.index.IndexType;
 import org.lance.schema.LanceField;
 
 import java.io.IOException;
@@ -50,14 +51,15 @@ import java.util.UUID;
 
 /** Loads and normalizes logical and physical index metadata from one latest Lance dataset snapshot. */
 public final class LanceIndexMetadataLoader {
-    private static final int MAX_LOGICAL_INDEXES = 256;
+    // Bounds are package-visible so the admission snapshot revalidates against the same limits.
+    static final int MAX_LOGICAL_INDEXES = 256;
     private static final int MAX_COLUMNS_PER_INDEX = 64;
     // Post-JNI cap for physical entries, independent of the logical-name limit.
-    private static final int MAX_PHYSICAL_INDEX_ENTRIES = 16 * 1024;
+    static final int MAX_PHYSICAL_INDEX_ENTRIES = 16 * 1024;
     private static final int MAX_COLUMN_NAMES_BYTES = 16 * 1024;
-    private static final int MAX_SCHEMA_FIELDS = MAX_LOGICAL_INDEXES * MAX_COLUMNS_PER_INDEX;
+    static final int MAX_SCHEMA_FIELDS = MAX_LOGICAL_INDEXES * MAX_COLUMNS_PER_INDEX;
     private static final int MAX_SCHEMA_DEPTH = 64;
-    private static final int MAX_EXTERNAL_STRING_BYTES = 1024;
+    static final int MAX_EXTERNAL_STRING_BYTES = 1024;
     private static final int MAX_PROPERTIES_BYTES = 400;
 
     // System entries exposed by the pinned Lance producers and SDK paths.
@@ -83,8 +85,7 @@ public final class LanceIndexMetadataLoader {
     /** Loads logical indexes and schema fields from the same latest dataset snapshot. */
     public static List<LanceLogicalIndex> load(String datasetUri,
             Map<String, String> javaStorageOptions, BufferAllocator allocator) throws Exception {
-        try (Dataset dataset = Dataset.open().allocator(allocator).uri(datasetUri)
-                .readOptions(LanceReadOptions.build(javaStorageOptions, OptionalLong.empty())).build()) {
+        try (Dataset dataset = openLatestDataset(datasetUri, javaStorageOptions, allocator)) {
             Map<Integer, String> fieldNames = buildFieldNamesById(dataset.getLanceSchema().fields());
             return normalize(describeUserIndexes(dataset), fieldNames);
         }
@@ -148,6 +149,86 @@ public final class LanceIndexMetadataLoader {
         }
         entries.sort(Comparator.comparing(LancePhysicalIndexEntry::getName)
                 .thenComparing(LancePhysicalIndexEntry::getUuid));
+        return Collections.unmodifiableList(entries);
+    }
+
+    /**
+     * Loads one pinned latest-snapshot view of everything index admission needs: the dataset
+     * version, the top-level schema fields, the logical indexes, and the physical entries with
+     * their index types — all from a single {@code Dataset.open} so the pieces cannot drift
+     * across snapshots (design section 3.1). Never calls {@code countRows()} or
+     * {@code getIndexStatistics()}.
+     */
+    public static LanceIndexAdmissionSnapshot loadAdmissionSnapshot(String datasetUri,
+            Map<String, String> javaStorageOptions, BufferAllocator allocator) throws Exception {
+        try (Dataset dataset = openLatestDataset(datasetUri, javaStorageOptions, allocator)) {
+            long datasetVersion = dataset.version();
+            List<LanceField> topLevelFields = dataset.getLanceSchema().fields();
+            List<LanceLogicalIndex> logicalIndexes =
+                    normalize(describeUserIndexes(dataset), buildFieldNamesById(topLevelFields));
+            List<LanceIndexAdmissionSnapshot.PhysicalIndexInfo> physicalIndexes =
+                    collectPhysicalIndexInfos(dataset);
+            // LanceField is a pure POJO, so the materialized field list can leave the open block
+            // with the snapshot; nothing here retains the Dataset or its allocator.
+            return new LanceIndexAdmissionSnapshot(
+                    datasetVersion, datasetUri, logicalIndexes, physicalIndexes, topLevelFields);
+        }
+    }
+
+    private static Dataset openLatestDataset(String datasetUri,
+            Map<String, String> javaStorageOptions, BufferAllocator allocator) {
+        return Dataset.open().allocator(allocator).uri(datasetUri)
+                .readOptions(LanceReadOptions.build(javaStorageOptions, OptionalLong.empty())).build();
+    }
+
+    /**
+     * Collects the physical entries of the opened snapshot, applying the same defenses as the
+     * logical path: the raw list is bounded before per-entry validation, system entries are
+     * validated then filtered out, and duplicate UUID ownership fails closed.
+     */
+    static List<LanceIndexAdmissionSnapshot.PhysicalIndexInfo> collectPhysicalIndexInfos(
+            Dataset dataset) {
+        List<Index> indexes = dataset.getIndexes();
+        if (indexes == null) {
+            throw new IllegalArgumentException("Lance physical index entries must not be null");
+        }
+        if (indexes.size() > MAX_PHYSICAL_INDEX_ENTRIES) {
+            throw new IllegalArgumentException(
+                    "Lance physical index entry count exceeds limit "
+                            + MAX_PHYSICAL_INDEX_ENTRIES);
+        }
+
+        List<LanceIndexAdmissionSnapshot.PhysicalIndexInfo> entries = new ArrayList<>(indexes.size());
+        Set<String> uuids = new HashSet<>();
+        for (Index index : indexes) {
+            if (index == null) {
+                throw new IllegalArgumentException("Lance physical index entry must not be null");
+            }
+            String name = requireExternalString(index.name(), "Lance physical index name");
+            if (index.uuid() == null) {
+                throw new IllegalArgumentException("Lance physical index uuid must not be null");
+            }
+            String uuid = index.uuid().toString();
+            long indexDatasetVersion = index.datasetVersion();
+            if (indexDatasetVersion <= 0) {
+                throw new IllegalArgumentException(
+                        "Lance physical index dataset version must be positive");
+            }
+            IndexType indexType = index.indexType();
+            if (indexType == null) {
+                throw new IllegalArgumentException("Lance physical index type must not be null");
+            }
+            if (SYSTEM_INDEX_NAMES.contains(name)) {
+                continue;
+            }
+            if (!uuids.add(uuid)) {
+                throw new IllegalArgumentException("Duplicate Lance physical index uuid");
+            }
+            entries.add(new LanceIndexAdmissionSnapshot.PhysicalIndexInfo(
+                    name, uuid, indexDatasetVersion, indexType.name()));
+        }
+        entries.sort(Comparator.comparing(LanceIndexAdmissionSnapshot.PhysicalIndexInfo::getName)
+                .thenComparing(LanceIndexAdmissionSnapshot.PhysicalIndexInfo::getUuid));
         return Collections.unmodifiableList(entries);
     }
 
@@ -255,7 +336,9 @@ public final class LanceIndexMetadataLoader {
         }
     }
 
-    private static String formatFieldPathSegment(String segment) {
+    // Package-visible so admission formats request-side column names into the same path-segment
+    // representation the logical side of the IF preflight carries (test-seam convention).
+    static String formatFieldPathSegment(String segment) {
         boolean requiresQuoting = segment.codePoints()
                 .anyMatch(codePoint -> !Character.isLetterOrDigit(codePoint)
                         && codePoint != '_');

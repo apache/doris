@@ -414,6 +414,8 @@ import org.apache.doris.nereids.DorisParser.ShowIndexCharFilterContext;
 import org.apache.doris.nereids.DorisParser.ShowIndexNormalizerContext;
 import org.apache.doris.nereids.DorisParser.ShowIndexTokenFilterContext;
 import org.apache.doris.nereids.DorisParser.ShowIndexTokenizerContext;
+import org.apache.doris.nereids.DorisParser.ShowLanceIndexJobContext;
+import org.apache.doris.nereids.DorisParser.ShowLanceIndexJobsContext;
 import org.apache.doris.nereids.DorisParser.ShowLastInsertContext;
 import org.apache.doris.nereids.DorisParser.ShowLoadContext;
 import org.apache.doris.nereids.DorisParser.ShowLoadProfileContext;
@@ -853,6 +855,8 @@ import org.apache.doris.nereids.trees.plans.commands.ShowIndexNormalizerCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexTokenFilterCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexTokenizerCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowLanceIndexJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowLanceIndexJobsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
@@ -7020,6 +7024,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             whereClause = getExpression(ctx.expression());
         }
         return new ShowCatalogRecycleBinCommand(whereClause);
+    }
+
+    @Override
+    public LogicalPlan visitShowLanceIndexJobs(ShowLanceIndexJobsContext ctx) {
+        List<String> nameParts = ctx.db == null ? null : visitMultipartIdentifier(ctx.db);
+        Expression whereClause = null;
+        if (ctx.WHERE() != null) {
+            whereClause = getExpression(ctx.expression());
+        }
+        return new ShowLanceIndexJobsCommand(nameParts, whereClause);
+    }
+
+    @Override
+    public LogicalPlan visitShowLanceIndexJob(ShowLanceIndexJobContext ctx) {
+        long jobId = Long.parseLong(ctx.jobId.getText());
+        return new ShowLanceIndexJobCommand(jobId);
     }
 
     @Override
