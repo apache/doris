@@ -74,6 +74,13 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                         + ")\n"
                         + "UNIQUE KEY(id1)\n"
                         + "DISTRIBUTED BY HASH(id1) BUCKETS 10\n"
+                        + "PROPERTIES (\"replication_num\" = \"1\")\n",
+                "CREATE TABLE IF NOT EXISTS self_ref (\n"
+                        + "    id int not null,\n"
+                        + "    parent_id int not null\n"
+                        + ")\n"
+                        + "UNIQUE KEY(id)\n"
+                        + "DISTRIBUTED BY HASH(id) BUCKETS 10\n"
                         + "PROPERTIES (\"replication_num\" = \"1\")\n"
         );
         addConstraint("Alter table pri add constraint pk primary key (id1)");
@@ -82,6 +89,9 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                 + "references pri(id1)");
         addConstraint("Alter table foreign_null add constraint f_not_null foreign key (id3)\n"
                 + "references pri(id1)");
+        addConstraint("Alter table self_ref add constraint self_pk primary key (id)");
+        addConstraint("Alter table self_ref add constraint self_fk foreign key (parent_id)\n"
+                + "references self_ref(id)");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
 
@@ -110,6 +120,80 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                 .analyze(sql)
                 .rewrite()
                 .nonMatch(logicalJoin())
+                .printlnTree();
+    }
+
+    @Test
+    void testSelfForeignKeyPlainPrimaryCanEliminateJoin() {
+        String sql = "select f.parent_id from self_ref p "
+                + "inner join self_ref f on p.id = f.parent_id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .nonMatch(logicalJoin())
+                .printlnTree();
+    }
+
+    @Test
+    void testSelfForeignKeyLimitedPrimaryKeepsJoin() {
+        String sql = "select f.parent_id from "
+                + "(select id from self_ref order by id limit 1) p "
+                + "inner join self_ref f on p.id = f.parent_id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin())
+                .printlnTree();
+
+        sql = "select f.parent_id from self_ref f inner join "
+                + "(select id from self_ref order by id limit 1) p "
+                + "on f.parent_id = p.id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin())
+                .printlnTree();
+
+        sql = "select f.parent_id from "
+                + "(select id as pk from (select id from self_ref order by id limit 1) limited_primary) p "
+                + "inner join self_ref f on p.pk = f.parent_id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin())
+                .printlnTree();
+    }
+
+    @Test
+    void testSelfForeignKeyProjectAliasKeepsPrimaryKeyActive() {
+        String sql = "select f.parent_id from (select id as pk from self_ref) p "
+                + "inner join self_ref f on p.pk = f.parent_id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .nonMatch(logicalJoin())
+                .printlnTree();
+    }
+
+    @Test
+    void testSelfForeignKeyCompatibleFilterKeepsPrimaryKeyActive() {
+        String sql = "select f.parent_id from self_ref p "
+                + "inner join self_ref f on p.id = f.parent_id where p.id = 1";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .nonMatch(logicalJoin())
+                .printlnTree();
+    }
+
+    @Test
+    void testSelfForeignKeyUnmatchedPrimaryFilterKeepsJoin() {
+        String sql = "select f.parent_id from (select id from self_ref where parent_id = 1) p "
+                + "inner join self_ref f on p.id = f.parent_id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin())
                 .printlnTree();
     }
 
