@@ -352,32 +352,9 @@ public class JoinUtils {
 
     /**
      * Check whether the given join can be eliminated by pk-fk
+     * @return null means that cannot be Eliminated By Fk. non-null means can.
      */
-    public static boolean canEliminateByFk(LogicalJoin<?, ?> join, Plan primaryPlan, Plan foreignPlan) {
-        if (!(join.getJoinType().isInnerJoin() || join.getJoinType().isAsofInnerJoin())
-                || !join.getOtherJoinConjuncts().isEmpty() || join.isMarkJoin()) {
-            return false;
-        }
-
-        ForeignKeyContext context = new ForeignKeyContext();
-        context.collectForeignKeyConstraint(primaryPlan);
-        context.collectForeignKeyConstraint(foreignPlan);
-
-        ImmutableEqualSet<Slot> equalSet = join.getEqualSlots();
-        Set<Slot> primaryKey = Sets.intersection(equalSet.getAllItemSet(), primaryPlan.getOutputSet());
-        Set<Slot> foreignKey = Sets.intersection(equalSet.getAllItemSet(), foreignPlan.getOutputSet());
-        if (!context.isForeignKey(foreignKey) || !context.isPrimaryKey(primaryKey)) {
-            return false;
-        }
-
-        Map<Slot, Slot> primaryToForeignKey = mapPrimaryToForeign(equalSet, foreignKey);
-        return context.satisfyConstraint(primaryToForeignKey);
-    }
-
-    /**
-     * Check whether the given join can be eliminated by pk-fk
-     */
-    public @Nullable static Pair<Set<Slot>, Set<Slot>> canEliminateByFk2(
+    public @Nullable static Pair<Set<Slot>, Set<Slot>> canEliminateByFk(
             LogicalJoin<?, ?> join, Plan primaryPlan, Plan foreignPlan) {
         if (!(join.getJoinType().isInnerJoin() || join.getJoinType().isAsofInnerJoin())
                 || !join.getOtherJoinConjuncts().isEmpty() || join.isMarkJoin()) {

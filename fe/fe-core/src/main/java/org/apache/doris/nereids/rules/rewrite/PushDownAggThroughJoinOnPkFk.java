@@ -271,11 +271,11 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
 
     // try to extract primary key table and foreign key table
     private @Nullable PrimaryForeignInfo tryExtractPrimaryForeign(LogicalJoin<?, ?> join) {
-        Pair<Set<Slot>, Set<Slot>> res = JoinUtils.canEliminateByFk2(join, join.left(), join.right());
+        Pair<Set<Slot>, Set<Slot>> res = JoinUtils.canEliminateByFk(join, join.left(), join.right());
         if (res != null) {
             return new PrimaryForeignInfo(join.left(), join.right(), res.first, res.second);
         }
-        res = JoinUtils.canEliminateByFk2(join, join.right(), join.left());
+        res = JoinUtils.canEliminateByFk(join, join.right(), join.left());
         if (res != null) {
             return new PrimaryForeignInfo(join.right(), join.left(), res.first, res.second);
         }
