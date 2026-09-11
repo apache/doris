@@ -202,10 +202,10 @@ TEST_F(VParquetTransformerTest, WritesInt96DatetimeUsingWriterTimezone) {
 
     auto input_result = arrow::io::ReadableFile::Open(_file_path);
     ASSERT_TRUE(input_result.ok()) << input_result.status();
-    std::unique_ptr<::parquet::arrow::FileReader> arrow_reader;
-    ASSERT_TRUE(
-            ::parquet::arrow::OpenFile(*input_result, arrow::default_memory_pool(), &arrow_reader)
-                    .ok());
+    auto arrow_reader_result =
+            ::parquet::arrow::OpenFile(*input_result, arrow::default_memory_pool());
+    ASSERT_TRUE(arrow_reader_result.ok()) << arrow_reader_result.status();
+    std::unique_ptr<::parquet::arrow::FileReader> arrow_reader = std::move(*arrow_reader_result);
     std::shared_ptr<arrow::Table> table;
     ASSERT_TRUE(arrow_reader->ReadTable(&table).ok());
     ASSERT_EQ(1, table->num_rows());
