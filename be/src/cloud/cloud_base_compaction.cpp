@@ -21,11 +21,13 @@
 
 #include <boost/container_hash/hash.hpp>
 
+#include "cloud/cloud_cluster_info.h"
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "core/value/vdatetime_value.h"
 #include "cpp/sync_point.h"
+#include "runtime/exec_env.h"
 #include "service/backend_options.h"
 #include "storage/compaction/compaction.h"
 #include "storage/task/engine_checksum_task.h"
@@ -65,7 +67,8 @@ Status CloudBaseCompaction::prepare_compact() {
         std::shared_lock rlock(_tablet->get_header_lock());
         // If number of rowsets is equal to approximate_num_rowsets, it is very likely that this tablet has been
         // synchronized with meta-service.
-        if (_tablet->tablet_meta()->all_rs_metas().size() >=
+        if (!config::enable_compaction_rw_separation &&
+            _tablet->tablet_meta()->all_rs_metas().size() >=
                     cloud_tablet()->fetch_add_approximate_num_rowsets(0) &&
             cloud_tablet()->last_sync_time_s > 0) {
             need_sync_tablet = false;
@@ -74,6 +77,12 @@ Status CloudBaseCompaction::prepare_compact() {
     if (need_sync_tablet) {
         st = cloud_tablet()->sync_rowsets();
         RETURN_IF_ERROR(st);
+    }
+    if (config::enable_compaction_rw_separation &&
+        static_cast<CloudClusterInfo*>(ExecEnv::GetInstance()->cluster_info())
+                ->should_skip_compaction(cloud_tablet())) {
+        return Status::Error<BE_NO_SUITABLE_VERSION>(
+                "tablet is owned by another active compute group");
     }
 
     st = pick_rowsets_to_compact();
@@ -119,6 +128,11 @@ Status CloudBaseCompaction::request_global_lock() {
     compaction_job->set_type(cloud::TabletCompactionJobPB::BASE);
     compaction_job->set_base_compaction_cnt(_base_compaction_cnt);
     compaction_job->set_cumulative_compaction_cnt(_cumulative_compaction_cnt);
+    if (!static_cast<CloudClusterInfo*>(ExecEnv::GetInstance()->cluster_info())
+                 ->prepare_compaction_job(cloud_tablet(), compaction_job)) {
+        return Status::Error<BE_NO_SUITABLE_VERSION>(
+                "tablet is not authorized for compaction by this compute group");
+    }
     compaction_job->add_input_versions(_input_rowsets.front()->start_version());
     compaction_job->add_input_versions(_input_rowsets.back()->end_version());
     using namespace std::chrono;

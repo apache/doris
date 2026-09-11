@@ -74,6 +74,9 @@ public:
 
     void sync_tablets(const CountDownLatch& stop_latch);
 
+    static bool is_compaction_owner_cache_fresh(int64_t last_sync_time_s, int64_t now_s,
+                                                int64_t ttl_s);
+
     /**
      * Gets top N tablets that are considered to be compacted first
      *

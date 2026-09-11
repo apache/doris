@@ -271,19 +271,38 @@ public:
     int64_t alter_version() const { return _alter_version; }
     void set_alter_version(int64_t alter_version) { _alter_version = alter_version; }
 
-    // Last active cluster info for compaction read-write separation
-    std::string last_active_cluster_id() const {
+    struct LastActiveClusterInfo {
+        std::string cluster_id;
+        int64_t time_ms;
+        int64_t epoch;
+    };
+
+    LastActiveClusterInfo last_active_cluster_info() const {
         std::shared_lock lock(_cluster_info_mutex);
-        return _last_active_cluster_id;
+        return {.cluster_id = _last_active_cluster_id,
+                .time_ms = _last_active_time_ms,
+                .epoch = _last_active_epoch};
     }
-    int64_t last_active_time_ms() const {
-        std::shared_lock lock(_cluster_info_mutex);
-        return _last_active_time_ms;
-    }
-    void set_last_active_cluster_info(const std::string& cluster_id, int64_t time_ms) {
+    std::string last_active_cluster_id() const { return last_active_cluster_info().cluster_id; }
+    int64_t last_active_time_ms() const { return last_active_cluster_info().time_ms; }
+    int64_t last_active_epoch() const { return last_active_cluster_info().epoch; }
+    void set_last_active_cluster_info(const std::string& cluster_id, int64_t time_ms,
+                                      int64_t epoch = 0) {
         std::unique_lock lock(_cluster_info_mutex);
         _last_active_cluster_id = cluster_id;
         _last_active_time_ms = time_ms;
+        _last_active_epoch = epoch;
+    }
+    bool update_last_active_cluster_info(const std::string& cluster_id, int64_t time_ms,
+                                         int64_t epoch) {
+        std::unique_lock lock(_cluster_info_mutex);
+        if (epoch <= _last_active_epoch) {
+            return false;
+        }
+        _last_active_cluster_id = cluster_id;
+        _last_active_time_ms = time_ms;
+        _last_active_epoch = epoch;
+        return true;
     }
 
     // MUST hold SHARED `_meta_lock`.
@@ -541,6 +560,7 @@ private:
     mutable std::shared_mutex _cluster_info_mutex;
     std::string _last_active_cluster_id;
     int64_t _last_active_time_ms {0};
+    int64_t _last_active_epoch {0};
 
     // Map: version -> <rowset_meta, expiration_time>
     // Stores rowsets that have been notified by FE but not yet added to tablet meta

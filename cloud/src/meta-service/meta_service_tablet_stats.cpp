@@ -171,6 +171,66 @@ void merge_tablet_stats(TabletStatsPB& stats, const TabletStats& detached_stats)
     stats.set_segment_size(stats.segment_size() + detached_stats.segment_size);
 }
 
+void copy_last_active_cluster_info(const TabletStatsPB& source, TabletStatsPB& target) {
+    target.clear_last_active_cluster_id();
+    target.clear_last_active_time_ms();
+    target.clear_last_active_epoch();
+    target.clear_last_active_cluster_status();
+    target.clear_last_active_cluster_status_mtime_ms();
+    // The generation is meaningful even without an owner. During a rolling upgrade an old
+    // meta-service may clear the aggregate owner without being able to persist the epoch. Keeping
+    // the versioned generation prevents the next new writer from restarting it at one.
+    if (source.has_last_active_epoch()) {
+        target.set_last_active_epoch(source.last_active_epoch());
+    }
+    if (!has_valid_last_active_cluster(source)) {
+        return;
+    }
+
+    target.set_last_active_cluster_id(source.last_active_cluster_id());
+    if (source.has_last_active_time_ms()) {
+        target.set_last_active_time_ms(source.last_active_time_ms());
+    } else {
+        target.clear_last_active_time_ms();
+    }
+    if (source.has_last_active_cluster_status()) {
+        target.set_last_active_cluster_status(source.last_active_cluster_status());
+    } else {
+        target.clear_last_active_cluster_status();
+    }
+    if (source.has_last_active_cluster_status_mtime_ms()) {
+        target.set_last_active_cluster_status_mtime_ms(
+                source.last_active_cluster_status_mtime_ms());
+    } else {
+        target.clear_last_active_cluster_status_mtime_ms();
+    }
+}
+
+// The aggregate document is canonical for owner identity during a rolling upgrade, but an old
+// meta-service cannot persist last_active_epoch. Preserve the greatest generation observed in the
+// versioned document so a new writer always advances monotonically instead of restarting at one.
+// This intentionally differs from copy_last_active_cluster_info(), whose contract is a complete
+// replacement used when ownership fields must be removed from a compact document.
+static void overlay_aggregate_last_active_cluster_info(const TabletStatsPB& aggregate,
+                                                       TabletStatsPB& effective) {
+    const bool effective_has_epoch = effective.has_last_active_epoch();
+    const int64_t effective_epoch = effective.last_active_epoch();
+    const bool aggregate_has_epoch = aggregate.has_last_active_epoch();
+    const int64_t aggregate_epoch = aggregate.last_active_epoch();
+    copy_last_active_cluster_info(aggregate, effective);
+    if (effective_has_epoch || aggregate_has_epoch) {
+        effective.set_last_active_epoch(std::max(effective_epoch, aggregate_epoch));
+    }
+}
+
+bool has_valid_last_active_cluster(const TabletStatsPB& stats) {
+    return stats.has_last_active_cluster_id() && !stats.last_active_cluster_id().empty();
+}
+
+bool rowset_has_data_change(const RowsetMetaCloudPB& rowset) {
+    return rowset.num_segments() > 0 || rowset.has_delete_predicate();
+}
+
 void detach_tablet_stats(const TabletStatsPB& stats, TabletStats& detached_stats) {
     detached_stats.data_size = stats.data_size();
     detached_stats.num_rows = stats.num_rows();
@@ -200,21 +260,51 @@ void internal_get_load_tablet_stats(MetaServiceCode& code, std::string& msg,
     // Try to read existing versioned tablet stats
     TxnErrorCode err =
             meta_reader.get_tablet_load_stats(txn, tablet_id, &stats, &versionstamp, snapshot);
-    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-        // If versioned stats doesn't exist, read from single version
-        TabletStatsPB compact_stats;
-        TabletStats detached_stats;
-        internal_get_tablet_stats(code, msg, txn, instance_id, tablet_idx, compact_stats,
-                                  detached_stats, snapshot);
-        if (code == MetaServiceCode::OK) {
-            // Only the detached stats are valid for load tablet stats.
-            merge_tablet_stats(stats, detached_stats);
-        }
-    } else if (err != TxnErrorCode::TXN_OK) {
+    if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
         code = cast_as<ErrCategory::READ>(err);
         msg = fmt::format("failed to get versioned tablet stats, err={}", err);
         LOG(WARNING) << msg << " tablet_id=" << tablet_id;
         return;
+    }
+    bool versioned_stats_not_found = err == TxnErrorCode::TXN_KEY_NOT_FOUND;
+    bool aggregate_stats_found = versioned_stats_not_found;
+    TabletStatsPB aggregate_stats;
+    if (versioned_stats_not_found) {
+        // Only detached numeric stats are valid as a fallback for a missing versioned load
+        // document. The aggregate owner is also the rolling-upgrade authority.
+        TabletStats detached_stats;
+        internal_get_tablet_stats(code, msg, txn, instance_id, tablet_idx, aggregate_stats,
+                                  detached_stats, snapshot);
+        if (code != MetaServiceCode::OK) {
+            return;
+        }
+        merge_tablet_stats(stats, detached_stats);
+    } else {
+        // Old meta-service nodes update only the aggregate owner. Always consult the exact
+        // aggregate key, even when the versioned document already has an owner, otherwise a
+        // stale versioned owner can survive a rolling upgrade indefinitely.
+        std::string aggregate_key =
+                stats_tablet_key({instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
+                                  tablet_idx.partition_id(), tablet_id});
+        std::string aggregate_value;
+        err = txn->get(aggregate_key, &aggregate_value, snapshot);
+        if (err == TxnErrorCode::TXN_OK) {
+            aggregate_stats_found = true;
+            if (!aggregate_stats.ParseFromString(aggregate_value)) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = fmt::format("malformed aggregate tablet stats, tablet_id={}", tablet_id);
+                return;
+            }
+        } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get aggregate tablet stats, tablet_id={}, err={}",
+                              tablet_id, err);
+            return;
+        }
+    }
+
+    if (aggregate_stats_found) {
+        overlay_aggregate_last_active_cluster_info(aggregate_stats, stats);
     }
 }
 
@@ -251,7 +341,7 @@ void internal_get_load_tablet_stats_batch(
         (*tablet_stats)[tablet_id] = stats;
     }
 
-    // For tablets not found in versioned stats, fall back to single version detached stats
+    // For tablets without versioned load stats, fall back to single-version detached stats.
     std::vector<int64_t> fallback_tablet_ids;
     for (int64_t tablet_id : tablet_ids) {
         if (!versioned_stats.contains(tablet_id)) {
@@ -260,7 +350,7 @@ void internal_get_load_tablet_stats_batch(
     }
 
     if (!fallback_tablet_ids.empty()) {
-        LOG(INFO) << "fallback to single version detached stats for " << fallback_tablet_ids.size()
+        LOG(INFO) << "fallback to single version tablet stats for " << fallback_tablet_ids.size()
                   << " tablets";
 
         // Fall back to single version for each tablet
@@ -270,10 +360,9 @@ void internal_get_load_tablet_stats_batch(
                 continue;
             }
             const TabletIndexPB& tablet_idx = it->second;
-
-            TabletStatsPB compact_stats;
+            TabletStatsPB aggregate_stats;
             TabletStats detached_stats;
-            internal_get_tablet_stats(code, msg, txn, instance_id, tablet_idx, compact_stats,
+            internal_get_tablet_stats(code, msg, txn, instance_id, tablet_idx, aggregate_stats,
                                       detached_stats, snapshot);
             if (code != MetaServiceCode::OK) {
                 LOG(WARNING) << "failed to get detached tablet stats for fallback, tablet_id="
@@ -281,11 +370,40 @@ void internal_get_load_tablet_stats_batch(
                 return;
             }
 
-            // Only the detached stats are valid for load tablet stats.
-            TabletStatsPB stats_pb;
+            auto& stats_pb = (*tablet_stats)[tablet_id];
             merge_tablet_stats(stats_pb, detached_stats);
-            (*tablet_stats)[tablet_id] = std::move(stats_pb);
         }
+    }
+
+    // The current-instance aggregate owner is canonical during a rolling meta-service upgrade:
+    // old writers update it but cannot update the versioned load document. Batch exact-key reads
+    // avoid one full detached-stats range scan per tablet.
+    std::vector<std::string> aggregate_keys;
+    aggregate_keys.reserve(tablet_ids.size());
+    for (int64_t tablet_id : tablet_ids) {
+        const auto& idx = tablet_indexes.at(tablet_id);
+        aggregate_keys.push_back(stats_tablet_key(
+                {instance_id, idx.table_id(), idx.index_id(), idx.partition_id(), tablet_id}));
+    }
+    std::vector<std::optional<std::string>> aggregate_values;
+    err = txn->batch_get(&aggregate_values, aggregate_keys, Transaction::BatchGetOptions(snapshot));
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to batch get aggregate tablet stats, err={}", err);
+        return;
+    }
+    DCHECK_EQ(aggregate_values.size(), tablet_ids.size());
+    for (size_t i = 0; i < tablet_ids.size(); ++i) {
+        if (!aggregate_values[i].has_value()) {
+            continue;
+        }
+        TabletStatsPB aggregate_stats;
+        if (!aggregate_stats.ParseFromString(*aggregate_values[i])) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = fmt::format("malformed aggregate tablet stats, tablet_id={}", tablet_ids[i]);
+            return;
+        }
+        overlay_aggregate_last_active_cluster_info(aggregate_stats, (*tablet_stats)[tablet_ids[i]]);
     }
 }
 
@@ -692,8 +810,15 @@ std::pair<MetaServiceCode, std::string> fix_versioned_tablet_stats_internal(
                               err);
             return {code, msg};
         }
-        MetaReader::merge_tablet_stats(existing_compact_stats, existing_load_stats,
+        MetaReader::merge_tablet_stats(existing_load_stats, existing_compact_stats,
                                        &original_tablet_stat);
+        TabletStatsPB effective_load_stats;
+        internal_get_load_tablet_stats(code, msg, meta_reader, txn.get(), instance_id, tablet_idx,
+                                       effective_load_stats, false);
+        if (code != MetaServiceCode::OK) {
+            return {code, msg};
+        }
+        copy_last_active_cluster_info(effective_load_stats, original_tablet_stat);
 
         std::vector<RowsetMetaCloudPB> rowset_metas;
         int64_t start = 0, end = std::numeric_limits<int64_t>::max() - 1;
@@ -776,7 +901,15 @@ std::pair<MetaServiceCode, std::string> fix_versioned_tablet_stats_internal(
         std::string compact_stats_key =
                 versioned::tablet_compact_stats_key({instance_id, tablet_id});
         TabletStatsPB compact_stats = tablet_stat; // Use the fixed stats with accurate disk sizes
-        versioned_put(txn.get(), compact_stats_key, compact_versionstamp, tablet_stat_value);
+        TabletStatsPB no_owner;
+        copy_last_active_cluster_info(no_owner, compact_stats);
+        std::string compact_stats_value;
+        if (!compact_stats.SerializeToString(&compact_stats_value)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = "failed to serialize compact stats";
+            return {code, msg};
+        }
+        versioned_put(txn.get(), compact_stats_key, compact_versionstamp, compact_stats_value);
         LOG(INFO) << "put versioned tablet compact stats key=" << hex(compact_stats_key)
                   << " tablet_id=" << tablet_id << " with existing versionstamp";
 
@@ -784,6 +917,7 @@ std::pair<MetaServiceCode, std::string> fix_versioned_tablet_stats_internal(
         std::string load_stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
         TabletStatsPB load_stats;
         load_stats.mutable_idx()->CopyFrom(tablet_stat.idx());
+        copy_last_active_cluster_info(tablet_stat, load_stats);
 
         std::string load_stats_value;
         if (!load_stats.SerializeToString(&load_stats_value)) {

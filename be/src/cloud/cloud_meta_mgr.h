@@ -23,6 +23,8 @@
 #include <ranges>
 #include <string>
 #include <tuple>
+#include <unordered_map>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -37,6 +39,7 @@ namespace doris {
 class DeleteBitmap;
 class StreamLoadContext;
 class CloudTablet;
+class CloudTabletMgr;
 class TabletMeta;
 class TabletSchema;
 class TabletMetaPB;
@@ -45,6 +48,9 @@ class RowsetMeta;
 namespace cloud {
 
 class FinishTabletJobResponse;
+class CommitTxnResponse;
+class ClusterPB;
+class GetClusterStatusResponse;
 class StartTabletJobResponse;
 class TabletJobInfoPB;
 class TabletStatsPB;
@@ -69,6 +75,27 @@ Status bthread_fork_join(std::vector<std::function<Status()>>&& tasks, int concu
 // legacy fallback and otherwise fails closed. Responses from a legacy Meta Service use code.
 // Exposed for unit tests.
 MetaServiceCode get_response_code(const MetaServiceResponseStatus& status);
+
+// Decodes the raw status and generic cluster generations in milliseconds, plus whether the status
+// generation can initialize a takeover timer. Raw values are retained for exact token comparison.
+std::tuple<int64_t, int64_t, bool> get_cluster_status_mtime(const ClusterPB& cluster);
+
+// Validates and decodes a cluster-status response. When requester identity was requested, an empty
+// identity is an incomplete response and leaves both outputs unchanged so callers keep their last
+// known-good cache.
+Status decode_cluster_status_response(
+        const GetClusterStatusResponse& response,
+        std::unordered_map<std::string, std::tuple<int32_t, int64_t, int64_t, bool>>* result,
+        std::string* my_cluster_id);
+
+// Applies owner updates returned by a successful commit to tablets already cached on this BE.
+// Exposed as a separate operation so direct-BE commit handling can be tested without an RPC.
+void consume_commit_owner_updates(CloudTabletMgr& tablet_mgr, const CommitTxnResponse& response);
+// Applies owner updates for successful commits and for a 2PC duplicate-visible replay whose first
+// response was lost, while preserving the existing RPC error returned to the caller.
+void consume_commit_owner_updates_after_commit(CloudTabletMgr& tablet_mgr,
+                                               const Status& commit_status, bool is_2pc,
+                                               const CommitTxnResponse& response);
 
 class CloudMetaMgr {
 public:
@@ -182,10 +209,11 @@ public:
                                    int64_t& snapshot_interval_seconds);
 
     // Get all cluster status for the instance
-    // Returns cluster_id -> (status, mtime_ms)
+    // Returns cluster_id -> (status, status_mtime_ms, generic_mtime_ms, status_mtime_trusted)
     // If my_cluster_id is not null, also returns the requesting node's cluster_id
-    Status get_cluster_status(std::unordered_map<std::string, std::pair<int32_t, int64_t>>* result,
-                              std::string* my_cluster_id = nullptr);
+    Status get_cluster_status(
+            std::unordered_map<std::string, std::tuple<int32_t, int64_t, int64_t, bool>>* result,
+            std::string* my_cluster_id = nullptr);
 
     void set_host_level_ms_rpc_rate_limiters(HostLevelMSRpcRateLimiters* limiters) {
         host_level_ms_rpc_rate_limiters_ = limiters;

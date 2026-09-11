@@ -26,17 +26,23 @@
 #include <memory>
 #include <random>
 #include <set>
+#include <unordered_map>
 #include <utility>
 
+#include "cloud/cloud_cluster_info.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/cloud_tablet_mgr.h"
+#include "cloud/config.h"
 #include "cloud/pb_convert.h"
 #include "cpp/sync_point.h"
 #include "load/stream_load/stream_load_context.h"
+#include "runtime/exec_env.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/tablet/tablet_meta.h"
+#include "util/defer_op.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -97,6 +103,188 @@ TEST_F(CloudMetaMgrTest, response_status_returns_undefined_without_any_code) {
 
     status.set_code(MetaServiceCode::OK);
     EXPECT_EQ(get_response_code(status), MetaServiceCode::OK);
+}
+
+TEST_F(CloudMetaMgrTest, first_observation_rejects_legacy_stale_status_mtime) {
+    ClusterPB cluster;
+    EXPECT_EQ(get_cluster_status_mtime(cluster), std::make_tuple(int64_t {0}, int64_t {0}, false));
+
+    cluster.set_cluster_status_mtime(100);
+    cluster.set_mtime(101);
+    EXPECT_EQ(get_cluster_status_mtime(cluster),
+              std::make_tuple(int64_t {100000}, int64_t {101000}, false));
+
+    cluster.set_mtime(100);
+    EXPECT_EQ(get_cluster_status_mtime(cluster),
+              std::make_tuple(int64_t {100000}, int64_t {100000}, true));
+}
+
+TEST_F(CloudMetaMgrTest, cluster_status_response_requires_requester_before_replacing_cache) {
+    using StatusEntry = std::tuple<int32_t, int64_t, int64_t, bool>;
+    std::unordered_map<std::string, StatusEntry> status_cache {
+            {"old_cluster", StatusEntry {1, 2, 3, true}}};
+    std::string requester_cluster_id = "old_requester";
+    GetClusterStatusResponse response;
+
+    EXPECT_FALSE(
+            decode_cluster_status_response(response, &status_cache, &requester_cluster_id).ok());
+    EXPECT_EQ(status_cache, (std::unordered_map<std::string, StatusEntry> {
+                                    {"old_cluster", StatusEntry {1, 2, 3, true}}}));
+    EXPECT_EQ(requester_cluster_id, "old_requester");
+
+    response.set_requester_cluster_id("");
+    EXPECT_FALSE(
+            decode_cluster_status_response(response, &status_cache, &requester_cluster_id).ok());
+    EXPECT_EQ(status_cache.size(), 1);
+    EXPECT_EQ(requester_cluster_id, "old_requester");
+
+    response.set_requester_cluster_id("requester");
+    auto* cluster = response.add_details()->add_clusters();
+    cluster->set_cluster_id("new_cluster");
+    cluster->set_cluster_status(cloud::ClusterStatus::NORMAL);
+    cluster->set_cluster_status_mtime(4);
+    cluster->set_mtime(4);
+    ASSERT_TRUE(
+            decode_cluster_status_response(response, &status_cache, &requester_cluster_id).ok());
+    EXPECT_EQ(
+            status_cache,
+            (std::unordered_map<std::string, StatusEntry> {
+                    {"new_cluster", StatusEntry {static_cast<int32_t>(cloud::ClusterStatus::NORMAL),
+                                                 4000, 4000, true}}}));
+    EXPECT_EQ(requester_cluster_id, "requester");
+}
+
+// GoogleTest assertions inflate this linear owner-generation test's complexity metric.
+TEST_F(CloudMetaMgrTest, // NOLINT(readability-function-cognitive-complexity)
+       direct_commit_owner_updates_cached_tablet_by_epoch) {
+    const bool old_rw_separation = config::enable_compaction_rw_separation;
+    config::enable_compaction_rw_separation = true;
+    Defer restore_config([&] { config::enable_compaction_rw_separation = old_rw_separation; });
+
+    CloudStorageEngine engine(EngineOptions {});
+    auto tablet_meta = std::make_shared<TabletMeta>(1001, 2, 15673, 15674, 4, 5, TTabletSchema(), 6,
+                                                    std::unordered_map<uint32_t, uint32_t> {{7, 8}},
+                                                    UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                                    TCompressionType::LZ4F);
+    auto tablet = std::make_shared<CloudTablet>(engine, tablet_meta);
+    tablet->set_last_active_cluster_info("cluster_a", 100, 4);
+    engine.tablet_mgr().put_tablet_for_UT(tablet);
+
+    CommitTxnResponse response;
+    response.mutable_txn_info()->set_load_cluster_id("cluster_b");
+    response.set_version_update_time_ms(200);
+    response.add_last_active_tablet_ids(tablet->tablet_id());
+    response.add_last_active_epochs(5);
+
+    consume_commit_owner_updates_after_commit(engine.tablet_mgr(), Status::OK(), false, response);
+    EXPECT_EQ(tablet->last_active_cluster_id(), "cluster_b");
+    EXPECT_EQ(tablet->last_active_time_ms(), 200);
+    EXPECT_EQ(tablet->last_active_epoch(), 5);
+
+    response.set_version_update_time_ms(300);
+    response.set_last_active_epochs(0, 4);
+    consume_commit_owner_updates(engine.tablet_mgr(), response);
+    EXPECT_EQ(tablet->last_active_cluster_id(), "cluster_b");
+    EXPECT_EQ(tablet->last_active_time_ms(), 200);
+    EXPECT_EQ(tablet->last_active_epoch(), 5);
+
+    tablet->last_sync_time_s = 123;
+    response.clear_last_active_epochs();
+    consume_commit_owner_updates(engine.tablet_mgr(), response);
+    EXPECT_EQ(tablet->last_active_cluster_id(), "cluster_b");
+    EXPECT_EQ(tablet->last_active_epoch(), 5);
+    EXPECT_EQ(tablet->last_sync_time_s, 0);
+
+    response.set_is_lazy_commit(true);
+    response.set_is_lazy_commit_incomplete(true);
+    response.add_last_active_epochs(6);
+    response.mutable_txn_info()->set_load_cluster_id("cluster_c");
+    consume_commit_owner_updates(engine.tablet_mgr(), response);
+    EXPECT_EQ(tablet->last_active_cluster_id(), "cluster_b");
+    EXPECT_EQ(tablet->last_active_epoch(), 5);
+
+    response.set_is_lazy_commit(false);
+    response.set_is_lazy_commit_incomplete(false);
+    response.mutable_status()->set_code(MetaServiceCode::TXN_ALREADY_VISIBLE);
+    response.mutable_txn_info()->set_load_cluster_id("cluster_c");
+    response.set_last_active_epochs(0, 6);
+    consume_commit_owner_updates_after_commit(engine.tablet_mgr(), Status::InternalError("replay"),
+                                              true, response);
+    EXPECT_EQ(tablet->last_active_cluster_id(), "cluster_c");
+    EXPECT_EQ(tablet->last_active_epoch(), 6);
+
+    response.mutable_txn_info()->set_load_cluster_id("cluster_d");
+    response.set_last_active_epochs(0, 7);
+    consume_commit_owner_updates_after_commit(engine.tablet_mgr(), Status::InternalError("replay"),
+                                              false, response);
+    EXPECT_EQ(tablet->last_active_cluster_id(), "cluster_c");
+    EXPECT_EQ(tablet->last_active_epoch(), 6);
+}
+
+// GoogleTest assertions and the two RPC capture callbacks inflate this linear test's complexity.
+TEST_F(CloudMetaMgrTest, // NOLINT(readability-function-cognitive-complexity)
+       load_rowset_requests_bind_actual_writer_cluster) {
+    const bool old_rw_separation = config::enable_compaction_rw_separation;
+    const bool old_table_size_check = config::enable_table_size_correctness_check;
+    auto* old_cluster_info = ExecEnv::GetInstance()->cluster_info();
+    CloudClusterInfo cluster_info;
+    Defer restore_state([&] {
+        config::enable_compaction_rw_separation = old_rw_separation;
+        config::enable_table_size_correctness_check = old_table_size_check;
+        ExecEnv::GetInstance()->set_cluster_info(old_cluster_info);
+    });
+    config::enable_compaction_rw_separation = true;
+    config::enable_table_size_correctness_check = false;
+
+    cluster_info.set_cloud_compute_group_id("cluster_a");
+    ExecEnv::GetInstance()->set_cluster_info(&cluster_info);
+
+    auto* sync_point = SyncPoint::get_instance();
+    Defer clear_sync_points([&] {
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    });
+    CreateRowsetRequest prepare_request;
+    CreateRowsetRequest commit_request;
+    int prepare_calls = 0;
+    sync_point->set_call_back("CloudMetaMgr::prepare_rowset.before_rpc", [&](auto&& args) {
+        prepare_request.CopyFrom(*try_any_cast<CreateRowsetRequest*>(args[0]));
+        ++prepare_calls;
+        auto* result = try_any_cast_ret<Status>(args);
+        result->first = Status::OK();
+        result->second = true;
+    });
+    sync_point->set_call_back("CloudMetaMgr::commit_rowset.before_rpc", [&](auto&& args) {
+        commit_request.CopyFrom(*try_any_cast<CreateRowsetRequest*>(args[0]));
+        auto* result = try_any_cast_ret<Status>(args);
+        result->first = Status::OK();
+        result->second = true;
+    });
+    sync_point->enable_processing();
+
+    RowsetMeta rowset_meta;
+    rowset_meta.set_tablet_id(1001);
+    rowset_meta.set_txn_id(2001);
+    CloudMetaMgr meta_mgr;
+    ASSERT_TRUE(meta_mgr.prepare_rowset(rowset_meta, "", 3001).ok());
+    ASSERT_TRUE(prepare_request.has_load_cluster_id());
+    EXPECT_EQ(prepare_request.load_cluster_id(), "cluster_a");
+    ASSERT_TRUE(meta_mgr.commit_rowset(rowset_meta, "", 3001).ok());
+    ASSERT_TRUE(commit_request.has_load_cluster_id());
+    EXPECT_EQ(commit_request.load_cluster_id(), "cluster_a");
+
+    ASSERT_TRUE(meta_mgr.prepare_rowset(rowset_meta, "compaction-job", 3001).ok());
+    EXPECT_FALSE(prepare_request.has_load_cluster_id());
+
+    cluster_info.set_cloud_compute_group_id("");
+    cluster_info.set_my_cluster_id("");
+    EXPECT_FALSE(meta_mgr.prepare_rowset(rowset_meta, "", 3001).ok());
+    EXPECT_EQ(prepare_calls, 2);
+
+    config::enable_compaction_rw_separation = false;
+    ASSERT_TRUE(meta_mgr.prepare_rowset(rowset_meta, "", 3001).ok());
+    EXPECT_EQ(prepare_calls, 3);
+    EXPECT_FALSE(prepare_request.has_load_cluster_id());
 }
 
 static AbortTxnRequest get_abort_txn_request(CloudMetaMgr* meta_mgr, const StreamLoadContext& ctx) {

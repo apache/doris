@@ -384,6 +384,11 @@ std::vector<std::weak_ptr<CloudTablet>> CloudTabletMgr::get_weak_tablets() {
     return weak_tablets;
 }
 
+bool CloudTabletMgr::is_compaction_owner_cache_fresh(int64_t last_sync_time_s, int64_t now_s,
+                                                     int64_t ttl_s) {
+    return last_sync_time_s > now_s - ttl_s;
+}
+
 void CloudTabletMgr::sync_tablets(const CountDownLatch& stop_latch) {
     LOG_INFO("begin to sync tablets");
     int64_t last_sync_time_bound = ::time(nullptr) - config::tablet_sync_interval_s;
@@ -471,7 +476,10 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
 
         // Compaction read-write separation: skip tablets that should be compacted by other clusters.
         // Placed after standby check so standby invariants (version count threshold) are preserved.
-        if (cloud_cluster_info->should_skip_compaction(t)) {
+        const bool owner_cache_fresh = is_compaction_owner_cache_fresh(
+                t->last_sync_time_s, now / 1000,
+                config::compaction_rw_separation_owner_cache_ttl_s);
+        if (owner_cache_fresh && cloud_cluster_info->should_skip_compaction(t)) {
             return true;
         }
 

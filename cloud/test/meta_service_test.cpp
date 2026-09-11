@@ -33,6 +33,7 @@
 #include <mutex>
 #include <random>
 #include <string>
+#include <string_view>
 #include <thread>
 
 #include "common/config.h"
@@ -124,6 +125,21 @@ std::unique_ptr<MetaServiceProxy> get_meta_service(bool mock_resource_mgr) {
 
 std::unique_ptr<MetaServiceProxy> get_meta_service() {
     return get_meta_service(true);
+}
+
+void put_compute_instance(MetaServiceProxy* meta_service, const std::string& instance_id,
+                          const std::string& cluster_id, const std::string& cloud_unique_id) {
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto* cluster = instance.add_clusters();
+    cluster->set_cluster_id(cluster_id);
+    cluster->set_type(ClusterPB::COMPUTE);
+    cluster->add_nodes()->set_cloud_unique_id(cloud_unique_id);
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(instance_key({instance_id}), instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 }
 
 std::unique_ptr<MetaServiceProxy> get_fdb_meta_service() {
@@ -255,23 +271,35 @@ doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id, int pa
 }
 
 void prepare_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
-                    CreateRowsetResponse& res) {
+                    CreateRowsetResponse& res, const std::string& cloud_unique_id) {
     brpc::Controller cntl;
     auto arena = res.GetArena();
     auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+    req->set_cloud_unique_id(cloud_unique_id);
     req->mutable_rowset_meta()->CopyFrom(rowset);
     meta_service->prepare_rowset(&cntl, req, &res, nullptr);
     if (!arena) delete req;
 }
 
+void prepare_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
+                    CreateRowsetResponse& res) {
+    prepare_rowset(meta_service, rowset, res, "");
+}
+
 void commit_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
-                   CreateRowsetResponse& res) {
+                   CreateRowsetResponse& res, const std::string& cloud_unique_id) {
     brpc::Controller cntl;
     auto arena = res.GetArena();
     auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+    req->set_cloud_unique_id(cloud_unique_id);
     req->mutable_rowset_meta()->CopyFrom(rowset);
     meta_service->commit_rowset(&cntl, req, &res, nullptr);
     if (!arena) delete req;
+}
+
+void commit_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
+                   CreateRowsetResponse& res) {
+    commit_rowset(meta_service, rowset, res, "");
 }
 
 static void update_tmp_rowset(MetaServiceProxy* meta_service,
@@ -1886,6 +1914,9 @@ TEST(MetaServiceTest, CommitTxnTest) {
     // case: first version of rowset
     for (int i = 0; i < 2; ++i) {
         int64_t txn_id = -1;
+        int64_t owner_time_ms = 0;
+        std::vector<int64_t> owner_ids;
+        std::vector<int64_t> owner_epochs;
         // begin txn
         {
             brpc::Controller cntl;
@@ -1896,12 +1927,27 @@ TEST(MetaServiceTest, CommitTxnTest) {
             txn_info_pb.set_label("test_label_" + std::to_string(i));
             txn_info_pb.add_table_ids(1234);
             txn_info_pb.set_timeout_ms(36000);
+            txn_info_pb.set_load_cluster_id("test_cluster_id");
             req.mutable_txn_info()->CopyFrom(txn_info_pb);
             BeginTxnResponse res;
             meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                     &req, &res, nullptr);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             txn_id = res.txn_id();
+        }
+        {
+            // This legacy fixture omits rowset load_id. Model the durable result that the actual
+            // writer-binding path establishes before testing commit replay semantics.
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+            const std::string key = txn_info_key({mock_instance, 666, txn_id});
+            std::string value;
+            ASSERT_EQ(txn->get(key, &value), TxnErrorCode::TXN_OK);
+            TxnInfoPB txn_info;
+            ASSERT_TRUE(txn_info.ParseFromString(value));
+            txn_info.set_load_cluster_id_bound_by_writer(true);
+            txn->put(key, txn_info.SerializeAsString());
+            ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
         }
 
         // mock rowset and tablet
@@ -1942,6 +1988,13 @@ TEST(MetaServiceTest, CommitTxnTest) {
                                      &req, &res, nullptr);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             ASSERT_EQ(res.table_stats().size(), 1);
+            ASSERT_EQ(res.last_active_tablet_ids_size(), 5);
+            ASSERT_EQ(res.last_active_epochs_size(), 5);
+            owner_time_ms = res.version_update_time_ms();
+            owner_ids.assign(res.last_active_tablet_ids().begin(),
+                             res.last_active_tablet_ids().end());
+            owner_epochs.assign(res.last_active_epochs().begin(), res.last_active_epochs().end());
+            EXPECT_TRUE(std::ranges::is_sorted(owner_ids));
 
             int64_t table_version = res.table_stats()[0].table_version();
             get_table_version(meta_service.get(), 666, table_id, table_version);
@@ -1963,6 +2016,13 @@ TEST(MetaServiceTest, CommitTxnTest) {
             auto found = res.status().msg().find(fmt::format(
                     "transaction is already visible: db_id={} txn_id={}", db_id, txn_id));
             ASSERT_TRUE(found != std::string::npos);
+            EXPECT_EQ(res.version_update_time_ms(), owner_time_ms);
+            EXPECT_EQ(std::vector<int64_t>(res.last_active_tablet_ids().begin(),
+                                           res.last_active_tablet_ids().end()),
+                      owner_ids);
+            EXPECT_EQ(std::vector<int64_t>(res.last_active_epochs().begin(),
+                                           res.last_active_epochs().end()),
+                      owner_epochs);
         }
 
         // doubly commit txn(2pc)
@@ -1980,6 +2040,13 @@ TEST(MetaServiceTest, CommitTxnTest) {
             auto found = res.status().msg().find(
                     fmt::format("transaction [{}] is already visible, not pre-committed.", txn_id));
             ASSERT_TRUE(found != std::string::npos);
+            EXPECT_EQ(res.version_update_time_ms(), owner_time_ms);
+            EXPECT_EQ(std::vector<int64_t>(res.last_active_tablet_ids().begin(),
+                                           res.last_active_tablet_ids().end()),
+                      owner_ids);
+            EXPECT_EQ(std::vector<int64_t>(res.last_active_epochs().begin(),
+                                           res.last_active_epochs().end()),
+                      owner_epochs);
         }
     }
 }
@@ -8865,12 +8932,16 @@ TEST(MetaServiceTest, GetClusterStatusTest) {
     c1.set_cluster_id(mock_cluster_id);
     c1.add_mysql_user_name()->append("m1");
     c1.set_cluster_status(ClusterStatus::NORMAL);
+    c1.set_mtime(11);
+    c1.set_cluster_status_mtime(111);
+    c1.add_nodes()->set_cloud_unique_id("requester-node");
     ClusterPB c2;
     c2.set_type(ClusterPB::COMPUTE);
     c2.set_cluster_name(mock_cluster_name + "2");
     c2.set_cluster_id(mock_cluster_id + "2");
     c2.add_mysql_user_name()->append("m2");
     c2.set_cluster_status(ClusterStatus::SUSPENDED);
+    c2.set_mtime(22);
     ClusterPB c3;
     c3.set_type(ClusterPB::COMPUTE);
     c3.set_cluster_name(mock_cluster_name + "3");
@@ -8888,6 +8959,8 @@ TEST(MetaServiceTest, GetClusterStatusTest) {
     ASSERT_EQ(err, TxnErrorCode::TXN_OK);
     txn->put(key, val);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(meta_service->resource_mgr()->refresh_instance(mock_instance).first,
+              MetaServiceCode::OK);
 
     // case: get all cluster
     {
@@ -8899,6 +8972,13 @@ TEST(MetaServiceTest, GetClusterStatusTest) {
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         ASSERT_EQ(res.details().at(0).clusters().size(), 3);
+        const auto& clusters = res.details().at(0).clusters();
+        EXPECT_EQ(clusters.at(0).mtime(), 11);
+        ASSERT_TRUE(clusters.at(0).has_cluster_status_mtime());
+        EXPECT_EQ(clusters.at(0).cluster_status_mtime(), 111);
+        EXPECT_EQ(clusters.at(1).mtime(), 22);
+        EXPECT_FALSE(clusters.at(1).has_cluster_status_mtime());
+        EXPECT_FALSE(clusters.at(2).has_cluster_status_mtime());
     }
 
     // get normal cluster
@@ -8912,6 +8992,35 @@ TEST(MetaServiceTest, GetClusterStatusTest) {
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         ASSERT_EQ(res.details().at(0).clusters().size(), 1);
+        ASSERT_TRUE(res.details().at(0).clusters().at(0).has_cluster_status_mtime());
+        EXPECT_EQ(res.details().at(0).clusters().at(0).cluster_status_mtime(), 111);
+    }
+
+    // Keep the resource-manager cache pointing at c1, then durably move the requester to c2.
+    // The response must use the InstanceInfoPB read by this RPC rather than the stale cache.
+    instance.mutable_clusters(0)->clear_nodes();
+    instance.mutable_clusters(1)->add_nodes()->set_cloud_unique_id("requester-node");
+    {
+        std::unique_ptr<Transaction> move_txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&move_txn), TxnErrorCode::TXN_OK);
+        move_txn->put(key, instance.SerializeAsString());
+        ASSERT_EQ(move_txn->commit(), TxnErrorCode::TXN_OK);
+    }
+    std::vector<NodeInfo> cached_nodes;
+    ASSERT_EQ(meta_service->resource_mgr()->get_node("requester-node", &cached_nodes), "");
+    ASSERT_EQ(cached_nodes.size(), 1);
+    EXPECT_EQ(cached_nodes[0].cluster_id, mock_cluster_id);
+    {
+        brpc::Controller cntl;
+        GetClusterStatusRequest req;
+        req.add_instance_ids(mock_instance);
+        req.add_cloud_unique_ids("requester-node");
+        GetClusterStatusResponse res;
+        meta_service->get_cluster_status(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_TRUE(res.has_requester_cluster_id());
+        EXPECT_EQ(res.requester_cluster_id(), mock_cluster_id + "2");
     }
 }
 
@@ -11169,8 +11278,339 @@ TEST(MetaServiceTest, CheckJobExisted) {
     }
 }
 
+// GoogleTest assertions inflate this linear writer-binding matrix's complexity metric.
+TEST(MetaServiceTest, // NOLINT(readability-function-cognitive-complexity)
+     LoadRowsetBindsActualWriterCluster) {
+    auto meta_service = get_meta_service();
+
+    constexpr int64_t db_id = 931001;
+    constexpr int64_t table_id = 931002;
+    constexpr int64_t index_id = 931003;
+    constexpr int64_t partition_id = 931004;
+    constexpr int64_t tablet_id = 931005;
+    for (int64_t id = tablet_id; id < tablet_id + 14; ++id) {
+        create_tablet(meta_service.get(), table_id, index_id, partition_id, id);
+    }
+
+    InstanceInfoPB writer_instance;
+    writer_instance.set_instance_id(mock_instance);
+    auto* writer_a = writer_instance.add_clusters();
+    writer_a->set_cluster_id("writer-a");
+    writer_a->set_type(ClusterPB::COMPUTE);
+    writer_a->add_nodes()->set_cloud_unique_id("writer-node");
+    writer_a->add_nodes()->set_cloud_unique_id("writer-node-2");
+    auto* writer_b = writer_instance.add_clusters();
+    writer_b->set_cluster_id("writer-b");
+    writer_b->set_type(ClusterPB::COMPUTE);
+    writer_b->add_nodes()->set_cloud_unique_id("writer-b-node");
+    auto persist_writer_instance = [&] {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key({mock_instance}), writer_instance.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    };
+    ASSERT_NO_FATAL_FAILURE(persist_writer_instance());
+
+    auto send_rowset = [&](const doris::RowsetMetaCloudPB& rowset, bool prepare,
+                           bool include_cluster_id, std::string_view cluster_id,
+                           std::string_view cloud_unique_id = "writer-node") {
+        CreateRowsetRequest req;
+        req.set_cloud_unique_id(std::string(cloud_unique_id));
+        req.mutable_rowset_meta()->CopyFrom(rowset);
+        if (include_cluster_id) {
+            req.set_load_cluster_id(std::string(cluster_id));
+        }
+        CreateRowsetResponse res;
+        brpc::Controller cntl;
+        if (prepare) {
+            meta_service->prepare_rowset(&cntl, &req, &res, nullptr);
+        } else {
+            meta_service->commit_rowset(&cntl, &req, &res, nullptr);
+        }
+        return res.status().code();
+    };
+    auto read_txn_info = [&](int64_t txn_id, TxnInfoPB* txn_info) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        ASSERT_EQ(txn->get(txn_info_key({mock_instance, db_id, txn_id}), &value),
+                  TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(txn_info->ParseFromString(value));
+    };
+    auto make_load_rowset = [&](int64_t txn_id, int64_t target_tablet_id) {
+        auto rowset = create_rowset(txn_id, target_tablet_id, partition_id);
+        rowset.mutable_load_id()->set_hi(txn_id);
+        rowset.mutable_load_id()->set_lo(target_tablet_id);
+        return rowset;
+    };
+
+    int64_t txn_id = 0;
+    ASSERT_NO_FATAL_FAILURE(
+            begin_txn(meta_service.get(), db_id, "writer_binding", table_id, txn_id));
+    auto first_rowset = make_load_rowset(txn_id, tablet_id);
+
+    // An old BE can be bound from its registered node even without the new request field.
+    EXPECT_EQ(send_rowset(first_rowset, true, false, ""), MetaServiceCode::OK);
+    TxnInfoPB txn_info;
+    ASSERT_NO_FATAL_FAILURE(read_txn_info(txn_id, &txn_info));
+    EXPECT_EQ(txn_info.load_cluster_id(), "writer-a");
+    EXPECT_TRUE(txn_info.load_cluster_id_bound_by_writer());
+
+    // A second BE in the same cluster may extend the binding. Materialize both forms of an exact
+    // retry before moving the nodes: a committed rowset has a tmp key, while a prepare-only rowset
+    // has a PREPARE recycle key.
+    EXPECT_EQ(send_rowset(first_rowset, false, false, ""), MetaServiceCode::OK);
+    auto second_rowset = make_load_rowset(txn_id, tablet_id + 1);
+    EXPECT_EQ(send_rowset(second_rowset, true, false, "", "writer-node-2"), MetaServiceCode::OK);
+    auto third_rowset = make_load_rowset(txn_id, tablet_id + 2);
+    EXPECT_EQ(send_rowset(third_rowset, true, false, "", "writer-node-2"), MetaServiceCode::OK);
+    EXPECT_EQ(send_rowset(third_rowset, false, false, "", "writer-node-2"), MetaServiceCode::OK);
+
+    // Lost-response retries are identified by the persisted rowset, so they remain idempotent for
+    // either BE after a move. New rowsets always resolve the current durable node membership.
+    writer_instance.mutable_clusters(0)->clear_nodes();
+    writer_instance.mutable_clusters(1)->add_nodes()->set_cloud_unique_id("writer-node");
+    writer_instance.mutable_clusters(1)->add_nodes()->set_cloud_unique_id("writer-node-2");
+    ASSERT_NO_FATAL_FAILURE(persist_writer_instance());
+    EXPECT_EQ(send_rowset(first_rowset, true, true, "writer-a"), MetaServiceCode::ALREADY_EXISTED);
+    EXPECT_EQ(send_rowset(first_rowset, false, true, "writer-a"), MetaServiceCode::OK);
+    EXPECT_EQ(send_rowset(second_rowset, true, false, "", "writer-node-2"), MetaServiceCode::OK);
+    EXPECT_EQ(send_rowset(second_rowset, false, false, "", "writer-node-2"), MetaServiceCode::OK);
+    EXPECT_EQ(send_rowset(third_rowset, false, false, "", "writer-node-2"), MetaServiceCode::OK);
+    auto moved_writer_rowset = make_load_rowset(txn_id, tablet_id + 3);
+    // A moved UID on a new rowset is an actual post-move writer, not an idempotent retry.
+    EXPECT_EQ(send_rowset(moved_writer_rowset, true, false, ""), MetaServiceCode::INVALID_ARGUMENT);
+    EXPECT_EQ(send_rowset(moved_writer_rowset, true, false, "", "writer-node-2"),
+              MetaServiceCode::INVALID_ARGUMENT);
+    EXPECT_EQ(send_rowset(moved_writer_rowset, true, true, "writer-b"),
+              MetaServiceCode::INVALID_ARGUMENT);
+    EXPECT_EQ(send_rowset(moved_writer_rowset, true, false, "", "writer-b-node"),
+              MetaServiceCode::INVALID_ARGUMENT);
+    EXPECT_EQ(send_rowset(moved_writer_rowset, true, true, "writer-a", "writer-b-node"),
+              MetaServiceCode::INVALID_ARGUMENT);
+
+    // Restore the durable node layout for independent first-binding cases below.
+    writer_instance.mutable_clusters(0)->add_nodes()->set_cloud_unique_id("writer-node");
+    writer_instance.mutable_clusters(0)->add_nodes()->set_cloud_unique_id("writer-node-2");
+    auto* writer_b_nodes = writer_instance.mutable_clusters(1)->mutable_nodes();
+    for (int i = writer_b_nodes->size() - 1; i >= 0; --i) {
+        if (writer_b_nodes->Get(i).cloud_unique_id() == "writer-node" ||
+            writer_b_nodes->Get(i).cloud_unique_id() == "writer-node-2") {
+            writer_b_nodes->DeleteSubrange(i, 1);
+        }
+    }
+    ASSERT_NO_FATAL_FAILURE(persist_writer_instance());
+
+    // Same writer retries and writes to additional tablets idempotently.
+    EXPECT_EQ(send_rowset(first_rowset, true, true, "writer-a"), MetaServiceCode::ALREADY_EXISTED);
+    EXPECT_EQ(send_rowset(first_rowset, false, true, "writer-a"), MetaServiceCode::OK);
+    EXPECT_EQ(send_rowset(first_rowset, false, true, "writer-a"), MetaServiceCode::OK);
+    EXPECT_EQ(send_rowset(second_rowset, true, true, "writer-a"), MetaServiceCode::ALREADY_EXISTED);
+    EXPECT_EQ(send_rowset(second_rowset, false, true, "writer-a"), MetaServiceCode::OK);
+
+    auto conflicting_rowset = make_load_rowset(txn_id, tablet_id + 3);
+    EXPECT_EQ(send_rowset(conflicting_rowset, true, true, "writer-b", "writer-b-node"),
+              MetaServiceCode::INVALID_ARGUMENT);
+    EXPECT_EQ(send_rowset(conflicting_rowset, true, false, "", "writer-b-node"),
+              MetaServiceCode::INVALID_ARGUMENT);
+    ASSERT_NO_FATAL_FAILURE(read_txn_info(txn_id, &txn_info));
+    EXPECT_EQ(txn_info.load_cluster_id(), "writer-a");
+
+    auto seed_non_prepare_recycle_rowset = [&](const doris::RowsetMetaCloudPB& rowset,
+                                               RecycleRowsetPB::Type type) {
+        RecycleRowsetPB recycle_rowset;
+        recycle_rowset.set_type(type);
+        recycle_rowset.mutable_rowset_meta()->CopyFrom(rowset);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(recycle_rowset_key({mock_instance, rowset.tablet_id(), rowset.rowset_id_v2()}),
+                 recycle_rowset.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    };
+    // COMPACT/DROP recycle records are lifecycle metadata, not evidence that this load rowset was
+    // previously accepted. They must not bypass the durable writer check.
+    auto compact_recycle_rowset = make_load_rowset(txn_id, tablet_id + 12);
+    ASSERT_NO_FATAL_FAILURE(
+            seed_non_prepare_recycle_rowset(compact_recycle_rowset, RecycleRowsetPB::COMPACT));
+    EXPECT_EQ(send_rowset(compact_recycle_rowset, true, false, "", "writer-b-node"),
+              MetaServiceCode::INVALID_ARGUMENT);
+    auto drop_recycle_rowset = make_load_rowset(txn_id, tablet_id + 13);
+    ASSERT_NO_FATAL_FAILURE(
+            seed_non_prepare_recycle_rowset(drop_recycle_rowset, RecycleRowsetPB::DROP));
+    EXPECT_EQ(send_rowset(drop_recycle_rowset, true, false, "", "writer-b-node"),
+              MetaServiceCode::INVALID_ARGUMENT);
+
+    // A subtransaction rowset resolves and validates the parent transaction binding.
+    BeginSubTxnRequest sub_req;
+    sub_req.set_cloud_unique_id("writer-node");
+    sub_req.set_txn_id(txn_id);
+    sub_req.set_sub_txn_num(0);
+    sub_req.set_db_id(db_id);
+    sub_req.set_label("writer_binding_subtxn");
+    sub_req.add_table_ids(table_id);
+    BeginSubTxnResponse sub_res;
+    brpc::Controller sub_cntl;
+    meta_service->begin_sub_txn(&sub_cntl, &sub_req, &sub_res, nullptr);
+    ASSERT_EQ(sub_res.status().code(), MetaServiceCode::OK) << sub_res.status().msg();
+    auto sub_rowset = make_load_rowset(sub_res.sub_txn_id(), tablet_id + 3);
+    EXPECT_EQ(send_rowset(sub_rowset, true, true, "writer-a"), MetaServiceCode::OK);
+    EXPECT_EQ(send_rowset(sub_rowset, false, true, "writer-a"), MetaServiceCode::OK);
+    auto conflicting_sub_rowset = make_load_rowset(sub_res.sub_txn_id(), tablet_id + 3);
+    EXPECT_EQ(send_rowset(conflicting_sub_rowset, true, false, "", "writer-b-node"),
+              MetaServiceCode::INVALID_ARGUMENT);
+    ASSERT_NO_FATAL_FAILURE(read_txn_info(txn_id, &txn_info));
+    EXPECT_EQ(txn_info.load_cluster_id(), "writer-a");
+    EXPECT_TRUE(txn_info.load_cluster_id_bound_by_writer());
+
+    // The first writer overwrites a non-authoritative FE routing hint.
+    int64_t hinted_txn_id = 0;
+    {
+        BeginTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        auto* hinted_info = req.mutable_txn_info();
+        hinted_info->set_db_id(db_id);
+        hinted_info->set_label("writer_hint");
+        hinted_info->add_table_ids(table_id);
+        hinted_info->set_timeout_ms(36000);
+        hinted_info->set_load_cluster_id("fe-routing-hint");
+        // A caller cannot forge the internal proof that this hint came from an actual writer.
+        hinted_info->set_load_cluster_id_bound_by_writer(true);
+        BeginTxnResponse res;
+        brpc::Controller cntl;
+        meta_service->begin_txn(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        hinted_txn_id = res.txn_id();
+    }
+    ASSERT_NO_FATAL_FAILURE(read_txn_info(hinted_txn_id, &txn_info));
+    EXPECT_EQ(txn_info.load_cluster_id(), "fe-routing-hint");
+    EXPECT_FALSE(txn_info.load_cluster_id_bound_by_writer());
+    auto hinted_rowset = make_load_rowset(hinted_txn_id, tablet_id + 4);
+    EXPECT_EQ(send_rowset(hinted_rowset, true, true, "writer-a"), MetaServiceCode::OK);
+    ASSERT_NO_FATAL_FAILURE(read_txn_info(hinted_txn_id, &txn_info));
+    EXPECT_EQ(txn_info.load_cluster_id(), "writer-a");
+    EXPECT_TRUE(txn_info.load_cluster_id_bound_by_writer());
+
+    auto seed_unbound_existing_rowset = [&](std::string_view label, int64_t target_tablet_id,
+                                            int64_t* existing_txn_id,
+                                            doris::RowsetMetaCloudPB* existing_rowset) {
+        ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, std::string(label), table_id,
+                                          *existing_txn_id));
+        *existing_rowset = make_load_rowset(*existing_txn_id, target_tablet_id);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        const std::string info_key = txn_info_key({mock_instance, db_id, *existing_txn_id});
+        std::string value;
+        ASSERT_EQ(txn->get(info_key, &value), TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(txn_info.ParseFromString(value));
+        txn_info.set_load_cluster_id("old-unbound-hint");
+        txn_info.clear_load_cluster_id_bound_by_writer();
+        txn->put(info_key, txn_info.SerializeAsString());
+        txn->put(meta_rowset_tmp_key({mock_instance, *existing_txn_id, target_tablet_id}),
+                 existing_rowset->SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    };
+
+    // Rolling upgrade: an idempotent retry must persist a binding even when an old MS already
+    // wrote the same temporary rowset.
+    int64_t prepare_retry_txn_id = 0;
+    doris::RowsetMetaCloudPB prepare_retry_rowset;
+    ASSERT_NO_FATAL_FAILURE(seed_unbound_existing_rowset(
+            "writer_prepare_retry", tablet_id + 6, &prepare_retry_txn_id, &prepare_retry_rowset));
+    EXPECT_EQ(send_rowset(prepare_retry_rowset, true, true, "writer-a"),
+              MetaServiceCode::ALREADY_EXISTED);
+    ASSERT_NO_FATAL_FAILURE(read_txn_info(prepare_retry_txn_id, &txn_info));
+    EXPECT_EQ(txn_info.load_cluster_id(), "writer-a");
+    EXPECT_TRUE(txn_info.load_cluster_id_bound_by_writer());
+
+    int64_t commit_retry_txn_id = 0;
+    doris::RowsetMetaCloudPB commit_retry_rowset;
+    ASSERT_NO_FATAL_FAILURE(seed_unbound_existing_rowset(
+            "writer_commit_retry", tablet_id + 7, &commit_retry_txn_id, &commit_retry_rowset));
+    EXPECT_EQ(send_rowset(commit_retry_rowset, false, true, "writer-a"), MetaServiceCode::OK);
+    ASSERT_NO_FATAL_FAILURE(read_txn_info(commit_retry_txn_id, &txn_info));
+    EXPECT_EQ(txn_info.load_cluster_id(), "writer-a");
+    EXPECT_TRUE(txn_info.load_cluster_id_bound_by_writer());
+
+    int64_t visible_retry_txn_id = 0;
+    doris::RowsetMetaCloudPB visible_retry_rowset;
+    ASSERT_NO_FATAL_FAILURE(seed_unbound_existing_rowset(
+            "writer_visible_retry", tablet_id + 8, &visible_retry_txn_id, &visible_retry_rowset));
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        const std::string key = txn_info_key({mock_instance, db_id, visible_retry_txn_id});
+        std::string value;
+        ASSERT_EQ(txn->get(key, &value), TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(txn_info.ParseFromString(value));
+        txn_info.set_status(TxnStatusPB::TXN_STATUS_VISIBLE);
+        txn->put(key, txn_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+    EXPECT_EQ(send_rowset(visible_retry_rowset, false, true, "writer-a"), MetaServiceCode::OK);
+    ASSERT_NO_FATAL_FAILURE(read_txn_info(visible_retry_txn_id, &txn_info));
+    EXPECT_EQ(txn_info.load_cluster_id(), "old-unbound-hint");
+    EXPECT_FALSE(txn_info.load_cluster_id_bound_by_writer());
+
+    // First binding uses the durable InstanceInfoPB, not an asynchronously refreshed node cache.
+    // This also covers an old BE that omits load_cluster_id while degraded instance lookup still
+    // lets the rowset RPC reach this meta-service.
+    int64_t durable_writer_txn_id = 0;
+    ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, "writer_durable_resolution",
+                                      table_id, durable_writer_txn_id));
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        const std::string key = txn_info_key({mock_instance, db_id, durable_writer_txn_id});
+        std::string value;
+        ASSERT_EQ(txn->get(key, &value), TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(txn_info.ParseFromString(value));
+        txn_info.set_load_cluster_id("writer-a");
+        txn_info.clear_load_cluster_id_bound_by_writer();
+        txn->put(key, txn_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+    auto durable_writer_rowset = make_load_rowset(durable_writer_txn_id, tablet_id + 9);
+    EXPECT_EQ(send_rowset(durable_writer_rowset, true, false, "", "writer-b-node"),
+              MetaServiceCode::OK);
+    ASSERT_NO_FATAL_FAILURE(read_txn_info(durable_writer_txn_id, &txn_info));
+    EXPECT_EQ(txn_info.load_cluster_id(), "writer-b");
+    EXPECT_TRUE(txn_info.load_cluster_id_bound_by_writer());
+
+    int64_t unknown_writer_txn_id = 0;
+    ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, "writer_unknown", table_id,
+                                      unknown_writer_txn_id));
+    auto unknown_writer_rowset = make_load_rowset(unknown_writer_txn_id, tablet_id + 10);
+    EXPECT_EQ(send_rowset(unknown_writer_rowset, true, false, "", "unknown-writer-node"),
+              MetaServiceCode::INVALID_ARGUMENT);
+    ASSERT_NO_FATAL_FAILURE(read_txn_info(unknown_writer_txn_id, &txn_info));
+    EXPECT_FALSE(txn_info.load_cluster_id_bound_by_writer());
+
+    writer_instance.mutable_clusters(0)->add_nodes()->set_cloud_unique_id("ambiguous-writer-node");
+    writer_instance.mutable_clusters(1)->add_nodes()->set_cloud_unique_id("ambiguous-writer-node");
+    ASSERT_NO_FATAL_FAILURE(persist_writer_instance());
+    int64_t ambiguous_writer_txn_id = 0;
+    ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, "writer_ambiguous", table_id,
+                                      ambiguous_writer_txn_id));
+    auto ambiguous_writer_rowset = make_load_rowset(ambiguous_writer_txn_id, tablet_id + 11);
+    EXPECT_EQ(send_rowset(ambiguous_writer_rowset, true, false, "", "ambiguous-writer-node"),
+              MetaServiceCode::INVALID_ARGUMENT);
+    ASSERT_NO_FATAL_FAILURE(read_txn_info(ambiguous_writer_txn_id, &txn_info));
+    EXPECT_FALSE(txn_info.load_cluster_id_bound_by_writer());
+
+    // Compaction/schema-change rowsets do not carry load_id and remain unaffected.
+    auto job_rowset = create_rowset(hinted_txn_id + 100, tablet_id + 5, partition_id);
+    CreateRowsetResponse job_res;
+    prepare_rowset(meta_service.get(), job_rowset, job_res);
+    EXPECT_EQ(job_res.status().code(), MetaServiceCode::OK) << job_res.status().msg();
+    job_res.Clear();
+    commit_rowset(meta_service.get(), job_rowset, job_res);
+    EXPECT_EQ(job_res.status().code(), MetaServiceCode::OK) << job_res.status().msg();
+}
+
 TEST(MetaServiceTest, StalePrepareRowset) {
     auto meta_service = get_meta_service();
+    ASSERT_NO_FATAL_FAILURE(put_compute_instance(meta_service.get(), mock_instance, mock_cluster_id,
+                                                 "test_cloud_unique_id"));
 
     int64_t table_id = 1;
     int64_t partition_id = 1;
@@ -11185,19 +11625,19 @@ TEST(MetaServiceTest, StalePrepareRowset) {
     auto rowset = create_rowset(txn_id, tablet_id, partition_id);
     rowset.mutable_load_id()->set_hi(123);
     rowset.mutable_load_id()->set_lo(456);
-    prepare_rowset(meta_service.get(), rowset, res);
+    prepare_rowset(meta_service.get(), rowset, res, "test_cloud_unique_id");
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
     res.Clear();
-    ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+    ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res, "test_cloud_unique_id"));
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
 
-    prepare_rowset(meta_service.get(), rowset, res);
+    prepare_rowset(meta_service.get(), rowset, res, "test_cloud_unique_id");
     ASSERT_TRUE(res.status().msg().find("rowset already exists") != std::string::npos)
             << res.status().msg();
     ASSERT_EQ(res.status().code(), MetaServiceCode::ALREADY_EXISTED) << res.status().code();
 
     commit_txn(meta_service.get(), db_id, txn_id, label);
-    prepare_rowset(meta_service.get(), rowset, res);
+    prepare_rowset(meta_service.get(), rowset, res, "test_cloud_unique_id");
     ASSERT_TRUE(res.status().msg().find("txn is not in") != std::string::npos)
             << res.status().msg();
     ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().code();
@@ -11205,6 +11645,8 @@ TEST(MetaServiceTest, StalePrepareRowset) {
 
 TEST(MetaServiceTest, StaleCommitRowset) {
     auto meta_service = get_meta_service();
+    ASSERT_NO_FATAL_FAILURE(put_compute_instance(meta_service.get(), mock_instance, mock_cluster_id,
+                                                 "test_cloud_unique_id"));
 
     int64_t table_id = 1;
     int64_t partition_id = 1;
@@ -11219,17 +11661,17 @@ TEST(MetaServiceTest, StaleCommitRowset) {
     auto rowset = create_rowset(txn_id, tablet_id, partition_id);
     rowset.mutable_load_id()->set_hi(123);
     rowset.mutable_load_id()->set_lo(456);
-    prepare_rowset(meta_service.get(), rowset, res);
+    prepare_rowset(meta_service.get(), rowset, res, "test_cloud_unique_id");
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
     res.Clear();
-    ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+    ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res, "test_cloud_unique_id"));
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
 
-    ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+    ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res, "test_cloud_unique_id"));
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
 
     commit_txn(meta_service.get(), db_id, txn_id, label);
-    ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+    ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res, "test_cloud_unique_id"));
     ASSERT_TRUE(res.status().msg().find("recycle rowset key not found") != std::string::npos)
             << res.status().msg();
     ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().code();
@@ -11247,6 +11689,8 @@ TEST(MetaServiceTest, CommitRowsetCheckTmpAndRecycleKeyExclusion) {
     };
 
     std::string instance_id = "commit_rowset_recycle_key_test_instance_id";
+    ASSERT_NO_FATAL_FAILURE(put_compute_instance(meta_service.get(), instance_id, mock_cluster_id,
+                                                 "test_cloud_unique_id"));
     auto sp = SyncPoint::get_instance();
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
@@ -11289,15 +11733,18 @@ TEST(MetaServiceTest, CommitRowsetCheckTmpAndRecycleKeyExclusion) {
         auto rowset = create_rowset(txn_id, tablet_id, partition_id);
         rowset.mutable_load_id()->set_hi(123);
         rowset.mutable_load_id()->set_lo(456);
-        ASSERT_NO_FATAL_FAILURE(prepare_rowset(meta_service.get(), rowset, res));
+        ASSERT_NO_FATAL_FAILURE(
+                prepare_rowset(meta_service.get(), rowset, res, "test_cloud_unique_id"));
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
         res.Clear();
-        ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+        ASSERT_NO_FATAL_FAILURE(
+                commit_rowset(meta_service.get(), rowset, res, "test_cloud_unique_id"));
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
         res.Clear();
 
         ASSERT_NO_FATAL_FAILURE(put_recycle_rowset(rowset));
-        ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+        ASSERT_NO_FATAL_FAILURE(
+                commit_rowset(meta_service.get(), rowset, res, "test_cloud_unique_id"));
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
         ASSERT_TRUE(res.status().msg().find("mutually exclusive") != std::string::npos)
                 << res.status().msg();
@@ -11318,7 +11765,8 @@ TEST(MetaServiceTest, CommitRowsetCheckTmpAndRecycleKeyExclusion) {
         rowset.mutable_load_id()->set_hi(789);
         rowset.mutable_load_id()->set_lo(101112);
 
-        ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+        ASSERT_NO_FATAL_FAILURE(
+                commit_rowset(meta_service.get(), rowset, res, "test_cloud_unique_id"));
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
         ASSERT_TRUE(res.status().msg().find("recycle rowset key not found") != std::string::npos)
                 << res.status().msg();

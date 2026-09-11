@@ -27,6 +27,7 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <random>
 #include <string>
 
@@ -50,6 +51,8 @@ namespace doris::cloud {
 // External functions from meta_service_test.cpp
 extern std::unique_ptr<MetaServiceProxy> get_meta_service();
 extern std::unique_ptr<MetaServiceProxy> get_meta_service(bool mock_resource_mgr);
+extern void put_compute_instance(MetaServiceProxy* meta_service, const std::string& instance_id,
+                                 const std::string& cluster_id, const std::string& cloud_unique_id);
 extern void create_tablet(MetaServiceProxy* meta_service, int64_t table_id, int64_t index_id,
                           int64_t partition_id, int64_t tablet_id);
 extern doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id, int partition_id,
@@ -1472,6 +1475,335 @@ TEST(MetaServiceJobVersionedReadTest, CompactionJobTest) {
     }
 }
 
+// GoogleTest assertions inflate this linear authorization-matrix test's complexity metric.
+TEST(MetaServiceJobTest, // NOLINT(readability-function-cognitive-complexity)
+     CompactionOwnerEpochGuardsJobCreation) {
+    auto meta_service = get_meta_service();
+    const std::string test_instance_id = "compaction_owner_epoch_gate_instance";
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = test_instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    constexpr int64_t table_id = 101;
+    constexpr int64_t index_id = 102;
+    constexpr int64_t partition_id = 103;
+    constexpr int64_t tablet_id = 104;
+    create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id, false);
+    create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id + 1, false);
+    create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id + 2, false);
+    create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id + 3, false);
+    create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id + 4, false);
+    create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id + 5, false);
+    create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id + 6, false);
+
+    std::string stats_key =
+            stats_tablet_key({test_instance_id, table_id, index_id, partition_id, tablet_id});
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string value;
+    ASSERT_EQ(txn->get(stats_key, &value), TxnErrorCode::TXN_OK);
+    TabletStatsPB stats;
+    ASSERT_TRUE(stats.ParseFromString(value));
+    stats.set_last_active_cluster_id("owner-a");
+    stats.set_last_active_time_ms(10);
+    stats.set_last_active_epoch(7);
+    txn->put(stats_key, stats.SerializeAsString());
+    for (int64_t owner_tablet_id : {tablet_id + 3, tablet_id + 4, tablet_id + 5, tablet_id + 6}) {
+        std::string owner_stats_key = stats_tablet_key(
+                {test_instance_id, table_id, index_id, partition_id, owner_tablet_id});
+        ASSERT_EQ(txn->get(owner_stats_key, &value), TxnErrorCode::TXN_OK);
+        TabletStatsPB owner_stats;
+        ASSERT_TRUE(owner_stats.ParseFromString(value));
+        owner_stats.set_last_active_cluster_id("owner-a");
+        owner_stats.set_last_active_time_ms(10);
+        owner_stats.set_last_active_epoch(7);
+        txn->put(owner_stats_key, owner_stats.SerializeAsString());
+    }
+    InstanceInfoPB instance;
+    instance.set_instance_id(test_instance_id);
+    auto* owner_cluster = instance.add_clusters();
+    owner_cluster->set_cluster_id("owner-a");
+    owner_cluster->set_type(ClusterPB::COMPUTE);
+    owner_cluster->set_cluster_status(ClusterStatus::NORMAL);
+    owner_cluster->set_cluster_status_mtime(20);
+    owner_cluster->set_mtime(20);
+    owner_cluster->add_nodes()->set_cloud_unique_id("owner-a-node");
+    owner_cluster->add_nodes()->set_cloud_unique_id("ambiguous-node");
+    auto* requester_cluster = instance.add_clusters();
+    requester_cluster->set_cluster_id("owner-b");
+    requester_cluster->set_type(ClusterPB::COMPUTE);
+    requester_cluster->set_cluster_status(ClusterStatus::NORMAL);
+    requester_cluster->set_cluster_status_mtime(20);
+    requester_cluster->set_mtime(20);
+    requester_cluster->add_nodes()->set_cloud_unique_id("owner-b-node");
+    requester_cluster->add_nodes()->set_cloud_unique_id("ambiguous-node");
+    txn->put(instance_key({test_instance_id}), instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    auto start = [&](int64_t target_tablet_id, std::string_view job_id,
+                     TabletCompactionJobPB::CompactionType type, bool set_owner, bool set_epoch,
+                     bool set_requester, int64_t observed_epoch,
+                     std::string_view requester = "owner-a",
+                     std::optional<ClusterStatus> observed_status = std::nullopt,
+                     std::optional<int64_t> observed_status_mtime_ms = std::nullopt,
+                     bool force_compaction = false, std::string_view request_cloud_unique_id = {},
+                     std::optional<int64_t> observed_cluster_mtime_ms = std::nullopt) {
+        StartTabletJobRequest req;
+        req.set_cloud_unique_id(request_cloud_unique_id.empty()
+                                        ? fmt::format("{}-node", requester)
+                                        : std::string(request_cloud_unique_id));
+        req.mutable_job()->mutable_idx()->set_tablet_id(target_tablet_id);
+        auto* compaction = req.mutable_job()->add_compaction();
+        compaction->set_id(std::string(job_id));
+        compaction->set_initiator("be");
+        compaction->set_base_compaction_cnt(stats.base_compaction_cnt());
+        compaction->set_cumulative_compaction_cnt(stats.cumulative_compaction_cnt());
+        compaction->set_type(type);
+        compaction->set_expiration(time(nullptr) + 30);
+        compaction->set_lease(time(nullptr) + 20);
+        if (set_owner) {
+            compaction->set_observed_last_active_cluster_id("owner-a");
+        }
+        if (set_epoch) {
+            compaction->set_observed_last_active_epoch(observed_epoch);
+        }
+        if (set_requester) {
+            compaction->set_requester_cluster_id(std::string(requester));
+        }
+        if (observed_status.has_value()) {
+            compaction->set_observed_owner_cluster_status(*observed_status);
+        }
+        if (observed_status_mtime_ms.has_value()) {
+            compaction->set_observed_owner_cluster_status_mtime_ms(*observed_status_mtime_ms);
+        }
+        if (force_compaction) {
+            compaction->set_force_compaction_by_version_count(true);
+        }
+        if (observed_cluster_mtime_ms.has_value()) {
+            compaction->set_observed_owner_cluster_mtime_ms(*observed_cluster_mtime_ms);
+        }
+        StartTabletJobResponse res;
+        brpc::Controller cntl;
+        meta_service->start_tablet_job(&cntl, &req, &res, nullptr);
+        return res.status().code();
+    };
+
+    EXPECT_EQ(start(tablet_id, "stale", TabletCompactionJobPB::CUMULATIVE, true, true, true, 6),
+              MetaServiceCode::STALE_TABLET_CACHE);
+    EXPECT_EQ(start(tablet_id, "partial", TabletCompactionJobPB::CUMULATIVE, true, false, false, 0),
+              MetaServiceCode::INVALID_ARGUMENT);
+    EXPECT_EQ(start(tablet_id, "partial-status", TabletCompactionJobPB::CUMULATIVE, true, true,
+                    true, 7, "owner-a", ClusterStatus::SUSPENDED),
+              MetaServiceCode::INVALID_ARGUMENT);
+    EXPECT_EQ(start(tablet_id + 4, "requester-mismatch", TabletCompactionJobPB::CUMULATIVE, true,
+                    true, true, 7, "owner-b", std::nullopt, std::nullopt, false, "owner-a-node"),
+              MetaServiceCode::STALE_TABLET_CACHE);
+    EXPECT_EQ(start(tablet_id + 4, "requester-missing", TabletCompactionJobPB::CUMULATIVE, true,
+                    true, true, 7, "owner-b", std::nullopt, std::nullopt, false, "missing-node"),
+              MetaServiceCode::INVALID_ARGUMENT);
+    EXPECT_EQ(start(tablet_id + 4, "requester-ambiguous", TabletCompactionJobPB::CUMULATIVE, true,
+                    true, true, 7, "owner-b", std::nullopt, std::nullopt, false, "ambiguous-node"),
+              MetaServiceCode::INVALID_ARGUMENT);
+    std::string job_key =
+            job_tablet_key({test_instance_id, table_id, index_id, partition_id, tablet_id});
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(txn->get(job_key, &value), TxnErrorCode::TXN_KEY_NOT_FOUND);
+
+    // Requests from old BEs omit all token fields and retain legacy behavior.
+    EXPECT_EQ(start(tablet_id + 1, "legacy", TabletCompactionJobPB::CUMULATIVE, false, false, false,
+                    0),
+              MetaServiceCode::OK);
+    // STOP_TOKEN is a schema-change lock marker, not a compaction selected from tablet cache.
+    EXPECT_EQ(start(tablet_id + 2, "stop", TabletCompactionJobPB::STOP_TOKEN, true, true, false, -1,
+                    "other"),
+              MetaServiceCode::OK);
+
+    EXPECT_EQ(start(tablet_id, "matching", TabletCompactionJobPB::CUMULATIVE, true, true, true, 7),
+              MetaServiceCode::OK);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(txn->get(job_key, &value), TxnErrorCode::TXN_OK);
+
+    // A foreign requester must not take over after the observed owner has resumed.
+    EXPECT_EQ(start(tablet_id + 3, "owner-normal", TabletCompactionJobPB::CUMULATIVE, true, true,
+                    true, 7, "owner-b", ClusterStatus::SUSPENDED, 10000),
+              MetaServiceCode::STALE_TABLET_CACHE);
+    std::string foreign_job_key =
+            job_tablet_key({test_instance_id, table_id, index_id, partition_id, tablet_id + 3});
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(txn->get(foreign_job_key, &value), TxnErrorCode::TXN_KEY_NOT_FOUND);
+
+    std::string instance_val;
+    ASSERT_EQ(txn->get(instance_key({test_instance_id}), &instance_val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(instance.ParseFromString(instance_val));
+    ASSERT_EQ(instance.clusters_size(), 2);
+    instance.mutable_clusters(0)->set_cluster_status(ClusterStatus::SUSPENDED);
+    instance.mutable_clusters(0)->set_cluster_status_mtime(30);
+    instance.mutable_clusters(0)->set_mtime(30);
+    txn->put(instance_key({test_instance_id}), instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(start(tablet_id + 3, "owner-suspended", TabletCompactionJobPB::CUMULATIVE, true, true,
+                    true, 7, "owner-b", ClusterStatus::SUSPENDED, 30000, false, {}, 30000),
+              MetaServiceCode::OK);
+    EXPECT_EQ(start(tablet_id + 5, "owner-metadata-generation-changed",
+                    TabletCompactionJobPB::CUMULATIVE, true, true, true, 7, "owner-b",
+                    ClusterStatus::SUSPENDED, 30000, false, {}, 29000),
+              MetaServiceCode::STALE_TABLET_CACHE);
+
+    // The instance read participates in the same FDB transaction as job creation. A status
+    // transition after authorization but before commit must conflict; retrying with the stale
+    // availability generation is then rejected.
+    sp->set_call_back("start_tablet_job::before_commit", [&](auto&&) {
+        std::unique_ptr<Transaction> race_txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&race_txn), TxnErrorCode::TXN_OK);
+        std::string race_instance_val;
+        ASSERT_EQ(race_txn->get(instance_key({test_instance_id}), &race_instance_val),
+                  TxnErrorCode::TXN_OK);
+        InstanceInfoPB race_instance;
+        ASSERT_TRUE(race_instance.ParseFromString(race_instance_val));
+        ASSERT_GE(race_instance.clusters_size(), 1);
+        race_instance.mutable_clusters(0)->set_cluster_status(ClusterStatus::NORMAL);
+        race_instance.mutable_clusters(0)->set_cluster_status_mtime(31);
+        race_instance.mutable_clusters(0)->set_mtime(31);
+        race_txn->put(instance_key({test_instance_id}), race_instance.SerializeAsString());
+        ASSERT_EQ(race_txn->commit(), TxnErrorCode::TXN_OK);
+    });
+    EXPECT_EQ(start(tablet_id + 6, "owner-status-race", TabletCompactionJobPB::CUMULATIVE, true,
+                    true, true, 7, "owner-b", ClusterStatus::SUSPENDED, 30000, false, {}, 30000),
+              MetaServiceCode::KV_TXN_CONFLICT);
+    sp->clear_call_back("start_tablet_job::before_commit");
+    EXPECT_EQ(start(tablet_id + 6, "owner-status-race", TabletCompactionJobPB::CUMULATIVE, true,
+                    true, true, 7, "owner-b", ClusterStatus::SUSPENDED, 30000, false, {}, 30000),
+              MetaServiceCode::STALE_TABLET_CACHE);
+
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(instance_key({test_instance_id}), &instance_val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(instance.ParseFromString(instance_val));
+    instance.mutable_clusters(0)->set_cluster_status(ClusterStatus::SUSPENDED);
+    instance.mutable_clusters(0)->set_cluster_status_mtime(40);
+    instance.mutable_clusters(0)->set_mtime(40);
+    txn->put(instance_key({test_instance_id}), instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(start(tablet_id + 5, "owner-generation-changed", TabletCompactionJobPB::CUMULATIVE,
+                    true, true, true, 7, "owner-b", ClusterStatus::SUSPENDED, 30000),
+              MetaServiceCode::STALE_TABLET_CACHE);
+
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(instance_key({test_instance_id}), &instance_val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(instance.ParseFromString(instance_val));
+    instance.mutable_clusters(0)->set_cluster_status(ClusterStatus::NORMAL);
+    instance.mutable_clusters(0)->set_cluster_status_mtime(50);
+    instance.mutable_clusters(0)->set_mtime(50);
+    txn->put(instance_key({test_instance_id}), instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(start(tablet_id + 5, "forced-version-count", TabletCompactionJobPB::CUMULATIVE, true,
+                    true, true, 7, "owner-b", std::nullopt, std::nullopt, true),
+              MetaServiceCode::OK);
+
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(instance_key({test_instance_id}), &instance_val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(instance.ParseFromString(instance_val));
+    instance.mutable_clusters()->DeleteSubrange(0, 1);
+    txn->put(instance_key({test_instance_id}), instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(start(tablet_id + 4, "owner-deleted", TabletCompactionJobPB::CUMULATIVE, true, true,
+                    true, 7, "owner-b"),
+              MetaServiceCode::OK);
+}
+
+// GoogleTest assertions inflate this linear rolling-upgrade test's complexity metric.
+TEST(MetaServiceJobVersionedReadTest, // NOLINT(readability-function-cognitive-complexity)
+     AggregateOwnerOverlaysVersionedOwnerForStart) {
+    auto meta_service = get_meta_service(false);
+    std::string test_instance_id = "versioned_owner_gate_instance";
+    MOCK_GET_INSTANCE_ID(test_instance_id);
+    create_and_refresh_instance(meta_service.get(), test_instance_id);
+
+    constexpr int64_t table_id = 201;
+    constexpr int64_t index_id = 202;
+    constexpr int64_t partition_id = 203;
+    constexpr int64_t tablet_id = 204;
+    create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id, true);
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    TabletStatsPB versioned_load;
+    versioned_load.set_last_active_cluster_id("stale-versioned-owner");
+    versioned_load.set_last_active_time_ms(1);
+    versioned_load.set_last_active_epoch(8);
+    std::string load_key = versioned::tablet_load_stats_key({test_instance_id, tablet_id});
+    ASSERT_TRUE(versioned::document_put(txn.get(), load_key, std::move(versioned_load)));
+    TabletStatsPB aggregate;
+    aggregate.set_last_active_cluster_id("canonical-owner");
+    aggregate.set_last_active_time_ms(12345);
+    aggregate.set_last_active_epoch(9);
+    std::string aggregate_key =
+            stats_tablet_key({test_instance_id, table_id, index_id, partition_id, tablet_id});
+    txn->put(aggregate_key, aggregate.SerializeAsString());
+    InstanceInfoPB identity;
+    identity.set_instance_id(test_instance_id);
+    identity.set_multi_version_status(MULTI_VERSION_READ_WRITE);
+    auto* cluster = identity.add_clusters();
+    cluster->set_cluster_id("canonical-owner");
+    cluster->set_type(ClusterPB::COMPUTE);
+    cluster->set_cluster_status(ClusterStatus::NORMAL);
+    cluster->add_nodes()->set_cloud_unique_id("canonical-owner-node");
+    txn->put(instance_key({test_instance_id}), identity.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    StartTabletJobRequest req;
+    req.set_cloud_unique_id("canonical-owner-node");
+    req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+    auto* compaction = req.mutable_job()->add_compaction();
+    compaction->set_id("canonical-owner-job");
+    compaction->set_initiator("be");
+    compaction->set_base_compaction_cnt(0);
+    compaction->set_cumulative_compaction_cnt(0);
+    compaction->set_type(TabletCompactionJobPB::EMPTY_CUMULATIVE);
+    compaction->set_expiration(time(nullptr) + 30);
+    compaction->set_lease(time(nullptr) + 20);
+    compaction->set_observed_last_active_cluster_id("canonical-owner");
+    compaction->set_observed_last_active_epoch(9);
+    compaction->set_requester_cluster_id("canonical-owner");
+    StartTabletJobResponse res;
+    brpc::Controller cntl;
+    meta_service->start_tablet_job(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+    FinishTabletJobResponse finish_res;
+    finish_compaction_job(meta_service.get(), tablet_id, "canonical-owner-job", "be", 0, 0,
+                          TabletCompactionJobPB::EMPTY_CUMULATIVE, finish_res);
+    ASSERT_EQ(finish_res.status().code(), MetaServiceCode::OK) << finish_res.status().msg();
+    EXPECT_EQ(finish_res.stats().last_active_cluster_id(), "canonical-owner");
+    EXPECT_EQ(finish_res.stats().last_active_time_ms(), 12345);
+    EXPECT_EQ(finish_res.stats().last_active_epoch(), 9);
+
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string aggregate_val;
+    ASSERT_EQ(txn->get(aggregate_key, &aggregate_val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(aggregate.ParseFromString(aggregate_val));
+    EXPECT_EQ(aggregate.last_active_cluster_id(), "canonical-owner");
+    EXPECT_EQ(aggregate.last_active_time_ms(), 12345);
+    EXPECT_EQ(aggregate.last_active_epoch(), 9);
+
+    TabletStatsPB compact_stats;
+    Versionstamp versionstamp;
+    ASSERT_EQ(versioned::document_get(
+                      txn.get(), versioned::tablet_compact_stats_key({test_instance_id, tablet_id}),
+                      &compact_stats, &versionstamp),
+              TxnErrorCode::TXN_OK);
+    EXPECT_FALSE(compact_stats.has_last_active_cluster_id());
+    EXPECT_FALSE(compact_stats.has_last_active_time_ms());
+    EXPECT_FALSE(compact_stats.has_last_active_epoch());
+}
+
 TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
     auto meta_service = get_meta_service(false);
     std::string instance_id = "test_cloud_instance_id";
@@ -1493,6 +1825,45 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
         insert_rowset(meta_service.get(), 1, "commit_rowset_1", table_id, partition_id, tablet_id);
         insert_rowset(meta_service.get(), 1, "commit_rowset_2", table_id, partition_id, tablet_id);
         insert_rowset(meta_service.get(), 1, "commit_rowset_3", table_id, partition_id, tablet_id);
+    }
+
+    constexpr int64_t last_active_time_ms = 123456789;
+    constexpr int64_t last_active_epoch = 7;
+    constexpr int64_t last_active_status_mtime_ms = 987654321;
+    {
+        // Model a cloned instance whose old-tablet owner exists only in the ancestor's versioned
+        // load document. There is deliberately no current-instance aggregate or load document,
+        // so schema change must use CloneChainReader rather than a local fallback.
+        const std::string source_instance_id = "test_cloud_source_instance_id";
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        const auto stats_key =
+                stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        txn->remove(stats_key);
+        versioned_remove_all(txn.get(), versioned::tablet_load_stats_key({instance_id, tablet_id}));
+
+        TabletStatsPB source_load_stats;
+        source_load_stats.set_last_active_cluster_id("cluster_a");
+        source_load_stats.set_last_active_time_ms(last_active_time_ms);
+        source_load_stats.set_last_active_epoch(last_active_epoch);
+        source_load_stats.set_last_active_cluster_status(ClusterStatus::SUSPENDED);
+        source_load_stats.set_last_active_cluster_status_mtime_ms(last_active_status_mtime_ms);
+        ASSERT_TRUE(versioned::document_put(
+                txn.get(), versioned::tablet_load_stats_key({source_instance_id, tablet_id}),
+                std::move(source_load_stats)));
+
+        std::string current_instance_value;
+        ASSERT_EQ(txn->get(instance_key({instance_id}), &current_instance_value),
+                  TxnErrorCode::TXN_OK);
+        InstanceInfoPB current_instance;
+        ASSERT_TRUE(current_instance.ParseFromString(current_instance_value));
+        current_instance.set_source_instance_id(source_instance_id);
+        current_instance.set_source_snapshot_id(
+                SnapshotManager::serialize_snapshot_id(Versionstamp::max()));
+        txn->put(instance_key({instance_id}), current_instance.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(meta_service->resource_mgr()->refresh_instance(instance_id).first,
+                  MetaServiceCode::OK);
     }
 
     auto get_tablet_stats = [&](int64_t tid) -> TabletStatsPB {
@@ -1562,6 +1933,28 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
 
+    {
+        // The rowset commits above materialize a current-instance load document. Remove it (and
+        // the aggregate key) after every input write so the schema-change finish below can obtain
+        // the old-tablet owner only by following the configured clone chain to the ancestor.
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        const std::string aggregate_key =
+                stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        const std::string child_load_key =
+                versioned::tablet_load_stats_key({instance_id, tablet_id});
+        txn->remove(aggregate_key);
+        versioned_remove_all(txn.get(), child_load_key);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        EXPECT_EQ(txn->get(aggregate_key, &value), TxnErrorCode::TXN_KEY_NOT_FOUND);
+        TabletStatsPB child_load_stats;
+        EXPECT_EQ(versioned::document_get(txn.get(), child_load_key, &child_load_stats, nullptr),
+                  TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+
     auto old_tablet_stats_pb = get_tablet_stats(tablet_id);
     auto new_tablet_stats_pb = get_tablet_stats(new_tablet_id);
 
@@ -1626,6 +2019,52 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
                           req.job().schema_change().segment_size_output_rowsets());
         EXPECT_EQ(new_stats.cumulative_point(),
                   req.job().schema_change().output_cumulative_point());
+        EXPECT_EQ(new_stats.last_active_cluster_id(), "cluster_a");
+        EXPECT_EQ(new_stats.last_active_time_ms(), last_active_time_ms);
+        EXPECT_EQ(new_stats.last_active_epoch(), last_active_epoch);
+        EXPECT_EQ(new_stats.last_active_cluster_status(), ClusterStatus::SUSPENDED);
+        EXPECT_EQ(new_stats.last_active_cluster_status_mtime_ms(), last_active_status_mtime_ms);
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        TabletStatsPB versioned_load_stats;
+        Versionstamp versionstamp;
+        auto load_stats_key = versioned::tablet_load_stats_key({instance_id, new_tablet_id});
+        ASSERT_EQ(versioned::document_get(txn.get(), load_stats_key, &versioned_load_stats,
+                                          &versionstamp),
+                  TxnErrorCode::TXN_OK);
+        EXPECT_EQ(versioned_load_stats.last_active_cluster_id(), "cluster_a");
+        EXPECT_EQ(versioned_load_stats.last_active_time_ms(), last_active_time_ms);
+        EXPECT_EQ(versioned_load_stats.last_active_epoch(), last_active_epoch);
+        EXPECT_EQ(versioned_load_stats.last_active_cluster_status(), ClusterStatus::SUSPENDED);
+        EXPECT_EQ(versioned_load_stats.last_active_cluster_status_mtime_ms(),
+                  last_active_status_mtime_ms);
+
+        TabletStatsPB versioned_compact_stats;
+        ASSERT_EQ(versioned::document_get(
+                          txn.get(),
+                          versioned::tablet_compact_stats_key({instance_id, new_tablet_id}),
+                          &versioned_compact_stats, nullptr),
+                  TxnErrorCode::TXN_OK);
+        EXPECT_FALSE(versioned_compact_stats.has_last_active_cluster_id());
+        EXPECT_FALSE(versioned_compact_stats.has_last_active_time_ms());
+        EXPECT_FALSE(versioned_compact_stats.has_last_active_epoch());
+        EXPECT_FALSE(versioned_compact_stats.has_last_active_cluster_status());
+        EXPECT_FALSE(versioned_compact_stats.has_last_active_cluster_status_mtime_ms());
+
+        std::string aggregate_value;
+        ASSERT_EQ(txn->get(stats_tablet_key(
+                                   {instance_id, table_id, index_id, partition_id, new_tablet_id}),
+                           &aggregate_value),
+                  TxnErrorCode::TXN_OK);
+        TabletStatsPB aggregate_stats;
+        ASSERT_TRUE(aggregate_stats.ParseFromString(aggregate_value));
+        EXPECT_EQ(aggregate_stats.last_active_cluster_id(), "cluster_a");
+        EXPECT_EQ(aggregate_stats.last_active_time_ms(), last_active_time_ms);
+        EXPECT_EQ(aggregate_stats.last_active_epoch(), last_active_epoch);
+        EXPECT_EQ(aggregate_stats.last_active_cluster_status(), ClusterStatus::SUSPENDED);
+        EXPECT_EQ(aggregate_stats.last_active_cluster_status_mtime_ms(),
+                  last_active_status_mtime_ms);
     }
 
     {
@@ -3676,6 +4115,22 @@ TEST(MetaServiceJobTest, SchemaChangeJobTest) {
         ASSERT_EQ(res.status().code(), MetaServiceCode::JOB_ALREADY_SUCCESS);
     }
 
+    constexpr int64_t last_active_time_ms = 123456789;
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        auto stats_key =
+                stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        std::string stats_val;
+        ASSERT_EQ(txn->get(stats_key, &stats_val), TxnErrorCode::TXN_OK);
+        TabletStatsPB stats;
+        ASSERT_TRUE(stats.ParseFromString(stats_val));
+        stats.set_last_active_cluster_id("cluster_a");
+        stats.set_last_active_time_ms(last_active_time_ms);
+        txn->put(stats_key, stats.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
     // commit schema_change job with txn_ids
     {
         int64_t new_tablet_id = 24;
@@ -3715,6 +4170,8 @@ TEST(MetaServiceJobTest, SchemaChangeJobTest) {
         EXPECT_EQ(tablet_stats.data_size(), 50000);
         EXPECT_EQ(tablet_stats.index_size(), 25000);
         EXPECT_EQ(tablet_stats.segment_size(), 25000);
+        EXPECT_EQ(tablet_stats.last_active_cluster_id(), "cluster_a");
+        EXPECT_EQ(tablet_stats.last_active_time_ms(), last_active_time_ms);
 
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -6098,6 +6555,8 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
 TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest1) {
     DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
+    ASSERT_NO_FATAL_FAILURE(put_compute_instance(meta_service.get(), instance_id, "test_cluster_id",
+                                                 "test_cloud_unique_id"));
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
@@ -6161,6 +6620,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest1) {
             CreateRowsetResponse res;
             auto* arena = res.GetArena();
             auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+            req->set_cloud_unique_id("test_cloud_unique_id");
             req->mutable_rowset_meta()->CopyFrom(rowset_meta);
             meta_service->prepare_rowset(&cntl, req, &res, nullptr);
             if (!arena) delete req;
@@ -6195,6 +6655,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest1) {
             CreateRowsetResponse res;
             auto* arena = res.GetArena();
             auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+            req->set_cloud_unique_id("test_cloud_unique_id");
             req->mutable_rowset_meta()->CopyFrom(rowset_meta);
             meta_service->commit_rowset(&cntl, req, &res, nullptr);
             if (!arena) delete req;
@@ -6356,6 +6817,8 @@ TEST(MetaServiceJobTest, AbortJobForRelatedRowsetTest1) {
 TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest2) {
     DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
+    ASSERT_NO_FATAL_FAILURE(put_compute_instance(meta_service.get(), instance_id, "test_cluster_id",
+                                                 "test_cloud_unique_id"));
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
@@ -6419,6 +6882,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest2) {
             CreateRowsetResponse res;
             auto* arena = res.GetArena();
             auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+            req->set_cloud_unique_id("test_cloud_unique_id");
             req->mutable_rowset_meta()->CopyFrom(rowset_meta);
             meta_service->prepare_rowset(&cntl, req, &res, nullptr);
             if (!arena) delete req;
@@ -6432,6 +6896,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest2) {
             CreateRowsetResponse res;
             auto* arena = res.GetArena();
             auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+            req->set_cloud_unique_id("test_cloud_unique_id");
             req->mutable_rowset_meta()->CopyFrom(rowset_meta);
             meta_service->commit_rowset(&cntl, req, &res, nullptr);
             if (!arena) delete req;
@@ -6805,6 +7270,8 @@ TEST(MetaServiceJobTest, AbortSchemaChangeJobForRelatedRowsetTest2) {
 TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest3) {
     DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
+    ASSERT_NO_FATAL_FAILURE(put_compute_instance(meta_service.get(), instance_id, "test_cluster_id",
+                                                 "test_cloud_unique_id"));
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
@@ -6868,6 +7335,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest3) {
             CreateRowsetResponse res;
             auto* arena = res.GetArena();
             auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+            req->set_cloud_unique_id("test_cloud_unique_id");
             req->mutable_rowset_meta()->CopyFrom(rowset_meta);
             meta_service->prepare_rowset(&cntl, req, &res, nullptr);
             if (!arena) delete req;
@@ -6899,6 +7367,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest3) {
             CreateRowsetResponse res;
             auto* arena = res.GetArena();
             auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+            req->set_cloud_unique_id("test_cloud_unique_id");
             req->mutable_rowset_meta()->CopyFrom(rowset_meta);
             meta_service->commit_rowset(&cntl, req, &res, nullptr);
             if (!arena) delete req;
@@ -7041,6 +7510,8 @@ TEST(MetaServiceJobTest, AbortJobForRelatedRowsetTest3) {
 TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest4) {
     DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
+    ASSERT_NO_FATAL_FAILURE(put_compute_instance(meta_service.get(), instance_id, "test_cluster_id",
+                                                 "test_cloud_unique_id"));
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
@@ -7104,6 +7575,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest4) {
             CreateRowsetResponse res;
             auto* arena = res.GetArena();
             auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+            req->set_cloud_unique_id("test_cloud_unique_id");
             req->mutable_rowset_meta()->CopyFrom(rowset_meta);
             meta_service->prepare_rowset(&cntl, req, &res, nullptr);
             if (!arena) delete req;
@@ -7117,6 +7589,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest4) {
             CreateRowsetResponse res;
             auto* arena = res.GetArena();
             auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+            req->set_cloud_unique_id("test_cloud_unique_id");
             req->mutable_rowset_meta()->CopyFrom(rowset_meta);
             meta_service->commit_rowset(&cntl, req, &res, nullptr);
             if (!arena) delete req;
@@ -7286,6 +7759,8 @@ TEST(MetaServiceJobTest, AbortJobForRelatedRowsetTest4) {
 // Test: Complete flow - begin_txn(delete job) -> prepare_rowset -> recycle x 1 -> commit_rowset -> commit txn -> verify
 TEST(MetaServiceJobTest, DeleteJobForRelatedRowsetTest) {
     auto meta_service = get_meta_service();
+    ASSERT_NO_FATAL_FAILURE(put_compute_instance(meta_service.get(), instance_id, "test_cluster_id",
+                                                 "test_cloud_unique_id"));
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
@@ -7353,6 +7828,7 @@ TEST(MetaServiceJobTest, DeleteJobForRelatedRowsetTest) {
             CreateRowsetResponse res;
             auto* arena = res.GetArena();
             auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+            req->set_cloud_unique_id("test_cloud_unique_id");
             req->mutable_rowset_meta()->CopyFrom(rowset_meta);
             meta_service->prepare_rowset(&cntl, req, &res, nullptr);
             if (!arena) delete req;
@@ -7384,6 +7860,7 @@ TEST(MetaServiceJobTest, DeleteJobForRelatedRowsetTest) {
             CreateRowsetResponse res;
             auto* arena = res.GetArena();
             auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+            req->set_cloud_unique_id("test_cloud_unique_id");
             req->mutable_rowset_meta()->CopyFrom(rowset_meta);
             meta_service->commit_rowset(&cntl, req, &res, nullptr);
             if (!arena) delete req;
