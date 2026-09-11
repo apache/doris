@@ -25,6 +25,8 @@
 #include <memory>
 #include <string>
 
+#include "meta-store/codec.h"
+#include "meta-store/keys.h"
 #include "meta-store/mem_txn_kv.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
@@ -62,6 +64,102 @@ static std::string dump_range(TxnKv* txn_kv, std::string_view begin = "",
     }
     EXPECT_TRUE(iter->is_valid()); // The iterator should still be valid after the next call.
     return buffer;
+}
+
+TEST(BlobMessageTest, BlobKeyCodec) {
+    const std::vector<std::tuple<std::string, uint8_t, uint16_t>> test_cases {
+            {"test_blob_key", 0, 0},
+            {std::string("\0binary\xff", 8), 127, std::numeric_limits<uint16_t>::max()},
+    };
+    for (const auto& [expected_origin_key, expected_version, expected_sequence] : test_cases) {
+        std::string origin_key;
+        uint8_t version = 0;
+        uint16_t sequence = 0;
+        auto raw_key = encode_blob_key(expected_origin_key, expected_version, expected_sequence);
+        ASSERT_TRUE(decode_blob_key(raw_key, &origin_key, &version, &sequence));
+        EXPECT_EQ(origin_key, expected_origin_key);
+        EXPECT_EQ(version, expected_version);
+        EXPECT_EQ(sequence, expected_sequence);
+        EXPECT_TRUE(decode_blob_key(raw_key, nullptr, &version, &sequence));
+    }
+
+    EXPECT_EQ(encode_blob_key("key", 0x56, 0x1234),
+              std::string("key\x12\x56\0\0\0\0\0\x12\x34", 12));
+}
+
+TEST(BlobMessageTest, BlobKeySequenceDoesNotWrap) {
+    const size_t sequence = static_cast<size_t>(std::numeric_limits<uint16_t>::max()) + 1;
+    EXPECT_NE(encode_blob_key("key", 0, 0), encode_blob_key("key", 0, sequence));
+}
+
+TEST(BlobMessageTest, ValueBufVersionAboveInt8Max) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    std::string key = "version_above_int8_max";
+    std::string raw_key = key;
+    encode_int64(-(int64_t {1} << 56), &raw_key); // version 255, sequence 0
+    txn->put(raw_key, "value");
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ValueBuf value;
+    ASSERT_EQ(blob_get(txn.get(), key, &value), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(value.ver, std::numeric_limits<uint8_t>::max());
+    EXPECT_EQ(value.value(), "value");
+}
+
+TEST(BlobMessageTest, ClampSmallSplitSize) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    std::string value(MIN_BLOB_SPLIT_SIZE + 1, 'a');
+    blob_put(txn.get(), "key", value, 0, 1);
+    EXPECT_EQ(txn->num_put_keys(), 2);
+    versioned::blob_put(txn.get(), "versioned_key", value, 0, 1);
+    EXPECT_EQ(txn->num_put_keys(), 4);
+}
+
+TEST(BlobMessageTest, DecodeBlobKeyFields) {
+    auto encoded_origin_key = meta_delete_bitmap_key({"instance_id", 1, "rowset_id", 2, 3});
+    std::string origin_key;
+    uint8_t version = 0;
+    uint16_t sequence = 0;
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> fields;
+    ASSERT_TRUE(decode_blob_key(encode_blob_key(encoded_origin_key, 2, 123), &origin_key, &version,
+                                &sequence, &fields));
+    EXPECT_EQ(origin_key, encoded_origin_key);
+    EXPECT_EQ(version, 2);
+    EXPECT_EQ(sequence, 123);
+    ASSERT_EQ(fields.size(), 7);
+    EXPECT_EQ(std::get<std::string>(std::get<0>(fields[0])), "meta");
+    EXPECT_EQ(std::get<std::string>(std::get<0>(fields[1])), "instance_id");
+    EXPECT_EQ(std::get<std::string>(std::get<0>(fields[2])), "delete_bitmap");
+    EXPECT_EQ(std::get<int64_t>(std::get<0>(fields[3])), 1);
+    EXPECT_EQ(std::get<std::string>(std::get<0>(fields[4])), "rowset_id");
+    EXPECT_EQ(std::get<int64_t>(std::get<0>(fields[5])), 2);
+    EXPECT_EQ(std::get<int64_t>(std::get<0>(fields[6])), 3);
+}
+
+TEST(BlobMessageTest, RejectInvalidBlobKey) {
+    std::string origin_key;
+    uint8_t version = 0;
+    uint16_t sequence = 0;
+    EXPECT_FALSE(decode_blob_key("invalid", &origin_key, &version, &sequence));
+
+    std::string invalid_suffix = "origin";
+    invalid_suffix.append(9, '\0');
+    EXPECT_FALSE(decode_blob_key(invalid_suffix, &origin_key, &version, &sequence));
+
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> fields;
+    EXPECT_FALSE(
+            decode_blob_key(encode_blob_key("", 2, 123), nullptr, &version, &sequence, &fields));
+    EXPECT_FALSE(decode_blob_key(encode_blob_key("invalid", 2, 123), nullptr, &version, &sequence,
+                                 &fields));
 }
 
 // Test blob_put and blob_get with small message (single KV)
@@ -257,6 +355,32 @@ TEST(BlobMessageTest, GetRangeWithTxnKv) {
         ASSERT_FALSE(iter2->valid());
         ASSERT_EQ(iter2->error_code(), TxnErrorCode::TXN_OK);
     }
+}
+
+TEST(BlobMessageTest, BlobIteratorRejectsMalformedChunks) {
+    auto expect_invalid = [](std::string_view origin_key,
+                             const std::vector<std::string>& raw_keys) {
+        auto txn_kv = std::make_shared<MemTxnKv>();
+        ASSERT_EQ(txn_kv->init(), 0);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        for (const auto& raw_key : raw_keys) {
+            txn->put(raw_key, "value");
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        auto iter = blob_get_range(txn_kv, origin_key, std::string(origin_key) + "\xff");
+        EXPECT_FALSE(iter->valid());
+        EXPECT_EQ(iter->error_code(), TxnErrorCode::TXN_INVALID_DATA);
+    };
+
+    expect_invalid("sequence_gap",
+                   {encode_blob_key("sequence_gap", 0, 0), encode_blob_key("sequence_gap", 0, 2)});
+    expect_invalid("version_mismatch", {encode_blob_key("version_mismatch", 1, 0),
+                                        encode_blob_key("version_mismatch", 2, 1)});
+    std::string invalid_suffix = "invalid_suffix";
+    invalid_suffix.append(9, '\0');
+    expect_invalid("invalid_suffix", {invalid_suffix});
 }
 
 // Test blob_get_range with empty range

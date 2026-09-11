@@ -29,7 +29,7 @@ RUN yum install epel-release -y && yum install https://packages.endpointdev.com/
 
 # install dependencies
 RUN yum install -y byacc patch automake libtool perf vim make which file ncurses-devel gettext-devel unzip bzip2 zip util-linux \
-    wget git python2 bison java-1.8.0-openjdk-devel
+    wget git python2 python3 bison java-1.8.0-openjdk-devel
 
 # clean cache
 RUN yum clean all
@@ -50,12 +50,19 @@ RUN mkdir -p /usr/share/maven /usr/share/maven/ref \
 
 # install nodejs
 ARG NODEJS_VERSION=22.12.0
-RUN wget https://nodejs.org/dist/v${NODEJS_VERSION}/node-v${NODEJS_VERSION}-linux-x64.tar.xz \
-    -q -O /tmp/node-v${NODEJS_VERSION}-linux-x64.tar.xz \
-    && cd /tmp/ && tar -xf node-v${NODEJS_VERSION}-linux-x64.tar.xz \
-    && cp -r node-v${NODEJS_VERSION}-linux-x64/* /usr/local/ \
-    && rm /tmp/node-v${NODEJS_VERSION}-linux-x64.tar.xz \
-    && rm -rf node-v${NODEJS_VERSION}-linux-x64
+ARG NODEJS_SHA256=a739c219ec1ebdb33a26cb93cce32189924612c8f32aefbac25d34fe18d47a38
+# Official Node.js 22 Linux binaries require glibc 2.28. Use the Node.js
+# unofficial-builds compatibility binary to retain this image's glibc 2.17 baseline.
+RUN wget https://unofficial-builds.nodejs.org/download/release/v${NODEJS_VERSION}/node-v${NODEJS_VERSION}-linux-x64-glibc-217.tar.xz \
+    -q -O /tmp/node-v${NODEJS_VERSION}-linux-x64-glibc-217.tar.xz \
+    && echo "${NODEJS_SHA256}  /tmp/node-v${NODEJS_VERSION}-linux-x64-glibc-217.tar.xz" | sha256sum --check --strict \
+    && cd /tmp/ && tar -xf node-v${NODEJS_VERSION}-linux-x64-glibc-217.tar.xz \
+    && cp -r node-v${NODEJS_VERSION}-linux-x64-glibc-217/* /usr/local/ \
+    && rm /tmp/node-v${NODEJS_VERSION}-linux-x64-glibc-217.tar.xz \
+    && rm -rf node-v${NODEJS_VERSION}-linux-x64-glibc-217 \
+    && node --version | grep -Fx "v${NODEJS_VERSION}" \
+    && npm --version \
+    && python3 -c 'import sys; assert sys.version_info >= (3, 6)'
 
 # install ldb-toolchain
 ## 0.18

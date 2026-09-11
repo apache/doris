@@ -370,6 +370,29 @@ public class CreateMTMVCommandTest extends TestWithFeService {
     }
 
     @Test
+    public void testCreateIvmMvRejectsArrayAggOverUnsupportedElementTypes() throws Exception {
+        // ARRAY_AGG incremental maintenance packs struct(dml_factor, elem) per change row, and
+        // struct fields cannot carry JSONB/VARIANT (CreateStruct rejects both, as does CreateMap,
+        // and the array constructor rejects them too). CREATE MATERIALIZED VIEW analyzes the
+        // query with the IVM normalize rewrite, so the unsupported element type must surface here
+        // with the precise reason (not a generic "unsupported aggregate" that blames ARRAY_AGG
+        // itself).
+        // JSONB (not VARIANT) is used as the element type because variant columns cannot be
+        // created on tables with ROW binlog, which IVM base tables require.
+        createTable("create table test.mtmv_arr_agg_jsonb_base (k1 int, v1 jsonb)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'binlog.enable' = 'true',"
+                + " 'binlog.format' = 'ROW');");
+        String mv = "CREATE MATERIALIZED VIEW mtmv_arr_agg_jsonb\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, array_agg(v1) AS arr FROM mtmv_arr_agg_jsonb_base GROUP BY k1;";
+        assertCreateMtmvFails(mv, "ARRAY_AGG over JSONB/VARIANT element type JSON"
+                + " is not incrementally maintainable");
+    }
+
+    @Test
     public void testCreateMTMVWithIncrementalFallback() throws Exception {
         String mv = "CREATE MATERIALIZED VIEW mtmv_increment_fallback\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL FALLBACK ON MANUAL\n"

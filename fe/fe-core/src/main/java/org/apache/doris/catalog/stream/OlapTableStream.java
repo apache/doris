@@ -230,7 +230,13 @@ public class OlapTableStream extends BaseTableStream {
     }
 
     public boolean hasConsumedData(long partitionId) {
-        return partitionOffset.containsKey(partitionId);
+        // A partition that was empty at stream creation is recorded with the sentinel offset -1
+        // (see initializeLocalOffsets); a real committed TSO is always positive (its physical part
+        // is non-zero). So only a positive recorded offset counts as a real consumption baseline.
+        // This keeps empty partitions out of the snapshot scan instead of letting them fall back to
+        // the live partition TSO and leak post-snapshot rows.
+        Long offset = partitionOffset.get(partitionId);
+        return offset != null && offset > 0;
     }
 
     public Pair<Long, Long> getStreamUpdate(Long partitionId) {
