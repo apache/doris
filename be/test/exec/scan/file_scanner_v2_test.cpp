@@ -470,6 +470,13 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
     params.__set_parquet_timestamp_semantics_version(1);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
+
+    // Paimon keeps FORMAT_JNI at scan level even when its ranges are native Parquet files.
+    params.format_type = TFileFormatType::FORMAT_JNI;
+    params.__set_paimon_predicate("encoded-predicate");
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    params.__set_history_schema_info({schema::external::TSchema {}});
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
 }
 
 TEST(FileScannerV2Test, LegacyCountExemptionRequiresMetadataCountOnEveryRange) {

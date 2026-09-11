@@ -10457,11 +10457,12 @@ TEST_F(NewOrcReaderTest, ReadTimestampNanosecondsRoundsToMicroseconds) {
     }
 }
 
-Status decode_orc_timestamp_boundary(int64_t seconds, int64_t nanoseconds, bool use_timestamp_tz,
+Status decode_orc_timestamp_boundary(int64_t seconds, int64_t nanoseconds, bool file_is_instant,
+                                     bool use_timestamp_tz,
                                      const cctz::time_zone& timezone = cctz::utc_time_zone(),
                                      std::string* decoded_value = nullptr) {
     auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString(
-            use_timestamp_tz ? "timestamp with local time zone" : "timestamp"));
+            file_is_instant ? "timestamp with local time zone" : "timestamp"));
     ::orc::TimestampVectorBatch batch(1, *::orc::getDefaultPool());
     batch.numElements = 1;
     batch.data[0] = seconds;
@@ -10497,13 +10498,13 @@ TEST_F(NewOrcReaderTest, PlainTimestampRoundsCarryInCivilTimeAcrossDstTransition
 
     constexpr int64_t ROUNDING_CARRY_NANOS = 999999500;
     std::string decoded_value;
-    ASSERT_TRUE(decode_orc_timestamp_boundary(1636275599, ROUNDING_CARRY_NANOS, false, los_angeles,
-                                              &decoded_value)
+    ASSERT_TRUE(decode_orc_timestamp_boundary(1636275599, ROUNDING_CARRY_NANOS, false, false,
+                                              los_angeles, &decoded_value)
                         .ok());
     EXPECT_EQ(decoded_value, "2021-11-07 02:00:00.000000");
 
-    ASSERT_TRUE(decode_orc_timestamp_boundary(1615715999, ROUNDING_CARRY_NANOS, false, los_angeles,
-                                              &decoded_value)
+    ASSERT_TRUE(decode_orc_timestamp_boundary(1615715999, ROUNDING_CARRY_NANOS, false, false,
+                                              los_angeles, &decoded_value)
                         .ok());
     EXPECT_EQ(decoded_value, "2021-03-14 02:00:00.000000");
 }
@@ -10515,13 +10516,13 @@ TEST_F(NewOrcReaderTest, TimestampInstantKeepsEpochCarryAcrossDstTransitions) {
 
     constexpr int64_t ROUNDING_CARRY_NANOS = 999999500;
     std::string decoded_value;
-    ASSERT_TRUE(decode_orc_timestamp_boundary(1636275599, ROUNDING_CARRY_NANOS, true, los_angeles,
-                                              &decoded_value)
+    ASSERT_TRUE(decode_orc_timestamp_boundary(1636275599, ROUNDING_CARRY_NANOS, true, true,
+                                              los_angeles, &decoded_value)
                         .ok());
     EXPECT_EQ(decoded_value, "2021-11-07 09:00:00.000000+00:00");
 
-    ASSERT_TRUE(decode_orc_timestamp_boundary(1615715999, ROUNDING_CARRY_NANOS, true, los_angeles,
-                                              &decoded_value)
+    ASSERT_TRUE(decode_orc_timestamp_boundary(1615715999, ROUNDING_CARRY_NANOS, true, true,
+                                              los_angeles, &decoded_value)
                         .ok());
     EXPECT_EQ(decoded_value, "2021-03-14 10:00:00.000000+00:00");
 }
@@ -10558,8 +10559,8 @@ TEST_F(NewOrcReaderTest, PlainTimestampDstCarryMatchesStripeStatistics) {
 
 TEST_F(NewOrcReaderTest, TimestampAcceptsDorisYearZeroBoundary) {
     constexpr int64_t MIN_DORIS_EPOCH_SECOND = -62167219200LL;
-    EXPECT_TRUE(decode_orc_timestamp_boundary(MIN_DORIS_EPOCH_SECOND, 0, false).ok());
-    EXPECT_TRUE(decode_orc_timestamp_boundary(MIN_DORIS_EPOCH_SECOND, 0, true).ok());
+    EXPECT_TRUE(decode_orc_timestamp_boundary(MIN_DORIS_EPOCH_SECOND, 0, false, false).ok());
+    EXPECT_TRUE(decode_orc_timestamp_boundary(MIN_DORIS_EPOCH_SECOND, 0, true, true).ok());
 }
 
 TEST_F(NewOrcReaderTest, PlainTimestampAcceptsDorisBoundariesAcrossTimezones) {
@@ -10567,8 +10568,9 @@ TEST_F(NewOrcReaderTest, PlainTimestampAcceptsDorisBoundariesAcrossTimezones) {
     const auto minus_eight = cctz::fixed_time_zone(std::chrono::hours(-8));
     constexpr int64_t YEAR_ZERO_IN_PLUS_EIGHT = -62167248000LL;
     constexpr int64_t YEAR_9999_END_IN_MINUS_EIGHT = 253402329599LL;
-    EXPECT_TRUE(decode_orc_timestamp_boundary(YEAR_ZERO_IN_PLUS_EIGHT, 0, false, plus_eight).ok());
-    EXPECT_TRUE(decode_orc_timestamp_boundary(YEAR_9999_END_IN_MINUS_EIGHT, 999999000, false,
+    EXPECT_TRUE(decode_orc_timestamp_boundary(YEAR_ZERO_IN_PLUS_EIGHT, 0, false, false, plus_eight)
+                        .ok());
+    EXPECT_TRUE(decode_orc_timestamp_boundary(YEAR_9999_END_IN_MINUS_EIGHT, 999999000, false, false,
                                               minus_eight)
                         .ok());
 }
@@ -10578,20 +10580,52 @@ TEST_F(NewOrcReaderTest, TimestampRoundingRejectsUpperDorisBoundary) {
     // into year 10000, which neither Doris timestamp representation can store.
     constexpr int64_t MAX_DORIS_EPOCH_SECOND = 253402300799LL;
     constexpr int64_t ROUNDING_CARRY_NANOS = 999999500;
-    EXPECT_FALSE(decode_orc_timestamp_boundary(MAX_DORIS_EPOCH_SECOND, ROUNDING_CARRY_NANOS, false)
+    EXPECT_FALSE(decode_orc_timestamp_boundary(MAX_DORIS_EPOCH_SECOND, ROUNDING_CARRY_NANOS, false,
+                                               false)
                          .ok());
     EXPECT_FALSE(
-            decode_orc_timestamp_boundary(MAX_DORIS_EPOCH_SECOND, ROUNDING_CARRY_NANOS, true).ok());
+            decode_orc_timestamp_boundary(MAX_DORIS_EPOCH_SECOND, ROUNDING_CARRY_NANOS, true, true)
+                    .ok());
 }
 
 TEST_F(NewOrcReaderTest, TimestampRoundingRejectsSecondOverflow) {
     constexpr int64_t ROUNDING_CARRY_NANOS = 999999500;
     EXPECT_FALSE(decode_orc_timestamp_boundary(std::numeric_limits<int64_t>::max(),
-                                               ROUNDING_CARRY_NANOS, false)
+                                               ROUNDING_CARRY_NANOS, false, false)
                          .ok());
     EXPECT_FALSE(decode_orc_timestamp_boundary(std::numeric_limits<int64_t>::max(),
-                                               ROUNDING_CARRY_NANOS, true)
+                                               ROUNDING_CARRY_NANOS, true, true)
                          .ok());
+}
+
+TEST_F(NewOrcReaderTest, TimestampInstantMappedToDatetimeRoundsBeforeTimezoneConversion) {
+    TimezoneUtils::load_timezones_to_cache();
+    cctz::time_zone los_angeles;
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("America/Los_Angeles", los_angeles));
+
+    constexpr int64_t ROUNDING_CARRY_NANOS = 999999500;
+    std::string decoded_value;
+    ASSERT_TRUE(decode_orc_timestamp_boundary(1636275599, ROUNDING_CARRY_NANOS, true, false,
+                                              los_angeles, &decoded_value)
+                        .ok());
+    EXPECT_EQ(decoded_value, "2021-11-07 01:00:00.000000");
+}
+
+TEST_F(NewOrcReaderTest, TimestampInstantRoundingCanEnterDorisRange) {
+    constexpr int64_t MIN_DORIS_EPOCH_SECOND = -62167219200LL;
+    constexpr int64_t ROUNDING_CARRY_NANOS = 999999500;
+    std::string decoded_value;
+    ASSERT_TRUE(decode_orc_timestamp_boundary(MIN_DORIS_EPOCH_SECOND - 1, ROUNDING_CARRY_NANOS,
+                                              true, false, cctz::utc_time_zone(), &decoded_value)
+                        .ok());
+    EXPECT_EQ(decoded_value, "0000-01-01 00:00:00.000000");
+}
+
+TEST_F(NewOrcReaderTest, TimestampRejectsInvalidNanosecondsWithoutCrashing) {
+    EXPECT_EQ(decode_orc_timestamp_boundary(0, -1, false, false).code(),
+              ErrorCode::DATA_QUALITY_ERROR);
+    EXPECT_EQ(decode_orc_timestamp_boundary(0, 1000000000, true, false).code(),
+              ErrorCode::DATA_QUALITY_ERROR);
 }
 
 TEST_F(NewOrcReaderTest, TimestampSargMatchesRoundedMicroseconds) {

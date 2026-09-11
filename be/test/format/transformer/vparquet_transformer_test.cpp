@@ -32,6 +32,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "exprs/function/parse/variant_string_parse.h"
+#include "format/table/iceberg/iceberg_arrow_write_converter.h"
 #include "format/table/iceberg/schema_parser.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/runtime_state.h"
@@ -75,8 +76,11 @@ TEST_F(VParquetTransformerTest, WritesIcebergVariantAndCollectsLogicalMetrics) {
                                 .parquet_version = TParquetVersion::PARQUET_1_0,
                                 .parquet_disable_dictionary = false,
                                 .enable_int96_timestamps = false};
+    // Iceberg Variant uses a physical struct, so its schema and converter must be selected
+    // together.
     VParquetTransformer transformer(&state, file_writer.get(), output_exprs, {"payload"}, false,
-                                    options, &schema_json, schema.get());
+                                    options, &schema_json, schema.get(),
+                                    iceberg::iceberg_arrow_write_converter());
     ASSERT_TRUE(transformer.open().ok());
 
     JsonStringToVariantEncoder encoder({.max_json_key_length = 1024,
@@ -192,7 +196,8 @@ TEST_F(VParquetTransformerTest, WritesNestedIcebergVariant) {
                                 .parquet_disable_dictionary = false,
                                 .enable_int96_timestamps = false};
     VParquetTransformer transformer(&state, file_writer.get(), output_exprs, {"events"}, false,
-                                    options, &schema_json, schema.get());
+                                    options, &schema_json, schema.get(),
+                                    iceberg::iceberg_arrow_write_converter());
     ASSERT_TRUE(transformer.open().ok());
 
     JsonStringToVariantEncoder encoder({.max_json_key_length = 1024,

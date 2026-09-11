@@ -24,6 +24,7 @@ suite("paimon_timestamp_types", "p0,external,doris,external_docker,external_dock
     }
 
     def originalTimeZone = sql("SELECT @@time_zone")[0][0]
+    def originalScannerV2 = sql("SHOW VARIABLES LIKE 'enable_file_scanner_v2'")[0][1]
     try {
         String catalog_name = "paimon_timestamp_types"
         String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
@@ -109,6 +110,8 @@ suite("paimon_timestamp_types", "p0,external,doris,external_docker,external_dock
         // test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_parquet")
 
         sql """set force_jni_scanner=false"""
+        // Versioned Paimon native-Parquet scans require V2 even when the session toggle is off.
+        sql """set enable_file_scanner_v2=false"""
         test_scale()
         // test_ltz_ntz("test_timestamp_ntz_ltz_orc")
         // test_ltz_ntz("test_timestamp_ntz_ltz_parquet")
@@ -116,16 +119,16 @@ suite("paimon_timestamp_types", "p0,external,doris,external_docker,external_dock
         test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_parquet", "2024-01-02 10:12:34.123456")
     } finally {
         sql """set force_jni_scanner=false"""
+        sql """set enable_file_scanner_v2=${originalScannerV2}"""
         sql """set time_zone = '${originalTimeZone}'"""
     }
 
     // TODO:
-    // 1. Fix: FileScannerV1 + parquet + timestamp(7/8/9) (ts7,ts8,ts9), it will be 8 hour more
-    // 2. paimon bugs: native read + orc + timestamp_ltz.
+    // 1. paimon bugs: native read + orc + timestamp_ltz.
     //                 In the Shanghai time zone, the read data will be 8 hours less, 
     //                 because the data written by Flink to the orc file is UTC, but the time zone saved in the orc file is Shanghai.
     //                 Currently, Paimon will not fix this problem, but recommends using the parquet format.
-    // 3. paimon bugs: jni read + parquet + row types + timestamp.
+    // 2. paimon bugs: jni read + parquet + row types + timestamp.
     //                 Data of the timestamp type should be converted to the timestamp type, but paimon converted it to the long type.
     //                 Will be fixed in paimon0.9
 

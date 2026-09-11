@@ -489,7 +489,11 @@ Status round_orc_timestamp_to_microseconds(int64_t seconds, int64_t nanoseconds,
     constexpr int64_t NANOS_PER_MICROSECOND = 1000;
     constexpr int64_t MICROS_PER_SECOND = 1000000;
     DORIS_CHECK(result != nullptr);
-    DORIS_CHECK(nanoseconds >= 0 && nanoseconds < NANOS_PER_SECOND);
+    // Nanoseconds come from an external file, so malformed input must fail the scan rather than
+    // terminate the BE process.
+    if (nanoseconds < 0 || nanoseconds >= NANOS_PER_SECOND) {
+        return Status::DataQualityError("Invalid ORC timestamp nanoseconds: {}", nanoseconds);
+    }
     // Doris stores six fractional digits, so use half-up rounding and carry 999999500ns into the
     // next second instead of silently truncating the ORC value.
     const auto rounded_microseconds =
@@ -531,7 +535,12 @@ Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColum
             data.resize(old_data_size);
             return status;
         }
-        value.from_unixtime(orc_batch->data[source_row], timezone);
+        const bool is_timestamp_instant =
+                orc_view.file_type->getKind() == ::orc::TypeKind::TIMESTAMP_INSTANT;
+        // TIMESTAMP_INSTANT is an epoch value, so its carry must precede timezone conversion;
+        // applying it in civil time selects the wrong side of a daylight-saving transition.
+        value.from_unixtime(is_timestamp_instant ? timestamp.seconds : orc_batch->data[source_row],
+                            timezone);
         if (!value.is_valid_date()) {
             data.resize(old_data_size);
             return Status::DataQualityError(
@@ -540,7 +549,7 @@ Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColum
         value.set_microsecond(timestamp.microseconds);
         // Plain ORC TIMESTAMP is a civil value. Carry after timezone conversion so a fractional
         // round does not jump backward or skip an hour at a daylight-saving transition.
-        if (timestamp.carry &&
+        if (!is_timestamp_instant && timestamp.carry &&
             !value.date_add_interval<TimeUnit::SECOND>(TimeInterval {TimeUnit::SECOND, 1, false})) {
             data.resize(old_data_size);
             return Status::DataQualityError(
