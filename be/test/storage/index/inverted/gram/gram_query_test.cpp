@@ -74,4 +74,38 @@ TEST(GramQueryTest, StructuralKeyDistinguishesGramBytesFromOperators) {
               GramQuery::of_gram("a").structural_key());
 }
 
+// A combination that crosses the size a compiler would discard is answered with ALL instead of
+// being grown, deduplicated and sorted first. Without this, compiling a long high-entropy
+// pattern was quadratic in its length and threw the result away: 4,096 characters cost seconds
+// of CPU per segment for a query that was already ALL by character 256.
+TEST(GramQueryTest, CombiningStopsOnceThePlanIsPastTheSizeAnyoneWouldUse) {
+    GramQuery wide = GramQuery::of_gram("aaa");
+    for (size_t i = 0; i < GramQuery::kMaxLeaves + 8; ++i) {
+        std::string gram = "b";
+        gram += static_cast<char>('a' + (i % 26));
+        gram += static_cast<char>('a' + (i / 26));
+        wide = GramQuery::and_(std::move(wide), GramQuery::of_gram(gram));
+        EXPECT_LE(wide.leaf_count(), GramQuery::kMaxLeaves)
+                << "an AND grew past the cap at step " << i;
+        if (wide.is_all()) {
+            break;
+        }
+    }
+    EXPECT_TRUE(wide.is_all()) << "the AND should have collapsed once it crossed the cap";
+
+    GramQuery alternatives = GramQuery::none();
+    for (size_t i = 0; i < GramQuery::kMaxLeaves + 8; ++i) {
+        std::string gram = "c";
+        gram += static_cast<char>('a' + (i % 26));
+        gram += static_cast<char>('a' + (i / 26));
+        alternatives = GramQuery::or_(std::move(alternatives), GramQuery::of_gram(gram));
+        EXPECT_LE(alternatives.leaf_count(), GramQuery::kMaxLeaves)
+                << "an OR grew past the cap at step " << i;
+        if (alternatives.is_all()) {
+            break;
+        }
+    }
+    EXPECT_TRUE(alternatives.is_all()) << "the OR should have collapsed once it crossed the cap";
+}
+
 } // namespace doris::segment_v2::gram

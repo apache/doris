@@ -57,6 +57,12 @@ struct GramQuery {
     // and collapse single-element nodes.
     static GramQuery and_(GramQuery a, GramQuery b);
     static GramQuery or_(GramQuery a, GramQuery b);
+    // The largest query worth building. A compiler discards anything past this and reads no
+    // index, so a combination that would cross it is answered with ALL right away rather than
+    // grown, deduplicated and sorted first: on a long high-entropy pattern that work is
+    // quadratic in the pattern's length and its result is thrown away. ALL is the conservative
+    // answer everywhere -- dropping constraints only widens the candidate set.
+    static constexpr size_t kMaxLeaves = 64;
     bool is_all() const { return op == Op::ALL; }
     bool is_none() const { return op == Op::NONE; }
     // Total number of gram leaves, counted recursively over all sub-queries.

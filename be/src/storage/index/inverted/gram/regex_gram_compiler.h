@@ -83,7 +83,7 @@ public:
     // request, so such a query can spend far more on index IO than the scan it is supposed to
     // save. Over the budget the query degrades to ALL and the scan runs unaided -- giving up the
     // acceleration, never the correctness.
-    static constexpr size_t kMaxQueryGrams = 64;
+    static constexpr size_t kMaxQueryGrams = GramQuery::kMaxLeaves;
 
 private:
     // Degrade *q to ALL when its gram leaves exceed kMaxQueryGrams. Applied to the result of both

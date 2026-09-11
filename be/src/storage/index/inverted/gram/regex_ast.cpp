@@ -104,6 +104,19 @@ uint32_t decode_one_cp(std::string_view s, size_t* consumed) {
         }
         v = (v << 6) | (cc & 0x3FU);
     }
+    // A sequence can be well-formed byte by byte and still be ill-formed as UTF-8. Decoding one
+    // to the code point it spells would be worse than dropping it, because the compiler would
+    // then demand grams of that code point's canonical encoding -- bytes the row never held. The
+    // extractor treats these bytes as a separator and stores no gram across them, so a row
+    // holding `C0 AF` stores nothing for `/`, while `C0 AF` decoded as U+002F asks for `/`
+    // grams and would filter that row away. Three shapes are rejected here:
+    //   - overlong: fewer bits set than the length promises (`C0 AF` for U+002F);
+    //   - surrogate halves U+D800..U+DFFF, which UTF-8 may not encode;
+    //   - anything above U+10FFFF.
+    static constexpr uint32_t kOverlongFloor[5] = {0, 0, 0x80, 0x800, 0x10000};
+    if (v < kOverlongFloor[l] || (v >= 0xD800U && v <= 0xDFFFU) || v > kMaxCodePoint) {
+        return 0x110000U + c;
+    }
     *consumed = static_cast<size_t>(l);
     return v;
 }
