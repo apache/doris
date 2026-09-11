@@ -52,7 +52,8 @@ import java.util.stream.Collectors;
 public class ForeignKeyContext {
     Set<Map<QualifiedColumn, QualifiedColumn>> constraints = new HashSet<>();
     Set<QualifiedColumn> foreignKeys = new HashSet<>();
-    Set<QualifiedColumn> primaryKeys = new HashSet<>();
+    Set<QualifiedColumn> declaredPrimaryKeys = new HashSet<>();
+    Set<Slot> activePrimaryKeySlots = new HashSet<>();
     Map<Slot, QualifiedColumn> slotToColumn = new HashMap<>();
     Map<Slot, Set<Expression>> slotWithPredicates = new HashMap<>();
 
@@ -132,7 +133,7 @@ public class ForeignKeyContext {
                 .getPrimaryKeyConstraints(tableNameInfo)) {
             Set<QualifiedColumn> primaryKey = c.getPrimaryKeys(table).stream()
                     .map(column -> new QualifiedColumn(table, column)).collect(Collectors.toSet());
-            primaryKeys.addAll(primaryKey);
+            declaredPrimaryKeys.addAll(primaryKey);
         }
     }
 
@@ -142,8 +143,7 @@ public class ForeignKeyContext {
     }
 
     public boolean isPrimaryKey(Set<Slot> key) {
-        return primaryKeys.containsAll(
-                key.stream().map(s -> slotToColumn.get(s)).collect(Collectors.toSet()));
+        return !key.isEmpty() && activePrimaryKeySlots.containsAll(key);
     }
 
     void putSlot(SlotReference slot, TableIf table) {
@@ -151,12 +151,19 @@ public class ForeignKeyContext {
             return;
         }
         Column c = slot.getOriginalColumn().get();
-        slotToColumn.put(slot, new QualifiedColumn(table, c));
+        QualifiedColumn qualifiedColumn = new QualifiedColumn(table, c);
+        slotToColumn.put(slot, qualifiedColumn);
+        if (declaredPrimaryKeys.contains(qualifiedColumn)) {
+            activePrimaryKeySlots.add(slot);
+        }
     }
 
     void putAlias(Slot newSlot, Slot originSlot) {
         if (slotToColumn.containsKey(originSlot)) {
             slotToColumn.put(newSlot, slotToColumn.get(originSlot));
+            if (activePrimaryKeySlots.contains(originSlot)) {
+                activePrimaryKeySlots.add(newSlot);
+            }
         }
     }
 
@@ -185,10 +192,7 @@ public class ForeignKeyContext {
     }
 
     private void expirePrimaryKey(Plan plan) {
-        plan.getOutput().stream()
-                .filter(slotToColumn::containsKey)
-                .map(s -> slotToColumn.get(s))
-                .forEach(primaryKeys::remove);
+        activePrimaryKeySlots.removeAll(plan.getOutput());
     }
 
     /**
