@@ -44,9 +44,16 @@ if (GLIBC_COMPATIBILITY)
         message (FATAL_ERROR "glibc_compatibility can only be used on x86_64 or aarch64.")
     endif ()
 
+    # getentropy needs the same treatment as getrandom below, and for a sharper reason: the
+    # sanitizer runtime carries a weak getentropy of its own, which satisfies the reference before
+    # this archive is scanned, so the archive member is never extracted. On a runtime whose libc has
+    # no getentropy (glibc < 2.25) the sanitizer cannot resolve the real one either and leaves its
+    # internal pointer null, so the first call jumps to address 0. Keep the definition in the
+    # explicit object target instead.
     list(REMOVE_ITEM glibc_compatibility_sources musl/getentropy.c)
+    set(getentropy_compatibility_source "")
     if(HAVE_SYS_RANDOM_H)
-        list(APPEND glibc_compatibility_sources musl/getentropy.c)
+        set(getentropy_compatibility_source musl/getentropy.c)
     endif()
 
     # lance_c is linked after this archive and introduces these libc references
@@ -74,16 +81,24 @@ if (GLIBC_COMPATIBILITY)
     if (ARCH_ARM AND (CMAKE_BUILD_TYPE STREQUAL "ASAN_UT" OR CMAKE_BUILD_TYPE STREQUAL "ASAN"))
         add_library(glibc-compatibility-explicit OBJECT
             musl/getrandom.c
+            ${getentropy_compatibility_source}
             ${lance_compatibility_source}
         )
     else()
         add_library(glibc-compatibility-explicit OBJECT
             musl/getrandom.c
+            ${getentropy_compatibility_source}
             ${MEMCPY_SOURCE}
             ${lance_compatibility_source}
         )
     endif()
     target_compile_options(glibc-compatibility-explicit PRIVATE -fPIC)
+    if (getentropy_compatibility_source)
+        # The static archive below turns -Wconversion off for the musl sources. This one narrows
+        # getrandom's ssize_t into an int the same way, so it needs the same exemption here.
+        set_source_files_properties(${getentropy_compatibility_source} PROPERTIES
+            COMPILE_OPTIONS "-Wno-conversion")
+    endif()
     add_library(glibc-compatibility STATIC ${glibc_compatibility_sources})
     target_compile_options(
         glibc-compatibility
