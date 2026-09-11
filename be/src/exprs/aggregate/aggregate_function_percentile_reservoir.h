@@ -45,6 +45,9 @@ struct QuantileReservoirSampler {
     }
 
     void merge(const QuantileReservoirSampler& rhs) {
+        // States without non-NaN samples are non-contributing, even if add() recorded a level.
+        // Their levels are intentionally ignored in either merge order, including after
+        // serialization. Only states with non-NaN samples must have matching levels.
         if (rhs.data.empty()) {
             return;
         }
