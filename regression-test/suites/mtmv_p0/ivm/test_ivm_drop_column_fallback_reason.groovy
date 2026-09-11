@@ -18,7 +18,7 @@
 import org.awaitility.Awaitility
 import static java.util.concurrent.TimeUnit.SECONDS
 
-suite("test_ivm_drop_column_fallback_reason", "nonConcurrent") {
+suite("test_ivm_drop_column_fallback_reason") {
     if (isCloudMode()) {
         return
     }

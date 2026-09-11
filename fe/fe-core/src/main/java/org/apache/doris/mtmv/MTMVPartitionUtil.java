@@ -238,6 +238,63 @@ public class MTMVPartitionUtil {
     }
 
     /**
+     * Base partitions the MV's partition definition keeps, per base table partitioned by the MV's
+     * partition column. This is the partition set the MV is aligned to, so it still contains a base
+     * partition whose MV partition the next {@link #alignMvPartition} has yet to add, and no longer
+     * contains one the partition properties filter out, such as an expired partition_sync_limit.
+     *
+     * <p>Empty when no restriction applies at all: without {@code partition_sync_limit} the MV
+     * mirrors every base partition, so there is nothing to restrict. When present, the map holds an
+     * entry for every base table the MV partition column comes from, each with the partitions that
+     * table may be read from — an empty set meaning that table may not be read at all. Keeping the
+     * empty set explicit is what separates "this table is restricted to nothing" from "this table
+     * is not one of the MV partition column's sources".
+     *
+     * <p>Read without pinned snapshots, like {@link #alignMvPartition}. A base partition that
+     * partition sync adds or drops at the same moment can therefore sit outside the returned set
+     * for one refresh; the same refresh either recovers the partition by syncing again or leaves
+     * its binlog pending for the next one.
+     *
+     * @return baseTableInfo ==> base partition ids, empty when no restriction applies
+     */
+    public static Optional<Map<BaseTableInfo, Set<Long>>> generateRelatedBasePartitionIds(MTMV mtmv)
+            throws AnalysisException {
+        MTMVPartitionInfo mvPartitionInfo = mtmv.getMvPartitionInfo();
+        if (mvPartitionInfo == null
+                || mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE
+                || !MTMVPropertyUtil.hasPartitionSyncLimit(mtmv.getMvProperties())) {
+            return Optional.empty();
+        }
+        Map<BaseTableInfo, Set<Long>> res = Maps.newHashMap();
+        // Only olap tables are restricted: the delta rewrite reads them through their stream and
+        // selects partitions by id, which an external table has no equivalent of. A connector
+        // table therefore stays out of the scope and keeps its full read, so supporting one as an
+        // IVM base table means giving the scope a partition identity it can express, not just
+        // widening these types.
+        for (MTMVRelatedTableIf pctTable : mvPartitionInfo.getPctTables()) {
+            if (pctTable instanceof OlapTable) {
+                res.put(new BaseTableInfo((OlapTable) pctTable), Sets.newHashSet());
+            }
+        }
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> relatedDescs = generateRelatedPartitionDescs(
+                mvPartitionInfo, mtmv.getMvProperties(), mtmv.getPartitionColumns(), Maps.newHashMap());
+        for (Map<MTMVRelatedTableIf, Set<String>> relatedPartitions : relatedDescs.values()) {
+            for (Entry<MTMVRelatedTableIf, Set<String>> entry : relatedPartitions.entrySet()) {
+                if (!(entry.getKey() instanceof OlapTable)) {
+                    continue;
+                }
+                OlapTable baseTable = (OlapTable) entry.getKey();
+                Set<Long> partitionIds = res.computeIfAbsent(
+                        new BaseTableInfo(baseTable), key -> Sets.newHashSet());
+                for (String partitionName : entry.getValue()) {
+                    partitionIds.add(baseTable.getPartitionOrAnalysisException(partitionName).getId());
+                }
+            }
+        }
+        return Optional.of(res);
+    }
+
+    /**
      * check if table is sync with all baseTables
      *
      * @param mtmv
