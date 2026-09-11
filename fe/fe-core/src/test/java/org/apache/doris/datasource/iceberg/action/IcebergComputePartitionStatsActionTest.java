@@ -62,6 +62,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 class IcebergComputePartitionStatsActionTest {
     private IcebergExternalTable dorisTable;
@@ -79,6 +80,7 @@ class IcebergComputePartitionStatsActionTest {
         io = Mockito.mock(FileIO.class);
         Mockito.when(table.io()).thenReturn(io);
         Mockito.when(table.name()).thenReturn("test_table");
+        Mockito.when(table.snapshots()).thenReturn(Collections.emptyList());
         Mockito.when(((HasTableOperations) table).operations()).thenReturn(Mockito.mock(TableOperations.class));
         cache = Mockito.mock(ExternalMetaCacheMgr.class);
         metadataOps = Mockito.mock(IcebergMetadataOps.class);
@@ -284,6 +286,46 @@ class IcebergComputePartitionStatsActionTest {
         Assertions.assertEquals(Collections.singletonList(Arrays.asList("0", "0", "0", "0")),
                 new IcebergRewriteDataFilesAction(Collections.emptyMap(), Optional.empty(), Optional.empty(), metadataOps)
                         .execute(dorisTable).getResultRows());
+    }
+
+    @Test
+    void testSnapshotLookupsDoNotRepeatAuthentication() {
+        Snapshot current = Mockito.mock(Snapshot.class);
+        Snapshot historical = Mockito.mock(Snapshot.class);
+        Mockito.when(current.snapshotId()).thenReturn(42L);
+        Mockito.when(historical.snapshotId()).thenReturn(7L);
+        Mockito.when(table.snapshot(42L)).thenReturn(current);
+        Mockito.when(table.snapshot(7L)).thenReturn(historical);
+        AtomicBoolean authenticated = new AtomicBoolean();
+        AtomicInteger authenticationCalls = new AtomicInteger();
+        Mockito.when(table.snapshots()).thenAnswer(invocation -> {
+            Assertions.assertTrue(authenticated.get());
+            return (Iterable<Snapshot>) () -> {
+                Assertions.assertTrue(authenticated.get(), "Lazy metadata must load under catalog authentication");
+                return Arrays.asList(historical, current).iterator();
+            };
+        });
+        ExecutionAuthenticator authenticator = new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(Callable<T> task) throws Exception {
+                authenticationCalls.incrementAndGet();
+                boolean previous = authenticated.getAndSet(true);
+                try {
+                    return task.call();
+                } finally {
+                    authenticated.set(previous);
+                }
+            }
+        };
+        Table view = new IcebergPartitionStatsTable(table, authenticator);
+        for (int entry = 0; entry < 1000; entry++) {
+            Assertions.assertSame(current, view.snapshot(42L));
+            Assertions.assertSame(historical, view.snapshot(7L));
+            Assertions.assertNull(view.snapshot(Long.MIN_VALUE));
+        }
+        Assertions.assertEquals(1, authenticationCalls.get());
+        Assertions.assertFalse(authenticated.get());
+        Mockito.verify(table, Mockito.times(1)).snapshots();
     }
 
     @Test

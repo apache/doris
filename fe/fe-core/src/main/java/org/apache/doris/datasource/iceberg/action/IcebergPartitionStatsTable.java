@@ -37,6 +37,8 @@ import org.apache.iceberg.metrics.LoggingMetricsReporter;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Callable;
@@ -47,6 +49,7 @@ final class IcebergPartitionStatsTable extends BaseTable {
     private final Table delegate;
     private final ExecutionAuthenticator authenticator;
     private final FileIO authenticatedIo;
+    private final Map<Long, Snapshot> snapshotsById;
 
     IcebergPartitionStatsTable(Table table, ExecutionAuthenticator authenticator) {
         super(((HasTableOperations) table).operations(), table.name(),
@@ -54,6 +57,15 @@ final class IcebergPartitionStatsTable extends BaseTable {
         this.delegate = table;
         this.authenticator = Objects.requireNonNull(authenticator, "authenticator is null");
         this.authenticatedIo = new AuthenticatedFileIO(table.io());
+        // Materialize lazy snapshot metadata under authentication once. The SDK looks up a
+        // snapshot for every manifest entry, so workers must only read this immutable index.
+        this.snapshotsById = unchecked(() -> {
+            Map<Long, Snapshot> snapshots = new HashMap<>();
+            for (Snapshot snapshot : table.snapshots()) {
+                snapshots.put(snapshot.snapshotId(), snapshot);
+            }
+            return Collections.unmodifiableMap(snapshots);
+        });
     }
 
     @Override
@@ -68,7 +80,7 @@ final class IcebergPartitionStatsTable extends BaseTable {
 
     @Override
     public Snapshot snapshot(long snapshotId) {
-        return unchecked(() -> delegate.snapshot(snapshotId));
+        return snapshotsById.get(snapshotId);
     }
 
     private <T> T callIo(Callable<T> task) throws IOException {
