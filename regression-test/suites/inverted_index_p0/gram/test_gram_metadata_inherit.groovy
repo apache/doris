@@ -81,6 +81,11 @@ suite("test_gram_metadata_inherit", "p0") {
     // it, so both passes would read one and the same filter result and this parity check would
     // degenerate into a tautology.
     sql "SET enable_condition_cache=false"
+    // With the scan node's function push-down on, a LIKE becomes a storage-layer
+    // LikeColumnPredicate and never reaches the gram index, so the profile assertion below
+    // would see nothing pruned. The pipeline randomises this variable per session, so pin
+    // it to its default.
+    sql "SET enable_function_pushdown=false"
 
     def checkPatterns = { String phase ->
         [false, true].each { useIndex ->
@@ -150,4 +155,12 @@ suite("test_gram_metadata_inherit", "p0") {
         FROM test_gram_metadata_inherit WHERE tag MATCH 'fox'"""
     order_qt_inherited_and_new """SELECT /*+ SET_VAR(enable_match_without_inverted_index=false) */ id
         FROM test_gram_metadata_inherit WHERE dense LIKE '%abcdefgh%' AND tag MATCH 'fox'"""
+    // The policies live cluster-wide and the cluster is shared, so a suite that leaves
+    // its own behind eats into the instance-wide policy limit for everyone else.
+    sql "DROP TABLE IF EXISTS test_gram_metadata_inherit"
+    ['dense', 'sparse'].each { name ->
+        sql "DROP INVERTED INDEX ANALYZER IF EXISTS gram_inherit_${name}"
+        sql "DROP INVERTED INDEX TOKENIZER IF EXISTS gram_inherit_${name}_tok"
+    }
+
 }

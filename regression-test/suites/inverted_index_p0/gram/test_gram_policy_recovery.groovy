@@ -122,4 +122,10 @@ suite("test_gram_policy_recovery", "p0") {
             WHERE msg MATCH_ALL 'abcdef'""")
     }
     sql "SET enable_inverted_index_query=true"
+    // The policies live cluster-wide and the cluster is shared, so a suite that leaves
+    // its own behind eats into the instance-wide policy limit for everyone else.
+    sql "DROP TABLE IF EXISTS test_gram_policy_recovery"
+    sql "DROP INVERTED INDEX ANALYZER IF EXISTS gram_recovery_analyzer"
+    sql "DROP INVERTED INDEX TOKENIZER IF EXISTS gram_recovery_tokenizer"
+
 }

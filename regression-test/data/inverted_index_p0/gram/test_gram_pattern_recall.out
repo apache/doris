@@ -183,15 +183,6 @@
 -- !dense_false_nul_like_2 --
 28
 
--- !dense_false_reverse_like --
-32
-
--- !dense_false_reverse_regexp --
-12
-19
-30
-33
-
 -- !dense_false_null --
 31
 
@@ -383,15 +374,6 @@
 
 -- !sparse_false_nul_like_2 --
 28
-
--- !sparse_false_reverse_like --
-32
-
--- !sparse_false_reverse_regexp --
-12
-19
-30
-33
 
 -- !sparse_false_null --
 31
@@ -585,15 +567,6 @@
 -- !dense_lc_false_nul_like_2 --
 28
 
--- !dense_lc_false_reverse_like --
-32
-
--- !dense_lc_false_reverse_regexp --
-12
-19
-30
-33
-
 -- !dense_lc_false_null --
 31
 
@@ -785,15 +758,6 @@
 
 -- !sparse_lc_false_nul_like_2 --
 28
-
--- !sparse_lc_false_reverse_like --
-32
-
--- !sparse_lc_false_reverse_regexp --
-12
-19
-30
-33
 
 -- !sparse_lc_false_null --
 31
@@ -987,15 +951,6 @@
 -- !dense_true_nul_like_2 --
 28
 
--- !dense_true_reverse_like --
-32
-
--- !dense_true_reverse_regexp --
-12
-19
-30
-33
-
 -- !dense_true_null --
 31
 
@@ -1187,15 +1142,6 @@
 
 -- !sparse_true_nul_like_2 --
 28
-
--- !sparse_true_reverse_like --
-32
-
--- !sparse_true_reverse_regexp --
-12
-19
-30
-33
 
 -- !sparse_true_null --
 31
@@ -1389,15 +1335,6 @@
 -- !dense_lc_true_nul_like_2 --
 28
 
--- !dense_lc_true_reverse_like --
-32
-
--- !dense_lc_true_reverse_regexp --
-12
-19
-30
-33
-
 -- !dense_lc_true_null --
 31
 
@@ -1589,15 +1526,6 @@
 
 -- !sparse_lc_true_nul_like_2 --
 28
-
--- !sparse_lc_true_reverse_like --
-32
-
--- !sparse_lc_true_reverse_regexp --
-12
-19
-30
-33
 
 -- !sparse_lc_true_null --
 31

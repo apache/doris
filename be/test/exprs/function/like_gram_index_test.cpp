@@ -91,22 +91,21 @@ TEST(LikeGramIndexTest, SuccessfulIndexResultIsApproximate) {
     }
 }
 
-TEST(LikeGramIndexTest, CustomEscapeIsNotPushedDown) {
+TEST(LikeGramIndexTest, AnEscapeArgumentIsNotPushedDown) {
+    // `LIKE ... ESCAPE` arrives as two literals, the pattern and the escape character. The gram
+    // compiler implements the default escaping only, so compiling the pattern here would read
+    // that character as an ordinary byte and answer a different question. The call is left to
+    // the rows instead, and the index is not read at all.
     FunctionLike function;
-    const DataTypePtr type = std::make_shared<DataTypeString>();
-    auto value = VSlotRef::create_shared(0, 0, 0, type, "value");
-    auto pattern = VLiteral::create_shared(type, Field::create_field<TYPE_STRING>("%abcd%"));
-    auto custom_escape = VLiteral::create_shared(type, Field::create_field<TYPE_STRING>("#"));
-    auto default_escape = VLiteral::create_shared(type, Field::create_field<TYPE_STRING>("\\"));
-    auto variable_escape = VSlotRef::create_shared(1, 1, 1, type, "escape");
-
-    // Eligibility is checked while every operand still has its original position, including
-    // an ESCAPE column that has no index and would disappear from the flattened arguments.
-    EXPECT_FALSE(function.can_evaluate_inverted_index({value, pattern, custom_escape}));
-    EXPECT_FALSE(function.can_evaluate_inverted_index({value, pattern, variable_escape}));
-    EXPECT_FALSE(
-            function.can_evaluate_inverted_index({value, pattern, default_escape, custom_escape}));
-    EXPECT_TRUE(function.can_evaluate_inverted_index({value, pattern, default_escape}));
+    ColumnsWithTypeAndName args {const_string_arg("%100!%%"), const_string_arg("!")};
+    std::vector<IndexFieldNameAndTypePair> names {{"msg", std::make_shared<DataTypeString>()}};
+    RecordingGramIndexIterator iterator;
+    segment_v2::InvertedIndexResultBitmap result;
+    const auto status =
+            function.evaluate_inverted_index(args, names, {&iterator}, 100, nullptr, result);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_FALSE(iterator.queried) << "a call this compiler cannot answer must not read the index";
+    EXPECT_TRUE(result.is_empty());
 }
 
 TEST(LikeGramIndexTest, ConfigDisabledSkipsPushDown) {
