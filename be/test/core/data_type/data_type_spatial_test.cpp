@@ -17,6 +17,7 @@
 
 #include "core/data_type/data_type_spatial.h"
 
+#include <arrow/array/builder_binary.h>
 #include <gtest/gtest.h>
 
 #include <cstring>
@@ -27,6 +28,7 @@
 #include "core/column/column_spatial.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_varbinary.h"
+#include "exec/common/arrow_column_to_doris_column.h"
 
 namespace doris {
 
@@ -87,6 +89,29 @@ TEST(DataTypeSpatialTest, FactoryPreservesSpatialMetadataFromTypeDescriptor) {
     EXPECT_EQ(TYPE_GEOGRAPHY, geography_type.get_primitive_type());
     EXPECT_EQ("OGC:CRS84", geography_type.crs());
     EXPECT_EQ("spherical", geography_type.algorithm());
+}
+
+TEST(DataTypeSpatialTest, ArrowBinaryReadPreservesWkbForSpatialTypes) {
+    const std::string wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00@", 21);
+    arrow::BinaryBuilder builder;
+    ASSERT_TRUE(builder.Append(wkb).ok());
+    std::shared_ptr<arrow::Array> arrow_array;
+    ASSERT_TRUE(builder.Finish(&arrow_array).ok());
+
+    for (const auto primitive_type : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
+        const auto type = DataTypeFactory::instance().create_data_type(primitive_type, false);
+        ColumnPtr column = type->create_column();
+        ASSERT_TRUE(arrow_column_to_doris_column(arrow_array.get(), 0, column, type, 1, "")
+                            .ok());
+
+        const auto& spatial = assert_cast<const ColumnSpatial&>(*column);
+        EXPECT_EQ(primitive_type, spatial.get_primitive_type());
+        ASSERT_EQ(1, spatial.size());
+        const auto value = spatial.get_data_at(0);
+        EXPECT_EQ(wkb.size(), value.size);
+        EXPECT_EQ(0, memcmp(wkb.data(), value.data, value.size));
+    }
 }
 
 TEST(DataTypeSpatialTest, ColumnPreservesWkbThroughFilterAndPermute) {
