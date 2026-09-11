@@ -17,9 +17,10 @@
 
 package org.apache.doris.httpv2.rest;
 
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
+import org.apache.doris.httpv2.exception.BadRequestException;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.cdc.request.CommitOffsetRequest;
@@ -34,6 +35,7 @@ import com.google.common.base.Strings;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -44,6 +46,25 @@ import java.util.Map;
 @RestController
 public class StreamingJobAction extends RestBaseController {
     private static final Logger LOG = LogManager.getLogger(StreamingJobAction.class);
+
+    private final TableSchemaAction tableSchemaAction;
+
+    public StreamingJobAction(TableSchemaAction tableSchemaAction) {
+        this.tableSchemaAction = tableSchemaAction;
+    }
+
+    @RequestMapping(path = "/api/streaming/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_schema",
+            method = RequestMethod.GET)
+    public Object getTableSchema(@PathVariable(value = DB_KEY) String dbName,
+            @PathVariable(value = TABLE_KEY) String tblName, HttpServletRequest request) {
+        checkAuth(request);
+        if (!Env.getCurrentEnv().isMaster()) {
+            return ResponseEntityBuilder.okWithCommonError("Table schema must be queried on the master FE");
+        }
+        try (AutoCloseConnectContext ignored = new AutoCloseConnectContext(createJobContext(request))) {
+            return tableSchemaAction.getSchema(InternalCatalog.INTERNAL_CATALOG_NAME, dbName, tblName);
+        }
+    }
 
     @RequestMapping(path = "/api/streaming/commit_offset", method = RequestMethod.PUT)
     public Object commitOffset(@RequestBody CommitOffsetRequest offsetRequest, HttpServletRequest request) {
@@ -68,11 +89,7 @@ public class StreamingJobAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("Missing statement request body");
         }
 
-        ConnectContext ctx = new ConnectContext();
-        ctx.setEnv(Env.getCurrentEnv());
-        ctx.setRemoteIP(request.getRemoteAddr());
-        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
-        ctx.getState().setInternal(true);
+        ConnectContext ctx = createJobContext(request);
         try (AutoCloseConnectContext ignored = new AutoCloseConnectContext(ctx)) {
             StmtExecutor executor = new StmtExecutor(ctx, stmt);
             executor.execute();
@@ -92,8 +109,38 @@ public class StreamingJobAction extends RestBaseController {
             throw new UnauthorizedException("Miss token");
         }
         if (!checkClusterToken(authToken)) {
-            throw new UnauthorizedException("Invalid token: " + authToken);
+            throw new UnauthorizedException("Invalid token");
         }
+    }
+
+    // Call only after validating the internal token. The caller owns the context's scope.
+    private static ConnectContext createJobContext(HttpServletRequest request) {
+        String jobIdHeader = request.getHeader("jobId");
+        if (Strings.isNullOrEmpty(jobIdHeader)) {
+            throw new BadRequestException("Missing jobId header; CDC client must send the streaming job ID");
+        }
+        long jobId;
+        try {
+            jobId = Long.parseLong(jobIdHeader);
+        } catch (NumberFormatException e) {
+            throw new BadRequestException("Invalid jobId header: " + jobIdHeader);
+        }
+        AbstractJob job = Env.getCurrentEnv().getJobManager().getJob(jobId);
+        if (!(job instanceof StreamingInsertJob)) {
+            throw new BadRequestException("Job " + jobId + " is not a streaming job or does not exist");
+        }
+        if (job.getCreateUser() == null) {
+            throw new BadRequestException("Streaming job " + jobId + " has no creator identity");
+        }
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(Env.getCurrentEnv());
+        ctx.setRemoteIP(request.getRemoteAddr());
+        ctx.setCurrentUserIdentity(job.getCreateUser());
+        if (!Strings.isNullOrEmpty(job.getCurrentDbName())) {
+            ctx.setDatabase(job.getCurrentDbName());
+        }
+        ctx.getState().setInternal(true);
+        return ctx;
     }
 
     private Object failTask(TaskFailureRequest failureRequest) {

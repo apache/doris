@@ -100,7 +100,7 @@ suite("test_streaming_mysql_job_priv", "p0,external,mysql,external_docker,extern
             sql """INSERT INTO ${mysqlDb}.${tableName} (name, age) VALUES ('B1', 2);"""
         }
 
-        // create streaming job by load_priv and create_priv
+        // Create the job without ALTER privilege to verify schema changes use the job creator's identity.
         sql """grant load_priv,create_priv on ${dbName}.* to ${user}"""
         connect(user, "${pwd}", url) {
             sql """CREATE JOB ${jobName}
@@ -141,6 +141,42 @@ suite("test_streaming_mysql_job_priv", "p0,external,mysql,external_docker,extern
 
         def jobResult = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
         log.info("show jobResult: " + jobResult)
+
+        // A token-authenticated schema change must still check the job creator's ALTER privilege.
+        connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
+            sql """ALTER TABLE ${mysqlDb}.${tableName} ADD COLUMN cdc_auth_col VARCHAR(50)"""
+            sql """INSERT INTO ${mysqlDb}.${tableName} (name, age, cdc_auth_col)
+                    VALUES ('SchemaChangePriv', 30, 'created_by_job_user')"""
+        }
+
+        Awaitility.await().atMost(180, SECONDS).pollInterval(2, SECONDS).until({
+            def errors = sql """SELECT ErrorMsg FROM jobs("type"="insert") WHERE Name='${jobName}'"""
+            log.info("schema change privilege error: " + errors)
+            def columns = sql "DESC ${tableName}"
+            errors.size() == 1 && errors[0][0].toString().contains("ALTER TABLE command denied")
+                    && errors[0][0].toString().contains(user)
+                    && !columns.any { it[0] == "cdc_auth_col" }
+        })
+
+        // Let the existing automatic retry replay the failed DDL after ALTER is granted.
+        sql """GRANT alter_priv ON ${dbName}.* TO ${user}"""
+        Awaitility.await().atMost(180, SECONDS).pollInterval(2, SECONDS).until({
+            def columns = sql "DESC ${tableName}"
+            def rows = sql "SELECT cdc_auth_col FROM ${tableName} WHERE name = 'SchemaChangePriv'"
+            columns.any { it[0] == "cdc_auth_col" }
+                    && rows.size() == 1 && rows[0][0] == "created_by_job_user"
+        })
+
+        connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
+            sql """DELETE FROM ${mysqlDb}.${tableName} WHERE name = 'SchemaChangePriv'"""
+            sql """ALTER TABLE ${mysqlDb}.${tableName} DROP COLUMN cdc_auth_col"""
+        }
+
+        Awaitility.await().atMost(180, SECONDS).pollInterval(2, SECONDS).until({
+            def columns = sql "DESC ${tableName}"
+            def rows = sql "SELECT COUNT(*) FROM ${tableName} WHERE name = 'SchemaChangePriv'"
+            !columns.any { it[0] == "cdc_auth_col" } && (rows[0][0] as int) == 0
+        })
 
         // create a new mysql user only has select priv
         def newMysqlUser = "mysql_job_priv"

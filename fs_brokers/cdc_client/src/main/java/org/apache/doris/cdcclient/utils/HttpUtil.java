@@ -56,8 +56,4 @@ public class HttpUtil {
                 .addInterceptorLast(new RequestContent(true))
                 .build();
     }
-
-    public static String getAuthHeader() {
-        return "Basic YWRtaW46";
-    }
 }

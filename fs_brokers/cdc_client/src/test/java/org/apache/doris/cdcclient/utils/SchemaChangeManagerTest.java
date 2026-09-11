@@ -57,6 +57,7 @@ class SchemaChangeManagerTest {
                 feAddr,
                 "target_db",
                 "token",
+                "123",
                 SchemaChangeOperation.addColumn(
                         "target_table",
                         "new_col",
@@ -74,6 +75,7 @@ class SchemaChangeManagerTest {
                 feAddr,
                 "target_db",
                 "token",
+                "123",
                 SchemaChangeOperation.dropColumn(
                         "target_table",
                         "old_col",
@@ -95,7 +97,7 @@ class SchemaChangeManagerTest {
         assertThatThrownBy(
                         () ->
                                 SchemaChangeManager.execute(
-                                        feAddr, "target_db", "token", operation))
+                                        feAddr, "target_db", "token", "123", operation))
                 .isInstanceOf(IOException.class)
                 .hasMessageContaining("Failed to execute schema change");
     }
@@ -113,7 +115,7 @@ class SchemaChangeManagerTest {
         assertThatThrownBy(
                         () ->
                                 SchemaChangeManager.execute(
-                                        feAddr, "target_db", "token", operation))
+                                        feAddr, "target_db", "token", "123", operation))
                 .isInstanceOf(IOException.class)
                 .hasMessageContaining("Failed to execute schema change");
     }
@@ -122,7 +124,7 @@ class SchemaChangeManagerTest {
     void schemaQueryFailureKeepsOriginalDdlFailure() throws Exception {
         respondToDdlWithUnknownError();
         server.createContext(
-                "/api/target_db/target_table/_schema",
+                "/api/streaming/target_db/target_table/_schema",
                 exchange -> respond(exchange, "{\"code\":1,\"msg\":\"schema unavailable\"}"));
         SchemaChangeOperation operation =
                 SchemaChangeOperation.addColumn(
@@ -133,7 +135,7 @@ class SchemaChangeManagerTest {
         assertThatThrownBy(
                         () ->
                                 SchemaChangeManager.execute(
-                                        feAddr, "target_db", "token", operation))
+                                        feAddr, "target_db", "token", "123", operation))
                 .isInstanceOf(IOException.class)
                 .hasMessageContaining("Column operation cannot be applied")
                 .satisfies(error -> assertThat(error.getSuppressed()).hasSize(1));
@@ -149,6 +151,7 @@ class SchemaChangeManagerTest {
                 feAddr,
                 "target_db",
                 "token",
+                "123",
                 SchemaChangeOperation.addColumn(
                         "target_table",
                         "new_col",
@@ -168,7 +171,7 @@ class SchemaChangeManagerTest {
 
     private void respondToSchemaWithColumns(String... columns) {
         server.createContext(
-                "/api/target_db/target_table/_schema",
+                "/api/streaming/target_db/target_table/_schema",
                 exchange -> {
                     schemaRequests.incrementAndGet();
                     StringBuilder properties = new StringBuilder();
@@ -187,6 +190,9 @@ class SchemaChangeManagerTest {
     }
 
     private static void respond(HttpExchange exchange, String body) throws IOException {
+        assertThat(exchange.getRequestHeaders().getFirst("token")).isEqualTo("token");
+        assertThat(exchange.getRequestHeaders().getFirst("jobId")).isEqualTo("123");
+        assertThat(exchange.getRequestHeaders().getFirst("Authorization")).isNull();
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
         exchange.sendResponseHeaders(200, bytes.length);
         exchange.getResponseBody().write(bytes);

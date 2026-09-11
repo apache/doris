@@ -39,7 +39,7 @@ public class SchemaChangeManager {
 
     private static final Logger LOG = LoggerFactory.getLogger(SchemaChangeManager.class);
     private static final String SCHEMA_CHANGE_API = "http://%s/api/streaming/schema_change";
-    private static final String TABLE_SCHEMA_API = "http://%s/api/%s/%s/_schema";
+    private static final String TABLE_SCHEMA_API = "http://%s/api/streaming/%s/%s/_schema";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String COLUMN_EXISTS_MSG = "Can not add column which already exists";
     private static final String COLUMN_NOT_EXISTS_MSG = "Column does not exists";
@@ -56,10 +56,15 @@ public class SchemaChangeManager {
      * @param feAddr Doris FE address (host:port)
      * @param db target database
      * @param token FE auth token
+     * @param jobId streaming job ID used by FE to resolve the creator identity
      * @param schemaChanges schema changes to execute
      */
     public static void executeChanges(
-            String feAddr, String db, String token, List<SchemaChangeOperation> schemaChanges)
+            String feAddr,
+            String db,
+            String token,
+            String jobId,
+            List<SchemaChangeOperation> schemaChanges)
             throws IOException {
         if (schemaChanges == null || schemaChanges.isEmpty()) {
             LOG.info("No DDL statements to execute");
@@ -67,7 +72,7 @@ public class SchemaChangeManager {
         }
         for (SchemaChangeOperation operation : schemaChanges) {
             LOG.info("Executing DDL on FE {}: {}", feAddr, operation.getSql());
-            execute(feAddr, db, token, operation);
+            execute(feAddr, db, token, jobId, operation);
         }
     }
 
@@ -78,16 +83,16 @@ public class SchemaChangeManager {
      * schema is checked before the failure is propagated.
      */
     public static void execute(
-            String feAddr, String db, String token, SchemaChangeOperation operation)
+            String feAddr, String db, String token, String jobId, SchemaChangeOperation operation)
             throws IOException {
-        HttpPost post = buildHttpPost(feAddr, token, operation.getSql());
+        HttpPost post = buildHttpPost(feAddr, token, jobId, operation.getSql());
         try {
             String responseBody = handleResponse(post);
             LOG.info("Executed DDL {} with response: {}", operation.getSql(), responseBody);
             parseResponse(operation, responseBody);
         } catch (Exception ddlFailure) {
             try {
-                if (isAlreadyApplied(feAddr, db, token, operation)) {
+                if (isAlreadyApplied(feAddr, db, token, jobId, operation)) {
                     LOG.warn(
                             "[DDL-IDEMPOTENT] Doris schema already reflects {} {}. SQL: {}",
                             operation.getType(),
@@ -104,7 +109,7 @@ public class SchemaChangeManager {
 
     // ─── Internal helpers ─────────────────────────────────────────────────────
 
-    private static HttpPost buildHttpPost(String feAddr, String token, String sql)
+    private static HttpPost buildHttpPost(String feAddr, String token, String jobId, String sql)
             throws IOException {
         String url = String.format(SCHEMA_CHANGE_API, feAddr);
         Map<String, Object> bodyMap = new HashMap<>();
@@ -114,6 +119,7 @@ public class SchemaChangeManager {
         HttpPost post = new HttpPost(url);
         post.setHeader("Content-Type", "application/json;charset=UTF-8");
         post.setHeader("token", token);
+        post.setHeader("jobId", jobId);
         post.setEntity(new StringEntity(body, "UTF-8"));
         return post;
     }
@@ -129,11 +135,12 @@ public class SchemaChangeManager {
     }
 
     private static boolean isAlreadyApplied(
-            String feAddr, String db, String token, SchemaChangeOperation operation)
+            String feAddr, String db, String token, String jobId, SchemaChangeOperation operation)
             throws IOException {
         String url = String.format(TABLE_SCHEMA_API, feAddr, db, operation.getTableName());
         HttpGet request = new HttpGet(url);
         request.setHeader("token", token);
+        request.setHeader("jobId", jobId);
 
         String responseBody;
         try (CloseableHttpClient client = HttpUtil.getHttpClient();

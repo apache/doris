@@ -20,11 +20,11 @@ package org.apache.doris.httpv2.rest;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TokenManager;
 import org.apache.doris.httpv2.entity.ResponseBody;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
@@ -40,12 +40,18 @@ import java.util.Map;
 public class StreamingJobActionSchemaChangeTest extends TestWithFeService {
     private static final String DB_NAME = "streaming_schema_change_test";
     private static final String TABLE_NAME = "token_auth_tbl";
+    private final StreamingJobAction action = new StreamingJobAction(new TableSchemaAction());
 
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase(DB_NAME);
         createTable("CREATE TABLE " + DB_NAME + "." + TABLE_NAME + " (k1 INT) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1 PROPERTIES ('replication_num' = '1')");
+        StreamingInsertJob job = Mockito.mock(StreamingInsertJob.class);
+        Mockito.when(job.getJobId()).thenReturn(123L);
+        Mockito.when(job.getCreateUser()).thenReturn(connectContext.getCurrentUserIdentity());
+        Mockito.when(job.getCurrentDbName()).thenReturn(DB_NAME);
+        Env.getCurrentEnv().getJobManager().createJobInternal(job, true);
     }
 
     @Test
@@ -54,7 +60,7 @@ public class StreamingJobActionSchemaChangeTest extends TestWithFeService {
         Map<String, String> body = Collections.singletonMap(
                 "stmt", "ALTER TABLE " + DB_NAME + "." + TABLE_NAME + " ADD COLUMN added_col INT");
 
-        ResponseEntity<?> result = (ResponseEntity<?>) new StreamingJobAction().executeSchemaChange(body, request);
+        ResponseEntity<?> result = (ResponseEntity<?>) action.executeSchemaChange(body, request);
 
         ResponseBody<?> responseBody = (ResponseBody<?>) result.getBody();
         Assertions.assertEquals(RestApiStatusCode.OK.code, responseBody.getCode());
@@ -72,7 +78,7 @@ public class StreamingJobActionSchemaChangeTest extends TestWithFeService {
         try (MockedStatic<Env> env = Mockito.mockStatic(Env.class);
                 MockedConstruction<StmtExecutor> executors = Mockito.mockConstruction(StmtExecutor.class)) {
             env.when(Env::getCurrentEnv).thenReturn(follower);
-            ResponseEntity<?> result = (ResponseEntity<?>) new StreamingJobAction().executeSchemaChange(body, request);
+            ResponseEntity<?> result = (ResponseEntity<?>) action.executeSchemaChange(body, request);
 
             ResponseBody<?> responseBody = (ResponseBody<?>) result.getBody();
             Assertions.assertEquals(RestApiStatusCode.COMMON_ERROR.code, responseBody.getCode());
@@ -84,10 +90,7 @@ public class StreamingJobActionSchemaChangeTest extends TestWithFeService {
     @Test
     public void testGetTableSchemaWithToken() throws Exception {
         HttpServletRequest request = tokenRequest();
-        HttpServletResponse response = Mockito.mock(HttpServletResponse.class);
-
-        ResponseEntity<?> result = (ResponseEntity<?>) new TableSchemaAction().schema(
-                null, DB_NAME, TABLE_NAME, request, response);
+        ResponseEntity<?> result = (ResponseEntity<?>) action.getTableSchema(DB_NAME, TABLE_NAME, request);
 
         ResponseBody<?> responseBody = (ResponseBody<?>) result.getBody();
         Assertions.assertEquals(RestApiStatusCode.OK.code, responseBody.getCode());
@@ -97,6 +100,7 @@ public class StreamingJobActionSchemaChangeTest extends TestWithFeService {
     private HttpServletRequest tokenRequest() throws Exception {
         HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
         Mockito.when(request.getRemoteAddr()).thenReturn("127.0.0.1");
+        Mockito.when(request.getHeader("jobId")).thenReturn("123");
         Mockito.when(request.getHeader("token"))
                 .thenReturn(Env.getCurrentEnv().getTokenManager().acquireToken());
         String invalidBasic = Base64.getEncoder().encodeToString(

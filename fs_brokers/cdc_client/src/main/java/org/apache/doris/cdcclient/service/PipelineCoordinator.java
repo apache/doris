@@ -452,6 +452,9 @@ public class PipelineCoordinator {
      * <p>Heartbeat events will carry the latest offset.
      */
     public void writeRecords(WriteRecordRequest writeRecordRequest) throws Exception {
+        Preconditions.checkArgument(
+                StringUtils.isNotBlank(writeRecordRequest.getDorisUser()),
+                "Missing dorisUser; FE must send the Doris job creator's user name");
         // Extract connection parameters up front for use throughout this method
         String feAddr = writeRecordRequest.getFrontendAddress();
         String targetDb = writeRecordRequest.getTargetDb();
@@ -611,7 +614,11 @@ public class PipelineCoordinator {
                             ddlCount += result.getSchemaChanges().size();
                         }
                         SchemaChangeManager.executeChanges(
-                                feAddr, targetDb, token, result.getSchemaChanges());
+                                feAddr,
+                                targetDb,
+                                token,
+                                writeRecordRequest.getJobId(),
+                                result.getSchemaChanges());
                         hasExecuteDDL = true;
                         sourceReader.applySchemaChange(result.getUpdatedSchemas());
                         lastMessageIsHeartbeat = false;
@@ -780,6 +787,7 @@ public class PipelineCoordinator {
         batchStreamLoad.setCurrentTaskId(writeRecordRequest.getTaskId());
         batchStreamLoad.setFrontendAddress(writeRecordRequest.getFrontendAddress());
         batchStreamLoad.setToken(writeRecordRequest.getToken());
+        batchStreamLoad.setDorisUser(writeRecordRequest.getDorisUser());
         batchStreamLoad.setLoadProps(writeRecordRequest.getStreamLoadProps());
         batchStreamLoad.getLoadStatistic().clear();
         return batchStreamLoad;
