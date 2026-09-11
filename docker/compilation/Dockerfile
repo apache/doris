@@ -124,6 +124,7 @@ COPY doris ${DEFAULT_DIR}/doris
 RUN cd ${DEFAULT_DIR}/doris \
     && CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=/usr/bin/gcc \
        /bin/bash thirdparty/build-thirdparty.sh \
+    && rm -rf "${CARGO_HOME}/registry" "${CARGO_HOME}/git" \
     && rm -rf ${DEFAULT_DIR}/doris/thirdparty/src \
     && rm -rf ${DEFAULT_DIR}/doris-thirdparty.tar.gz \
     && rm -rf ${DEFAULT_DIR}/doris-thirdparty \
