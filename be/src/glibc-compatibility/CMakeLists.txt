@@ -45,9 +45,6 @@ if (GLIBC_COMPATIBILITY)
     endif ()
 
     list(REMOVE_ITEM glibc_compatibility_sources musl/getentropy.c)
-    if(HAVE_SYS_RANDOM_H)
-        list(APPEND glibc_compatibility_sources musl/getentropy.c)
-    endif()
 
     # lance_c is linked after this archive and introduces these libc references
     # too late for another archive scan. Keep the hidden version adapters in the
@@ -82,6 +79,16 @@ if (GLIBC_COMPATIBILITY)
             ${MEMCPY_SOURCE}
             ${lance_compatibility_source}
         )
+    endif()
+    if(HAVE_SYS_RANDOM_H)
+        # ASAN's weak getentropy interceptor prevents extracting our implementation
+        # from the static archive. Link it explicitly so calls do not reach a null
+        # real_getentropy on glibc < 2.25.
+        target_sources(glibc-compatibility-explicit PRIVATE musl/getentropy.c)
+        if (COMPILER_CLANG)
+            # Preserve the warning policy previously supplied by the archive target.
+            set_source_files_properties(musl/getentropy.c PROPERTIES COMPILE_OPTIONS -Wno-conversion)
+        endif()
     endif()
     target_compile_options(glibc-compatibility-explicit PRIVATE -fPIC)
     add_library(glibc-compatibility STATIC ${glibc_compatibility_sources})
