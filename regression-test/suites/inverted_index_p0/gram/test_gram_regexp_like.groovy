@@ -258,6 +258,11 @@ suite("test_gram_regexp_like", "p0") {
     // it, so both passes would read one and the same filter result and this parity check would
     // degenerate into a tautology.
     sql "SET enable_condition_cache=false"
+    // Pin the scan node's function push-down to its default. With it on, a LIKE is turned
+    // into a storage-layer LikeColumnPredicate and never reaches the gram index, so the
+    // profile assertions below would see nothing pruned. The pipeline randomises this
+    // variable per session, which would make those assertions pass or fail by luck.
+    sql "SET enable_function_pushdown=false"
 
     // Produce the .out golden: run the same batch of queries once with the index on and once off
     def runAll = { boolean useIndex ->
@@ -367,4 +372,12 @@ suite("test_gram_regexp_like", "p0") {
     runParityCheck("after_delete")
 
     sql "SET enable_inverted_index_query=true"
+    // The policies live cluster-wide and the cluster is shared, so a suite that leaves
+    // its own behind eats into the instance-wide policy limit for everyone else.
+    sql "DROP TABLE IF EXISTS ${tbl}"
+    sql "DROP INVERTED INDEX ANALYZER IF EXISTS ${sparseAna}"
+    sql "DROP INVERTED INDEX ANALYZER IF EXISTS ${denseLcAna}"
+    sql "DROP INVERTED INDEX TOKENIZER IF EXISTS ${sparseTok}"
+    sql "DROP INVERTED INDEX TOKENIZER IF EXISTS ${denseLcTok}"
+
 }

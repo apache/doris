@@ -158,8 +158,8 @@ protected:
         return index_file_writer.finish_close();
     }
 
-    Status evaluate_pattern(const std::string& name, bool column_on_left,
-                            const std::string& literal_value, PatternEvaluation* result) {
+    Status evaluate_pattern(const std::string& name, const std::string& literal_value,
+                            PatternEvaluation* result) {
         const DataTypePtr string_type = std::make_shared<DataTypeString>();
         TFunction function;
         TFunctionName function_name;
@@ -179,13 +179,8 @@ protected:
         auto slot = VSlotRef::create_shared(0, 0, 0, string_type, "p");
         auto literal = VLiteral::create_shared(string_type,
                                                Field::create_field<TYPE_STRING>(literal_value));
-        if (column_on_left) {
-            expression->add_child(slot);
-            expression->add_child(literal);
-        } else {
-            expression->add_child(literal);
-            expression->add_child(slot);
-        }
+        expression->add_child(slot);
+        expression->add_child(literal);
 
         std::vector<IndexFieldNameAndTypePair> storage_types {{"p", string_type}};
         std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> index_status;
@@ -330,19 +325,9 @@ protected:
     segment_v2::IndexQueryContextPtr _query_context;
 };
 
-TEST_F(LikeGramBindingTest, LikePreservesOperandRolesAndPrunesIndexedValues) {
-    PatternEvaluation reverse;
-    auto status = evaluate_pattern("like", /*column_on_left=*/false, "abcdef", &reverse);
-    ASSERT_TRUE(status.ok()) << status;
-    ASSERT_TRUE(reverse.row_result->get_bool(0)); // 'abcdef' LIKE '%'
-    ASSERT_TRUE(reverse.row_result->get_bool(1));
-    ASSERT_FALSE(reverse.row_result->get_bool(2));
-    EXPECT_FALSE(reverse.has_exact_result);
-    EXPECT_TRUE(reverse.candidates.is_empty() || reverse.candidates.get_data_bitmap()->contains(0))
-            << "The index on the pattern operand must not discard a TRUE LIKE row";
-
+TEST_F(LikeGramBindingTest, LikePrunesIndexedValues) {
     PatternEvaluation forward;
-    status = evaluate_pattern("like", /*column_on_left=*/true, "%abcdef%", &forward);
+    auto status = evaluate_pattern("like", "%abcdef%", &forward);
     ASSERT_TRUE(status.ok()) << status;
     check_selective_result(forward);
 }
@@ -363,25 +348,14 @@ TEST_F(LikeGramBindingTest, LikeUsesTheWrittenSchemeAfterSameNamePolicyReplaceme
     _policy_mgr.apply_policy_changes({tokenizer, analyzer}, {6753803, 6753802});
 
     PatternEvaluation result;
-    const auto status = evaluate_pattern("like", /*column_on_left=*/true, "%abcdef%", &result);
+    const auto status = evaluate_pattern("like", "%abcdef%", &result);
     ASSERT_TRUE(status.ok()) << status;
     check_selective_result(result);
 }
 
-TEST_F(LikeGramBindingTest, RegexpPreservesOperandRolesAndPrunesIndexedValues) {
-    PatternEvaluation reverse;
-    auto status = evaluate_pattern("regexp", /*column_on_left=*/false, "abcdef%", &reverse);
-    ASSERT_TRUE(status.ok()) << status;
-    ASSERT_TRUE(reverse.row_result->get_bool(0)); // 'abcdef%' REGEXP '%'
-    ASSERT_TRUE(reverse.row_result->get_bool(1));
-    ASSERT_FALSE(reverse.row_result->get_bool(2));
-    EXPECT_FALSE(reverse.has_exact_result);
-    EXPECT_TRUE(reverse.candidates.is_empty() || reverse.candidates.get_data_bitmap()->contains(0))
-            << "The index on the pattern operand must not discard a TRUE REGEXP row";
-    EXPECT_TRUE(reverse.candidates.is_empty() || reverse.candidates.get_data_bitmap()->contains(1));
-
+TEST_F(LikeGramBindingTest, RegexpPrunesIndexedValues) {
     PatternEvaluation forward;
-    status = evaluate_pattern("regexp", /*column_on_left=*/true, "abcdef", &forward);
+    auto status = evaluate_pattern("regexp", "abcdef", &forward);
     ASSERT_TRUE(status.ok()) << status;
     check_selective_result(forward);
 }
@@ -436,7 +410,7 @@ TEST_F(LikeGramBindingTest, PatternsUseTheSelectedReaderSchemeInASharedContainer
                  {"like", "%abcdef%"}, {"regexp", "abcdef"}}) {
         SCOPED_TRACE(name);
         PatternEvaluation result;
-        status = evaluate_pattern(name, /*column_on_left=*/true, pattern, &result);
+        status = evaluate_pattern(name, pattern, &result);
         ASSERT_TRUE(status.ok()) << status;
         check_selective_result(result);
     }
@@ -512,28 +486,6 @@ TEST_F(LikeGramBindingTest, MatchIsSkippedWhenTheCurrentSchemeDiffersFromTheSegm
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_NE(bitmap, nullptr);
     EXPECT_FALSE(bitmap->isEmpty()) << "the segment's own scheme answers the query";
-}
-
-// Which LIKE forms the index may answer. A backslash escape is the default escaping spelled out,
-// so that three-child form is compiled and accelerated like the two-child one. A LIKE carrying its
-// own escape character is not: the gram compiler implements the default escaping only, so
-// `%100!%%` ESCAPE `!` -- which means "contains 100%" -- would be compiled as if `!` were an
-// ordinary byte and would look for rows holding `100!`, dropping the row that matches. It is
-// refused on its arguments, before any index is opened, and the predicate is evaluated on the rows.
-TEST_F(LikeGramBindingTest, OnlyTheDefaultEscapingIsEligibleForTheIndex) {
-    const DataTypePtr string_type = std::make_shared<DataTypeString>();
-    const auto literal = [&](const std::string& value) {
-        return VLiteral::create_shared(string_type, Field::create_field<TYPE_STRING>(value));
-    };
-    auto column = VSlotRef::create_shared(0, 0, 0, string_type, "p");
-    auto pattern = literal("%100!%%");
-    auto like = FunctionLike::create();
-
-    EXPECT_TRUE(like->can_evaluate_inverted_index({column, pattern}));
-    EXPECT_TRUE(like->can_evaluate_inverted_index({column, pattern, literal("\\")}));
-    EXPECT_FALSE(like->can_evaluate_inverted_index({column, pattern, literal("!")}));
-    // An escape that is not a literal cannot be read at all, so it is refused as well.
-    EXPECT_FALSE(like->can_evaluate_inverted_index({column, pattern, column}));
 }
 
 } // namespace

@@ -919,10 +919,6 @@ ColumnPtr VExpr::get_result_from_const(size_t count) const {
 
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
                                        uint32_t segment_num_rows) {
-    if (!function->can_evaluate_inverted_index(children())) {
-        return Status::OK();
-    }
-
     // A function that can only answer approximately (the gram push-down behind LIKE / REGEXP)
     // produces a superset of candidate rows, and the caller names the single expression whose
     // superset it will read back. Anywhere else -- an operand of a compound AND/OR/NOT, a

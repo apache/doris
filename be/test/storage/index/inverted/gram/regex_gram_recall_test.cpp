@@ -149,13 +149,6 @@ Status scalar_matches(const std::string& pattern, const std::vector<std::string>
     context->set_constant_cols(constant_columns);
 
     Function function;
-    if (dynamic_pattern) {
-        // Dynamic-pattern execution is a scalar compatibility boundary, not an index
-        // acceleration claim: the eligibility hook rejects a pattern column.
-        auto value = VSlotRef::create_shared(0, 0, 0, string_type, "value");
-        auto pattern_slot = VSlotRef::create_shared(1, 1, 1, string_type, "pattern");
-        EXPECT_FALSE(function.can_evaluate_inverted_index({value, pattern_slot}));
-    }
     RETURN_IF_ERROR(function.open(context.get(), FunctionContext::THREAD_LOCAL));
     const auto* state =
             static_cast<LikeState*>(context->get_function_state(FunctionContext::THREAD_LOCAL));
@@ -630,10 +623,9 @@ TEST(RegexGramRecallTest, InvalidPatternsRejectAcrossEngineOptions) {
     }
 }
 
-TEST(RegexGramRecallTest, DynamicPatternRe2ExecutionAndIndexEligibility) {
+TEST(RegexGramRecallTest, DynamicPatternRe2Execution) {
     // A ColumnString pattern reaches vector_non_const -> scalar_function -> RE2 even
     // with Hyperscan fallback disabled. Extended regex does not enable Boost on this path.
-    // Each execution also checks that can_evaluate_inverted_index rejects the pattern slot.
     const std::vector<RecallCase> regexp_cases = {
             {R"(ab\vcdtimeout)",
              {"ab\vcdtimeout", "ab\ncdtimeout", "ab\rcdtimeout", "unrelated"},

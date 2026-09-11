@@ -288,8 +288,6 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t /*input_rows_count*/) const override;
 
-    bool can_evaluate_inverted_index(const VExprSPtrs& function_arguments) const override;
-
     friend struct VectorAllpassSearchState;
     friend struct VectorEqualSearchState;
     friend struct VectorSubStringSearchState;
@@ -382,11 +380,9 @@ protected:
     // Hard semantic constraint (Rulings R26 / R29): the index may only produce a superset of
     // candidates, and any index-side failure or inapplicable case may only cost the speedup --
     // all of them simply return OK() without writing bitmap_result, and a problem on the index
-    // side must never make a LIKE/REGEXP query fail or change its result. The caller first
-    // validates the ordered children through can_evaluate_inverted_index: the value is the
-    // indexed operand, the pattern is a literal, and LIKE ESCAPE is absent or a literal
-    // backslash. VExpr then binds the single value iterator. This method handles a disabled
-    // switch, NULL pattern, unsupported index, compiler result of ALL and index errors.
+    // side must never make a LIKE/REGEXP query fail or change its result. This method handles
+    // a disabled switch, a call shape it cannot compile, a NULL pattern, an unsupported index,
+    // a compiler result of ALL and index errors.
     // The only statuses rethrown are CANCELLED / MEM_LIMIT_EXCEEDED / MEM_ALLOC_FAILED.
     enum class GramCompileKind { LIKE, REGEXP };
     Status evaluate_gram_index(GramCompileKind kind, const ColumnsWithTypeAndName& arguments,

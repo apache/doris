@@ -1114,31 +1114,6 @@ Status FunctionRegexpLike::open(FunctionContext* context,
     return Status::OK();
 }
 
-bool FunctionLikeBase::can_evaluate_inverted_index(const VExprSPtrs& function_arguments) const {
-    if (function_arguments.size() != 2 &&
-        !(get_name() == FunctionLike::name && function_arguments.size() == 3)) {
-        return false;
-    }
-    // VExpr subsequently validates that stripping this cast preserves the storage type.
-    if (!VExpr::expr_without_cast(function_arguments[0])->is_slot_ref() ||
-        !function_arguments[1]->is_literal()) {
-        return false;
-    }
-    if (function_arguments.size() == 3) {
-        if (!function_arguments[2]->is_literal()) {
-            return false;
-        }
-        const auto* escape = assert_cast<const VLiteral*>(function_arguments[2].get());
-        Field escape_field;
-        escape->get_column_ptr()->get(0, escape_field);
-        // The gram compiler implements the default LIKE escaping semantics only.
-        if (escape_field.is_null() || escape_field.get<TYPE_STRING>() != "\\") {
-            return false;
-        }
-    }
-    return true;
-}
-
 // R8 (unity build): file-scope helpers use a namespace private to this file.
 namespace like_gram_index_detail {
 
@@ -1191,11 +1166,15 @@ Status FunctionLikeBase::evaluate_gram_index(
     if (!config::enable_gram_index_regexp) {
         return Status::OK();
     }
-    // Operand roles were accepted before VExpr separated literals and indexed fields.
-    DORIS_CHECK_EQ(iterators.size(), 1);
-    DORIS_CHECK_EQ(data_type_with_names.size(), 1);
-    DORIS_CHECK(!arguments.empty());
-    DORIS_CHECK(is_column_const(*arguments[0].column));
+    // VExpr binds whatever children it finds -- one entry per indexed column, one per literal
+    // -- so the shape reaching here is not guaranteed. Answer only the shape this compiler
+    // understands: a single indexed column and a single constant pattern. `LIKE ... ESCAPE`
+    // arrives with a second literal and would otherwise be compiled with the default escaping,
+    // which is not what the query asked for.
+    if (iterators.size() != 1 || data_type_with_names.size() != 1 || arguments.size() != 1 ||
+        !is_column_const(*arguments[0].column)) {
+        return Status::OK();
+    }
     Field pattern_field;
     arguments[0].column->get(0, pattern_field);
     if (pattern_field.is_null()) {

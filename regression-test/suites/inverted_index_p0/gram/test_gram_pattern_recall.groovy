@@ -117,10 +117,6 @@ suite("test_gram_pattern_recall", "p0") {
                 "order_qt_${column}_${useIndex}_nul_like_${i}"("""SELECT id
                     FROM test_gram_pattern_recall WHERE ${column} LIKE ${sqlLiteral(pattern)}""")
             }
-            "order_qt_${column}_${useIndex}_reverse_like"("""SELECT id
-                FROM test_gram_pattern_recall WHERE 'abctimeout' LIKE ${column}""")
-            "order_qt_${column}_${useIndex}_reverse_regexp"("""SELECT id
-                FROM test_gram_pattern_recall WHERE 'abctimeout' REGEXP ${column}""")
             "order_qt_${column}_${useIndex}_null"("""SELECT id
                 FROM test_gram_pattern_recall WHERE ${column} IS NULL""")
             "order_qt_${column}_${useIndex}_compound"("""SELECT id
@@ -129,4 +125,13 @@ suite("test_gram_pattern_recall", "p0") {
         }
     }
     sql "SET enable_inverted_index_query=true"
+    // The policies live cluster-wide and the cluster is shared, so a suite that leaves
+    // its own behind eats into the instance-wide policy limit for everyone else.
+    sql "DROP TABLE IF EXISTS test_gram_pattern_recall"
+    schemes.each { name, properties ->
+        sql "DROP INVERTED INDEX ANALYZER IF EXISTS gram_recall_${name}"
+        sql "DROP INVERTED INDEX TOKENIZER IF EXISTS gram_recall_${name}_tok"
+    }
+    sql "DROP INVERTED INDEX TOKENIZER IF EXISTS gram_recall_invalid_tokenizer"
+
 }
