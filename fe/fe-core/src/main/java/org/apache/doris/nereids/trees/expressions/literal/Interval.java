@@ -72,7 +72,12 @@ public class Interval extends Expression implements UnaryExpression, AlwaysNotNu
 
     @Override
     public String computeToSql() {
-        return "INTERVAL " + value().toSql() + " " + timeUnit;
+        return computeToSql(SqlRenderMode.DEFAULT);
+    }
+
+    @Override
+    public String computeToSql(SqlRenderMode mode) {
+        return "INTERVAL " + value().toSql(mode) + " " + timeUnit;
     }
 
     @Override

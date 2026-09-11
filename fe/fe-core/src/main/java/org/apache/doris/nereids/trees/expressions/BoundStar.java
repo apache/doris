@@ -50,7 +50,12 @@ public class BoundStar extends NamedExpression implements PropagateNullable {
     }
 
     public String computeToSql() {
-        return children.stream().map(Expression::toSql).collect(Collectors.joining(", "));
+        return computeToSql(SqlRenderMode.DEFAULT);
+    }
+
+    @Override
+    public String computeToSql(SqlRenderMode mode) {
+        return children.stream().map(expr -> expr.toSql(mode)).collect(Collectors.joining(", "));
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})

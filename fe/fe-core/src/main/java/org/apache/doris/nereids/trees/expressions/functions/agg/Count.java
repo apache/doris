@@ -163,10 +163,15 @@ public class Count extends NotNullableAggregateFunction
 
     @Override
     public String computeToSql() {
+        return computeToSql(SqlRenderMode.DEFAULT);
+    }
+
+    @Override
+    public String computeToSql(SqlRenderMode mode) {
         if (isStar) {
             return "count(*)";
         }
-        return super.computeToSql();
+        return super.computeToSql(mode);
     }
 
     @Override

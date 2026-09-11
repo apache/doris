@@ -95,15 +95,21 @@ public class WindowFrame extends Expression implements PropagateNullable, LeafEx
     }
 
     @Override
-    public String computeToSql() {
+    public String computeToSql(SqlRenderMode mode) {
         StringBuilder sb = new StringBuilder();
-        sb.append(frameUnits + " ");
+        sb.append(frameUnits).append(" ");
         if (rightBoundary != null) {
-            sb.append("BETWEEN " + leftBoundary.toSql() + " AND " + rightBoundary.toSql());
+            sb.append("BETWEEN ").append(leftBoundary.toSql(mode))
+                    .append(" AND ").append(rightBoundary.toSql(mode));
         } else {
-            sb.append(leftBoundary);
+            sb.append(leftBoundary.toSql(mode));
         }
         return sb.toString();
+    }
+
+    @Override
+    public String computeToSql() {
+        return computeToSql(SqlRenderMode.DEFAULT);
     }
 
     @Override
@@ -253,10 +259,14 @@ public class WindowFrame extends Expression implements PropagateNullable, LeafEx
             return sb.toString();
         }
 
-        /** toSql*/
         public String toSql() {
+            return toSql(SqlRenderMode.DEFAULT);
+        }
+
+        /** Render the offset using the same SQL mode as the window expression. */
+        public String toSql(SqlRenderMode mode) {
             StringBuilder sb = new StringBuilder();
-            boundOffset.ifPresent(value -> sb.append(value + " "));
+            boundOffset.ifPresent(value -> sb.append(value.toSql(mode)).append(" "));
             switch (frameBoundType) {
                 case UNBOUNDED_PRECEDING:
                     sb.append("UNBOUNDED PRECEDING");

@@ -191,19 +191,24 @@ public class WindowExpression extends Expression {
 
     @Override
     public String computeToSql() {
+        return computeToSql(SqlRenderMode.DEFAULT);
+    }
+
+    @Override
+    public String computeToSql(SqlRenderMode mode) {
         StringBuilder sb = new StringBuilder();
-        sb.append(function.toSql()).append(" OVER(");
+        sb.append(function.toSql(mode)).append(" OVER(");
         if (!partitionKeys.isEmpty()) {
             sb.append("PARTITION BY ").append(partitionKeys.stream()
-                    .map(Expression::toSql)
+                    .map(expr -> expr.toSql(mode))
                     .collect(Collectors.joining(", ", "", " ")));
         }
         if (!orderKeys.isEmpty()) {
             sb.append("ORDER BY ").append(orderKeys.stream()
-                    .map(OrderExpression::toSql)
+                    .map(expr -> expr.toSql(mode))
                     .collect(Collectors.joining(", ", "", " ")));
         }
-        windowFrame.ifPresent(wf -> sb.append(wf.toSql()));
+        windowFrame.ifPresent(wf -> sb.append(wf.toSql(mode)));
         return sb.toString().trim() + ")";
     }
 

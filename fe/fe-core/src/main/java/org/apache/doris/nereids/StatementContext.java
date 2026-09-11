@@ -263,7 +263,8 @@ public class StatementContext implements Closeable {
     // replaced,
     // and value is the new string used for replacement.
     private final TreeMap<Pair<Integer, Integer>, String> indexInSqlToString = new TreeMap<>(
-            new Pair.PairComparator<>());
+            Comparator.<Pair<Integer, Integer>, Integer>comparing(pair -> pair.first)
+                    .thenComparing(pair -> pair.second, Comparator.reverseOrder()));
     // Record table id mapping, the key is the hash code of union catalogId,
     // databaseId, tableId
     // the value is the auto-increment id in the cascades context

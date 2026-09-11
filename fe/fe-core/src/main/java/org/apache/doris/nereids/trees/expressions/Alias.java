@@ -22,11 +22,13 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -125,8 +127,15 @@ public class Alias extends NamedExpression implements UnaryExpression {
     }
 
     @Override
+    public String computeToSql(SqlRenderMode mode) {
+        String sb = child().toSql(mode) + " AS "
+                + Utils.qualifiedNameWithBackquote(Collections.singletonList(getName()));
+        return sb;
+    }
+
+    @Override
     public String computeToSql() {
-        return child().toSql() + " AS `" + name.get() + "`";
+        return computeToSql(SqlRenderMode.DEFAULT);
     }
 
     @Override

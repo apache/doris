@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.Utils;
@@ -201,6 +202,16 @@ public class SlotReference extends Slot {
 
     public Optional<Column> getOneLevelColumn() {
         return Optional.ofNullable(oneLevelColumn);
+    }
+
+    @Override
+    public String computeToSql(SqlRenderMode mode) {
+        StringBuilder sql = new StringBuilder(getQualifiedNameWithBackquote());
+        for (String path : subPath) {
+            sql.append("[").append(new StringLiteral(path)
+                    .toSql(mode)).append("]");
+        }
+        return sql.toString();
     }
 
     @Override
