@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.OlapTable;
@@ -29,6 +30,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.nereids.SecurityDependencyContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -280,7 +282,11 @@ public class ExecuteCommandTest {
         Mockito.when(scanNode.getTableNameInPlan()).thenReturn("tbl");
         Mockito.when(scanNode.getConjuncts()).thenReturn(Collections.emptyList());
         Mockito.when(planner.getScanNodes()).thenReturn(Collections.singletonList(scanNode));
-        ShortCircuitQueryContext cachedPlan = new ShortCircuitQueryContext(planner, Mockito.mock(Queriable.class));
+        SecurityDependencyContext securityDependencies = Mockito.mock(SecurityDependencyContext.class);
+        Mockito.when(securityDependencies.snapshotForShortCircuit()).thenReturn(securityDependencies);
+        Mockito.when(securityDependencies.isValid(connectContext)).thenReturn(true);
+        ShortCircuitQueryContext cachedPlan = new ShortCircuitQueryContext(
+                planner, Mockito.mock(Queriable.class), securityDependencies);
         preparedStatement.shortCircuitQueryContext = Optional.of(cachedPlan);
 
         StmtExecutor executor = Mockito.mock(StmtExecutor.class);
@@ -288,6 +294,7 @@ public class ExecuteCommandTest {
         SessionVariable sessionVariable = new SessionVariable();
         sessionVariable.enableGroupCommitFullPrepare = false;
         Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(UserIdentity.ROOT);
         Mockito.when(connectContext.getStatementContext()).thenReturn(statementContext);
         Mockito.when(executor.getContext()).thenReturn(connectContext);
 
@@ -303,6 +310,38 @@ public class ExecuteCommandTest {
                 "the fast path installs the validated cache on the fresh context (second, reusable EXECUTE)");
         Mockito.verify(executor, Mockito.times(2)).executeAndSendResult(Mockito.anyBoolean(), Mockito.anyBoolean(),
                 Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void testInvalidSecurityDependenciesRefreshInsteadOfDirectReuse() throws Exception {
+        String sql = "select * from tbl";
+        LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
+
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        StatementContext statementContext = new StatementContext();
+        statementContext.setShortCircuitQuery(true);
+        PrepareCommand prepareCommand = new PrepareCommand(
+                "stmt", logicalPlan, Collections.emptyList(), new OriginStatement(sql, 0));
+        PreparedStatementContext preparedStatement = new PreparedStatementContext(
+                prepareCommand, connectContext, statementContext, "stmt");
+        ShortCircuitQueryContext cachedPlan = Mockito.mock(ShortCircuitQueryContext.class);
+        Mockito.when(cachedPlan.isReusable(connectContext)).thenReturn(false);
+        preparedStatement.shortCircuitQueryContext = Optional.of(cachedPlan);
+
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(connectContext.getPreparedStementContext("stmt")).thenReturn(preparedStatement);
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(new SessionVariable());
+        Mockito.when(connectContext.getStatementContext()).thenReturn(statementContext);
+        Mockito.when(executor.getContext()).thenReturn(connectContext);
+
+        new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
+
+        Mockito.verify(cachedPlan).isReusable(connectContext);
+        Mockito.verify(executor).execute();
+        Mockito.verify(executor, Mockito.never()).executeAndSendResult(Mockito.anyBoolean(), Mockito.anyBoolean(),
+                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
+        Assertions.assertNotSame(prepareCommand, preparedStatement.command,
+                "rejecting a stale fast-path plan must rebuild the retained prepared command");
     }
 
     private String resolveNextSnapshot(TableScanParams scanParams, AtomicInteger snapshotId) {
