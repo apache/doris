@@ -467,5 +467,51 @@ TEST_F(LikeGramBindingTest, GramPushDownDoesNoIndexIoWhenItsResultWouldBeDiscard
     }
 }
 
+// An analyzed query (MATCH_*) is only exact on a gram segment when the current analyzer cuts
+// it with the scheme that cut the segment. Here the physical index was written dense-3, while
+// the index metadata now names a dense-4 analyzer (a recovered table whose policy was
+// recreated; a calibrated density differs from the configured one the same way): the query
+// must be skipped, not answered from grams that mean something else. Through the scheme that
+// cut the segment the same query is answered by the index.
+TEST_F(LikeGramBindingTest, MatchIsSkippedWhenTheCurrentSchemeDiffersFromTheSegments) {
+    TIndexPolicy tokenizer;
+    tokenizer.id = 6753832;
+    tokenizer.name = "like_binding_match_dense4_tokenizer";
+    tokenizer.type = TIndexPolicyType::TOKENIZER;
+    tokenizer.properties = {{"type", "ngram"}, {"mode", "dense"}, {"min_gram", "4"}};
+    TIndexPolicy analyzer;
+    analyzer.id = 6753833;
+    analyzer.name = "like_binding_match_dense4_analyzer";
+    analyzer.type = TIndexPolicyType::ANALYZER;
+    analyzer.properties = {{"tokenizer", tokenizer.name}};
+    _policy_mgr.apply_policy_changes({tokenizer, analyzer}, {});
+
+    TabletIndexPB index_pb;
+    _index_meta.to_schema_pb(&index_pb);
+    (*index_pb.mutable_properties())["analyzer"] = analyzer.name;
+    TabletIndex recovered;
+    recovered.init_from_pb(index_pb);
+
+    const auto value = Field::create_field<TYPE_STRING>(std::string("abcdef"));
+    std::shared_ptr<roaring::Roaring> bitmap;
+    auto mismatched = segment_v2::SniiIndexReader::create_shared(
+            &recovered, _file_reader, segment_v2::InvertedIndexReaderType::FULLTEXT, _values.size(),
+            /*column_is_array=*/false);
+    for (const auto type : {segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY,
+                            segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY}) {
+        Status status = mismatched->query(_query_context, "p", value, type, bitmap);
+        EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>()) << status;
+    }
+
+    auto same = segment_v2::SniiIndexReader::create_shared(
+            &_index_meta, _file_reader, segment_v2::InvertedIndexReaderType::FULLTEXT,
+            _values.size(), /*column_is_array=*/false);
+    Status status = same->query(_query_context, "p", value,
+                                segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_NE(bitmap, nullptr);
+    EXPECT_FALSE(bitmap->isEmpty()) << "the segment's own scheme answers the query";
+}
+
 } // namespace
 } // namespace doris
