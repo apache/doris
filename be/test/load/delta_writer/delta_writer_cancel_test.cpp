@@ -414,7 +414,7 @@ TEST_P(DeltaWriterCancelTest, SkipDequeuedTaskAfterCancellationPublication) {
     EXPECT_EQ(token->submit_func([] { return Status::OK(); }), cancelled);
 }
 
-TEST_P(DeltaWriterCancelTest, LoadCancellationStillAcquiresLoadLock) {
+TEST_P(DeltaWriterCancelTest, LoadCancellationDoesNotAcquireLoadLock) {
     install_tokens();
     ASSERT_TRUE(_pool->submit_func([this] {
                          _worker_started.count_down();
@@ -434,13 +434,13 @@ TEST_P(DeltaWriterCancelTest, LoadCancellationStillAcquiresLoadLock) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     EXPECT_TRUE(_load_channel->is_cancelled());
-    EXPECT_TRUE(_load_channel->_delete_bitmap_cancellation->ok());
-    EXPECT_EQ(_pool->get_queue_size(), _tokens.size());
-    EXPECT_EQ(canceller.wait_for(std::chrono::milliseconds(0)), std::future_status::timeout);
-    load_lock.unlock();
+    // The combined PR publishes and removes queued bitmap work while the load
+    // lock remains held by another thread.
     const auto ready = canceller.wait_for(std::chrono::seconds(10));
     EXPECT_EQ(ready, std::future_status::ready);
+    EXPECT_FALSE(_load_channel->_delete_bitmap_cancellation->ok());
     EXPECT_EQ(_pool->get_queue_size(), 0);
+    load_lock.unlock();
     _release_worker.count_down();
     EXPECT_TRUE(canceller.get().ok());
     EXPECT_EQ(_executed.load(), 0);

@@ -132,7 +132,7 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
         if (handle != nullptr) {
             // load is cancelled
             if (auto* value = _load_state_channels->value(handle); value != nullptr) {
-                const auto& cancel_reason = reinterpret_cast<CacheValue*>(value)->_cancel_reason;
+                const auto cancel_reason = reinterpret_cast<CacheValue*>(value)->_cancel_reason;
                 _load_state_channels->release(handle);
                 if (!cancel_reason.empty()) {
                     LOG(INFO) << fmt::format(
@@ -188,7 +188,7 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
     // this case will be handled in load channel's add batch method.
     Status st = channel->add_batch(request, response);
     if (UNLIKELY(!st.ok())) {
-        RETURN_IF_ERROR(channel->cancel());
+        RETURN_IF_ERROR(_cancel_load_channel(channel, st));
         return st;
     }
 
@@ -197,6 +197,22 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
         RETURN_IF_ERROR(_finish_load_channel(load_id, channel));
     }
     return Status::OK();
+}
+
+Status LoadChannelMgr::_cancel_load_channel(const std::shared_ptr<LoadChannel>& channel,
+                                            const Status& reason) {
+    // A late failure still reaches its retained instance, never its replacement.
+    channel->publish_cancel_status(reason);
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        const auto& load_id = channel->load_id();
+        auto it = _load_channels.find(load_id);
+        if (it != _load_channels.end() && it->second == channel) {
+            _load_channels.erase(it);
+            _record_cancelled_load(load_id, channel->cancel_status().to_string());
+        }
+    }
+    return channel->cancel(reason);
 }
 
 Status LoadChannelMgr::_finish_load_channel(const UniqueId& load_id,
@@ -224,9 +240,10 @@ Status LoadChannelMgr::_finish_load_channel(const UniqueId& load_id,
         return Status::Cancelled("Load channel {} is no longer active", load_id.to_string());
     }
     if (channel->is_cancelled()) {
-        _record_cancelled_load(load_id, "load channel cancelled");
+        auto status = channel->cancel_status();
+        _record_cancelled_load(load_id, status.to_string());
         _load_channels.erase(it);
-        return Status::Cancelled("load channel cancelled");
+        return status;
     }
     _load_channels.erase(it);
     auto* handle = _load_state_channels->insert(load_id.to_string(), nullptr, 1, 1);
@@ -254,18 +271,25 @@ void LoadChannelMgr::_record_cancelled_load(const UniqueId& load_id, const std::
 
 Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
     UniqueId load_id(params.id());
+    const auto reason = params.has_cancel_reason() && !params.cancel_reason().empty()
+                                ? params.cancel_reason()
+                                : "load channel cancelled";
     std::shared_ptr<LoadChannel> cancelled_channel;
     {
         std::lock_guard<std::mutex> l(_lock);
         if (_load_channels.contains(load_id)) {
             cancelled_channel = _load_channels[load_id];
+            // Cache the first published failure while this instance is still mapped.
+            cancelled_channel->publish_cancel_status(Status::Cancelled(reason));
             _load_channels.erase(load_id);
+            _record_cancelled_load(load_id, cancelled_channel->cancel_status().to_string());
+        } else {
+            _record_cancelled_load(load_id, reason);
         }
-        _record_cancelled_load(load_id, params.cancel_reason());
     }
 
     if (cancelled_channel != nullptr) {
-        RETURN_IF_ERROR(cancelled_channel->cancel());
+        RETURN_IF_ERROR(cancelled_channel->cancel(Status::Cancelled(reason)));
         LOG(INFO) << "load channel has been cancelled: " << load_id;
     }
 
@@ -304,7 +328,9 @@ Status LoadChannelMgr::_start_load_channels_clean() {
         }
 
         for (auto& key : need_delete_channel_ids) {
-            _record_cancelled_load(key, "load channel timed out");
+            auto& channel = _load_channels.at(key);
+            channel->publish_cancel_status(Status::Cancelled("load channel timed out"));
+            _record_cancelled_load(key, channel->cancel_status().to_string());
             _load_channels.erase(key);
             LOG(INFO) << "erase timeout load channel: " << key;
         }
@@ -314,7 +340,7 @@ Status LoadChannelMgr::_start_load_channels_clean() {
     // otherwise some object may be invalid before trying to visit it.
     // eg: MemTracker in load channel
     for (auto& channel : need_delete_channels) {
-        RETURN_IF_ERROR(channel->cancel());
+        RETURN_IF_ERROR(channel->cancel(Status::Cancelled("load channel timed out")));
         LOG(INFO) << "load channel has been safely deleted: " << channel->load_id()
                   << ", timeout(s): " << channel->timeout();
     }

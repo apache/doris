@@ -78,6 +78,7 @@ private:
     Status _get_load_channel(std::shared_ptr<LoadChannel>& channel, bool& is_eof,
                              const UniqueId& load_id, const PTabletWriterAddBlockRequest& request);
 
+    Status _cancel_load_channel(const std::shared_ptr<LoadChannel>& channel, const Status& reason);
     Status _finish_load_channel(const UniqueId& load_id,
                                 const std::shared_ptr<LoadChannel>& channel);
 

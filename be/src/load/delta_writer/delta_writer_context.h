@@ -31,6 +31,7 @@ class TupleDescriptor;
 class SlotDescriptor;
 class OlapTableSchemaParam;
 class DeleteBitmapCancellation;
+class AtomicStatus;
 
 enum class WriteRequestType {
     DATA = 0,       // data write
@@ -59,6 +60,8 @@ struct WriteRequest {
     bool enable_table_memtable_backpressure = false;
     // Shared by both bitmap phases of every writer in the load.
     std::shared_ptr<DeleteBitmapCancellation> delete_bitmap_cancellation = nullptr;
+    // Shared by all writers of a load; published before writers can submit work.
+    std::shared_ptr<AtomicStatus> load_cancel_status = nullptr;
 };
 
 struct TabletAddRowsPayload {

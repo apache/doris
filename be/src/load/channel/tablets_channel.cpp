@@ -87,9 +87,18 @@ BaseTabletsChannel::~BaseTabletsChannel() {
 
 TabletsChannel::~TabletsChannel() = default;
 
+Status BaseTabletsChannel::_check_cancelled() {
+    if (_load_cancel_status && !_load_cancel_status->ok()) {
+        _close_status = _load_cancel_status->status();
+        return _close_status;
+    }
+    return Status::OK();
+}
+
 Status BaseTabletsChannel::_get_current_seq(int64_t& cur_seq,
                                             const PTabletWriterAddBlockRequest& request) {
     std::lock_guard<std::mutex> l(_lock);
+    RETURN_IF_ERROR(_check_cancelled());
     if (_state != kOpened) {
         return _state == kFinished ? _close_status
                                    : Status::InternalError("TabletsChannel {} state: {}",
@@ -128,6 +137,7 @@ void BaseTabletsChannel::_init_profile(RuntimeProfile* profile) {
 
 Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
     std::lock_guard<std::mutex> l(_lock);
+    RETURN_IF_ERROR(_check_cancelled());
     // if _state is kOpened, it's a normal case, already open by other sender
     // if _state is kFinished, already cancelled by other sender
     if (_state == kOpened) {
@@ -188,6 +198,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
     }
 
     std::lock_guard<std::mutex> l(_lock);
+    RETURN_IF_ERROR(_check_cancelled());
 
     // one sender may incremental_open many times. but only close one time. so dont count duplicately.
     if (_open_by_incremental) {
@@ -228,6 +239,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
         incremental_tablet_num++;
 
         WriteRequest wrequest;
+        wrequest.load_cancel_status = _load_cancel_status;
         wrequest.index_id = params.index_id();
         wrequest.tablet_id = tablet.tablet_id();
         wrequest.schema_hash = schema_hash;
@@ -346,6 +358,7 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
     const auto& partition_ids = req.partition_ids();
     auto* tablet_errors = res->mutable_tablet_errors();
     std::lock_guard<std::mutex> l(_lock);
+    RETURN_IF_ERROR(_check_cancelled());
     if (_state == kFinished) {
         return _close_status;
     }
@@ -377,6 +390,7 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
     std::set<DeltaWriter*> need_wait_writers;
     // under _lock. no need _tablet_writers_lock again.
     for (auto&& [tablet_id, writer] : _tablet_writers) {
+        RETURN_IF_ERROR(_check_cancelled());
         if (_partition_ids.contains(writer->partition_id())) {
             auto st = writer->close();
             if (!st.ok()) {
@@ -415,11 +429,13 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
 
     // 2. wait all writer finished flush.
     for (auto* writer : need_wait_writers) {
+        RETURN_IF_ERROR(_check_cancelled());
         RETURN_IF_ERROR((writer->wait_flush()));
     }
 
     // 3. build rowset
     for (auto it = need_wait_writers.begin(); it != need_wait_writers.end();) {
+        RETURN_IF_ERROR(_check_cancelled());
         Status st = (*it)->build_rowset();
         if (!st.ok()) {
             _add_error_tablet(tablet_errors, (*it)->tablet_id(), st);
@@ -438,6 +454,7 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
 
     // 4. wait for delete bitmap calculation complete if necessary
     for (auto it = need_wait_writers.begin(); it != need_wait_writers.end();) {
+        RETURN_IF_ERROR(_check_cancelled());
         Status st = (*it)->wait_calc_delete_bitmap();
         if (!st.ok()) {
             _add_error_tablet(tablet_errors, (*it)->tablet_id(), st);
@@ -450,12 +467,13 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
     // 5. commit all writers
 
     for (auto* writer : need_wait_writers) {
+        RETURN_IF_ERROR(_check_cancelled());
         // close may return failed, but no need to handle it here.
         // tablet_vec will only contains success tablet, and then let FE judge it.
         _commit_txn(writer, res);
     }
 
-    return Status::OK();
+    return _check_cancelled();
 }
 
 void TabletsChannel::_commit_txn(DeltaWriter* writer, PTabletWriterAddBlockResult* res) {
@@ -574,6 +592,7 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
                 .storage_vault_id = request.storage_vault_id(),
                 .enable_table_memtable_backpressure = request.is_adaptive_random_bucket(),
                 .delete_bitmap_cancellation = _delete_bitmap_cancellation,
+                .load_cancel_status = _load_cancel_status,
         };
         if (tablet.has_binlog_tablet_id()) {
             wrequest.binlog_tablet_id = tablet.binlog_tablet_id();

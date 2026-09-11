@@ -313,6 +313,8 @@ protected:
     void check_wiring() {
         _rowset_writer = static_cast<BaseBetaRowsetWriter*>(_builder->rowset_writer().get());
         const auto& cancellation = _load_channel->_delete_bitmap_cancellation;
+        ASSERT_EQ(_writer->_req.load_cancel_status, _load_channel->_cancel_status);
+        ASSERT_EQ(_builder->_req.load_cancel_status, _load_channel->_cancel_status);
         ASSERT_EQ(_writer->_req.delete_bitmap_cancellation, cancellation);
         ASSERT_EQ(_builder->_req.delete_bitmap_cancellation, cancellation);
         ASSERT_EQ(_rowset_writer->context().delete_bitmap_cancellation, cancellation);

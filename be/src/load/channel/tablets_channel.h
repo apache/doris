@@ -115,6 +115,11 @@ public:
         _delete_bitmap_cancellation = std::move(cancellation);
     }
 
+    // Set once, before publishing the channel or opening any writers.
+    void set_load_cancel_status(std::shared_ptr<AtomicStatus> status) {
+        _load_cancel_status = std::move(status);
+    }
+
     void refresh_profile();
 
     size_t total_received_rows() const { return _total_received_rows; }
@@ -127,6 +132,9 @@ public:
     bool is_finished() const { return _state == kFinished; }
 
 protected:
+    // Caller holds _lock. The cancellation publisher never needs this lock.
+    Status _check_cancelled();
+
     Status _init_adaptive_random_bucket_state(const PTabletWriterOpenRequest& request);
     Status _write_block_data(const PTabletWriterAddBlockRequest& request, int64_t cur_seq,
                              std::unordered_map<int64_t, TabletAddRowsPayload>& tablet_to_rows,
@@ -170,6 +178,7 @@ protected:
 
     UniqueId _load_id;
     std::shared_ptr<DeleteBitmapCancellation> _delete_bitmap_cancellation;
+    std::shared_ptr<AtomicStatus> _load_cancel_status;
 
     // initialized in open function
     int64_t _txn_id = -1;
