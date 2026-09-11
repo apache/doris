@@ -70,6 +70,7 @@ PartialBlockWritebackOptions partial_writeback_options(size_t workers = 2,
             .block_size = kBlockSize,
             .worker_count = workers,
             .remote_read_thread_count = remote_read_threads,
+            .merge_delay_ms = 0,
             .max_pending_bytes = pending_blocks * kBlockSize,
             .hole_fill_coalesce =
                     {
@@ -94,6 +95,7 @@ struct ObservedRead {
     bool bypass_peer_read {false};
     bool should_stop {true};
     std::optional<CacheWriteMode> cache_write_mode;
+    std::chrono::steady_clock::time_point started_at;
 };
 
 class ControlledFileReader final : public FileReader {
@@ -191,6 +193,7 @@ protected:
                     .bypass_peer_read = false,
                     .should_stop = true,
                     .cache_write_mode = std::nullopt,
+                    .started_at = std::chrono::steady_clock::now(),
             };
             if (io_context != nullptr) {
                 observed.bypass_peer_read = io_context->bypass_peer_read;
@@ -480,7 +483,9 @@ TEST_F(PartialBlockWritebackManagerTest, SkipsBlockWithExistingDownloader) {
 TEST_F(PartialBlockWritebackManagerTest, FillsExistingEmptyBlock) {
     auto cache = create_cache("partial_block_empty_cell");
     auto* writer = cache->async_write_manager();
-    auto manager = create_manager();
+    auto options = partial_writeback_options();
+    options.merge_delay_ms = 50;
+    auto manager = create_manager(options);
     const auto hash = BlockFileCache::hash("partial_block_empty_cell");
     const auto content = patterned_content('e');
     auto reader = std::make_shared<ControlledFileReader>(content);
@@ -490,11 +495,14 @@ TEST_F(PartialBlockWritebackManagerTest, FillsExistingEmptyBlock) {
     auto holder = cache->get_or_set(hash, 0, kBlockSize, context);
     ASSERT_EQ(holder.file_blocks.front()->state(), FileBlock::State::EMPTY);
 
+    const auto submitted_at = std::chrono::steady_clock::now();
     ASSERT_EQ(manager->try_submit(make_request(writer, nullptr, reader, hash, content, 0, 1024)),
               PartialBlockSubmitResult::QUEUED);
     ASSERT_TRUE(wait_until([&]() { return manager->pending_count() == 0; }));
     ASSERT_TRUE(wait_until([&]() { return writer->pending_count() == 0; }));
-    EXPECT_EQ(reader->read_calls(), 1);
+    const auto reads = reader->reads();
+    ASSERT_EQ(reads.size(), 1);
+    EXPECT_GE(reads[0].started_at - submitted_at, 50ms);
     EXPECT_EQ(read_cached_block(cache.get(), hash), content);
 }
 
@@ -580,7 +588,17 @@ TEST_F(PartialBlockWritebackManagerTest, MergesQueuedFragmentsAndWaitsForCacheWr
     auto cache = create_cache("partial_block_merge", 1);
     auto* cache_writer = cache->async_write_manager();
     auto* index = cache->inflight_write_buffer_index();
-    auto manager = create_manager(partial_writeback_options(2, 4));
+    auto options = partial_writeback_options(2, 4);
+    options.merge_delay_ms = 60000;
+    auto manager = create_manager(options);
+    const auto next_wakeup = [&]() {
+        PartialBlockWritebackManager::Queue discarded;
+        auto deadline = std::chrono::steady_clock::time_point::max();
+        std::lock_guard lock(manager->_mutex);
+        EXPECT_EQ(manager->_take_runnable_task_locked(&discarded, &deadline), nullptr);
+        EXPECT_TRUE(discarded.empty());
+        return deadline;
+    };
 
     OneShotSyncPointGate cache_writer_gate;
     OneShotSyncPointGate merge_copy_gate;
@@ -620,9 +638,12 @@ TEST_F(PartialBlockWritebackManagerTest, MergesQueuedFragmentsAndWaitsForCacheWr
     auto unrelated_reader = std::make_shared<ControlledFileReader>(content);
     const auto hash = BlockFileCache::hash("partial_block_merge_target");
     const auto unrelated_hash = BlockFileCache::hash("partial_block_merge_unrelated");
+    const auto submitted_at = std::chrono::steady_clock::now();
     EXPECT_EQ(
             manager->try_submit(make_request(cache_writer, index, reader, hash, content, 0, 1024)),
             PartialBlockSubmitResult::QUEUED);
+    const auto original_deadline = next_wakeup();
+    EXPECT_GE(original_deadline - submitted_at, 60s);
     auto merge = std::async(std::launch::async, [&]() {
         return manager->try_submit(
                 make_request(cache_writer, index, reader, hash, content, 2048, 2048));
@@ -642,10 +663,19 @@ TEST_F(PartialBlockWritebackManagerTest, MergesQueuedFragmentsAndWaitsForCacheWr
     EXPECT_EQ(manager->pending_count(), 2);
     EXPECT_EQ(manager->pending_bytes(), 2 * kBlockSize);
     EXPECT_EQ(manager->queued_count(), 2);
+    EXPECT_EQ(manager->active_count(), 0);
+    EXPECT_EQ(next_wakeup(), original_deadline);
+    manager->set_merge_delay_ms(120000);
+    EXPECT_EQ(next_wakeup(), original_deadline + 60s);
     std::this_thread::sleep_for(30ms);
     EXPECT_EQ(reader->read_calls(), 0);
 
     cache_writer_gate.release();
+    ASSERT_TRUE(wait_until([&]() { return cache_writer->pending_count() == 0; }));
+    EXPECT_EQ(manager->queued_count(), 2);
+    EXPECT_EQ(reader->read_calls(), 0);
+    // Disable the delay for existing tasks and wake workers waiting on the old deadline.
+    manager->set_merge_delay_ms(0);
     ASSERT_TRUE(wait_until([&]() { return manager->pending_count() == 0; }));
     ASSERT_TRUE(wait_until([&]() { return cache_writer->pending_count() == 0; }));
     ASSERT_TRUE(cache_range_downloaded(cache.get(), hash));
@@ -797,6 +827,7 @@ TEST_F(PartialBlockWritebackManagerTest, UsesReadWorkersConcurrentlyAndDeduplica
                       make_request(cache_writer, index, reader, second_hash, content, 0, 1024)),
               PartialBlockSubmitResult::QUEUED);
     ASSERT_TRUE(reader->wait_for_entered(2));
+    manager->set_merge_delay_ms(60000);
     EXPECT_EQ(manager->active_count(), 2);
     EXPECT_EQ(reader->max_active_reads(), 2);
     EXPECT_EQ(metrics.hole_fill_pending_bytes.get_value() - pending_before, 2 * kBlockSize);
@@ -1057,6 +1088,7 @@ TEST_F(PartialBlockWritebackManagerTest, EvictsOldestQueuedTask) {
     auto* cache_writer = cache->async_write_manager();
     auto* index = cache->inflight_write_buffer_index();
     auto manager = create_manager(partial_writeback_options(1, 2));
+    manager->set_merge_delay_ms(60000);
 
     OneShotSyncPointGate cache_writer_gate;
     auto* sync_point = SyncPoint::get_instance();
@@ -1106,6 +1138,7 @@ TEST_F(PartialBlockWritebackManagerTest, EvictsOldestQueuedTask) {
     EXPECT_EQ(metrics.hole_fill_dropped_blocks.get_value() - dropped_before, 1);
     EXPECT_EQ(metrics.hole_fill_failed_blocks.get_value(), failed_before);
 
+    manager->set_merge_delay_ms(0);
     cache_writer_gate.release();
     ASSERT_TRUE(wait_until([&]() { return manager->pending_count() == 0; }));
     ASSERT_TRUE(wait_until([&]() { return cache_writer->pending_count() == 0; }));
@@ -1152,7 +1185,7 @@ TEST_F(PartialBlockWritebackManagerTest, ShutdownWaitsForActiveRemoteRead) {
     auto cache = create_cache("partial_block_shutdown", 8);
     auto* cache_writer = cache->async_write_manager();
     auto* index = cache->inflight_write_buffer_index();
-    auto manager = create_manager(partial_writeback_options(1, 1));
+    auto manager = create_manager(partial_writeback_options(1, 2));
     const std::string content = patterned_content('s');
     auto reader = std::make_shared<ControlledFileReader>(content, true);
     const auto hash = BlockFileCache::hash("partial_block_shutdown_target");
@@ -1161,12 +1194,19 @@ TEST_F(PartialBlockWritebackManagerTest, ShutdownWaitsForActiveRemoteRead) {
             manager->try_submit(make_request(cache_writer, index, reader, hash, content, 0, 1024)),
             PartialBlockSubmitResult::QUEUED);
     ASSERT_TRUE(reader->wait_for_entered(1));
+    manager->set_merge_delay_ms(60000);
+    auto queued_reader = std::make_shared<ControlledFileReader>(content);
+    const auto queued_hash = BlockFileCache::hash("partial_block_shutdown_delayed");
+    EXPECT_EQ(manager->try_submit(make_request(cache_writer, index, queued_reader, queued_hash,
+                                               content, 0, 1024)),
+              PartialBlockSubmitResult::QUEUED);
     auto shutdown = std::async(std::launch::async, [&]() { manager->shutdown(); });
     EXPECT_EQ(shutdown.wait_for(50ms), std::future_status::timeout);
     reader->release_reads();
     EXPECT_EQ(shutdown.wait_for(5s), std::future_status::ready);
     EXPECT_FALSE(manager->accepting());
     EXPECT_EQ(manager->pending_count(), 0);
+    EXPECT_EQ(queued_reader->read_calls(), 0);
 }
 
 TEST_F(PartialBlockWritebackManagerTest, RejectsStoppedCacheWriterWithoutQueueing) {
@@ -1249,6 +1289,11 @@ TEST(PartialBlockWritebackOptionsTest, RejectsInvalidLimits) {
     options.remote_read_thread_count = -1;
     EXPECT_FALSE(options.validate().ok());
     options = partial_writeback_options();
+    options.merge_delay_ms = -1;
+    EXPECT_FALSE(options.validate().ok());
+    options.merge_delay_ms = 0;
+    EXPECT_TRUE(options.validate().ok());
+    options = partial_writeback_options();
     options.max_pending_bytes = kBlockSize - 1;
     EXPECT_FALSE(options.validate().ok());
 }
@@ -1272,13 +1317,17 @@ TEST(PartialBlockWritebackOptionsTest, AcceptsProductionDefaults) {
                             .max_read_amplification_ratio = 2.0,
                     },
     };
+    EXPECT_EQ(options.merge_delay_ms, 10);
     EXPECT_TRUE(options.validate().ok());
 }
 
 TEST(PartialBlockWritebackOptionsTest, WorkerConfigIsMutableAndBounded) {
     const int32_t old_worker_count = config::hole_fill_workers_per_be;
+    const int32_t old_merge_delay = config::hole_fill_merge_delay_ms;
     Defer restore_worker_count {[&]() {
         EXPECT_TRUE(config::set_config("hole_fill_workers_per_be", std::to_string(old_worker_count))
+                            .ok());
+        EXPECT_TRUE(config::set_config("hole_fill_merge_delay_ms", std::to_string(old_merge_delay))
                             .ok());
     }};
 
@@ -1289,6 +1338,12 @@ TEST(PartialBlockWritebackOptionsTest, WorkerConfigIsMutableAndBounded) {
     EXPECT_TRUE(
             config::set_config("hole_fill_workers_per_be", std::to_string(new_worker_count)).ok());
     EXPECT_EQ(config::hole_fill_workers_per_be, new_worker_count);
+    EXPECT_FALSE(config::set_config("hole_fill_merge_delay_ms", "-1").ok());
+    EXPECT_EQ(config::hole_fill_merge_delay_ms, old_merge_delay);
+    EXPECT_TRUE(config::set_config("hole_fill_merge_delay_ms", "0").ok());
+    EXPECT_EQ(config::hole_fill_merge_delay_ms, 0);
+    EXPECT_TRUE(config::set_config("hole_fill_merge_delay_ms", "20").ok());
+    EXPECT_EQ(config::hole_fill_merge_delay_ms, 20);
 }
 
 TEST(PartialBlockWritebackOptionsTest, RemoteReadThreadConfigIsMutableAndPositive) {
