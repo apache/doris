@@ -36,6 +36,7 @@ import com.google.common.collect.Sets;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -382,8 +383,10 @@ public class SystemInfoServiceTest {
     // Verifies an exact backend-ID constraint cannot fall back to another eligible backend.
     @Test
     public void testRequiredBackendIdsSelect() {
-        Backend selected = new Backend(10001L, "192.168.1.1", 9050);
-        Backend excluded = new Backend(10002L, "192.168.1.2", 9050);
+        Backend selected = Mockito.mock(Backend.class);
+        Backend excluded = Mockito.mock(Backend.class);
+        Mockito.when(selected.getId()).thenReturn(10001L);
+        Mockito.when(excluded.getId()).thenReturn(10002L);
         BeSelectionPolicy policy = new BeSelectionPolicy.Builder()
                 .addRequiredBackendIds(Collections.singletonList(selected.getId()))
                 .build();
@@ -392,6 +395,10 @@ public class SystemInfoServiceTest {
                 policy.getCandidateBackends(Lists.newArrayList(selected, excluded));
 
         Assert.assertEquals(Collections.singletonList(selected), candidates);
+
+        Mockito.when(selected.isComputeNode()).thenReturn(true);
+        Assert.assertTrue(
+                policy.getCandidateBackends(Lists.newArrayList(selected, excluded)).isEmpty());
     }
 
     @Test

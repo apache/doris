@@ -135,6 +135,8 @@ public class LanceTypeConverterTest {
     public void testKnownExtensionMappingsAndStorageValidation() {
         Assertions.assertEquals(Type.JSONB, LanceTypeConverter.toDorisType(
                 extensionField("arrow_json_col", ArrowType.Utf8.INSTANCE, "arrow.json")));
+        Assertions.assertTrue(LanceTypeConverter.requiresCurrentBeReader(
+                extensionField("arrow_json_col", ArrowType.Utf8.INSTANCE, "arrow.json")));
         Assertions.assertEquals(Type.JSONB, LanceTypeConverter.toDorisType(
                 extensionField("lance_json_col", ArrowType.LargeBinary.INSTANCE, "lance.json")));
 
@@ -147,6 +149,9 @@ public class LanceTypeConverterTest {
                 Collections.singletonList(bfloat16Item));
         Assertions.assertEquals("array<float>",
                 LanceTypeConverter.toDorisType(bfloat16Vector).toSql());
+        Assertions.assertTrue(LanceTypeConverter.requiresCurrentBeReader(bfloat16Vector));
+        Assertions.assertFalse(LanceTypeConverter.requiresCurrentBeReader(
+                Field.nullable("ordinary", ArrowType.Utf8.INSTANCE)));
 
         Assertions.assertEquals(Type.UNSUPPORTED, LanceTypeConverter.toDorisType(
                 extensionField("invalid_json", ArrowType.Binary.INSTANCE, "arrow.json")));

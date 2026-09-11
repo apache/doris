@@ -32,6 +32,7 @@ import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.lance.LanceFragmentInfo;
 import org.apache.doris.datasource.lance.LanceStorageOptions;
+import org.apache.doris.datasource.lance.source.LanceScanNode;
 import org.apache.doris.datasource.lance.source.LanceSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -92,6 +93,14 @@ public class TVFScanNode extends FileQueryScanNode {
         }
         backendPolicy.init();
         numNodes = backendPolicy.numBackends();
+        if (tableValuedFunction.isLanceFormat()) {
+            boolean requiresCurrentReader = desc.getSlots().stream()
+                    .anyMatch(slot -> slot.getColumn() != null
+                            && tableValuedFunction.requiresCurrentLanceReader(
+                                    slot.getColumn().getName()));
+            LanceScanNode.checkAdditionalTypeBackendCompatibility(
+                    requiresCurrentReader, backendPolicy.getBackends());
+        }
     }
 
     @Override

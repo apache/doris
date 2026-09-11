@@ -49,6 +49,23 @@ public final class LanceTypeConverter {
         return toDorisType(field, true);
     }
 
+    /** Returns whether this field needs the current BE Lance extension materialization logic. */
+    public static boolean requiresCurrentBeReader(Field field) {
+        String extensionName = field.getMetadata() == null
+                ? null : field.getMetadata().get(ARROW_EXTENSION_NAME);
+        if (ARROW_JSON_EXTENSION.equals(extensionName)
+                || LANCE_JSON_EXTENSION.equals(extensionName)
+                || LANCE_BFLOAT16_EXTENSION.equals(extensionName)) {
+            return true;
+        }
+        for (Field child : field.getChildren()) {
+            if (requiresCurrentBeReader(child)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Converts an Arrow field, allowing Doris NULL only at the top level. */
     private static Type toDorisType(Field field, boolean allowNull) {
         // TODO(lance): Dataset.getSchema() currently erases the Dictionary marker, while

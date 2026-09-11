@@ -27,6 +27,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExternalSearchQuery;
 import org.apache.doris.thrift.TExternalSearchRequest;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -45,6 +46,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.Assert;
 import org.junit.Test;
 import org.lance.index.IndexType;
+import org.mockito.Mockito;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
@@ -53,6 +55,25 @@ import java.util.List;
 import java.util.UUID;
 
 public class LanceScanNodeTest {
+
+    // Verifies additional Lance encodings cannot run on a smooth-upgrade source BE.
+    @Test
+    public void testAdditionalTypesRejectSmoothUpgradeSourceBackend() throws Exception {
+        Backend currentBackend = Mockito.mock(Backend.class);
+        Backend smoothUpgradeSource = Mockito.mock(Backend.class);
+        Mockito.when(smoothUpgradeSource.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(smoothUpgradeSource.getId()).thenReturn(10001L);
+
+        LanceScanNode.checkAdditionalTypeBackendCompatibility(
+                true, Arrays.asList(currentBackend));
+        LanceScanNode.checkAdditionalTypeBackendCompatibility(
+                false, Arrays.asList(currentBackend, smoothUpgradeSource));
+        UserException exception = Assert.assertThrows(UserException.class,
+                () -> LanceScanNode.checkAdditionalTypeBackendCompatibility(
+                        true, Arrays.asList(currentBackend, smoothUpgradeSource)));
+
+        Assert.assertTrue(exception.getMessage().contains("10001"));
+    }
 
     @Test
     public void testFragmentRowsDetermineSplitWeights() throws Exception {

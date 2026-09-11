@@ -17,10 +17,14 @@
 
 package org.apache.doris.datasource.tvf.source;
 
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionGenTable;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.FileQueryScanNode;
@@ -31,6 +35,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
+import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -231,5 +236,38 @@ public class TVFScanNodeTest {
 
         Mockito.verify(backendPolicy).initWithBackendId(101L);
         Mockito.verify(backendPolicy, Mockito.never()).init();
+    }
+
+    // Verifies S3 Lance projections reject a smooth-upgrade source BE.
+    @Test
+    public void testS3LanceAdditionalTypesRejectSmoothUpgradeSource() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+        SlotDescriptor slot = new SlotDescriptor(new SlotId(1), desc);
+        slot.setColumn(new Column("json_value", Type.JSONB));
+        desc.addSlot(slot);
+        FunctionGenTable table = Mockito.mock(FunctionGenTable.class);
+        ExternalFileTableValuedFunction tvf =
+                Mockito.mock(ExternalFileTableValuedFunction.class);
+        Mockito.when(table.getTvf()).thenReturn(tvf);
+        Mockito.when(tvf.isLanceFormat()).thenReturn(true);
+        Mockito.when(tvf.requiresCurrentLanceReader("json_value")).thenReturn(true);
+        desc.setTable(table);
+
+        Backend smoothUpgradeSource = Mockito.mock(Backend.class);
+        Mockito.when(smoothUpgradeSource.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(smoothUpgradeSource.getId()).thenReturn(102L);
+        FederationBackendPolicy backendPolicy = Mockito.mock(FederationBackendPolicy.class);
+        Mockito.when(backendPolicy.getBackends())
+                .thenReturn(Collections.singletonList(smoothUpgradeSource));
+        TVFScanNode node = new TVFScanNode(new PlanNodeId(0), desc, false, sv, ScanContext.EMPTY);
+        Field backendPolicyField = ExternalScanNode.class.getDeclaredField("backendPolicy");
+        backendPolicyField.setAccessible(true);
+        backendPolicyField.set(node, backendPolicy);
+
+        UserException exception =
+                Assert.assertThrows(UserException.class, node::initBackendPolicy);
+
+        Assert.assertTrue(exception.getMessage().contains("102"));
     }
 }

@@ -332,6 +332,91 @@ Status convert_bfloat16_array(const std::shared_ptr<arrow::Array>& array,
     return Status::OK();
 }
 
+// Rebuild a nested Arrow type after one or more child arrays changed physical type.
+Status set_lance_nested_type(std::string_view field_name,
+                             const std::shared_ptr<arrow::DataType>& source_type,
+                             const arrow::FieldVector& child_fields,
+                             std::shared_ptr<arrow::ArrayData>* data) {
+    switch (source_type->id()) {
+    case arrow::Type::LIST:
+        (*data)->type = arrow::list(child_fields[0]);
+        break;
+    case arrow::Type::LARGE_LIST:
+        (*data)->type = arrow::large_list(child_fields[0]);
+        break;
+    case arrow::Type::FIXED_SIZE_LIST:
+        (*data)->type = arrow::fixed_size_list(
+                child_fields[0],
+                std::static_pointer_cast<arrow::FixedSizeListType>(source_type)->list_size());
+        break;
+    case arrow::Type::STRUCT:
+        (*data)->type = arrow::struct_(child_fields);
+        break;
+    case arrow::Type::MAP: {
+        const auto map_type = std::static_pointer_cast<arrow::MapType>(source_type);
+        auto normalized_type = arrow::MapType::Make(child_fields[0], map_type->keys_sorted());
+        if (!normalized_type.ok()) {
+            return Status::InvalidArgument("normalize Lance map field '{}' failed: {}", field_name,
+                                           normalized_type.status().message());
+        }
+        (*data)->type = std::move(normalized_type).ValueUnsafe();
+        break;
+    }
+    default:
+        return Status::InvalidArgument("Lance field '{}' has unexpected child-bearing type {}",
+                                       field_name, source_type->ToString());
+    }
+    return Status::OK();
+}
+
+// Remove registered ExtensionArray wrappers without converting their physical storage values.
+Status unwrap_lance_extension_arrays(const std::shared_ptr<arrow::Array>& array,
+                                     std::shared_ptr<arrow::Array>* unwrapped) {
+    if (array->type_id() == arrow::Type::EXTENSION) {
+        const auto extension_array = std::dynamic_pointer_cast<arrow::ExtensionArray>(array);
+        if (extension_array == nullptr) {
+            return Status::InvalidArgument("invalid Arrow extension array: {}",
+                                           array->type()->ToString());
+        }
+        return unwrap_lance_extension_arrays(extension_array->storage(), unwrapped);
+    }
+
+    const auto& child_data = array->data()->child_data;
+    const auto& child_fields = array->type()->fields();
+    if (child_data.empty()) {
+        *unwrapped = array;
+        return Status::OK();
+    }
+    if (child_fields.size() != child_data.size()) {
+        return Status::InvalidArgument(
+                "Arrow array type {} has {} child fields but its data has {} children",
+                array->type()->ToString(), child_fields.size(), child_data.size());
+    }
+
+    std::shared_ptr<arrow::ArrayData> unwrapped_data;
+    arrow::FieldVector unwrapped_fields = child_fields;
+    for (size_t child_idx = 0; child_idx < child_data.size(); ++child_idx) {
+        auto child_array = arrow::MakeArray(child_data[child_idx]);
+        std::shared_ptr<arrow::Array> unwrapped_child;
+        RETURN_IF_ERROR(unwrap_lance_extension_arrays(child_array, &unwrapped_child));
+        if (unwrapped_child.get() == child_array.get()) {
+            continue;
+        }
+        if (unwrapped_data == nullptr) {
+            unwrapped_data = array->data()->Copy();
+        }
+        unwrapped_data->child_data[child_idx] = unwrapped_child->data();
+        unwrapped_fields[child_idx] = child_fields[child_idx]->WithType(unwrapped_child->type());
+    }
+    if (unwrapped_data == nullptr) {
+        *unwrapped = array;
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(set_lance_nested_type("", array->type(), unwrapped_fields, &unwrapped_data));
+    *unwrapped = arrow::MakeArray(std::move(unwrapped_data));
+    return Status::OK();
+}
+
 // Materialize the visible range into an offset-zero Arrow array for Doris SerDes.
 Status compact_lance_array(const std::shared_ptr<arrow::Array>& array,
                            std::shared_ptr<arrow::Array>* compacted) {
@@ -468,6 +553,9 @@ Status normalize_lance_arrow_array(const std::shared_ptr<arrow::Field>& field,
         }
         storage_array = extension_array->storage();
     }
+    std::shared_ptr<arrow::Array> unwrapped_array;
+    RETURN_IF_ERROR(unwrap_lance_extension_arrays(storage_array, &unwrapped_array));
+    storage_array = std::move(unwrapped_array);
     if (storage_array->type_id() != storage_type->id()) {
         return Status::InvalidArgument(
                 "Lance field '{}' storage type {} does not match array type {}", field->name(),
@@ -525,45 +613,19 @@ Status normalize_lance_arrow_array(const std::shared_ptr<arrow::Field>& field,
         }
         if (normalized_data == nullptr) {
             normalized_data = storage_array->data()->Copy();
-            normalized_fields = child_fields;
+            normalized_fields = storage_array->type()->fields();
         }
         normalized_data->child_data[child_idx] = normalized_child->data();
-        normalized_fields[child_idx] = child_fields[child_idx]->WithType(normalized_child->type());
+        normalized_fields[child_idx] =
+                normalized_fields[child_idx]->WithType(normalized_child->type());
     }
     if (normalized_data == nullptr) {
         *normalized = std::move(storage_array);
         return Status::OK();
     }
 
-    switch (storage_type->id()) {
-    case arrow::Type::LIST:
-        normalized_data->type = arrow::list(normalized_fields[0]);
-        break;
-    case arrow::Type::LARGE_LIST:
-        normalized_data->type = arrow::large_list(normalized_fields[0]);
-        break;
-    case arrow::Type::FIXED_SIZE_LIST:
-        normalized_data->type = arrow::fixed_size_list(
-                normalized_fields[0],
-                std::static_pointer_cast<arrow::FixedSizeListType>(storage_type)->list_size());
-        break;
-    case arrow::Type::STRUCT:
-        normalized_data->type = arrow::struct_(normalized_fields);
-        break;
-    case arrow::Type::MAP: {
-        const auto map_type = std::static_pointer_cast<arrow::MapType>(storage_type);
-        auto normalized_type = arrow::MapType::Make(normalized_fields[0], map_type->keys_sorted());
-        if (!normalized_type.ok()) {
-            return Status::InvalidArgument("normalize Lance map field '{}' failed: {}",
-                                           field->name(), normalized_type.status().message());
-        }
-        normalized_data->type = std::move(normalized_type).ValueUnsafe();
-        break;
-    }
-    default:
-        return Status::InvalidArgument("Lance field '{}' has unexpected child-bearing type {}",
-                                       field->name(), storage_type->ToString());
-    }
+    RETURN_IF_ERROR(set_lance_nested_type(field->name(), storage_array->type(), normalized_fields,
+                                          &normalized_data));
     *normalized = arrow::MakeArray(std::move(normalized_data));
     return Status::OK();
 }
