@@ -21,6 +21,10 @@
 1
 2
 
+-- !recovered_false_match_regexp --
+1
+2
+
 -- !recovered_true_like --
 1
 2
@@ -34,6 +38,10 @@
 2
 
 -- !recovered_true_match_all --
+1
+2
+
+-- !recovered_true_match_regexp --
 1
 2
 
@@ -69,6 +77,11 @@
 2
 5
 
+-- !mixed_false_match_regexp --
+1
+2
+5
+
 -- !mixed_true_like --
 1
 2
@@ -100,4 +113,33 @@
 1
 2
 5
+
+-- !mixed_true_match_regexp --
+1
+2
+5
+
+-- !legacy_false_match_any --
+1
+2
+
+-- !legacy_false_match_all --
+1
+2
+
+-- !legacy_false_like --
+1
+2
+
+-- !legacy_true_match_any --
+1
+2
+
+-- !legacy_true_match_all --
+1
+2
+
+-- !legacy_true_like --
+1
+2
 
