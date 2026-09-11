@@ -1459,6 +1459,17 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                         v.value = typename T::NativeType(static_cast<double>(
                                 float_value * static_cast<DoubleType>(multiplier) +
                                 ((float_value >= 0) ? 0.5 : -0.5)));
+                        if constexpr (IsDecimal256<T>) {
+                            // Rounding can produce an integer outside the declared decimal range.
+                            if (v.value < min_result || v.value > max_result) {
+                                data_set.push_back({{float_value}, Null()});
+                                DataSet overflow_data_set = {{{float_value}, Null()}};
+                                check_function_for_cast<DataTypeDecimal<T::PType>, true>(
+                                        input_types, overflow_data_set, scale, precision, true,
+                                        true);
+                                continue;
+                            }
+                        }
                         data_set.push_back({{float_value}, v});
                         // dbg_str += fmt::format("({:f}, {})|", float_value, dt_to.to_string(v));
 
