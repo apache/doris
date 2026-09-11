@@ -51,12 +51,28 @@ public class IvmRewriteContext {
         FULL
     }
 
+    /**
+     * How the rewrite result is consumed. {@link #DRY_RUN} only applies to incremental
+     * refresh; {@link #EXPLAIN} applies to both incremental and complete refresh and only
+     * produces a plan (no execution and no MV data read).
+     */
+    public enum ExecutionKind {
+        /** Real refresh: the rewrite result is executed and written back. */
+        EXECUTE,
+        /** Dry run: execute the delta query and return its rows, but do not write the MV. */
+        DRY_RUN,
+        /** Explain: only generate the plan for display. */
+        EXPLAIN
+    }
+
     private final Mode mode;
     private final MTMV mtmv;
     // The MTMV object does not exist yet during CREATE, so keep its name separately for diagnostics.
     private final String createMtmvName;
+    // Only used by EXPLAIN REFRESH ... ALL (kind == EXPLAIN); false for every other kind.
     private final boolean includeExhaustedStreams;
-    private final boolean dryRun;
+    private final ExecutionKind executionKind;
+    // Present only for DRY_RUN (incremental refresh); empty otherwise.
     private final Optional<IvmDryRunLimit> dryRunLimit;
     private final Map<BaseTableInfo, Set<Long>> fullRefreshResetPartitionIds;
     private final Optional<StreamReadMode> fullRefreshNonPctReadMode;
@@ -64,20 +80,15 @@ public class IvmRewriteContext {
     // Null when the rewrite context is created outside the analyzeQuery flow.
     private Boolean useFullKeys;
 
-    public IvmRewriteContext(Mode mode, MTMV mtmv, boolean includeExhaustedStreams) {
-        this(mode, mtmv, null, includeExhaustedStreams, false, Optional.empty(),
-                Collections.emptyMap(), Optional.empty());
-    }
-
     private IvmRewriteContext(Mode mode, MTMV mtmv, String createMtmvName, boolean includeExhaustedStreams,
-            boolean dryRun, Optional<IvmDryRunLimit> dryRunLimit,
+            ExecutionKind executionKind, Optional<IvmDryRunLimit> dryRunLimit,
             Map<BaseTableInfo, Set<Long>> fullRefreshResetPartitionIds,
             Optional<StreamReadMode> fullRefreshNonPctReadMode) {
         this.mode = Objects.requireNonNull(mode, "mode can not be null");
         this.mtmv = mode == Mode.CREATE ? mtmv : Objects.requireNonNull(mtmv, "mtmv can not be null");
         this.createMtmvName = createMtmvName;
         this.includeExhaustedStreams = includeExhaustedStreams;
-        this.dryRun = dryRun;
+        this.executionKind = Objects.requireNonNull(executionKind, "executionKind can not be null");
         this.dryRunLimit = Objects.requireNonNull(dryRunLimit, "dryRunLimit can not be null");
         Map<BaseTableInfo, Set<Long>> resetPartitionIds = new HashMap<>();
         Objects.requireNonNull(fullRefreshResetPartitionIds, "fullRefreshResetPartitionIds can not be null")
@@ -91,30 +102,47 @@ public class IvmRewriteContext {
     public static IvmRewriteContext create(String mtmvName) {
         return new IvmRewriteContext(Mode.CREATE, null,
                 Objects.requireNonNull(mtmvName, "mtmvName can not be null"), false,
-                false, Optional.empty(), Collections.emptyMap(), Optional.empty());
+                ExecutionKind.EXECUTE, Optional.empty(), Collections.emptyMap(), Optional.empty());
     }
 
     public static IvmRewriteContext normalize(MTMV mtmv) {
-        return new IvmRewriteContext(Mode.NORMALIZE, Objects.requireNonNull(mtmv, "mtmv can not be null"), false);
+        return new IvmRewriteContext(Mode.NORMALIZE, Objects.requireNonNull(mtmv, "mtmv can not be null"),
+                null, false, ExecutionKind.EXECUTE, Optional.empty(), Collections.emptyMap(), Optional.empty());
     }
 
-    public static IvmRewriteContext incremental(MTMV mtmv, boolean includeExhaustedStreams) {
-        return new IvmRewriteContext(Mode.INCREMENTAL, mtmv, includeExhaustedStreams);
+    public static IvmRewriteContext incremental(MTMV mtmv) {
+        return new IvmRewriteContext(Mode.INCREMENTAL, Objects.requireNonNull(mtmv, "mtmv can not be null"),
+                null, false, ExecutionKind.EXECUTE, Optional.empty(), Collections.emptyMap(), Optional.empty());
+    }
+
+    /** EXPLAIN REFRESH INCREMENTAL [ALL]: only a plan is produced. */
+    public static IvmRewriteContext incrementalExplain(MTMV mtmv, boolean includeExhaustedStreams) {
+        return new IvmRewriteContext(Mode.INCREMENTAL, Objects.requireNonNull(mtmv, "mtmv can not be null"),
+                null, includeExhaustedStreams, ExecutionKind.EXPLAIN,
+                Optional.empty(), Collections.emptyMap(), Optional.empty());
     }
 
     public static IvmRewriteContext incrementalDryRun(MTMV mtmv, Optional<IvmDryRunLimit> dryRunLimit) {
         return new IvmRewriteContext(Mode.INCREMENTAL, mtmv, null, false,
-                true, dryRunLimit, Collections.emptyMap(), Optional.empty());
+                ExecutionKind.DRY_RUN, dryRunLimit, Collections.emptyMap(), Optional.empty());
+    }
+
+    /** EXPLAIN REFRESH COMPLETE: only a plan is produced. */
+    public static IvmRewriteContext fullExplain(MTMV mtmv) {
+        return new IvmRewriteContext(Mode.FULL, Objects.requireNonNull(mtmv, "mtmv can not be null"),
+                null, false, ExecutionKind.EXPLAIN, Optional.empty(), Collections.emptyMap(), Optional.empty());
     }
 
     public static IvmRewriteContext full(MTMV mtmv) {
-        return new IvmRewriteContext(Mode.FULL, mtmv, false);
+        return new IvmRewriteContext(Mode.FULL, Objects.requireNonNull(mtmv, "mtmv can not be null"),
+                null, false, ExecutionKind.EXECUTE, Optional.empty(), Collections.emptyMap(), Optional.empty());
     }
 
     public static IvmRewriteContext full(MTMV mtmv,
             Map<BaseTableInfo, Set<Long>> resetPartitionIds,
             StreamReadMode nonPctReadMode) {
-        return new IvmRewriteContext(Mode.FULL, mtmv, null, false, false, Optional.empty(), resetPartitionIds,
+        return new IvmRewriteContext(Mode.FULL, mtmv, null, false, ExecutionKind.EXECUTE, Optional.empty(),
+                resetPartitionIds,
                 Optional.of(Objects.requireNonNull(nonPctReadMode, "nonPctReadMode can not be null")));
     }
 
@@ -138,12 +166,17 @@ public class IvmRewriteContext {
         return includeExhaustedStreams;
     }
 
-    // True for REFRESH ... INCREMENTAL WITH DRY RUN: the root plan must be a LogicalResultSink.
+    /** True for REFRESH ... INCREMENTAL WITH DRY RUN: the root plan must be a LogicalResultSink. */
     public boolean isDryRun() {
-        return dryRun;
+        return executionKind == ExecutionKind.DRY_RUN;
     }
 
-    // Present only for REFRESH ... INCREMENTAL WITH DRY RUN; empty otherwise.
+    /** True for EXPLAIN REFRESH (incremental or complete): only the plan is produced. */
+    public boolean isExplain() {
+        return executionKind == ExecutionKind.EXPLAIN;
+    }
+
+    // Present only for DRY_RUN (incremental refresh); empty otherwise.
     public Optional<IvmDryRunLimit> getDryRunLimit() {
         return dryRunLimit;
     }

@@ -516,13 +516,13 @@ public class BindSink implements AnalysisRuleFactory {
                     try {
                         Expression unboundDefaultValue = new NereidsParser().parseExpression(
                                 column.getDefaultValueSql());
-                        Expression defualtValueExpression = ExpressionAnalyzer.analyzeFunction(
+                        Expression defaultValueExpression = ExpressionAnalyzer.analyzeFunction(
                                 boundSink, ctx.cascadesContext, unboundDefaultValue);
-                        if (defualtValueExpression instanceof Alias) {
-                            defualtValueExpression = ((Alias) defualtValueExpression).child();
+                        if (defaultValueExpression instanceof Alias) {
+                            defaultValueExpression = ((Alias) defaultValueExpression).child();
                         }
                         Alias output = new Alias((TypeCoercionUtils.castIfNotSameType(
-                                defualtValueExpression, DataType.fromCatalogType(column.getType()))),
+                                defaultValueExpression, DataType.fromCatalogType(column.getType()))),
                                 column.getName());
                         columnToOutput.put(column.getName(), output);
                         columnToReplaced.put(column.getName(), output.toSlot());
@@ -716,17 +716,16 @@ public class BindSink implements AnalysisRuleFactory {
                             + ", query output: " + child.getOutput().size());
         }
 
-        // Build columnToOutput mapping and reuse getOutputProjectByCoercion for type cast,
-        // same as OlapTable INSERT INTO.
-        Map<String, NamedExpression> columnToOutput = Maps.newLinkedHashMap();
+        // TVF schemas mirror query output positions; display names can repeat and must not identify values.
+        ImmutableList.Builder<NamedExpression> outputBuilder = ImmutableList.builderWithExpectedSize(cols.size());
         for (int i = 0; i < cols.size(); i++) {
             Column col = cols.get(i);
             NamedExpression childExpr = (NamedExpression) child.getOutput().get(i);
             Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
                     childExpr, DataType.fromCatalogType(col.getType())), col.getName());
-            columnToOutput.put(col.getName(), output);
+            outputBuilder.add(output);
         }
-        LogicalProject<?> projectWithCast = getOutputProjectByCoercion(cols, child, columnToOutput);
+        LogicalProject<?> projectWithCast = new LogicalProject<>(outputBuilder.build(), child);
 
         List<NamedExpression> outputExprs = projectWithCast.getOutput().stream()
                 .map(NamedExpression.class::cast)

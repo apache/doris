@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <utility>
 
 #include "common/status.h"
@@ -40,6 +41,7 @@
 #include "core/data_type/data_type_date_time.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "core/string_ref.h"
@@ -63,21 +65,34 @@ struct ConvertTzState {
     cctz::time_zone to_tz;
 };
 
+template <PrimitiveType Type>
 class FunctionConvertTZ : public IFunction {
-    constexpr static PrimitiveType PType = PrimitiveType::TYPE_DATETIMEV2;
+    constexpr static PrimitiveType PType = Type;
     using DateValueType = PrimitiveTypeTraits<PType>::CppType;
     using ColumnType = PrimitiveTypeTraits<PType>::ColumnType;
 
 public:
     static constexpr auto name = "convert_tz";
 
-    static FunctionPtr create() { return std::make_shared<FunctionConvertTZ>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionConvertTZ<PType>>(); }
 
     String get_name() const override { return name; }
 
     size_t get_number_of_arguments() const override { return 3; }
 
+    DataTypes get_variadic_argument_types_impl() const override {
+        if constexpr (PType == TYPE_TIMESTAMP_NS) {
+            return {std::make_shared<DataTypeTimeStampNs>(), std::make_shared<DataTypeString>(),
+                    std::make_shared<DataTypeString>()};
+        }
+        return {};
+    }
+
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        if constexpr (PType == TYPE_TIMESTAMP_NS) {
+            return have_nullable(arguments) ? make_nullable(std::make_shared<DataTypeTimeStampNs>())
+                                            : std::make_shared<DataTypeTimeStampNs>();
+        }
         return have_nullable(arguments) ? make_nullable(std::make_shared<DataTypeDateTimeV2>())
                                         : std::make_shared<DataTypeDateTimeV2>();
     }
@@ -212,17 +227,41 @@ private:
         }
     }
 
-    static std::pair<int64_t, int64_t> unix_timestamp_for_convert_tz(
+    static std::tuple<int64_t, int64_t, bool> unix_timestamp_for_convert_tz(
             const DateValueType& ts_value, const cctz::time_zone& from_tz) {
-        cctz::civil_second civil_time(ts_value.year(), ts_value.month(), ts_value.day(),
-                                      ts_value.hour(), ts_value.minute(), ts_value.second());
+        const auto civil_value = [&]() {
+            if constexpr (PType == TYPE_TIMESTAMP_NS) {
+                return ts_value.to_datetime();
+            } else {
+                return ts_value;
+            }
+        }();
+        cctz::civil_second civil_time(civil_value.year(), civil_value.month(), civil_value.day(),
+                                      civil_value.hour(), civil_value.minute(),
+                                      civil_value.second());
         const auto lookup = from_tz.lookup(civil_time);
         const bool skipped = lookup.kind == cctz::time_zone::civil_lookup::SKIPPED;
         const auto tp = skipped ? lookup.trans : lookup.pre;
 
         // Skipped civil times map to the transition instant. Do not keep the
         // input fractional part inside a local time interval that never existed.
-        return {tp.time_since_epoch().count(), skipped ? 0 : ts_value.microsecond()};
+        return {tp.time_since_epoch().count(), skipped ? 0 : civil_value.microsecond(), skipped};
+    }
+
+    static bool convert_value(const DateValueType& source, const cctz::time_zone& from_tz,
+                              const cctz::time_zone& to_tz, DateValueType* result) {
+        const auto [seconds, microseconds, skipped] =
+                unix_timestamp_for_convert_tz(source, from_tz);
+        const std::pair<int64_t, int64_t> timestamp {seconds, microseconds};
+        if constexpr (PType == TYPE_TIMESTAMP_NS) {
+            DateV2Value<DateTimeV2ValueType> converted;
+            converted.from_unixtime(timestamp, to_tz);
+            const uint16_t remainder = skipped ? 0 : source.nanosecond_remainder();
+            return result->from_datetime(converted, remainder);
+        } else {
+            result->from_unixtime(timestamp, to_tz);
+            return result->is_valid_date();
+        }
     }
 
     static void execute_tz_const_with_state(ConvertTzState* convert_tz_state,
@@ -252,14 +291,12 @@ private:
             DateValueType ts_value = date_column->get_element(i);
             DateValueType ts_value2;
 
-            ts_value2.from_unixtime(unix_timestamp_for_convert_tz(ts_value, from_tz), to_tz);
-
-            if (!ts_value2.is_valid_date()) [[unlikely]] {
+            if (!convert_value(ts_value, from_tz, to_tz, &ts_value2)) [[unlikely]] {
                 throw_out_of_bound_convert_tz<DateValueType>(date_column->get_element(i),
                                                              from_tz.name(), to_tz.name());
             }
 
-            result_column->insert(Field::create_field<TYPE_DATETIMEV2>(ts_value2));
+            result_column->insert(Field::create_field<PType>(ts_value2));
         }
     }
 
@@ -303,19 +340,18 @@ private:
                             to_tz_name);
         }
 
-        ts_value2.from_unixtime(unix_timestamp_for_convert_tz(ts_value, from_tz), to_tz);
-
-        if (!ts_value2.is_valid_date()) [[unlikely]] {
+        if (!convert_value(ts_value, from_tz, to_tz, &ts_value2)) [[unlikely]] {
             throw_out_of_bound_convert_tz<DateValueType>(date_column->get_element(index_now),
                                                          from_tz.name(), to_tz.name());
         }
 
-        result_column->insert(Field::create_field<TYPE_DATETIMEV2>(ts_value2));
+        result_column->insert(Field::create_field<PType>(ts_value2));
     }
 };
 
 void register_function_convert_tz(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionConvertTZ>();
+    factory.register_function<FunctionConvertTZ<TYPE_DATETIMEV2>>();
+    factory.register_function<FunctionConvertTZ<TYPE_TIMESTAMP_NS>>();
 }
 
 } // namespace doris

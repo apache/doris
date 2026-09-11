@@ -447,6 +447,8 @@ public class VectorColumn {
             case DATETIME:
             case DATETIMEV2:
                 return appendDateTime(LocalDateTime.MIN);
+            case TIMESTAMP_NS:
+                return appendTimestampNs(LocalDateTime.of(1970, 1, 1, 0, 0));
             case TIMESTAMPTZ:
                 return appendTimeStampTz(LocalDateTime.MIN);
             case CHAR:
@@ -1166,6 +1168,46 @@ public class VectorColumn {
         OffHeap.putLong(null, data + rowId * 8L, time);
     }
 
+    public int appendTimestampNs(LocalDateTime value) {
+        reserve(appendIndex + 1);
+        putTimestampNs(appendIndex, value);
+        return appendIndex++;
+    }
+
+    public void appendTimestampNs(LocalDateTime[] batch, boolean isNullable) {
+        if (!isNullable) {
+            checkNullable(batch, batch.length);
+        }
+        reserve(appendIndex + batch.length);
+        for (LocalDateTime value : batch) {
+            if (value == null) {
+                putNull(appendIndex);
+                OffHeap.putLong(null, data + appendIndex * 8L, 0);
+            } else {
+                putTimestampNs(appendIndex, value);
+            }
+            appendIndex++;
+        }
+    }
+
+    private void putTimestampNs(int rowId, LocalDateTime value) {
+        OffHeap.putLong(null, data + rowId * 8L, TypeNativeBytes.convertToTimestampNs(value));
+    }
+
+    public LocalDateTime getTimestampNs(int rowId) {
+        return TypeNativeBytes.convertToJavaTimestampNs(OffHeap.getLong(null, data + rowId * 8L));
+    }
+
+    public LocalDateTime[] getTimestampNsColumn(int start, int end) {
+        LocalDateTime[] result = new LocalDateTime[end - start];
+        for (int i = start; i < end; ++i) {
+            if (!isNullAt(i)) {
+                result[i - start] = getTimestampNs(i);
+            }
+        }
+        return result;
+    }
+
     public int appendTimeStampTz(LocalDateTime v) {
         reserve(appendIndex + 1);
         putTimeStampTz(appendIndex, v);
@@ -1684,6 +1726,8 @@ public class VectorColumn {
             case DATETIME:
             case DATETIMEV2:
                 return new LocalDateTime[size];
+            case TIMESTAMP_NS:
+                return new LocalDateTime[size];
             case TIMESTAMPTZ:
                 // MAYBE use LocalDateTime is not appropriate
                 return new LocalDateTime[size];
@@ -1746,6 +1790,9 @@ public class VectorColumn {
             case DATETIME:
             case DATETIMEV2:
                 appendDateTime((LocalDateTime[]) batch, isNullable);
+                break;
+            case TIMESTAMP_NS:
+                appendTimestampNs((LocalDateTime[]) batch, isNullable);
                 break;
             case TIMESTAMPTZ:
                 // MAYBE use LocalDateTime is not appropriate
@@ -1815,6 +1862,8 @@ public class VectorColumn {
             case DATETIME:
             case DATETIMEV2:
                 return getDateTimeColumn(start, end);
+            case TIMESTAMP_NS:
+                return getTimestampNsColumn(start, end);
             case TIMESTAMPTZ:
                 return getTimeStampTzColumn(start, end);
             case CHAR:
@@ -1880,6 +1929,9 @@ public class VectorColumn {
             case DATETIME:
             case DATETIMEV2:
                 appendDateTime(o.getDateTime());
+                break;
+            case TIMESTAMP_NS:
+                appendTimestampNs(o.getDateTime());
                 break;
             case TIMESTAMPTZ:
                 appendTimeStampTz(o.getTimeStampTz());
@@ -1974,6 +2026,9 @@ public class VectorColumn {
             case DATETIME:
             case DATETIMEV2:
                 sb.append(getDateTime(i));
+                break;
+            case TIMESTAMP_NS:
+                sb.append(getTimestampNs(i));
                 break;
             case TIMESTAMPTZ:
                 sb.append(getTimeStampTz(i));

@@ -37,7 +37,8 @@ import java.util.List;
 
 /** min agg function. */
 public class Min extends NullableAggregateFunction
-        implements UnaryExpression, CustomSignature, SupportWindowAnalytic, RollUpTrait {
+        implements UnaryExpression, CustomSignature, SupportWindowAnalytic, RollUpTrait,
+        NullIgnoringAggregateFunction {
 
     public Min(Expression child) {
         this(false, false, child);

@@ -19,14 +19,18 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.gson.JsonParseException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.nio.file.Files;
@@ -290,6 +294,108 @@ public class PartitionKeyTest {
     public void testMaxValueToSql() throws Exception {
         PartitionKey key = PartitionKey.createInfinityPartitionKey(allColumns, true);
         Assertions.assertEquals("(MAXVALUE, MAXVALUE, MAXVALUE, MAXVALUE, MAXVALUE, MAXVALUE, MAXVALUE)", key.toSql());
+    }
+
+    @Test
+    public void testTimeStampNsMinValue() throws Exception {
+        assertTimeStampNsMinValue(
+                "1677-09-21 00:12:43.145224192", "1677-09-21 00:12:43.145224193");
+    }
+
+    @Test
+    public void testTimeStampNsSuccessor() throws Exception {
+        Column column = new Column("timestamp_ns", ScalarType.createTimeStampNsType());
+        PartitionKey key = PartitionKey.createPartitionKey(
+                Arrays.asList(new PartitionValue("1970-01-01 00:00:00.123456789")),
+                Arrays.asList(column));
+
+        PartitionKey successor = key.successor();
+
+        Assertions.assertTrue(successor.getKeys().get(0)
+                instanceof org.apache.doris.analysis.TimeStampNsLiteral);
+        Assertions.assertEquals("1970-01-01 00:00:00.123456790",
+                successor.getKeys().get(0).getStringValue());
+    }
+
+    @Test
+    public void testTimeStampNsMaximumSuccessor() throws Exception {
+        Column column = new Column("timestamp_ns", ScalarType.createTimeStampNsType());
+        PartitionKey key = PartitionKey.createPartitionKey(
+                Arrays.asList(new PartitionValue("2262-04-11 23:47:16.854775807")),
+                Arrays.asList(column));
+
+        PartitionKey successor = key.successor();
+
+        Assertions.assertTrue(successor.isMaxValue());
+        Assertions.assertEquals("(MAXVALUE)", successor.toSql());
+        Assertions.assertTrue(successor.toString().contains("MAXVALUE"));
+    }
+
+    @Test
+    public void testTimeStampNsSerialization() throws Exception {
+        Column column = new Column("timestamp_ns", ScalarType.createTimeStampNsType());
+        PartitionKey key = PartitionKey.createPartitionKey(
+                Arrays.asList(new PartitionValue("1970-01-01 00:00:00.123456789")),
+                Arrays.asList(column));
+
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        key.write(new DataOutputStream(bytes));
+        PartitionKey restored = PartitionKey.read(
+                new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
+
+        Assertions.assertEquals(key, restored);
+        Assertions.assertTrue(restored.getKeys().get(0)
+                instanceof org.apache.doris.analysis.TimeStampNsLiteral);
+        Assertions.assertEquals("1970-01-01 00:00:00.123456789",
+                restored.getKeys().get(0).getStringValue());
+
+        PartitionKey infinityMin = PartitionKey.createInfinityPartitionKey(Arrays.asList(column), false);
+        ByteArrayOutputStream infinityBytes = new ByteArrayOutputStream();
+        infinityMin.write(new DataOutputStream(infinityBytes));
+        PartitionKey restoredInfinity = PartitionKey.read(
+                new DataInputStream(new ByteArrayInputStream(infinityBytes.toByteArray())));
+        Assertions.assertTrue(restoredInfinity.isMinValue());
+        Assertions.assertEquals(infinityMin, restoredInfinity);
+
+        PartitionKey legalMin = PartitionKey.createPartitionKey(
+                Arrays.asList(new PartitionValue("1677-09-21 00:12:43.145224192")),
+                Arrays.asList(column));
+        ByteArrayOutputStream legalMinBytes = new ByteArrayOutputStream();
+        legalMin.write(new DataOutputStream(legalMinBytes));
+        PartitionKey restoredLegalMin = PartitionKey.read(
+                new DataInputStream(new ByteArrayInputStream(legalMinBytes.toByteArray())));
+        Assertions.assertFalse(restoredLegalMin.isMinValue());
+        Assertions.assertEquals(legalMin, restoredLegalMin);
+        Assertions.assertTrue(restoredInfinity.compareTo(restoredLegalMin) < 0);
+    }
+
+    @Test
+    public void testInvalidTimeStampNsPartitionKeyFailsDeserialization() throws Exception {
+        PartitionKey invalid = new PartitionKey();
+        invalid.pushColumn(new TimeStampNsLiteral(
+                1677, 9, 21, 0, 12, 43, 145224191), PrimitiveType.TIMESTAMP_NS);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        invalid.write(new DataOutputStream(bytes));
+
+        JsonParseException exception = Assertions.assertThrows(JsonParseException.class, () -> PartitionKey.read(
+                new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))));
+        Assertions.assertTrue(exception.getMessage().contains("Invalid TIMESTAMP_NS partition key"));
+    }
+
+    private void assertTimeStampNsMinValue(String minValue, String nextValue) throws Exception {
+        Column column = new Column("timestamp_ns", ScalarType.createTimeStampNsType());
+        PartitionKey infinityMin = PartitionKey.createInfinityPartitionKey(Arrays.asList(column), false);
+        PartitionKey literalMin = PartitionKey.createPartitionKey(
+                Arrays.asList(new PartitionValue(minValue)), Arrays.asList(column));
+        PartitionKey literalNext = PartitionKey.createPartitionKey(
+                Arrays.asList(new PartitionValue(nextValue)), Arrays.asList(column));
+
+        Assertions.assertTrue(infinityMin.isMinValue());
+        Assertions.assertFalse(literalMin.isMinValue());
+        Assertions.assertNotEquals(infinityMin, literalMin);
+        Assertions.assertTrue(infinityMin.compareTo(literalMin) < 0);
+        Assertions.assertFalse(literalNext.isMinValue());
+        Assertions.assertEquals(literalNext, literalMin.successor());
     }
 
     @Test

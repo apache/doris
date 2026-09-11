@@ -23,13 +23,18 @@ import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -40,6 +45,7 @@ import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 public class MTMVRelatedPartitionDescRollUpGeneratorTest {
@@ -51,7 +57,8 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
                 Lists.newArrayList(new SlotRef(null, null), new StringLiteral("month")), true);
         try (MockedStatic<MTMVPartitionUtil> mtmvPartitionUtilStatic = Mockito.mockStatic(MTMVPartitionUtil.class)) {
             mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.getPartitionColumnType(
-                    Mockito.nullable(MTMVRelatedTableIf.class), Mockito.nullable(String.class))).thenReturn(Type.DATE);
+                    Mockito.nullable(MTMVRelatedTableIf.class), Mockito.nullable(String.class),
+                    Mockito.nullable(Optional.class))).thenReturn(Type.DATE);
             Mockito.when(mtmvPartitionInfo.getRelatedTable()).thenReturn(null);
             Mockito.when(mtmvPartitionInfo.getExpr()).thenReturn(expr);
             Mockito.when(mtmvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.EXPR);
@@ -71,7 +78,7 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
             relatedPartitionDescs.put(desc20200102, Sets.newHashSet("name2"));
             relatedPartitionDescs.put(desc20200201, Sets.newHashSet("name3"));
             Map<PartitionKeyDesc, Set<String>> res = generator.rollUpRange(relatedPartitionDescs,
-                    mtmvPartitionInfo, null);
+                    mtmvPartitionInfo, null, Optional.empty());
 
             PartitionKeyDesc expectDesc202001 = PartitionKeyDesc.createFixed(
                     Lists.newArrayList(new PartitionValue("2020-01-01")),
@@ -91,7 +98,8 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
                 Lists.newArrayList(new SlotRef(null, null), new StringLiteral("month")), true);
         try (MockedStatic<MTMVPartitionUtil> mtmvPartitionUtilStatic = Mockito.mockStatic(MTMVPartitionUtil.class)) {
             mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.getPartitionColumnType(
-                    Mockito.nullable(MTMVRelatedTableIf.class), Mockito.nullable(String.class))).thenReturn(Type.DATE);
+                    Mockito.nullable(MTMVRelatedTableIf.class), Mockito.nullable(String.class),
+                    Mockito.nullable(Optional.class))).thenReturn(Type.DATE);
             Mockito.when(mtmvPartitionInfo.getRelatedTable()).thenReturn(null);
             Mockito.when(mtmvPartitionInfo.getExpr()).thenReturn(expr);
             Mockito.when(mtmvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.EXPR);
@@ -122,6 +130,53 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
     }
 
     @Test
+    public void testRollUpRangeTimestampNs() throws AnalysisException {
+        FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
+                Lists.newArrayList(new SlotRef(null, null), new StringLiteral("hour")), true);
+        try (MockedStatic<MTMVPartitionUtil> mtmvPartitionUtilStatic = Mockito.mockStatic(MTMVPartitionUtil.class)) {
+            mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.getPartitionColumnType(
+                    Mockito.nullable(MTMVRelatedTableIf.class), Mockito.nullable(String.class),
+                    Mockito.nullable(Optional.class)))
+                    .thenReturn(ScalarType.createTimeStampNsType());
+            Mockito.when(mtmvPartitionInfo.getExpr()).thenReturn(expr);
+            Mockito.when(mtmvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.EXPR);
+
+            MTMVRelatedPartitionDescRollUpGenerator generator = new MTMVRelatedPartitionDescRollUpGenerator();
+            Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs = Maps.newHashMap();
+            relatedPartitionDescs.put(PartitionKeyDesc.createFixed(
+                            Lists.newArrayList(new PartitionValue("2024-01-01 00:00:00.000000000")),
+                            Lists.newArrayList(new PartitionValue("2024-01-01 00:00:00.000000001"))),
+                    Sets.newHashSet("one-nanosecond"));
+            relatedPartitionDescs.put(PartitionKeyDesc.createFixed(
+                            Lists.newArrayList(new PartitionValue("1677-09-21 00:12:43.145224192")),
+                            Lists.newArrayList(new PartitionValue("1677-09-21 00:12:43.145224193"))),
+                    Sets.newHashSet("minimum"));
+            relatedPartitionDescs.put(PartitionKeyDesc.createFixed(
+                            Lists.newArrayList(new PartitionValue("2262-04-11 23:47:16.854775807")),
+                            Lists.newArrayList(PartitionValue.MAX_VALUE)),
+                    Sets.newHashSet("maximum"));
+
+            Map<PartitionKeyDesc, Set<String>> result = generator.rollUpRange(relatedPartitionDescs,
+                    mtmvPartitionInfo, null, Optional.empty());
+
+            PartitionKeyDesc expectedOneNanosecond = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("2024-01-01 00:00:00.000000000")),
+                    Lists.newArrayList(new PartitionValue("2024-01-01 01:00:00.000000000")));
+            PartitionKeyDesc expectedMinimum = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("1677-09-21 00:12:43.145224192")),
+                    Lists.newArrayList(new PartitionValue("1677-09-21 01:00:00.000000000")));
+            PartitionKeyDesc expectedMaximum = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("2262-04-11 23:00:00.000000000")),
+                    Lists.newArrayList(PartitionValue.MAX_VALUE));
+
+            Assertions.assertEquals(3, result.size());
+            Assertions.assertEquals(Sets.newHashSet("one-nanosecond"), result.get(expectedOneNanosecond));
+            Assertions.assertEquals(Sets.newHashSet("minimum"), result.get(expectedMinimum));
+            Assertions.assertEquals(Sets.newHashSet("maximum"), result.get(expectedMaximum));
+        }
+    }
+
+    @Test
     public void testRollUpRangeTimestampTz() throws AnalysisException {
         FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
                 Lists.newArrayList(new SlotRef(null, null), new StringLiteral("day")), true);
@@ -130,7 +185,8 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
         context.setThreadLocalInfo();
         try (MockedStatic<MTMVPartitionUtil> mtmvPartitionUtilStatic = Mockito.mockStatic(MTMVPartitionUtil.class)) {
             mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.getPartitionColumnType(
-                    Mockito.nullable(MTMVRelatedTableIf.class), Mockito.nullable(String.class)))
+                    Mockito.nullable(MTMVRelatedTableIf.class), Mockito.nullable(String.class),
+                    Mockito.nullable(Optional.class)))
                     .thenReturn(ScalarType.createTimeStampTzType(6));
             Mockito.when(mtmvPartitionInfo.getRelatedTable()).thenReturn(null);
             Mockito.when(mtmvPartitionInfo.getExpr()).thenReturn(expr);
@@ -154,7 +210,7 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
             relatedPartitionDescs.put(desc2, Sets.newHashSet("name2"));
 
             Map<PartitionKeyDesc, Set<String>> res = generator.rollUpRange(relatedPartitionDescs,
-                    mtmvPartitionInfo, null);
+                    mtmvPartitionInfo, null, Optional.empty());
 
             // Both partitions should roll up to the same UTC day range.
             // The +00:00 suffix ensures TimestampTzLiteral.fromSessionTimeZone
@@ -185,5 +241,41 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
         } finally {
             ConnectContext.remove();
         }
+    }
+
+    @Test
+    public void testRollUpRangeUsesCapturedSnapshotForPartitionColumnType() throws AnalysisException {
+        FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
+                Lists.newArrayList(new SlotRef(null, null), new StringLiteral("month")), true);
+        MTMVRelatedTableIf pctTable = Mockito.mock(MTMVRelatedTableIf.class);
+        MvccSnapshot snapshot = Mockito.mock(MvccSnapshot.class);
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(pctTable.getName()).thenReturn("table");
+        Mockito.when(pctTable.getDatabase()).thenReturn(database);
+        Mockito.when(database.getFullName()).thenReturn("database");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("catalog");
+        Mockito.when(mtmvPartitionInfo.getExpr()).thenReturn(expr);
+        Mockito.when(mtmvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.EXPR);
+        Mockito.when(mtmvPartitionInfo.getPartitionColByPctTable(pctTable)).thenReturn("dt");
+        Mockito.when(pctTable.getPartitionType(Optional.of(snapshot)))
+                .thenReturn(org.apache.doris.catalog.PartitionType.RANGE);
+        Mockito.when(pctTable.getPartitionColumns(Optional.of(snapshot)))
+                .thenReturn(Lists.newArrayList(new Column("dt", Type.DATE)));
+
+        PartitionKeyDesc desc = PartitionKeyDesc.createFixed(
+                Lists.newArrayList(new PartitionValue("2020-01-01")),
+                Lists.newArrayList(new PartitionValue("2020-01-02")));
+        RelatedPartitionDescResult result = new RelatedPartitionDescResult(
+                Maps.newHashMap(ImmutableMap.of(new MvccTableInfo(pctTable), snapshot)));
+        result.getDescs().put(pctTable, Maps.newHashMap(ImmutableMap.of(desc, Sets.newHashSet("p1"))));
+
+        new MTMVRelatedPartitionDescRollUpGenerator().apply(mtmvPartitionInfo, Maps.newHashMap(), result,
+                Lists.newArrayList(), Maps.newHashMap());
+
+        Mockito.verify(pctTable).getPartitionType(Optional.of(snapshot));
+        Mockito.verify(pctTable).getPartitionColumns(Optional.of(snapshot));
+        Mockito.verify(pctTable, Mockito.never()).getPartitionColumns(Optional.empty());
     }
 }

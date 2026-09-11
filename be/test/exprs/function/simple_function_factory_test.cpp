@@ -24,10 +24,14 @@
 #include <utility>
 #include <vector>
 
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_bitmap.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 
 namespace doris {
 
@@ -69,12 +73,85 @@ public:
     }
 };
 
+class FunctionNestedDateTimeV2BeTestMock : public IFunction {
+public:
+    static constexpr auto name = "nested_datetimev2_be_test_mock";
+
+    static FunctionPtr create() { return std::make_shared<FunctionNestedDateTimeV2BeTestMock>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 0; }
+
+    DataTypePtr get_return_type_impl(const DataTypes&) const override {
+        return std::make_shared<DataTypeArray>(
+                make_nullable(std::make_shared<DataTypeDateTimeV2>(6)));
+    }
+
+    Status execute_impl(FunctionContext*, Block&, const ColumnNumbers&, uint32_t,
+                        size_t) const override {
+        return Status::OK();
+    }
+};
+
+class FunctionNestedTimeStampNsBeTestMock : public IFunction {
+public:
+    static constexpr auto name = "nested_timestamp_ns_be_test_mock";
+
+    static FunctionPtr create() { return std::make_shared<FunctionNestedTimeStampNsBeTestMock>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 0; }
+
+    DataTypePtr get_return_type_impl(const DataTypes&) const override {
+        return std::make_shared<DataTypeArray>(
+                make_nullable(std::make_shared<DataTypeTimeStampNs>()));
+    }
+
+    Status execute_impl(FunctionContext*, Block&, const ColumnNumbers&, uint32_t,
+                        size_t) const override {
+        return Status::OK();
+    }
+};
+
+class FunctionNestedStructTimeStampNsBeTestMock : public IFunction {
+public:
+    static constexpr auto name = "nested_struct_timestamp_ns_be_test_mock";
+
+    static FunctionPtr create() {
+        return std::make_shared<FunctionNestedStructTimeStampNsBeTestMock>();
+    }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 0; }
+
+    DataTypePtr get_return_type_impl(const DataTypes&) const override {
+        return std::make_shared<DataTypeStruct>(DataTypes {
+                std::make_shared<DataTypeArray>(
+                        make_nullable(std::make_shared<DataTypeTimeStampNs>())),
+                std::make_shared<DataTypeDateTimeV2>(3), std::make_shared<DataTypeInt32>()});
+    }
+
+    Status execute_impl(FunctionContext*, Block&, const ColumnNumbers&, uint32_t,
+                        size_t) const override {
+        return Status::OK();
+    }
+};
+
 class SimpleFunctionFactoryTest : public testing::Test {
     void SetUp() override {
         static std::once_flag oc;
         std::call_once(oc, []() {
             SimpleFunctionFactory::instance().register_function<FunctionBeTestMock>();
             SimpleFunctionFactory::instance().register_function<FunctionNullLiteralBeTestMock>();
+            SimpleFunctionFactory::instance()
+                    .register_function<FunctionNestedDateTimeV2BeTestMock>();
+            SimpleFunctionFactory::instance()
+                    .register_function<FunctionNestedTimeStampNsBeTestMock>();
+            SimpleFunctionFactory::instance()
+                    .register_function<FunctionNestedStructTimeStampNsBeTestMock>();
         });
     }
 
@@ -110,6 +187,36 @@ TEST_F(SimpleFunctionFactoryTest, test_null_literal_skips_return_type_inference)
                             FunctionNullLiteralBeTestMock::name, arguments, expected_return_type));
     ASSERT_NE(function, nullptr);
     EXPECT_TRUE(function->get_return_type()->equals(*expected_return_type));
+}
+
+TEST_F(SimpleFunctionFactoryTest, test_nested_timestamp_ns_return_type_check) {
+    auto timestamp_ns_array =
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeTimeStampNs>()));
+
+    EXPECT_THROW(SimpleFunctionFactory::instance().get_function(
+                         FunctionNestedDateTimeV2BeTestMock::name, {}, timestamp_ns_array),
+                 doris::Exception);
+
+    FunctionBasePtr function;
+    ASSERT_NO_THROW(function = SimpleFunctionFactory::instance().get_function(
+                            FunctionNestedTimeStampNsBeTestMock::name, {}, timestamp_ns_array));
+    ASSERT_NE(function, nullptr);
+    EXPECT_TRUE(function->get_return_type()->equals(*timestamp_ns_array));
+
+    auto compatible_struct = std::make_shared<DataTypeStruct>(
+            DataTypes {timestamp_ns_array, std::make_shared<DataTypeDateTimeV2>(6),
+                       std::make_shared<DataTypeInt32>()});
+    ASSERT_NO_THROW(
+            function = SimpleFunctionFactory::instance().get_function(
+                    FunctionNestedStructTimeStampNsBeTestMock::name, {}, compatible_struct));
+    ASSERT_NE(function, nullptr);
+
+    auto mismatched_struct = std::make_shared<DataTypeStruct>(DataTypes {
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeDateTimeV2>(6))),
+            std::make_shared<DataTypeDateTimeV2>(6), std::make_shared<DataTypeInt32>()});
+    EXPECT_THROW(SimpleFunctionFactory::instance().get_function(
+                         FunctionNestedStructTimeStampNsBeTestMock::name, {}, mismatched_struct),
+                 doris::Exception);
 }
 
 TEST_F(SimpleFunctionFactoryTest, test_return_all) {

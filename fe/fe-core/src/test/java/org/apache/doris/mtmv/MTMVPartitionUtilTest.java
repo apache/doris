@@ -19,18 +19,24 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.RangePartitionItem;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVRefreshContext.PreparedPartitionSnapshots;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -58,6 +64,7 @@ public class MTMVPartitionUtilTest {
     private MockedStatic<MTMVUtil> mtmvUtilStatic;
     private MockedStatic<MTMVRefreshContext> refreshContextStatic;
     private MTMVRefreshContext context = Mockito.mock(MTMVRefreshContext.class);
+    private PreparedPartitionSnapshots partitionSnapshots = Mockito.mock(PreparedPartitionSnapshots.class);
     private MTMVBaseVersions versions = Mockito.mock(MTMVBaseVersions.class);
 
     private Set<BaseTableInfo> baseTables = Sets.newHashSet();
@@ -80,6 +87,7 @@ public class MTMVPartitionUtilTest {
         Mockito.when(context.getBaseVersions()).thenReturn(versions);
 
         Mockito.when(context.getBaseTableSnapshotCache()).thenReturn(Maps.newHashMap());
+        Mockito.when(context.prepareComparablePartitionSnapshots(Mockito.anySet())).thenReturn(partitionSnapshots);
 
         Mockito.when(mtmv.getPartitions()).thenReturn(Lists.newArrayList(p1));
 
@@ -107,6 +115,9 @@ public class MTMVPartitionUtilTest {
         Mockito.when(relation.getBaseTablesOneLevelAndFromView()).thenReturn(baseTables);
 
         Mockito.when(baseOlapTable.getPartitionSnapshot(Mockito.anyString(), Mockito.any(MTMVRefreshContext.class), Mockito.any(Optional.class)))
+                .thenReturn(baseSnapshotIf);
+
+        Mockito.when(partitionSnapshots.get(baseOlapTable, "name2"))
                 .thenReturn(baseSnapshotIf);
 
         Mockito.when(refreshSnapshot.equalsWithPct(Mockito.anyString(), Mockito.anyString(), Mockito.any(MTMVSnapshotIf.class),
@@ -148,9 +159,18 @@ public class MTMVPartitionUtilTest {
     }
 
     @Test
+    public void testIsMTMVSyncReturnsFalseWhenCatalogIsDroppedConcurrently() throws AnalysisException {
+        Mockito.when(baseOlapTable.getTableSnapshot(
+                        Mockito.any(MTMVRefreshContext.class), Mockito.any(Optional.class)))
+                .thenThrow(new IllegalStateException("Scoped meta cache 'hive-table' is closed"));
+
+        Assertions.assertFalse(MTMVPartitionUtil.isMTMVSync(mtmv));
+    }
+
+    @Test
     public void testIsSyncWithPartition() throws AnalysisException {
-        boolean isSyncWithPartition = MTMVPartitionUtil
-                .isSyncWithPartitions(context, "name1", Sets.newHashSet("name2"), baseOlapTable);
+        boolean isSyncWithPartition = MTMVPartitionUtil.isSyncWithPartitions(
+                context, partitionSnapshots, "name1", Sets.newHashSet("name2"), baseOlapTable);
         Assertions.assertTrue(isSyncWithPartition);
     }
 
@@ -158,8 +178,8 @@ public class MTMVPartitionUtilTest {
     public void testIsSyncWithPartitionNotEqual() throws AnalysisException {
         Mockito.when(refreshSnapshot.getPctSnapshots(Mockito.anyString(), Mockito.any(BaseTableInfo.class)))
                 .thenReturn(Sets.newHashSet("name2", "name3"));
-        boolean isSyncWithPartition = MTMVPartitionUtil
-                .isSyncWithPartitions(context, "name1", Sets.newHashSet("name2"), baseOlapTable);
+        boolean isSyncWithPartition = MTMVPartitionUtil.isSyncWithPartitions(
+                context, partitionSnapshots, "name1", Sets.newHashSet("name2"), baseOlapTable);
         Assertions.assertFalse(isSyncWithPartition);
     }
 
@@ -168,8 +188,8 @@ public class MTMVPartitionUtilTest {
         Mockito.when(refreshSnapshot.equalsWithPct(Mockito.anyString(), Mockito.anyString(), Mockito.any(MTMVSnapshotIf.class),
                 Mockito.any(BaseTableInfo.class)))
                 .thenReturn(false);
-        boolean isSyncWithPartition = MTMVPartitionUtil
-                .isSyncWithPartitions(context, "name1", Sets.newHashSet("name2"), baseOlapTable);
+        boolean isSyncWithPartition = MTMVPartitionUtil.isSyncWithPartitions(
+                context, partitionSnapshots, "name1", Sets.newHashSet("name2"), baseOlapTable);
         Assertions.assertFalse(isSyncWithPartition);
     }
 
@@ -182,8 +202,8 @@ public class MTMVPartitionUtilTest {
         Mockito.when(mtmvPartitionInfo.getPctTables()).thenReturn(Sets.newHashSet(baseOlapTable));
 
         Set<TableNameInfo> excludedTriggerTables = ImmutableSet.of();
-        boolean isMTMVPartitionSync = MTMVPartitionUtil.isMTMVPartitionSync(context, "name1", baseTables,
-                excludedTriggerTables);
+        boolean isMTMVPartitionSync = MTMVPartitionUtil.isMTMVPartitionSync(
+                context, partitionSnapshots, "name1", baseTables, excludedTriggerTables);
 
         Assertions.assertTrue(isMTMVPartitionSync);
         Assertions.assertTrue(excludedTriggerTables.isEmpty());
@@ -204,6 +224,45 @@ public class MTMVPartitionUtilTest {
         );
         String rangeName = MTMVPartitionUtil.generatePartitionName(rangeDesc);
         Assertions.assertEquals("p_1_2", rangeName);
+    }
+
+    @Test
+    public void testGeneratePartitionNameFromDateTimeV2Range() throws AnalysisException {
+        List<Column> columns = Lists.newArrayList(
+                new Column("ts", ScalarType.createDatetimeV2Type(6)));
+        PartitionKey lower = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue("2024-10-26 00:00:00")), columns);
+        PartitionKey upper = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue("2024-10-27 00:00:00")), columns);
+        PartitionKeyDesc rangeDesc = new RangePartitionItem(Range.closedOpen(lower, upper)).toPartitionKeyDesc();
+
+        Assertions.assertEquals(0, ((ScalarType) lower.getKeys().get(0).getType()).getScalarScale());
+        Assertions.assertEquals(PartitionKeyDesc.createFixed(
+                        Lists.newArrayList(new PartitionValue("2024-10-26 00:00:00")),
+                        Lists.newArrayList(new PartitionValue("2024-10-27 00:00:00"))),
+                rangeDesc);
+        Assertions.assertEquals("p_20241026000000_20241027000000",
+                MTMVPartitionUtil.generatePartitionName(rangeDesc));
+
+        lower = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue("2024-10-26 00:00:00.123000")), columns);
+        upper = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue("2024-10-27 00:00:00.654000")), columns);
+        rangeDesc = new RangePartitionItem(Range.closedOpen(lower, upper)).toPartitionKeyDesc();
+
+        Assertions.assertEquals(3, ((ScalarType) lower.getKeys().get(0).getType()).getScalarScale());
+        Assertions.assertEquals("p_20241026000000123_20241027000000654",
+                MTMVPartitionUtil.generatePartitionName(rangeDesc));
+
+        columns = Lists.newArrayList(new Column("ts", ScalarType.createTimeStampNsType()));
+        lower = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue("2024-10-26 00:00:00.000000000")), columns);
+        upper = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue("2024-10-27 00:00:00.000000000")), columns);
+        rangeDesc = new RangePartitionItem(Range.closedOpen(lower, upper)).toPartitionKeyDesc();
+
+        Assertions.assertEquals("p_20241026000000000000000_20241027000000000000000",
+                MTMVPartitionUtil.generatePartitionName(rangeDesc));
     }
 
     @Test
