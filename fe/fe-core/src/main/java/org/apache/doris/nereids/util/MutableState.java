@@ -44,6 +44,8 @@ public interface MutableState {
     String KEY_HBO_COND = "hbo-cond";
     /** fingerprint of the join equality conditions (join nodes, the expansion injection key) */
     String KEY_HBO_COND_FP = "hbo-cond-fp";
+    /** type of the pinned entry that matched this node (exact / filter_small) */
+    String KEY_HBO_TYPE = "hbo-type";
     /** applied injected join expansion, e.g. {@code exp=200x} */
     String KEY_HBO_EXPANSION = "hbo-expansion";
 

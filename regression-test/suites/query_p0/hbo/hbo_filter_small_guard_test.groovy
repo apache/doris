@@ -44,6 +44,9 @@ suite("hbo_filter_small_guard_test", "nonConcurrent") {
         "select * from hbo_gs_t join hbo_gs_r on hbo_gs_t.a = hbo_gs_r.a where ${predicate}"
     }
     def explainText = { String predicate -> (sql """ explain ${query(predicate)} """).flatten().join("\n") }
+    def nodePlanText = { String predicate ->
+        (sql """ explain physical plan ${query(predicate)} """).flatten().join("\n")
+    }
     def firstFragment = { String text -> text.substring(0, text.indexOf("PLAN FRAGMENT 1")) }
     def probeTable = { String predicate -> firstFragment(explainText(predicate)) }
     def shapeFingerprint = { String predicate ->
@@ -61,10 +64,18 @@ suite("hbo_filter_small_guard_test", "nonConcurrent") {
         sql """ HBO SET STATISTICS '${shapeOfPathological}' = 500000 TYPE FILTER_SMALL; """
         assertTrue(probeTable(pathological).contains("TABLE: hbo_test.hbo_gs_r(hbo_gs_r)"),
                 probeTable(pathological))
-        // ... and skipped for the healthy one, with the guard reported in the annotation
+        // the applied node reports its injected entry type in the physical plan
+        def pathologicalNode = nodePlanText(pathological)
+        assertTrue((pathologicalNode =~ /PhysicalFilter\[\d+\][^\n]*hboType=filter_small[^\n]*hboUsed=true/).find(),
+                pathologicalNode)
+
+        // ... and skipped for the healthy one, with the guard and the entry type in the annotation
         assertTrue(probeTable(healthy).contains("TABLE: hbo_test.hbo_gs_t(hbo_gs_t)"), probeTable(healthy))
         def healthyText = explainText(healthy)
-        assertTrue((healthyText =~ /skipped=filterSmallGuard\(E=\d+,I=\d+\)/).find(), healthyText)
+        assertTrue((healthyText =~ /type=filter_small skipped=filterSmallGuard\(E=\d+,I=\d+\)/).find(), healthyText)
+        def healthyNode = nodePlanText(healthy)
+        assertTrue((healthyNode =~ /PhysicalFilter\[\d+\][^\n]*hboType=filter_small/).find(), healthyNode)
+        assertFalse((healthyNode =~ /PhysicalFilter\[\d+\][^\n]*hboUsed=true/).find(), healthyNode)
 
         // the entry reports the granularity that matched and its guard type
         def showRows = sql """ HBO SHOW PINNED STATISTICS LIKE '${shapeOfPathological}'; """
@@ -75,6 +86,8 @@ suite("hbo_filter_small_guard_test", "nonConcurrent") {
         // control: the same fingerprint injected as EXACT overrides the healthy estimate as well
         sql """ HBO SET STATISTICS '${shapeOfPathological}' = 500000 TYPE EXACT; """
         assertTrue(probeTable(healthy).contains("TABLE: hbo_test.hbo_gs_r(hbo_gs_r)"), probeTable(healthy))
+        def exactNode = nodePlanText(healthy)
+        assertTrue((exactNode =~ /PhysicalFilter\[\d+\][^\n]*hboType=exact[^\n]*hboUsed=true/).find(), exactNode)
     } finally {
         sql """ HBO DELETE STATISTICS '${shapeOfPathological}'; """
     }

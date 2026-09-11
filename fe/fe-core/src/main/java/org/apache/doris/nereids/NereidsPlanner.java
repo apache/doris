@@ -746,6 +746,8 @@ public class NereidsPlanner extends Planner {
                         noLiteralStructInfo.get().getFingerprint());
             }
             node.setMutableState(MutableState.KEY_HBO_STRUCT, structInfo.get().getCanonicalString());
+            attachHboPinnedEntryType(node, structInfo.get().getFingerprint(),
+                    noLiteralStructInfo.map(GroupStructInfo::getFingerprint).orElse(null));
             // mark whether the node statistics actually came from hbo (learned or pinned): the
             // optimizer overwrites the row count with withRowCountAndHboFlag, which propagates
             // to the group statistics (and later to the node statistics shown as stats=(hbo))
@@ -764,6 +766,26 @@ public class NereidsPlanner extends Planner {
                     && nodeGroup.getStatistics().isFromHbo()) {
                 node.setMutableState(MutableState.KEY_HBO_USED, "true");
             }
+        }
+    }
+
+    /**
+     * Attach the type of the pinned entry that matched this node this query (exact / filter_small),
+     * so the explain output shows which kind of injected entry is in effect; for a FILTER_SMALL
+     * entry that was rejected by the extreme-small guard the skip reason is shown next to it.
+     */
+    private void attachHboPinnedEntryType(AbstractPlan node, String fingerprint, String noLiteralFingerprint) {
+        if (ConnectContext.get() == null) {
+            return;
+        }
+        HboPlanInfoProvider provider = Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider();
+        Map<String, String> entryTypes = provider.getPinnedEntryType(DebugUtil.printId(ConnectContext.get().queryId()));
+        String type = entryTypes.get(fingerprint);
+        if (type == null && noLiteralFingerprint != null) {
+            type = entryTypes.get(noLiteralFingerprint);
+        }
+        if (type != null) {
+            node.setMutableState(MutableState.KEY_HBO_TYPE, type);
         }
     }
 
@@ -1367,6 +1389,10 @@ public class NereidsPlanner extends Planner {
             Object struct = node.getMutableState(MutableState.KEY_HBO_STRUCT).orElse(null);
             if (struct != null) {
                 sb.append(" struct=").append(struct);
+            }
+            Object hboType = node.getMutableState(MutableState.KEY_HBO_TYPE).orElse(null);
+            if (hboType != null) {
+                sb.append(" type=").append(hboType);
             }
             Object condFingerprint = node.getMutableState(MutableState.KEY_HBO_COND_FP).orElse(null);
             if (condFingerprint != null) {

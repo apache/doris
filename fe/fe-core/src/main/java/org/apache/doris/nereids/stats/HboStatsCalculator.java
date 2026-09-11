@@ -232,6 +232,9 @@ public class HboStatsCalculator extends StatsCalculator {
                 continue;
             }
             HboPlanStatisticsManager.PinnedHboStatistics pinned = pinnedOpt.get();
+            // report which kind of injected entry matched (and, for FILTER_SMALL, why it was
+            // skipped) through the explain annotation
+            recordPinnedEntryType(fingerprint.get(), pinned.getType());
             if (pinned.getType() == HboPlanStatisticsManager.PinnedType.FILTER_SMALL
                     && guardInputStats != null
                     && !isExtremeSmallFilterEstimate(delegateStats.getRowCount(),
@@ -281,6 +284,15 @@ public class HboStatsCalculator extends StatsCalculator {
     }
 
     /** Record (per query) that a FILTER_SMALL entry was skipped, for the explain annotation. */
+    private void recordPinnedEntryType(String fingerprint, HboPlanStatisticsManager.PinnedType type) {
+        String queryId = currentQueryId();
+        if (queryId == null) {
+            return;
+        }
+        Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider()
+                .putPinnedEntryType(queryId, fingerprint, type.name().toLowerCase(Locale.ROOT));
+    }
+
     private void recordGuardSkip(String fingerprint, double estimatedRows, double inputRows) {
         if (cascadesContext == null || cascadesContext.getConnectContext() == null) {
             return;

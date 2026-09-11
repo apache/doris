@@ -58,6 +58,7 @@ public class HboPlanInfoProvider {
     private volatile Cache<String, Map<Integer, String>> nodeIdToFingerprintCache;
     private volatile Cache<String, Map<String, String>> pinnedGuardSkipCache;
     private volatile Cache<String, Map<String, String>> pinnedExpansionAppliedCache;
+    private volatile Cache<String, Map<String, String>> pinnedEntryTypeCache;
 
     /**
      * Hbo plan info provider.
@@ -84,6 +85,10 @@ public class HboPlanInfoProvider {
                 Config.expire_hbo_plan_info_cache_in_fe_second
         );
         pinnedExpansionAppliedCache = buildHboPinnedGuardSkipCache(
+                Config.hbo_plan_info_cache_num,
+                Config.expire_hbo_plan_info_cache_in_fe_second
+        );
+        pinnedEntryTypeCache = buildHboPinnedGuardSkipCache(
                 Config.hbo_plan_info_cache_num,
                 Config.expire_hbo_plan_info_cache_in_fe_second
         );
@@ -207,6 +212,26 @@ public class HboPlanInfoProvider {
     public Map<String, String> getPinnedGuardSkip(String queryId) {
         Map<String, String> skips = pinnedGuardSkipCache.getIfPresent(queryId);
         return skips == null ? Collections.emptyMap() : skips;
+    }
+
+    /**
+     * Record the type (EXACT / FILTER_SMALL) of the pinned entry that matched the given fingerprint
+     * for this query, so the explain annotation can report which kind of injected entry is in
+     * effect (and, for FILTER_SMALL, why it was skipped).
+     */
+    public void putPinnedEntryType(String queryId, String fingerprint, String type) {
+        Map<String, String> types = pinnedEntryTypeCache.getIfPresent(queryId);
+        if (types == null) {
+            types = new HashMap<>();
+            pinnedEntryTypeCache.put(queryId, types);
+        }
+        types.put(fingerprint, type);
+    }
+
+    /** Matched pinned entry types of a query, keyed by hbo fingerprint. */
+    public Map<String, String> getPinnedEntryType(String queryId) {
+        Map<String, String> types = pinnedEntryTypeCache.getIfPresent(queryId);
+        return types == null ? Collections.emptyMap() : types;
     }
 
     /** Record that a pinned join expansion entry was applied for the given query. */
