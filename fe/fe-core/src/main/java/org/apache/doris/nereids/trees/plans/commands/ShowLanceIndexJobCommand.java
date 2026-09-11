@@ -47,8 +47,10 @@ import java.util.List;
  *
  * <p>Non-disclosing job detail (v5.1 section 8): the record is loaded first and authorized
  * against its persisted target before any field is returned. Orphan and half-orphan targets
- * (catalog gone, or persisted db/table no longer resolvable) require global ADMIN; a
- * resolvable target requires table-level SHOW. A missing job and an unauthorized job share
+ * (catalog gone, persisted db/table no longer resolvable, the resolution failing outright
+ * because the provider is unreachable, or the table repointed at a different dataset
+ * locator) require global ADMIN; a resolvable, still-matching target requires table-level
+ * SHOW. A missing job and an unauthorized job share
  * the same fixed ERR_LANCE_INDEX_JOB_NOT_FOUND response that names only the job id, so the
  * existence and target of a job are never disclosed. The job locator, provider, normalized
  * names, propertiesJson and schema contract contents are never shown.
