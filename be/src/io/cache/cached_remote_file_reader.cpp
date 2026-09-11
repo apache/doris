@@ -169,7 +169,7 @@ bool CachedRemoteFileReader::_can_read_cache_file_directly() const {
 bool CachedRemoteFileReader::_should_read_from_peer(const IOContext* io_ctx) const {
     return doris::config::is_cloud_mode() && _is_doris_table && _tablet_id > 0 &&
            !io_ctx->is_warmup && !io_ctx->bypass_peer_read &&
-           doris::config::enable_cache_read_from_peer;
+           (doris::config::enable_cache_read_from_peer || !io_ctx->preferred_peer_host.empty());
 }
 
 void CachedRemoteFileReader::_insert_file_reader(FileBlockSPtr file_block) {
@@ -663,6 +663,19 @@ Status CachedRemoteFileReader::_execute_remote_read(const std::vector<FileBlockS
         return _execute_s3_fallback(empty_start, span_size, buffer, peer_result, stats, io_ctx);
     }
 
+    if (!io_ctx->preferred_peer_host.empty()) {
+        const auto st = execute_peer_read(empty_blocks, peer_result, path().native(), this->size(),
+                                          _is_doris_table, stats, io_ctx,
+                                          io_ctx->preferred_peer_host, io_ctx->preferred_peer_port);
+        if (st.ok()) {
+            if (io_ctx->file_cache_stats != nullptr) {
+                io_ctx->file_cache_stats->peer_hosts.insert(io_ctx->preferred_peer_host);
+            }
+            return st;
+        }
+        return _execute_s3_fallback(empty_start, span_size, buffer, peer_result, stats, io_ctx);
+    }
+
     // --- UT debug point: injected peer address ---
     DBUG_EXECUTE_IF("PeerFileCacheReader::_fetch_from_peer_cache_blocks", {
         std::string dp_host = dp->param<std::string>("host", "127.0.0.1");
@@ -887,10 +900,14 @@ Status CachedRemoteFileReader::_read_remote_blocks_into_cache(
         }
     }
 
+    const bool skip_cache_write = !io_ctx->preferred_peer_host.empty();
+    if (skip_cache_write) {
+        stats.skip_cache = true;
+    }
     SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().cached_remote_reader_write_back);
     for (size_t idx = 0; idx < empty_blocks.size(); ++idx) {
         auto& block = empty_blocks[idx];
-        if (block->state() == FileBlock::State::SKIP_CACHE) {
+        if (skip_cache_write || block->state() == FileBlock::State::SKIP_CACHE) {
             continue;
         }
 
@@ -1294,6 +1311,9 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
 }
 
 void CachedRemoteFileReader::prefetch_range(size_t offset, size_t size, const IOContext* io_ctx) {
+    if (io_ctx != nullptr && !io_ctx->preferred_peer_host.empty()) {
+        return;
+    }
     if (offset >= this->size() || size == 0) {
         return;
     }
@@ -1362,8 +1382,7 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
         if (source_read_breakdown.peer_bytes != 0 || read_stats.from_peer_cache) {
             // Count peer IO whenever peer was used, even if its fetched blocks were entirely
             // outside the copy range (e.g., backward-aligned prefetch block before
-            // offset+already_read).  In that case peer_bytes==0 but the peer RPC did happen
-            // and wrote data into the local file cache.
+            // offset+already_read). In that case peer_bytes==0 but the peer RPC did happen.
             statis->num_peer_io_total++;
             statis->bytes_read_from_peer += source_read_breakdown.peer_bytes;
             statis->peer_io_timer += read_stats.peer_read_timer;
