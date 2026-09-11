@@ -97,15 +97,11 @@ suite("test_ivm_drop_referenced_column_baseline_rebuild") {
         return taskResult[0]
     }
 
-    def mvRows = {
-        return sql("""SELECT grp, cnt, total FROM ${mvName} ORDER BY grp""")
-    }
-
     // ---------------------------------------------------------------- 1. baseline
     sql """REFRESH MATERIALIZED VIEW ${mvName} COMPLETE"""
     def task = waitTerminalTask(mvName)
     assertEquals("SUCCESS", task.Status.toString(), "baseline COMPLETE refresh: " + task.ErrorMsg)
-    assertEquals("[[10, 2, 300], [20, 1, 300]]", mvRows().toString())
+    order_qt_mv_rows_baseline "SELECT grp, cnt, total FROM ${mvName}"
 
     // ------------------------------------- 2. unreferenced column: no baseline invalidation
     def before = ddlJobCount(tableName)
@@ -144,5 +140,5 @@ suite("test_ivm_drop_referenced_column_baseline_rebuild") {
     sql """REFRESH MATERIALIZED VIEW ${mvName} COMPLETE"""
     task = waitTerminalTask(mvName)
     assertEquals("SUCCESS", task.Status.toString(), "COMPLETE rebuild after ABA: " + task.ErrorMsg)
-    assertEquals("[[0, 3, 600]]", mvRows().toString())
+    order_qt_mv_rows_after_aba "SELECT grp, cnt, total FROM ${mvName}"
 }
