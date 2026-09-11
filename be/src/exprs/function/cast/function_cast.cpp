@@ -242,6 +242,12 @@ WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr&
 // NOLINTNEXTLINE(readability-function-size)
 WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_from_type,
                          const DataTypePtr& origin_to_type) {
+    // Check before lowering AggState to its serialized type, which can match ordinary input.
+    if (origin_to_type->get_primitive_type() == TYPE_AGG_STATE &&
+        origin_from_type->get_primitive_type() != TYPE_AGG_STATE) {
+        return CastWrapper::create_unsupport_wrapper(
+                "Cast to AggState only supports AggState input");
+    }
     auto to_type = get_serialized_type(origin_to_type);
     auto from_type = get_serialized_type(origin_from_type);
     if (from_type->equals(*to_type)) {
