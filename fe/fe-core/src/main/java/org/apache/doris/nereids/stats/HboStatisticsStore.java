@@ -27,6 +27,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -49,13 +53,41 @@ public class HboStatisticsStore {
             InternalCatalog.INTERNAL_CATALOG_NAME + "." + INTERNAL_DB + "." + TABLE;
     /** max length (bytes) of the struct_info varchar column */
     private static final int STRUCT_MAX_BYTES = 65533;
+    /** creation time of an entry, as a datetime(3) column like the other internal tables */
+    private static final String CREATE_TIME_COLUMN = "create_time";
+    // the schema is checked once per FE: it can only change by a FE upgrade, and the check costs a
+    // round trip to the internal table
+    private static volatile boolean schemaVerified = false;
 
     private HboStatisticsStore() {
     }
 
-    /** Create the table if it does not exist. */
+    /** Create the table if it does not exist, and check that its schema is the current one. */
     public static void ensureTable() throws Exception {
         StatisticsUtil.execUpdate(createDdl());
+        if (!schemaVerified) {
+            verifySchema();
+        }
+    }
+
+    /**
+     * Check that the table has the current column, by selecting it. A table created by an older FE
+     * version (e.g. with the {@code create_time_ms} column) cannot be written by this version, and
+     * because the table is created with {@code CREATE TABLE IF NOT EXISTS} it would stay broken, so
+     * a failing check logs the fix (the check is best effort: a not ready internal schema must not
+     * fail the statement either).
+     */
+    private static void verifySchema() throws Exception {
+        try {
+            StatisticsUtil.execStatisticQuery(
+                    "SELECT `" + CREATE_TIME_COLUMN + "` FROM " + FULL_QUALIFIED + " LIMIT 0");
+            schemaVerified = true;
+        } catch (Exception t) {
+            LOG.warn("cannot read the {} column of {}; when the table was created by an older FE"
+                    + " version it has to be dropped so that it is recreated: DROP TABLE {}",
+                    CREATE_TIME_COLUMN, FULL_QUALIFIED, FULL_QUALIFIED, t);
+            throw t;
+        }
     }
 
     /**
@@ -72,12 +104,13 @@ public class HboStatisticsStore {
             // value stays UNKNOWN (it is reported by HBO SHOW from the in-memory entry)
             String sql = "INSERT INTO " + FULL_QUALIFIED
                     + " (`fingerprint`, `row_count`, `stats_type`, `fingerprint_kind`, `struct_info`,"
-                    + " `create_time_ms`) VALUES ('"
+                    + " `" + CREATE_TIME_COLUMN + "`) VALUES ('"
                     + StatisticsUtil.escapeSQL(fingerprint) + "', " + rows + ", '"
                     + StatisticsUtil.escapeSQL(statsType.name().toLowerCase(java.util.Locale.ROOT)) + "', '"
                     + StatisticsUtil.escapeSQL(
                             HboPlanStatisticsManager.FingerprintKind.UNKNOWN.name().toLowerCase(java.util.Locale.ROOT))
-                    + "', '" + StatisticsUtil.escapeSQL(struct) + "', " + createTimeMs + ")";
+                    + "', '" + StatisticsUtil.escapeSQL(struct) + "', '"
+                    + createTimeLiteral(createTimeMs) + "')";
             StatisticsUtil.execUpdate(sql);
         } catch (Exception t) {
             LOG.warn("failed to persist hbo pinned statistics for fingerprint {}", fingerprint, t);
@@ -114,8 +147,8 @@ public class HboStatisticsStore {
         try {
             ensureTable();
             List<ResultRow> rows = StatisticsUtil.execStatisticQuery(
-                    "SELECT `fingerprint`, `row_count`, `stats_type`, `struct_info`, `create_time_ms` FROM "
-                            + FULL_QUALIFIED);
+                    "SELECT `fingerprint`, `row_count`, `stats_type`, `struct_info`, `" + CREATE_TIME_COLUMN
+                            + "` FROM " + FULL_QUALIFIED);
             for (ResultRow row : rows) {
                 try {
                     HboPlanStatisticsManager.PinnedType type =
@@ -125,8 +158,8 @@ public class HboStatisticsStore {
                             Long.parseLong(row.get(1)),
                             type == null ? HboPlanStatisticsManager.PinnedType.EXACT : type,
                             row.get(3) == null ? "" : row.get(3),
-                            Long.parseLong(row.get(4))));
-                } catch (NumberFormatException e) {
+                            parseCreateTime(row.get(4))));
+                } catch (RuntimeException e) {
                     LOG.warn("skip malformed hbo pinned statistics row {}", row, e);
                 }
             }
@@ -148,13 +181,29 @@ public class HboStatisticsStore {
                 + "  `stats_type` varchar(32) NOT NULL COMMENT \"\",\n"
                 + "  `fingerprint_kind` varchar(16) NOT NULL COMMENT \"\",\n"
                 + "  `struct_info` varchar(" + STRUCT_MAX_BYTES + ") NULL COMMENT \"\",\n"
-                + "  `create_time_ms` bigint NOT NULL COMMENT \"\"\n"
+                + "  `create_time` datetime(3) NOT NULL COMMENT \"\"\n"
                 + ") ENGINE = olap\n"
                 + "UNIQUE KEY(`fingerprint`)\n"
                 + "COMMENT \"Doris internal hbo pinned statistics table, DO NOT MODIFY IT\"\n"
                 + "DISTRIBUTED BY HASH(`fingerprint`)\n"
                 + "BUCKETS 1\n"
                 + "PROPERTIES (\"replication_num\" = \"" + replication + "\")";
+    }
+
+    /** Render a creation time as the datetime literal the internal table stores. */
+    private static String createTimeLiteral(long createTimeMs) {
+        return DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS").format(
+                LocalDateTime.ofInstant(Instant.ofEpochMilli(createTimeMs), ZoneId.systemDefault()));
+    }
+
+    /**
+     * Parse the creation time column back into epoch milliseconds. Doris drops trailing zeros of the
+     * fractional part, so the value is parsed as ISO date time (which accepts 1 to 9 fraction
+     * digits) instead of with the fixed pattern used for writing.
+     */
+    private static long parseCreateTime(String value) {
+        return LocalDateTime.parse(value.trim().replace(' ', 'T'))
+                .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
     }
 
     /**

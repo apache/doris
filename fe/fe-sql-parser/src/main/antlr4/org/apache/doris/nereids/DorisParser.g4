@@ -144,6 +144,8 @@ hboStatement
     : hbo=identifier SET scope=identifier? statistics=identifier key=STRING_LITERAL EQ rows=INTEGER_VALUE
           (typeWord=TYPE typeName=identifier)?
           (structWord=identifier structCanonical=STRING_LITERAL)?      #hboSetStatistics
+    | hbo=identifier DELETE staleWord=identifier statistics=identifier
+          (olderWord=identifier olderThan=INTEGER_VALUE)?               #hboDeleteStaleStatistics
     | hbo=identifier DELETE scope=identifier? statistics=identifier key=STRING_LITERAL
                                                                        #hboDeleteStatistics
     | hbo=identifier SHOW scope=identifier? statistics=identifier (FULL)?

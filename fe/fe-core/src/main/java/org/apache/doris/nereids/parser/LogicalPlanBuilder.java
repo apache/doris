@@ -773,6 +773,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantResourcePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.HboDeleteStaleStatisticsCommand;
 import org.apache.doris.nereids.trees.plans.commands.HboStatisticsCommand;
 import org.apache.doris.nereids.trees.plans.commands.HboExpansionCommand;
 import org.apache.doris.nereids.trees.plans.commands.HboShowExpansionCommand;
@@ -7213,6 +7214,27 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String scopeName = ctx.scope == null ? null : ctx.scope.getText();
         return new HboStatisticsCommand(HboStatisticsCommand.Op.SET, scopeName, fingerprint, rows,
                 typeName, structCanonical);
+    }
+
+    @Override
+    public LogicalPlan visitHboDeleteStaleStatistics(DorisParser.HboDeleteStaleStatisticsContext ctx) {
+        checkHboStatementWords(ctx.hbo, ctx.statistics);
+        if (!"stale".equalsIgnoreCase(ctx.staleWord.getText())) {
+            throw new ParseException("expect 'STALE' keyword in hbo delete stale statistics statement");
+        }
+        Long olderThanSeconds = null;
+        if (ctx.olderWord != null && ctx.olderThan != null) {
+            if (!"older_than".equalsIgnoreCase(ctx.olderWord.getText())) {
+                throw new ParseException("expect 'OLDER_THAN' keyword in hbo delete stale statistics statement");
+            }
+            try {
+                olderThanSeconds = Long.parseLong(ctx.olderThan.getText());
+            } catch (NumberFormatException e) {
+                throw new ParseException(
+                        "hbo delete stale statistics OLDER_THAN out of range: " + ctx.olderThan.getText());
+            }
+        }
+        return new HboDeleteStaleStatisticsCommand(olderThanSeconds);
     }
 
     @Override

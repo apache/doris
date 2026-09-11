@@ -274,6 +274,33 @@ public class HboPlanStatisticsManager {
         learnedStructCanonical.invalidate(fingerprint);
     }
 
+    /**
+     * Remove every pinned entry which can never be applied again: the fingerprint of an entry
+     * contains the visible version of the tables it was collected from, so once a table version
+     * moved on (or the table was dropped) the entry stops matching and only keeps a cache slot.
+     *
+     * @param olderThanMillis when non negative, entries whose state cannot be determined (their
+     *                        struct info does not resolve to existing tables) are removed as well,
+     *                        but only when they are older than this many milliseconds; a negative
+     *                        value keeps them
+     * @return the number of removed entries
+     */
+    public int deleteStalePinnedPlanStatistics(long olderThanMillis) {
+        long now = System.currentTimeMillis();
+        int removed = 0;
+        for (PinnedHboStatistics pinned : getAllPinnedPlanStatistics().values()) {
+            HboStructFreshness freshness = HboStructFreshness.of(pinned.getStructCanonical());
+            boolean obsolete = freshness.isStale()
+                    || (olderThanMillis >= 0 && freshness.isUnknown()
+                            && now - pinned.getCreateTime() > olderThanMillis);
+            if (obsolete) {
+                removePinnedPlanStatistics(pinned.getFingerprint());
+                removed++;
+            }
+        }
+        return removed;
+    }
+
     public Map<String, PinnedHboStatistics> getAllPinnedPlanStatistics() {
         ensurePinnedLoaded();
         return Collections.unmodifiableMap(pinnedPlanStatistics.asMap());

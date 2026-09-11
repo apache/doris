@@ -69,6 +69,10 @@ public class HboStructFreshness {
         return STATE_STALE.equals(state);
     }
 
+    public boolean isUnknown() {
+        return STATE_UNKNOWN.equals(state);
+    }
+
     /** The tables and versions the entry was collected from, e.g. {@code hbo_test.t1:v2;hbo_test.t2:v3}. */
     public String getRecordedTables() {
         return recordedTables;
