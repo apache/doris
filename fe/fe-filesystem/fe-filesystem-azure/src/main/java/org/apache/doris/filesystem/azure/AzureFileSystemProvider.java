@@ -93,8 +93,11 @@ public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSyst
     public Optional<AzureFileSystemProperties> bindVended(
             Map<String, String> credentials, Map<String, String> catalogProperties) {
         Optional<AzureVendedSas> sas = AzureVendedSas.parse(credentials);
-        Map<String, String> connectionDefaults = supportsExplicit(catalogProperties) || supportsGuess(catalogProperties)
-                ? catalogProperties : Map.of();
+        // A vended credential may be bound after the catalog has already selected this provider.
+        // Also retain catalog defaults recognized only by the raw compatibility hook, such as a
+        // historical AZURE_ENDPOINT standard host, without widening the routing guess contract.
+        Map<String, String> connectionDefaults = supportsExplicit(catalogProperties)
+                || supportsGuess(catalogProperties) || supports(catalogProperties) ? catalogProperties : Map.of();
         if (sas.isPresent()) {
             return Optional.of(AzureFileSystemProperties.withVendedSas(sas.get(), credentials, connectionDefaults));
         }

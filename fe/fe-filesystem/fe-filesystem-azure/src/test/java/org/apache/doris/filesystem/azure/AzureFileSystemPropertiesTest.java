@@ -417,6 +417,27 @@ class AzureFileSystemPropertiesTest {
         Assertions.assertEquals("https://legacy-account.blob.core.windows.net", properties.getEndpoint());
     }
 
+    @Test
+    void bind_preservesHistoricalUppercaseAzureEndpointAlias() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "AZURE_ENDPOINT", "https://proxy.example.test:8443",
+                "AZURE_ACCOUNT_NAME", "account",
+                "AZURE_ACCOUNT_KEY", "key"));
+
+        Assertions.assertEquals("https://proxy.example.test:8443", properties.getEndpoint());
+        Assertions.assertEquals("https://proxy.example.test:8443",
+                properties.toMap().get("AZURE_ENDPOINT"));
+    }
+
+    @Test
+    void bind_preservesLegacyAccountAliasFallbackWithoutProviderMarker() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "AZURE_ACCOUNT_NAME", "account", "s3.secret_key", "legacy-key"));
+
+        Assertions.assertEquals("account", properties.getAccountName());
+        Assertions.assertEquals("legacy-key", properties.getAccountKey());
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"SharedKey", "sharedkey", "SHARED_KEY", "shared_key", " SHARED_KEY "})
     void bind_normalizesSharedKeyAuthType(String authType) {

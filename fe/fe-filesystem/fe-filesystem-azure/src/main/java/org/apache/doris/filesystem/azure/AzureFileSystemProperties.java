@@ -97,6 +97,10 @@ public final class AzureFileSystemProperties
             "blob.core.cloudapi.de"
     };
 
+    private static final Set<String> PROVIDER_ENDPOINT_ALIASES = Set.of(ENDPOINT, "AZURE_ENDPOINT");
+    private static final Set<String> LEGACY_ENDPOINT_ALIASES = Set.of(
+            "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "AZURE_ENDPOINT");
+
     // In each @ConnectorProperty below, the first name is the canonical key, kept as a
     // constant because other code references it. The remaining literal names are input aliases
     // kept for compatibility, not new backend-protocol fields; they are not promoted to constants.
@@ -198,7 +202,7 @@ public final class AzureFileSystemProperties
         // supplied the provider-owned azure.endpoint; otherwise a sibling S3 provider can silently
         // redirect Azure requests to its endpoint.
         if ((authType != AzureAuthType.SHARED_KEY || hasModernAzureCredentialField(matched))
-                && StringUtils.isBlank(rawProperties.get(ENDPOINT))) {
+                && !hasMatchedProperty(matched, PROVIDER_ENDPOINT_ALIASES)) {
             endpoint = "";
         }
         this.explicitEndpoint = StringUtils.isNotBlank(endpoint);
@@ -347,7 +351,7 @@ public final class AzureFileSystemProperties
         }
         if (!includeLegacyEndpointAliases && StringUtils.isBlank(properties.get(ENDPOINT))) {
             result.keySet().removeIf(key -> Set.of("s3.endpoint", "AWS_ENDPOINT", "endpoint",
-                    "ENDPOINT", "AZURE_ENDPOINT").contains(key));
+                    "ENDPOINT").contains(key));
         }
         return result;
     }
@@ -430,14 +434,28 @@ public final class AzureFileSystemProperties
                     "s3.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key");
         }
         if (StringUtils.isBlank(accountKey)) {
-            accountKey = legacyValue(properties, matched,
-                    "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY");
+            if (matched.containsKey("AZURE_ACCOUNT_NAME") && !matched.containsKey(ACCOUNT_NAME)) {
+                // AZURE_ACCOUNT_NAME is a historical input alias. Preserve its old pairing with
+                // the provider-qualified s3.secret_key, but do not absorb an AWS wire secret
+                // merely because an Azure account alias is present.
+                accountKey = legacyValue(properties, matched, "s3.secret_key");
+            } else {
+                accountKey = legacyValue(properties, matched,
+                        "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY");
+            }
         }
     }
 
     private static boolean hasModernAzureCredentialField(Map<String, String> matched) {
-        return Set.of(ENDPOINT, ACCOUNT_NAME, "azure.access_key", "AZURE_ACCOUNT_NAME", ACCOUNT_KEY,
-                "azure.secret_key", "AZURE_ACCOUNT_KEY").stream().anyMatch(matched::containsKey);
+        // Only canonical azure.* fields are modern bindings. Uppercase AZURE_* names are
+        // historical aliases and must continue to participate in the legacy SharedKey fallback
+        // when paired with an old s3.secret_key.
+        return Set.of(ENDPOINT, ACCOUNT_NAME, ACCOUNT_KEY, AUTH_TYPE).stream()
+                .anyMatch(matched::containsKey);
+    }
+
+    private static boolean hasMatchedProperty(Map<String, String> properties, Set<String> names) {
+        return names.stream().anyMatch(properties::containsKey);
     }
 
     private static void validateVendedAccountAgainstLegacyAliases(Map<String, String> properties,
@@ -448,7 +466,7 @@ public final class AzureFileSystemProperties
                 || StringUtils.isNotBlank(properties.get(ENDPOINT))
                 || StringUtils.isNotBlank(properties.get(ACCOUNT_NAME))
                 || StringUtils.isNotBlank(properties.get("azure.access_key"))
-                || Set.of("s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT")
+                || LEGACY_ENDPOINT_ALIASES
                         .stream().map(properties::get).filter(StringUtils::isNotBlank)
                         .anyMatch(value -> AzureBlobEndpointSignals.isAzureBlobEndpoint(value, properties));
         if (!azureBinding) {
@@ -460,6 +478,18 @@ public final class AzureFileSystemProperties
                     && !legacyAccount.trim().equalsIgnoreCase(vendedAccount)) {
                 throw new StoragePropertiesException(
                         "Azure vended credential account does not match the legacy account");
+            }
+        }
+        for (String key : LEGACY_ENDPOINT_ALIASES) {
+            String legacyEndpoint = properties.get(key);
+            if (StringUtils.isBlank(legacyEndpoint)
+                    || !AzureBlobEndpointSignals.isAzureBlobEndpoint(legacyEndpoint, properties)) {
+                continue;
+            }
+            AzureAccountHost legacyHost = AzureAccountHost.parse(legacyEndpoint);
+            if (!legacyHost.accountName().equalsIgnoreCase(vendedAccount)) {
+                throw new StoragePropertiesException(
+                        "Azure vended credential account does not match the legacy endpoint");
             }
         }
     }

@@ -316,6 +316,35 @@ class AzureVendedCredentialsTest {
     }
 
     @Test
+    void bindVended_rejectsLegacyEndpointAccountConflictWhenReplacingCredentials() {
+        StoragePropertiesException error = Assertions.assertThrows(StoragePropertiesException.class,
+                () -> provider.bindVended(Map.of(TOKEN_KEY, TOKEN), Map.of(
+                        "s3.endpoint", "https://old-account.blob.core.windows.net")));
+
+        Assertions.assertEquals("Azure vended credential account does not match the legacy endpoint",
+                error.getMessage());
+    }
+
+    @Test
+    void bindVended_rejectsUppercaseLegacyEndpointAccountConflictWhenReplacingCredentials() {
+        StoragePropertiesException error = Assertions.assertThrows(StoragePropertiesException.class,
+                () -> provider.bindVended(Map.of(TOKEN_KEY, TOKEN), Map.of(
+                        "AZURE_ENDPOINT", "https://old-account.blob.core.windows.net")));
+
+        Assertions.assertEquals("Azure vended credential account does not match the legacy endpoint",
+                error.getMessage());
+    }
+
+    @Test
+    void bindVended_inheritsHistoricalUppercaseAzureCustomEndpoint() {
+        AzureFileSystemProperties properties = provider.bindVended(Map.of(TOKEN_KEY, TOKEN), Map.of(
+                "provider", "azure", "AZURE_ENDPOINT", "http://localhost:10000/devstoreaccount1",
+                "container", "container")).orElseThrow();
+
+        Assertions.assertEquals("http://localhost:10000/devstoreaccount1", properties.getEndpoint());
+    }
+
+    @Test
     void bindVendedSharedKey_rejectsLegacyAccountConflictWhenReplacingCredentials() {
         StoragePropertiesException error = Assertions.assertThrows(StoragePropertiesException.class,
                 () -> provider.bindVended(Map.of(

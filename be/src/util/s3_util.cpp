@@ -259,7 +259,8 @@ std::string normalize_azure_endpoint(std::string endpoint) {
     if (endpoint.empty()) {
         return endpoint;
     }
-    if (endpoint.find("://") == std::string::npos) {
+    const bool has_scheme = endpoint.find("://") != std::string::npos;
+    if (!has_scheme) {
         endpoint = "https://" + endpoint;
     }
     const auto scheme_end = endpoint.find("://");
@@ -279,7 +280,7 @@ std::string normalize_azure_endpoint(std::string endpoint) {
     const auto dfs_pos = lower_authority.find(".dfs.");
     if (dfs_pos != std::string::npos) {
         endpoint.replace(authority_begin + dfs_pos, 5, ".blob.");
-    } else if (authority.find('.') == std::string::npos &&
+    } else if (!has_scheme && authority.find('.') == std::string::npos &&
                authority.find(':') == std::string::npos) {
         endpoint.insert(authority_begin + authority.size(), ".blob.core.windows.net");
     }
