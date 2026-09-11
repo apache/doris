@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -38,10 +39,10 @@ public class ShowCollationCommand extends ShowCommand {
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Collation", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Charset", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Id", ScalarType.createVarchar(10)))
+                    .addColumn(new Column("Id", ScalarType.createType(PrimitiveType.BIGINT)))
                     .addColumn(new Column("Default", ScalarType.createVarchar(10)))
                     .addColumn(new Column("Compiled", ScalarType.createVarchar(10)))
-                    .addColumn(new Column("Sortlen", ScalarType.createVarchar(10)))
+                    .addColumn(new Column("Sortlen", ScalarType.createType(PrimitiveType.BIGINT)))
                     .build();
 
     private final String wild;
