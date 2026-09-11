@@ -62,6 +62,7 @@ suite("test_doris_int96_round_trip", "p0,external") {
     // Doris normalizes INT96 using the export session timezone. Use a different read session
     // timezone to prove hive.parquet.time-zone, rather than the session, restores wall-clock time.
     sql """ set time_zone='America/Los_Angeles' """
+    sql """ set enable_file_scanner_v2=true """
     qt_session_timezone """ SELECT @@time_zone """
     qt_int96_round_trip """
         SELECT * FROM HDFS(
@@ -73,14 +74,4 @@ suite("test_doris_int96_round_trip", "p0,external") {
         ORDER BY id
     """
 
-    sql """ set enable_file_scanner_v2=false """
-    qt_int96_round_trip_forced_v2 """
-        SELECT * FROM HDFS(
-            "uri" = "${int96OutfileUrl}0.parquet",
-            "hadoop.username" = "doris",
-            "format" = "parquet",
-            "hive.parquet.time-zone" = "Asia/Shanghai"
-        )
-        ORDER BY id
-    """
 }
