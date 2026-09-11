@@ -525,8 +525,10 @@ private:
     int delete_delete_bitmap_kvs(int64_t tablet_id, const std::string& rowset_id);
 
     // return 0 for success otherwise error
-    int delete_rowset_data(const std::map<std::string, doris::RowsetMetaCloudPB>& rowsets,
-                           RowsetRecyclingState type, RecyclerMetricsContext& metrics_context);
+    int delete_rowset_data(
+            const std::map<std::string, doris::RowsetMetaCloudPB>& rowsets,
+            RowsetRecyclingState type, RecyclerMetricsContext& metrics_context,
+            std::vector<std::vector<std::string>>* delete_bitmap_key_groups = nullptr);
 
     // Decrement packed file ref counts for rowset segments.
     // Returns 0 for success, -1 for error.
@@ -542,9 +544,11 @@ private:
     // Process delete bitmap storage and decrement packed file ref count when needed.
     // Returns 0 for success, -1 for error.
     // out_storage_type: if not null, will be set to the delete bitmap storage type.
+    // keys: if not null, will collect all versioned delete bitmap keys for batch deletion.
     int decrement_delete_bitmap_packed_file_ref_counts(int64_t tablet_id,
                                                        const std::string& rowset_id,
-                                                       DeleteBitmapStorageType* out_storage_type);
+                                                       DeleteBitmapStorageType* out_storage_type,
+                                                       std::vector<std::string>* keys = nullptr);
 
     int delete_packed_file_and_kv(const std::string& packed_file_path,
                                   const std::string& packed_key,
