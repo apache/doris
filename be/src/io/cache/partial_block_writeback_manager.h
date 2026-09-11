@@ -18,6 +18,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -52,6 +53,8 @@ struct PartialBlockWritebackOptions {
     size_t worker_count {1};
     /// Maximum pool threads for multi-range blocks; single-range reads run on block workers.
     int remote_read_thread_count {1};
+    /// Minimum queued time for merging fragments, measured from first admission; zero disables it.
+    int32_t merge_delay_ms {10};
     /// BE-wide byte limit for queued and active full-block buffers.
     size_t max_pending_bytes {1};
     /// Limits used to combine uncovered intervals within one block into source reads.
@@ -118,6 +121,9 @@ public:
     Status resize_workers(size_t worker_count);
     /// Resize the shared remote-read pool. Running GETs finish before excess threads retire.
     Status resize_remote_read_threads(int remote_read_thread_count);
+    /// Apply a nonnegative delay to queued tasks and wake waiting workers. Active tasks continue
+    /// unchanged; merging another fragment preserves the task's original admission time.
+    void set_merge_delay_ms(int32_t merge_delay_ms);
     /// Return the configured worker target; a resize may still be converging to this value.
     size_t worker_count() const { return _configured_worker_count.load(std::memory_order_acquire); }
     /// Return block worker loops currently alive.
@@ -180,12 +186,13 @@ private:
     /// Atomically install `candidate`, replace a stale queued task, or return a current same-key
     /// task. Destruction of a displaced task occurs after the manager lock is released.
     EnqueueResult _enqueue_or_get_existing(const TaskPtr& candidate, TaskPtr* existing);
-    /// Wait for a runnable queued task. When cache-writer capacity is exhausted, the worker leaves
-    /// tasks in the queue and waits briefly before rescanning rather than occupying an active slot.
+    /// Keep tasks queued and mergeable until their delay expires and their writer has capacity.
+    /// Wait until the earliest pending deadline or the next cache-writer capacity retry.
     TaskPtr _take_task(const Worker& worker);
-    /// Under `_mutex`, discard stale/deduplicated entries and activate one task whose target cache
-    /// writer has point-in-time spare capacity.
-    TaskPtr _take_runnable_task_locked(Queue* discarded_tasks);
+    /// Under `_mutex`, discard stale/deduplicated entries and activate one eligible task. If none
+    /// is runnable, return the next deadline or capacity retry time in `next_wakeup`.
+    TaskPtr _take_runnable_task_locked(Queue* discarded_tasks,
+                                       std::chrono::steady_clock::time_point* next_wakeup);
     /// Remove one queued task under `_mutex` and defer its destruction to `discarded_tasks`.
     void _discard_queued_task_locked(Queue::iterator iterator, Queue* discarded_tasks);
     /// Plan holes, wait for parallel source reads, and hand the completed buffer to the cache
@@ -209,6 +216,8 @@ private:
     // not reserve capacity inside AsyncCacheWriteManager.
     std::unordered_map<AsyncCacheWriteManager*, size_t> _active_hole_fill_slots_by_writer;
     bool _accepting {false};
+    // Protected by `_mutex`, including runtime updates.
+    std::chrono::milliseconds _merge_delay;
     // Lock order is `_lifecycle_mutex` then `_mutex`; the reverse order is never used. Cache writer
     // and inflight-index calls made under `_mutex` do not call back into this manager. A Task
     // fragment mutex is always acquired alone, and removed tasks are destroyed after `_mutex` is
