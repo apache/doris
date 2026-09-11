@@ -96,4 +96,46 @@ TEST_F(HiveTextFieldSplitterTest, RealWorldScenarios) {
     verify_field_split("a|+||+|c", "|+|", {"a", "", "c"});
 }
 
+class SplitLimitHelper {
+public:
+    static std::vector<std::string> split(const std::string& input, char sep, size_t limit,
+                                          char escape_char = 0) {
+        HiveTextFieldSplitter splitter(false, false, std::string(1, sep), 1, 0, escape_char);
+        splitter.set_split_limit(limit);
+        Slice line(input.data(), input.size());
+        std::vector<Slice> out;
+        splitter.do_split(line, &out);
+        std::vector<std::string> res;
+        for (const auto& s : out) {
+            res.emplace_back(s.data, s.size);
+        }
+        return res;
+    }
+};
+
+TEST_F(HiveTextFieldSplitterTest, SplitLimitStopsEarly) {
+    EXPECT_EQ((std::vector<std::string> {"a", "b"}), SplitLimitHelper::split("a,b,c,d,e", ',', 2));
+    EXPECT_EQ((std::vector<std::string> {"a", "b", "c"}),
+              SplitLimitHelper::split("a,b,c,d,e", ',', 3));
+    EXPECT_EQ((std::vector<std::string> {"a"}), SplitLimitHelper::split("a,b,c", ',', 1));
+}
+
+TEST_F(HiveTextFieldSplitterTest, SplitLimitAtOrAboveFieldCount) {
+    EXPECT_EQ((std::vector<std::string> {"a", "b", "c"}), SplitLimitHelper::split("a,b,c", ',', 3));
+    EXPECT_EQ((std::vector<std::string> {"a", "b", "c"}),
+              SplitLimitHelper::split("a,b,c", ',', 10));
+    EXPECT_EQ((std::vector<std::string> {"a", "b", "c"}), SplitLimitHelper::split("a,b,c", ',', 0));
+}
+
+TEST_F(HiveTextFieldSplitterTest, SplitLimitEdgeCases) {
+    EXPECT_EQ((std::vector<std::string> {""}), SplitLimitHelper::split("", ',', 3));
+    EXPECT_EQ((std::vector<std::string> {"a", ""}), SplitLimitHelper::split("a,,,b", ',', 2));
+    EXPECT_EQ((std::vector<std::string> {"x", "y"}), SplitLimitHelper::split("x,y,", ',', 2));
+}
+
+TEST_F(HiveTextFieldSplitterTest, SplitLimitIgnoredWhenEscapeConfigured) {
+    EXPECT_EQ((std::vector<std::string> {"a\\,b", "c", "d"}),
+              SplitLimitHelper::split("a\\,b,c,d", ',', 2, '\\'));
+}
+
 } // namespace doris
