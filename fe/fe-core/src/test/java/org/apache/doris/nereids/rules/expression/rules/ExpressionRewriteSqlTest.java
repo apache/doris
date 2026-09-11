@@ -31,7 +31,7 @@ class ExpressionRewriteSqlTest extends SqlTestBase {
                 .rewrite()
                 .matches(
                         logicalFilter().when(f -> f.getPredicate().toSql().equals(
-                                "OR[(id = score),(id = (score + 100))]"
+                                "((id = score) OR (id = (score + 100)))"
                         )));
 
         sql = "select * from T1 where id in (score,  score + 10, score + score, score, 10, 20, 30, 100 + 200)";
@@ -40,7 +40,7 @@ class ExpressionRewriteSqlTest extends SqlTestBase {
                 .rewrite()
                 .matches(
                         logicalFilter().when(f -> f.getPredicate().toSql().equals(
-                                "OR[id IN (10, 20, 30, 300),(id = score),(id = (score + 10)),(id = (score + score))]"
+                                "(id IN (10, 20, 30, 300) OR (id = score) OR (id = (score + 10)) OR (id = (score + score)))"
                 )));
 
         // if IN predicate compareExpr contains unique function, don't extract it.
@@ -62,7 +62,7 @@ class ExpressionRewriteSqlTest extends SqlTestBase {
                 .rewrite()
                 .matches(
                         logicalFilter().when(f -> f.getPredicate().toSql().equals(
-                                "AND[(id > 1),(score > 1)]"
+                                "((id > 1) AND (score > 1))"
                         )));
 
         sql = "select * from T1 where id > 1 and score > 1 or id > 1 and id < 0";
@@ -71,7 +71,7 @@ class ExpressionRewriteSqlTest extends SqlTestBase {
                 .rewrite()
                 .matches(
                         logicalFilter().when(f -> f.getPredicate().toSql().equals(
-                                "AND[(id > 1),(score > 1)]"
+                                "((id > 1) AND (score > 1))"
                         )));
 
         sql = "select * from T1 where id > 1 and id < 0 or score > 1 and score < 0";
@@ -91,6 +91,6 @@ class ExpressionRewriteSqlTest extends SqlTestBase {
                 .analyze(sql)
                 .rewrite()
                 .matches(logicalFilter().when(
-                        f -> f.getPredicate().toSql().equals("AND[( not id IS NULL),( not score IS NULL)]")));
+                        f -> f.getPredicate().toSql().equals("(( not id IS NULL) AND ( not score IS NULL))")));
     }
 }

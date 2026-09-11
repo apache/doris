@@ -182,7 +182,7 @@ public class PredicatesTest extends SqlTestBase {
         assertResidualCompensationSucceeds(
                 "id = 5 or id > 10",
                 "id > 10 or (score = 1 and id = 5)",
-                "OR[(id > 10),AND[(score = 1),(id = 5)]]");
+                "((id > 10) OR ((score = 1) AND (id = 5)))");
     }
 
     @Test
@@ -190,7 +190,7 @@ public class PredicatesTest extends SqlTestBase {
         assertResidualCompensationSucceeds(
                 "id > 10 or (score = 1 and id = 5)",
                 "id > 15 or (score = 1 and id = 5)",
-                "OR[(id > 15),AND[(score = 1),(id = 5)]]");
+                "((id > 15) OR ((score = 1) AND (id = 5)))");
     }
 
     @Test
@@ -336,7 +336,7 @@ public class PredicatesTest extends SqlTestBase {
         Assertions.assertNotNull(compensationCandidates);
         Assertions.assertEquals(1, compensationCandidates.getResiduals().size());
         assertPredicateSqlEquals(compensationCandidates.getResiduals(),
-                "OR[(id = 5),(id > 10)]");
+                "((id = 5) OR (id > 10))");
 
         PredicateCompensation finalPredicateCompensation = compensatePredicates(rewriteContext);
         Assertions.assertNotNull(finalPredicateCompensation);
@@ -400,17 +400,17 @@ public class PredicatesTest extends SqlTestBase {
         Assertions.assertNotNull(compensationCandidates);
         Assertions.assertEquals(11, compensationCandidates.getResiduals().size());
         assertPredicateSqlEquals(compensationCandidates.getResiduals(),
-                "OR[(id = 1),(score = 101)]",
-                "OR[(id = 2),(score = 102)]",
-                "OR[(id = 3),(score = 103)]",
-                "OR[(id = 4),(score = 104)]",
-                "OR[(id = 5),(score = 105)]",
-                "OR[(id = 6),(score = 106)]",
-                "OR[(id = 7),(score = 107)]",
-                "OR[(id = 8),(score = 108)]",
-                "OR[(id = 9),(score = 109)]",
-                "OR[(id = 10),(score = 110)]",
-                "OR[(id = 11),(score = 111)]");
+                "((id = 1) OR (score = 101))",
+                "((id = 2) OR (score = 102))",
+                "((id = 3) OR (score = 103))",
+                "((id = 4) OR (score = 104))",
+                "((id = 5) OR (score = 105))",
+                "((id = 6) OR (score = 106))",
+                "((id = 7) OR (score = 107))",
+                "((id = 8) OR (score = 108))",
+                "((id = 9) OR (score = 109))",
+                "((id = 10) OR (score = 110))",
+                "((id = 11) OR (score = 111))");
 
         PredicateCompensation finalPredicateCompensation = compensatePredicates(rewriteContext);
         Assertions.assertNotNull(finalPredicateCompensation);

@@ -52,8 +52,8 @@ PhysicalResultSink
 -- !sort_2_shape --
 PhysicalResultSink
 --PhysicalProject[t1.a, t1.b, t1.c]
-----PhysicalQuickSort[MERGE_SORT, orderKeys=((cast(b as BIGINT) + cast(c as BIGINT)) asc null first)]
-------PhysicalQuickSort[LOCAL_SORT, orderKeys=((cast(b as BIGINT) + cast(c as BIGINT)) asc null first)]
+----PhysicalQuickSort[MERGE_SORT, orderKeys=((cast(b as BIGINT) + cast(c as BIGINT)) ASC NULLS FIRST)]
+------PhysicalQuickSort[LOCAL_SORT, orderKeys=((cast(b as BIGINT) + cast(c as BIGINT)) ASC NULLS FIRST)]
 --------PhysicalProject[(cast(t1.c as BIGINT) + 2) AS `(cast(b as BIGINT) + cast(c as BIGINT))`, t1.a, t1.b, t1.c]
 ----------filter((t1.a = 1) and (t1.b = 2))
 ------------PhysicalOlapScan[t1]
@@ -64,8 +64,8 @@ PhysicalResultSink
 -- !sort_3_shape --
 PhysicalResultSink
 --PhysicalProject[t1.a, t1.b, t1.c]
-----PhysicalQuickSort[MERGE_SORT, orderKeys=((cast(a as BIGINT) + cast(b as BIGINT)) asc null first)]
-------PhysicalQuickSort[LOCAL_SORT, orderKeys=((cast(a as BIGINT) + cast(b as BIGINT)) asc null first)]
+----PhysicalQuickSort[MERGE_SORT, orderKeys=((cast(a as BIGINT) + cast(b as BIGINT)) ASC NULLS FIRST)]
+------PhysicalQuickSort[LOCAL_SORT, orderKeys=((cast(a as BIGINT) + cast(b as BIGINT)) ASC NULLS FIRST)]
 --------PhysicalProject[(cast(t1.a as BIGINT) + 2) AS `(cast(a as BIGINT) + cast(b as BIGINT))`, t1.a, t1.b, t1.c]
 ----------filter((t1.b = 2) and (t1.c = 3))
 ------------PhysicalOlapScan[t1]
@@ -403,8 +403,8 @@ PhysicalResultSink
 
 -- !subquery_8_shape --
 PhysicalResultSink
---PhysicalQuickSort[MERGE_SORT, orderKeys=(k asc null first, b asc null first)]
-----PhysicalQuickSort[LOCAL_SORT, orderKeys=(k asc null first, b asc null first)]
+--PhysicalQuickSort[MERGE_SORT, orderKeys=(k ASC NULLS FIRST, b ASC NULLS FIRST)]
+----PhysicalQuickSort[LOCAL_SORT, orderKeys=(k ASC NULLS FIRST, b ASC NULLS FIRST)]
 ------NestedLoopJoin[CROSS_JOIN]
 --------PhysicalUnion
 ----------PhysicalProject[(cast(a as BIGINT) * 10) AS `k`, t1.b]

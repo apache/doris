@@ -561,11 +561,11 @@ public class SimplifyRangeTest extends ExpressionRewrite {
 
         // random is non-foldable, so the two random(1, 10) are distinct, cann't merge range for them.
         Expression expr = rewriteExpression("X + random(1, 10) > 10 AND  X + random(1, 10) < 1", true);
-        Assertions.assertEquals("AND[((X + random(1, 10)) > 10),((X + random(1, 10)) < 1)]", expr.toSql());
+        Assertions.assertEquals("(((X + random(1, 10)) > 10) AND ((X + random(1, 10)) < 1))", expr.toSql());
         expr = rewrite("TA + random(1, 10) between 10 and 20", Maps.newHashMap());
-        Assertions.assertEquals("AND[((cast(TA as BIGINT) + random(1, 10)) >= 10),((cast(TA as BIGINT) + random(1, 10)) <= 20)]", expr.toSql());
+        Assertions.assertEquals("(((cast(TA as BIGINT) + random(1, 10)) >= 10) AND ((cast(TA as BIGINT) + random(1, 10)) <= 20))", expr.toSql());
         expr = rewrite("TA + random(1, 10) between 20 and 10", Maps.newHashMap());
-        Assertions.assertEquals("AND[(cast(TA as BIGINT) + random(1, 10)) IS NULL,NULL]", expr.toSql());
+        Assertions.assertEquals("((cast(TA as BIGINT) + random(1, 10)) IS NULL AND NULL)", expr.toSql());
     }
 
     @Test

@@ -126,7 +126,7 @@ suite("non_standard_aggregate") {
     // having to filter window
     test {
         sql """SELECT c1 + 1, LAG(c2, 0, NULL) OVER(PARTITION BY c1 ORDER BY c3) AS c3 FROM non_standard_aggregate GROUP BY c1 + 1 HAVING c3 < 10"""
-        exception "HAVING expression 'c3' must not contain window functions: lag(c2, 0, NULL) OVER(PARTITION BY c1 ORDER BY c3 asc null first)"
+        exception "HAVING expression 'c3' must not contain window functions: lag(c2, 0, NULL) OVER(PARTITION BY c1 ORDER BY c3 ASC NULLS FIRST)"
     }
 
     // order by with group by key
