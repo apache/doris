@@ -80,6 +80,7 @@ import org.apache.doris.nereids.types.VariantField;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
@@ -1140,24 +1141,27 @@ public class CreateTableInfo {
             if (!info.isPresent()) {
                 continue;
             }
-            Expression parsedExpression = info.get().getExpression();
-            checkParsedExpressionInGeneratedColumn(parsedExpression);
-            Expression boundSlotExpression = SlotReplacer.INSTANCE.replace(parsedExpression, columnToSlotReference);
-            Scope scope = new Scope(slots);
-            ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, scope, cascadesContext, false, false);
-            Expression expr;
-            try {
-                expr = analyzer.analyze(boundSlotExpression, new ExpressionRewriteContext(cascadesContext));
-            } catch (AnalysisException e) {
-                throw new AnalysisException("In generated column '" + column.getName() + "', "
-                        + Utils.convertFirstChar(e.getMessage()));
+            try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ctx,
+                    info.get().getSessionVariables().orElse(null))) {
+                Expression parsedExpression = info.get().getExpression();
+                checkParsedExpressionInGeneratedColumn(parsedExpression);
+                Expression boundSlotExpression = SlotReplacer.INSTANCE.replace(parsedExpression, columnToSlotReference);
+                Scope scope = new Scope(slots);
+                ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, scope, cascadesContext, false, false);
+                Expression expr;
+                try {
+                    expr = analyzer.analyze(boundSlotExpression, new ExpressionRewriteContext(cascadesContext));
+                } catch (AnalysisException e) {
+                    throw new AnalysisException("In generated column '" + column.getName() + "', "
+                            + Utils.convertFirstChar(e.getMessage()));
+                }
+                checkExpressionInGeneratedColumn(expr, column, nameToColumnDefinition);
+                TypeCoercionUtils.checkCanCastTo(expr.getDataType(), column.getType());
+                ExpressionToExpr translator = new ExpressionToExpr(i, translateMap);
+                Expr e = expr.accept(translator, planTranslatorContext);
+                info.get().setExpr(e);
+                exprAndNames.add(new ExprAndName(e.clone(), column.getName()));
             }
-            checkExpressionInGeneratedColumn(expr, column, nameToColumnDefinition);
-            TypeCoercionUtils.checkCanCastTo(expr.getDataType(), column.getType());
-            ExpressionToExpr translator = new ExpressionToExpr(i, translateMap);
-            Expr e = expr.accept(translator, planTranslatorContext);
-            info.get().setExpr(e);
-            exprAndNames.add(new ExprAndName(e.clone(), column.getName()));
         }
 
         // for alter drop column
