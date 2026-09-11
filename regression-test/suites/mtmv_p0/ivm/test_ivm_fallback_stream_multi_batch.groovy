@@ -16,10 +16,6 @@
 // under the License.
 
 suite("test_ivm_fallback_stream_multi_batch", "nonConcurrent") {
-    if (isCloudMode()) {
-        return
-    }
-
     def forcedFallbackDebugPoint = "IvmIncrRefreshManager.doRefresh.force_fallback_reason"
 
     GetDebugPoint().disableDebugPointForAllFEs(forcedFallbackDebugPoint)
