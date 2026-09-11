@@ -140,6 +140,7 @@ ENV JAVA_HOME="/usr/lib/jvm/jdk-17.0.2/" \
     DEFAULT_DIR="/var/local" \
     CARGO_HOME="/opt/cargo" \
     RUSTUP_HOME="/opt/rustup" \
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER="/usr/bin/gcc" \
     PATH="/opt/cargo/bin:/usr/local/bin:/var/local/ldb-toolchain/bin/:/var/local/thirdparty/installed/bin/:/usr/lib/jvm/jdk-17.0.2/bin/:$PATH" \
     DORIS_THIRDPARTY="/var/local/thirdparty"
 WORKDIR /root
