@@ -33,6 +33,38 @@ suite("test_from_unixtime") {
     """
     sql """insert into test1 values(100, 100.123), (20000000000, 20000000000.0010),
     (90000000000, 90000000000.1234569);"""
+
+    sql "drop table if exists test_from_unixtime_explicit_cast"
+    sql """
+        create table test_from_unixtime_explicit_cast(
+            id int,
+            ts decimal(18, 6)
+        )
+        duplicate key(id)
+        distributed by hash(id) buckets 1
+        properties("replication_num" = "1");
+    """
+    sql """insert into test_from_unixtime_explicit_cast values
+        (1, 1.123456),
+        (2, 3599.999999);
+    """
+
+    sql "drop table if exists test_timev2_to_datetimev2_scale"
+    sql """
+        create table test_timev2_to_datetimev2_scale(
+            id int,
+            t varchar(32)
+        )
+        duplicate key(id)
+        distributed by hash(id) buckets 1
+        properties("replication_num" = "1");
+    """
+    sql """insert into test_timev2_to_datetimev2_scale values
+        (1, '12:34:56.123556'),
+        (2, '23:59:59.999499'),
+        (3, '23:59:59.999500');
+    """
+
     qt_sql0 """select from_unixtime(k0), from_unixtime(k1), from_unixtime(k0, 'yyyy-MM-dd HH:mm:ss'),
     from_unixtime(k0, 'yyyy-MM-dd HH:mm:ss'), from_unixtime(k1, '%W%w') from test1 order by k0, k1"""
     testFoldConst ("""select from_unixtime(100), from_unixtime(100.123), from_unixtime(20000000000), from_unixtime(20000000000.0010),
@@ -143,6 +175,78 @@ suite("test_from_unixtime") {
         sql """ SELECT MICROSECOND(FROM_UNIXTIME(k1)) FROM test1; """
         contains "microsecond_from_unixtime"
     }
+    qt_microsecond_explicit_cast_projection """
+        SELECT id, MICROSECOND(CAST(FROM_UNIXTIME(ts) AS DATETIMEV2(3)))
+        FROM test_from_unixtime_explicit_cast ORDER BY id;
+    """
+    qt_microsecond_explicit_cast_filter """
+        SELECT id FROM test_from_unixtime_explicit_cast
+        WHERE MICROSECOND(CAST(FROM_UNIXTIME(ts) AS DATETIMEV2(3))) = 123000
+        ORDER BY id;
+    """
+    explain {
+        sql """
+            SELECT MICROSECOND(CAST(FROM_UNIXTIME(ts) AS DATETIMEV2(3)))
+            FROM test_from_unixtime_explicit_cast;
+        """
+        notContains "microsecond_from_unixtime"
+    }
+    qt_time_fields_explicit_lossy_cast """
+        SELECT id,
+            HOUR(CAST(FROM_UNIXTIME(ts) AS DATETIMEV2(3))),
+            MINUTE(CAST(FROM_UNIXTIME(ts) AS DATETIMEV2(3))),
+            SECOND(CAST(FROM_UNIXTIME(ts) AS DATETIMEV2(3))),
+            HOUR(CAST(FROM_UNIXTIME(ts) AS DATETIMEV2(0))),
+            MINUTE(CAST(FROM_UNIXTIME(ts) AS DATETIMEV2(0))),
+            SECOND(CAST(FROM_UNIXTIME(ts) AS DATETIMEV2(0)))
+        FROM test_from_unixtime_explicit_cast ORDER BY id;
+    """
+    explain {
+        sql """
+            SELECT
+                HOUR(CAST(FROM_UNIXTIME(ts) AS DATETIMEV2(3))),
+                MINUTE(CAST(FROM_UNIXTIME(ts) AS DATETIMEV2(3))),
+                SECOND(CAST(FROM_UNIXTIME(ts) AS DATETIMEV2(3))),
+                HOUR(CAST(FROM_UNIXTIME(ts) AS DATETIMEV2(0))),
+                MINUTE(CAST(FROM_UNIXTIME(ts) AS DATETIMEV2(0))),
+                SECOND(CAST(FROM_UNIXTIME(ts) AS DATETIMEV2(0)))
+            FROM test_from_unixtime_explicit_cast;
+        """
+        notContains "hour_from_unixtime"
+        notContains "minute_from_unixtime"
+        notContains "second_from_unixtime"
+    }
+    explain {
+        sql """
+            SELECT
+                HOUR(CAST(FROM_UNIXTIME(ts) AS DATETIMEV2(6))),
+                MINUTE(CAST(FROM_UNIXTIME(ts) AS DATETIMEV2(6))),
+                SECOND(CAST(FROM_UNIXTIME(ts) AS DATETIMEV2(6))),
+                MICROSECOND(CAST(FROM_UNIXTIME(ts) AS DATETIMEV2(6)))
+            FROM test_from_unixtime_explicit_cast;
+        """
+        contains "hour_from_unixtime"
+        contains "minute_from_unixtime"
+        contains "second_from_unixtime"
+        contains "microsecond_from_unixtime"
+    }
+    explain {
+        sql """
+            SELECT
+                HOUR(CAST(FROM_UNIXTIME(k0) AS DATETIME)),
+                SECOND(CAST(FROM_UNIXTIME(k0) AS DATETIMEV2(0)))
+            FROM test1;
+        """
+        contains "hour_from_unixtime"
+        contains "second_from_unixtime"
+    }
+    explain {
+        sql """
+            SELECT id FROM test_from_unixtime_explicit_cast
+            WHERE MICROSECOND(CAST(FROM_UNIXTIME(ts) AS DATETIMEV2(3))) = 123000;
+        """
+        notContains "microsecond_from_unixtime"
+    }
     explain {
         sql """SELECT MICROSECOND(FROM_UNIXTIME(k1, 'yyyy-MM-dd HH:mm:ss')) FROM test1;"""
         notContains "microsecond_from_unixtime"
@@ -150,5 +254,27 @@ suite("test_from_unixtime") {
     testFoldConst("SELECT MICROSECOND_FROM_UNIXTIME(1145.14);")
     testFoldConst("SELECT MICROSECOND_FROM_UNIXTIME(NULL);")
     testFoldConst("SELECT MICROSECOND_FROM_UNIXTIME(32536771200);")
+
+    sql "set debug_skip_fold_constant = false;"
+    qt_timev2_to_datetimev2_fe_fold """
+        SELECT
+            HOUR(CAST(CAST('23:59:59.999500' AS TIME(6)) AS DATETIMEV2(3))),
+            MINUTE(CAST(CAST('23:59:59.999500' AS TIME(6)) AS DATETIMEV2(3))),
+            SECOND(CAST(CAST('23:59:59.999500' AS TIME(6)) AS DATETIMEV2(3))),
+            MICROSECOND(CAST(CAST('12:34:56.123556' AS TIME(6)) AS DATETIMEV2(3))),
+            DATEDIFF(
+                CAST(CAST('23:59:59.999500' AS TIME(6)) AS DATETIMEV2(3)),
+                CAST(CAST('23:59:59.999500' AS TIME(6)) AS DATETIMEV2(6)));
+    """
+    sql "set debug_skip_fold_constant = true;"
+    qt_timev2_to_datetimev2_runtime """
+        SELECT id,
+            HOUR(CAST(CAST(t AS TIME(6)) AS DATETIMEV2(3))),
+            MINUTE(CAST(CAST(t AS TIME(6)) AS DATETIMEV2(3))),
+            SECOND(CAST(CAST(t AS TIME(6)) AS DATETIMEV2(3))),
+            MICROSECOND(CAST(CAST(t AS TIME(6)) AS DATETIMEV2(3))),
+            DATEDIFF(CAST(CAST(t AS TIME(6)) AS DATETIMEV2(3)), CURRENT_DATE())
+        FROM test_timev2_to_datetimev2_scale ORDER BY id;
+    """
     sql "set debug_skip_fold_constant = false;"
 }

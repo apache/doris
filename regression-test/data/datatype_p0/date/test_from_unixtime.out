@@ -92,3 +92,22 @@
 
 -- !microsecond_from_unixtime5 --
 0
+
+-- !microsecond_explicit_cast_projection --
+1	123000
+2	0
+
+-- !microsecond_explicit_cast_filter --
+1
+
+-- !time_fields_explicit_lossy_cast --
+1	0	0	1	0	0	1
+2	1	0	0	1	0	0
+
+-- !timev2_to_datetimev2_fe_fold --
+0	0	0	124000	1
+
+-- !timev2_to_datetimev2_runtime --
+1	12	34	56	124000	0
+2	23	59	59	999000	0
+3	0	0	0	0	1

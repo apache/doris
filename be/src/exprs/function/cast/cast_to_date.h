@@ -330,7 +330,11 @@ public:
                 dtmv2.date_add_interval<TimeUnit::MICROSECOND, false>(
                         TimeInterval(MICROSECOND, microsecond, neg));
 
-                col_to->get_data()[i] = dtmv2;
+                const auto* to_type = assert_cast<const DataTypeDateTimeV2*>(
+                        block.get_by_position(result).type.get());
+                bool success = transform_date_scale(to_type->get_scale(), scale,
+                                                    col_to->get_data()[i], dtmv2);
+                DORIS_CHECK(success);
             } else if constexpr (IsDateTimeType<FromDataType> && IsDateTimeV2Type<ToDataType>) {
                 // from Datetime to Datetime
                 auto dtmv1 = col_from->get_data()[i];
