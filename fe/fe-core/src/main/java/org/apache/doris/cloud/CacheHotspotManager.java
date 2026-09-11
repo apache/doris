@@ -506,6 +506,50 @@ public class CacheHotspotManager extends MasterDaemon {
     // Ensures that at most one job runs concurrently per destination cluster.
     private Map<String, Long> clusterToRunningJobId = new ConcurrentHashMap<>();
 
+    // Collected before this FE becomes ready; cancelled by the manager before starting JobDaemon.
+    private final List<Pair<CloudWarmUpJob, Long>> recoveredJobConflicts = new ArrayList<>();
+
+    /**
+     * Rebuild the runtime owners after all image and journal records have been restored, before
+     * this FE becomes ready or starts scheduling warm-up jobs. Only the final RUNNING state owns
+     * a destination: a periodic job may have returned to PENDING in a later journal record.
+     */
+    public void recoverRunningJobsBeforeStart() {
+        Preconditions.checkState(!startJobDaemon, "Warm-up recovery must precede job scheduling");
+        clusterToRunningJobId.clear();
+        recoveredJobConflicts.clear();
+        List<CloudWarmUpJob> runningJobs = cloudWarmUpJobs.values().stream()
+                .filter(job -> !job.isEventDriven() && job.getJobState() == JobState.RUNNING)
+                .sorted(Comparator.comparingLong(CloudWarmUpJob::getJobId))
+                .collect(Collectors.toList());
+        for (CloudWarmUpJob job : runningJobs) {
+            if (!tryRegisterRunningJob(job)) {
+                long ownerJobId = clusterToRunningJobId.get(job.getDstClusterName());
+                recoveredJobConflicts.add(Pair.of(job, ownerJobId));
+                LOG.warn("recovered conflicting warm-up job {} for destination {}, keeping job {}",
+                        job.getJobId(), job.getDstClusterName(), ownerJobId);
+            }
+        }
+        LOG.info("restored warm-up owners for {} destinations, {} conflicting jobs require cleanup",
+                clusterToRunningJobId.size(), recoveredJobConflicts.size());
+    }
+
+    @VisibleForTesting
+    void cancelRecoveredConflictingJobs() {
+        Iterator<Pair<CloudWarmUpJob, Long>> iterator = recoveredJobConflicts.iterator();
+        while (iterator.hasNext()) {
+            Pair<CloudWarmUpJob, Long> conflict = iterator.next();
+            CloudWarmUpJob job = conflict.first;
+            // The FE is ready now. Reuse cancellation to clear this job's BE state and journal
+            // the result: ONCE is cancelled, while PERIODIC can wait for its next execution.
+            boolean cancelled = job.cancel("Recovered warm-up job conflicts with job " + conflict.second
+                    + " on destination " + job.getDstClusterName(), false);
+            LOG.info("cleaned up recovered conflicting warm-up job {}, ownerJobId={}, cancelled={}, state={}",
+                    job.getJobId(), conflict.second, cancelled, job.getJobState());
+            iterator.remove();
+        }
+    }
+
     /**
      * Attempts to register a job as running for the given destination cluster.
      * <p>
@@ -615,6 +659,7 @@ public class CacheHotspotManager extends MasterDaemon {
     @Override
     public void runAfterCatalogReady() {
         if (!startJobDaemon) {
+            cancelRecoveredConflictingJobs();
             jobDaemon = new JobDaemon();
             jobDaemon.start();
             startJobDaemon = true;
