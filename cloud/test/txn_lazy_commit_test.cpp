@@ -926,12 +926,6 @@ TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventually) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
                                  tablet_id_base + i);
         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
-        auto* mappings = tmp_rowset.mutable_row_binlog_column_mappings();
-        mappings->set_need_historical_value(true);
-        auto* mapping = mappings->add_entries();
-        mapping->set_source_column_unique_id(1);
-        mapping->set_current_column_unique_id(10);
-        mapping->set_before_column_unique_id(11);
         CreateRowsetResponse res;
         prepare_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);

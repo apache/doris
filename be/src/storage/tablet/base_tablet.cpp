@@ -1517,9 +1517,7 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
         binlog_rs->rowset_meta()->is_row_binlog()) {
         DCHECK(txn_info->attach_row_binlog.tablet != nullptr);
         row_binlog_rowset = binlog_rs;
-        const auto& binlog_tablet_meta = txn_info->attach_row_binlog.tablet->tablet_meta();
-        build_row_binlog =
-                is_partial_update || binlog_tablet_meta->binlog_config().need_historical_value();
+        build_row_binlog = is_partial_update || txn_info->attach_row_binlog.need_historical_value;
     }
 
     // rewrite conflict only when partial update or need before
@@ -1670,23 +1668,10 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
         cfg.source.row_binlog_rowset = row_binlog_rowset;
         cfg.source.base_tablet = self;
 
-        DORIS_CHECK(rowset->rowset_meta()->has_row_binlog_column_mappings());
-        std::vector<RowBinlogColumnUidMapping> uid_mappings;
-        const auto& persisted_mappings = rowset->rowset_meta()->row_binlog_column_mappings();
-        DORIS_CHECK(persisted_mappings.has_need_historical_value());
-        cfg.need_historical_value = persisted_mappings.need_historical_value();
-        uid_mappings.reserve(persisted_mappings.entries_size());
-        for (const auto& entry : persisted_mappings.entries()) {
-            uid_mappings.push_back({
-                    .source_uid = entry.source_column_unique_id(),
-                    .current_uid = entry.current_column_unique_id(),
-                    .before_uid = entry.has_before_column_unique_id()
-                                          ? std::optional(entry.before_column_unique_id())
-                                          : std::nullopt,
-            });
-        }
+        cfg.need_historical_value = txn_info->attach_row_binlog.need_historical_value;
         cfg.column_mappings = DORIS_TRY(segment_v2::resolve_row_binlog_column_mappings(
-                *rowset->tablet_schema(), *row_binlog_rowset->tablet_schema(), uid_mappings));
+                *rowset->tablet_schema(), *row_binlog_rowset->tablet_schema(),
+                txn_info->attach_row_binlog.column_mappings));
 
         // Wrap two transient writers into a group writer for dual flush/build.
         RowsetWriterSharedPtr data_writer_sp(std::move(transient_rs_writer));

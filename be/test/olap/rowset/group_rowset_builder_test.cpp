@@ -44,6 +44,7 @@
 #include "storage/tablet/tablet_manager.h"
 #include "storage/tablet/tablet_meta_manager.h"
 #include "storage/tablet_info.h"
+#include "storage/task/engine_publish_version_task.h"
 #include "testutil/creators.h"
 
 namespace doris {
@@ -305,6 +306,30 @@ TEST_F(GroupRowsetBuilderTest, recoverMultipleRowBinlogPairsInOneTxn) {
         EXPECT_EQ(txn_info->second->attach_row_binlog.tablet->tablet_id(), row_binlog_tablet_id);
         EXPECT_EQ(txn_info->second->attach_row_binlog.rowset->rowset_meta()->tablet_id(),
                   row_binlog_tablet_id);
+
+        // Local recovery must still hydrate the common publish snapshot from committed metadata.
+        ASSERT_TRUE(txn_info->second->unique_key_merge_on_write);
+        EXPECT_TRUE(txn_info->second->attach_row_binlog.column_mappings.empty());
+        auto binlog_tablet =
+                std::static_pointer_cast<Tablet>(txn_info->second->attach_row_binlog.tablet);
+        std::lock_guard binlog_lock(binlog_tablet->get_rowset_update_lock());
+        std::lock_guard base_lock(base_tablet->get_rowset_update_lock());
+        TabletPublishStatistics stats;
+        std::shared_ptr<TabletTxnInfo> published_txn;
+        auto st = engine_ref->txn_manager()->publish_txn(partition_id, base_tablet, txn_id,
+                                                         Version(2, 2), &stats, published_txn);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_NE(published_txn, nullptr);
+        const auto& snapshot = published_txn->attach_row_binlog;
+        EXPECT_FALSE(snapshot.need_historical_value);
+        ASSERT_EQ(snapshot.column_mappings.size(), 2U);
+        EXPECT_EQ(snapshot.column_mappings[0].source_uid, 0);
+        EXPECT_EQ(snapshot.column_mappings[0].current_uid, 0);
+        EXPECT_FALSE(snapshot.column_mappings[0].before_uid.has_value());
+        EXPECT_EQ(snapshot.column_mappings[1].source_uid, 1);
+        EXPECT_EQ(snapshot.column_mappings[1].current_uid, 1);
+        EXPECT_FALSE(snapshot.column_mappings[1].before_uid.has_value());
+        EXPECT_FALSE(published_txn->rowset->rowset_meta()->has_row_binlog_column_mappings());
     }
 }
 

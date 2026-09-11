@@ -624,6 +624,26 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     // update delete_bitmap
     if (tablet_txn_info->unique_key_merge_on_write) {
         int64_t t2 = MonotonicMicros();
+        auto& binlog_info = tablet_txn_info->attach_row_binlog;
+        if (binlog_info.rowset != nullptr) {
+            // Local publish still restores its write-time snapshot from committed rowset meta.
+            // Cloud already carries this snapshot in its transaction cache.
+            DORIS_CHECK(rowset->rowset_meta()->has_row_binlog_column_mappings());
+            const auto& persisted_mappings = rowset->rowset_meta()->row_binlog_column_mappings();
+            DORIS_CHECK(persisted_mappings.has_need_historical_value());
+            binlog_info.need_historical_value = persisted_mappings.need_historical_value();
+            binlog_info.column_mappings.clear();
+            binlog_info.column_mappings.reserve(persisted_mappings.entries_size());
+            for (const auto& entry : persisted_mappings.entries()) {
+                binlog_info.column_mappings.push_back({
+                        .source_uid = entry.source_column_unique_id(),
+                        .current_uid = entry.current_column_unique_id(),
+                        .before_uid = entry.has_before_column_unique_id()
+                                              ? std::optional(entry.before_column_unique_id())
+                                              : std::nullopt,
+                });
+            }
+        }
         if (rowset->num_segments() > 1 &&
             !tablet_txn_info->delete_bitmap->has_calculated_for_multi_segments(
                     rowset->rowset_id())) {
