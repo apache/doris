@@ -69,7 +69,7 @@ suite("test_javaudtf_int") {
 
         test {
             sql """ select udtf_int(1); """
-            exception "PROJECT can not contains TableGeneratingFunction expression: udtf_int(1)"
+            exception "LOGICAL_ONE_ROW_RELATION can not contains TableGeneratingFunction expression: udtf_int(1)"
         }
     } finally {
         try_sql("DROP FUNCTION IF EXISTS udtf_int(int);")
