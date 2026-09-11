@@ -49,6 +49,10 @@ public class NGramTokenizerValidator extends BasePolicyValidator {
     private static final int MIN_GRAM_UPPER_BOUND = 64;
     private static final int MAX_GRAM_LOWER_BOUND = 1;
     private static final int MAX_GRAM_UPPER_BOUND = 256;
+    // What GramScheme applies when max_gram is absent. It has to match BE's member initializer:
+    // assuming a larger one here lets DDL through that BE then refuses at the first load.
+    private static final int GRAM_MAX_GRAM_DEFAULT = 4;
+    private static final int GRAM_MIN_GRAM_DEFAULT = 3;
     private static final double MIN_DENSITY = 0.001;
     // Persist a decimal spelling that BE can parse verbatim: Java-only type suffixes or
     // silently trimmed trailing whitespace must not pass DDL validation.
@@ -163,8 +167,13 @@ public class NGramTokenizerValidator extends BasePolicyValidator {
             throw new DdlException("ngram tokenizer mode must be one of " + VALID_MODES
                     + ", got: '" + mode + "'" + (mode.isEmpty() ? " (empty)" : ""));
         }
-        int minGram = parseIntInRange(props, "min_gram", 3, MIN_GRAM_LOWER_BOUND, MIN_GRAM_UPPER_BOUND);
-        int maxGram = parseIntInRange(props, "max_gram", 16, MAX_GRAM_LOWER_BOUND, MAX_GRAM_UPPER_BOUND);
+        int minGram = parseIntInRange(props, "min_gram", GRAM_MIN_GRAM_DEFAULT,
+                MIN_GRAM_LOWER_BOUND, MIN_GRAM_UPPER_BOUND);
+        // The default must be the one GramScheme applies when the property is absent: FE used
+        // to assume 16, so "mode=sparse, min_gram=5" passed here and then failed at the first
+        // load with max_gram(4) < min_gram(5). Reject it while the user is still writing DDL.
+        int maxGram = parseIntInRange(props, "max_gram", GRAM_MAX_GRAM_DEFAULT,
+                MAX_GRAM_LOWER_BOUND, MAX_GRAM_UPPER_BOUND);
         if (minGram > maxGram) {
             throw new DdlException("min_gram (" + minGram + ") must be <= max_gram (" + maxGram + ")");
         }
