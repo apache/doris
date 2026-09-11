@@ -2419,6 +2419,20 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         TableIf tableIf = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
         OlapTable table = (OlapTable) tableIf;
+        // Cloud retains the writer snapshot in the BE transaction cache. Local publish needs it
+        // journaled by the owning FE, even if its current catalog differs from the writer's schema.
+        if (!Config.isCloudMode()) {
+            if (!request.isSetRowBinlogColumnMappings()) {
+                throw new AnalysisException("Missing row-binlog column mapping for remote transaction "
+                        + request.getTxnId());
+            }
+            TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(),
+                    request.getTxnId());
+            if (state == null) {
+                throw new AnalysisException("txn does not exist: " + request.getTxnId());
+            }
+            state.captureRemoteRowBinlogColumnMappings(request.getRowBinlogColumnMappings());
+        }
         return Env.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                 db, Lists.newArrayList(table),
                 request.getTxnId(),

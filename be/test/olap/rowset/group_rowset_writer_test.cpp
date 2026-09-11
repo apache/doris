@@ -24,6 +24,7 @@
 #include <array>
 #include <chrono>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <thread>
@@ -46,6 +47,8 @@
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_manager.h"
+#include "storage/tablet_info.h"
+#include "storage/transform/row_binlog_derive.h"
 #include "testutil/creators.h"
 #include "util/debug_points.h"
 
@@ -164,6 +167,30 @@ protected:
                                             std::vector<RowsetSharedPtr> {}, nullptr);
     }
 
+    Status set_row_binlog_column_mappings(RowsetWriterContext* context) const {
+        auto& cfg = context->write_binlog_opt().write_binlog_config();
+        std::vector<RowBinlogColumnUidMapping> uid_mappings;
+        for (ColumnId source_cid = 0; source_cid < cfg.source.tablet_schema->num_columns();
+             ++source_cid) {
+            const auto& source_column = cfg.source.tablet_schema->column(source_cid);
+            if (!source_column.visible() && !source_column.is_key()) {
+                continue;
+            }
+            const int32_t current_cid = context->tablet_schema->field_index(source_column.name());
+            DORIS_CHECK_GE(current_cid, 0);
+            uid_mappings.push_back({source_column.unique_id(),
+                                    context->tablet_schema->column(current_cid).unique_id(),
+                                    std::nullopt});
+        }
+        auto mappings = segment_v2::resolve_row_binlog_column_mappings(
+                *cfg.source.tablet_schema, *context->tablet_schema, uid_mappings);
+        if (!mappings.has_value()) {
+            return mappings.error();
+        }
+        cfg.column_mappings = std::move(*mappings);
+        return Status::OK();
+    }
+
     Result<std::unique_ptr<RowsetWriter>> create_partial_update_row_binlog_writer(
             const std::shared_ptr<PartialUpdateInfo>& partial_update_info, size_t num_rows,
             const std::shared_ptr<MowContext>& mow_context) {
@@ -183,6 +210,7 @@ protected:
         binlog_options.source.partial_update_info = partial_update_info;
         binlog_options.source.mow_context = mow_context;
         binlog_options.source.source_write_type = DataWriteType::TYPE_DIRECT;
+        RETURN_IF_ERROR_RESULT(set_row_binlog_column_mappings(&row_binlog_context));
 
         auto lsn_buffer = AutoIncIDBuffer::create_shared(1, 1, kBinlogLsnAutoIncId);
         lsn_buffer->append_range_for_test(1000, num_rows);
@@ -261,6 +289,7 @@ protected:
         cfg.source.base_tablet = _tablet;
         cfg.source.is_transient_rowset_writer = true;
         cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
+        RETURN_IF_ERROR(set_row_binlog_column_mappings(&row_binlog_context));
         auto lsn_buffer = AutoIncIDBuffer::create_shared(1, 1, kBinlogLsnAutoIncId);
         lsn_buffer->append_range_for_test(1000, num_rows);
         std::vector<int64_t> allocated_lsns;

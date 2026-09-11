@@ -566,9 +566,6 @@ Status BlockReader::init(const ReaderParams& read_params) {
 
     if (read_params.binlog_scan_type == TBinlogScanType::MIN_DELTA ||
         read_params.binlog_scan_type == TBinlogScanType::DETAIL) {
-        auto read_schema = std::make_shared<ReadSchema>(*_read_schema);
-        read_schema->init_row_binlog_column_mappings(*_tablet_schema);
-        _read_schema = std::move(read_schema);
         _min_delta_value_compare_unsupported = false;
     }
 

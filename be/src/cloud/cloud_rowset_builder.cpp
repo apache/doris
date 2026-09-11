@@ -29,6 +29,7 @@
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet_info.h"
+#include "storage/transform/row_binlog_derive.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -152,6 +153,27 @@ Status CloudGroupRowsetBuilder::init() {
         cfg.source.is_transient_rowset_writer = data_ctx.is_transient_rowset_writer;
         cfg.source.source_write_type = data_ctx.write_type;
         cfg.source.base_tablet = _data_builder->tablet_sptr();
+
+        const OlapTableIndexSchema* source_index_schema = nullptr;
+        for (const auto* index_schema : _req.table_schema_param->indexes()) {
+            if (index_schema->index_id == data_ctx.index_id) {
+                source_index_schema = index_schema;
+                break;
+            }
+        }
+        DORIS_CHECK(source_index_schema != nullptr);
+        DORIS_CHECK_EQ(source_index_schema->row_binlog_id, binlog_ctx.index_id);
+        cfg.need_historical_value = source_index_schema->row_binlog_need_historical_value;
+        auto mappings = segment_v2::resolve_row_binlog_column_mappings(
+                *data_ctx.tablet_schema, *binlog_ctx.tablet_schema,
+                source_index_schema->row_binlog_column_mappings);
+        if (!mappings.has_value()) {
+            return mappings.error();
+        }
+        cfg.column_mappings = std::move(*mappings);
+
+        _attach_row_binlog.need_historical_value = cfg.need_historical_value;
+        _attach_row_binlog.column_mappings = source_index_schema->row_binlog_column_mappings;
     }
 
     _rowset_writer = std::move(group_writer);
@@ -183,14 +205,13 @@ Status CloudGroupRowsetBuilder::commit_rowset(const std::string& job_id, int64_t
 }
 
 Status CloudGroupRowsetBuilder::set_txn_related_info() {
-    RowBinlogTxnInfo attach_row_binlog;
-    attach_row_binlog.rowset = _row_binlog_builder->rowset();
-    attach_row_binlog.tablet = _row_binlog_builder->tablet_sptr();
+    _attach_row_binlog.rowset = _row_binlog_builder->rowset();
+    _attach_row_binlog.tablet = _row_binlog_builder->tablet_sptr();
     if (_data_builder->tablet()->enable_unique_key_merge_on_write()) {
-        attach_row_binlog.delete_bitmap =
+        _attach_row_binlog.delete_bitmap =
                 std::make_shared<DeleteBitmap>(_row_binlog_builder->tablet()->tablet_id());
     }
-    RETURN_IF_ERROR(_data_builder->attach_row_binlog_to_txn(attach_row_binlog));
+    RETURN_IF_ERROR(_data_builder->attach_row_binlog_to_txn(_attach_row_binlog));
     RETURN_IF_ERROR(_data_builder->set_txn_related_info());
     return _row_binlog_builder->set_txn_related_info();
 }

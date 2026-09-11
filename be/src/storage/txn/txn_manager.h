@@ -45,6 +45,7 @@
 #include "storage/segment/vertical_segment_writer.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_meta.h"
+#include "storage/tablet_info.h"
 #include "util/time.h"
 
 namespace doris {
@@ -68,6 +69,9 @@ struct RowBinlogTxnInfo {
     BaseTabletSPtr tablet;
     // Delete bitmap deltas that should be applied to the independent binlog tablet.
     DeleteBitmapPtr delete_bitmap;
+    // Write-time snapshot, owned by the transaction independently of the writer and bitmap LRU.
+    bool need_historical_value = false;
+    std::vector<RowBinlogColumnUidMapping> column_mappings;
 };
 
 struct TxnPublishInfo {
@@ -188,7 +192,8 @@ public:
                        TTransactionId transaction_id, const Version& version,
                        TabletPublishStatistics* stats,
                        std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info,
-                       const int64_t commit_tso = -1);
+                       const int64_t commit_tso = -1,
+                       const PRowBinlogWriteColumnMappings* row_binlog_column_mappings = nullptr);
 
     // delete the txn from manager if it is not committed(not have a valid rowset)
     Status rollback_txn(TPartitionId partition_id, const Tablet& tablet,
@@ -209,7 +214,8 @@ public:
                        TTabletId tablet_id, TabletUid tablet_uid, const Version& version,
                        TabletPublishStatistics* stats,
                        std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info,
-                       const int64_t commit_tso = -1);
+                       const int64_t commit_tso = -1,
+                       const PRowBinlogWriteColumnMappings* row_binlog_column_mappings = nullptr);
 
     // only abort not committed txn
     void abort_txn(TPartitionId partition_id, TTransactionId transaction_id, TTabletId tablet_id,

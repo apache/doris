@@ -37,6 +37,7 @@
 #include <map>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <roaring/roaring.hh>
 #include <set>
 #include <string>
@@ -91,6 +92,8 @@
 #include "storage/tablet/tablet_manager.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/tablet_info.h"
+#include "storage/transform/row_binlog_derive.h"
 #include "storage/utils.h"
 #include "testutil/creators.h"
 #include "testutil/variant_util.h"
@@ -3349,7 +3352,6 @@ protected:
         }
         context.write_binlog_opt().enable = true;
         context.allocated_lsn_map = std::make_shared<segment_v2::SegmentAllocatedLsnMap>();
-        context.write_binlog_opt().set_need_before(need_before);
         auto& options = context.write_binlog_opt().write_binlog_config();
         options.source.tablet_schema = source_tablet->tablet_schema();
         options.source.base_tablet = source_tablet;
@@ -3357,6 +3359,31 @@ protected:
         options.source.mow_context = std::move(source_mow_context);
         options.source.is_transient_rowset_writer = source_is_transient;
         options.source.source_write_type = DataWriteType::TYPE_DIRECT;
+        std::vector<RowBinlogColumnUidMapping> uid_mappings;
+        for (ColumnId source_cid = 0; source_cid < options.source.tablet_schema->num_columns();
+             ++source_cid) {
+            const auto& source_column = options.source.tablet_schema->column(source_cid);
+            if (!source_column.visible() && !source_column.is_key()) {
+                continue;
+            }
+            const int32_t current_cid = context.tablet_schema->field_index(source_column.name());
+            ASSERT_GE(current_cid, 0);
+            std::optional<int32_t> before_uid;
+            if (need_before && source_column.visible() && !source_column.is_key()) {
+                const int32_t before_cid = context.tablet_schema->field_index(
+                        binlog::build_before_column_name(source_column.name()));
+                ASSERT_GE(before_cid, 0);
+                before_uid = context.tablet_schema->column(before_cid).unique_id();
+            }
+            uid_mappings.push_back({source_column.unique_id(),
+                                    context.tablet_schema->column(current_cid).unique_id(),
+                                    before_uid});
+        }
+        auto mappings = segment_v2::resolve_row_binlog_column_mappings(
+                *options.source.tablet_schema, *context.tablet_schema, uid_mappings);
+        ASSERT_TRUE(mappings.has_value()) << mappings.error();
+        options.need_historical_value = need_before;
+        options.column_mappings = std::move(*mappings);
         for (int64_t segment_id = 0; segment_id < 2; ++segment_id) {
             auto lsn_ids = std::make_shared<std::vector<int64_t>>();
             for (int64_t row = 0; row < rows_per_segment; ++row) {

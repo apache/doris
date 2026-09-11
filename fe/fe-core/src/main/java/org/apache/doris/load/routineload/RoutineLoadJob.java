@@ -2044,7 +2044,7 @@ public abstract class RoutineLoadJob
 
     public abstract void replayModifyProperties(AlterRoutineLoadJobOperationLog log);
 
-    public abstract NereidsRoutineLoadTaskInfo toNereidsRoutineLoadTaskInfo() throws UserException;
+    public abstract NereidsRoutineLoadTaskInfo toNereidsRoutineLoadTaskInfo(long txnId) throws UserException;
 
     // for ALTER ROUTINE LOAD
     protected void modifyCommonJobProperties(Map<String, String> jobProperties) throws UserException {

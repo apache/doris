@@ -23,6 +23,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -169,6 +170,14 @@ inline int64_t extract_tso_physical_time(int64_t tso) {
 
 namespace segment_v2 {
 
+struct RowBinlogColumnCidMapping {
+    ColumnId source_cid;
+    ColumnId current_cid;
+    std::optional<ColumnId> before_cid;
+
+    bool operator==(const RowBinlogColumnCidMapping&) const = default;
+};
+
 class SegmentAllocatedLsnMap {
 public:
     void insert_segment_allocated_lsns(int64_t seg_id, ConstAllocatedLsnVectorSharedPtr lsn_ids) {
@@ -212,7 +221,8 @@ private:
 
 struct SegmentWriteBinlogOptions {
 public:
-    bool write_before = false;
+    bool need_historical_value = false;
+    std::vector<RowBinlogColumnCidMapping> column_mappings;
 
     // source context, used for retrieving historical row and building binlog<row> block
     struct SourceWriteDataOptions {

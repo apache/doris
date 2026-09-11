@@ -188,6 +188,8 @@ auto set_diff = [](auto a, auto b) {
 // ensure that PBs need to be converted have identical fields, so that they can
 // be inter-converted
 TEST(PbConvert, ensure_identical_fields) {
+    EXPECT_EQ(RowsetMetaPB::GetDescriptor()->FindFieldByName("row_binlog_column_mappings"), nullptr);
+    EXPECT_EQ(RowsetMetaCloudPB::GetDescriptor()->FindFieldByName("row_binlog_column_mappings"), nullptr);
     EXPECT_EQ(RowsetMetaPB::GetDescriptor()->field_count(), RowsetMetaCloudPB::GetDescriptor()->field_count());
     EXPECT_EQ(TabletSchemaPB::GetDescriptor()->field_count(), TabletSchemaCloudPB::GetDescriptor()->field_count());
     EXPECT_EQ(TabletMetaPB::GetDescriptor()->field_count(), TabletMetaCloudPB::GetDescriptor()->field_count());

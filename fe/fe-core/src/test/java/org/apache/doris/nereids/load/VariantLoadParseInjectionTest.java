@@ -157,7 +157,7 @@ public class VariantLoadParseInjectionTest extends TestWithFeService {
     }
 
     private LoadFixture createRoutineFixture(InputShape shape) throws Exception {
-        NereidsRoutineLoadTaskInfo task = new NereidsRoutineLoadTaskInfo(1024L, new HashMap<>(), 10L,
+        NereidsRoutineLoadTaskInfo task = new NereidsRoutineLoadTaskInfo(6L, 1024L, new HashMap<>(), 10L,
                 null, LoadTask.MergeType.APPEND, null, null, 0.0, columnDescs(shape), null, null,
                 null, null, (byte) 0, (byte) 0, 1, false, TUniqueKeyUpdateMode.UPSERT,
                 TPartialUpdateNewRowPolicy.APPEND, false);

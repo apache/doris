@@ -193,12 +193,14 @@ TEST_F(ValidateStageTest, CompositionBinlogTransientPartialUpdateStaysPlain) {
     EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"PlainRowBinlogDerive"}));
 
     // the same write with a BEFORE image still needs the probe
-    rwc.write_binlog_opt().write_binlog_config().write_before = true;
+    cfg.need_historical_value = true;
+    cfg.column_mappings = {{0, 0, 1}};
     EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"MowRowBinlogDerive"}));
 
     // and a non-transient write of the same partial update does probe
-    rwc.write_binlog_opt().write_binlog_config().write_before = false;
-    rwc.write_binlog_opt().write_binlog_config().source.is_transient_rowset_writer = false;
+    cfg.need_historical_value = false;
+    cfg.column_mappings.clear();
+    cfg.source.is_transient_rowset_writer = false;
     EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"MowRowBinlogDerive"}));
 }
 
@@ -209,7 +211,9 @@ TEST_F(ValidateStageTest, CompositionBinlogBeforeImagePicksMowDerive) {
     auto schema = create_mow_schema(/*has_seq=*/false);
     RowsetWriterContext rwc = direct_rwc(schema);
     rwc.write_binlog_opt().enable = true;
-    rwc.write_binlog_opt().write_binlog_config().write_before = true;
+    auto& cfg = rwc.write_binlog_opt().write_binlog_config();
+    cfg.need_historical_value = true;
+    cfg.column_mappings = {{0, 0, 1}};
 
     EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"MowRowBinlogDerive"}));
 }
