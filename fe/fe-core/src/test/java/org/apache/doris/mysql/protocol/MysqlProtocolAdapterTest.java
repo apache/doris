@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.protocol;
 
+import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.DummyMysqlChannel;
@@ -27,7 +28,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.ConnectScheduler;
-import org.apache.doris.service.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.thrift.TResultSinkType;
 import org.apache.doris.thrift.TUniqueId;
 

@@ -1646,14 +1646,34 @@ public class CreateTableInfo {
      * Add hidden columns required by row binlog.
      */
     public void createRowBinlogHiddenColumnsIfNecessary(BinlogConfig binlogConfig) {
-        if (!binlogConfig.isRowFormat()) {
+        addRowBinlogHiddenColumns(columns, keysType, isEnableMergeOnWrite, binlogConfig);
+    }
+
+    /**
+     * Append the hidden columns a row-binlog table carries. Callers that build the column list
+     * outside the create-table flow (an analyzed MTMV schema) go through here as well, so both
+     * sides of {@code MTMVPlanUtil#checkColumnIfChange} agree on the physical layout.
+     *
+     * <p>Idempotent: a column that is already present is kept once.
+     */
+    public static void addRowBinlogHiddenColumns(List<ColumnDefinition> columns, KeysType keysType,
+            boolean isEnableMergeOnWrite, BinlogConfig binlogConfig) {
+        if (binlogConfig == null || !binlogConfig.isRowFormat()) {
             return;
         }
         if (keysType.equals(KeysType.DUP_KEYS)) {
-            columns.add(ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
-            columns.add(ColumnDefinition.newRowLsnColumnDefinition(AggregateType.NONE));
+            addIfAbsent(columns, ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
+            addIfAbsent(columns, ColumnDefinition.newRowLsnColumnDefinition(AggregateType.NONE));
         } else if (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite) {
-            columns.add(ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
+            addIfAbsent(columns, ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
+        }
+    }
+
+    private static void addIfAbsent(List<ColumnDefinition> columns, ColumnDefinition columnDefinition) {
+        boolean present = columns.stream()
+                .anyMatch(column -> column.getName().equalsIgnoreCase(columnDefinition.getName()));
+        if (!present) {
+            columns.add(columnDefinition);
         }
     }
 }
