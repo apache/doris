@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.service.arrowflight;
+package org.apache.doris.service.arrowflight.protocol;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.qe.ConnectContext;

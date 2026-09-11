@@ -73,7 +73,7 @@ import org.apache.doris.resource.BackendSelectionProfile;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
-import org.apache.doris.service.arrowflight.FlightProtocolAdapter;
+import org.apache.doris.service.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.service.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.statistics.model.ColumnStatistic;

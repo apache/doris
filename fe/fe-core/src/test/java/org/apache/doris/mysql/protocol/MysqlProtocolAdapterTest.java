@@ -27,7 +27,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.ConnectScheduler;
-import org.apache.doris.service.arrowflight.FlightProtocolAdapter;
+import org.apache.doris.service.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.thrift.TResultSinkType;
 import org.apache.doris.thrift.TUniqueId;
 
