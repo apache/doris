@@ -25,8 +25,11 @@
 #include <vector>
 
 #include "common/status.h"
+#include "core/assert_cast.h"
+#include "core/column/column_spatial.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_string.h"
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
@@ -91,6 +94,60 @@ TEST(VGeoFunctionsTest, function_geo_st_as_text) {
         DataSet data_set = {{{buf}, std::string("POINT (24.7 56.7)")}, {{Null()}, Null()}};
 
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    }
+}
+
+TEST(VGeoFunctionsTest, function_geo_st_as_text_with_spatial_wkb) {
+    const std::string wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    for (const auto primitive_type : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
+        auto spatial_type = primitive_type == TYPE_GEOMETRY
+                                    ? std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY)
+                                    : std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84",
+                                                                        "spherical");
+        auto spatial_column = ColumnSpatial::create(primitive_type);
+        spatial_column->insert_data(wkb.data(), wkb.size());
+
+        ColumnsWithTypeAndName arguments {{std::move(spatial_column), spatial_type, "spatial"}};
+        auto result_type = make_nullable(std::make_shared<DataTypeString>());
+        auto function =
+                SimpleFunctionFactory::instance().get_function("st_astext", arguments, result_type);
+        ASSERT_NE(nullptr, function);
+
+        Block block;
+        block.insert(arguments.front());
+        block.insert({nullptr, result_type, "result"});
+        ASSERT_TRUE(function->execute(nullptr, block, {0}, 1, 1).ok());
+
+        const auto value = block.get_by_position(1).column->get_data_at(0);
+        EXPECT_EQ("POINT (1 2)", std::string(value.data, value.size));
+    }
+}
+
+TEST(VGeoFunctionsTest, function_geo_point_accessors_with_spatial_wkb) {
+    const std::string wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    for (const auto& [function_name, expected] :
+         std::vector<std::pair<std::string, double>> {{"st_x", 1.0}, {"st_y", 2.0}}) {
+        auto geometry_type = std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY);
+        auto geometry_column = ColumnSpatial::create(TYPE_GEOMETRY);
+        geometry_column->insert_data(wkb.data(), wkb.size());
+
+        ColumnsWithTypeAndName arguments {{std::move(geometry_column), geometry_type, "geometry"}};
+        auto result_type = make_nullable(std::make_shared<DataTypeFloat64>());
+        auto function = SimpleFunctionFactory::instance().get_function(function_name, arguments,
+                                                                       result_type);
+        ASSERT_NE(nullptr, function);
+
+        Block block;
+        block.insert(arguments.front());
+        block.insert({nullptr, result_type, "result"});
+        ASSERT_TRUE(function->execute(nullptr, block, {0}, 1, 1).ok());
+
+        const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+        EXPECT_EQ(0, result.get_null_map_data()[0]);
+        const auto& values = assert_cast<const ColumnFloat64&>(result.get_nested_column());
+        EXPECT_DOUBLE_EQ(expected, values.get_data()[0]);
     }
 }
 
