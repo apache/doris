@@ -448,7 +448,7 @@ public class PartitionCompensatorTest extends TestWithFeService {
 
         AsyncMaterializationContext matCtx = Mockito.mock(AsyncMaterializationContext.class);
         Mockito.when(matCtx.getMtmv()).thenReturn(mtmv);
-        Mockito.when(matCtx.calculatePartitionMappings()).thenReturn(partitionMappings);
+        Mockito.when(matCtx.calculatePartitionMappings(ArgumentMatchers.any())).thenReturn(partitionMappings);
 
         // StatementContext: the MV's two valid partitions are available for rewrite
         Map<BaseTableInfo, Collection<Partition>> canRewriteMap = new HashMap<>();
@@ -538,7 +538,7 @@ public class PartitionCompensatorTest extends TestWithFeService {
 
         AsyncMaterializationContext matCtx = Mockito.mock(AsyncMaterializationContext.class);
         Mockito.when(matCtx.getMtmv()).thenReturn(mtmv);
-        Mockito.when(matCtx.calculatePartitionMappings()).thenReturn(partitionMappings);
+        Mockito.when(matCtx.calculatePartitionMappings(ArgumentMatchers.any())).thenReturn(partitionMappings);
 
         Map<BaseTableInfo, Collection<Partition>> canRewriteMap = new HashMap<>();
         canRewriteMap.put(new BaseTableInfo(mtmv),
