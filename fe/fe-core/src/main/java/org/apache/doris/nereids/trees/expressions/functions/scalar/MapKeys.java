@@ -20,7 +20,9 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
+import org.apache.doris.nereids.trees.expressions.functions.ChildDerivedSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.PreserveChildTypePrecision;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -38,7 +40,8 @@ import java.util.List;
  * ScalarFunction 'map_keys'.
  */
 public class MapKeys extends ScalarFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable, PreferPushDownProject {
+        implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable, PreferPushDownProject,
+        ChildDerivedSignature, PreserveChildTypePrecision {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(ArrayType.of(new FollowToAnyDataType(0))).args(MapType.of(
@@ -74,5 +77,15 @@ public class MapKeys extends ScalarFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public FunctionSignature deriveSignatureFromChildren(
+            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments) {
+        MapType mapType = (MapType) ChildDerivedSignature.refreshNestedTypeMetadata(
+                resolvedSignature.getArgType(0), getArgument(0).getDataType(),
+                immediateOriginArguments.get(0).getDataType());
+        return resolvedSignature.withArgumentType(0, mapType)
+                .withReturnType(ArrayType.of(mapType.getKeyType()));
     }
 }

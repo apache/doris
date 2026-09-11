@@ -19,7 +19,9 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.ChildDerivedSignature;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.PreserveChildTypePrecision;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
@@ -33,7 +35,7 @@ import java.util.List;
  * ScalarFunction 'array_flatten'
  */
 public class ArrayFlatten extends ScalarFunction
-        implements CustomSignature, PropagateNullable {
+        implements CustomSignature, PropagateNullable, ChildDerivedSignature, PreserveChildTypePrecision {
 
     /**
      * constructor with 1 arguments.
@@ -54,6 +56,19 @@ public class ArrayFlatten extends ScalarFunction
             dataType = ((ArrayType) dataType).getItemType();
         }
         return FunctionSignature.ret(ArrayType.of(dataType)).args(getArgument(0).getDataType());
+    }
+
+    @Override
+    public FunctionSignature deriveSignatureFromChildren(
+            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments) {
+        DataType inputType = ChildDerivedSignature.refreshNestedTypeMetadata(
+                resolvedSignature.getArgType(0), getArgument(0).getDataType(),
+                immediateOriginArguments.get(0).getDataType());
+        DataType itemType = inputType;
+        while (itemType instanceof ArrayType) {
+            itemType = ((ArrayType) itemType).getItemType();
+        }
+        return resolvedSignature.withArgumentType(0, inputType).withReturnType(ArrayType.of(itemType));
     }
 
     /**

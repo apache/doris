@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureHelper.ComputeSignatureChain;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.ArrayType;
@@ -115,6 +116,19 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
                 .then(ComputeSignatureHelper::normalizeDecimalV2)
                 .then(ComputeSignatureHelper::ensureNestedNullableOfArray)
                 .get();
+    }
+
+    /**
+     * Refresh argument and return metadata that is derived directly from the current children after reusing a
+     * previously resolved signature. The immediate origin arguments are supplied with that signature so an override
+     * can distinguish an unchanged raw child from an unrelated replacement without eagerly recomputing either type.
+     * The default is intentionally identity: overload selection, coercion, and value-dependent precision decisions
+     * remain frozen across equivalent rewrites. An override must only rebuild metadata that the function definition
+     * derives from its children; it must not search overloads or rerun generic signature computation.
+     */
+    default FunctionSignature refreshDerivedSignature(
+            FunctionSignature signature, List<Expression> immediateOriginArguments) {
+        return signature;
     }
 
     /** use processor to process computeSignature */
