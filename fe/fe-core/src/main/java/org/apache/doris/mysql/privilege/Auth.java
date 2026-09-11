@@ -1962,6 +1962,12 @@ public class Auth implements Writable {
                 case SET_PASSWORD_POLICY:
                     passwdPolicyManager.updatePolicy(userIdent, null, passwordOptions);
                     break;
+                case LOCK_ACCOUNT:
+                    // MySQL-compatible ALTER USER ... ACCOUNT_LOCK: refuses the account's own logins
+                    // from now on (persisted + journaled). Not a session check: existing sessions are
+                    // unaffected, as in MySQL.
+                    passwdPolicyManager.lockUser(userIdent);
+                    break;
                 case UNLOCK_ACCOUNT:
                     passwdPolicyManager.unlockUser(userIdent);
                     break;

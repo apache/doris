@@ -116,7 +116,7 @@ public class AlterUserInfo {
         }
         passwordOptions.analyze();
         if (passwordOptions.getAccountUnlocked() == PasswordPolicy.FailedLoginPolicy.LOCK_ACCOUNT) {
-            throw new AnalysisException("Not support lock account now");
+            ops.add(AlterUserOpType.LOCK_ACCOUNT);
         } else if (passwordOptions.getAccountUnlocked() == PasswordPolicy.FailedLoginPolicy.UNLOCK_ACCOUNT) {
             ops.add(AlterUserOpType.UNLOCK_ACCOUNT);
         } else if (passwordOptions.getExpirePolicySecond() != PasswordOptions.UNSET

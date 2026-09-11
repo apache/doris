@@ -110,6 +110,11 @@ public class PasswordPolicyManager implements Writable {
         return passwordPolicy.getInfo();
     }
 
+    public void lockUser(UserIdentity userIdent) {
+        PasswordPolicy passwordPolicy = getOrCreatePolicy(userIdent);
+        passwordPolicy.lockAccount();
+    }
+
     public void unlockUser(UserIdentity userIdent) {
         if (!hasUser(userIdent)) {
             return;
