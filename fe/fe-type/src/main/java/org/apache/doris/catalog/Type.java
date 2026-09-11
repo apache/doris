@@ -651,8 +651,8 @@ public abstract class Type {
     }
 
     public static final String OnlyMetricTypeErrorMsg =
-            "Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function, and don't"
-                    + " support filter, group by or order by. please run 'help hll' or 'help bitmap' or 'help array'"
+            "Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function"
+                    + " in this context. please run 'help hll' or 'help bitmap' or 'help array'"
                     + " or 'help map' or 'help struct' or 'help jsonb' or 'help variant' in your mysql client.";
 
     public boolean isHllType() {
