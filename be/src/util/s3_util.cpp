@@ -470,7 +470,14 @@ Status S3ClientFactory::validate_azure_uri(const S3URI& uri, const S3ClientConf&
     const bool http_uri = uri.get_scheme() == "http" || uri.get_scheme() == "https";
     const auto uri_endpoint = normalize_azure_endpoint(
             http_uri ? uri.get_scheme() + "://" + uri.get_endpoint() : uri.get_endpoint());
-    if (endpoint_authority(endpoint) != endpoint_authority(uri_endpoint)) {
+    // ABFS/WASB authorities identify the logical Azure account, while a configured custom
+    // endpoint may be a proxy or emulator that intentionally has a different HTTP authority.
+    // The native client uses conf.endpoint as the transport origin; retain account validation
+    // below, but do not reject this valid proxy form. HTTP(S) locations carry their transport
+    // origin directly and must still match exactly.
+    const bool custom_transport = !S3URI::is_azure_endpoint(endpoint_authority(endpoint));
+    if (endpoint_authority(endpoint) != endpoint_authority(uri_endpoint) &&
+        !(custom_transport && !http_uri)) {
         return Status::InvalidArgument(
                 "Azure URI account host conflicts with the storage endpoint");
     }

@@ -788,6 +788,17 @@ TEST_F(S3ClientFactoryTest, RejectsNativeAzureLocationConflicts) {
     }
 }
 
+TEST_F(S3ClientFactoryTest, AllowsAbfsUriWithCustomAzureTransportEndpoint) {
+    auto properties = native_azure_shared_key_properties();
+    properties["AZURE_ENDPOINT"] = "https://proxy.example.test:8443/base";
+    S3URI uri("abfss://container@account.dfs.core.windows.net/path/file");
+    ASSERT_TRUE(uri.parse().ok());
+
+    S3Conf conf;
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, uri, &conf).ok());
+    EXPECT_TRUE(S3ClientFactory::validate_azure_uri(uri, conf.client_conf).ok());
+}
+
 TEST_F(S3ClientFactoryTest, NativeSharedKeyPreservesLegacyS3SpelledLocations) {
     const auto properties = native_azure_shared_key_properties();
     S3URI uri("s3://container/path%20with+encoding");
