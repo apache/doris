@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_backup_restore_retention_count", "backup_restore") {
+suite("test_backup_restore_retention_count", "backup_restore,nonConcurrent") {
     String suiteName = "test_backup_restore_retention_count"
     String dbName = "${suiteName}_db"
     String snapshotName = "${suiteName}_snapshot"
@@ -83,16 +83,24 @@ suite("test_backup_restore_retention_count", "backup_restore") {
     assertTrue(res[0][1].contains('"partition.retention_count" = "4"'))
 
     // Trigger recycle to verify retention_count works after restore
-    sql "admin set frontend config ('dynamic_partition_check_interval_seconds' = '1')"
-    sleep(8000)
+    def originalCheckInterval = getFeConfig("dynamic_partition_check_interval_seconds")
+    try {
+        sql "admin set frontend config ('dynamic_partition_check_interval_seconds' = '1')"
 
-    res = sql "SHOW PARTITIONS FROM ${dbName}.${tableName}"
-    assertEquals(4, res.size())
+        res = sql "SHOW PARTITIONS FROM ${dbName}.${tableName}"
+        for (int retry = 0; retry < 30 && res.size() != 4; retry++) {
+            logger.info("wait for partition retention, sleep 1s")
+            sleep(1000)
+            res = sql "SHOW PARTITIONS FROM ${dbName}.${tableName}"
+        }
+        assertEquals(4, res.size())
 
-    qt_select "SELECT * FROM ${dbName}.${tableName} ORDER BY k0"
+        qt_select "SELECT * FROM ${dbName}.${tableName} ORDER BY k0"
+    } finally {
+        sql "admin set frontend config ('dynamic_partition_check_interval_seconds' = '${originalCheckInterval}')"
+    }
 
     // Cleanup
-    sql "admin set frontend config ('dynamic_partition_check_interval_seconds' = '600')"
     sql "DROP TABLE ${dbName}.${tableName} FORCE"
     sql "DROP DATABASE ${dbName} FORCE"
     sql "DROP REPOSITORY `${repoName}`"
