@@ -737,6 +737,191 @@ stop_system_resource_monitor() {
     unset SYSTEM_RESOURCE_MONITOR_PID
 }
 
+_append_meta_service_memory_diagnostics() {
+    local output_file="$1"
+    local pid="$2"
+    local reason="$3"
+    local snapshot_number="$4"
+    local capture_bvars="$5"
+    local proc_root="${META_SERVICE_MEMORY_MONITOR_PROC_ROOT:-/proc}"
+    local process_dir="${proc_root}/${pid}"
+    local bvar_max_lines="${META_SERVICE_MEMORY_MONITOR_BVAR_MAX_LINES:-500}"
+    local bvar_max_bytes="${META_SERVICE_MEMORY_MONITOR_BVAR_MAX_BYTES:-262144}"
+    {
+        echo "==================== $(date '+%Y-%m-%d %H:%M:%S %z') ===================="
+        echo "snapshot=${snapshot_number} pid=${pid} reason=${reason}"
+        if [[ ! -d "${process_dir}" ]]; then
+            echo "meta-service process directory is missing: ${process_dir}"
+            grep -E '^(MemTotal|MemFree|MemAvailable|SwapTotal|SwapFree):' "${proc_root}/meminfo" || true
+            echo
+            return 0
+        fi
+
+        echo "[status]"
+        grep -E '^(Name|State|Pid|PPid|Threads|VmPeak|VmSize|VmRSS|RssAnon|RssFile|RssShmem|VmSwap):' \
+            "${process_dir}/status" || true
+        echo
+        echo "[smaps_rollup]"
+        cat "${process_dir}/smaps_rollup" 2>/dev/null || true
+        echo
+        echo "[host memory]"
+        grep -E '^(MemTotal|MemFree|MemAvailable|Buffers|Cached|SwapTotal|SwapFree|Slab|SReclaimable|SUnreclaim):' \
+            "${proc_root}/meminfo" || true
+        echo
+        echo "[process counts]"
+        echo "fd_count=$(find "${process_dir}/fd" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l)"
+        echo "task_count=$(find "${process_dir}/task" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)"
+        echo
+        echo "[process summary]"
+        ps -p "${pid}" -o pid,ppid,rss,vsz,%mem,%cpu,nlwp,etime,stat,comm,args || true
+        echo
+        if [[ "${capture_bvars}" == "true" ]]; then
+            echo "[filtered brpc bvars]"
+            curl --noproxy '*' --max-time 3 -fsS \
+                "${META_SERVICE_MEMORY_MONITOR_BVAR_URL:-http://127.0.0.1:5000/vars}" 2>/dev/null \
+                | grep -E -i '(^|[^[:alnum:]_])(iobuf|bthread|socket|fdb|txn_lazy|rowset|rpc|process|allocator)' \
+                | head -n "${bvar_max_lines}" | head -c "${bvar_max_bytes}" || true
+            echo
+        fi
+    } >>"${output_file}" 2>&1
+}
+
+start_meta_service_memory_monitor() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    if [[ -n "${META_SERVICE_MEMORY_MONITOR_PID:-}" ]] \
+            && kill -0 "${META_SERVICE_MEMORY_MONITOR_PID}" 2>/dev/null; then
+        echo "INFO: meta-service memory monitor already started, pid=${META_SERVICE_MEMORY_MONITOR_PID}"
+        return 0
+    fi
+
+    local interval="${META_SERVICE_MEMORY_MONITOR_INTERVAL_SECONDS:-5}"
+    local rss_threshold_kb="${META_SERVICE_MEMORY_MONITOR_RSS_THRESHOLD_KB:-3145728}"
+    local growth_window_seconds="${META_SERVICE_MEMORY_MONITOR_GROWTH_WINDOW_SECONDS:-60}"
+    local growth_threshold_kb="${META_SERVICE_MEMORY_MONITOR_GROWTH_THRESHOLD_KB:-1048576}"
+    local max_detailed_snapshots="${META_SERVICE_MEMORY_MONITOR_MAX_DETAILED_SNAPSHOTS:-24}"
+    local bvar_every_snapshots="${META_SERVICE_MEMORY_MONITOR_BVAR_EVERY_SNAPSHOTS:-6}"
+    local pid_file="${META_SERVICE_MEMORY_MONITOR_PID_FILE:-${DORIS_HOME}/ms/bin/doris_cloud.pid}"
+    local sample_file="${DORIS_HOME}/ms/log/meta_service_memory_samples.log"
+    local detail_file="${DORIS_HOME}/ms/log/meta_service_memory_diagnostics.log"
+    local trigger_marker="${DORIS_HOME}/ms/log/meta_service_memory_diagnostics.triggered"
+    mkdir -p "$(dirname "${sample_file}")"
+    echo "INFO: start meta-service memory monitor, interval=${interval}s, rss_threshold_kb=${rss_threshold_kb}, growth_threshold_kb=${growth_threshold_kb}/${growth_window_seconds}s"
+    echo "timestamp pid rss_kb vm_size_kb threads mem_available_kb" >>"${sample_file}"
+
+    (
+        set +e
+        monitor_sleep_pid=""
+        monitor_cleanup() {
+            if [[ -n "${monitor_sleep_pid}" ]]; then
+                kill "${monitor_sleep_pid}" 2>/dev/null || true
+                wait "${monitor_sleep_pid}" 2>/dev/null || true
+            fi
+            exit 0
+        }
+        trap monitor_cleanup TERM INT
+
+        baseline_pid=""
+        baseline_rss_kb=0
+        baseline_time=0
+        diagnostics_active=false
+        diagnostics_exhausted=false
+        detail_count=0
+        missing_after_trigger_logged=false
+        trigger_reason=""
+
+        while true; do
+            now_epoch=$(date +%s)
+            now_text=$(date '+%Y-%m-%dT%H:%M:%S%z')
+            ms_pid=""
+            if [[ -r "${pid_file}" ]]; then
+                read -r ms_pid <"${pid_file}"
+            fi
+            proc_root="${META_SERVICE_MEMORY_MONITOR_PROC_ROOT:-/proc}"
+            status_file="${proc_root}/${ms_pid}/status"
+            if [[ ! "${ms_pid}" =~ ^[0-9]+$ ]] || [[ ! -r "${status_file}" ]]; then
+                printf '%s pid=missing mem_available_kb=%s\n' "${now_text}" \
+                    "$(awk '/^MemAvailable:/ {print $2}' "${proc_root}/meminfo" 2>/dev/null)" >>"${sample_file}"
+                if ${diagnostics_active} && ! ${missing_after_trigger_logged}; then
+                    echo "==================== $(date '+%Y-%m-%d %H:%M:%S %z') ====================" >>"${detail_file}"
+                    echo "meta-service process missing after trigger: ${trigger_reason}" >>"${detail_file}"
+                    grep -E '^(MemTotal|MemFree|MemAvailable|SwapTotal|SwapFree):' "${proc_root}/meminfo" \
+                        >>"${detail_file}" 2>&1 || true
+                    echo >>"${detail_file}"
+                    missing_after_trigger_logged=true
+                    diagnostics_active=false
+                fi
+            else
+                rss_kb=$(awk '/^VmRSS:/ {print $2}' "${status_file}")
+                vm_size_kb=$(awk '/^VmSize:/ {print $2}' "${status_file}")
+                threads=$(awk '/^Threads:/ {print $2}' "${status_file}")
+                mem_available_kb=$(awk '/^MemAvailable:/ {print $2}' "${proc_root}/meminfo")
+                printf '%s pid=%s rss_kb=%s vm_size_kb=%s threads=%s mem_available_kb=%s\n' \
+                    "${now_text}" "${ms_pid}" "${rss_kb:-0}" "${vm_size_kb:-0}" "${threads:-0}" \
+                    "${mem_available_kb:-0}" >>"${sample_file}"
+
+                if [[ "${baseline_pid}" != "${ms_pid}" ]]; then
+                    baseline_pid="${ms_pid}"
+                    baseline_rss_kb="${rss_kb:-0}"
+                    baseline_time="${now_epoch}"
+                fi
+
+                elapsed_seconds=$((now_epoch - baseline_time))
+                growth_kb=$((${rss_kb:-0} - baseline_rss_kb))
+                if ! ${diagnostics_exhausted} && ! ${diagnostics_active}; then
+                    if ((${rss_kb:-0} >= rss_threshold_kb)); then
+                        trigger_reason="rss_threshold rss_kb=${rss_kb} threshold_kb=${rss_threshold_kb}"
+                        diagnostics_active=true
+                    elif ((elapsed_seconds >= growth_window_seconds && growth_kb >= growth_threshold_kb)); then
+                        trigger_reason="growth_threshold growth_kb=${growth_kb} elapsed_seconds=${elapsed_seconds}"
+                        diagnostics_active=true
+                    fi
+                    if ${diagnostics_active}; then
+                        printf '%s\n' "${trigger_reason}" >"${trigger_marker}"
+                    fi
+                fi
+
+                if ${diagnostics_active}; then
+                    detail_count=$((detail_count + 1))
+                    capture_bvars=false
+                    if ((detail_count == 1 || detail_count % bvar_every_snapshots == 0)); then
+                        capture_bvars=true
+                    fi
+                    _append_meta_service_memory_diagnostics "${detail_file}" "${ms_pid}" "${trigger_reason}" \
+                        "${detail_count}" "${capture_bvars}"
+                    if ((detail_count >= max_detailed_snapshots)); then
+                        echo "INFO: detailed meta-service memory snapshot limit reached: ${max_detailed_snapshots}" \
+                            >>"${detail_file}"
+                        diagnostics_active=false
+                        diagnostics_exhausted=true
+                    fi
+                fi
+
+                if ((elapsed_seconds >= growth_window_seconds)); then
+                    baseline_rss_kb="${rss_kb:-0}"
+                    baseline_time="${now_epoch}"
+                fi
+            fi
+
+            sleep "${interval}" &
+            monitor_sleep_pid="$!"
+            wait "${monitor_sleep_pid}"
+            monitor_sleep_pid=""
+        done
+    ) &
+    META_SERVICE_MEMORY_MONITOR_PID="$!"
+    export META_SERVICE_MEMORY_MONITOR_PID
+}
+
+stop_meta_service_memory_monitor() {
+    if [[ -z "${META_SERVICE_MEMORY_MONITOR_PID:-}" ]]; then return 0; fi
+    if kill -0 "${META_SERVICE_MEMORY_MONITOR_PID}" 2>/dev/null; then
+        kill "${META_SERVICE_MEMORY_MONITOR_PID}" 2>/dev/null || true
+        wait "${META_SERVICE_MEMORY_MONITOR_PID}" 2>/dev/null || true
+        echo "INFO: stop meta-service memory monitor, pid=${META_SERVICE_MEMORY_MONITOR_PID}"
+    fi
+    unset META_SERVICE_MEMORY_MONITOR_PID
+}
+
 _redact_creds() {
     local expr="" v escaped
     for v in "${hwYunAk:-}" "${hwYunSk:-}" "${s3SourceAk:-}" "${s3SourceSk:-}" "${txYunAk:-}" "${txYunSk:-}"; do
