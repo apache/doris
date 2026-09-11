@@ -111,6 +111,10 @@ public:
     }
 
     void check_empty_and_reset(const Arguments& first, const Arguments& second) {
+        check_merge_result({}, first, false);
+        check_merge_result({}, first, true);
+        check_merge_result(first, {}, false);
+        check_merge_result(first, {}, true);
         auto* destination = create(first);
         auto* source = create();
         EXPECT_NO_THROW(_function->merge(destination, source, _arena));
@@ -123,6 +127,34 @@ public:
         EXPECT_NO_THROW(
                 _function->deserialize_and_merge_from_column(destination, *serialized, _arena));
         EXPECT_TRUE(ColumnHelper::column_equal(result(destination), result(create(second))));
+    }
+
+    void check_mismatch_and_reset(const Arguments& first, const Arguments& second) {
+        check_mismatch(first, second);
+        auto* reset_state = create(first);
+        _function->reset(reset_state);
+        auto* configured = create(second);
+        auto serialized = serialize(reset_state);
+        EXPECT_NO_THROW(
+                _function->deserialize_and_merge_from_column(configured, *serialized, _arena));
+        EXPECT_TRUE(ColumnHelper::column_equal(result(configured), result(create(second))));
+        EXPECT_NO_THROW(_function->merge(reset_state, create(second), _arena));
+        EXPECT_TRUE(ColumnHelper::column_equal(result(reset_state), result(create(second))));
+    }
+
+    void check_configured_empty_payload(const Arguments& arguments) {
+        // TopN with zero capacity keeps counters in memory but serializes no counters.
+        // A decoded state must preserve configuration without changing compatible counters.
+        auto serialized = serialize(create(arguments));
+        auto* configured_empty = create();
+        _function->deserialize_and_merge_from_column(configured_empty, *serialized, _arena);
+        auto* populated = create(arguments);
+        EXPECT_NO_THROW(
+                _function->deserialize_and_merge_from_column(populated, *serialized, _arena));
+        EXPECT_TRUE(ColumnHelper::column_equal(result(populated), result(create(arguments))));
+        EXPECT_NO_THROW(_function->merge(configured_empty, create(arguments), _arena));
+        EXPECT_TRUE(
+                ColumnHelper::column_equal(result(configured_empty), result(create(arguments))));
     }
 
     void check_compatible(const Arguments& arguments) {
@@ -214,6 +246,27 @@ void check_parameters(const std::string& name, const Arguments& first, const Arg
         checks.check_compatible(lhs_args);
     }
 }
+
+void check_compatible_states(const std::string& name, const Arguments& first,
+                             const Arguments& second) {
+    SCOPED_TRACE(name);
+    DataTypes types;
+    for (const auto& arg : first) {
+        types.push_back(arg.type);
+    }
+    auto function = AggregateFunctionSimpleFactory::instance().get(
+            name, types, nullptr, false, BeExecVersionManager::get_newest_version());
+    ASSERT_NE(function, nullptr);
+    function->set_version(BeExecVersionManager::get_newest_version());
+    StateParameterChecks checks(function);
+    for (const auto& initial : {Arguments {}, first, second}) {
+        for (const auto& incoming : {Arguments {}, first, second}) {
+            for (bool serialized : {false, true}) {
+                checks.check_merge_result(initial, incoming, serialized);
+            }
+        }
+    }
+}
 } // namespace
 
 TEST(AggregateStateParametersTest, TopN) {
@@ -245,6 +298,36 @@ TEST(AggregateStateParametersTest, Histogram) {
                      {value, argument<DataTypeInt32>(3)});
 }
 
+TEST(AggregateStateParametersTest, TopNZeroCapacityParameters) {
+    for (const auto& name : {"topn", "topn_array", "topn_weighted"}) {
+        SCOPED_TRACE(name);
+        Arguments zero_capacity {argument<DataTypeString>("a")};
+        if (std::string(name) == "topn_weighted") {
+            zero_capacity.push_back(argument<DataTypeInt64>(1));
+        }
+        zero_capacity.push_back(argument<DataTypeInt32>(1));
+        zero_capacity.push_back(argument<DataTypeInt32>(0));
+        auto positive_capacity = zero_capacity;
+        positive_capacity.back() = argument<DataTypeInt32>(2);
+        DataTypes types;
+        for (const auto& arg : zero_capacity) {
+            types.push_back(arg.type);
+        }
+        auto function = AggregateFunctionSimpleFactory::instance().get(
+                name, types, nullptr, false, BeExecVersionManager::get_newest_version());
+        ASSERT_NE(function, nullptr);
+        StateParameterChecks checks(function);
+        // A zero capacity serializes no retained elements but still establishes N/capacity.
+        checks.check_mismatch(zero_capacity, positive_capacity);
+        checks.check_mismatch(positive_capacity, zero_capacity);
+        checks.check_mismatch_and_reset(zero_capacity, positive_capacity);
+        checks.check_merge_result({}, zero_capacity, false);
+        checks.check_merge_result(zero_capacity, {}, false);
+        checks.check_merge_result(zero_capacity, {}, true);
+        checks.check_configured_empty_payload(zero_capacity);
+    }
+}
+
 TEST(AggregateStateParametersTest, Percentiles) {
     auto value = argument<DataTypeFloat64>(7);
     for (const auto& name :
@@ -271,6 +354,31 @@ TEST(AggregateStateParametersTest, Percentiles) {
                       argument<DataTypeFloat64>(4096)});
 }
 
+TEST(AggregateStateParametersTest, PercentileConfiguredEmptyParameters) {
+    const auto nan = argument<DataTypeFloat64>(std::numeric_limits<double>::quiet_NaN());
+    const auto value = argument<DataTypeFloat64>(7);
+    for (const auto& name : {"percentile_v2", "percentile_approx", "percentile_reservoir"}) {
+        for (double level : {0.0, 0.25, 1.0}) {
+            const auto quantile = argument<DataTypeFloat64>(level);
+            for (const auto& sample : {nan, value}) {
+                check_parameters(name, {nan, quantile}, {sample, argument<DataTypeFloat64>(0.75)});
+            }
+            check_compatible_states(name, {nan, quantile}, {value, quantile});
+        }
+    }
+    for (const auto& name : {"percentile_array_v2", "percentile_approx_array"}) {
+        check_parameters(name, {nan, quantiles({0.25})}, {value, quantiles({0.75})});
+        check_parameters(name, {nan, quantiles({0.25})}, {nan, quantiles({0.75})});
+        check_compatible_states(name, {nan, quantiles({0.25})}, {value, quantiles({0.25})});
+    }
+    check_parameters("percentile_approx_weighted",
+                     {value, argument<DataTypeFloat64>(0), argument<DataTypeFloat64>(0.25)},
+                     {value, argument<DataTypeFloat64>(1), argument<DataTypeFloat64>(0.75)});
+    check_compatible_states("percentile_approx_weighted",
+                            {value, argument<DataTypeFloat64>(0), argument<DataTypeFloat64>(0.25)},
+                            {value, argument<DataTypeFloat64>(1), argument<DataTypeFloat64>(0.25)});
+}
+
 TEST(AggregateStateParametersTest, CollectAndConcat) {
     for (const auto& name : {"collect_list", "collect_set"}) {
         for (const auto& value : {argument<DataTypeInt32>(7), argument<DataTypeString>("a")}) {
@@ -285,6 +393,33 @@ TEST(AggregateStateParametersTest, CollectAndConcat) {
                      {value, argument<DataTypeString>(";")});
 }
 
+TEST(AggregateStateParametersTest, CollectZeroAndNegativeLimits) {
+    for (const auto& name : {"collect_list", "collect_set"}) {
+        for (const auto& value : {argument<DataTypeInt32>(7), argument<DataTypeString>("a")}) {
+            for (int limit : {std::numeric_limits<Int32>::min(), -2, -1, 0,
+                              std::numeric_limits<Int32>::max()}) {
+                check_parameters(name, {value, argument<DataTypeInt32>(limit)},
+                                 {value, argument<DataTypeInt32>(1)});
+            }
+            check_parameters(name, {value, argument<DataTypeInt32>(-1)},
+                             {value, argument<DataTypeInt32>(-2)});
+        }
+    }
+    for (int limit : {-2, -1, 0}) {
+        check_parameters("collect_list", {quantiles({0.5}), argument<DataTypeInt32>(limit)},
+                         {quantiles({0.5}), argument<DataTypeInt32>(1)});
+    }
+}
+
+TEST(AggregateStateParametersTest, GroupConcatEmptyStrings) {
+    auto empty = argument<DataTypeString>("");
+    auto comma = argument<DataTypeString>(",");
+    auto semicolon = argument<DataTypeString>(";");
+    check_parameters("group_concat", {empty, comma}, {empty, semicolon});
+    check_parameters("group_concat", {empty, comma}, {argument<DataTypeString>("a"), semicolon});
+    check_compatible_states("group_concat", {empty, comma}, {argument<DataTypeString>("a"), comma});
+}
+
 TEST(AggregateStateParametersTest, IntersectCount) {
     auto bitmap_column = ColumnBitmap::create();
     bitmap_column->insert_value(BitmapValue {uint64_t(1)});
@@ -295,6 +430,14 @@ TEST(AggregateStateParametersTest, IntersectCount) {
     auto text = argument<DataTypeString>("a");
     check_parameters("intersect_count", {bitmap, text, argument<DataTypeString>("a")},
                      {bitmap, text, argument<DataTypeString>("b")});
+    auto empty_column = ColumnBitmap::create();
+    empty_column->insert_value(BitmapValue {});
+    ColumnWithTypeAndName empty_bitmap {std::move(empty_column), std::make_shared<DataTypeBitMap>(),
+                                        ""};
+    check_parameters("intersect_count", {empty_bitmap, value, argument<DataTypeInt32>(1)},
+                     {bitmap, value, argument<DataTypeInt32>(2)});
+    check_parameters("intersect_count", {empty_bitmap, text, argument<DataTypeString>("a")},
+                     {empty_bitmap, text, argument<DataTypeString>("b")});
 }
 
 TEST(AggregateStateParametersTest, ExponentialMovingAverage) {
@@ -302,6 +445,12 @@ TEST(AggregateStateParametersTest, ExponentialMovingAverage) {
     auto time = argument<DataTypeFloat64>(1);
     check_parameters("exponential_moving_average", {argument<DataTypeFloat64>(1), value, time},
                      {argument<DataTypeFloat64>(2), value, time});
+    check_parameters("exponential_moving_average", {argument<DataTypeFloat64>(0), value, time},
+                     {argument<DataTypeFloat64>(1), value, time});
+    auto zero = argument<DataTypeFloat64>(0);
+    check_parameters("exponential_moving_average", {zero, zero, zero},
+                     {argument<DataTypeFloat64>(1), value, time});
+    check_compatible_states("exponential_moving_average", {zero, zero, zero}, {zero, value, time});
 }
 
 TEST(AggregateStateParametersTest, ExponentialMovingAverageNaNOutputs) {

@@ -120,7 +120,11 @@ struct WindowFunnelState {
         events_list.event_columns_data.resize(event_count);
     }
 
-    void reset() { events_list.clear(); }
+    void reset() {
+        events_list.clear();
+        window = 0;
+        window_funnel_mode = WindowFunnelMode::INVALID;
+    }
 
     void add(const IColumn** arg_columns, ssize_t row_num, int64_t win, WindowFunnelMode mode) {
         window = win;

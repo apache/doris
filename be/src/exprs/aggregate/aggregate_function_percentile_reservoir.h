@@ -45,13 +45,11 @@ struct QuantileReservoirSampler {
     }
 
     void merge(const QuantileReservoirSampler& rhs) {
-        // States without non-NaN samples are non-contributing, even if add() recorded a level.
-        // Their levels are intentionally ignored in either merge order, including after
-        // serialization. Only states with non-NaN samples must have matching levels.
-        if (rhs.data.empty()) {
+        // NaN samples do not erase the quantile established by a non-null input row.
+        if (rhs.level == INIT_QUANTILE) {
             return;
         }
-        if (data.empty()) {
+        if (level == INIT_QUANTILE) {
             level = rhs.level;
         } else if (UNLIKELY(level != rhs.level)) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
@@ -61,7 +59,7 @@ struct QuantileReservoirSampler {
     }
 
     void reset() {
-        level = 0.0;
+        level = INIT_QUANTILE;
         data.clear();
     }
 
@@ -82,7 +80,9 @@ struct QuantileReservoirSampler {
     }
 
 private:
-    double level = 0.0;
+    // Valid quantiles include zero, so use an out-of-range value for fresh/reset states.
+    static constexpr double INIT_QUANTILE = -1.0;
+    double level = INIT_QUANTILE;
     ReservoirSampler data;
 };
 

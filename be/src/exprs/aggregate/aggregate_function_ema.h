@@ -21,6 +21,7 @@
 #pragma once
 
 #include <cmath>
+#include <limits>
 #include <memory>
 
 #include "common/exception.h"
@@ -58,14 +59,15 @@ class IColumn;
  *   - timeunit:   numeric time index (not raw timestamp; use intDiv if needed)
  * Returns DOUBLE.
  *
- * A zero half_decay returns 0 and is also the empty-state marker. Serialized
- * zero-half-decay states do not contribute to _merge/_union and do not trigger
- * a half-decay mismatch. Compatibility checks apply to nonzero half decays.
+ * A zero half_decay returns 0 but remains an initialized configuration. Only
+ * fresh/reset states are identities; all initialized states must have matching
+ * half decays when merged.
  */
 struct ExponentialMovingAverageData {
     double value = 0.0;
     double time = 0.0;
     double half_decay = 0.0;
+    bool initialized = false;
 
     static double scale(double time_passed, double hd) { return std::exp2(-time_passed / hd); }
 
@@ -73,6 +75,7 @@ struct ExponentialMovingAverageData {
 
     void add(double new_value, double current_time, double hd) {
         half_decay = hd;
+        initialized = true;
         ExponentialMovingAverageData other;
         other.value = new_value;
         other.time = current_time;
@@ -91,12 +94,14 @@ struct ExponentialMovingAverageData {
     }
 
     void merge(const ExponentialMovingAverageData& rhs) {
-        if (rhs.half_decay == 0.0) {
+        if (!rhs.initialized) {
             return;
         }
-        if (half_decay == 0.0) {
-            half_decay = rhs.half_decay;
-        } else if (UNLIKELY(half_decay != rhs.half_decay)) {
+        if (!initialized) {
+            *this = rhs;
+            return;
+        }
+        if (UNLIKELY(half_decay != rhs.half_decay)) {
             throw Exception(
                     ErrorCode::INVALID_ARGUMENT,
                     "exponential_moving_average aggregate states have incompatible half decay");
@@ -116,13 +121,19 @@ struct ExponentialMovingAverageData {
         check_half_decay();
         buf.write_binary(value);
         buf.write_binary(time);
-        buf.write_binary(half_decay);
+        // NaN is rejected for configured states, so it can encode initialization without
+        // adding a field or colliding with the valid zero half-decay configuration.
+        buf.write_binary(initialized ? half_decay : std::numeric_limits<double>::quiet_NaN());
     }
 
     void read(BufferReadable& buf) {
         buf.read_binary(value);
         buf.read_binary(time);
         buf.read_binary(half_decay);
+        initialized = !std::isnan(half_decay);
+        if (!initialized) {
+            half_decay = 0.0;
+        }
     }
 
     void check_half_decay() const {
@@ -136,6 +147,7 @@ struct ExponentialMovingAverageData {
         value = 0.0;
         time = 0.0;
         half_decay = 0.0;
+        initialized = false;
     }
 };
 

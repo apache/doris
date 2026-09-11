@@ -96,6 +96,16 @@ struct AggregateFunctionTopNData {
                             top_num, capacity, rhs.top_num, rhs.capacity);
         }
 
+        // Empty payloads still carry configuration. Check it above, then avoid treating
+        // an empty zero-capacity map as full and adding UINT64_MAX to real counters.
+        if (rhs.counter_map.empty()) {
+            return;
+        }
+        if (counter_map.empty()) {
+            counter_map = rhs.counter_map;
+            return;
+        }
+
         bool lhs_full = (counter_map.size() >= capacity);
         bool rhs_full = (rhs.counter_map.size() >= capacity);
 
