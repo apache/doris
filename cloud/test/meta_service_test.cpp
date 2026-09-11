@@ -2781,7 +2781,7 @@ TEST(MetaServiceTest, GetCurrentMaxTxnIdTest) {
     ASSERT_GE(max_txn_id_res.current_max_txn_id(), begin_txn_res.txn_id());
 }
 
-TEST(MetaServiceTest, StrictTsoRecoveryChecksAllDatabasesAndExpiredLazyTransactions) {
+TEST(MetaServiceTest, TsoRecoveryChecksAllDatabasesAndExpiredLazyTransactions) {
     auto meta_service = get_meta_service();
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -2796,32 +2796,32 @@ TEST(MetaServiceTest, StrictTsoRecoveryChecksAllDatabasesAndExpiredLazyTransacti
     TxnInfoPB info;
     info.set_db_id(999);
     info.set_txn_id(50);
+    info.add_table_ids(777);
     info.set_status(TxnStatusPB::TXN_STATUS_COMMITTED);
     const auto info_key = txn_info_key({mock_instance, 999, 50});
     txn->put(info_key, info.SerializeAsString());
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
     brpc::Controller cntl;
-    CheckTxnConflictRequest request;
+    GetTsoRecoveryTransactionsRequest request;
     request.set_cloud_unique_id("test_cloud_unique_id");
     request.set_end_txn_id(100);
-    request.set_strict_recovery_check(true);
-    CheckTxnConflictResponse response;
-    meta_service->check_txn_conflict(&cntl, &request, &response, nullptr);
+    request.set_batch_size(256);
+    GetTsoRecoveryTransactionsResponse response;
+    meta_service->get_tso_recovery_transactions(&cntl, &request, &response, nullptr);
     ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
-    ASSERT_TRUE(response.strict_recovery_check_applied());
-    ASSERT_FALSE(response.finished());
+    ASSERT_EQ(response.txn_infos_size(), 1);
 
     // The legacy table-scoped check still skips expired transactions; its result cannot recover TSO.
-    CheckTxnConflictRequest legacy = request;
-    legacy.clear_strict_recovery_check();
+    CheckTxnConflictRequest legacy;
+    legacy.set_cloud_unique_id("test_cloud_unique_id");
+    legacy.set_end_txn_id(100);
     legacy.set_db_id(999);
     legacy.add_table_ids(777);
-    response.Clear();
-    meta_service->check_txn_conflict(&cntl, &legacy, &response, nullptr);
-    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
-    ASSERT_TRUE(response.finished());
-    ASSERT_FALSE(response.has_strict_recovery_check_applied());
+    CheckTxnConflictResponse legacy_response;
+    meta_service->check_txn_conflict(&cntl, &legacy, &legacy_response, nullptr);
+    ASSERT_EQ(legacy_response.status().code(), MetaServiceCode::OK);
+    ASSERT_TRUE(legacy_response.finished());
 
     // Real publication removes the running key in the same KV transaction as the terminal state.
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -2830,14 +2830,15 @@ TEST(MetaServiceTest, StrictTsoRecoveryChecksAllDatabasesAndExpiredLazyTransacti
     txn->remove(blocking_key);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     response.Clear();
-    meta_service->check_txn_conflict(&cntl, &request, &response, nullptr);
+    meta_service->get_tso_recovery_transactions(&cntl, &request, &response, nullptr);
     ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
-    ASSERT_TRUE(response.strict_recovery_check_applied());
-    ASSERT_TRUE(
-            response.finished()); // IDs equal to or above the fixed exclusive bound are ignored.
+    // IDs equal to or above the fixed exclusive bound are ignored.
+    ASSERT_EQ(response.txn_infos_size(), 0);
+    ASSERT_TRUE(response.has_next_start_key());
+    ASSERT_TRUE(response.next_start_key().empty());
 }
 
-TEST(MetaServiceTest, StrictTsoRecoveryRejectsMalformedRunningKeys) {
+TEST(MetaServiceTest, TsoRecoveryRejectsMalformedRunningKeys) {
     auto meta_service = get_meta_service();
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -2846,14 +2847,14 @@ TEST(MetaServiceTest, StrictTsoRecoveryRejectsMalformedRunningKeys) {
     txn->put(key, "");
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     brpc::Controller cntl;
-    CheckTxnConflictRequest request;
+    GetTsoRecoveryTransactionsRequest request;
     request.set_cloud_unique_id("test_cloud_unique_id");
     request.set_end_txn_id(100);
-    request.set_strict_recovery_check(true);
-    CheckTxnConflictResponse response;
-    meta_service->check_txn_conflict(&cntl, &request, &response, nullptr);
+    request.set_batch_size(256);
+    GetTsoRecoveryTransactionsResponse response;
+    meta_service->get_tso_recovery_transactions(&cntl, &request, &response, nullptr);
     ASSERT_NE(response.status().code(), MetaServiceCode::OK);
-    ASSERT_FALSE(response.finished());
+    ASSERT_FALSE(response.has_next_start_key());
 }
 
 TEST(MetaServiceTest, TsoRecoveryBatchesUseCurrentTablesAndKeepExpiredTransactions) {
@@ -2884,38 +2885,35 @@ TEST(MetaServiceTest, TsoRecoveryBatchesUseCurrentTablesAndKeepExpiredTransactio
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
     brpc::Controller cntl;
-    CheckTxnConflictRequest request;
+    GetTsoRecoveryTransactionsRequest request;
     request.set_cloud_unique_id("test_cloud_unique_id");
     request.set_end_txn_id(100);
-    request.set_strict_recovery_check(true);
-    request.set_recovery_batch_size(2);
-    CheckTxnConflictResponse response;
-    meta_service->check_txn_conflict(&cntl, &request, &response, nullptr);
+    request.set_batch_size(2);
+    GetTsoRecoveryTransactionsResponse response;
+    meta_service->get_tso_recovery_transactions(&cntl, &request, &response, nullptr);
     ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
-    ASSERT_TRUE(response.strict_recovery_check_applied());
-    ASSERT_TRUE(response.recovery_batch_applied());
-    ASSERT_FALSE(response.next_recovery_key().empty());
-    ASSERT_EQ(response.conflict_txns_size(), 1);
-    EXPECT_EQ(response.conflict_txns(0).txn_id(), 99);
-    EXPECT_EQ(response.conflict_txns(0).commit_tso(), 12345);
-    EXPECT_EQ(response.conflict_txns(0).table_ids(0), 100);
+    ASSERT_FALSE(response.next_start_key().empty());
+    ASSERT_EQ(response.txn_infos_size(), 1);
+    EXPECT_EQ(response.txn_infos(0).txn_id(), 99);
+    EXPECT_EQ(response.txn_infos(0).commit_tso(), 12345);
+    EXPECT_EQ(response.txn_infos(0).table_ids(0), 100);
 
     // Deleting already scanned keys does not invalidate the next batch position.
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     txn->remove(txn_running_key({mock_instance, 1, 99}));
     txn->remove(txn_running_key({mock_instance, 1, 100}));
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
-    request.set_recovery_start_key(response.next_recovery_key());
+    request.set_start_key(response.next_start_key());
     response.Clear();
-    meta_service->check_txn_conflict(&cntl, &request, &response, nullptr);
+    meta_service->get_tso_recovery_transactions(&cntl, &request, &response, nullptr);
     ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
-    ASSERT_TRUE(response.has_next_recovery_key());
-    ASSERT_TRUE(response.next_recovery_key().empty());
-    ASSERT_EQ(response.conflict_txns_size(), 1);
-    EXPECT_EQ(response.conflict_txns(0).db_id(), 2);
-    EXPECT_EQ(response.conflict_txns(0).txn_id(), 10);
-    EXPECT_EQ(response.conflict_txns(0).table_ids(0), 300);
-    EXPECT_FALSE(response.conflict_txns(0).has_commit_tso());
+    ASSERT_TRUE(response.has_next_start_key());
+    ASSERT_TRUE(response.next_start_key().empty());
+    ASSERT_EQ(response.txn_infos_size(), 1);
+    EXPECT_EQ(response.txn_infos(0).db_id(), 2);
+    EXPECT_EQ(response.txn_infos(0).txn_id(), 10);
+    EXPECT_EQ(response.txn_infos(0).table_ids(0), 300);
+    EXPECT_FALSE(response.txn_infos(0).has_commit_tso());
 }
 
 TEST(MetaServiceTest, TsoRecoveryBatchCanBeEmptyBeforeTheScanCompletes) {
@@ -2934,61 +2932,62 @@ TEST(MetaServiceTest, TsoRecoveryBatchCanBeEmptyBeforeTheScanCompletes) {
     txn->put(txn_info_key({mock_instance, 2, 10}), info.SerializeAsString());
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     brpc::Controller cntl;
-    CheckTxnConflictRequest request;
+    GetTsoRecoveryTransactionsRequest request;
     request.set_cloud_unique_id("test_cloud_unique_id");
     request.set_end_txn_id(100);
-    request.set_strict_recovery_check(true);
-    request.set_recovery_batch_size(1);
-    CheckTxnConflictResponse response;
-    meta_service->check_txn_conflict(&cntl, &request, &response, nullptr);
+    request.set_batch_size(1);
+    GetTsoRecoveryTransactionsResponse response;
+    meta_service->get_tso_recovery_transactions(&cntl, &request, &response, nullptr);
     ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
-    ASSERT_EQ(response.conflict_txns_size(), 0);
-    ASSERT_FALSE(response.next_recovery_key().empty());
-    request.set_recovery_start_key(response.next_recovery_key());
+    ASSERT_EQ(response.txn_infos_size(), 0);
+    ASSERT_FALSE(response.next_start_key().empty());
+    request.set_start_key(response.next_start_key());
     response.Clear();
-    meta_service->check_txn_conflict(&cntl, &request, &response, nullptr);
+    meta_service->get_tso_recovery_transactions(&cntl, &request, &response, nullptr);
     ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
-    ASSERT_EQ(response.conflict_txns_size(), 1);
-    EXPECT_EQ(response.conflict_txns(0).txn_id(), 10);
+    ASSERT_EQ(response.txn_infos_size(), 1);
+    EXPECT_EQ(response.txn_infos(0).txn_id(), 10);
     // Hitting the KV batch limit can require one final empty batch to establish completion.
-    ASSERT_FALSE(response.next_recovery_key().empty());
-    request.set_recovery_start_key(response.next_recovery_key());
+    ASSERT_FALSE(response.next_start_key().empty());
+    request.set_start_key(response.next_start_key());
     response.Clear();
-    meta_service->check_txn_conflict(&cntl, &request, &response, nullptr);
+    meta_service->get_tso_recovery_transactions(&cntl, &request, &response, nullptr);
     ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
-    EXPECT_EQ(response.conflict_txns_size(), 0);
-    EXPECT_TRUE(response.has_next_recovery_key());
-    EXPECT_TRUE(response.next_recovery_key().empty());
+    EXPECT_EQ(response.txn_infos_size(), 0);
+    EXPECT_TRUE(response.has_next_start_key());
+    EXPECT_TRUE(response.next_start_key().empty());
 }
 
 TEST(MetaServiceTest, TsoRecoveryBatchRejectsInvalidArgumentsAndMissingDetails) {
     auto meta_service = get_meta_service();
     brpc::Controller cntl;
-    CheckTxnConflictRequest request;
+    GetTsoRecoveryTransactionsRequest request;
     request.set_cloud_unique_id("test_cloud_unique_id");
+    request.set_batch_size(256);
+    GetTsoRecoveryTransactionsResponse response;
+    meta_service->get_tso_recovery_transactions(&cntl, &request, &response, nullptr);
+    EXPECT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
     request.set_end_txn_id(100);
-    request.set_strict_recovery_check(true);
-    CheckTxnConflictResponse response;
     for (int size : {0, 1001}) {
-        request.set_recovery_batch_size(size);
+        request.set_batch_size(size);
         response.Clear();
-        meta_service->check_txn_conflict(&cntl, &request, &response, nullptr);
+        meta_service->get_tso_recovery_transactions(&cntl, &request, &response, nullptr);
         EXPECT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
     }
-    request.set_recovery_batch_size(1);
-    request.set_recovery_start_key(txn_running_key({"another_instance", 1, 1}));
+    request.set_batch_size(1);
+    request.set_start_key(txn_running_key({"another_instance", 1, 1}));
     response.Clear();
-    meta_service->check_txn_conflict(&cntl, &request, &response, nullptr);
+    meta_service->get_tso_recovery_transactions(&cntl, &request, &response, nullptr);
     EXPECT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
-    request.clear_recovery_start_key();
+    request.clear_start_key();
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     txn->put(txn_running_key({mock_instance, 1, 10}), TxnRunningPB().SerializeAsString());
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     response.Clear();
-    meta_service->check_txn_conflict(&cntl, &request, &response, nullptr);
+    meta_service->get_tso_recovery_transactions(&cntl, &request, &response, nullptr);
     EXPECT_NE(response.status().code(), MetaServiceCode::OK);
-    EXPECT_FALSE(response.has_next_recovery_key());
+    EXPECT_FALSE(response.has_next_start_key());
 }
 
 TEST(MetaServiceTest, CreateMetaSyncPointTest) {

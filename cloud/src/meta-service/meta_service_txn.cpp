@@ -4724,17 +4724,111 @@ std::string get_txn_info_key_from_txn_running_key(std::string_view txn_running_k
     return conflict_txn_info_key;
 }
 
+void MetaServiceImpl::get_tso_recovery_transactions(
+        ::google::protobuf::RpcController* controller,
+        const GetTsoRecoveryTransactionsRequest* request,
+        GetTsoRecoveryTransactionsResponse* response, ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(get_tso_recovery_transactions, get);
+    if (request->end_txn_id() <= 0 || request->batch_size() <= 0 || request->batch_size() > 1000) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "invalid TSO recovery transaction bound or batch size";
+        return;
+    }
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "cannot find instance_id for TSO recovery";
+        return;
+    }
+    RPC_RATE_LIMIT(get_tso_recovery_transactions)
+    // Keys sort by database first. Scan the instance and apply the fixed exclusive ID bound
+    // to each key; a batch containing only newer transactions does not finish the scan.
+    std::string begin_key = txn_running_key({instance_id, 0, 0});
+    std::string end_key = txn_running_key({instance_id, INT64_MAX, INT64_MAX});
+    end_key.push_back('\x00');
+    if (!request->start_key().empty()) {
+        if (request->start_key() < begin_key || request->start_key() >= end_key) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "invalid TSO recovery start key";
+            return;
+        }
+        begin_key = request->start_key();
+    }
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to create TSO recovery read transaction";
+        return;
+    }
+    std::unique_ptr<RangeGetIterator> it;
+    err = txn->get(begin_key, end_key, &it, true, request->batch_size());
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = "failed to get running transactions during TSO recovery";
+        return;
+    }
+    while (it->has_next()) {
+        auto [key, value] = it->next();
+        if (!it->has_next()) {
+            begin_key = key;
+        }
+        std::string_view encoded_key = key;
+        encoded_key.remove_prefix(1);
+        std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> fields;
+        if (decode_key(&encoded_key, &fields) != 0 || fields.size() != 5 ||
+            !std::holds_alternative<int64_t>(std::get<0>(fields[3])) ||
+            !std::holds_alternative<int64_t>(std::get<0>(fields[4]))) {
+            code = MetaServiceCode::UNDEFINED_ERR;
+            msg = "failed to decode running transaction key during TSO recovery";
+            return;
+        }
+        const auto db_id = std::get<int64_t>(std::get<0>(fields[3]));
+        const auto txn_id = std::get<int64_t>(std::get<0>(fields[4]));
+        if (txn_id >= request->end_txn_id()) {
+            continue;
+        }
+        // Running keys are removed atomically with real VISIBLE/ABORTED. Expired COMMITTED
+        // lazy transactions still block. Read the details in the same KV snapshot.
+        std::string info_val;
+        err = txn->get(txn_info_key({instance_id, db_id, txn_id}), &info_val, true);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to read TSO recovery transaction, db_id={}, txn_id={}", db_id,
+                              txn_id);
+            return;
+        }
+        TxnInfoPB info;
+        if (!info.ParseFromString(info_val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = "failed to parse TSO recovery transaction";
+            return;
+        }
+        // Subtransactions update txn_info.table_ids; the running record can be older.
+        if (info.db_id() != db_id || info.txn_id() != txn_id || info.table_ids().empty()) {
+            code = MetaServiceCode::UNDEFINED_ERR;
+            msg = "invalid TSO recovery transaction identity or tables";
+            return;
+        }
+        // Recovery needs identities and visibility boundaries, not commit attachments.
+        auto* recovered = response->add_txn_infos();
+        recovered->set_db_id(db_id);
+        recovered->set_txn_id(txn_id);
+        recovered->mutable_table_ids()->CopyFrom(info.table_ids());
+        recovered->set_status(info.status());
+        if (info.has_commit_tso()) {
+            recovered->set_commit_tso(info.commit_tso());
+        }
+    }
+    begin_key.push_back('\x00');
+    response->set_next_start_key(it->more() ? begin_key : "");
+}
+
 void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* controller,
                                          const CheckTxnConflictRequest* request,
                                          CheckTxnConflictResponse* response,
                                          ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(check_txn_conflict, get);
-    const bool strict_recovery = request->strict_recovery_check();
-    const bool recovery_batch = request->has_recovery_batch_size();
-    if (!request->has_end_txn_id() || (strict_recovery && request->end_txn_id() <= 0) ||
-        (!strict_recovery && (!request->has_db_id() || request->table_ids_size() <= 0)) ||
-        (recovery_batch && (!strict_recovery || request->recovery_batch_size() <= 0 ||
-                            request->recovery_batch_size() > 1000))) {
+    if (!request->has_db_id() || !request->has_end_txn_id() || (request->table_ids_size() <= 0)) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "invalid db id, end txn id or table_ids.";
         return;
@@ -4754,26 +4848,6 @@ void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* cont
 
     std::string begin_running_key = txn_running_key({instance_id, db_id, 0});
     std::string end_running_key = txn_running_key({instance_id, db_id, request->end_txn_id()});
-    if (strict_recovery) {
-        // Database and transaction IDs are non-negative. Include the entire instance and apply
-        // the exclusive transaction bound after decoding each key (keys sort by database first).
-        begin_running_key = txn_running_key({instance_id, 0, 0});
-        end_running_key = txn_running_key({instance_id, INT64_MAX, INT64_MAX});
-        end_running_key.push_back('\x00');
-        response->set_strict_recovery_check_applied(true);
-    }
-    if (recovery_batch) {
-        if (!request->recovery_start_key().empty()) {
-            if (request->recovery_start_key() < begin_running_key ||
-                request->recovery_start_key() >= end_running_key) {
-                code = MetaServiceCode::INVALID_ARGUMENT;
-                msg = "invalid TSO recovery start key";
-                return;
-            }
-            begin_running_key = request->recovery_start_key();
-        }
-        response->set_recovery_batch_applied(true);
-    }
     LOG(INFO) << "begin_running_key:" << hex(begin_running_key)
               << " end_running_key:" << hex(end_running_key);
 
@@ -4792,8 +4866,7 @@ void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* cont
     int total_iteration_cnt = 0;
     bool finished = true;
     while (it == nullptr /* may be not init */ || it->more()) {
-        err = txn->get(begin_running_key, end_running_key, &it, true,
-                       recovery_batch ? request->recovery_batch_size() : 10000);
+        err = txn->get(begin_running_key, end_running_key, &it, true);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
             ss << "failed to get txn running info. err=" << err;
@@ -4811,64 +4884,6 @@ void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* cont
         while (it->has_next()) {
             total_iteration_cnt++;
             auto [k, v] = it->next();
-            if (strict_recovery) {
-                std::string_view encoded_key = k;
-                encoded_key.remove_prefix(1);
-                std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> fields;
-                if (decode_key(&encoded_key, &fields) != 0 || fields.size() != 5 ||
-                    !std::holds_alternative<int64_t>(std::get<0>(fields[3])) ||
-                    !std::holds_alternative<int64_t>(std::get<0>(fields[4]))) {
-                    code = MetaServiceCode::UNDEFINED_ERR;
-                    msg = "failed to decode running transaction key during TSO recovery";
-                    return;
-                }
-                if (std::get<int64_t>(std::get<0>(fields[4])) < request->end_txn_id()) {
-                    // A running key is removed atomically with real VISIBLE/ABORTED. In
-                    // particular an expired COMMITTED lazy transaction must still block.
-                    if (!recovery_batch) {
-                        response->set_finished(false);
-                        return;
-                    }
-                    const auto running_db_id = std::get<int64_t>(std::get<0>(fields[3]));
-                    const auto running_txn_id = std::get<int64_t>(std::get<0>(fields[4]));
-                    std::string info_val;
-                    err = txn->get(txn_info_key({instance_id, running_db_id, running_txn_id}),
-                                   &info_val, true);
-                    if (err != TxnErrorCode::TXN_OK) {
-                        code = cast_as<ErrCategory::READ>(err);
-                        msg = fmt::format(
-                                "failed to read TSO recovery transaction, db_id={}, txn_id={}",
-                                running_db_id, running_txn_id);
-                        return;
-                    }
-                    TxnInfoPB info;
-                    if (!info.ParseFromString(info_val)) {
-                        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                        msg = "failed to parse TSO recovery transaction";
-                        return;
-                    }
-                    // Subtransactions update txn_info.table_ids; the running record can be older.
-                    if (info.db_id() != running_db_id || info.txn_id() != running_txn_id ||
-                        info.table_ids().empty()) {
-                        code = MetaServiceCode::UNDEFINED_ERR;
-                        msg = "invalid TSO recovery transaction identity or tables";
-                        return;
-                    }
-                    // Recovery needs identities and visibility boundaries, not commit attachments.
-                    auto* recovered = response->add_conflict_txns();
-                    recovered->set_db_id(running_db_id);
-                    recovered->set_txn_id(running_txn_id);
-                    recovered->mutable_table_ids()->CopyFrom(info.table_ids());
-                    recovered->set_status(info.status());
-                    if (info.has_commit_tso()) {
-                        recovered->set_commit_tso(info.commit_tso());
-                    }
-                }
-                if (!it->has_next()) {
-                    begin_running_key = k;
-                }
-                continue;
-            }
             LOG(INFO) << "check watermark conflict range_get txn_run_key=" << hex(k);
             TxnRunningPB running_pb;
             if (!running_pb.ParseFromArray(v.data(), v.size())) {
@@ -4928,10 +4943,6 @@ void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* cont
             }
         }
         begin_running_key.push_back('\x00'); // Update to next smallest key for iteration
-        if (recovery_batch) {
-            response->set_next_recovery_key(it->more() ? begin_running_key : "");
-            return;
-        }
     }
     LOG(INFO) << "skip timeout txn count: " << skip_timeout_txn_cnt
               << " conflict txn count: " << response->conflict_txns_size()

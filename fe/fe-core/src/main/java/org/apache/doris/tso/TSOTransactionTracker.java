@@ -17,7 +17,7 @@
 
 package org.apache.doris.tso;
 
-import org.apache.doris.cloud.proto.Cloud.CheckTxnConflictResponse;
+import org.apache.doris.cloud.proto.Cloud.GetTsoRecoveryTransactionsResponse;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.proto.Cloud.TxnStatusPB;
 import org.apache.doris.common.Pair;
@@ -269,13 +269,13 @@ final class TSOTransactionTracker {
                 }
             }
             while (true) {
-                CheckTxnConflictResponse response = txnMgr.getTsoRecoveryTransactions(watermark, startKey);
+                GetTsoRecoveryTransactionsResponse response = txnMgr.getTsoRecoveryTransactions(watermark, startKey);
                 lock.lock();
                 try {
                     if (generation != checkGeneration) {
                         return;
                     }
-                    for (TxnInfoPB info : response.getConflictTxnsList()) {
+                    for (TxnInfoPB info : response.getTxnInfosList()) {
                         Preconditions.checkState(info.getStatus() != TxnStatusPB.TXN_STATUS_VISIBLE
                                         && info.getStatus() != TxnStatusPB.TXN_STATUS_ABORTED,
                                 "TSO recovery batch contains a terminal transaction: %s", info.getTxnId());
@@ -289,7 +289,7 @@ final class TSOTransactionTracker {
                         }
                         recoveryByTxn.put(info.getTxnId(), recovered);
                     }
-                    startKey = response.getNextRecoveryKey();
+                    startKey = response.getNextStartKey();
                     recoveryStartKey = startKey;
                     if (startKey.isEmpty()) {
                         recoveryLoaded = true;

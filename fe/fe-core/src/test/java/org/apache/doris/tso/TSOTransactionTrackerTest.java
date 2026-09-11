@@ -17,7 +17,7 @@
 
 package org.apache.doris.tso;
 
-import org.apache.doris.cloud.proto.Cloud.CheckTxnConflictResponse;
+import org.apache.doris.cloud.proto.Cloud.GetTsoRecoveryTransactionsResponse;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.proto.Cloud.TxnStatusPB;
 import org.apache.doris.common.Pair;
@@ -74,10 +74,9 @@ public class TSOTransactionTrackerTest {
         }
     }
 
-    static CheckTxnConflictResponse recoveryBatch(ByteString nextKey, TxnInfoPB... transactions) {
-        return CheckTxnConflictResponse.newBuilder().setStrictRecoveryCheckApplied(true)
-                .setRecoveryBatchApplied(true).setNextRecoveryKey(nextKey)
-                .addAllConflictTxns(Arrays.asList(transactions)).build();
+    static GetTsoRecoveryTransactionsResponse recoveryBatch(ByteString nextKey, TxnInfoPB... transactions) {
+        return GetTsoRecoveryTransactionsResponse.newBuilder().setNextStartKey(nextKey)
+                .addAllTxnInfos(Arrays.asList(transactions)).build();
     }
 
     private static TxnInfoPB recoveryTxn(long dbId, long txnId, long tso, long... tables) {
@@ -408,7 +407,7 @@ public class TSOTransactionTrackerTest {
         register(1, 10, 100);
         Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(1000L);
         Mockito.when(txnMgr.getTsoRecoveryTransactions(1000L, ByteString.EMPTY))
-                .thenThrow(new UserException("old MS has no strict check capability"));
+                .thenThrow(new UserException("old MS has no recovery RPC"));
         Assertions.assertThrows(UserException.class,
                 () -> tracker.checkTransactions(txnMgr, TimeUnit.SECONDS.toNanos(3)));
         Assertions.assertEquals(80, candidate(150, 80));

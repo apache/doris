@@ -53,6 +53,8 @@ import org.apache.doris.cloud.proto.Cloud.GetDeleteBitmapUpdateLockRequest;
 import org.apache.doris.cloud.proto.Cloud.GetDeleteBitmapUpdateLockResponse;
 import org.apache.doris.cloud.proto.Cloud.GetPrepareTxnByCoordinatorRequest;
 import org.apache.doris.cloud.proto.Cloud.GetPrepareTxnByCoordinatorResponse;
+import org.apache.doris.cloud.proto.Cloud.GetTsoRecoveryTransactionsRequest;
+import org.apache.doris.cloud.proto.Cloud.GetTsoRecoveryTransactionsResponse;
 import org.apache.doris.cloud.proto.Cloud.GetTxnIdRequest;
 import org.apache.doris.cloud.proto.Cloud.GetTxnIdResponse;
 import org.apache.doris.cloud.proto.Cloud.GetTxnRequest;
@@ -2217,25 +2219,24 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
-    public CheckTxnConflictResponse getTsoRecoveryTransactions(long endTransactionId,
+    public GetTsoRecoveryTransactionsResponse getTsoRecoveryTransactions(long endTransactionId,
             ByteString startKey) throws UserException {
-        CheckTxnConflictRequest request = CheckTxnConflictRequest.newBuilder()
+        GetTsoRecoveryTransactionsRequest request = GetTsoRecoveryTransactionsRequest.newBuilder()
                 .setCloudUniqueId(Config.cloud_unique_id)
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setEndTxnId(endTransactionId)
-                .setStrictRecoveryCheck(true).setRecoveryBatchSize(256).setRecoveryStartKey(startKey).build();
-        CheckTxnConflictResponse response;
+                .setBatchSize(256).setStartKey(startKey).build();
+        GetTsoRecoveryTransactionsResponse response;
         try {
-            response = MetaServiceProxy.getInstance().checkTxnConflict(request);
+            response = MetaServiceProxy.getInstance().getTsoRecoveryTransactions(request);
         } catch (RpcException e) {
-            throw new UserException("Strict TSO recovery check failed", e);
+            throw new UserException("Failed to fetch TSO recovery transactions", e);
         }
         if (response.getStatus().getCode() != MetaServiceCode.OK) {
             throw new UserException(response.getStatus().getMsg());
         }
-        if (!response.getStrictRecoveryCheckApplied() || !response.getRecoveryBatchApplied()
-                || !response.hasNextRecoveryKey()) {
-            throw new UserException("MetaService does not support TSO recovery batches; upgrade MetaService first");
+        if (!response.hasNextStartKey()) {
+            throw new UserException("MetaService returned an incomplete TSO recovery batch");
         }
         return response;
     }

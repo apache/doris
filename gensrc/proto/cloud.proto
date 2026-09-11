@@ -1248,21 +1248,30 @@ message CheckTxnConflictRequest {
     repeated int64 table_ids = 4;
     optional bool ignore_timeout_txn = 5;
     optional string request_ip = 6;
-    // Check every database/table in the instance, including expired running transactions.
-    optional bool strict_recovery_check = 7 [default = false];
-    // Fetch running transaction details in bounded batches for FE TSO recovery.
-    optional int32 recovery_batch_size = 8;
-    optional bytes recovery_start_key = 9;
 }
 
 message CheckTxnConflictResponse {
     optional MetaServiceResponseStatus status = 1;
     optional bool finished = 2;
     repeated TxnInfoPB conflict_txns = 3;
-    optional bool strict_recovery_check_applied = 4;
-    // Present for batch responses; empty means the full instance has been scanned.
-    optional bytes next_recovery_key = 5;
-    optional bool recovery_batch_applied = 6;
+}
+
+message GetTsoRecoveryTransactionsRequest {
+    optional string cloud_unique_id = 1; // For auth
+    // Exclusive transaction-ID bound, fixed for the complete recovery scan.
+    optional int64 end_txn_id = 2;
+    // Maximum running records scanned per batch, including IDs above the bound.
+    optional int32 batch_size = 3;
+    optional bytes start_key = 4;
+    optional string request_ip = 5;
+}
+
+message GetTsoRecoveryTransactionsResponse {
+    optional MetaServiceResponseStatus status = 1;
+    // Includes expired running transactions from every database/table in the instance.
+    repeated TxnInfoPB txn_infos = 2;
+    // Always present on success; empty means the full instance has been scanned.
+    optional bytes next_start_key = 3;
 }
 
 message CleanTxnLabelRequest {
@@ -2417,6 +2426,7 @@ service MetaService {
     rpc get_current_max_txn_id(GetCurrentMaxTxnRequest) returns (GetCurrentMaxTxnResponse);
     rpc create_meta_sync_point(CreateMetaSyncPointRequest) returns (CreateMetaSyncPointResponse);
     rpc check_txn_conflict(CheckTxnConflictRequest) returns (CheckTxnConflictResponse);
+    rpc get_tso_recovery_transactions(GetTsoRecoveryTransactionsRequest) returns (GetTsoRecoveryTransactionsResponse);
     rpc clean_txn_label(CleanTxnLabelRequest) returns (CleanTxnLabelResponse);
     rpc get_txn_id(GetTxnIdRequest) returns (GetTxnIdResponse);
     rpc begin_sub_txn(BeginSubTxnRequest) returns (BeginSubTxnResponse);

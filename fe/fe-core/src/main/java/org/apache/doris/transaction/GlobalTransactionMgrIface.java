@@ -21,8 +21,8 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
-import org.apache.doris.cloud.proto.Cloud.CheckTxnConflictResponse;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
+import org.apache.doris.cloud.proto.Cloud.GetTsoRecoveryTransactionsResponse;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
@@ -149,9 +149,9 @@ public interface GlobalTransactionMgrIface extends Writable {
             Map<Long, Set<Long>> backendPartitions) throws UserException;
 
     /** Fetch a batch of running transactions below the exclusive recovery transaction bound. */
-    default CheckTxnConflictResponse getTsoRecoveryTransactions(long endTransactionId, ByteString startKey)
+    default GetTsoRecoveryTransactionsResponse getTsoRecoveryTransactions(long endTransactionId, ByteString startKey)
             throws UserException {
-        throw new UserException("Strict TSO recovery is only supported in cloud mode");
+        throw new UserException("TSO recovery is only supported in cloud mode");
     }
 
     public boolean isPreviousTransactionsFinished(long endTransactionId, long dbId, List<Long> tableIdList)
