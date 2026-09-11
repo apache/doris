@@ -34,6 +34,11 @@ suite("regression_test_variant_column_name", "p0, nonConcurrent"){
     // sql """insert into ${table_name} values (2, '{}')"""
     sql "truncate table ${table_name}"
     sql """insert into ${table_name} values (3, ${variantV2Function}('{"": ""}'))"""
+    qt_empty_key_empty_string """
+        select k, v[''] is null, length(cast(v[''] as text))
+        from ${table_name}
+        order by k
+    """
     sql """insert into ${table_name} values (4, ${variantV2Function}('{"!@#^&*()": "11111"}'))"""
     qt_sql """select cast(v["!@#^&*()"] as string) from ${table_name} order by k"""
     sql """insert into ${table_name} values (5, ${variantV2Function}('{"123": "456", "789": "012"}'))"""
@@ -60,6 +65,12 @@ suite("regression_test_variant_column_name", "p0, nonConcurrent"){
     sql """insert into var_column_name values (7, ${variantV2Function}('{"": "ooaoaaaaaaa"}'))"""
     sql """insert into var_column_name values (7, ${variantV2Function}('{"": 1234566}'))"""
     sql """insert into var_column_name values (7, ${variantV2Function}('{"": 8888888}'))"""
+
+    qt_empty_key_order """
+        select k, cast(Tags[''] as text), Tags[''] is null
+        from var_column_name
+        order by cast(Tags[''] as string), k
+    """
 
     // name with `.`
     // When parser-side duplicate path deduplication is disabled, dotted keys and nested paths
