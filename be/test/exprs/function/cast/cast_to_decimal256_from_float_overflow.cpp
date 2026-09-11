@@ -48,6 +48,10 @@ TEST_F(FunctionCastToDecimalTest, test_to_decimal256_from_float_overflow) {
     from_float_double_overflow_test_func<TYPE_FLOAT, Decimal256>(
             76, 75, table_index++, test_data_index, ofs_case, ofs_expected_result, ofs_const_case,
             ofs_const_expected_result);
+    // +/-10 passes the floating-point check on x86, but the resulting Int256 is out of range.
+    from_float_double_overflow_test_func<TYPE_FLOAT, Decimal256>(
+            48, 47, table_index++, test_data_index, ofs_case, ofs_expected_result, ofs_const_case,
+            ofs_const_expected_result);
     if (FLAGS_gen_regression_case) {
         (*ofs_const_case) << "}";
         (*ofs_case) << "}";
