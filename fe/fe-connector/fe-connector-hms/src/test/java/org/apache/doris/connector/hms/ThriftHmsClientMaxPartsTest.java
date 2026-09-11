@@ -93,7 +93,7 @@ public class ThriftHmsClientMaxPartsTest {
                     }
                 }, hiveConf -> metastore, HmsTypeMapping.Options.DEFAULT);
         try {
-            Assertions.assertThrows(HmsClientException.class,
+            Assertions.assertThrows(HmsPartitionFilterSaturatedException.class,
                     () -> client.listPartitionsByFilter("db", "tbl", "p=1"));
         } finally {
             client.close();

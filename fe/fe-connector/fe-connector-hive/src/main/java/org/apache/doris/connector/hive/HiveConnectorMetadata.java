@@ -27,6 +27,7 @@ import org.apache.doris.connector.hms.HmsCreateDatabaseRequest;
 import org.apache.doris.connector.hms.HmsCreateTableRequest;
 import org.apache.doris.connector.hms.HmsPartitionBatchResult;
 import org.apache.doris.connector.hms.HmsPartitionBatchStats;
+import org.apache.doris.connector.hms.HmsPartitionFilterSaturatedException;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.hms.HmsTypeMapping;
@@ -120,6 +121,7 @@ import java.util.stream.Collectors;
 public class HiveConnectorMetadata implements ConnectorMetadata {
 
     private static final Logger LOG = LogManager.getLogger(HiveConnectorMetadata.class);
+    static final int MAX_DEBUG_HMS_FILTER_LENGTH = 256;
 
     /**
      * The HMS table parameter iceberg writes its table comment into (mirrored from the iceberg table property
@@ -1288,16 +1290,27 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         String hmsFilter = buildHmsPartitionFilter(partKeyNames, hiveHandle.getPartitionKeyTypes(),
                 partitionPredicates);
         if (hmsFilter != null) {
+            int predicateValueCount = partitionPredicates.values().stream().mapToInt(List::size).sum();
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("HMS partition filter request for {}.{} predicateValues={} filter={}",
+                        hiveHandle.getDbName(), hiveHandle.getTableName(), predicateValueCount,
+                        summarizeHmsFilterForDebug(hmsFilter));
+            }
             try {
                 List<HmsPartitionInfo> prunedPartitions = hmsClient.listPartitionsByFilter(
                         hiveHandle.getDbName(), hiveHandle.getTableName(), hmsFilter);
-                LOG.info("Partition pruning through HMS filter: {}.{} filter={} pruned={}",
-                        hiveHandle.getDbName(), hiveHandle.getTableName(), hmsFilter, prunedPartitions.size());
+                LOG.info("Partition pruning through HMS filter: {}.{} predicateValues={} pruned={}",
+                        hiveHandle.getDbName(), hiveHandle.getTableName(), predicateValueCount,
+                        prunedPartitions.size());
                 return new PartitionPruningResult(prunedPartitions, null);
-            } catch (HmsClientException | UnsupportedOperationException e) {
-                LOG.warn("Failed to prune Hive partitions through HMS filter for {}.{} with filter '{}', "
+            } catch (HmsPartitionFilterSaturatedException e) {
+                LOG.info("HMS partition filter response saturated for {}.{} predicateValues={}; "
                                 + "falling back to local partition pruning",
-                        hiveHandle.getDbName(), hiveHandle.getTableName(), hmsFilter, e);
+                        hiveHandle.getDbName(), hiveHandle.getTableName(), predicateValueCount);
+            } catch (HmsClientException | UnsupportedOperationException e) {
+                LOG.warn("Failed to prune Hive partitions through HMS filter for {}.{} predicateValues={}; "
+                                + "falling back to local partition pruning",
+                        hiveHandle.getDbName(), hiveHandle.getTableName(), predicateValueCount, e);
             }
         }
 
@@ -1335,6 +1348,14 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             this.partitions = partitions;
             this.batchStats = batchStats;
         }
+    }
+
+    static String summarizeHmsFilterForDebug(String hmsFilter) {
+        if (hmsFilter.length() <= MAX_DEBUG_HMS_FILTER_LENGTH) {
+            return hmsFilter;
+        }
+        return hmsFilter.substring(0, MAX_DEBUG_HMS_FILTER_LENGTH)
+                + "... (length=" + hmsFilter.length() + ")";
     }
 
     private static List<ConnectorPartitionInfo> toConnectorPartitionInfos(List<HmsPartitionInfo> partitions,
