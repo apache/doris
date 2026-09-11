@@ -687,7 +687,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             return;
         }
         List<CloudPartition> partitions = new ArrayList<>();
-        for (long tableId : Sets.newHashSet(tableIds)) {
+        for (long tableId : tableIds) {
             Table table = db.getTableNullable(tableId);
             if (table == null || !table.isManagedTable()) {
                 continue;

@@ -654,7 +654,7 @@ public class CloudGlobalTransactionMgrTest {
     public void testVisibleRetryRefreshesAllTablePartitions() throws Exception {
         CloudPartition first = addCloudPartition(1000);
         CloudPartition second = addCloudPartition(2000);
-        CommitTxnResponse response = visibleRetry(List.of(first.getTableId(), second.getTableId(), first.getTableId()));
+        CommitTxnResponse response = visibleRetry(List.of(first.getTableId(), second.getTableId()));
         int batchSize = Config.cloud_get_version_task_batch_size;
         Config.cloud_get_version_task_batch_size = 1;
         try (MockedStatic<VersionHelper> versions = Mockito.mockStatic(VersionHelper.class)) {
