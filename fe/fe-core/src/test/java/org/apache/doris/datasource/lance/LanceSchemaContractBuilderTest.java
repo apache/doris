@@ -26,6 +26,8 @@ import org.apache.arrow.vector.types.IntervalUnit;
 import org.apache.arrow.vector.types.TimeUnit;
 import org.apache.arrow.vector.types.UnionMode;
 import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.FieldType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.lance.schema.LanceField;
@@ -161,10 +163,10 @@ public class LanceSchemaContractBuilderTest {
 
     @Test
     public void testFixedSizeListHasPinnedLiteralAndExtractsVectorElement() throws Exception {
-        LanceField element = field(6, "item",
-                new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE), true);
-        LanceField vector = field(5, "embedding", new ArrowType.FixedSizeList(768), false,
-                Collections.singletonList(element));
+        // Mirrors the pinned SDK: the LanceField tree carries no children for a fixed-size
+        // list (the element is collapsed into the manifest logical-type string), so element
+        // facts come from the synthesized child of the reconstructed Arrow view.
+        LanceField vector = vectorField(5, "embedding", 768, FloatingPointPrecision.SINGLE, false);
 
         LanceIndexSchemaContract.IndexedField indexed = buildSingleField(
                 Collections.singletonList(vector), "embedding");
@@ -175,18 +177,18 @@ public class LanceSchemaContractBuilderTest {
         Assertions.assertFalse(indexed.isNullable());
         Assertions.assertEquals(768, indexed.getFixedSizeListDimension());
         Assertions.assertEquals("float32", indexed.getVectorElementType());
+        // The reconstruction synthesizes the element child as nullable — even when the data
+        // was written with a not-null element — because the manifest has no slot for it.
         Assertions.assertEquals(Boolean.TRUE, indexed.getVectorElementNullable());
 
-        LanceField halfElement = field(8, "item",
-                new ArrowType.FloatingPoint(FloatingPointPrecision.HALF), false);
-        LanceField halfVector = field(7, "half_embedding", new ArrowType.FixedSizeList(3), true,
-                Collections.singletonList(halfElement));
+        LanceField halfVector = vectorField(7, "half_embedding", 3, FloatingPointPrecision.HALF,
+                true);
         LanceIndexSchemaContract.IndexedField halfIndexed = buildSingleField(
                 Collections.singletonList(halfVector), "half_embedding");
         Assertions.assertEquals("fixed_size_list", halfIndexed.getNormalizedType());
         Assertions.assertEquals(3, halfIndexed.getFixedSizeListDimension());
         Assertions.assertEquals("float16", halfIndexed.getVectorElementType());
-        Assertions.assertEquals(Boolean.FALSE, halfIndexed.getVectorElementNullable());
+        Assertions.assertEquals(Boolean.TRUE, halfIndexed.getVectorElementNullable());
         Assertions.assertTrue(halfIndexed.isNullable());
     }
 
@@ -266,10 +268,8 @@ public class LanceSchemaContractBuilderTest {
     @Test
     public void testNonPositiveFixedSizeListDimensionFailsClosed() {
         for (int dimension : new int[] {0, -3}) {
-            LanceField element = field(2, "item",
-                    new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE), true);
             LanceField vector = field(1, "embedding", new ArrowType.FixedSizeList(dimension),
-                    false, Collections.singletonList(element));
+                    false);
             AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                     () -> LanceSchemaContractBuilder.build(
                             Collections.singletonList(vector), "embedding"));
@@ -313,21 +313,41 @@ public class LanceSchemaContractBuilderTest {
     }
 
     @Test
-    public void testFixedSizeListRequiresExactlyOneChild() {
-        LanceField childless = field(1, "embedding", new ArrowType.FixedSizeList(4), false,
-                Collections.emptyList());
-        Assertions.assertThrows(IllegalArgumentException.class,
+    public void testFixedSizeListWithoutRecoverableElementFailsClosed() {
+        // The reconstructed Arrow view is the only element source: a missing view, an empty
+        // child list or a null first child is a malformed provider fact and fails closed with
+        // the same bounded error as a missing field.
+        String expected = "unsupported schema contract: fixed-size list element must be present";
+        LanceField missingView = Mockito.mock(LanceField.class);
+        Mockito.when(missingView.getId()).thenReturn(1);
+        Mockito.when(missingView.getName()).thenReturn("embedding");
+        Mockito.when(missingView.getType()).thenReturn(new ArrowType.FixedSizeList(4));
+        Mockito.when(missingView.isNullable()).thenReturn(false);
+        Mockito.when(missingView.getChildren()).thenReturn(Collections.emptyList());
+        // asArrowField() left unstubbed returns null from the mock.
+        AnalysisException missing = Assertions.assertThrows(AnalysisException.class,
                 () -> LanceSchemaContractBuilder.build(
-                        Collections.singletonList(childless), "embedding"));
+                        Collections.singletonList(missingView), "embedding"));
+        Assertions.assertTrue(missing.getMessage().contains(expected));
 
-        LanceField twoChildren = field(2, "embedding", new ArrowType.FixedSizeList(4), false,
-                Arrays.asList(
-                        field(3, "item",
-                                new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE), true),
-                        field(4, "extra", new ArrowType.Int(32, true), true)));
-        Assertions.assertThrows(IllegalArgumentException.class,
+        LanceField emptyChildren = vectorField(2, "embedding", 4, FloatingPointPrecision.SINGLE,
+                false);
+        Mockito.when(emptyChildren.asArrowField()).thenReturn(new Field("embedding",
+                FieldType.notNullable(new ArrowType.FixedSizeList(4)), Collections.emptyList()));
+        AnalysisException empty = Assertions.assertThrows(AnalysisException.class,
                 () -> LanceSchemaContractBuilder.build(
-                        Collections.singletonList(twoChildren), "embedding"));
+                        Collections.singletonList(emptyChildren), "embedding"));
+        Assertions.assertTrue(empty.getMessage().contains(expected));
+
+        LanceField nullChild = vectorField(3, "embedding", 4, FloatingPointPrecision.SINGLE,
+                false);
+        Mockito.when(nullChild.asArrowField()).thenReturn(new Field("embedding",
+                FieldType.notNullable(new ArrowType.FixedSizeList(4)),
+                Collections.singletonList(null)));
+        AnalysisException nullElement = Assertions.assertThrows(AnalysisException.class,
+                () -> LanceSchemaContractBuilder.build(
+                        Collections.singletonList(nullChild), "embedding"));
+        Assertions.assertTrue(nullElement.getMessage().contains(expected));
     }
 
     private static String normalizedType(ArrowType type) throws AnalysisException {
@@ -355,6 +375,29 @@ public class LanceSchemaContractBuilderTest {
         Mockito.when(field.getType()).thenReturn(type);
         Mockito.when(field.isNullable()).thenReturn(nullable);
         Mockito.when(field.getChildren()).thenReturn(children);
+        return field;
+    }
+
+    /**
+     * A fixed-size-list LanceField shaped exactly as the pinned SDK reconstructs it: no
+     * children on the LanceField tree, and a synthesized (always-nullable) element child on
+     * the Arrow view.
+     */
+    private static LanceField vectorField(int id, String name, int dimension,
+            FloatingPointPrecision elementPrecision, boolean nullable) {
+        Field synthesizedElement = Field.nullable("item",
+                new ArrowType.FloatingPoint(elementPrecision));
+        Field arrowView = new Field(name,
+                nullable ? FieldType.nullable(new ArrowType.FixedSizeList(dimension))
+                        : FieldType.notNullable(new ArrowType.FixedSizeList(dimension)),
+                Collections.singletonList(synthesizedElement));
+        LanceField field = Mockito.mock(LanceField.class);
+        Mockito.when(field.getId()).thenReturn(id);
+        Mockito.when(field.getName()).thenReturn(name);
+        Mockito.when(field.getType()).thenReturn(new ArrowType.FixedSizeList(dimension));
+        Mockito.when(field.isNullable()).thenReturn(nullable);
+        Mockito.when(field.getChildren()).thenReturn(Collections.emptyList());
+        Mockito.when(field.asArrowField()).thenReturn(arrowView);
         return field;
     }
 }
