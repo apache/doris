@@ -68,6 +68,8 @@ class EliminateGroupByKeyTest extends TestWithFeService implements MemoPatternMa
                 + "distributed by hash(id) buckets 10\n"
                 + "properties('replication_num' = '1');");
         createTable("create table test.eli_gbk_t(a int, b int) distributed by hash(a) properties('replication_num'='1');");
+        createTable("create table test.eli_gbk_decimal(d decimal(38, 0) not null) "
+                + "distributed by hash(d) properties('replication_num'='1');");
         connectContext.setDatabase("test");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
@@ -155,6 +157,44 @@ class EliminateGroupByKeyTest extends TestWithFeService implements MemoPatternMa
                 .printlnTree()
                 .matches(logicalAggregate().when(agg ->
                         agg.getGroupByExpressions().size() == 2));
+    }
+
+    @Test
+    void testDerivedExpressionFdRequiresTotalExpression() {
+        analyzeWithoutSimplify("select count(*) from eli_gbk_t group by a, a + 1")
+                .customRewrite(new EliminateGroupByKey())
+                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 1));
+
+        analyzeWithoutSimplify("select count(*) from eli_gbk_t group by a, cast(a as tinyint)")
+                .customRewrite(new EliminateGroupByKey())
+                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 2));
+
+        analyzeWithoutSimplify("select count(*) from eli_gbk_t group by a, try_cast(a as tinyint)")
+                .customRewrite(new EliminateGroupByKey())
+                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 1));
+
+        analyzeWithoutSimplify("select count(*) from eli_gbk_decimal group by d, d * 10")
+                .customRewrite(new EliminateGroupByKey())
+                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 2));
+    }
+
+    @Test
+    void testDerivedExpressionFdPreservesAnyValueRewrite() {
+        analyzeWithoutSimplify("select a + 1 as k, count(*) from eli_gbk_t group by a, a + 1")
+                .customRewrite(new EliminateGroupByKey())
+                .matches(logicalAggregate().when(agg ->
+                        agg.getGroupByExpressions().size() == 1
+                                && agg.getOutputExpressions().stream().anyMatch(
+                                        output -> output instanceof Alias
+                                                && output.child(0) instanceof AnyValue)));
+    }
+
+    @Test
+    void testDerivedAliasOriginIsResolvedAcrossSubqueryProjects() {
+        analyzeWithoutSimplify("select count(*) from "
+                + "(select d * 10 as z, d from eli_gbk_decimal) t group by d, z")
+                .customRewrite(new EliminateGroupByKey())
+                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 2));
     }
 
     @Test
@@ -321,5 +361,15 @@ class EliminateGroupByKeyTest extends TestWithFeService implements MemoPatternMa
                 .rewrite()
                 .printlnTree()
                 .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 2));
+    }
+
+    private PlanChecker analyzeWithoutSimplify(String sql) {
+        connectContext.getSessionVariable()
+                .setDisableNereidsRules("PRUNE_EMPTY_PARTITION,SIMPLIFY_AGG_GROUP_BY");
+        try {
+            return PlanChecker.from(connectContext).analyze(sql);
+        } finally {
+            connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        }
     }
 }
