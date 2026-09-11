@@ -21,15 +21,21 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <chrono>
 #include <iosfwd>
+#include <new>
+#include <thread>
 #include <vector>
 
+#include "cpp/sync_point.h"
 #include "gtest/gtest.h"
 #include "gtest/gtest_pred_impl.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "runtime/memory/lru_cache_value_base.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/thread_context.h"
 #include "testutil/test_util.h"
+#include "util/countdown_latch.h"
 
 using namespace doris;
 using namespace std;
@@ -622,7 +628,7 @@ TEST(CacheHandleTest, HandleTableTest) {
     LRUHandle* hs[count];
     for (int i = 0; i < count; ++i) {
         CacheKey* key = &keys[i];
-        auto* h = reinterpret_cast<LRUHandle*>(malloc(sizeof(LRUHandle) - 1 + key->size()));
+        auto* h = new (malloc(sizeof(LRUHandle) - 1 + key->size())) LRUHandle;
         h->value = nullptr;
         h->charge = 1;
         h->total_size = sizeof(LRUHandle) - 1 + key->size() + 1;
@@ -654,7 +660,7 @@ TEST(CacheHandleTest, HandleTableTest) {
 
     for (int i = 0; i < count; ++i) {
         CacheKey* key = &keys[i];
-        auto* h = reinterpret_cast<LRUHandle*>(malloc(sizeof(LRUHandle) - 1 + key->size()));
+        auto* h = new (malloc(sizeof(LRUHandle) - 1 + key->size())) LRUHandle;
         h->value = nullptr;
         h->charge = 1;
         h->total_size = sizeof(LRUHandle) - 1 + key->size() + 1;
@@ -669,7 +675,7 @@ TEST(CacheHandleTest, HandleTableTest) {
 
         EXPECT_EQ(ht.insert(h), hs[i]); // there is an entry with the same key and hash
         EXPECT_EQ(ht._elems, count);
-        free(hs[i]);
+        hs[i]->free();
         hs[i] = h;
     }
     EXPECT_EQ(ht._elems, count);
@@ -697,7 +703,7 @@ TEST(CacheHandleTest, HandleTableTest) {
     EXPECT_EQ(ht._elems, count - 4);
 
     for (auto& h : hs) {
-        free(h);
+        h->free();
     }
 }
 
@@ -855,6 +861,329 @@ TEST_F(CacheTest, ResetInitialCapacity) {
     ASSERT_EQ(prune_num, kCacheSize / 2);
     ASSERT_EQ(kCacheSize / 2, cache()->get_capacity());
     ASSERT_EQ(kCacheSize / 2, cache()->get_usage());
+}
+
+class LRUCacheConcurrencyTest : public testing::Test {
+protected:
+    struct Value : LRUCacheValueBase {
+        Value(int key, std::atomic<int>& destroyed) : key(key), destroyed(destroyed) {}
+        ~Value() override { destroyed.fetch_add(1, std::memory_order_relaxed); }
+        const int key;
+        std::atomic<int>& destroyed;
+    };
+
+    void SetUp() override { cache.set_capacity(2048); }
+    void TearDown() override {
+        auto* sync_point = SyncPoint::get_instance();
+        sync_point->disable_processing();
+        sync_point->clear_call_back("LRUCache::lookup:before_exclusive_lock");
+        cache.prune();
+        EXPECT_EQ(0, cache.get_usage());
+    }
+
+    Cache::Handle* insert(int key, CachePriority priority = CachePriority::NORMAL) {
+        return cache.insert(std::to_string(key), key, new Value(key, destroyed), 1, priority);
+    }
+    Cache::Handle* lookup(int key) { return cache.lookup(std::to_string(key), key); }
+    void erase(int key) { cache.erase(std::to_string(key), key); }
+    static LRUHandle* entry(Cache::Handle* handle) { return reinterpret_cast<LRUHandle*>(handle); }
+
+    std::atomic<int> destroyed {0};
+    LRUCache cache {LRUCacheType::NUMBER};
+};
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) -- GTest macros inflate the transition checks.
+TEST_F(LRUCacheConcurrencyTest, ReferenceTransitions) {
+    for (auto priority : {CachePriority::NORMAL, CachePriority::DURABLE}) {
+        auto* handle = insert(1, priority);
+        auto* e = entry(handle);
+        auto* list = priority == CachePriority::NORMAL ? &cache._lru_normal : &cache._lru_durable;
+        EXPECT_EQ(2, e->refs.load());
+        EXPECT_EQ(list, list->next);
+        auto* hit = lookup(1);
+        ASSERT_EQ(handle, hit);
+        EXPECT_EQ(3, e->refs.load());
+        cache.release(hit);
+        EXPECT_EQ(2, e->refs.load());
+        cache.release(handle);
+        EXPECT_EQ(1, e->refs.load());
+        EXPECT_EQ(e, list->next);
+        hit = lookup(1);
+        ASSERT_EQ(e, entry(hit));
+        EXPECT_EQ(2, e->refs.load());
+        EXPECT_EQ(list, list->next);
+        cache.release(hit);
+        cache.prune();
+        EXPECT_EQ(0, cache.get_usage());
+    }
+    EXPECT_EQ(2, destroyed.load());
+}
+
+TEST_F(LRUCacheConcurrencyTest, ConcurrentPinnedHitsUseFastPaths) {
+    auto* pinned = insert(1);
+    std::atomic<int> slow_lookups {0};
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->set_call_back("LRUCache::lookup:before_exclusive_lock",
+                              [&](auto&&) { ++slow_lookups; });
+    sync_point->enable_processing();
+    constexpr int num_threads = 8;
+    constexpr int iterations = 2000;
+    CountDownLatch start(1);
+    std::vector<std::thread> threads;
+    for (int i = 0; i < num_threads; ++i) {
+        threads.emplace_back([&] {
+            ScopedInitThreadContext scoped_context;
+            start.wait();
+            for (int j = 0; j < iterations; ++j) {
+                auto* hit = lookup(1);
+                EXPECT_EQ(pinned, hit);
+                cache.release(hit);
+            }
+        });
+    }
+    start.count_down();
+    for (auto& thread : threads) {
+        thread.join();
+    }
+    EXPECT_EQ(0, slow_lookups.load());
+    EXPECT_EQ(num_threads * iterations, cache.get_lookup_count());
+    EXPECT_EQ(num_threads * iterations, cache.get_hit_count());
+    EXPECT_EQ(2, entry(pinned)->refs.load());
+    EXPECT_EQ(0, destroyed.load());
+    cache.release(pinned);
+}
+
+TEST_F(LRUCacheConcurrencyTest, PinnedLookupDoesNotNeedExclusiveLock) {
+    auto* pinned = insert(1);
+    CountDownLatch done(1);
+    std::shared_lock lock(cache._mutex);
+    std::thread thread([&] {
+        ScopedInitThreadContext scoped_context;
+        auto* hit = lookup(1);
+        EXPECT_EQ(pinned, hit);
+        cache.release(hit);
+        done.count_down();
+    });
+    // Completion while another reader holds the shard proves neither operation
+    // needs the exclusive lock. The timeout only bounds a locking regression.
+    const bool completed = done.wait_for(std::chrono::seconds(5));
+    lock.unlock();
+    thread.join();
+    EXPECT_TRUE(completed);
+    cache.release(pinned);
+}
+
+TEST_F(LRUCacheConcurrencyTest, NonFinalReleaseDoesNotNeedAnyShardLock) {
+    auto* pinned = insert(1);
+    auto* hit = lookup(1);
+    CountDownLatch done(1);
+    std::unique_lock lock(cache._mutex);
+    std::thread thread([&] {
+        ScopedInitThreadContext scoped_context;
+        cache.release(hit);
+        done.count_down();
+    });
+    const bool completed = done.wait_for(std::chrono::seconds(5));
+    lock.unlock();
+    thread.join();
+    EXPECT_TRUE(completed);
+    EXPECT_EQ(2, entry(pinned)->refs.load());
+    cache.release(pinned);
+}
+
+TEST_F(LRUCacheConcurrencyTest, ReleaseEvictsOverCapacityOutsideLock) {
+    struct ReentrantValue : LRUCacheValueBase {
+        ReentrantValue(LRUCache& cache, bool& destroyed) : cache(cache), destroyed(destroyed) {}
+        ~ReentrantValue() override {
+            // Destruction must be outside the shard lock, and usage updated first.
+            EXPECT_EQ(0, cache.prune().pruned_count);
+            EXPECT_EQ(0, cache.get_usage());
+            destroyed = true;
+        }
+        LRUCache& cache;
+        bool& destroyed;
+    };
+    bool destroyed_outside_lock = false;
+    cache.set_capacity(0);
+    auto* handle = cache.insert("1", 1, new ReentrantValue(cache, destroyed_outside_lock), 1);
+    cache.release(handle);
+    EXPECT_TRUE(destroyed_outside_lock);
+    EXPECT_EQ(0, cache.get_element_count());
+}
+
+TEST_F(LRUCacheConcurrencyTest, LookupRechecksAfterErase) {
+    cache.release(insert(1));
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->set_call_back("LRUCache::lookup:before_exclusive_lock", [&](auto&&) { erase(1); });
+    sync_point->enable_processing();
+    EXPECT_EQ(nullptr, lookup(1));
+    EXPECT_EQ(1, destroyed.load());
+    EXPECT_EQ(1, cache.get_lookup_count());
+    EXPECT_EQ(0, cache.get_hit_count());
+    EXPECT_EQ(1, cache.get_miss_count());
+}
+
+TEST_F(LRUCacheConcurrencyTest, LookupRechecksAfterReplacement) {
+    cache.release(insert(1));
+    Cache::Handle* replacement = nullptr;
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->set_call_back("LRUCache::lookup:before_exclusive_lock",
+                              [&](auto&&) { replacement = insert(1); });
+    sync_point->enable_processing();
+    auto* hit = lookup(1);
+    ASSERT_NE(nullptr, hit);
+    EXPECT_EQ(replacement, hit);
+    EXPECT_EQ(1, destroyed.load());
+    EXPECT_EQ(3, entry(hit)->refs.load());
+    EXPECT_EQ(1, cache.get_lookup_count());
+    EXPECT_EQ(1, cache.get_hit_count());
+    cache.release(hit);
+    cache.release(replacement);
+}
+
+TEST_F(LRUCacheConcurrencyTest, ConcurrentReleaseAndLookup) {
+    // Race lookup against release without depending on an injection point inside release.
+    for (int i = 0; i < 100; ++i) {
+        auto* handle = insert(1);
+        CountDownLatch start(2);
+        std::thread thread([&] {
+            ScopedInitThreadContext scoped_context;
+            start.count_down();
+            start.wait();
+            cache.release(handle);
+        });
+        start.count_down();
+        start.wait();
+        auto* hit = lookup(1);
+        thread.join();
+        ASSERT_EQ(handle, hit);
+        EXPECT_EQ(2, entry(hit)->refs.load());
+        EXPECT_EQ(nullptr, entry(hit)->next);
+        cache.prune();
+        EXPECT_EQ(i, destroyed.load());
+        cache.release(hit);
+        cache.prune();
+        EXPECT_EQ(i + 1, destroyed.load());
+    }
+}
+
+TEST_F(LRUCacheConcurrencyTest, ConcurrentReleaseAndErase) {
+    for (int i = 0; i < 100; ++i) {
+        auto* handle = insert(1);
+        CountDownLatch start(2);
+        std::thread thread([&] {
+            ScopedInitThreadContext scoped_context;
+            start.count_down();
+            start.wait();
+            cache.release(handle);
+        });
+        start.count_down();
+        start.wait();
+        erase(1);
+        thread.join();
+        EXPECT_EQ(i + 1, destroyed.load());
+        EXPECT_EQ(0, cache.get_usage());
+        EXPECT_EQ(0, cache.get_element_count());
+    }
+}
+
+TEST_F(LRUCacheConcurrencyTest, ConcurrentFinalReleasesAfterErase) {
+    for (int i = 0; i < 100; ++i) {
+        auto* first = insert(1);
+        auto* second = lookup(1);
+        erase(1);
+        EXPECT_EQ(2, entry(first)->refs.load());
+        CountDownLatch start(1);
+        std::thread thread([&] {
+            ScopedInitThreadContext scoped_context;
+            start.wait();
+            cache.release(second);
+        });
+        start.count_down();
+        cache.release(first);
+        thread.join();
+        EXPECT_EQ(i + 1, destroyed.load());
+        EXPECT_EQ(0, cache.get_usage());
+    }
+}
+
+TEST_F(LRUCacheConcurrencyTest, ReplacementKeepsPinnedEntryAlive) {
+    auto* old = insert(1);
+    auto* first = lookup(1);
+    auto* second = lookup(1);
+    auto* replacement = insert(1);
+    EXPECT_EQ(0, destroyed.load());
+    EXPECT_EQ(3, entry(old)->refs.load());
+    EXPECT_FALSE(entry(old)->in_cache);
+    EXPECT_EQ(1, cache.get_usage());
+    cache.release(first);  // Detached 3 -> 2, fast path.
+    cache.release(second); // Detached 2 -> 1, exclusive path, still alive.
+    EXPECT_EQ(0, destroyed.load());
+    cache.release(old); // Detached 1 -> 0, only the old entry is freed.
+    EXPECT_EQ(1, destroyed.load());
+    EXPECT_EQ(1, cache.get_usage());
+    auto* hit = lookup(1);
+    EXPECT_EQ(replacement, hit);
+    cache.release(hit);
+    cache.release(replacement);
+}
+
+TEST_F(LRUCacheConcurrencyTest, LastVisitUpdatedOnLookup) {
+    auto* handle = insert(1);
+    auto* e = entry(handle);
+    e->last_visit_time.store(0, std::memory_order_relaxed);
+    auto* hit = lookup(1);
+    EXPECT_EQ(handle, hit);
+    EXPECT_GT(e->last_visit_time.load(std::memory_order_relaxed), 0);
+    cache.release(hit);
+    cache.release(handle);
+}
+
+TEST_F(LRUCacheConcurrencyTest, ConcurrentLookupReplaceEraseAndPrune) {
+    constexpr int iterations = 4096;
+    constexpr int num_keys = 1024;
+    // Grow the table while readers traverse it, then replace and erase entries.
+    CountDownLatch start(1);
+    std::vector<std::thread> readers;
+    for (int i = 0; i < 4; ++i) {
+        readers.emplace_back([&, i] {
+            ScopedInitThreadContext scoped_context;
+            start.wait();
+            for (int j = 0; j < iterations; ++j) {
+                const int key = (j + i) % num_keys;
+                auto* hit = lookup(key);
+                if (hit != nullptr) {
+                    EXPECT_EQ(key, static_cast<Value*>(entry(hit)->value)->key);
+                    cache.release(hit);
+                }
+            }
+        });
+    }
+    start.count_down();
+    for (int j = 0; j < iterations; ++j) {
+        cache.release(insert(j % num_keys));
+        if (j >= num_keys && j % 3 == 0) {
+            erase((j + 1) % num_keys);
+        }
+        if (j >= num_keys && j % 128 == 0) {
+            cache.prune_if([](const LRUHandle*) { return true; });
+        }
+    }
+    for (auto& reader : readers) {
+        reader.join();
+    }
+    cache.prune();
+    EXPECT_EQ(iterations, destroyed.load());
+    EXPECT_EQ(0, cache.get_usage());
+    EXPECT_EQ(0, cache.get_element_count());
+    EXPECT_EQ(4 * iterations, cache.get_lookup_count());
+    EXPECT_EQ(cache.get_lookup_count(), cache.get_hit_count() + cache.get_miss_count());
+}
+
+TEST_F(LRUCacheConcurrencyTest, DummyHandleLifetime) {
+    DummyLRUCache dummy;
+    dummy.release(dummy.insert("key", new Value(1, destroyed), 1));
+    EXPECT_EQ(1, destroyed.load());
 }
 
 } // namespace doris
