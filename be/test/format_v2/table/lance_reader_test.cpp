@@ -23,6 +23,7 @@
 #include <arrow/array/util.h>
 #include <arrow/builder.h>
 #include <arrow/c/bridge.h>
+#include <arrow/extension/json.h>
 #include <arrow/record_batch.h>
 #include <arrow/type.h>
 #include <arrow/util/decimal.h>
@@ -1956,6 +1957,72 @@ TEST(LanceTableReaderTypeTest, ReadsSlicedDurationAndJsonValues) {
     EXPECT_EQ((ColumnUInt8::Container {0, 0}), json.get_null_map_data());
     EXPECT_EQ(R"({"row":1})", columns[1].type->to_string(json, 0));
     EXPECT_EQ(R"({"row":2})", columns[1].type->to_string(json, 1));
+    EXPECT_TRUE(reader.close().ok());
+}
+
+// Verifies sliced nested registered JSON arrays are unwrapped before parent compaction.
+TEST(LanceTableReaderTypeTest, ReadsRegisteredJsonNestedInSlicedList) {
+    const auto json_type = arrow::extension::json();
+    const auto item_field = arrow::field("item", json_type);
+    const auto list_type = arrow::list(item_field);
+
+    arrow::StringBuilder json_builder;
+    ASSERT_TRUE(json_builder.Append(R"({"sentinel":true})").ok());
+    ASSERT_TRUE(json_builder.Append(R"({"row":1})").ok());
+    ASSERT_TRUE(json_builder.Append(R"({"row":2})").ok());
+    ASSERT_TRUE(json_builder.Append(R"({"tail":true})").ok());
+    std::shared_ptr<arrow::StringArray> json_storage;
+    ASSERT_TRUE(json_builder.Finish(&json_storage).ok());
+    const auto json_values = arrow::ExtensionType::WrapArray(json_type, json_storage);
+
+    arrow::Int32Builder offsets_builder;
+    ASSERT_TRUE(offsets_builder.AppendValues({0, 1, 3, 4}).ok());
+    std::shared_ptr<arrow::Int32Array> offsets;
+    ASSERT_TRUE(offsets_builder.Finish(&offsets).ok());
+    auto list_result = arrow::ListArray::FromArrays(list_type, *offsets, *json_values);
+    ASSERT_TRUE(list_result.ok()) << list_result.status().ToString();
+    const auto input = std::move(list_result).ValueUnsafe()->Slice(1, 1);
+
+    std::shared_ptr<arrow::Array> normalized;
+    const auto status = normalize_lance_arrow_array_for_test(arrow::field("values", list_type),
+                                                             input, &normalized);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto normalized_list = std::dynamic_pointer_cast<arrow::ListArray>(normalized);
+    ASSERT_NE(nullptr, normalized_list);
+    EXPECT_EQ(0, normalized_list->offset());
+    ASSERT_EQ(2, normalized_list->values()->length());
+    const auto normalized_json =
+            std::dynamic_pointer_cast<arrow::StringArray>(normalized_list->values());
+    ASSERT_NE(nullptr, normalized_json);
+    EXPECT_EQ(R"({"row":1})", normalized_json->GetString(0));
+    EXPECT_EQ(R"({"row":2})", normalized_json->GetString(1));
+
+    const auto schema = arrow::schema({arrow::field("values", list_type)});
+    const auto record_batch = arrow::RecordBatch::Make(schema, 1, {input});
+    const auto doris_list_type =
+            make_nullable(std::make_shared<DataTypeArray>(nullable_type(TYPE_JSONB)));
+    const Columns columns {projected_column("values", doris_list_type)};
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_sliced_nested_json");
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    size_t rows = 0;
+    ASSERT_TRUE(reader._fill_block_from_record_batch(record_batch, &block, &rows).ok());
+    ASSERT_EQ(1, rows);
+
+    const auto& nullable_list =
+            assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    const auto& list = assert_cast<const ColumnArray&>(nullable_list.get_nested_column());
+    EXPECT_EQ((ColumnArray::Offsets64 {2}), list.get_offsets());
+    const auto& items = assert_cast<const ColumnNullable&>(list.get_data());
+    const auto json_item_type = nullable_type(TYPE_JSONB);
+    EXPECT_EQ(R"({"row":1})", json_item_type->to_string(items, 0));
+    EXPECT_EQ(R"({"row":2})", json_item_type->to_string(items, 1));
     EXPECT_TRUE(reader.close().ok());
 }
 

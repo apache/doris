@@ -22,6 +22,7 @@ import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PGlobResponse;
@@ -37,8 +38,6 @@ import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -95,24 +94,20 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
         }
     }
 
+    /** Select the schema backend from the same eligibility policy used for query execution. */
     private void initializeBackendForRequest() throws AnalysisException {
-        Backend be = null;
-        if (backendId != -1) {
-            be = Env.getCurrentSystemInfo().getBackend(backendId);
-            backendIdForRequest = backendId;
-        } else {
-            Preconditions.checkState(sharedStorage);
-            List<Long> beIds = Env.getCurrentSystemInfo().getAllBackendByCurrentCluster(true);
-            if (beIds.isEmpty()) {
-                throw new AnalysisException("No available backend");
+        Preconditions.checkState(backendId != -1 || sharedStorage);
+        FederationBackendPolicy backendPolicy = new FederationBackendPolicy();
+        try {
+            if (backendId == -1) {
+                backendPolicy.init();
+            } else {
+                backendPolicy.initWithBackendId(backendId);
             }
-            Collections.shuffle(beIds);
-            be = Env.getCurrentSystemInfo().getBackend(beIds.get(0));
-            backendIdForRequest = be.getId();
+        } catch (UserException e) {
+            throw new AnalysisException("Failed to select local TVF backend: " + e.getMessage(), e);
         }
-        if (be == null) {
-            throw new AnalysisException("backend not found with backend_id = " + backendId);
-        }
+        backendIdForRequest = backendPolicy.getNextBe().getId();
     }
 
     private void getFileListFromBackend() throws AnalysisException {

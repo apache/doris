@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.lance.source;
 
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
@@ -29,12 +30,14 @@ import org.apache.doris.datasource.lance.LanceExternalTable;
 import org.apache.doris.datasource.lance.LanceFragmentInfo;
 import org.apache.doris.datasource.lance.LanceIndexSegmentInfo;
 import org.apache.doris.datasource.lance.LanceTableMetadata;
+import org.apache.doris.datasource.lance.LanceTypeConverter;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExternalSearchRequest;
 import org.apache.doris.thrift.TFileFormatType;
@@ -49,13 +52,19 @@ import org.apache.doris.thrift.TVectorMetric;
 import org.apache.doris.thrift.TVectorSearchOptions;
 import org.apache.doris.thrift.TVectorSearchParams;
 
+import com.google.common.annotations.VisibleForTesting;
+import org.apache.arrow.vector.types.pojo.Field;
+
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -145,6 +154,8 @@ public class LanceScanNode extends FileQueryScanNode {
             sourceColumns = lanceTable.getFullSchema(relationSnapshot);
         }
         super.doInitialize();
+        checkAdditionalTypeBackendCompatibility(
+                projectsCurrentReaderType(), backendPolicy.getBackends());
         ExternalUtil.initSchemaInfo(params, -1L, sourceColumns);
 
         if (searchKind != SearchKind.NORMAL) {
@@ -152,6 +163,39 @@ public class LanceScanNode extends FileQueryScanNode {
             // as _distance or _score. The real Lance table is retained for storage and metadata.
             getOrCreateLanceScanParams()
                     .setExternalSearchRequest(createSplitSearchRequest());
+        }
+    }
+
+    /** Checks whether any projected Lance column requires the current BE extension reader. */
+    private boolean projectsCurrentReaderType() {
+        Set<String> projectedColumns = new HashSet<>();
+        for (SlotDescriptor slot : desc.getSlots()) {
+            if (slot.getColumn() != null) {
+                projectedColumns.add(slot.getColumn().getName().toLowerCase(Locale.ROOT));
+            }
+        }
+        for (Field field : plannedMetadata.getSchema().getFields()) {
+            if (projectedColumns.contains(field.getName().toLowerCase(Locale.ROOT))
+                    && LanceTypeConverter.requiresCurrentBeReader(field)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Rejects old smooth-upgrade source BEs for JSON or BFloat16 Lance projections. */
+    @VisibleForTesting
+    public static void checkAdditionalTypeBackendCompatibility(
+            boolean requiresCurrentReader, Iterable<Backend> backends) throws UserException {
+        if (!requiresCurrentReader) {
+            return;
+        }
+        for (Backend backend : backends) {
+            if (backend.isSmoothUpgradeSrc()) {
+                throw new UserException(
+                        "Lance JSON and BFloat16 columns are unavailable while backend "
+                                + backend.getId() + " is a smooth upgrade source");
+            }
         }
     }
 
