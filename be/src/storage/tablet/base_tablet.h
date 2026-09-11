@@ -251,6 +251,12 @@ public:
                                                  const std::vector<uint32_t>& rowids,
                                                  const std::vector<uint32_t>& cids, Block& block);
 
+    static Status fetch_values_by_rowids(RowsetSharedPtr input_rowset,
+                                         const TabletSchema& tablet_schema, uint32_t segid,
+                                         const std::vector<uint32_t>& rowids,
+                                         const std::vector<uint32_t>& cids,
+                                         MutableColumns& dst_columns);
+
     static Status fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segid,
                                         const std::vector<uint32_t>& rowids,
                                         const TabletColumn& tablet_column, MutableColumnPtr& dst);
