@@ -17,17 +17,12 @@
 
 package org.apache.doris.nereids.jobs.rewrite;
 
-import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.metrics.EventChannel;
-import org.apache.doris.nereids.metrics.EventProducer;
-import org.apache.doris.nereids.metrics.consumer.LogConsumer;
-import org.apache.doris.nereids.metrics.event.TransformEvent;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.FilteredRules;
 import org.apache.doris.nereids.rules.Rule;
@@ -46,10 +41,6 @@ import java.util.stream.Collectors;
  * Top down job for rewrite, use pattern match.
  */
 public class RewriteTopDownJob extends Job {
-
-    private static final EventProducer RULE_TRANSFORM_TRACER = new EventProducer(
-            TransformEvent.class,
-            EventChannel.getDefaultChannel().addConsumers(new LogConsumer(TransformEvent.class, NereidsPlanner.LOG)));
 
     private final Group group;
     private final Rules rules;
@@ -78,14 +69,8 @@ public class RewriteTopDownJob extends Job {
     }
 
     @Override
-    public EventProducer getEventTracer() {
-        return RULE_TRANSFORM_TRACER;
-    }
-
-    @Override
     public void execute() {
         GroupExpression logicalExpression = group.getLogicalExpression();
-        countJobExecutionTimesOfGroupExpressions(logicalExpression);
         for (Rule rule : rules.getCurrentAndChildrenRules()) {
             if (rule.isInvalid(disableRules, logicalExpression)) {
                 continue;
@@ -97,7 +82,7 @@ public class RewriteTopDownJob extends Job {
             // In topdown job, there must be only one matching plan.
             // This `for` loop runs at most once.
             for (Plan before : groupExpressionMatching) {
-                Optional<CopyInResult> copyInResult = invokeRewriteRuleWithTrace(rule, before, group);
+                Optional<CopyInResult> copyInResult = invokeRewriteRule(rule, before, group);
                 if (!copyInResult.isPresent()) {
                     continue;
                 }

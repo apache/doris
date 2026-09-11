@@ -355,7 +355,6 @@ nonExplainableDmlStatement
         TO filePath=STRING_LITERAL
         (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
-    | replayCommand                                                    #replay
     | COPY INTO selectHint? name=multipartIdentifier columns=identifierList? FROM
             (stageAndPattern | (LEFT_PAREN SELECT selectColumnClause
                 FROM stageAndPattern whereClause? RIGHT_PAREN))
@@ -1417,12 +1416,6 @@ planType
     | DISTRIBUTED
     | ALL // default type
     ;
-
-replayCommand
-    : PLAN REPLAYER replayType;
-
-replayType
-    : DUMP query;
 
 mergeType
     : APPEND
@@ -2550,7 +2543,6 @@ nonReserved
     | REPEATABLE
     | REPLACE
     | REPLACE_IF_NOT_NULL
-    | REPLAYER
     | REPOSITORIES
     | REPOSITORY
     | RESOURCE

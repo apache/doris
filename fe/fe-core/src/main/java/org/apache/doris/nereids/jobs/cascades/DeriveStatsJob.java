@@ -22,11 +22,6 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.metrics.EventChannel;
-import org.apache.doris.nereids.metrics.EventProducer;
-import org.apache.doris.nereids.metrics.consumer.LogConsumer;
-import org.apache.doris.nereids.metrics.event.StatsStateEvent;
-import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.stats.HboStatsCalculator;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -43,9 +38,6 @@ import java.util.Map;
  * Job to derive stats for {@link GroupExpression} in {@link org.apache.doris.nereids.memo.Memo}.
  */
 public class DeriveStatsJob extends Job {
-    private static final EventProducer STATS_STATE_TRACER = new EventProducer(
-            StatsStateEvent.class,
-            EventChannel.getDefaultChannel().addConsumers(new LogConsumer(StatsStateEvent.class, EventChannel.LOG)));
     private final GroupExpression groupExpression;
     private boolean deriveChildren;
 
@@ -76,7 +68,6 @@ public class DeriveStatsJob extends Job {
         if (groupExpression.isStatDerived() || groupExpression.isUnused()) {
             return;
         }
-        countJobExecutionTimesOfGroupExpressions(groupExpression);
         if (!deriveChildren && groupExpression.arity() > 0) {
             pushJob(new DeriveStatsJob(groupExpression, true, context, cteIdToStats));
 
@@ -112,25 +103,15 @@ public class DeriveStatsJob extends Job {
             if (isHboEnabled) {
                 statsCalculator = new HboStatsCalculator(groupExpression,
                         sessionVariable.getForbidUnknownColStats(),
-                        connectContext.getTotalColumnStatisticMap(),
-                        sessionVariable.isPlayNereidsDump(),
                         cteIdToStats,
                         context.getCascadesContext());
                 statsCalculator.estimate();
             } else {
                 statsCalculator = new StatsCalculator(groupExpression,
                         sessionVariable.getForbidUnknownColStats(),
-                        connectContext.getTotalColumnStatisticMap(),
-                        sessionVariable.isPlayNereidsDump(),
                         cteIdToStats,
                         context.getCascadesContext());
                 statsCalculator.estimate();
-            }
-            STATS_STATE_TRACER.log(StatsStateEvent.of(groupExpression,
-                    groupExpression.getOwnerGroup().getStatistics()));
-            if (MinidumpUtils.isDump() && !sessionVariable.isPlayNereidsDump()) {
-                connectContext.getTotalColumnStatisticMap().putAll(statsCalculator.getTotalColumnStatisticMap());
-                connectContext.getTotalHistogramMap().putAll(statsCalculator.getTotalHistogramMap());
             }
 
             if (groupExpression.getPlan() instanceof Project) {

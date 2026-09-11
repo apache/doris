@@ -45,9 +45,6 @@ import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
-import org.apache.doris.nereids.metrics.event.CounterEvent;
-import org.apache.doris.nereids.minidump.MinidumpUtils;
-import org.apache.doris.nereids.minidump.NereidsTracer;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -98,7 +95,6 @@ import org.apache.commons.codec.binary.Hex;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.IOException;
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.nio.ByteBuffer;
@@ -146,11 +142,6 @@ public class NereidsPlanner extends Planner {
     @Override
     public void plan(StatementBase queryStmt, org.apache.doris.thrift.TQueryOptions queryOptions) throws UserException {
         this.queryOptions = queryOptions;
-        if (statementContext.getConnectContext().getSessionVariable().isEnableNereidsTrace()) {
-            NereidsTracer.init();
-        } else {
-            NereidsTracer.disable();
-        }
         if (!(queryStmt instanceof LogicalPlanAdapter)) {
             throw new RuntimeException("Wrong type of queryStmt, expected: <? extends LogicalPlanAdapter>");
         }
@@ -160,7 +151,6 @@ public class NereidsPlanner extends Planner {
         ExplainLevel explainLevel = getExplainLevel(queryStmt.getExplainOptions());
 
         LogicalPlan parsedPlan = logicalPlanAdapter.getLogicalPlan();
-        NereidsTracer.logImportantTime("EndParsePlan");
         setParsedPlan(parsedPlan);
 
         PhysicalProperties requireProperties = buildInitRequireProperties();
@@ -291,12 +281,6 @@ public class NereidsPlanner extends Planner {
     private Plan planWithoutLock(
             LogicalPlan plan, PhysicalProperties requireProperties, ExplainLevel explainLevel,
             boolean showPlanProcess) {
-        // minidump of input must be serialized first, this process ensure minidump string not null
-        try {
-            MinidumpUtils.serializeInputsToDumpFile(plan, statementContext);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
         // analyze this query, resolve column, table and function
         analyze(showAnalyzeProcess(explainLevel, showPlanProcess));
         if (explainLevel == ExplainLevel.ANALYZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
@@ -358,9 +342,6 @@ public class NereidsPlanner extends Planner {
                 || explainLevel == ExplainLevel.SHAPE_PLAN) {
             optimizedPlan = physicalPlan;
         }
-        // serialize optimized plan to dumpfile, dumpfile do not have this part means optimize failed
-        MinidumpUtils.serializeOutputToDumpFile(physicalPlan);
-        NereidsTracer.output(statementContext.getConnectContext());
         return physicalPlan;
     }
 
@@ -462,7 +443,6 @@ public class NereidsPlanner extends Planner {
         }
         statementContext.lock();
         cascadesContext.setCteContext(new CTEContext());
-        NereidsTracer.logImportantTime("EndCollectAndLockTables");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End collect and lock table");
         }
@@ -498,7 +478,6 @@ public class NereidsPlanner extends Planner {
         statementContext.getPlannerHooks().forEach(hook -> hook.beforeAnalyze(this));
         keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newAnalyzer().analyze());
         statementContext.getPlannerHooks().forEach(hook -> hook.afterAnalyze(this));
-        NereidsTracer.logImportantTime("EndAnalyzePlan");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End analyze plan");
         }
@@ -519,7 +498,6 @@ public class NereidsPlanner extends Planner {
         keepOrShowPlanProcess(showPlanProcess, () -> {
             Rewriter.getWholeTreeRewriter(cascadesContext).execute();
         });
-        NereidsTracer.logImportantTime("EndRewritePlan");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End rewrite plan");
         }
@@ -587,7 +565,6 @@ public class NereidsPlanner extends Planner {
             if (!plansWhichContainMv.isEmpty()) {
                 plansWhichContainMv.forEach(statementContext::addRewrittenPlanByMv);
             }
-            NereidsTracer.logImportantTime("EndPreRewritePlanByMv");
             if (LOG.isDebugEnabled()) {
                 LOG.debug("End pre rewrite plan by mv");
             }
@@ -620,7 +597,6 @@ public class NereidsPlanner extends Planner {
         keepOrShowPlanProcess(showPlanProcess, () -> {
             new Optimizer(cascadesContext).execute();
         });
-        NereidsTracer.logImportantTime("EndOptimizePlan");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End optimize plan");
         }
@@ -671,12 +647,6 @@ public class NereidsPlanner extends Planner {
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator(planTranslatorContext,
                 statementContext.getConnectContext().getStatsErrorEstimator());
         SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
-        if (sessionVariable.isEnableNereidsTrace()) {
-            CounterEvent.clearCounter();
-        }
-        if (sessionVariable.isPlayNereidsDump()) {
-            return;
-        }
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan);
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile()
