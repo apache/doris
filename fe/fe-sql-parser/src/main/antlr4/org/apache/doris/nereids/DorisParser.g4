@@ -141,6 +141,8 @@ hboStatement
     : hbo=identifier SET statistics=identifier key=STRING_LITERAL EQ rows=INTEGER_VALUE
           (structWord=identifier structCanonical=STRING_LITERAL)?      #hboSetStatistics
     | hbo=identifier DELETE statistics=identifier key=STRING_LITERAL   #hboDeleteStatistics
+    | hbo=identifier SHOW scope=identifier? statistics=identifier
+          (LIKE likePattern=STRING_LITERAL)?                           #hboShowStatistics
     ;
 
 queryOrDmlStatement

@@ -31,6 +31,12 @@ public interface HboPlanStatisticsProvider {
 
     RecentRunsPlanStatistics getHboPlanStats(PlanNodeAndHash planNodeAndHash);
 
+    /**
+     * Get all learned hbo plan statistics entries keyed by hbo fingerprint, for diagnostics
+     * (e.g. the {@code HBO SHOW STATISTICS} statement). The returned map is a read-only view.
+     */
+    Map<String, RecentRunsPlanStatistics> getAllHboPlanStats();
+
     void putHboPlanStats(Map<PlanNodeAndHash, RecentRunsPlanStatistics> hashesAndStatistics);
 
     void updatePlanStats(PlanNodeAndHash hash, RecentRunsPlanStatistics planStatistics);

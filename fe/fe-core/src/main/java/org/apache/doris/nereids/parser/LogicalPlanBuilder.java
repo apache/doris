@@ -774,6 +774,7 @@ import org.apache.doris.nereids.trees.plans.commands.GrantResourcePrivilegeComma
 import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.HboStatisticsCommand;
+import org.apache.doris.nereids.trees.plans.commands.HboShowStatisticsCommand;
 import org.apache.doris.nereids.trees.plans.commands.HelpCommand;
 import org.apache.doris.nereids.trees.plans.commands.InstallPluginCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
@@ -7208,6 +7209,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         checkHboStatementWords(ctx.hbo, ctx.statistics);
         String fingerprint = stripQuotes(ctx.key.getText());
         return new HboStatisticsCommand(HboStatisticsCommand.Op.DELETE, fingerprint, 0);
+    }
+
+    @Override
+    public LogicalPlan visitHboShowStatistics(DorisParser.HboShowStatisticsContext ctx) {
+        checkHboStatementWords(ctx.hbo, ctx.statistics);
+        String scope = ctx.scope == null ? null : ctx.scope.getText();
+        String likePattern = ctx.likePattern == null ? null : stripQuotes(ctx.likePattern.getText());
+        return new HboShowStatisticsCommand(scope, likePattern);
     }
 
     private void checkHboStatementWords(
