@@ -267,6 +267,45 @@ private:
     std::string _expected_key;
 };
 
+// Both SDK pipelines must use the configured transport. In production this is the CurlTransport
+// carrying the custom CA/proxy settings. This fake also exercises the real GetToken request.
+class AzureOAuthTransport final : public Azure::Core::Http::HttpTransport {
+public:
+    std::unique_ptr<Azure::Core::Http::RawResponse> Send(Azure::Core::Http::Request& request,
+                                                         const Azure::Core::Context&) override {
+        using namespace Azure::Core::Http;
+        auto response = std::make_unique<RawResponse>(1, 1, HttpStatusCode::Ok, "OK");
+        if (request.GetUrl().GetHost() == "127.0.0.1") {
+            ++token_requests;
+            EXPECT_EQ(request.GetMethod(), HttpMethod::Post);
+            EXPECT_EQ(request.GetUrl().GetPath(), "tenant/oauth2/v2.0/token");
+            static constexpr char body[] =
+                    R"({"access_token":"test-access-token","expires_in":3600,"token_type":"Bearer"})";
+            response->SetHeader("Content-Type", "application/json");
+            response->SetHeader("Content-Length", std::to_string(sizeof(body) - 1));
+            response->SetBodyStream(std::make_unique<Azure::Core::IO::MemoryBodyStream>(
+                    reinterpret_cast<const uint8_t*>(body), sizeof(body) - 1));
+        } else {
+            ++blob_requests;
+            EXPECT_EQ(request.GetUrl().GetHost(), "account.blob.core.windows.net");
+            EXPECT_EQ(request.GetMethod(), HttpMethod::Head);
+            EXPECT_EQ(request.GetHeaders().at("Authorization"), "Bearer test-access-token");
+            response->SetHeader("Content-Length", "16");
+            response->SetHeader("ETag", "\"etag\"");
+            response->SetHeader("Last-Modified", "Wed, 01 Jan 2025 00:00:00 GMT");
+            response->SetHeader("x-ms-creation-time", "Wed, 01 Jan 2025 00:00:00 GMT");
+            response->SetHeader("x-ms-blob-type", "BlockBlob");
+            response->SetHeader("x-ms-server-encrypted", "true");
+            response->SetBodyStream(std::make_unique<Azure::Core::IO::MemoryBodyStream>(
+                    reinterpret_cast<const uint8_t*>(""), 0));
+        }
+        return response;
+    }
+
+    int token_requests = 0;
+    int blob_requests = 0;
+};
+
 void assert_reader_range_contents(io::FileReader& reader) {
     EXPECT_EQ(reader.size(), 16);
     std::array<char, 4> buffer {};
@@ -324,6 +363,30 @@ void assert_native_sas_reader_range(const std::string& location, const std::stri
 }
 
 } // namespace
+
+TEST(AzureAuthFactoryTest, OAuth2TokenRequestsInheritTheBlobTransport) {
+    auto transport = std::make_shared<AzureOAuthTransport>();
+    Azure::Storage::Blobs::BlobClientOptions options;
+    options.Transport.Transport = transport;
+    options.Retry.MaxRetries = 0;
+    AzureCredentialOptions credentials;
+    credentials.type = AzureCredentialType::OAUTH2;
+    credentials.oauth_client_id = "client-id";
+    credentials.oauth_client_secret = "client-secret";
+    // A loopback authority prevents an external token request even if transport propagation
+    // regresses. The context deadline bounds that failure; the passing test uses no sockets.
+    credentials.oauth_server_uri = "https://127.0.0.1:1/tenant/oauth2/token";
+    auto built = AzureAuthFactory::create("https://account.blob.core.windows.net/container",
+                                          credentials, std::move(options));
+    ASSERT_TRUE(built) << built.error;
+    const auto context = Azure::Core::Context().WithDeadline(std::chrono::system_clock::now() +
+                                                             std::chrono::seconds(2));
+    const auto blob = built.container_client->GetBlobClient("file.parquet");
+
+    ASSERT_NO_THROW(EXPECT_EQ(blob.GetProperties({}, context).Value.BlobSize, 16));
+    EXPECT_EQ(transport->token_requests, 1);
+    EXPECT_EQ(transport->blob_requests, 1);
+}
 
 TEST(AzureAuthFactoryTest, NativeAdlsSasReaderPreservesLiteralNamesInHeadAndRangeRead) {
     const std::string key = "path/p=a%2Fb/with%20space/a+%2520/http://example//100%file";

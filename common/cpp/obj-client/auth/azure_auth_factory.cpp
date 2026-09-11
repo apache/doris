@@ -190,6 +190,10 @@ AzureClientBuildResult AzureAuthFactory::create(
                 return {.error = "Azure OAuth2 credential requires a tenant id"};
             }
             Azure::Identity::ClientSecretCredentialOptions identity_options;
+            // Identity owns a separate HTTP pipeline. Reuse the configured transport so token
+            // requests honor the same custom CA/proxy settings as Blob requests; do not copy
+            // storage-specific policies into the token pipeline.
+            identity_options.Transport = client_options.Transport;
             identity_options.AuthorityHost = oauth_authority_from_uri(credential.oauth_server_uri);
             if (identity_options.AuthorityHost.empty()) {
                 return {.error = "Azure OAuth2 credential has an invalid OAuth server URI"};

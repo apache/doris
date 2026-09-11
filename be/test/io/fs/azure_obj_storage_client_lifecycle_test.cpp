@@ -26,6 +26,7 @@
 #include <azure/core/url.hpp>
 #include <azure/storage/blobs/blob_container_client.hpp>
 #include <azure/storage/blobs/blob_options.hpp>
+#include <azure/storage/blobs/blob_sas_builder.hpp>
 #include <azure/storage/common/storage_credential.hpp>
 #include <chrono>
 #include <memory>
@@ -127,6 +128,35 @@ TEST_F(AzureObjStorageClientLifecycleTest, SharedKeyStillSignsOneReadOnlyBlobWit
                                                Azure::DateTime::DateFormat::Rfc3339);
     EXPECT_GE(expiry, Azure::DateTime(before + std::chrono::seconds(expiry_seconds - 1)));
     EXPECT_LE(expiry, Azure::DateTime(after + std::chrono::seconds(expiry_seconds)));
+    EXPECT_TRUE(transport->methods.empty());
+}
+
+TEST_F(AzureObjStorageClientLifecycleTest, SharedKeyPresignEncodesRawObjectNamesExactlyOnce) {
+    auto credential = std::make_shared<Azure::Storage::StorageSharedKeyCredential>(
+            "account", "MDEyMzQ1Njc4OWFiY2RlZg==");
+    auto container = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
+            AZURE_CONTAINER_URL, credential, options);
+    AzureObjStorageClient client(container, {.endpoint = AZURE_ENDPOINT}, credential);
+    for (const auto* key :
+         {"directory/100%.parquet", "directory/audit%2Fhistory", "directory/a b+c",
+          "directory/中文.parquet", "directory/a%252Fb", "directory/http://example/file"}) {
+        SCOPED_TRACE(key);
+        const auto signed_url =
+                client.generate_presigned_url({.bucket = "container", .key = key}, 600);
+        const Azure::Core::Url url(signed_url);
+        EXPECT_EQ(Azure::Core::Url::Decode(url.GetPath()), std::string("container/") + key);
+        const auto query = url.GetQueryParameters();
+        Azure::Storage::Sas::BlobSasBuilder expected;
+        expected.BlobContainerName = "container";
+        expected.BlobName = key;
+        expected.Resource = Azure::Storage::Sas::BlobSasResource::Blob;
+        expected.Protocol = Azure::Storage::Sas::SasProtocol::HttpsOnly;
+        expected.SetPermissions(Azure::Storage::Sas::BlobSasPermissions::Read);
+        expected.ExpiresOn = Azure::DateTime::Parse(Azure::Core::Url::Decode(query.at("se")),
+                                                    Azure::DateTime::DateFormat::Rfc3339);
+        // Verify that the signature still names the raw blob, not its URL-encoded spelling.
+        EXPECT_EQ(signed_url.substr(signed_url.find('?')), expected.GenerateSasToken(*credential));
+    }
     EXPECT_TRUE(transport->methods.empty());
 }
 
