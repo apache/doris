@@ -16,6 +16,8 @@
 // under the License.
 
 suite("dup_negative_mv_test", "mv_negative") {
+    withGlobalLock("allow_non_aggregate_table_state_types") {
+    setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
 
     // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
     sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
@@ -153,4 +155,6 @@ suite("dup_negative_mv_test", "mv_negative") {
     }
 
 
+    }
+    }
 }
