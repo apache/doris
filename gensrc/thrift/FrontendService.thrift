@@ -1839,6 +1839,8 @@ struct TCommitRemoteTxnRequest {
     7: optional i64 txn_id
     8: optional list<Types.TTabletCommitInfo> commit_infos
     9: optional i64 insert_visible_timeout_ms
+    // Write-time snapshots keyed by source index ID; empty when the writer has no row binlog.
+    10: optional map<i64, Descriptors.TRowBinlogWriteColumnMappings> row_binlog_column_mappings
 }
 
 struct TCommitRemoteTxnResult {

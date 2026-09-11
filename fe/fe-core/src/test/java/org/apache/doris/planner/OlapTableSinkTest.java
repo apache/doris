@@ -27,6 +27,8 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
+import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
@@ -38,6 +40,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TOlapTableIndexTablets;
 import org.apache.doris.thrift.TOlapTableLocationParam;
 import org.apache.doris.thrift.TOlapTablePartition;
+import org.apache.doris.thrift.TOlapTableSchemaParam;
 import org.apache.doris.thrift.TRowBinlogWriteColumnMapping;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletLocation;
@@ -71,13 +74,22 @@ public class OlapTableSinkTest {
     }
 
     private void checkWriteSchemaSnapshot(long planningTxnId) throws Exception {
+        checkWriteSchemaSnapshot(planningTxnId, false);
+    }
+
+    @Test
+    public void testRemoteWriteSchemaDoesNotCaptureInLocalTransaction() throws Exception {
+        checkWriteSchemaSnapshot(100L, true);
+    }
+
+    private void checkWriteSchemaSnapshot(long planningTxnId, boolean remote) throws Exception {
         MaterializedIndexMeta source = indexMeta(10L, Arrays.asList(
                 column("k1", 1, true, true), column("v1", 2, false, true)));
         source.setRowBinlogIndexId(20L);
         MaterializedIndexMeta binlog = indexMeta(20L, Arrays.asList(
                 column("k1", 11, true, true), column("v1", 12, false, true),
                 column(Column.generateBeforeColName("v1"), 22, false, true)));
-        OlapTable table = Mockito.mock(OlapTable.class);
+        OlapTable table = remote ? Mockito.mock(RemoteOlapTable.class) : Mockito.mock(OlapTable.class);
         Mockito.when(table.needRowBinlog()).thenReturn(true);
         Mockito.when(table.getBaseIndexId()).thenReturn(10L);
         Mockito.when(table.getIndexMetaByIndexId(10L)).thenReturn(source);
@@ -91,10 +103,24 @@ public class OlapTableSinkTest {
         Mockito.when(manager.getTransactionState(1L, 100L)).thenReturn(state);
         try (MockedStatic<Env> env = Mockito.mockStatic(Env.class)) {
             env.when(Env::getCurrentGlobalTransactionMgr).thenReturn(manager);
-            OlapTableSink sink = new OlapTableSink(table, new TupleDescriptor(new TupleId(0)),
-                    Collections.emptyList());
+            OlapTableSink sink;
+            if (remote) {
+                RemoteDorisExternalCatalog catalog = Mockito.mock(RemoteDorisExternalCatalog.class,
+                        Mockito.RETURNS_DEEP_STUBS);
+                Mockito.when(((RemoteOlapTable) table).getCatalog()).thenReturn(catalog);
+                sink = new RemoteOlapTableSink((RemoteOlapTable) table, new TupleDescriptor(new TupleId(0)),
+                        Collections.emptyList(), Collections.emptyList(), Collections.emptyMap());
+            } else {
+                sink = new OlapTableSink(table, new TupleDescriptor(new TupleId(0)), Collections.emptyList());
+            }
             Deencapsulation.setField(sink, "txnId", planningTxnId);
-            Deencapsulation.invoke(sink, "createSchema", 1L, table);
+            TOlapTableSchemaParam schema = Deencapsulation.invoke(sink, "createSchema", 1L, table);
+            if (remote) {
+                Assertions.assertEquals(2, schema.getIndexes().get(0).getRowBinlogColumnMappingsSize());
+                Mockito.verifyNoInteractions(manager);
+                Assertions.assertTrue(state.getRowBinlogColumnMappings(100L).isEmpty());
+                return;
+            }
         }
         String expected = "{\"100\":{\"10\":{\"historical\":true,\"columns\":["
                 + "{\"source\":1,\"current\":11},{\"source\":2,\"current\":12,\"before\":22}]}}}";
