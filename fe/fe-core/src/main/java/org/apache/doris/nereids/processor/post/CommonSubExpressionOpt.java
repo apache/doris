@@ -21,6 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -76,12 +77,16 @@ public class CommonSubExpressionOpt extends PlanPostProcessor {
                 layer.addAll(inputSlots);
                 Set<Expression> exprsInDepth = CommonSubExpressionCollector
                         .getExpressionsFromDepthMap(i, collector.commonExprByDepth);
+                Map<Expression, Alias> currentLayerAliases = new LinkedHashMap<>();
                 exprsInDepth.forEach(expr -> {
+                    // Only reference aliases produced by earlier layers.
                     Expression rewritten = expr.accept(ExpressionReplacer.INSTANCE, aliasMap);
                     // if rewritten is already alias, use it directly, because in materialized view rewriting
                     // Should keep out slot immutably after rewritten successfully
-                    aliasMap.put(expr, rewritten instanceof Alias ? (Alias) rewritten : new Alias(rewritten));
+                    currentLayerAliases.put(expr,
+                            rewritten instanceof Alias ? (Alias) rewritten : new Alias(rewritten));
                 });
+                aliasMap.putAll(currentLayerAliases);
                 for (Alias alias : aliasMap.values()) {
                     if (previousAlias.contains(alias)) {
                         layer.add(alias.toSlot());
@@ -123,6 +128,18 @@ public class CommonSubExpressionOpt extends PlanPostProcessor {
                 return replaceMap.get(expr).toSlot();
             }
             return super.visit(expr, replaceMap);
+        }
+
+        @Override
+        public Expression visitSessionVarGuardExpr(SessionVarGuardExpr expr,
+                Map<? extends Expression, ? extends Alias> replaceMap) {
+            if (replaceMap.containsKey(expr)) {
+                return replaceMap.get(expr).toSlot();
+            }
+            // Match the collector: the guard and its wrapped root form one CSE unit.
+            // Replacing the wrapped root would lose its session variable protection.
+            Expression child = rewriteChildren(this, expr.child(), replaceMap);
+            return child == expr.child() ? expr : expr.withChildren(child);
         }
     }
 }
