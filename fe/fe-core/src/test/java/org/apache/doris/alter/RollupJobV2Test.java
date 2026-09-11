@@ -282,6 +282,190 @@ public class RollupJobV2Test {
     }
 
     @Test
+    public void testRollupAllowsMinorityLaggingBaseReplica() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
+
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(op);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
+        materializedViewHandler.process(alterOps, db, olapTable);
+        RollupJobV2 rollupJob = (RollupJobV2) materializedViewHandler.getAlterJobsV2()
+                .values().stream().findAny().get();
+
+        materializedViewHandler.runAfterCatalogReady();
+        Assert.assertEquals(JobState.WAITING_TXN, rollupJob.getJobState());
+
+        Tablet baseTablet = testPartition.getBaseIndex().getTablets().get(0);
+        List<Replica> baseReplicas = baseTablet.getReplicas();
+        Replica laggingReplica = baseReplicas.get(0);
+        long visibleVersion = testPartition.getVisibleVersion() + 1;
+        testPartition.updateVisibleVersion(visibleVersion);
+        for (Replica replica : baseReplicas) {
+            if (replica == laggingReplica) {
+                replica.updateVersionWithFailed(visibleVersion - 1, visibleVersion, visibleVersion - 1);
+            } else {
+                replica.updateVersionWithFailed(visibleVersion, -1, visibleVersion);
+            }
+        }
+
+        materializedViewHandler.runAfterCatalogReady();
+        Assert.assertEquals(JobState.RUNNING, rollupJob.getJobState());
+        Assert.assertEquals(3, AgentTaskQueue.getTask(TTaskType.ALTER).size());
+    }
+
+    @Test
+    public void testRollupWaitsForQuorumWhenBaseReplicaMappingIsMissing() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
+
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(op);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
+        materializedViewHandler.process(alterOps, db, olapTable);
+        RollupJobV2 rollupJob = (RollupJobV2) materializedViewHandler.getAlterJobsV2()
+                .values().stream().findAny().get();
+
+        materializedViewHandler.runAfterCatalogReady();
+        Assert.assertEquals(JobState.WAITING_TXN, rollupJob.getJobState());
+
+        Tablet baseTablet = testPartition.getBaseIndex().getTablets().get(0);
+        List<Replica> baseReplicas = baseTablet.getReplicas();
+        Replica missingReplica = baseReplicas.get(0);
+        Replica readyReplica = baseReplicas.get(1);
+        Replica catchingUpReplica = baseReplicas.get(2);
+        long visibleVersion = testPartition.getVisibleVersion() + 1;
+        testPartition.updateVisibleVersion(visibleVersion);
+        readyReplica.updateVersionWithFailed(visibleVersion, -1, visibleVersion);
+        catchingUpReplica.updateVersionWithFailed(visibleVersion - 1, visibleVersion, visibleVersion - 1);
+
+        MaterializedIndex rollupIndex = testPartition.getMaterializedIndices(IndexExtState.SHADOW).get(0);
+        Assert.assertNotNull(rollupIndex.getTablets().get(0)
+                .getReplicaByBackendId(missingReplica.getBackendIdWithoutException()));
+        Assert.assertTrue(baseTablet.deleteReplica(missingReplica));
+
+        materializedViewHandler.runAfterCatalogReady();
+        Assert.assertEquals(JobState.WAITING_TXN, rollupJob.getJobState());
+        Assert.assertEquals(0, AgentTaskQueue.getTask(TTaskType.ALTER).size());
+
+        catchingUpReplica.updateVersionWithFailed(visibleVersion, -1, visibleVersion);
+
+        materializedViewHandler.runAfterCatalogReady();
+        Assert.assertEquals(JobState.RUNNING, rollupJob.getJobState());
+        Assert.assertEquals(3, AgentTaskQueue.getTask(TTaskType.ALTER).size());
+    }
+
+    @Test
+    public void testRollupDoesNotCountCompleteReplicaOnDeadBackend() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
+
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(op);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
+        materializedViewHandler.process(alterOps, db, olapTable);
+        RollupJobV2 rollupJob = (RollupJobV2) materializedViewHandler.getAlterJobsV2()
+                .values().stream().findAny().get();
+
+        materializedViewHandler.runAfterCatalogReady();
+        Assert.assertEquals(JobState.WAITING_TXN, rollupJob.getJobState());
+
+        Tablet baseTablet = testPartition.getBaseIndex().getTablets().get(0);
+        List<Replica> baseReplicas = baseTablet.getReplicas();
+        long visibleVersion = testPartition.getVisibleVersion() + 1;
+        testPartition.updateVisibleVersion(visibleVersion);
+        baseReplicas.get(0).updateVersionWithFailed(visibleVersion, -1, visibleVersion);
+        baseReplicas.get(1).updateVersionWithFailed(visibleVersion, -1, visibleVersion);
+        baseReplicas.get(2).updateVersionWithFailed(visibleVersion - 1, visibleVersion, visibleVersion - 1);
+        Env.getCurrentSystemInfo().getBackend(baseReplicas.get(1).getBackendIdWithoutException()).setAlive(false);
+
+        materializedViewHandler.runAfterCatalogReady();
+        Assert.assertEquals(JobState.WAITING_TXN, rollupJob.getJobState());
+        Assert.assertEquals(0, AgentTaskQueue.getTask(TTaskType.ALTER).size());
+
+        Env.getCurrentSystemInfo().getBackend(baseReplicas.get(1).getBackendIdWithoutException()).setAlive(true);
+
+        materializedViewHandler.runAfterCatalogReady();
+        Assert.assertEquals(JobState.RUNNING, rollupJob.getJobState());
+        Assert.assertEquals(3, AgentTaskQueue.getTask(TTaskType.ALTER).size());
+    }
+
+    @Test
+    public void testRollupWaitsWhenNoBaseReplicaIsCurrentlyComplete() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
+
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(op);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
+        materializedViewHandler.process(alterOps, db, olapTable);
+        RollupJobV2 rollupJob = (RollupJobV2) materializedViewHandler.getAlterJobsV2()
+                .values().stream().findAny().get();
+
+        materializedViewHandler.runAfterCatalogReady();
+        Assert.assertEquals(JobState.WAITING_TXN, rollupJob.getJobState());
+
+        Tablet baseTablet = testPartition.getBaseIndex().getTablets().get(0);
+        long visibleVersion = testPartition.getVisibleVersion() + 1;
+        testPartition.updateVisibleVersion(visibleVersion);
+        for (Replica replica : baseTablet.getReplicas()) {
+            replica.updateVersionWithFailed(visibleVersion - 1, visibleVersion, visibleVersion - 1);
+        }
+
+        materializedViewHandler.runAfterCatalogReady();
+        Assert.assertEquals(JobState.WAITING_TXN, rollupJob.getJobState());
+        Assert.assertEquals(0, AgentTaskQueue.getTask(TTaskType.ALTER).size());
+
+        List<Replica> baseReplicas = baseTablet.getReplicas();
+        baseReplicas.get(0).updateVersionWithFailed(visibleVersion, -1, visibleVersion);
+        baseReplicas.get(1).updateVersionWithFailed(visibleVersion, -1, visibleVersion);
+
+        materializedViewHandler.runAfterCatalogReady();
+        Assert.assertEquals(JobState.RUNNING, rollupJob.getJobState());
+        Assert.assertEquals(3, AgentTaskQueue.getTask(TTaskType.ALTER).size());
+    }
+
+    @Test
     public void testSchemaChangeCancelWhenRollupTasksFailed() throws Exception {
         if (fakeEnv != null) {
             fakeEnv.close();
