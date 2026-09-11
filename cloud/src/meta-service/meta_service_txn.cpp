@@ -4620,6 +4620,25 @@ void MetaServiceImpl::abort_txn_with_coordinator(::google::protobuf::RpcControll
     }
 }
 
+std::string get_txn_info_key_from_txn_running_key(std::string_view txn_running_key) {
+    std::string conflict_txn_info_key;
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    txn_running_key.remove_prefix(1);
+    int ret = decode_key(&txn_running_key, &out);
+    if (ret != 0) [[unlikely]] {
+        // decode version key error means this is something wrong,
+        // we can not continue this txn
+        LOG(WARNING) << "failed to decode key, ret=" << ret << " key=" << hex(txn_running_key);
+    } else {
+        DCHECK(out.size() == 5) << " key=" << hex(txn_running_key) << " " << out.size();
+        const std::string& decode_instance_id = std::get<1>(std::get<0>(out[1]));
+        int64_t db_id = std::get<0>(std::get<0>(out[3]));
+        int64_t txn_id = std::get<0>(std::get<0>(out[4]));
+        conflict_txn_info_key = txn_info_key({decode_instance_id, db_id, txn_id});
+    }
+    return conflict_txn_info_key;
+}
+
 void MetaServiceImpl::get_prepare_txn_by_coordinator(
         ::google::protobuf::RpcController* controller,
         const GetPrepareTxnByCoordinatorRequest* request,
@@ -4641,9 +4660,13 @@ void MetaServiceImpl::get_prepare_txn_by_coordinator(
         return;
     }
     RPC_RATE_LIMIT(get_prepare_txn_by_coordinator);
-    std::string begin_info_key = txn_info_key({instance_id, 0, 0});
-    std::string end_info_key = txn_info_key({instance_id, INT64_MAX, INT64_MAX});
-    LOG(INFO) << "begin_info_key:" << hex(begin_info_key) << " end_info_key:" << hex(end_info_key);
+    const bool scan_by_running_key = config::enable_get_prepare_txn_by_coordinator_by_running_key;
+    std::string begin_key = scan_by_running_key ? txn_running_key({instance_id, 0, 0})
+                                                : txn_info_key({instance_id, 0, 0});
+    std::string end_key = scan_by_running_key ? txn_running_key({instance_id, INT64_MAX, INT64_MAX})
+                                              : txn_info_key({instance_id, INT64_MAX, INT64_MAX});
+    LOG(INFO) << "begin_key:" << hex(begin_key) << " end_key:" << hex(end_key)
+              << " scan_by_running_key=" << scan_by_running_key;
 
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -4653,75 +4676,116 @@ void MetaServiceImpl::get_prepare_txn_by_coordinator(
     }
     std::unique_ptr<RangeGetIterator> it;
     int32_t result_count = 0;
-    int64_t total_iteration_cnt = 0;
+    int64_t scanned_count = 0;
     bool has_start_time_filter = request->has_start_time();
 
+    auto process_txn_info = [&](std::string_view key, std::string_view value) -> TxnErrorCode {
+        scanned_count++;
+        VLOG_DEBUG << "check txn info txn_info_key=" << hex(key);
+        TxnInfoPB info_pb;
+        if (!info_pb.ParseFromArray(value.data(), value.size())) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = "malformed txn info, key=" + hex(key);
+            LOG(WARNING) << msg;
+            return TxnErrorCode::TXN_INVALID_DATA;
+        }
+        const auto& coordinate = info_pb.coordinator();
+        bool matches = info_pb.status() == TxnStatusPB::TXN_STATUS_PREPARED &&
+                       coordinate.sourcetype() == TXN_SOURCE_TYPE_BE &&
+                       coordinate.ip() == request->ip() &&
+                       (coordinate.id() == 0 || coordinate.id() == request->id());
+        if (matches && has_start_time_filter) {
+            matches = coordinate.start_time() < request->start_time();
+        }
+        if (matches) {
+            TxnInfoPB* txn_info = response->add_txn_infos();
+            txn_info->CopyFrom(info_pb);
+            result_count++;
+        }
+        return TxnErrorCode::TXN_OK;
+    };
+
+    // Each txn_info value can be much larger than its running index entry.
+    constexpr int batch_size = 128;
+    const int scan_batch_size = scan_by_running_key ? batch_size : RangeGetOptions().batch_limit;
+    auto read_page = [&]() -> TxnErrorCode {
+        auto ret = txn->get(begin_key, end_key, &it, true, scan_batch_size);
+        TEST_SYNC_POINT_CALLBACK("get_prepare_txn_by_coordinator::range_get", &ret);
+        if (ret != TxnErrorCode::TXN_OK) {
+            return ret;
+        }
+        std::vector<std::string> info_keys;
+        info_keys.reserve(scan_by_running_key ? it->size() : 0);
+        while (it->has_next()) {
+            auto [key, value] = it->next();
+            if (scan_by_running_key) {
+                auto info_key = get_txn_info_key_from_txn_running_key(key);
+                if (info_key.empty()) {
+                    continue;
+                }
+                info_keys.push_back(std::move(info_key));
+            } else {
+                ret = process_txn_info(key, value);
+                if (ret != TxnErrorCode::TXN_OK) {
+                    return ret;
+                }
+            }
+        }
+        if (!scan_by_running_key) {
+            return TxnErrorCode::TXN_OK;
+        }
+        std::vector<std::optional<std::string>> info_values;
+        ret = txn->batch_get(&info_values, info_keys, Transaction::BatchGetOptions(true));
+        TEST_SYNC_POINT_CALLBACK("get_prepare_txn_by_coordinator::batch_get", &ret, &info_values);
+        if (ret != TxnErrorCode::TXN_OK) {
+            return ret;
+        }
+        for (size_t i = 0; i < info_keys.size(); ++i) {
+            if (!info_values[i].has_value()) {
+                code = MetaServiceCode::TXN_ID_NOT_FOUND;
+                msg = "missing txn info for running txn, key=" + hex(info_keys[i]);
+                LOG(WARNING) << msg;
+                return TxnErrorCode::TXN_KEY_NOT_FOUND;
+            }
+            ret = process_txn_info(info_keys[i], *info_values[i]);
+            if (ret != TxnErrorCode::TXN_OK) {
+                return ret;
+            }
+        }
+        return TxnErrorCode::TXN_OK;
+    };
+
     do {
-        err = txn->get(begin_info_key, end_info_key, &it, true);
+        err = read_page();
+        if (err == TxnErrorCode::TXN_TOO_OLD) {
+            stats.get_bytes += txn->get_bytes();
+            stats.get_counter += txn->num_get_keys();
+            txn.reset();
+            err = txn_kv_->create_txn(&txn);
+            if (err != TxnErrorCode::TXN_OK) {
+                msg = "failed to create txn";
+                code = cast_as<ErrCategory::CREATE>(err);
+                return;
+            }
+            err = read_page();
+        }
+        if (code != MetaServiceCode::OK) {
+            return;
+        }
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
-            ss << "failed to get txn info. err=" << err;
+            ss << "get_prepare_txn_by_coordinator: failed to get txn info. err=" << err;
             msg = ss.str();
             LOG(WARNING) << msg;
             return;
         }
 
-        while (it->has_next()) {
-            total_iteration_cnt++;
-            auto [k, v] = it->next();
-            VLOG_DEBUG << "check txn info txn_info_key=" << hex(k);
-            TxnInfoPB info_pb;
-            if (!info_pb.ParseFromArray(v.data(), v.size())) {
-                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                ss << "malformed txn running info";
-                msg = ss.str();
-                ss << " key=" << hex(k);
-                LOG(WARNING) << ss.str();
-                return;
-            }
-            const auto& coordinate = info_pb.coordinator();
-            bool matches = info_pb.status() == TxnStatusPB::TXN_STATUS_PREPARED &&
-                           coordinate.sourcetype() == TXN_SOURCE_TYPE_BE &&
-                           coordinate.ip() == request->ip() &&
-                           (coordinate.id() == 0 || coordinate.id() == request->id());
-            if (matches && has_start_time_filter) {
-                matches = coordinate.start_time() < request->start_time();
-            }
-
-            if (matches) {
-                TxnInfoPB* txn_info = response->add_txn_infos();
-                txn_info->CopyFrom(info_pb);
-                result_count++;
-            }
-
-            if (!it->has_next()) {
-                begin_info_key = k;
-            }
-        }
-        begin_info_key.push_back('\x00'); // Update to next smallest key for iteration
+        begin_key = it->next_begin_key();
     } while (it->more());
 
-    LOG(INFO) << "get_prepare_txn_by_coordinator: found " << result_count << " transactions"
-              << " total iteration count: " << total_iteration_cnt;
-}
-
-std::string get_txn_info_key_from_txn_running_key(std::string_view txn_running_key) {
-    std::string conflict_txn_info_key;
-    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
-    txn_running_key.remove_prefix(1);
-    int ret = decode_key(&txn_running_key, &out);
-    if (ret != 0) [[unlikely]] {
-        // decode version key error means this is something wrong,
-        // we can not continue this txn
-        LOG(WARNING) << "failed to decode key, ret=" << ret << " key=" << hex(txn_running_key);
-    } else {
-        DCHECK(out.size() == 5) << " key=" << hex(txn_running_key) << " " << out.size();
-        const std::string& decode_instance_id = std::get<1>(std::get<0>(out[1]));
-        int64_t db_id = std::get<0>(std::get<0>(out[3]));
-        int64_t txn_id = std::get<0>(std::get<0>(out[4]));
-        conflict_txn_info_key = txn_info_key({decode_instance_id, db_id, txn_id});
-    }
-    return conflict_txn_info_key;
+    LOG(INFO) << "get_prepare_txn_by_coordinator: scanned_count=" << scanned_count
+              << " matched_count=" << result_count
+              << " scan_by_running_key=" << scan_by_running_key;
 }
 
 void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* controller,

@@ -20,11 +20,13 @@
 #include <brpc/controller.h>
 #include <bvar/window.h>
 #include <fmt/core.h>
+#include <fmt/ranges.h>
 #include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <google/protobuf/repeated_field.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -2871,6 +2873,11 @@ TEST(MetaServiceTest, AbortTxnWithCoordinatorTest) {
 
 TEST(MetaServiceTest, GetPrepareTxnByCoordinatorTest) {
     auto meta_service = get_meta_service();
+    const bool original_mode = config::enable_get_prepare_txn_by_coordinator_by_running_key;
+    config::enable_get_prepare_txn_by_coordinator_by_running_key = true;
+    DORIS_CLOUD_DEFER {
+        config::enable_get_prepare_txn_by_coordinator_by_running_key = original_mode;
+    };
 
     const int64_t db_id = 888;
     const int64_t table_id = 999;
@@ -2975,6 +2982,447 @@ TEST(MetaServiceTest, GetPrepareTxnByCoordinatorTest) {
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &resp, nullptr);
 
         ASSERT_EQ(resp.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+    // Running entries also include precommitted/lazy-committed and expired transactions.
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        for (int i = 0; i < 2; ++i) {
+            const auto key = txn_info_key({mock_instance, db_id, txn_ids[i]});
+            std::string value;
+            ASSERT_EQ(txn->get(key, &value), TxnErrorCode::TXN_OK);
+            TxnInfoPB info;
+            ASSERT_TRUE(info.ParseFromString(value));
+            info.set_status(i == 0 ? TxnStatusPB::TXN_STATUS_PRECOMMITTED
+                                   : TxnStatusPB::TXN_STATUS_COMMITTED);
+            txn->put(key, info.SerializeAsString());
+        }
+        TxnRunningPB expired;
+        expired.set_timeout_time(0);
+        txn->put(txn_running_key({mock_instance, db_id, txn_ids[2]}), expired.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        brpc::Controller cntl;
+        GetPrepareTxnByCoordinatorRequest req;
+        GetPrepareTxnByCoordinatorResponse resp;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_id(coordinator_id);
+        req.set_ip(host);
+        req.set_start_time(cur_time + 100);
+        meta_service->get_prepare_txn_by_coordinator(&cntl, &req, &resp, nullptr);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(resp.txn_infos_size(), 3);
+        EXPECT_EQ(resp.txn_infos(0).txn_id(), txn_ids[2]);
+
+        // Retry the entire page if its snapshot expires while a candidate is completed/recycled.
+        auto sp = SyncPoint::get_instance();
+        DORIS_CLOUD_DEFER {
+            sp->disable_processing();
+            sp->clear_all_call_backs();
+        };
+        int info_batches = 0;
+        sp->set_call_back("get_prepare_txn_by_coordinator::batch_get", [&](auto&& args) {
+            if (++info_batches == 1) {
+                std::unique_ptr<Transaction> update;
+                ASSERT_EQ(meta_service->txn_kv()->create_txn(&update), TxnErrorCode::TXN_OK);
+                update->remove(txn_running_key({mock_instance, db_id, txn_ids[2]}));
+                update->remove(txn_info_key({mock_instance, db_id, txn_ids[2]}));
+                ASSERT_EQ(update->commit(), TxnErrorCode::TXN_OK);
+                *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_TOO_OLD;
+            }
+        });
+        sp->enable_processing();
+        resp.Clear();
+        meta_service->get_prepare_txn_by_coordinator(&cntl, &req, &resp, nullptr);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(info_batches, 2);
+        ASSERT_EQ(resp.txn_infos_size(), 2);
+        EXPECT_EQ(resp.txn_infos(0).txn_id(), txn_ids[3]);
+        EXPECT_EQ(resp.txn_infos(1).txn_id(), txn_ids[4]);
+
+        // A running entry without its info in the same snapshot is an error.
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->remove(txn_info_key({mock_instance, db_id, txn_ids[3]}));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        resp.Clear();
+        meta_service->get_prepare_txn_by_coordinator(&cntl, &req, &resp, nullptr);
+        EXPECT_EQ(resp.status().code(), MetaServiceCode::TXN_ID_NOT_FOUND);
+    }
+}
+
+TEST(MetaServiceTest, GetPrepareTxnByCoordinatorScanRetryTest) {
+    auto meta_service = get_meta_service();
+    const bool original_mode = config::enable_get_prepare_txn_by_coordinator_by_running_key;
+    const bool original_metrics = config::use_detailed_metrics;
+    const bool original_retry = config::enable_txn_store_retry;
+    const auto original_retry_times = config::txn_store_retry_times;
+    config::txn_store_retry_times = 1;
+    config::use_detailed_metrics = true;
+    DORIS_CLOUD_DEFER {
+        config::enable_get_prepare_txn_by_coordinator_by_running_key = original_mode;
+        config::use_detailed_metrics = original_metrics;
+        config::enable_txn_store_retry = original_retry;
+        config::txn_store_retry_times = original_retry_times;
+    };
+
+    GetPrepareTxnByCoordinatorRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_id(12345);
+    req.set_ip("127.0.0.1");
+    for (bool scan_by_running_key : {false, true}) {
+        config::enable_get_prepare_txn_by_coordinator_by_running_key = scan_by_running_key;
+        brpc::Controller cntl;
+        GetPrepareTxnByCoordinatorResponse resp;
+        meta_service->get_prepare_txn_by_coordinator(&cntl, &req, &resp, nullptr);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+        EXPECT_EQ(resp.txn_infos_size(), 0);
+    }
+
+    constexpr int64_t db_id = 888;
+    constexpr int prepared_count = 5;
+    std::vector<int64_t> info_bytes;
+    std::vector<int64_t> running_bytes;
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    for (int64_t id = 1; id <= prepared_count + 1; ++id) {
+        TxnInfoPB info;
+        info.set_db_id(db_id);
+        info.set_txn_id(id);
+        info.set_status(id <= prepared_count ? TxnStatusPB::TXN_STATUS_PREPARED
+                                             : TxnStatusPB::TXN_STATUS_VISIBLE);
+        info.mutable_coordinator()->set_sourcetype(TxnSourceTypePB::TXN_SOURCE_TYPE_BE);
+        info.mutable_coordinator()->set_id(12345);
+        info.mutable_coordinator()->set_ip("127.0.0.1");
+        const auto key = txn_info_key({mock_instance, db_id, id});
+        const auto value = info.SerializeAsString();
+        txn->put(key, value);
+        info_bytes.push_back(key.size() + value.size());
+        // Historical info must not be read in running-key mode.
+        if (id <= prepared_count) {
+            TxnRunningPB running;
+            running.set_timeout_time(0);
+            const auto running_key = txn_running_key({mock_instance, db_id, id});
+            const auto running_value = running.SerializeAsString();
+            txn->put(running_key, running_value);
+            running_bytes.push_back(running_key.size() + running_value.size());
+        }
+    }
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    for (const auto& [scan_by_running_key, expire_on_info] :
+         {std::pair {false, false}, std::pair {true, false}, std::pair {true, true}}) {
+        const auto& scan_bytes = scan_by_running_key ? running_bytes : info_bytes;
+        // MemTxnKv needs an empty page after full data pages to finish the scan.
+        const int terminal_page = scan_bytes.size() + 1;
+        for (const auto& failures : std::vector<std::vector<int>> {
+                     {}, {1}, {3}, {terminal_page - 1}, {terminal_page}, {2, 5}}) {
+            SCOPED_TRACE(fmt::format("scan_by_running_key={} expire_on_info={} failures={}",
+                                     scan_by_running_key, expire_on_info,
+                                     fmt::join(failures, ",")));
+            auto [success, message] =
+                    config::set_config({{"enable_get_prepare_txn_by_coordinator_by_running_key",
+                                         scan_by_running_key ? "true" : "false"}},
+                                       false, "");
+            ASSERT_TRUE(success) << message;
+            const auto counter_before =
+                    g_bvar_rpc_kv_get_prepare_txn_by_coordinator_get_counter.get({mock_instance});
+            const auto bytes_before =
+                    g_bvar_rpc_kv_get_prepare_txn_by_coordinator_get_bytes.get({mock_instance});
+            auto sp = SyncPoint::get_instance();
+            DORIS_CLOUD_DEFER {
+                sp->disable_processing();
+                sp->clear_all_call_backs();
+            };
+            int pages = 0;
+            int batches = 0;
+            sp->set_call_back("memkv::Transaction::get",
+                              [&](auto&& args) { *try_any_cast<int*>(args[0]) = 1; });
+            sp->set_call_back("get_prepare_txn_by_coordinator::range_get", [&](auto&& args) {
+                // A config change must only affect subsequent RPCs, even after expiry.
+                config::enable_get_prepare_txn_by_coordinator_by_running_key = !scan_by_running_key;
+                ++pages;
+                if (!expire_on_info && std::count(failures.begin(), failures.end(), pages) != 0) {
+                    *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_TOO_OLD;
+                }
+            });
+            sp->set_call_back("get_prepare_txn_by_coordinator::batch_get", [&](auto&& args) {
+                ++batches;
+                if (expire_on_info && std::count(failures.begin(), failures.end(), batches) != 0) {
+                    *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_TOO_OLD;
+                }
+            });
+            sp->enable_processing();
+
+            brpc::Controller cntl;
+            GetPrepareTxnByCoordinatorResponse resp;
+            meta_service->get_prepare_txn_by_coordinator(&cntl, &req, &resp, nullptr);
+            ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(resp.txn_infos_size(), prepared_count);
+            for (int i = 0; i < prepared_count; ++i) {
+                EXPECT_EQ(resp.txn_infos(i).txn_id(), i + 1);
+            }
+            EXPECT_EQ(pages, terminal_page + failures.size());
+            EXPECT_EQ(batches, scan_by_running_key
+                                       ? terminal_page + (expire_on_info ? failures.size() : 0)
+                                       : 0);
+
+            // Each earlier retry shifts subsequent read-attempt numbers by one.
+            std::vector<int> failed_pages;
+            for (size_t i = 0; i < failures.size(); ++i) {
+                failed_pages.push_back(failures[i] - static_cast<int>(i));
+            }
+            int64_t expected_counter = 0;
+            int64_t expected_bytes = 0;
+            for (size_t i = 0; i < scan_bytes.size(); ++i) {
+                const int reads = 1 + std::count(failed_pages.begin(), failed_pages.end(), i + 1);
+                expected_counter += reads;
+                expected_bytes += reads * scan_bytes[i];
+            }
+            if (scan_by_running_key) {
+                for (int i = 0; i < prepared_count; ++i) {
+                    const int reads = 1 + (expire_on_info ? std::count(failed_pages.begin(),
+                                                                       failed_pages.end(), i + 1)
+                                                          : 0);
+                    expected_counter += reads;
+                    expected_bytes += reads * info_bytes[i];
+                }
+            }
+            EXPECT_EQ(
+                    g_bvar_rpc_kv_get_prepare_txn_by_coordinator_get_counter.get({mock_instance}) -
+                            counter_before,
+                    expected_counter);
+            EXPECT_EQ(g_bvar_rpc_kv_get_prepare_txn_by_coordinator_get_bytes.get({mock_instance}) -
+                              bytes_before,
+                      expected_bytes);
+        }
+
+        // Fail after two pages have already appended results. Check handler failure separately
+        // from the proxy retry, which must clear partial results before restarting the RPC.
+        for (const auto& [error, retry_whole_rpc] :
+             {std::pair {TxnErrorCode::TXN_TOO_OLD, false},
+              std::pair {TxnErrorCode::TXN_UNIDENTIFIED_ERROR, false},
+              std::pair {TxnErrorCode::TXN_TOO_OLD, true}}) {
+            SCOPED_TRACE(
+                    fmt::format("scan_by_running_key={} expire_on_info={} error={} proxy_retry={}",
+                                scan_by_running_key, expire_on_info, error, retry_whole_rpc));
+            config::enable_get_prepare_txn_by_coordinator_by_running_key = scan_by_running_key;
+            config::enable_txn_store_retry = retry_whole_rpc;
+            auto sp = SyncPoint::get_instance();
+            DORIS_CLOUD_DEFER {
+                sp->disable_processing();
+                sp->clear_all_call_backs();
+            };
+            int attempts = 0;
+            sp->set_call_back("memkv::Transaction::get",
+                              [&](auto&& args) { *try_any_cast<int*>(args[0]) = 1; });
+            sp->set_call_back(expire_on_info ? "get_prepare_txn_by_coordinator::batch_get"
+                                             : "get_prepare_txn_by_coordinator::range_get",
+                              [&](auto&& args) {
+                                  ++attempts;
+                                  if (attempts == 3 || attempts == 4) {
+                                      *try_any_cast<TxnErrorCode*>(args[0]) = error;
+                                  }
+                              });
+            sp->enable_processing();
+            brpc::Controller cntl;
+            GetPrepareTxnByCoordinatorResponse resp;
+            meta_service->get_prepare_txn_by_coordinator(&cntl, &req, &resp, nullptr);
+            if (retry_whole_rpc) {
+                ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+                EXPECT_EQ(attempts, 4 + terminal_page);
+                ASSERT_EQ(resp.txn_infos_size(), prepared_count);
+                for (int i = 0; i < prepared_count; ++i) {
+                    EXPECT_EQ(resp.txn_infos(i).txn_id(), i + 1);
+                }
+            } else {
+                EXPECT_EQ(resp.status().code(), error == TxnErrorCode::TXN_TOO_OLD
+                                                        ? MetaServiceCode::KV_TXN_TOO_OLD
+                                                        : MetaServiceCode::KV_TXN_GET_ERR);
+                EXPECT_EQ(attempts, error == TxnErrorCode::TXN_TOO_OLD ? 4 : 3);
+                EXPECT_EQ(resp.status().msg(),
+                          fmt::format(
+                                  "get_prepare_txn_by_coordinator: failed to get txn info. err={}",
+                                  error));
+            }
+        }
+    }
+}
+
+TEST(MetaServiceTest, GetPrepareTxnByCoordinatorScanModeTest) {
+    auto meta_service = get_meta_service();
+    const bool original_mode = config::enable_get_prepare_txn_by_coordinator_by_running_key;
+    DORIS_CLOUD_DEFER {
+        config::enable_get_prepare_txn_by_coordinator_by_running_key = original_mode;
+    };
+
+    constexpr int64_t db_id = 888;
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    for (int64_t id = 1; id <= 10; ++id) {
+        TxnInfoPB info;
+        info.set_db_id(db_id);
+        info.set_txn_id(id);
+        info.set_status(id == 6   ? TxnStatusPB::TXN_STATUS_VISIBLE
+                        : id == 7 ? TxnStatusPB::TXN_STATUS_PRECOMMITTED
+                        : id == 8 ? TxnStatusPB::TXN_STATUS_COMMITTED
+                                  : TxnStatusPB::TXN_STATUS_PREPARED);
+        auto* coordinator = info.mutable_coordinator();
+        coordinator->set_sourcetype(id == 4 ? TxnSourceTypePB::TXN_SOURCE_TYPE_FE
+                                            : TxnSourceTypePB::TXN_SOURCE_TYPE_BE);
+        coordinator->set_id(id == 2 ? 0 : id == 9 ? 54321 : 12345);
+        coordinator->set_ip(id == 3 ? "127.0.0.2" : "127.0.0.1");
+        coordinator->set_start_time(id == 5 ? 200 : id == 10 ? 150 : 100);
+        const auto key = txn_info_key({mock_instance, db_id, id});
+        const auto value = info.SerializeAsString();
+        txn->put(key, value);
+        if (id != 6) {
+            TxnRunningPB running;
+            running.set_timeout_time(0);
+            const auto running_key = txn_running_key({mock_instance, db_id, id});
+            const auto running_value = running.SerializeAsString();
+            txn->put(running_key, running_value);
+        }
+    }
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    for (bool scan_by_running_key : {false, true}) {
+        SCOPED_TRACE(fmt::format("scan_by_running_key={}", scan_by_running_key));
+        config::enable_get_prepare_txn_by_coordinator_by_running_key = scan_by_running_key;
+        brpc::Controller cntl;
+        GetPrepareTxnByCoordinatorRequest req;
+        GetPrepareTxnByCoordinatorResponse resp;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_id(12345);
+        req.set_ip("127.0.0.1");
+        req.set_start_time(150);
+        meta_service->get_prepare_txn_by_coordinator(&cntl, &req, &resp, nullptr);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(resp.txn_infos_size(), 2);
+        EXPECT_EQ(resp.txn_infos(0).txn_id(), 1);
+        EXPECT_EQ(resp.txn_infos(1).txn_id(), 2);
+    }
+
+    // Skip malformed running keys on the first, middle and last data pages.
+    {
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        for (int64_t id : {0, 3, 11}) {
+            auto key = txn_running_key({mock_instance, db_id, id});
+            key.push_back('\xff');
+            txn->put(key, "");
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        config::enable_get_prepare_txn_by_coordinator_by_running_key = true;
+        auto sp = SyncPoint::get_instance();
+        DORIS_CLOUD_DEFER {
+            sp->disable_processing();
+            sp->clear_all_call_backs();
+        };
+        int pages = 0;
+        sp->set_call_back("memkv::Transaction::get", [&](auto&& args) {
+            *try_any_cast<int*>(args[0]) = 1;
+            ++pages;
+        });
+        sp->enable_processing();
+
+        brpc::Controller cntl;
+        GetPrepareTxnByCoordinatorRequest req;
+        GetPrepareTxnByCoordinatorResponse resp;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_id(12345);
+        req.set_ip("127.0.0.1");
+        req.set_start_time(150);
+        meta_service->get_prepare_txn_by_coordinator(&cntl, &req, &resp, nullptr);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(resp.txn_infos_size(), 2);
+        EXPECT_EQ(resp.txn_infos(0).txn_id(), 1);
+        EXPECT_EQ(resp.txn_infos(1).txn_id(), 2);
+        EXPECT_EQ(pages, 9 + 3 + 1);
+    }
+
+    // Processing inside read_page must preserve the RPC parse error in both scan modes.
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    const auto malformed_key = txn_info_key({mock_instance, db_id, 1});
+    txn->put(malformed_key, std::string(1, '\xff'));
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    for (bool scan_by_running_key : {false, true}) {
+        config::enable_get_prepare_txn_by_coordinator_by_running_key = scan_by_running_key;
+        brpc::Controller cntl;
+        GetPrepareTxnByCoordinatorRequest req;
+        GetPrepareTxnByCoordinatorResponse resp;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_id(12345);
+        req.set_ip("127.0.0.1");
+        meta_service->get_prepare_txn_by_coordinator(&cntl, &req, &resp, nullptr);
+        EXPECT_EQ(resp.status().code(), MetaServiceCode::PROTOBUF_PARSE_ERR);
+        EXPECT_EQ(resp.status().msg(), "malformed txn info, key=" + hex(malformed_key));
+    }
+}
+
+TEST(MetaServiceTest, GetPrepareTxnByCoordinatorLargeInfoTest) {
+    auto meta_service = get_meta_service();
+    const bool original_mode = config::enable_get_prepare_txn_by_coordinator_by_running_key;
+    config::enable_get_prepare_txn_by_coordinator_by_running_key = true;
+    DORIS_CLOUD_DEFER {
+        config::enable_get_prepare_txn_by_coordinator_by_running_key = original_mode;
+    };
+    constexpr int txn_count = 257;
+    constexpr int64_t db_id = 888;
+    const std::string large_reason(50 * 1024, 'x');
+    for (int64_t id = 1; id <= txn_count; ++id) {
+        TxnInfoPB info;
+        info.set_db_id(db_id);
+        info.set_txn_id(id);
+        info.set_status(TxnStatusPB::TXN_STATUS_PREPARED);
+        info.set_reason(large_reason);
+        info.mutable_coordinator()->set_sourcetype(TxnSourceTypePB::TXN_SOURCE_TYPE_BE);
+        info.mutable_coordinator()->set_id(12345);
+        info.mutable_coordinator()->set_ip("127.0.0.1");
+        TxnRunningPB running;
+        running.set_timeout_time(0);
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(txn_info_key({mock_instance, db_id, id}), info.SerializeAsString());
+        txn->put(txn_running_key({mock_instance, db_id, id}), running.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    };
+    int pages = 0;
+    size_t read_count = 0;
+    sp->set_call_back("get_prepare_txn_by_coordinator::batch_get", [&](auto&& args) {
+        const auto& values = *try_any_cast<std::vector<std::optional<std::string>>*>(args[1]);
+        EXPECT_LE(values.size(), 128);
+        size_t bytes = 0;
+        for (const auto& value : values) {
+            ASSERT_TRUE(value.has_value());
+            EXPECT_GE(value->size(), large_reason.size());
+            bytes += value->size();
+        }
+        EXPECT_LT(bytes, 7 * 1024 * 1024);
+        read_count += values.size();
+        ++pages;
+    });
+    sp->enable_processing();
+
+    brpc::Controller cntl;
+    GetPrepareTxnByCoordinatorRequest req;
+    GetPrepareTxnByCoordinatorResponse resp;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_id(12345);
+    req.set_ip("127.0.0.1");
+    meta_service->get_prepare_txn_by_coordinator(&cntl, &req, &resp, nullptr);
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(pages, 3);
+    EXPECT_EQ(read_count, txn_count);
+    ASSERT_EQ(resp.txn_infos_size(), txn_count);
+    for (int i = 0; i < txn_count; ++i) {
+        EXPECT_EQ(resp.txn_infos(i).txn_id(), i + 1);
+        EXPECT_EQ(resp.txn_infos(i).reason(), large_reason);
     }
 }
 
