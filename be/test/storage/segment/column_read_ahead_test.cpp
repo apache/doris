@@ -139,6 +139,8 @@ TEST(ColumnReadAheadTest, ConsumedPageIsNotPlannedAgainWithinSamePage) {
     const rowid_t first_batch[] = {0};
     window->plan(first_batch, 1, rows, &plan);
     ASSERT_EQ(page_indexes(plan.new_pages), (std::vector<int32_t> {0, 1}));
+    EXPECT_GT(plan.window_extend_ns, 0);
+    EXPECT_GE(plan.current_batch_plan_ns, plan.window_extend_ns);
     window->complete(0);
 
     const rowid_t second_batch[] = {50};
@@ -147,6 +149,10 @@ TEST(ColumnReadAheadTest, ConsumedPageIsNotPlannedAgainWithinSamePage) {
     EXPECT_TRUE(plan.new_pages.empty());
     EXPECT_EQ(window->pending_bytes(), 30);
     EXPECT_FALSE(window->pending(0));
+    EXPECT_GT(plan.current_batch_plan_ns, 0);
+    EXPECT_GT(plan.window_discard_ns, 0);
+    // The reused output records this call only, including calls that produce no new pages.
+    EXPECT_EQ(plan.window_extend_ns, 0);
 }
 
 TEST(ColumnReadAheadTest, DiscardsSkippedPredictionsBehindScan) {
