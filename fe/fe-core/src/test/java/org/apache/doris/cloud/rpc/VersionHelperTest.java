@@ -20,8 +20,8 @@ package org.apache.doris.cloud.rpc;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.rpc.RpcException;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -42,7 +42,7 @@ public class VersionHelperTest {
         try (MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class)) {
             mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
 
-            Assert.assertThrows(RpcException.class, () -> VersionHelper.getVisibleVersion(request, 3));
+            Assertions.assertThrows(RpcException.class, () -> VersionHelper.getVisibleVersion(request, 3));
         }
 
         Mockito.verify(proxy, Mockito.times(3)).getVisibleVersionAsync(request);
@@ -62,7 +62,7 @@ public class VersionHelperTest {
         try (MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class)) {
             mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
 
-            Assert.assertSame(notFoundResponse, VersionHelper.getVisibleVersion(request, 3));
+            Assertions.assertSame(notFoundResponse, VersionHelper.getVisibleVersion(request, 3));
         }
 
         Mockito.verify(proxy).getVisibleVersionAsync(request);
