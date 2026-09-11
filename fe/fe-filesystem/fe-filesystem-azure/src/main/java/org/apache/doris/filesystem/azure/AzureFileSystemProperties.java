@@ -192,8 +192,16 @@ public final class AzureFileSystemProperties
         this.rawProperties = Collections.unmodifiableMap(new HashMap<>(rawProperties));
         Map<String, String> matched = collectMatchedProperties(rawProperties);
         ConnectorPropertiesUtils.bindConnectorProperties(this, rawProperties);
-        this.explicitEndpoint = StringUtils.isNotBlank(endpoint);
         this.authType = resolveAuthType();
+        // S3/generic endpoint aliases belong to the legacy SharedKey compatibility path. Native
+        // SAS/OAuth2 bindings must derive the endpoint from the Azure account unless the caller
+        // supplied the provider-owned azure.endpoint; otherwise a sibling S3 provider can silently
+        // redirect Azure requests to its endpoint.
+        if ((authType != AzureAuthType.SHARED_KEY || hasModernAzureCredentialField(matched))
+                && StringUtils.isBlank(rawProperties.get(ENDPOINT))) {
+            endpoint = "";
+        }
+        this.explicitEndpoint = StringUtils.isNotBlank(endpoint);
         bindLegacySharedKey(rawProperties, matched);
         this.matchedProperties = Collections.unmodifiableMap(matched);
         azureAuthType = authType.propertyValue();
@@ -240,6 +248,7 @@ public final class AzureFileSystemProperties
         this.explicitEndpoint = StringUtils.isNotBlank(endpoint);
         this.authType = AzureAuthType.SHARED_KEY;
         this.azureAuthType = authType.propertyValue();
+        validateVendedAccountAgainstLegacyAliases(catalogProperties, sharedKey.accountName());
         if (StringUtils.isNotBlank(accountName) && !accountName.equalsIgnoreCase(sharedKey.accountName())) {
             throw new StoragePropertiesException("Azure FileIO SharedKey account does not match the catalog account");
         }
@@ -263,7 +272,7 @@ public final class AzureFileSystemProperties
         this.clock = Clock.systemUTC();
         // Only connection defaults survive credential replacement. Do not rebind old key/OAuth2
         // aliases or round-trip the SAS through the BE's AZURE_* protocol.
-        Map<String, String> connection = connectionProperties(catalogProperties);
+        Map<String, String> connection = connectionProperties(catalogProperties, false);
         // The SAS suffix owns the account/endpoint. Other stores' location fields and the old
         // static identity in the FileIO map must not override its scope. Only connection options
         // are overlaid, by typed field rather than by alias spelling.
@@ -283,6 +292,7 @@ public final class AzureFileSystemProperties
         this.authType = AzureAuthType.SAS;
         this.azureAuthType = authType.propertyValue();
         this.accountHost = sas.accountHost();
+        validateVendedAccountAgainstLegacyAliases(catalogProperties, accountHost.accountName());
         if (StringUtils.isNotBlank(accountName)
                 && !accountName.equalsIgnoreCase(accountHost.accountName())) {
             throw new StoragePropertiesException("Azure vended SAS account does not match the catalog account");
@@ -319,6 +329,11 @@ public final class AzureFileSystemProperties
     }
 
     private static Map<String, String> connectionProperties(Map<String, String> properties) {
+        return connectionProperties(properties, true);
+    }
+
+    private static Map<String, String> connectionProperties(Map<String, String> properties,
+            boolean includeLegacyEndpointAliases) {
         Map<String, String> result = new HashMap<>();
         Set<String> fields = Set.of("endpoint", "accountName", "container", "usePathStyle",
                 "forceParsingByStandardUrl");
@@ -329,6 +344,10 @@ public final class AzureFileSystemProperties
                     result.put(matched, properties.get(matched));
                 }
             }
+        }
+        if (!includeLegacyEndpointAliases && StringUtils.isBlank(properties.get(ENDPOINT))) {
+            result.keySet().removeIf(key -> Set.of("s3.endpoint", "AWS_ENDPOINT", "endpoint",
+                    "ENDPOINT", "AZURE_ENDPOINT").contains(key));
         }
         return result;
     }
@@ -384,6 +403,12 @@ public final class AzureFileSystemProperties
         if (authType != AzureAuthType.SHARED_KEY) {
             return;
         }
+        // A provider-owned account/key is an explicit modern binding. Even when the routing layer
+        // also leaves provider=azure in the map, never fill its missing key from a sibling S3
+        // provider. Legacy fallback is only for maps that have no Azure account/key fields.
+        if (hasModernAzureCredentialField(matched)) {
+            return;
+        }
         // Old Azure resources used S3 properties or generic uppercase wire fields. Keep that
         // entry point explicitly qualified; an Azure SAS or an incomplete modern SharedKey
         // binding must never borrow a different provider's account/secret from the catalog map.
@@ -407,6 +432,35 @@ public final class AzureFileSystemProperties
         if (StringUtils.isBlank(accountKey)) {
             accountKey = legacyValue(properties, matched,
                     "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY");
+        }
+    }
+
+    private static boolean hasModernAzureCredentialField(Map<String, String> matched) {
+        return Set.of(ENDPOINT, ACCOUNT_NAME, "azure.access_key", "AZURE_ACCOUNT_NAME", ACCOUNT_KEY,
+                "azure.secret_key", "AZURE_ACCOUNT_KEY").stream().anyMatch(matched::containsKey);
+    }
+
+    private static void validateVendedAccountAgainstLegacyAliases(Map<String, String> properties,
+            String vendedAccount) {
+        boolean azureBinding = "azure".equalsIgnoreCase(properties.get("provider"))
+                || "AZURE".equalsIgnoreCase(properties.get("_STORAGE_TYPE_"))
+                || Boolean.parseBoolean(properties.get("fs.azure.support"))
+                || StringUtils.isNotBlank(properties.get(ENDPOINT))
+                || StringUtils.isNotBlank(properties.get(ACCOUNT_NAME))
+                || StringUtils.isNotBlank(properties.get("azure.access_key"))
+                || Set.of("s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT")
+                        .stream().map(properties::get).filter(StringUtils::isNotBlank)
+                        .anyMatch(value -> AzureBlobEndpointSignals.isAzureBlobEndpoint(value, properties));
+        if (!azureBinding) {
+            return;
+        }
+        for (String key : new String[] {"s3.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key"}) {
+            String legacyAccount = properties.get(key);
+            if (StringUtils.isNotBlank(legacyAccount)
+                    && !legacyAccount.trim().equalsIgnoreCase(vendedAccount)) {
+                throw new StoragePropertiesException(
+                        "Azure vended credential account does not match the legacy account");
+            }
         }
     }
 

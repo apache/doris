@@ -161,6 +161,34 @@ class AzureFileSystemPropertiesTest {
                 "s3.access_key", "s3-account", "s3.secret_key", "s3-secret")));
     }
 
+    @Test
+    void sharedKey_doesNotUseS3SecretWhenProviderMarkerIsPresent() {
+        Assertions.assertThrows(IllegalArgumentException.class, () -> AzureFileSystemProperties.of(Map.of(
+                "provider", "azure", "azure.auth_type", "SharedKey", "azure.account_name", "account",
+                "s3.endpoint", "https://s3.example.test", "s3.access_key", "s3-account",
+                "s3.secret_key", "s3-secret")));
+    }
+
+    @Test
+    void sas_doesNotUseS3EndpointWhenOnlyAzureAccountIsConfigured() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "provider", "azure", "azure.auth_type", "SAS", "azure.account_name", "account",
+                "azure.sas_token", "sig=temporary", "s3.endpoint", "https://s3.example.test"));
+
+        Assertions.assertEquals("https://account.blob.core.windows.net", properties.getEndpoint());
+        Assertions.assertEquals("https://account.blob.core.windows.net",
+                properties.toMap().get("AZURE_ENDPOINT"));
+    }
+
+    @Test
+    void sharedKey_doesNotUseS3EndpointWhenAzureCredentialsAreTyped() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "provider", "azure", "azure.account_name", "account", "azure.account_key", "key",
+                "s3.endpoint", "https://s3.example.test"));
+
+        Assertions.assertEquals("https://account.blob.core.windows.net", properties.getEndpoint());
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"https://account.blob.core.windows.net", "https://account.dfs.core.usgovcloudapi.net"})
     void sharedKey_preservesProviderQualifiedLegacyS3Credentials(String endpoint) {
@@ -211,16 +239,35 @@ class AzureFileSystemPropertiesTest {
     @ParameterizedTest
     @ValueSource(strings = {
             "https://account.blob.core.windows.net",
-            "https://account.dfs.core.windows.net",
-            "https://proxy.example.test:8443"
+            "https://account.dfs.core.windows.net"
     })
-    void oauth2_acceptsMatchingAccountOrExplicitCustomTransport(String endpoint) {
+    void oauth2_acceptsMatchingAccountOrStandardTransport(String endpoint) {
         AzureFileSystemProperties properties = AzureFileSystemProperties.of(oauth2Properties(endpoint));
         String path = "abfss://container@account.dfs.core.windows.net/dir/file.parquet";
 
         Assertions.assertEquals(path, properties.validateAndNormalizeUri(path));
         Assertions.assertEquals("account", properties.toMap().get("AZURE_ACCOUNT_NAME"));
         Assertions.assertEquals(endpoint.replace(".dfs.", ".blob."), properties.getEndpoint());
+    }
+
+    @Test
+    void oauth2_acceptsCustomEndpointForStandardAbfsUri() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(
+                oauth2Properties("https://proxy.example.test:8443"));
+
+        Assertions.assertEquals("abfss://container@account.dfs.core.windows.net/dir/file.parquet",
+                properties.validateAndNormalizeUri(
+                        "abfss://container@account.dfs.core.windows.net/dir/file.parquet"));
+    }
+
+    @Test
+    void sharedKeyKeepsLegacyS3UriWithCustomEndpoint() {
+        AzureFileSystemProperties properties = new AzureFileSystemProvider().bind(Map.of(
+                "provider", "azure", "s3.endpoint", "https://proxy.example.test",
+                "s3.access_key", "account", "s3.secret_key", "legacy-key"));
+
+        Assertions.assertEquals("s3://container/dir/file",
+                properties.validateAndNormalizeUri("s3://container/dir/file"));
     }
 
     private static Map<String, String> oauth2Properties(String endpoint) {

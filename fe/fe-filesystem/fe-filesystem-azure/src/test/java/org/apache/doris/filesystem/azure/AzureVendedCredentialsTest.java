@@ -305,6 +305,37 @@ class AzureVendedCredentialsTest {
         Assertions.assertNull(error.getCause());
     }
 
+    @Test
+    void bindVended_rejectsLegacyAccountConflictWhenReplacingCredentials() {
+        StoragePropertiesException error = Assertions.assertThrows(StoragePropertiesException.class,
+                () -> provider.bindVended(Map.of(TOKEN_KEY, TOKEN), Map.of(
+                        "provider", "azure", "s3.access_key", "old-account")));
+
+        Assertions.assertEquals("Azure vended credential account does not match the legacy account",
+                error.getMessage());
+    }
+
+    @Test
+    void bindVendedSharedKey_rejectsLegacyAccountConflictWhenReplacingCredentials() {
+        StoragePropertiesException error = Assertions.assertThrows(StoragePropertiesException.class,
+                () -> provider.bindVended(Map.of(
+                        "adls.auth.shared-key.account.name", "new-account",
+                        "adls.auth.shared-key.account.key", "new-key"), Map.of(
+                        "provider", "azure", "s3.access_key", "old-account")));
+
+        Assertions.assertEquals("Azure vended credential account does not match the legacy account",
+                error.getMessage());
+    }
+
+    @Test
+    void bindVended_doesNotInheritSiblingS3Endpoint() {
+        AzureFileSystemProperties properties = provider.bindVended(Map.of(TOKEN_KEY, TOKEN), Map.of(
+                "provider", "azure", "azure.account_name", "account",
+                "s3.endpoint", "https://s3.example.test")).orElseThrow();
+
+        Assertions.assertEquals("https://account.blob.core.windows.net", properties.getEndpoint());
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"http://localhost:10000/devstoreaccount1",
             "https://storage.example.test:8443/proxy%2Fpath"})

@@ -319,12 +319,14 @@ public class AzureFileSystem extends ObjFileSystem {
      */
     private List<FileEntry> listFilesSingleLevelGlob(Location location) throws IOException {
         String uri = location.uri();
-        int lastSlash = uri.lastIndexOf('/');
-        String parentPrefix = uri.substring(0, lastSlash + 1);
-        String basenameGlob = uri.substring(lastSlash + 1);
+        AzureUri parsed = AzureUri.parse(uri);
+        String keyPattern = parsed.key();
+        int lastSlash = keyPattern.lastIndexOf('/');
+        String parentKey = lastSlash >= 0 ? keyPattern.substring(0, lastSlash + 1) : "";
+        String basenameGlob = keyPattern.substring(lastSlash + 1);
         Pattern matcher = Pattern.compile(globToRegex(basenameGlob));
-        AzureUri parentUri = AzureUri.parse(parentPrefix);
-        String parentKey = parentUri.key();
+        AzureUri parentUri = parsed.withKey(parentKey);
+        String parentPrefix = parentUri.toString();
 
         List<FileEntry> result = new ArrayList<>();
         String continuation = null;

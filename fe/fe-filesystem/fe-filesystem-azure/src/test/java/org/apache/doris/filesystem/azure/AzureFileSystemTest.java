@@ -157,6 +157,20 @@ class AzureFileSystemTest {
     }
 
     @Test
+    void httpsSingleLevelGlobDecodesEncodedBasenameBeforeMatching() throws IOException {
+        String prefix = "https://account.blob.core.windows.net/container/dir%20/";
+        String key = "dir /file name.parquet";
+        Mockito.when(mockStorage.listObjects(prefix, null)).thenReturn(new RemoteObjects(
+                List.of(new RemoteObject(key, "", null, 1L, 0L)), false, null));
+
+        List<FileEntry> files = fs.listFiles(Location.of(prefix + "file%20*.parquet"));
+
+        Assertions.assertEquals(1, files.size());
+        Assertions.assertEquals(key, AzureUri.parse(files.get(0).location().uri()).key());
+        Mockito.verify(mockStorage).listObjects(prefix, null);
+    }
+
+    @Test
     void httpsDirectoryOperations_appendSlashBeforeQueryAndFragment() throws IOException {
         String root = "https://account.blob.core.windows.net/container/";
         String prefix = root + "dir%252Fdata/";
