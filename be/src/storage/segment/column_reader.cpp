@@ -52,6 +52,7 @@
 #include "core/value/decimalv2_value.h"
 #include "core/value/vdatetime_value.h" //for VecDateTime
 #include "io/fs/file_reader.h"
+#include "io/fs/read_ahead_metrics.h"
 #include "storage/cache/page_cache.h"
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
@@ -2823,10 +2824,21 @@ Status FileColumnIterator::prepare_read_ahead(const ColumnReadAheadRequest& requ
     if (!need_to_read()) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(_init_read_ahead(request));
+    auto* statistics = _opts.stats->read_ahead_stats.get();
+    SCOPED_TIMER(statistics != nullptr ? &statistics->column_plan_time : nullptr);
+    {
+        SCOPED_TIMER(statistics != nullptr ? &statistics->column_init_time : nullptr);
+        RETURN_IF_ERROR(_init_read_ahead(request));
+    }
     ColumnReadAheadPlan plan;
     _read_ahead->plan(request.current_rowids, request.current_rowid_count, *request.scan_rowids,
                       &plan);
+    // Empty plans still perform row-to-page mapping and window maintenance on the scanner.
+    if (statistics != nullptr) {
+        COUNTER_UPDATE(&statistics->window_discard_time, plan.window_discard_ns);
+        COUNTER_UPDATE(&statistics->current_batch_plan_time, plan.current_batch_plan_ns);
+        COUNTER_UPDATE(&statistics->window_extend_time, plan.window_extend_ns);
+    }
     if (!plan.empty()) {
         plans->push_back(std::move(plan));
     }

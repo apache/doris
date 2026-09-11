@@ -690,6 +690,31 @@ TEST_F(ColumnReaderTest, FileColumnIteratorConsumesSubmittedReadAheadPage) {
     EXPECT_FALSE(column->pending(page_index));
     EXPECT_EQ(stats.read_ahead_stats->fallback_pages.value(), 0);
     EXPECT_GT(stats.read_ahead_stats->consumed_page_bytes.value(), 0);
+
+    auto& timing = *stats.read_ahead_stats;
+    EXPECT_GT(timing.column_init_time.value(), 0);
+    EXPECT_GT(timing.window_discard_time.value(), 0);
+    EXPECT_GT(timing.window_extend_time.value(), 0);
+    EXPECT_GE(timing.current_batch_plan_time.value(), timing.window_extend_time.value());
+    EXPECT_GE(timing.column_plan_time.value(), timing.column_init_time.value() +
+                                                       timing.window_discard_time.value() +
+                                                       timing.current_batch_plan_time.value());
+    const int64_t plan_ns = timing.column_plan_time.value();
+    const int64_t init_ns = timing.column_init_time.value();
+    const int64_t batch_ns = timing.current_batch_plan_time.value();
+    const int64_t extend_ns = timing.window_extend_time.value();
+    plans.clear();
+    status = iterator->prepare_read_ahead({.current_rowids = &rowid,
+                                           .current_rowid_count = 1,
+                                           .scan_rowids = &scan_rowids,
+                                           .context = &read_ahead_context},
+                                          &plans);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(plans.empty());
+    EXPECT_GT(timing.column_plan_time.value(), plan_ns);
+    EXPECT_GT(timing.column_init_time.value(), init_ns);
+    EXPECT_GT(timing.current_batch_plan_time.value(), batch_ns);
+    EXPECT_EQ(timing.window_extend_time.value(), extend_ns);
 }
 
 TEST_F(ColumnReaderTest, FileColumnIteratorFallsBackAfterReadAheadChecksumFailure) {

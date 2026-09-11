@@ -32,6 +32,11 @@ TEST(ReadAheadMetricsTest, ReportsOnlyNewDeltasAndAggregatesReaders) {
     COUNTER_UPDATE(&first.input_pages, 2);
     COUNTER_UPDATE(&first.input_bytes, 48);
     COUNTER_UPDATE(&first.plan_time, 100);
+    COUNTER_UPDATE(&first.column_plan_time, 1000);
+    COUNTER_UPDATE(&first.column_init_time, 200);
+    COUNTER_UPDATE(&first.window_discard_time, 100);
+    COUNTER_UPDATE(&first.current_batch_plan_time, 600);
+    COUNTER_UPDATE(&first.window_extend_time, 50);
     COUNTER_UPDATE(&first.candidate_bytes, 60);
     COUNTER_UPDATE(&first.page_cache_hit_bytes, 12);
     COUNTER_UPDATE(&first.query_budget_rejected_batches, 1);
@@ -45,6 +50,7 @@ TEST(ReadAheadMetricsTest, ReportsOnlyNewDeltasAndAggregatesReaders) {
     first.update_profile(&profile);
     COUNTER_UPDATE(&first.input_bytes, 12);
     COUNTER_UPDATE(&second.input_bytes, 20);
+    COUNTER_UPDATE(&second.column_plan_time, 300);
     first.update_profile(&profile);
     second.update_profile(&profile);
 
@@ -54,6 +60,11 @@ TEST(ReadAheadMetricsTest, ReportsOnlyNewDeltasAndAggregatesReaders) {
     EXPECT_EQ(profile.get_counter("ReadAheadInputBytes")->type(), TUnit::BYTES);
     EXPECT_EQ(profile.get_counter("ReadAheadPlanTime")->value(), 100);
     EXPECT_EQ(profile.get_counter("ReadAheadPlanTime")->type(), TUnit::TIME_NS);
+    EXPECT_EQ(profile.get_counter("ReadAheadColumnPlanTime")->value(), 1300);
+    EXPECT_EQ(profile.get_counter("ReadAheadColumnInitTime")->value(), 200);
+    EXPECT_EQ(profile.get_counter("ReadAheadWindowDiscardTime")->value(), 100);
+    EXPECT_EQ(profile.get_counter("ReadAheadCurrentBatchPlanTime")->value(), 600);
+    EXPECT_EQ(profile.get_counter("ReadAheadWindowExtendTime")->value(), 50);
     EXPECT_EQ(profile.get_counter("ReadAheadCandidateBytes")->value(), 60);
     EXPECT_EQ(profile.get_counter("ReadAheadPageCacheHitBytes")->value(), 12);
     EXPECT_EQ(profile.get_counter("ReadAheadQueryBudgetRejectedBatches")->value(), 1);
@@ -65,6 +76,21 @@ TEST(ReadAheadMetricsTest, ReportsOnlyNewDeltasAndAggregatesReaders) {
     EXPECT_EQ(profile.get_counter("ReadAheadFallbackTime")->value(), 200);
     EXPECT_EQ(first.input_bytes.value(), 0);
     EXPECT_EQ(second.input_bytes.value(), 0);
+    EXPECT_EQ(first.column_plan_time.value(), 0);
+    EXPECT_EQ(first.column_init_time.value(), 0);
+    EXPECT_EQ(first.window_discard_time.value(), 0);
+    EXPECT_EQ(first.current_batch_plan_time.value(), 0);
+    EXPECT_EQ(first.window_extend_time.value(), 0);
+    EXPECT_EQ(second.column_plan_time.value(), 0);
+
+    TRuntimeProfileTree tree;
+    profile.to_thrift(&tree);
+    const auto& children = tree.nodes.at(0).child_counters_map;
+    EXPECT_EQ(children.at("ReadAheadPlanning").count("ReadAheadColumnPlanTime"), 1);
+    EXPECT_EQ(children.at("ReadAheadColumnPlanTime").count("ReadAheadColumnInitTime"), 1);
+    EXPECT_EQ(children.at("ReadAheadColumnPlanTime").count("ReadAheadWindowDiscardTime"), 1);
+    EXPECT_EQ(children.at("ReadAheadColumnPlanTime").count("ReadAheadCurrentBatchPlanTime"), 1);
+    EXPECT_EQ(children.at("ReadAheadCurrentBatchPlanTime").count("ReadAheadWindowExtendTime"), 1);
 }
 
 TEST(ReadAheadMetricsTest, PreservesConcurrentUpdatesDuringReporting) {
