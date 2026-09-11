@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
+import org.apache.doris.nereids.trees.expressions.functions.ChildDerivedSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -43,7 +44,8 @@ import java.util.List;
  * fields 'key' and 'value'.
  */
 public class MapEntries extends ScalarFunction
-        implements UnaryExpression, ComputePrecision, CustomSignature, PropagateNullable, PreferPushDownProject {
+        implements UnaryExpression, ComputePrecision, CustomSignature, PropagateNullable, PreferPushDownProject,
+        ChildDerivedSignature {
 
     /**
      * constructor with 1 argument.
@@ -101,5 +103,10 @@ public class MapEntries extends ScalarFunction
     @Override
     public FunctionSignature computePrecision(FunctionSignature signature) {
         return signature;
+    }
+
+    @Override
+    public FunctionSignature deriveSignatureFromChildren(FunctionSignature signature) {
+        return customSignature();
     }
 }

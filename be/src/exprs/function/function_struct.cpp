@@ -98,6 +98,11 @@ public:
             arg[i] = col;
             if (is_nullable && !col->is_nullable()) {
                 arg[i] = ColumnNullable::create(col, ColumnUInt8::create(col->size(), 0));
+            } else if (!is_nullable && col->is_nullable()) {
+                return Status::InternalError(
+                        "function {} result field {} is non-nullable but argument {} has a "
+                        "nullable column",
+                        get_name(), i, args_num[i]);
             }
         }
 

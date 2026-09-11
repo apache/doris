@@ -158,8 +158,9 @@ public abstract class BoundFunction extends Function implements ComputeSignature
 
     private Supplier<FunctionSignature> buildSignatureCache(Supplier<FunctionSignature> specifiedSignature) {
         if (specifiedSignature != null) {
-            // use specifiedSignature to make ensure idempotency of computed signatures
-            return specifiedSignature;
+            // Keep the selected overload and computed precision stable, but let functions refresh
+            // metadata that is derived from their current children (for example struct fields).
+            return LazyCompute.of(() -> refreshDerivedSignature(specifiedSignature.get()));
         } else {
             return LazyCompute.of(() -> {
                 // first step: find the candidate signature in the signature list

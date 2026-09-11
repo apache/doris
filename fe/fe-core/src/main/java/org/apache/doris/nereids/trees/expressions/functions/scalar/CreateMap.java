@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.functions.ChildDerivedSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
@@ -38,7 +39,7 @@ import java.util.List;
  * ScalarFunction 'map'.
  */
 public class CreateMap extends ScalarFunction
-        implements ExplicitlyCastableSignature, AlwaysNotNullable {
+        implements ExplicitlyCastableSignature, AlwaysNotNullable, ChildDerivedSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(MapType.SYSTEM_DEFAULT).args()
@@ -144,5 +145,10 @@ public class CreateMap extends ScalarFunction
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
         return signature;
+    }
+
+    @Override
+    public FunctionSignature deriveSignatureFromChildren(FunctionSignature signature) {
+        return getSignatures().get(0);
     }
 }

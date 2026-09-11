@@ -28,7 +28,10 @@ import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 /**
- * This class is used to reuse the origin function's signature to keep idempotent of compute signature.
+ * This class is used to reuse the origin function's resolved signature to keep signature computation idempotent.
+ * The resolved overload, coercion, and precision remain frozen even when a rewrite replaces children with the
+ * already-coerced types recorded by that signature. Functions with child-derived complex metadata can refresh only
+ * that metadata through {@link ComputeSignature#refreshDerivedSignature(FunctionSignature)}.
  * You should provide a private/protected constructor to pass through FunctionParams to the super class(BoundFunction),
  * and override `withChildren(List&lt;Expression&gt; children)` to build FunctionParams and create a new function
  * with the FunctionParams

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.functions.ChildDerivedSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
@@ -36,7 +37,7 @@ import java.util.List;
  * ScalarFunction 'struct'.
  */
 public class CreateStruct extends ScalarFunction
-        implements ExplicitlyCastableSignature, AlwaysNotNullable {
+        implements ExplicitlyCastableSignature, AlwaysNotNullable, ChildDerivedSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(StructType.SYSTEM_DEFAULT).args()
@@ -88,5 +89,10 @@ public class CreateStruct extends ScalarFunction
             return ImmutableList.of(FunctionSignature.ret(StructLiteral.computeDataType(children))
                     .args(children.stream().map(ExpressionTrait::getDataType).toArray(DataType[]::new)));
         }
+    }
+
+    @Override
+    public FunctionSignature deriveSignatureFromChildren(FunctionSignature signature) {
+        return getSignatures().get(0);
     }
 }
