@@ -142,6 +142,7 @@ Status SniiCompoundWriter::inherit(const reader::SniiRewriteSnapshot& snapshot,
         DORIS_CHECK_EQ(group.metadata_group.size(), group.core_length +
                                                             group.sampled_term_index_length +
                                                             group.dict_block_directory_length);
+        group.dropped_postings = index.dropped_postings;
         inherited_.push_back(std::move(group));
     }
     return Status::OK();
@@ -555,6 +556,10 @@ Status SniiCompoundWriter::write_tail() {
         entry.dict_block_directory = {
                 .offset = core_offset + group.core_length + group.sampled_term_index_length,
                 .length = group.dict_block_directory_length};
+        // The dictionary is copied byte for byte, locator-less stop-gram entries included, so
+        // this entry re-declares what the source index declared. Without it a reader that
+        // predates the feature would parse those entries instead of refusing the container.
+        entry.dropped_postings = group.dropped_postings;
         RETURN_IF_ERROR(append(group.metadata_group));
         DORIS_CHECK_EQ(out_->bytes_written(), core_offset + group.metadata_group.size());
         directory_entries.push_back(std::move(entry));
@@ -576,8 +581,8 @@ Status SniiCompoundWriter::write_tail() {
         LogicalIndexMetadataRef entry;
         entry.index_id = w.index_id();
         entry.index_suffix = w.index_suffix();
-        // Inherited groups above never carry this: only a positional index can be inherited
-        // (compaction/eligibility.cpp), and postings are dropped from docs-only ones alone.
+        // Inherited groups are handled above: they carry the source container's declaration,
+        // because their dictionaries are copied rather than written here.
         entry.dropped_postings = w.dropped_posting_terms() > 0;
         entry.core_metadata = {.offset = out_->bytes_written(), .length = group.core.size()};
         RETURN_IF_ERROR(append(group.core));

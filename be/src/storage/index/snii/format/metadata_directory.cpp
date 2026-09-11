@@ -119,12 +119,16 @@ Status decode_directory_pb(const doris::snii::SniiMetadataDirectoryPB& input,
     // Row 0a/0b: whitelist of known required features; anything else is a
     // format this binary does not understand.
     bool feature_blob = false;
+    // Raised directory-wide as the fence for readers that cannot parse a shortened entry. Which
+    // index actually needs it is recorded per entry; the two must agree (checked below).
+    bool dropped_postings_declared = false;
     for (const uint32_t feature : input.required_features()) {
         if (feature == kFeatureBlobLogicalIndex) {
             feature_blob = true;
             continue;
         }
         if (feature == kFeatureDroppedPostings) {
+            dropped_postings_declared = true;
             // Understood by this reader's dictionary decoder; nothing to validate here.
             continue;
         }
@@ -133,6 +137,7 @@ Status decode_directory_pb(const doris::snii::SniiMetadataDirectoryPB& input,
     }
 
     bool has_blob_entry = false;
+    bool has_dropped_entry = false;
     std::vector<LogicalIndexMetadataRef> entries;
     entries.reserve(input.indexes_size());
     for (const auto& index : input.indexes()) {
@@ -151,6 +156,8 @@ Status decode_directory_pb(const doris::snii::SniiMetadataDirectoryPB& input,
         switch (kind_value) {
         case static_cast<uint32_t>(LogicalIndexKind::kInverted):
             RETURN_IF_ERROR(decode_inverted_entry(index, &entry));
+            entry.dropped_postings = index.dropped_postings();
+            has_dropped_entry |= entry.dropped_postings;
             break;
         case static_cast<uint32_t>(LogicalIndexKind::kBkd):
         case static_cast<uint32_t>(LogicalIndexKind::kAnn):
@@ -180,6 +187,13 @@ Status decode_directory_pb(const doris::snii::SniiMetadataDirectoryPB& input,
     if (has_blob_entry != feature_blob) {
         return metadata_directory_corrupted(
                 "metadata directory: blob feature flag disagrees with entries");
+    }
+    // Same argument for dropped postings. A shortened entry without the flag would be read by
+    // an old binary as a slim POD reference and reported as truncation; the flag without such
+    // an entry would fence that binary off a container it could read in full.
+    if (has_dropped_entry != dropped_postings_declared) {
+        return metadata_directory_corrupted(
+                "metadata directory: dropped-posting feature flag disagrees with entries");
     }
     *out = std::move(entries);
     return Status::OK();
@@ -246,14 +260,20 @@ Status encode_metadata_directory(const std::vector<LogicalIndexMetadataRef>& ent
             encode_blob_ref(entry.core_metadata, index->mutable_core_metadata());
             encode_blob_ref(entry.sampled_term_index, index->mutable_sampled_term_index());
             encode_blob_ref(entry.dict_block_directory, index->mutable_dict_block_directory());
-            any_dropped = any_dropped || entry.dropped_postings;
+            // BYTE GATE again: field 8 is written only when the index really dropped a
+            // posting, so a directory that drops nothing keeps its pre-feature bytes.
+            if (entry.dropped_postings) {
+                index->set_dropped_postings(true);
+                any_dropped = true;
+            }
         } else {
             // The three inverted refs do not serialize for blob entries, so
             // the shared decode self-check below could not catch a caller that
             // filled them; reject that in-memory shape here.
             if (entry.core_metadata.offset != 0 || entry.core_metadata.length != 0 ||
                 entry.sampled_term_index.offset != 0 || entry.sampled_term_index.length != 0 ||
-                entry.dict_block_directory.offset != 0 || entry.dict_block_directory.length != 0) {
+                entry.dict_block_directory.offset != 0 || entry.dict_block_directory.length != 0 ||
+                entry.dropped_postings) {
                 return metadata_directory_corrupted(
                         "metadata directory: blob entry carries inverted metadata");
             }

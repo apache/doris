@@ -473,5 +473,52 @@ TEST(SniiMetadataDirectory, DroppedPostingsRaiseTheFeatureAndRoundTrip) {
     EXPECT_EQ(0, bare_wire.required_features_size());
 }
 
+// A rewrite copies an inherited dictionary byte for byte and has to declare the feature again
+// for exactly the indexes it carried over. It therefore needs to know WHICH index dropped a
+// posting, so the fact travels per entry and survives a round trip -- the directory-wide
+// feature is the old-reader fence, not the record of who needed it.
+TEST(SniiMetadataDirectory, ADecodedEntryReportsItsOwnDroppedPostingState) {
+    auto entries = sample_entries();
+    entries[0].dropped_postings = true;
+    MetadataDirectory directory;
+    ASSERT_TRUE(MetadataDirectory::decode(Slice(encode(entries)), &directory).ok());
+    ASSERT_EQ(directory.size(), 2U);
+    EXPECT_TRUE(directory.entries()[0].dropped_postings);
+    EXPECT_FALSE(directory.entries()[1].dropped_postings)
+            << "an index that dropped nothing must not inherit its neighbour's declaration";
+
+    MetadataDirectory bare;
+    ASSERT_TRUE(MetadataDirectory::decode(Slice(encode(sample_entries())), &bare).ok());
+    for (const auto& entry : bare.entries()) {
+        EXPECT_FALSE(entry.dropped_postings);
+    }
+}
+
+// The per-entry bit and the directory-wide feature have to agree in both directions, for the
+// same reason the blob feature does: a shortened entry without the feature is read by an old
+// binary as a slim POD reference and reported as truncation, while the feature without such an
+// entry fences that binary off a container it could have read in full.
+TEST(SniiMetadataDirectory, TheDroppedPostingFeatureAndTheEntriesMustAgree) {
+    auto entries = sample_entries();
+    entries[0].dropped_postings = true;
+    const auto bytes = encode(entries);
+
+    doris::snii::SniiMetadataDirectoryPB no_feature;
+    ASSERT_TRUE(no_feature.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
+    no_feature.clear_required_features();
+    std::string payload;
+    ASSERT_TRUE(no_feature.SerializeToString(&payload));
+    MetadataDirectory decoded;
+    EXPECT_TRUE(MetadataDirectory::decode(Slice(payload), &decoded)
+                        .is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
+
+    doris::snii::SniiMetadataDirectoryPB no_entry;
+    ASSERT_TRUE(no_entry.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
+    no_entry.mutable_indexes(0)->clear_dropped_postings();
+    ASSERT_TRUE(no_entry.SerializeToString(&payload));
+    EXPECT_TRUE(MetadataDirectory::decode(Slice(payload), &decoded)
+                        .is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
+}
+
 } // namespace
 } // namespace doris::snii::format

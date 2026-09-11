@@ -491,6 +491,15 @@ size_t LogicalIndexReader::memory_usage() const {
         return std::numeric_limits<size_t>::max();
     }
     bytes += norms_reserved_charge_;
+    // The high-df digest is decoded with the core metadata and stays resident for as long as
+    // this reader does. sizeof(*this) covers only the two vector headers, so add what they
+    // hold: at the writer's cap that is 4,096 hashes and frequencies, about 48 KiB.
+    const size_t digest = core_.high_df_terms.term_hash.capacity() * sizeof(uint64_t) +
+                          core_.high_df_terms.df.capacity() * sizeof(uint32_t);
+    if (digest > std::numeric_limits<size_t>::max() - bytes) {
+        return std::numeric_limits<size_t>::max();
+    }
+    bytes += digest;
     return bytes;
 }
 
