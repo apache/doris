@@ -716,14 +716,16 @@ public class IcebergUtils {
             case STRING:
                 return Type.STRING;
             case UUID:
-                return enableMappingVarbinary ? ScalarType.createVarbinaryType(16) : Type.STRING;
+                return ScalarType.createVarbinaryType(16);
             case BINARY:
-                return enableMappingVarbinary ? ScalarType.createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH)
-                        : Type.STRING;
+                // Arbitrary binary payloads are not valid UTF-8 in general, so exposing them as
+                // STRING makes Arrow clients reject otherwise valid Iceberg values.
+                return ScalarType.createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH);
             case FIXED:
                 Types.FixedType fixed = (Types.FixedType) primitive;
-                return enableMappingVarbinary ? ScalarType.createVarbinaryType(fixed.length())
-                        : ScalarType.createCharType(fixed.length());
+                // Iceberg fixed(N) is an arbitrary N-byte value, not text, so retain both its
+                // binary semantics and declared width.
+                return ScalarType.createVarbinaryType(fixed.length());
             case DECIMAL:
                 Types.DecimalType decimal = (Types.DecimalType) primitive;
                 return ScalarType.createDecimalV3Type(decimal.precision(), decimal.scale());
@@ -1045,7 +1047,7 @@ public class IcebergUtils {
         if (typeId == TypeID.BINARY || typeId == TypeID.FIXED) {
             return false;
         }
-        if (enableMappingVarbinary && typeId == TypeID.UUID) {
+        if (typeId == TypeID.UUID) {
             return false;
         }
         return !enableMappingTimestampTz || typeId != TypeID.TIMESTAMP

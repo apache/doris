@@ -78,10 +78,23 @@ TEST(TimezoneUtilsTest, ParseOffset) {
     cl = result.lookup(cctz::convert(tp, result));
     EXPECT_EQ(cl.offset, -10 * 3600 - 1800);
 
+    EXPECT_TRUE(TimezoneUtils::parse_tz_offset_string("+9:30", result));
+    cl = result.lookup(cctz::convert(tp, result));
+    EXPECT_EQ(cl.offset, 9 * 3600 + 1800);
+
+    EXPECT_TRUE(TimezoneUtils::parse_tz_offset_string("UTC+8", result));
+    cl = result.lookup(cctz::convert(tp, result));
+    EXPECT_EQ(cl.offset, 8 * 3600);
+
+    EXPECT_TRUE(TimezoneUtils::parse_tz_offset_string("GMT-06:30", result));
+    cl = result.lookup(cctz::convert(tp, result));
+    EXPECT_EQ(cl.offset, -(6 * 3600 + 1800));
+
     // out of range or illegal format
     EXPECT_FALSE(TimezoneUtils::parse_tz_offset_string("+15:00", result));
     EXPECT_FALSE(TimezoneUtils::parse_tz_offset_string("-13:00", result));
-    EXPECT_FALSE(TimezoneUtils::parse_tz_offset_string("+9:30", result));
+    EXPECT_FALSE(TimezoneUtils::parse_tz_offset_string("+800", result));
+    EXPECT_FALSE(TimezoneUtils::parse_tz_offset_string("UTC+8:75", result));
 }
 
 TEST(TimezoneUtilsTest, LoadOffsets) {
@@ -130,6 +143,16 @@ TEST(TimezoneUtilsTest, FindTimezone) {
     cl = result.lookup(cctz::convert(tp, result));
     EXPECT_EQ(cl.offset, -12 * 3600);
 
+    tzname = "+8:00";
+    EXPECT_TRUE(TimezoneUtils::find_cctz_time_zone(tzname, result));
+    cl = result.lookup(cctz::convert(tp, result));
+    EXPECT_EQ(cl.offset, 8 * 3600);
+
+    tzname = "UTC+8";
+    EXPECT_TRUE(TimezoneUtils::find_cctz_time_zone(tzname, result));
+    cl = result.lookup(cctz::convert(tp, result));
+    EXPECT_EQ(cl.offset, 8 * 3600);
+
     // out of range or illegal format
     tzname = "+15:00";
     EXPECT_FALSE(TimezoneUtils::find_cctz_time_zone(tzname, result));
@@ -137,8 +160,26 @@ TEST(TimezoneUtilsTest, FindTimezone) {
     tzname = "-13:00";
     EXPECT_FALSE(TimezoneUtils::find_cctz_time_zone(tzname, result));
 
-    tzname = "+9:30";
+    tzname = "+800";
     EXPECT_FALSE(TimezoneUtils::find_cctz_time_zone(tzname, result));
+}
+
+TEST(TimezoneUtilsTest, TryGetFixedOffsetSeconds) {
+    TimezoneUtils::load_timezones_to_cache();
+
+    cctz::time_zone result;
+    int32_t offset_seconds = 0;
+
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("UTC", result));
+    EXPECT_TRUE(TimezoneUtils::try_get_fixed_offset_seconds(result, &offset_seconds));
+    EXPECT_EQ(0, offset_seconds);
+
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("+05:45", result));
+    EXPECT_TRUE(TimezoneUtils::try_get_fixed_offset_seconds(result, &offset_seconds));
+    EXPECT_EQ(5 * 3600 + 45 * 60, offset_seconds);
+
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("America/Los_Angeles", result));
+    EXPECT_FALSE(TimezoneUtils::try_get_fixed_offset_seconds(result, &offset_seconds));
 }
 
 } // namespace doris

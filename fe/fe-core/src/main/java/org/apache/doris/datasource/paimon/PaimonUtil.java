@@ -326,11 +326,13 @@ public class PaimonUtil {
                 return ScalarType.createCharType(charLen);
             case BINARY:
                 int binaryLen = ((BinaryType) dataType).getLength();
-                return enableVarbinaryMapping ? ScalarType.createVarbinaryType(binaryLen) : Type.STRING;
+                // Binary payloads must retain their byte semantics; mapping them to STRING makes
+                // Flight clients attempt UTF-8 decoding on arbitrary bytes.
+                return ScalarType.createVarbinaryType(binaryLen);
             case VARBINARY:
                 // Paimon VarBinaryType length is in [1, 2147483647]
                 int varbinaryLen = ((VarBinaryType) dataType).getLength();
-                return enableVarbinaryMapping ? ScalarType.createVarbinaryType(varbinaryLen) : Type.STRING;
+                return ScalarType.createVarbinaryType(varbinaryLen);
             case DECIMAL:
                 DecimalType decimal = (DecimalType) dataType;
                 return ScalarType.createDecimalV3Type(decimal.getPrecision(), decimal.getScale());
@@ -478,6 +480,18 @@ public class PaimonUtil {
             boolean enableTimestampTzMapping) {
         TField field = new TField();
         field.setIsOptional(dataType.isNullable());
+        // Paimon writes high-precision TIMESTAMP and TIMESTAMP_LTZ with the same physical INT96
+        // representation, so preserve the logical table semantics in the schema history.
+        switch (dataType.getTypeRoot()) {
+            case TIMESTAMP_WITHOUT_TIME_ZONE:
+                field.setTimestampIsAdjustedToUtc(false);
+                break;
+            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+                field.setTimestampIsAdjustedToUtc(true);
+                break;
+            default:
+                break;
+        }
         TNestedField nestedField = new TNestedField();
         switch (dataType.getTypeRoot()) {
             case ARRAY: {

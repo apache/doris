@@ -648,8 +648,7 @@ public class HiveMetaStoreClientHelper {
             case "string":
                 return ScalarType.createStringType();
             case "binary":
-                return enableMappingVarbinary ? ScalarType.createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH)
-                        : ScalarType.createStringType();
+                return ScalarType.createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH);
             default:
                 break;
         }

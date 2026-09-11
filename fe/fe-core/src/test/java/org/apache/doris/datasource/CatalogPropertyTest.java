@@ -38,6 +38,23 @@ import java.util.concurrent.atomic.AtomicReference;
 public class CatalogPropertyTest {
 
     @Test
+    public void testVarbinaryMappingCannotBeDisabled() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(CatalogProperty.ENABLE_MAPPING_VARBINARY, "false");
+        CatalogProperty catalogProperty = new CatalogProperty(null, properties);
+
+        Assert.assertTrue(catalogProperty.getEnableMappingVarbinary());
+        catalogProperty.setEnableMappingVarbinary(false);
+        Assert.assertEquals("true",
+                catalogProperty.getProperties().get(CatalogProperty.ENABLE_MAPPING_VARBINARY));
+
+        catalogProperty.modifyCatalogProps(
+                Collections.singletonMap(CatalogProperty.ENABLE_MAPPING_VARBINARY, "false"));
+        Assert.assertEquals("true",
+                catalogProperty.getProperties().get(CatalogProperty.ENABLE_MAPPING_VARBINARY));
+    }
+
+    @Test
     public void testHadoopPropertiesArePublishedAfterInitialization() throws Exception {
         CountDownLatch iterationStarted = new CountDownLatch(1);
         CountDownLatch allowIteration = new CountDownLatch(1);

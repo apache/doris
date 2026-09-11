@@ -139,6 +139,12 @@ public class IcebergScanNodeTest {
     @Rule
     public final TemporaryFolder temporaryFolder = new TemporaryFolder();
 
+    @Test
+    public void testDoesNotUseHiveParquetInt96TimeZone() {
+        IcebergScanNode node = Mockito.mock(IcebergScanNode.class, Mockito.CALLS_REAL_METHODS);
+        Assert.assertEquals("", node.getHiveParquetTimeZone());
+    }
+
     @SuppressWarnings("unchecked")
     private static Optional<Map<Integer, List<String>>> extractNameMapping(
             IcebergScanNode node) throws Exception {
@@ -1581,7 +1587,7 @@ public class IcebergScanNodeTest {
     }
 
     @Test
-    public void testLegacyBinaryInitialDefaultBuildsRawByteExpression() throws Exception {
+    public void testObsoleteBinaryMappingFlagStillBuildsVarbinaryLiteral() throws Exception {
         byte[] defaultBytes = new byte[] {(byte) 0x80, 0, (byte) 0xFF};
         Schema schema = new Schema(Types.NestedField.optional("binary_default")
                 .withId(7)
@@ -1597,11 +1603,11 @@ public class IcebergScanNodeTest {
 
         org.apache.doris.nereids.trees.expressions.Expression expression =
                 node.defaultExpression(column);
-        Assert.assertTrue(expression
-                instanceof org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex);
-        Assert.assertEquals("8000FF",
-                ((org.apache.doris.nereids.trees.expressions.literal.StringLiteral)
-                        expression.child(0)).getStringValue());
+        Assert.assertTrue(
+                expression instanceof org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral);
+        org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral literal =
+                (org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral) expression;
+        Assert.assertArrayEquals(defaultBytes, (byte[]) literal.getValue());
     }
 
     @Test

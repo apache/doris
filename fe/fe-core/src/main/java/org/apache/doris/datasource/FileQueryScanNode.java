@@ -36,6 +36,7 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -51,6 +52,7 @@ import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
+import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileAttributes;
@@ -247,9 +249,15 @@ public abstract class FileQueryScanNode extends FileScanNode {
         setColumnPositionMapping();
         // For query, set src tuple id to -1.
         params.setSrcTupleId(-1);
-        // Set enable_mapping_varbinary from catalog or TVF
         params.setEnableMappingVarbinary(getEnableMappingVarbinary());
         params.setEnableMappingTimestampTz(getEnableMappingTimestampTz());
+        // The marker makes an omitted timezone an explicit wall-clock choice while old FE plans
+        // remain distinguishable during a BE-first rolling upgrade.
+        params.setParquetTimestampSemanticsVersion(FileFormatUtils.PARQUET_TIMESTAMP_SEMANTICS_VERSION);
+        String hiveParquetTimeZone = getHiveParquetTimeZone();
+        if (hiveParquetTimeZone != null && !hiveParquetTimeZone.isEmpty()) {
+            params.setHiveParquetTimeZone(hiveParquetTimeZone);
+        }
     }
 
     private void updateRequiredSlots() throws UserException {
@@ -795,8 +803,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 return tvf.fileFormatProperties.enableMappingVarbinary;
             }
         } catch (Exception e) {
-            LOG.info("Failed to get enable_mapping_varbinary from catalog, use default value false. Error: {}",
-                    e.getMessage());
+            LOG.info("Failed to get enable_mapping_varbinary from catalog or TVF, "
+                    + "use default value false. Error: {}", e.getMessage());
         }
         return false;
     }
@@ -823,6 +831,19 @@ public abstract class FileQueryScanNode extends FileScanNode {
                     e.getMessage());
         }
         return false;
+    }
+
+    protected String getHiveParquetTimeZone() throws UserException {
+        TableIf table = getTargetTable();
+        if (table instanceof ExternalTable) {
+            return ((ExternalTable) table).getHiveParquetTimeZone();
+        }
+        if (table instanceof FunctionGenTable) {
+            FunctionGenTable functionGenTable = (FunctionGenTable) table;
+            TableValuedFunctionIf tvf = functionGenTable.getTvf();
+            return tvf.getHiveParquetTimeZone();
+        }
+        return "";
     }
 
     protected abstract List<String> getPathPartitionKeys() throws UserException;

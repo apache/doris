@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
@@ -26,11 +25,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
@@ -43,8 +38,6 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TExpr;
-import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -201,20 +194,23 @@ public class IcebergWriteSchemaContextTest {
     }
 
     @Test
-    public void testLegacyBinaryDefaultsDecodeRawBytesOnBackend() {
+    public void testBinaryDefaultsIgnoreRemovedMappingFlag() {
         byte[] bytes = new byte[] {(byte) 0x80, 0x00, (byte) 0xff};
         DataType binaryTarget = DataType.fromCatalogType(IcebergUtils.icebergTypeToDorisType(
                 Types.BinaryType.get(), false, false));
         Expression binary = IcebergWriteSchemaContext.toDorisExpression(
                 Types.BinaryType.get(), ByteBuffer.wrap(bytes), binaryTarget, false, false);
-        assertUnhexBytes(binary, "8000FF");
+        Assertions.assertArrayEquals(bytes, (byte[]) ((VarBinaryLiteral) binary).getValue());
 
         DataType uuidTarget = DataType.fromCatalogType(IcebergUtils.icebergTypeToDorisType(
                 Types.UUIDType.get(), false, false));
         Expression uuid = IcebergWriteSchemaContext.toDorisExpression(
                 Types.UUIDType.get(), UUID.fromString("123e4567-e89b-12d3-a456-426614174000"),
                 uuidTarget, false, false);
-        assertUnhexBytes(uuid, "123E4567E89B12D3A456426614174000");
+        UUID uuidValue = UUID.fromString("123e4567-e89b-12d3-a456-426614174000");
+        byte[] uuidBytes = ByteBuffer.allocate(16).putLong(uuidValue.getMostSignificantBits())
+                .putLong(uuidValue.getLeastSignificantBits()).array();
+        Assertions.assertArrayEquals(uuidBytes, (byte[]) ((VarBinaryLiteral) uuid).getValue());
     }
 
     @Test
@@ -350,7 +346,7 @@ public class IcebergWriteSchemaContextTest {
     }
 
     @Test
-    public void testComplexLegacyBinaryWriteDefaultKeepsRawLiteralBytes() {
+    public void testComplexBinaryDefaultIgnoresRemovedMappingFlag() {
         byte[] bytes = new byte[] {(byte) 0x80, 0x00, (byte) 0xff};
         Types.StructType structType = Types.StructType.of(
                 Types.NestedField.required(101, "payload", Types.BinaryType.get()));
@@ -362,19 +358,9 @@ public class IcebergWriteSchemaContextTest {
                 structType, value, targetType, false, false);
 
         Assertions.assertEquals(targetType, expression.getDataType());
-        Assertions.assertTrue(expression.anyMatch(node -> node instanceof Cast));
-        Assertions.assertTrue(expression.anyMatch(node -> node instanceof Unhex));
-        Unhex unhex = expression.collect(Unhex.class::isInstance).stream()
-                .map(Unhex.class::cast).findFirst().orElseThrow(AssertionError::new);
-        assertUnhexBytes(unhex, "8000FF");
-        Expr legacyExpression = ExpressionTranslator.translate(
-                expression, new PlanTranslatorContext());
-        Assertions.assertEquals(targetType.toCatalogDataType(), legacyExpression.getType());
-        TExpr thriftExpression = legacyExpression.treeToThrift();
-        Assertions.assertTrue(thriftExpression.nodes.stream()
-                .anyMatch(node -> node.node_type == TExprNodeType.FUNCTION_CALL));
-        Assertions.assertFalse(thriftExpression.nodes.stream()
-                .anyMatch(node -> node.node_type == TExprNodeType.VARBINARY_LITERAL));
+        Assertions.assertTrue(expression instanceof StructLiteral);
+        VarBinaryLiteral payload = (VarBinaryLiteral) ((StructLiteral) expression).getValue().get(0);
+        Assertions.assertArrayEquals(bytes, (byte[]) payload.getValue());
     }
 
     @Test
@@ -833,12 +819,6 @@ public class IcebergWriteSchemaContextTest {
 
     private static String stringValue(Expression expression) {
         return ((org.apache.doris.nereids.trees.expressions.literal.Literal) expression).getStringValue();
-    }
-
-    private static void assertUnhexBytes(Expression expression, String expectedHex) {
-        Expression rawBytes = expression instanceof Cast ? expression.child(0) : expression;
-        Assertions.assertTrue(rawBytes instanceof Unhex);
-        Assertions.assertEquals(expectedHex, ((StringLiteral) rawBytes.child(0)).getValue());
     }
 
     private static final class ArrayStructLike implements StructLike {

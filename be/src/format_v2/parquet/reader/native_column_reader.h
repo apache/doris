@@ -24,6 +24,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <unordered_map>
 #include <vector>
@@ -51,6 +52,8 @@ inline constexpr int64_t MAX_NATIVE_LAZY_SKIP_ROWS = std::numeric_limits<uint16_
 inline int64_t bounded_native_lazy_skip_rows(int64_t rows) {
     return std::min(rows, MAX_NATIVE_LAZY_SKIP_ROWS);
 }
+
+Status sync_native_field_types(const ParquetColumnSchema& schema, NativeFieldSchema* field);
 } // namespace detail
 
 // Production adapter from FileScannerV2's selection-oriented reader contract to Doris' native
@@ -72,8 +75,9 @@ public:
                          const NativeParquetMetadata* metadata, int row_group_id,
                          const std::vector<RowRange>& selected_ranges,
                          const std::unordered_map<int, tparquet::OffsetIndex>& offset_indexes,
-                         const cctz::time_zone* timezone, io::IOContext* io_ctx,
-                         RuntimeState* runtime_state, bool enable_page_cache,
+                         const cctz::time_zone* timezone,
+                         std::optional<const cctz::time_zone*> int96_timezone_override,
+                         io::IOContext* io_ctx, RuntimeState* runtime_state, bool enable_page_cache,
                          const std::string& page_cache_file_key, bool enable_dictionary_filter,
                          ParquetColumnReaderProfile profile,
                          std::unique_ptr<ParquetColumnReader>* reader);
@@ -113,9 +117,10 @@ private:
                 std::set<uint64_t> projected_column_ids,
                 const std::vector<RowRange>& selected_ranges,
                 const std::unordered_map<int, tparquet::OffsetIndex>& offset_indexes,
-                const cctz::time_zone* timezone, io::IOContext* io_ctx, RuntimeState* runtime_state,
-                bool enable_page_cache, const std::string& page_cache_file_key,
-                bool enable_dictionary_filter);
+                const cctz::time_zone* timezone,
+                std::optional<const cctz::time_zone*> int96_timezone_override,
+                io::IOContext* io_ctx, RuntimeState* runtime_state, bool enable_page_cache,
+                const std::string& page_cache_file_key, bool enable_dictionary_filter);
 
     Status read_with_filter(int64_t rows, const uint8_t* filter_data, bool filter_all,
                             MutableColumnPtr& column, const DataTypePtr& output_type,
@@ -139,6 +144,7 @@ private:
     void advance_selected_span(int64_t rows);
 
     // Native ParquetColumnReader keeps a reference to RowRanges; declare it before the reader.
+    NativeFieldSchema _native_field_schema;
     segment_v2::RowRanges _row_ranges;
     std::set<uint64_t> _projected_column_ids;
     std::set<uint64_t> _filter_column_ids;

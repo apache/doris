@@ -169,6 +169,13 @@ public class HudiScanNode extends HiveScanNode {
     }
 
     @Override
+    protected String getHiveParquetTimeZone() {
+        // Hudi's legacy contract decodes INT96 with the session zone, so a versioned new plan must
+        // send that zone explicitly instead of relying on the old plan's missing-field fallback.
+        return sessionVariable.getTimeZone();
+    }
+
+    @Override
     protected void doInitialize() throws UserException {
         ExternalTable table = (ExternalTable) desc.getTable();
         Optional<MvccSnapshot> relationSnapshot = getRelationSnapshot();

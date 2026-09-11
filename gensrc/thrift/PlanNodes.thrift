@@ -691,8 +691,14 @@ struct TFileScanRangeParams {
     34: optional i32 iceberg_scan_semantics_version
     // FE-generated identity for sharing a deserialized table across JNI scanners in one scan node.
     35: optional string serialized_table_cache_key
-    // 31-33 and 36 are used in master; do not allocate them in branch-4.1.
+    // HMS catalog property hive.parquet.time-zone. Interpretation is versioned by
+    // parquet_timestamp_semantics_version.
+    36: optional string hive_parquet_time_zone
+    // 31-33 are used in master; do not allocate them in branch-4.1.
     37: optional TLanceScanParams lance_scan_params
+    // Absence preserves legacy session-timezone decoding during a BE-first rolling upgrade.
+    // Version 1 makes an absent/empty hive_parquet_time_zone explicitly disable INT96 conversion.
+    38: optional i32 parquet_timestamp_semantics_version
 }
 
 struct TFileRangeDesc {

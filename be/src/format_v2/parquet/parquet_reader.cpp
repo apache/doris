@@ -45,6 +45,7 @@
 #include "format_v2/parquet/reader/native/column_chunk_reader.h"
 #include "io/io_common.h"
 #include "runtime/runtime_state.h"
+#include "util/timezone_utils.h"
 
 namespace doris::format::parquet {
 
@@ -55,6 +56,7 @@ struct ParquetReaderScanState {
     ParquetScanScheduler scheduler;
     const RuntimeState* runtime_state = nullptr;
     const cctz::time_zone* timezone = nullptr;
+    std::optional<cctz::time_zone> int96_timezone;
     bool enable_bloom_filter = false;
     bool enable_page_cache = false;
     bool enable_strict_mode = false;
@@ -510,6 +512,92 @@ void apply_timestamp_tz_mapping_in_variants(ParquetColumnSchema* column_schema) 
     }
 }
 
+const format::LocalColumnIndex* find_semantic_child(const format::LocalColumnIndex& projection,
+                                                    int32_t local_id) {
+    const auto it = std::ranges::find_if(projection.children,
+                                         [local_id](const format::LocalColumnIndex& child) {
+                                             return child.local_id() == local_id;
+                                         });
+    return it == projection.children.end() ? nullptr : &*it;
+}
+
+DataTypePtr apply_projection_timestamp_semantics(ParquetColumnSchema* column_schema,
+                                                 const format::LocalColumnIndex& projection) {
+    DORIS_CHECK(column_schema != nullptr);
+    column_schema->timestamp_is_adjusted_to_utc = projection.timestamp_is_adjusted_to_utc;
+    if (column_schema->kind == ParquetColumnSchemaKind::PRIMITIVE) {
+        const auto& descriptor = column_schema->type_descriptor;
+        const bool physical_timestamp =
+                descriptor.physical_type == tparquet::Type::INT96 || descriptor.is_timestamp;
+        if (physical_timestamp && projection.timestamp_is_adjusted_to_utc.has_value()) {
+            const auto target =
+                    *projection.timestamp_is_adjusted_to_utc ? TYPE_TIMESTAMPTZ : TYPE_DATETIMEV2;
+            column_schema->type = DataTypeFactory::instance().create_data_type(
+                    target, column_schema->type != nullptr && column_schema->type->is_nullable(), 0,
+                    timestamp_tz_scale(descriptor));
+            column_schema->type_descriptor.doris_type = column_schema->type;
+        }
+        return column_schema->type;
+    }
+
+    std::vector<DataTypePtr> child_types;
+    child_types.reserve(column_schema->children.size());
+    for (auto& child : column_schema->children) {
+        const auto* child_projection = find_semantic_child(projection, child->local_id);
+        child_types.push_back(
+                child_projection == nullptr
+                        ? child->type
+                        : apply_projection_timestamp_semantics(child.get(), *child_projection));
+    }
+    if (column_schema->kind == ParquetColumnSchemaKind::LIST) {
+        DORIS_CHECK(child_types.size() == 1);
+        column_schema->type = nullable_like_original(
+                column_schema->type, std::make_shared<DataTypeArray>(child_types[0]));
+    } else if (column_schema->kind == ParquetColumnSchemaKind::MAP) {
+        DORIS_CHECK(child_types.size() == 2);
+        column_schema->type = nullable_like_original(
+                column_schema->type, std::make_shared<DataTypeMap>(make_nullable(child_types[0]),
+                                                                   make_nullable(child_types[1])));
+    } else if (column_schema->kind == ParquetColumnSchemaKind::STRUCT) {
+        Strings child_names;
+        child_names.reserve(column_schema->children.size());
+        for (const auto& child : column_schema->children) {
+            child_names.push_back(child->name);
+        }
+        column_schema->type = nullable_like_original(
+                column_schema->type, std::make_shared<DataTypeStruct>(child_types, child_names));
+    } else if (column_schema->kind == ParquetColumnSchemaKind::VARIANT) {
+        Strings child_names;
+        child_names.reserve(column_schema->children.size());
+        for (const auto& child : column_schema->children) {
+            child_names.push_back(child->name);
+        }
+        column_schema->variant_physical_type =
+                nullable_like_original(column_schema->variant_physical_type,
+                                       std::make_shared<DataTypeStruct>(child_types, child_names));
+    }
+    return column_schema->type;
+}
+
+void apply_request_timestamp_semantics(
+        std::vector<std::unique_ptr<ParquetColumnSchema>>* file_schema,
+        const format::FileScanRequest& request) {
+    DORIS_CHECK(file_schema != nullptr);
+    auto apply = [&](const format::LocalColumnIndex& projection) {
+        const auto local_id = projection.local_id();
+        if (local_id < 0 || local_id >= static_cast<int32_t>(file_schema->size())) {
+            return;
+        }
+        apply_projection_timestamp_semantics((*file_schema)[local_id].get(), projection);
+    };
+    for (const auto& projection : request.predicate_columns) {
+        apply(projection);
+    }
+    for (const auto& projection : request.non_predicate_columns) {
+        apply(projection);
+    }
+}
+
 static Status find_projected_minmax_leaf(const ParquetColumnSchema& column_schema,
                                          const format::LocalColumnIndex& projection,
                                          const ParquetColumnSchema** leaf_schema) {
@@ -587,14 +675,16 @@ ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_p
                              std::optional<format::GlobalRowIdContext> global_rowid_context,
                              bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary,
                              std::shared_ptr<const FileContext> file_context,
-                             int64_t format_split_id, int64_t format_split_id_end)
+                             int64_t format_split_id, int64_t format_split_id_end,
+                             std::optional<std::string> hive_parquet_time_zone)
         : FileReader(system_properties, file_description, io_ctx, profile),
           _global_rowid_context(global_rowid_context),
           _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz),
           _enable_mapping_varbinary(enable_mapping_varbinary),
           _file_context(std::move(file_context)),
           _format_split_id(format_split_id),
-          _format_split_id_end(format_split_id_end) {}
+          _format_split_id_end(format_split_id_end),
+          _hive_parquet_time_zone(std::move(hive_parquet_time_zone)) {}
 
 ParquetReader::~ParquetReader() = default;
 
@@ -615,6 +705,18 @@ Status ParquetReader::init(RuntimeState* state) {
             state != nullptr && state->query_options().enable_parquet_filter_by_bloom_filter;
     _state->enable_page_cache =
             state != nullptr && state->query_options().enable_parquet_file_page_cache;
+    if (_hive_parquet_time_zone.has_value() && !_hive_parquet_time_zone->empty()) {
+        cctz::time_zone int96_timezone;
+        if (!TimezoneUtils::find_cctz_time_zone(*_hive_parquet_time_zone, int96_timezone)) {
+            return Status::InvalidArgument("Invalid hive.parquet.time-zone: {}",
+                                           *_hive_parquet_time_zone);
+        }
+        _state->int96_timezone = int96_timezone;
+    }
+    if (_hive_parquet_time_zone.has_value()) {
+        _state->scheduler.set_int96_timezone(
+                _state->int96_timezone.has_value() ? &*_state->int96_timezone : nullptr);
+    }
     if (state != nullptr) {
         _state->runtime_state = state;
         _state->timezone = &state->timezone_obj();
@@ -843,6 +945,8 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
                                                       format::LocalIndex(col.column_id().value()));
         }
     }
+
+    apply_request_timestamp_semantics(&_state->file_schema, *request_snapshot);
 
     const auto num_fields = static_cast<int32_t>(_state->file_schema.size());
     for (const auto& col : request_snapshot->predicate_columns) {

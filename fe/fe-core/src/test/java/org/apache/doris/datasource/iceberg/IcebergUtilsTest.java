@@ -20,6 +20,7 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
@@ -110,6 +111,32 @@ public class IcebergUtilsTest {
         Assert.assertTrue(selected.get(StorageProperties.Type.OSS) instanceof OSSProperties);
         Assert.assertSame(selected.get(StorageProperties.Type.OSS),
                 LocationPath.of("s3://bucket/data.parquet", selected).getStorageProperties());
+    }
+
+    @Test
+    public void testIcebergFixedAlwaysMapsToLengthPreservingVarbinary() {
+        for (boolean enableMappingVarbinary : Arrays.asList(false, true)) {
+            Type shortFixed = IcebergUtils.icebergTypeToDorisType(
+                    Types.FixedType.ofLength(4), enableMappingVarbinary, false);
+            Assert.assertTrue(shortFixed.isVarbinaryType());
+            Assert.assertEquals(4, ((ScalarType) shortFixed).getLength());
+
+            Type longFixed = IcebergUtils.icebergTypeToDorisType(
+                    Types.FixedType.ofLength(256), enableMappingVarbinary, false);
+            Assert.assertTrue(longFixed.isVarbinaryType());
+            Assert.assertEquals(256, ((ScalarType) longFixed).getLength());
+        }
+    }
+
+    @Test
+    public void testIcebergBinaryAlwaysMapsToVarbinary() {
+        Type binary = IcebergUtils.icebergTypeToDorisType(Types.BinaryType.get(), false, false);
+        Assert.assertTrue(binary.isVarbinaryType());
+        Assert.assertEquals(ScalarType.MAX_VARBINARY_LENGTH, ((ScalarType) binary).getLength());
+
+        Type uuid = IcebergUtils.icebergTypeToDorisType(Types.UUIDType.get(), false, false);
+        Assert.assertTrue(uuid.isVarbinaryType());
+        Assert.assertEquals(16, ((ScalarType) uuid).getLength());
     }
 
     @Test

@@ -21,6 +21,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -109,6 +111,12 @@ public class HMSExternalCatalog extends ExternalCatalog {
     @Override
     public void checkProperties() throws DdlException {
         super.checkProperties();
+        String hiveParquetTimeZone = catalogProperty.getOrDefault(
+                FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, null);
+        if (hiveParquetTimeZone != null) {
+            // Validate before publishing catalog properties because scan planning parses the same value later.
+            FileFormatUtils.parseHiveParquetTimeZone(hiveParquetTimeZone);
+        }
         // check file.meta.cache.ttl-second parameter
         String fileMetaCacheTtlSecond = catalogProperty.getOrDefault(FILE_META_CACHE_TTL_SECOND, null);
         if (Objects.nonNull(fileMetaCacheTtlSecond) && NumberUtils.toInt(fileMetaCacheTtlSecond, CACHE_NO_TTL)

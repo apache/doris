@@ -51,6 +51,7 @@
 #include "format_v2/native/native_reader.h"
 #include "format_v2/orc/orc_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
+#include "format_v2/parquet/parquet_timestamp_semantics.h"
 #include "runtime/file_scan_profile.h"
 #include "storage/segment/condition_cache.h"
 #include "util/debug_points.h"
@@ -549,6 +550,10 @@ ColumnDefinition build_schema_column_metadata_from_external_field(
                                                field.initial_default_value_is_base64,
             .is_optional = field.__isset.is_optional ? std::make_optional(field.is_optional)
                                                      : std::nullopt,
+            .timestamp_is_adjusted_to_utc =
+                    field.__isset.timestamp_is_adjusted_to_utc
+                            ? std::make_optional(field.timestamp_is_adjusted_to_utc)
+                            : std::nullopt,
             .is_partition_key = false,
     };
 }
@@ -1635,6 +1640,8 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
     const bool enable_mapping_varbinary = _scan_params != nullptr &&
                                           _scan_params->__isset.enable_mapping_varbinary &&
                                           _scan_params->enable_mapping_varbinary;
+    const std::optional<std::string> hive_parquet_time_zone =
+            parquet::get_int96_timezone_override(_scan_params);
     if (_format == FileFormat::PARQUET) {
         // V2 must honor the scan contract directly; otherwise Hive STRING columns backed by an
         // unannotated BYTE_ARRAY are silently exposed as VARBINARY and predicate bytes no longer
@@ -1643,7 +1650,7 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
                 _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
                 _current_task->file_context, _current_task->format_split_id,
-                _current_task->format_split_id_end);
+                _current_task->format_split_id_end, hive_parquet_time_zone);
         return Status::OK();
     }
     if (_format == FileFormat::ORC) {

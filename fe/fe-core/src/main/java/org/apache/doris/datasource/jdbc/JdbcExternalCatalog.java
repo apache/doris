@@ -289,7 +289,6 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 .setConnectionPoolMaxLifeTime(getConnectionPoolMaxLifeTime())
                 .setConnectionPoolMaxWaitTime(getConnectionPoolMaxWaitTime())
                 .setConnectionPoolKeepAlive(isConnectionPoolKeepAlive())
-                .setEnableMappingVarbinary(getEnableMappingVarbinary())
                 .setEnableMappingTimestampTz(getEnableMappingTimestampTz());
 
         return JdbcClient.createJdbcClient(jdbcClientConfig);
