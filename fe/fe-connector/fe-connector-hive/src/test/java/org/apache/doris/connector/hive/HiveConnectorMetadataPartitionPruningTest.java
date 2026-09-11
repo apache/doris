@@ -214,6 +214,19 @@ public class HiveConnectorMetadataPartitionPruningTest {
     }
 
     @Test
+    public void testHmsFilterDebugSummaryIsBounded() {
+        String filter = "x".repeat(HiveConnectorMetadata.MAX_DEBUG_HMS_FILTER_LENGTH + 1);
+        String lengthSuffix = "... (length=" + filter.length() + ")";
+
+        String summary = HiveConnectorMetadata.summarizeHmsFilterForDebug(filter);
+
+        Assertions.assertEquals(HiveConnectorMetadata.MAX_DEBUG_HMS_FILTER_LENGTH + lengthSuffix.length(),
+                summary.length());
+        Assertions.assertTrue(summary.startsWith("x".repeat(HiveConnectorMetadata.MAX_DEBUG_HMS_FILTER_LENGTH)));
+        Assertions.assertTrue(summary.endsWith(lengthSuffix));
+    }
+
+    @Test
     public void testUnpartitionedTableIsNotTouched() {
         HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
                 .partitionKeyNames(Collections.emptyList())

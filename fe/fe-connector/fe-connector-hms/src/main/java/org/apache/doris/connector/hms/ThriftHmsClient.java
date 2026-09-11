@@ -245,8 +245,7 @@ public class ThriftHmsClient implements HmsClient {
         List<Partition> partitions = execute(client -> client.listPartitionsByFilter(
                 dbName, tableName, filter, (short) (MAX_FILTERED_PARTITIONS + 1)));
         if (isFilteredPartitionResponseSaturated(partitions.size())) {
-            throw new HmsClientException("HMS partition filter matched more than "
-                    + MAX_FILTERED_PARTITIONS + " partitions");
+            throw new HmsPartitionFilterSaturatedException(MAX_FILTERED_PARTITIONS);
         }
         return partitions.stream().map(ThriftHmsClient::convertPartition).collect(Collectors.toList());
     }
