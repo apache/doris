@@ -17,8 +17,13 @@
 
 #include "format/transformer/vparquet_transformer.h"
 
+#include <arrow/array/array_binary.h>
+#include <arrow/io/file.h>
+#include <arrow/table.h>
+#include <arrow/util/key_value_metadata.h>
 #include <gtest/gtest.h>
 #include <parquet/api/reader.h>
+#include <parquet/arrow/reader.h>
 #include <parquet/schema.h>
 
 #include <string_view>
@@ -26,9 +31,11 @@
 #include "core/block/block.h"
 #include "core/column/column_array.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_spatial.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "format/table/iceberg/schema_parser.h"
@@ -126,6 +133,80 @@ TEST_F(VParquetTransformerTest, WritesIcebergVariantAndCollectsLogicalMetrics) {
     ASSERT_EQ(2, payload_group.field_count());
     EXPECT_EQ(-1, payload_group.field(0)->field_id());
     EXPECT_EQ(-1, payload_group.field(1)->field_id());
+}
+
+TEST_F(VParquetTransformerTest, WritesIcebergSpatialWkbAsBinary) {
+    auto geometry_type = std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY, "EPSG:3857");
+    auto geography_type =
+            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "vincenty");
+    VExprContextSPtrs output_exprs =
+            MockSlotRef::create_mock_contexts(DataTypes {geometry_type, geography_type});
+
+    const std::string schema_json = R"JSON({
+        "type": "struct",
+        "fields": [
+            {"id": 1, "name": "shape", "required": false, "type": "geometry(EPSG:3857)"},
+            {"id": 2, "name": "place", "required": false,
+             "type": "geography(OGC:CRS84, vincenty)"}
+        ]
+    })JSON";
+    const auto schema = iceberg::SchemaParser::from_json(schema_json);
+
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+    RuntimeState state;
+    state.set_timezone("UTC");
+    ParquetFileOptions options {.compression_type = TParquetCompressionType::UNCOMPRESSED,
+                                .parquet_version = TParquetVersion::PARQUET_1_0,
+                                .parquet_disable_dictionary = false,
+                                .enable_int96_timestamps = false};
+    VParquetTransformer transformer(&state, file_writer.get(), output_exprs, {"shape", "place"},
+                                    false, options, &schema_json, schema.get());
+    ASSERT_TRUE(transformer.open().ok());
+
+    const std::string wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00@", 21);
+    auto geometry_column = ColumnSpatial::create(TYPE_GEOMETRY);
+    auto geography_column = ColumnSpatial::create(TYPE_GEOGRAPHY);
+    geometry_column->insert_data(wkb.data(), wkb.size());
+    geography_column->insert_data(wkb.data(), wkb.size());
+    Block block;
+    block.insert(ColumnWithTypeAndName(std::move(geometry_column), geometry_type, "shape"));
+    block.insert(ColumnWithTypeAndName(std::move(geography_column), geography_type, "place"));
+    ASSERT_TRUE(transformer.write(block).ok());
+    ASSERT_TRUE(transformer.close().ok());
+
+    auto reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    const auto* root = reader->metadata()->schema()->group_node();
+    ASSERT_EQ(2, root->field_count());
+    const auto& shape = static_cast<const ::parquet::schema::PrimitiveNode&>(*root->field(0));
+    const auto& place = static_cast<const ::parquet::schema::PrimitiveNode&>(*root->field(1));
+    EXPECT_EQ(::parquet::Type::BYTE_ARRAY, shape.physical_type());
+    EXPECT_EQ(1, shape.field_id());
+    EXPECT_EQ(::parquet::Type::BYTE_ARRAY, place.physical_type());
+    EXPECT_EQ(2, place.field_id());
+
+    auto input_result = ::arrow::io::ReadableFile::Open(_file_path);
+    ASSERT_TRUE(input_result.ok()) << input_result.status();
+    std::shared_ptr<::arrow::io::RandomAccessFile> input = std::move(input_result).ValueUnsafe();
+    auto arrow_reader_result = ::parquet::arrow::OpenFile(input, ::arrow::default_memory_pool());
+    ASSERT_TRUE(arrow_reader_result.ok()) << arrow_reader_result.status();
+    auto arrow_reader = std::move(arrow_reader_result).ValueUnsafe();
+    auto table_result = arrow_reader->ReadTable();
+    ASSERT_TRUE(table_result.ok()) << table_result.status();
+    const auto table = std::move(table_result).ValueUnsafe();
+
+    for (int column_index = 0; column_index < 2; ++column_index) {
+        const auto array = std::static_pointer_cast<::arrow::BinaryArray>(
+                table->column(column_index)->chunk(0));
+        ASSERT_EQ(1, array->length());
+        ASSERT_FALSE(array->IsNull(0));
+        EXPECT_EQ(wkb, array->GetString(0));
+    }
+    EXPECT_EQ("GEOMETRY",
+              table->schema()->field(0)->metadata()->Get("iceberg.binary-type").ValueUnsafe());
+    EXPECT_EQ("GEOGRAPHY",
+              table->schema()->field(1)->metadata()->Get("iceberg.binary-type").ValueUnsafe());
 }
 
 TEST_F(VParquetTransformerTest, WritesNestedIcebergVariant) {
