@@ -25,6 +25,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.SecurityDependencyContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
@@ -188,6 +189,7 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
                 = ImmutableList.builderWithExpectedSize(logicalPlan.getOutput().size());
 
         StatementContext statementContext = cascadesContext.getStatementContext();
+        SecurityDependencyContext securityDependencyContext = statementContext.getSecurityDependencyContext();
         Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
         boolean hasDataMask = false;
         // One question for the whole relation rather than one per column: that is what the contract offers
@@ -218,6 +220,8 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
             if (sqlCacheContext.isPresent()) {
                 sqlCacheContext.get().addDataMaskPolicy(ctlName, dbName, tableName, slot.getName(), dataMaskPolicy);
             }
+            securityDependencyContext.addDataMask(
+                    ctlName, dbName, tableName, slot.getName(), dataMaskPolicy);
         }
 
         List<RowFilterSpec> rowPolicies = accessManager.evalRowFilterPolicies(
@@ -225,6 +229,7 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         if (sqlCacheContext.isPresent()) {
             sqlCacheContext.get().setRowFilterPolicy(ctlName, dbName, tableName, rowPolicies);
         }
+        securityDependencyContext.setRowPolicies(ctlName, dbName, tableName, rowPolicies);
 
         return new RelatedPolicy(
                 Optional.ofNullable(CollectionUtils.isEmpty(rowPolicies)

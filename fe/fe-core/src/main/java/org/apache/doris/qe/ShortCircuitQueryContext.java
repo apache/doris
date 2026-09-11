@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.SecurityDependencyContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.StatementContext.PointQueryFixedKeyConstraint;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
@@ -80,6 +81,7 @@ public class ShortCircuitQueryContext {
     public final String tableName;
     private final long fileCacheQueryLimitBytes;
     private final long partitionTopologyVersion;
+    private final SecurityDependencyContext securityDependencyContext;
 
     public final OlapScanNode scanNode;
     public final Queriable analzyedQuery;
@@ -113,6 +115,18 @@ public class ShortCircuitQueryContext {
 
     public ShortCircuitQueryContext(Planner planner, Queriable analzyedQuery,
             StatementContext statementContext) throws TException {
+        this(planner, analzyedQuery, statementContext,
+                statementContext == null ? null : statementContext.getSecurityDependencyContext());
+    }
+
+    @VisibleForTesting
+    public ShortCircuitQueryContext(Planner planner, Queriable analzyedQuery,
+            SecurityDependencyContext securityDependencyContext) throws TException {
+        this(planner, analzyedQuery, null, securityDependencyContext);
+    }
+
+    private ShortCircuitQueryContext(Planner planner, Queriable analzyedQuery,
+            StatementContext statementContext, SecurityDependencyContext securityDependencyContext) throws TException {
         this.planner = planner;
         this.serializedDescTable = ByteString.copyFrom(
                 new TSerializer().serialize(DescriptorToThriftConverter.toThrift(planner.getDescTable())));
@@ -145,11 +159,19 @@ public class ShortCircuitQueryContext {
         this.partitionTopologyVersion = this.tbl.getPartitionTopologyVersion();
         this.analzyedQuery = analzyedQuery;
         this.pointQueryKeyTemplate = PointQueryKeyTemplate.create(this.scanNode, statementContext);
+        this.securityDependencyContext = securityDependencyContext == null
+                ? null : securityDependencyContext.snapshotForShortCircuit();
     }
 
     @VisibleForTesting
     ShortCircuitQueryContext(OlapTable tbl, String tableName, int schemaVersion,
             long fileCacheQueryLimitBytes) {
+        this(tbl, tableName, schemaVersion, fileCacheQueryLimitBytes, null);
+    }
+
+    @VisibleForTesting
+    ShortCircuitQueryContext(OlapTable tbl, String tableName, int schemaVersion,
+            long fileCacheQueryLimitBytes, SecurityDependencyContext securityDependencyContext) {
         this.planner = null;
         this.serializedDescTable = ByteString.EMPTY;
         this.serializedOutputExpr = ByteString.EMPTY;
@@ -163,6 +185,7 @@ public class ShortCircuitQueryContext {
         this.scanNode = null;
         this.analzyedQuery = null;
         this.pointQueryKeyTemplate = PointQueryKeyTemplate.unsupported();
+        this.securityDependencyContext = securityDependencyContext;
     }
 
     @VisibleForTesting
@@ -180,6 +203,7 @@ public class ShortCircuitQueryContext {
         this.partitionTopologyVersion = tbl.getPartitionTopologyVersion();
         this.analzyedQuery = null;
         this.pointQueryKeyTemplate = PointQueryKeyTemplate.create(scanNode, statementContext);
+        this.securityDependencyContext = null;
     }
 
     public boolean isReusable(ConnectContext ctx) {
@@ -187,7 +211,8 @@ public class ShortCircuitQueryContext {
                 && this.tbl.getBaseSchemaVersion() == this.schemaVersion
                 && Objects.equals(this.tableName, this.tbl.getName())
                 && this.fileCacheQueryLimitBytes == ctx.getSessionVariable().fileCacheQueryLimitBytes
-                && this.tbl.getPartitionTopologyVersion() == this.partitionTopologyVersion;
+                && this.tbl.getPartitionTopologyVersion() == this.partitionTopologyVersion
+                && (securityDependencyContext == null || securityDependencyContext.isValid(ctx));
     }
 
     public void sanitize() {

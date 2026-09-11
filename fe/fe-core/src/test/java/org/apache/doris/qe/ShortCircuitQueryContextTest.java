@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Queriable;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -27,6 +28,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.SinglePartitionInfo;
+import org.apache.doris.nereids.SecurityDependencyContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -111,6 +113,18 @@ public class ShortCircuitQueryContextTest {
     }
 
     @Test
+    public void testReusableRequiresCurrentSecurityDependencies() {
+        ConnectContext connectContext = connectContext(-1);
+        SecurityDependencyContext securityDependencyContext = Mockito.mock(SecurityDependencyContext.class);
+        Mockito.when(securityDependencyContext.isValid(connectContext)).thenReturn(false);
+        ShortCircuitQueryContext context = new ShortCircuitQueryContext(
+                table("tbl", 10), "tbl", 10, -1, securityDependencyContext);
+
+        Assertions.assertFalse(context.isReusable(connectContext));
+        Mockito.verify(securityDependencyContext).isValid(connectContext);
+    }
+
+    @Test
     public void testSerializedQueryOptionsKeepBitmapOpCountVersion() throws Exception {
         TQueryOptions queryOptions = new SessionVariable().toThrift();
         Planner planner = Mockito.mock(Planner.class);
@@ -127,7 +141,8 @@ public class ShortCircuitQueryContextTest {
         Mockito.when(planner.getScanNodes()).thenReturn(Collections.singletonList(scanNode));
 
         ShortCircuitQueryContext context =
-                new ShortCircuitQueryContext(planner, Mockito.mock(Queriable.class));
+                new ShortCircuitQueryContext(planner, Mockito.mock(Queriable.class),
+                        new SecurityDependencyContext(UserIdentity.ROOT));
         TQueryOptions serializedQueryOptions = new TQueryOptions();
         new TDeserializer().deserialize(serializedQueryOptions, context.serializedQueryOptions.toByteArray());
 

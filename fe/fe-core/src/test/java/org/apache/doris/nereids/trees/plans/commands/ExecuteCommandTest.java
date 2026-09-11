@@ -347,6 +347,38 @@ public class ExecuteCommandTest {
         Assertions.assertNull(preparedStatement.getStatementContext().getPointQueryExecutionContext());
     }
 
+    @Test
+    public void testInvalidSecurityDependenciesRefreshInsteadOfDirectReuse() throws Exception {
+        String sql = "select * from tbl";
+        LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
+
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        StatementContext statementContext = new StatementContext();
+        statementContext.setShortCircuitQuery(true);
+        PrepareCommand prepareCommand = new PrepareCommand(
+                "stmt", logicalPlan, Collections.emptyList(), new OriginStatement(sql, 0));
+        PreparedStatementContext preparedStatement = new PreparedStatementContext(
+                prepareCommand, connectContext, statementContext, "stmt");
+        ShortCircuitQueryContext cachedPlan = Mockito.mock(ShortCircuitQueryContext.class);
+        Mockito.when(cachedPlan.isReusable(connectContext)).thenReturn(false);
+        preparedStatement.shortCircuitQueryContext = Optional.of(cachedPlan);
+
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(connectContext.getPreparedStementContext("stmt")).thenReturn(preparedStatement);
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(new SessionVariable());
+        Mockito.when(connectContext.getStatementContext()).thenReturn(statementContext);
+        Mockito.when(executor.getContext()).thenReturn(connectContext);
+
+        new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
+
+        Mockito.verify(cachedPlan).isReusable(connectContext);
+        Mockito.verify(executor).execute();
+        Mockito.verify(executor, Mockito.never()).executeAndSendResult(Mockito.anyBoolean(), Mockito.anyBoolean(),
+                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
+        Assertions.assertNotSame(prepareCommand, preparedStatement.command,
+                "rejecting a stale fast-path plan must rebuild the retained prepared command");
+    }
+
     private String resolveNextSnapshot(TableScanParams scanParams, AtomicInteger snapshotId) {
         return scanParams.getOrResolveMapParams(ignored -> ImmutableMap.of(
                 "scan.snapshot-id", String.valueOf(snapshotId.incrementAndGet())))
