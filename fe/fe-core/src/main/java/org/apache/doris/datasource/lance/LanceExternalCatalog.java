@@ -292,20 +292,23 @@ public class LanceExternalCatalog extends ExternalCatalog {
     }
 
     public LanceTableMetadata loadTableMetadata(String dbName, String tableName) {
-        return loadTableMetadata(dbName, tableName, Optional.empty(), false);
+        return loadTableMetadata(dbName, tableName, Optional.empty());
     }
 
     public LanceTableMetadata loadTableMetadataForSearch(String dbName, String tableName) {
-        return loadTableMetadata(dbName, tableName, Optional.empty(), true);
+        makeSureInitialized();
+        ResolvedTableAccess tableAccess = resolveTableAccess(dbName, tableName);
+        try {
+            return LanceMetadataLoader.loadLatestForSearch(
+                    tableAccess.datasetUri, tableAccess.storageOptions, allocator);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to load Lance table metadata for " + dbName + "." + tableName
+                    + ": " + sanitizedRootCauseMessage(e), safeCause(e));
+        }
     }
 
     public LanceTableMetadata loadTableMetadata(String dbName, String tableName,
             Optional<TableSnapshot> tableSnapshot) {
-        return loadTableMetadata(dbName, tableName, tableSnapshot, false);
-    }
-
-    private LanceTableMetadata loadTableMetadata(String dbName, String tableName,
-            Optional<TableSnapshot> tableSnapshot, boolean loadIndexSegments) {
         makeSureInitialized();
         ResolvedTableAccess tableAccess = resolveTableAccess(dbName, tableName);
         try {
@@ -326,11 +329,7 @@ public class LanceExternalCatalog extends ExternalCatalog {
                 return LanceMetadataLoader.loadVersion(
                         tableAccess.datasetUri, tableAccess.storageOptions, version, allocator);
             }
-            return loadIndexSegments
-                    ? LanceMetadataLoader.loadLatestWithIndexSegments(tableAccess.datasetUri,
-                            tableAccess.storageOptions, allocator)
-                    : LanceMetadataLoader.loadLatest(
-                            tableAccess.datasetUri, tableAccess.storageOptions, allocator);
+            return LanceMetadataLoader.loadLatest(tableAccess.datasetUri, tableAccess.storageOptions, allocator);
         } catch (Exception e) {
             throw new RuntimeException("Failed to load Lance table metadata for " + dbName + "." + tableName
                     + ": " + sanitizedRootCauseMessage(e), safeCause(e));

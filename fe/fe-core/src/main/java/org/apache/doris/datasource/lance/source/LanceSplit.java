@@ -27,8 +27,8 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * A Lance scan split. Catalog and S3 scans normally use one fixed-version fragment per split.
- * Indexed vector search uses one physical index segment and its covered fragments per split.
+ * A Lance scan split. Ordinary catalog scans use one or more fixed-version fragments per split.
+ * Indexed scans can use one physical index segment and its covered fragments per split.
  * Backend-local TVFs use one whole-dataset latest-version split.
  */
 public class LanceSplit extends FileSplit {
@@ -42,7 +42,15 @@ public class LanceSplit extends FileSplit {
 
     public static LanceSplit forFragment(
             String datasetUri, long version, long fragmentId, long physicalRows) {
-        return new LanceSplit(datasetUri, version, Collections.singletonList(fragmentId),
+        return forFragments(datasetUri, version, Collections.singletonList(fragmentId), physicalRows);
+    }
+
+    public static LanceSplit forFragments(
+            String datasetUri, long version, List<Long> fragmentIds, long physicalRows) {
+        if (fragmentIds == null || fragmentIds.isEmpty()) {
+            throw new IllegalArgumentException("Lance fragment split must contain fragments");
+        }
+        return new LanceSplit(datasetUri, version, fragmentIds,
                 Collections.emptyList(), physicalRows);
     }
 

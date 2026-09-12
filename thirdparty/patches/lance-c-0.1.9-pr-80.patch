@@ -1,0 +1,225 @@
+From 7fcd9c4ff7c03c10bdc9d8a600b3f7b0cf28a9ad Mon Sep 17 00:00:00 2001
+From: zhangstar333 <zhangsida@selectdb.com>
+Date: Thu, 10 Sep 2026 15:50:53 +0800
+Subject: [PATCH] oss provider error
+
+Doris integration: rebase only Cargo.toml/Cargo.lock hunk context over PR #73.
+All added and removed lines are identical to upstream PR #80 at 7fcd9c4.
+
+---
+ Cargo.lock                         |  1 +
+ Cargo.toml                         |  2 +
+ src/runtime.rs                     |  5 ++
+ tests/compile_and_run_test.rs      | 16 ++++++
+ tests/cpp/test_oss_transport.c     | 40 +++++++++++++
+ tests/static_oss_transport_test.py | 91 ++++++++++++++++++++++++++++++
+ 6 files changed, 155 insertions(+)
+ create mode 100644 tests/cpp/test_oss_transport.c
+ create mode 100644 tests/static_oss_transport_test.py
+
+diff --git a/Cargo.lock b/Cargo.lock
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -3970,6 +3970,7 @@
+  "libc",
+  "log",
+  "object_store",
++ "opendal",
+  "pin-project",
+  "prost",
+  "snafu",
+diff --git a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -43,6 +43,8 @@
+ log = "0.4"
+ libc = "0.2"
+ object_store = "0.13.2"
++# Explicitly install the HTTP transport when embedded in a static C/C++ executable.
++opendal = { version = "=0.58.2", default-features = false, features = ["http-transport-reqwest"] }
+ pin-project = "1.0"
+ prost = "0.14"
+ snafu = "0.9"
+diff --git a/src/runtime.rs b/src/runtime.rs
+index 0153d3f..3bd8964 100644
+--- a/src/runtime.rs
++++ b/src/runtime.rs
+@@ -8,6 +8,11 @@ use std::sync::LazyLock;
+ /// Global multi-threaded Tokio runtime, shared across all FFI calls.
+ /// Initialized lazily on first access.
+ pub static RT: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
++    // A native linker can omit OpenDAL's automatic constructor from liblance_c.a.
++    // Keep initialization reachable from the FFI entry points, before any HTTP I/O.
++    // Installation is idempotent and preserves an already installed transport.
++    opendal::install_default();
++
+     tokio::runtime::Builder::new_multi_thread()
+         .enable_all()
+         .build()
+diff --git a/tests/compile_and_run_test.rs b/tests/compile_and_run_test.rs
+index b419ac9..8566d10 100644
+--- a/tests/compile_and_run_test.rs
++++ b/tests/compile_and_run_test.rs
+@@ -249,3 +249,19 @@ fn test_cpp_compilation_and_execution() {
+ 
+     run_test_binary(&binary, &dataset_uri, &write_uri);
+ }
++
++/// A fresh C executable must initialize OpenDAL even when archive constructors are omitted.
++#[cfg(target_os = "linux")]
++#[test]
++#[ignore = "requires a C compiler, Python 3, and building the static library"]
++fn test_static_oss_transport() {
++    let (shared_library, _) = build_lance_c();
++    let static_library = shared_library.with_file_name("liblance_c.a");
++    assert!(static_library.exists(), "static library was not built");
++    let status = Command::new("python3")
++        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/static_oss_transport_test.py"))
++        .arg(static_library)
++        .status()
++        .expect("failed to run the static OSS transport test");
++    assert!(status.success(), "static OSS HTTP transport test failed");
++}
+diff --git a/tests/cpp/test_oss_transport.c b/tests/cpp/test_oss_transport.c
+new file mode 100644
+index 0000000..c96ee7e
+--- /dev/null
++++ b/tests/cpp/test_oss_transport.c
+@@ -0,0 +1,40 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++/* SPDX-FileCopyrightText: Copyright The Lance Authors */
++
++#include "lance/lance.h"
++#include <stdio.h>
++#include <string.h>
++
++/* The Python harness serves a missing manifest on a local HTTP endpoint. */
++int main(int argc, char **argv) {
++    if (argc != 3) return 2;
++    const char *options[] = {
++        "oss_endpoint", argv[1],
++        "oss_region", "cn-test",
++        "oss_access_key_id", "test-key",
++        "oss_secret_access_key", "test-secret",
++        "addressing_style", "path",
++        NULL
++    };
++    LanceSession *session = NULL;
++    LanceDataset *dataset = NULL;
++    const char *uri = "oss://test-bucket/missing.lance";
++    if (strcmp(argv[2], "shared") == 0) {
++        session = lance_session_new(0, 0);
++        if (session == NULL) return 3;
++        dataset = lance_dataset_open_with_session(uri, options, 1, session);
++    } else {
++        dataset = lance_dataset_open(uri, options, 1);
++    }
++    /* The object does not exist, but the request must reach the HTTP server. */
++    const char *error = lance_last_error_message();
++    int failed = dataset != NULL || error == NULL;
++    if (error != NULL) {
++        fprintf(stderr, "%s\n", error);
++        failed |= strstr(error, "default HTTP transport is not installed") != NULL;
++        lance_free_string(error);
++    }
++    lance_dataset_close(dataset);
++    lance_session_close(session);
++    return failed ? 1 : 0;
++}
+diff --git a/tests/static_oss_transport_test.py b/tests/static_oss_transport_test.py
+new file mode 100644
+index 0000000..7d0e87c
+--- /dev/null
++++ b/tests/static_oss_transport_test.py
+@@ -0,0 +1,91 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright The Lance Authors
++
++"""Exercise native OSS HTTP initialization from fresh, statically linked C processes.
++
++Build lance-c first, then run on Linux:
++    python3 tests/static_oss_transport_test.py target/release/liblance_c.a
++
++No OSS account is needed. A local HTTP server returns 404 for a missing manifest.
++The assertion is that an HTTP request reaches it, not merely that opening fails.
++Unlike a Rust test binary, the C executable must pull initialization from the archive.
++"""
++
++import argparse
++from http.server import BaseHTTPRequestHandler, HTTPServer
++import os
++from pathlib import Path
++import shlex
++import subprocess
++import sys
++import tempfile
++import threading
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("library", type=Path)
++    args = parser.parse_args()
++    if not sys.platform.startswith("linux"):
++        parser.error("this static-link regression test currently supports Linux")
++    library = args.library.resolve(strict=True)
++    root = Path(__file__).resolve().parents[1]
++    requests = []
++
++    class Handler(BaseHTTPRequestHandler):
++        def missing(self):
++            requests.append((self.command, self.path))
++            self.send_response(404)
++            self.send_header("Content-Length", "0")
++            self.send_header("Connection", "close")
++            self.end_headers()
++
++        do_HEAD = missing
++        do_GET = missing
++
++        def log_message(self, *_args):
++            pass
++
++    with tempfile.TemporaryDirectory(prefix="lance-static-oss-") as directory:
++        executable = Path(directory) / "test_oss_transport"
++        # Pass the archive explicitly; -llance_c could silently select the shared library.
++        # Do not use --whole-archive: ordinary native linking must retain initialization.
++        subprocess.run(
++            shlex.split(os.environ.get("CC", "cc"))
++            + ["-std=c11", "-Wall", "-Wextra", "-Werror", "-Wl,--gc-sections",
++               "-I", str(root / "include"), str(root / "tests/cpp/test_oss_transport.c"),
++               str(library), "-lgcc_s", "-lutil", "-lrt", "-lpthread", "-lm", "-ldl",
++               "-o", str(executable)],
++            check=True,
++        )
++        environment = {
++            key: value for key, value in os.environ.items()
++            if not key.startswith(("AWS_", "OSS_", "ALIBABA_CLOUD_"))
++            and key.lower() not in ("http_proxy", "https_proxy", "all_proxy", "no_proxy")
++        }
++        environment["NO_PROXY"] = "127.0.0.1,localhost"
++        # Each mode starts a new process so an earlier call cannot hide missing initialization.
++        for mode in ("ordinary", "shared"):
++            requests.clear()
++            with HTTPServer(("127.0.0.1", 0), Handler) as server:
++                thread = threading.Thread(
++                    target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True
++                )
++                thread.start()
++                try:
++                    result = subprocess.run(
++                        [str(executable), f"http://127.0.0.1:{server.server_port}", mode],
++                        env=environment, capture_output=True, text=True, timeout=30,
++                    )
++                finally:
++                    server.shutdown()
++                    thread.join()
++            assert result.returncode == 0, f"{mode}: {result.stderr}"
++            assert any("/_versions/" in path for _, path in requests), (
++                f"{mode}: no manifest HTTP request reached the server: {result.stderr}"
++            )
++            print(f"PASS: {mode} OSS open reached the local HTTP server")
++
++
++if __name__ == "__main__":
++    main()

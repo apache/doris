@@ -29,11 +29,35 @@ import org.apache.thrift.protocol.TCompactProtocol;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
 public class LanceThriftContractTest {
+
+    @Test
+    public void testScalarIndexTaskCompactProtocolRoundTrip() throws Exception {
+        for (boolean indexed : new boolean[] {true, false}) {
+            TLanceFileDesc source = new TLanceFileDesc()
+                    .setDatasetUri("s3://warehouse/db/table.lance")
+                    .setVersion(42L).setFragmentIds(Arrays.asList(7L, 11L));
+            if (indexed) {
+                ByteBuffer segmentUuid = ByteBuffer.allocate(16).putLong(1).putLong(2);
+                segmentUuid.flip();
+                source.setIndexSegmentUuids(Collections.singletonList(segmentUuid));
+            } else {
+                source.setUseScalarIndex(false);
+            }
+            TLanceFileDesc restored = new TLanceFileDesc();
+            new TDeserializer(new TCompactProtocol.Factory()).deserialize(restored,
+                    new TSerializer(new TCompactProtocol.Factory()).serialize(source));
+            Assert.assertEquals(source, restored);
+            Assert.assertEquals(!indexed, restored.isSetUseScalarIndex());
+            Assert.assertEquals(indexed, restored.isSetIndexSegmentUuids());
+        }
+    }
 
     @Test
     public void testLanceDescriptorCompactProtocolRoundTrip() throws Exception {

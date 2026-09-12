@@ -77,7 +77,10 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         if (hasMaterialized) {
             return topN;
         }
-        if (SessionVariable.getTopNLazyMaterializationThreshold() < topN.getLimit()) {
+        SessionVariable sessionVariable = ctx.getConnectContext().getSessionVariable();
+        boolean enableOtherTables = sessionVariable.topNLazyMaterializationThreshold > 0
+                && topN.getLimit() <= sessionVariable.topNLazyMaterializationThreshold;
+        if (!sessionVariable.enableLanceLazyMaterialization && !enableOtherTables) {
             return topN;
         }
         /*
@@ -91,7 +94,10 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         List<Slot> materializedSlots = new ArrayList<>();
         // find the slots which can be lazy materialized
         for (Slot slot : topN.getOutput()) {
-            Optional<MaterializeSource> source = computeMaterializeSource(topN, (SlotReference) slot);
+            // Decide per source so a Lance relation does not bypass the threshold for other tables.
+            Optional<MaterializeSource> source = computeMaterializeSource(topN, (SlotReference) slot)
+                    .filter(candidate -> MaterializeProbeVisitor.isLanceExternalSearch(candidate.relation)
+                            ? sessionVariable.enableLanceLazyMaterialization : enableOtherTables);
             if (source.isPresent()) {
                 SlotReference baseSlot = source.get().baseSlot;
                 if (source.get().baseSlot.hasSubColPath()) {

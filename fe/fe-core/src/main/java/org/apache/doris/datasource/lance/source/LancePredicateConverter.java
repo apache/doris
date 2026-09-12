@@ -607,7 +607,7 @@ public class LancePredicateConverter {
                 schemaBuilder.addNames(field.getName());
                 structBuilder.addTypes(type.get());
             } else {
-                // Lance 4.x removes user-defined top-level fields before handing the
+                // Lance removes user-defined top-level fields before handing the
                 // ExtendedExpression to DataFusion and remaps field ordinals. This keeps the
                 // envelope aligned with the full dataset schema when unrelated complex or
                 // otherwise unsupported columns are present.
