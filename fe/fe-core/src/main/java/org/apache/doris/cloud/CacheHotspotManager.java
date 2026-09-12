@@ -507,6 +507,20 @@ public class CacheHotspotManager extends MasterDaemon {
     private Map<String, Long> clusterToRunningJobId = new ConcurrentHashMap<>();
 
     /**
+     * Rebuild the runtime owners after all image and journal records have been restored, before
+     * this FE becomes ready or starts scheduling warm-up jobs. Only the final RUNNING state owns
+     * a destination: a periodic job may have returned to PENDING in a later journal record.
+     */
+    public void recoverRunningJobsBeforeStart() {
+        Preconditions.checkState(!startJobDaemon, "Warm-up recovery must precede job scheduling");
+        clusterToRunningJobId.clear();
+        cloudWarmUpJobs.values().stream()
+                .filter(job -> !job.isEventDriven() && job.getJobState() == JobState.RUNNING)
+                .forEach(this::tryRegisterRunningJob);
+        LOG.info("restored warm-up owners for {} destinations", clusterToRunningJobId.size());
+    }
+
+    /**
      * Attempts to register a job as running for the given destination cluster.
      * <p>
      * For one-time or periodic jobs, returns {@code false} if there is already a running job
