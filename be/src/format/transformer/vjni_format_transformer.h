@@ -22,6 +22,7 @@
 
 #include "format/transformer/vfile_format_transformer.h"
 #include "util/jni-util.h"
+#include "util/jni_plugin_registry.h"
 
 namespace doris {
 
@@ -30,13 +31,25 @@ namespace doris {
  * write operations to a Java-side JniWriter via JNI. It sits alongside
  * VCSVTransformer/VParquetTransformer/VOrcTransformer as a peer implementation.
  *
- * The Java writer class must extend org.apache.doris.common.jni.JniWriter and
- * follow the same constructor signature as JniScanner: (int batchSize, Map<String,String> params).
+ * The Java writer must extend org.apache.doris.jni.spi.JniWriter and is built by the named
+ * plugin factory, from the same (batchSize, params) pair a scanner gets.
+ *
+ * The writer is named in two different ways, so there are two constructors. Most call sites know
+ * their plugin at compile time and pass one of the Jni::plugin constants. The TVF sink does not:
+ * its plugin and factory come from a write statement's properties, and a PluginRef is a pair of
+ * views, so pointing one at a request-scoped string would outlive its storage. Both forms
+ * therefore end up in the owned strings below, and the PluginRef is rebuilt from them at use.
  */
 class VJniFormatTransformer final : public VFileFormatTransformer {
 public:
+    // For a plugin named at compile time; the ref's halves are copied, not borrowed.
     VJniFormatTransformer(RuntimeState* state, const VExprContextSPtrs& output_vexpr_ctxs,
-                          std::string writer_class,
+                          Jni::PluginRef plugin_ref,
+                          std::map<std::string, std::string> writer_params);
+
+    // For a plugin named at run time, e.g. by a TVF sink's writer_class property.
+    VJniFormatTransformer(RuntimeState* state, const VExprContextSPtrs& output_vexpr_ctxs,
+                          std::string plugin, std::string factory,
                           std::map<std::string, std::string> writer_params);
 
     ~VJniFormatTransformer() override = default;
@@ -52,15 +65,15 @@ public:
 private:
     Status _init_jni_writer(JNIEnv* env, int batch_size);
 
-    std::string _writer_class;
+    std::string _plugin;
+    std::string _factory;
     std::map<std::string, std::string> _writer_params;
 
     // JNI handles (same pattern as JniConnector)
     Jni::GlobalObject _jni_writer_obj;
-    Jni::MethodId _jni_writer_open;
-    Jni::MethodId _jni_writer_write;
-    Jni::MethodId _jni_writer_close;
-    Jni::MethodId _jni_writer_get_statistics;
+    // Resolved on the SPI base class and shared process-wide, so this is a borrowed pointer
+    // into storage that outlives any transformer.
+    const Jni::WriterApi* _writer_api = nullptr;
 
     // Schema cache (computed on first write, reused afterwards)
     bool _schema_cached = false;

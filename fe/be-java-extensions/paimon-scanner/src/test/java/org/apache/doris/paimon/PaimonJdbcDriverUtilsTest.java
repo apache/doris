@@ -17,11 +17,11 @@
 
 package org.apache.doris.paimon;
 
-import org.apache.doris.common.classloader.JniScannerClassLoader;
+import org.apache.doris.jni.toolkit.jdbc.JdbcDriverUtils;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -44,7 +44,7 @@ public class PaimonJdbcDriverUtilsTest {
     private final List<Driver> registeredDrivers = new ArrayList<>();
     private final List<Path> tempJars = new ArrayList<>();
 
-    @After
+    @AfterEach
     public void tearDown() throws Exception {
         for (Driver driver : registeredDrivers) {
             DriverManager.deregisterDriver(driver);
@@ -56,20 +56,50 @@ public class PaimonJdbcDriverUtilsTest {
         tempJars.clear();
     }
 
+    /**
+     * The registered driver has to be a class of this plugin, not of the driver jar. Paimon calls
+     * DriverManager, which only hands back drivers whose class the calling code's classloader can
+     * resolve - and the driver jar lives in a classloader below this plugin's, invisible from
+     * inside it. Registering the driver directly compiles and works right up until a real Paimon
+     * JDBC catalog asks for a connection and is told there is no suitable driver.
+     */
     @Test
-    public void testRegisterDriverIfNeeded() throws Exception {
+    public void registersADriverPaimonItselfCanSee() throws Exception {
         Path driverJar = createDriverJar();
         Map<String, String> params = new HashMap<>();
         params.put(PaimonJdbcDriverUtils.PAIMON_JDBC_DRIVER_URL, driverJar.toUri().toURL().toString());
         params.put(PaimonJdbcDriverUtils.PAIMON_JDBC_DRIVER_CLASS, DummyJdbcDriver.class.getName());
 
-        JniScannerClassLoader scannerClassLoader =
-                new JniScannerClassLoader("paimon-test", List.of(), ClassLoader.getPlatformClassLoader());
-        PaimonJdbcDriverUtils.registerDriverIfNeeded(params, scannerClassLoader);
+        // The platform loader stands in for the plugin's, because what has to hold is that the
+        // driver class is NOT resolvable from the caller's side. Passing this test's own loader
+        // would let the driver resolve parent-first to the copy sitting on the test classpath, and
+        // then registering the driver bare would look just as correct as wrapping it.
+        PaimonJdbcDriverUtils.registerDriverIfNeeded(params, ClassLoader.getPlatformClassLoader());
 
         Driver driver = DriverManager.getDriver("jdbc:dummy:test");
         registeredDrivers.add(driver);
-        Assert.assertTrue(driver.acceptsURL("jdbc:dummy:test"));
+        Assertions.assertSame(PaimonJdbcDriverUtils.class.getClassLoader(), driver.getClass().getClassLoader(),
+                "the registered driver must belong to this plugin, not to the driver jar");
+        Assertions.assertNotSame(PaimonJdbcDriverUtils.class.getClassLoader(),
+                driverFromJar(driverJar).getClassLoader(),
+                "...and the driver underneath must be the one from the jar");
+        Assertions.assertTrue(driver.acceptsURL("jdbc:dummy:test"),
+                "and must still be the user's driver underneath");
+    }
+
+    /** The driver jar gets its own classloader below the plugin's, so it can see Paimon but not
+     * the other way round; the toolkit hands out one per jar. */
+    @Test
+    public void putsTheDriverJarInAClassloaderOfItsOwn() throws Exception {
+        Path driverJar = createDriverJar();
+        String url = driverJar.toUri().toURL().toString();
+        ClassLoader parent = getClass().getClassLoader();
+
+        ClassLoader driverClassLoader = JdbcDriverUtils.driverClassLoader(url, parent);
+
+        Assertions.assertNotSame(parent, driverClassLoader);
+        Assertions.assertSame(parent, driverClassLoader.getParent());
+        Assertions.assertSame(driverClassLoader, JdbcDriverUtils.driverClassLoader(url, parent));
     }
 
     @Test
@@ -77,9 +107,16 @@ public class PaimonJdbcDriverUtilsTest {
         Map<String, String> params = new HashMap<>();
         params.put(PaimonJdbcDriverUtils.PAIMON_JDBC_DRIVER_URL, "file:///tmp/postgresql-42.5.0.jar");
 
-        IllegalArgumentException exception = Assert.assertThrows(IllegalArgumentException.class,
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> PaimonJdbcDriverUtils.registerDriverIfNeeded(params, getClass().getClassLoader()));
-        Assert.assertTrue(exception.getMessage().contains("driver_class"));
+        Assertions.assertTrue(exception.getMessage().contains("driver_class"));
+    }
+
+    /** The class the jar really holds, which is not the one on this test's classpath. */
+    private static Class<?> driverFromJar(Path driverJar) throws Exception {
+        return Class.forName(DummyJdbcDriver.class.getName(), false,
+                JdbcDriverUtils.driverClassLoader(driverJar.toUri().toURL().toString(),
+                        ClassLoader.getPlatformClassLoader()));
     }
 
     private Path createDriverJar() throws IOException {
@@ -88,7 +125,7 @@ public class PaimonJdbcDriverUtilsTest {
         String resourceName = DummyJdbcDriver.class.getName().replace('.', '/') + ".class";
         try (JarOutputStream jarOutputStream = new JarOutputStream(Files.newOutputStream(jarPath));
                 InputStream inputStream = DummyJdbcDriver.class.getClassLoader().getResourceAsStream(resourceName)) {
-            Assert.assertNotNull(inputStream);
+            Assertions.assertNotNull(inputStream);
             jarOutputStream.putNextEntry(new JarEntry(resourceName));
             byte[] buffer = new byte[4096];
             int bytesRead;

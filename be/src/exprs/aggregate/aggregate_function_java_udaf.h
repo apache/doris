@@ -39,11 +39,10 @@
 #include "format/jni/jni_data_bridge.h"
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
+#include "util/jni_plugin_registry.h"
 
 namespace doris {
 
-const char* UDAF_EXECUTOR_CLASS = "org/apache/doris/udf/UdafExecutor";
-const char* UDAF_EXECUTOR_CTOR_SIGNATURE = "([B)V";
 const char* UDAF_EXECUTOR_CLOSE_SIGNATURE = "()V";
 const char* UDAF_EXECUTOR_DESTROY_SIGNATURE = "()V";
 const char* UDAF_EXECUTOR_ADD_SIGNATURE = "(ZIIJILjava/util/Map;)V";
@@ -62,10 +61,16 @@ public:
     ~AggregateJavaUdafData() = default;
 
     Status close_and_delete_object() {
+        if (!can_call(executor_close_id) || executor_closed) {
+            return Status::OK();
+        }
         JNIEnv* env = nullptr;
 
         RETURN_IF_ERROR(Jni::Env::Get(&env));
 
+        // Raised before the call, not after: UdafExecutor.close() drops its state map, so a
+        // close that threw halfway is still a close as far as everything below is concerned.
+        executor_closed = true;
         auto st = executor_obj.call_nonvirtual_void_method(env, executor_cl, executor_close_id)
                           .call();
         if (!st.ok()) {
@@ -78,9 +83,6 @@ public:
     Status init_udaf(const TFunction& fn, const std::string& local_location) {
         JNIEnv* env = nullptr;
         RETURN_NOT_OK_STATUS_WITH_WARN(Jni::Env::Get(&env), "Java-Udaf init_udaf function");
-        RETURN_IF_ERROR(Jni::Util::find_class(env, UDAF_EXECUTOR_CLASS, &executor_cl));
-        RETURN_NOT_OK_STATUS_WITH_WARN(register_func_id(env),
-                                       "Java-Udaf register_func_id function");
 
         TJavaUdfExecutorCtorParams ctor_params;
         ctor_params.__set_fn(fn);
@@ -90,9 +92,21 @@ public:
 
         Jni::LocalArray ctor_params_bytes;
         RETURN_IF_ERROR(Jni::Util::SerializeThriftMsg(env, &ctor_params, &ctor_params_bytes));
-        RETURN_IF_ERROR(executor_cl.new_object(env, executor_ctor_id)
-                                .with_arg(ctor_params_bytes)
-                                .call(&executor_obj));
+        RETURN_IF_ERROR(Jni::PluginRegistry::create_udf_executor(
+                env, Jni::plugin::JAVA_UDF_AGGREGATE, ctor_params_bytes, &executor_obj,
+                &executor_cl));
+        // From here the Java executor is alive, so a failure below has to close it: the
+        // caller's cleanup path cannot, since it is exactly the method ids resolved here that
+        // it would need to do so.
+        if (Status status = register_func_id(env); !status.ok()) {
+            LOG(WARNING) << "Java-Udaf register_func_id function failed: " << status.to_string();
+            // Logged, not discarded: this is the failure that says the Java executor object was
+            // leaked, and it is the only place it can be seen. register_func_id's own failure is
+            // the one returned, since that is what the caller asked for.
+            WARN_IF_ERROR(close_and_delete_object(),
+                          "failed to close the Java UDAF executor after register_func_id failed");
+            return status;
+        }
         return Status::OK();
     }
 
@@ -176,6 +190,14 @@ public:
     void read(BufferReadable& buf) { buf.read_binary(serialize_data); }
 
     Status destroy() {
+        // Also once the executor has been closed: UdafExecutor.close() sets its state map to
+        // null and destroy() walks that map. AggregateJavaUdaf::create() calls this right after
+        // a failed init_udaf(), which closes - so without this the tail of the id resolution
+        // (a failure on the last id, with close and destroy both bound already) would run
+        // destroy() on a closed executor and swallow the NPE that comes back.
+        if (!can_call(executor_destroy_id) || executor_closed) {
+            return Status::OK();
+        }
         JNIEnv* env = nullptr;
         RETURN_NOT_OK_STATUS_WITH_WARN(Jni::Env::Get(&env), "Java-Udaf destroy function");
         return executor_obj.call_nonvirtual_void_method(env, executor_cl, executor_destroy_id)
@@ -212,13 +234,35 @@ public:
     }
 
 private:
+    /**
+     * Whether a JNI call through this method id can be made at all.
+     *
+     * The clean-up path is reached with nothing bound: init_udaf() creates the executor before it
+     * resolves any method id, and AggregateJavaUdaf::create() calls destroy() when init_udaf()
+     * fails - through a null receiver, a null class and a null method id if the Java factory was
+     * what threw. That is undefined behaviour rather than an error, because the two DCHECKs in
+     * the JNI wrappers that would catch it are compiled out of a release build. The scalar and
+     * UDTF paths guard the same window with JniContext::open_successes.
+     */
+    bool can_call(const Jni::MethodId& method_id) const {
+        return !executor_obj.uninitialized() && !executor_cl.uninitialized() &&
+               !method_id.uninitialized();
+    }
+
+    // Whether close() has already been called on the Java executor. Nothing that touches its
+    // state may run afterwards.
+    bool executor_closed = false;
+
     Status register_func_id(JNIEnv* env) {
-        RETURN_IF_ERROR(executor_cl.get_method(env, "<init>", UDAF_EXECUTOR_CTOR_SIGNATURE,
-                                               &executor_ctor_id));
-        RETURN_IF_ERROR(executor_cl.get_method(env, "reset", UDAF_EXECUTOR_RESET_SIGNATURE,
-                                               &executor_reset_id));
+        // close first, and deliberately: the executor object already exists by the time this
+        // runs, so every resolution below is a failure that has to close it - and
+        // close_and_delete_object() is itself gated on can_call(executor_close_id). Resolving
+        // any other id before this one leaves a window where the executor is alive and there
+        // is no way left to close it.
         RETURN_IF_ERROR(executor_cl.get_method(env, "close", UDAF_EXECUTOR_CLOSE_SIGNATURE,
                                                &executor_close_id));
+        RETURN_IF_ERROR(executor_cl.get_method(env, "reset", UDAF_EXECUTOR_RESET_SIGNATURE,
+                                               &executor_reset_id));
         RETURN_IF_ERROR(executor_cl.get_method(env, "merge", UDAF_EXECUTOR_MERGE_SIGNATURE,
                                                &executor_merge_id));
         RETURN_IF_ERROR(executor_cl.get_method(env, "serialize", UDAF_EXECUTOR_SERIALIZE_SIGNATURE,
@@ -239,7 +283,6 @@ private:
     Jni::GlobalClass executor_cl;
     Jni::GlobalObject executor_obj;
 
-    Jni::MethodId executor_ctor_id;
     Jni::MethodId executor_add_batch_id;
     Jni::MethodId executor_merge_id;
     Jni::MethodId executor_serialize_id;

@@ -21,7 +21,6 @@
 package org.apache.doris.udf.sketch;
 
 import org.apache.hadoop.hive.ql.exec.UDF;
-import org.apache.hadoop.io.Text;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;

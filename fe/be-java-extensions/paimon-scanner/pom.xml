@@ -28,6 +28,12 @@ under the License.
     <modelVersion>4.0.0</modelVersion>
 
     <artifactId>paimon-scanner</artifactId>
+    <name>Doris BE paimon Plugin</name>
+    <description>
+        Reads Paimon tables. FE plans the scan and Java-serializes the table and one split to this
+        plugin, which deserializes them and materializes rows - so the plugin carries a full Paimon
+        runtime, its file formats, and the filesystems a warehouse can live on.
+    </description>
 
     <properties>
         <maven.compiler.source>8</maven.compiler.source>
@@ -37,45 +43,69 @@ under the License.
     <dependencies>
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>java-common</artifactId>
+            <artifactId>jni-spi</artifactId>
             <version>${project.version}</version>
             <scope>provided</scope>
+        </dependency>
+        <!--
+          For loading a user-supplied JDBC driver jar: a Paimon catalog can keep its metadata in a
+          relational database, and that driver is named by the catalog, not by this build.
+        -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>plugin-toolkit</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!--
+          The kerberos machinery FE and BE share: a scan carries the catalog's hadoop.* options and
+          runs under the same UGI doAs wrapper FE used to plan it.
+        -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-kerberos</artifactId>
+            <version>${project.version}</version>
         </dependency>
 
         <dependency>
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-core</artifactId>
         </dependency>
-
         <dependency>
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-common</artifactId>
         </dependency>
+        <!--
+          Kept because it is what runs today, not because the hive path works: this jar holds
+          Paimon's own hive classes (HiveCatalog and friends), and the hive classes those need are
+          not on BE and never were - the only jar on a BE that carries HiveConf is the hudi
+          scanner's, inside its own classloader. Serialized tables that reach for a hive catalog
+          loader failed before this module became a plugin and fail the same way after.
+        -->
         <dependency>
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-hive-connector-3.1</artifactId>
         </dependency>
-
         <dependency>
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-format</artifactId>
         </dependency>
 
         <!--
-          Paimon OSS/S3 FileIO plugins. These register org.apache.paimon.fs.FileIOLoader
-          service providers (paimon-s3 -> S3Loader, paimon-jindo -> JindoLoader) used to read
-          object-store-backed Paimon tables (e.g. DLF REST catalogs over OSS). They MUST be
-          bundled here, alongside the FileIOLoader interface that lives in paimon-common: when a
-          BE-side read resolves the latest snapshot from the filesystem, RESTTokenFileIO.fileIO()
-          calls FileIO.get() -> ServiceLoader.load(FileIOLoader.class, FileIOLoader's classloader),
-          which eagerly instantiates every registered provider. A provider and the FileIOLoader
-          interface it implements must be reachable from the same classloader. These plugins used
-          to sit on the shared preload-extensions (JVM app) classpath, which does NOT carry
-          paimon-common's FileIOLoader; since JniScannerClassLoader is parent-first, the app-loaded
-          S3Loader/JindoLoader could not resolve the child-only interface -> NoClassDefFoundError:
-          FileIOLoader. Co-locating them here keeps the whole FileIO SPI in one classloader; the
-          assembly's metaInf-services handler merges their service files with paimon-common's
-          (local/hadoop) into one complete provider list.
+          Paimon's object-store FileIO plugins. They register org.apache.paimon.fs.FileIOLoader
+          service providers (S3Loader for s3://, JindoLoader for oss://), and FileIO.get() runs
+          ServiceLoader over every provider it can see, so a provider and the FileIOLoader interface
+          it implements (paimon-common) have to sit in one classloader. That used to be a real
+          constraint - these two lived on the shared preload classpath while the interface did not,
+          which is a NoClassDefFoundError - and it is now simply what a plugin directory is.
+
+          paimon-s3 is a fat jar and self-contained. paimon-jindo is 24KB of adapter: the
+          implementation it names, com.aliyun.jindodata.*, ships in the JindoFS jars, which are not
+          maven artifacts - build.sh copies them into this plugin directory after post-build.sh has
+          packaged them (a no-op unless the build asked for jindofs, i.e. DISABLE_BUILD_JINDOFS=OFF,
+          or the jindofs flag of post-build.sh; build.sh itself takes no such flag). The caveat
+          is recorded there: jindo-core carries a native library, and a JVM binds one of those to
+          exactly one classloader, so this copy and the one libhdfs loads off the system classpath
+          cannot both be used by one BE process.
         -->
         <dependency>
             <groupId>org.apache.paimon</groupId>
@@ -86,32 +116,317 @@ under the License.
             <artifactId>paimon-jindo</artifactId>
         </dependency>
 
+        <!--
+          Hadoop, declared here rather than taken transitively through paimon-format so this plugin
+          has exactly one copy at depth one. Everything Paimon does not have a FileIO of its own for
+          goes through hadoop's FileSystem, and it was BE's system classpath - invisible to a
+          plugin - that used to answer.
+
+          reload4j is excluded because it is a logging implementation - see the logging note below.
+          Nothing here calls log4j 1.x: the only hadoop-common classes that mention org.apache.log4j
+          are the daemon startup banner and the log-level servlet, neither of which a scan reaches.
+        -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-common</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>ch.qos.reload4j</groupId>
+                    <artifactId>reload4j</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!--
+          The filesystem implementations themselves. hadoop-common registers only file, har, http
+          and viewfs; every other scheme's FileSystem lives in its own artifact, and until this
+          module became a plugin those artifacts arrived from BE's system classpath - lib/hadoop_hdfs
+          (hdfs, obs, azure) and the shared preload jar (s3a). A plugin sees no system classpath at
+          all, so without them a warehouse on HDFS fails with "No FileSystem for scheme: hdfs".
+          Which class serves which scheme is FE's decision - it points cosn and, in some
+          configurations, obs at S3A rather than at a vendor filesystem - and is asserted in
+          PaimonPluginTest.
+
+          hadoop-cos is deliberately not here even though it is on that shared classpath: nothing in
+          the tree names org.apache.hadoop.fs.CosFileSystem, because FE points fs.cosn.impl at S3A.
+        -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-hdfs-client</artifactId>
+            <version>${hadoop.version}</version>
+            <scope>runtime</scope>
+            <!-- Keep the plugin's single hadoop-common (declared above): two copies would put
+                 FileSystem in one and DistributedFileSystem's superclass in the other. -->
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-common</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-aws</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-azure</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- Huawei OBS: hadoop-huaweicloud lives in the `obs` profile below;
+             disabled via -Ddisable.obs=true (build.sh exclude-obs-dependencies flag). -->
+
+        <!--
+          Paimon shades parquet, but not the hadoop classes parquet extends: inside paimon-format
+          org.apache.paimon.shade.org.apache.parquet.hadoop.ParquetInputFormat is still an
+          org.apache.hadoop.mapreduce.lib.input.FileInputFormat. Every parquet split goes through
+          ParquetReadOptions.Builder, which calls ParquetInputFormat.getFilter, so resolving that
+          call loads the hadoop superclass - on the read path, not just the write path this artifact
+          was first added for. parquet is also file.format's default, so a plugin directory without
+          this dies on the first data file it opens with "NoClassDefFoundError:
+          org/apache/hadoop/mapreduce/lib/input/FileInputFormat".
+
+          It was test scope until an end-to-end paimon scan said otherwise. Surefire puts test
+          dependencies on the test classpath, so readsBackWhatItWrote - which does read a real
+          parquet file - stayed green while the deployed plugin could not read one at all; runtime
+          scope is what makes those two classpaths agree.
+        -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-mapreduce-client-core</artifactId>
+            <scope>runtime</scope>
+            <!--
+              Only the class hierarchy is wanted, and it is entirely inside this one jar. What the
+              artifact drags behind it is a job client: YARN, its jersey/guice/jaxb web stack,
+              jetty's websocket client and netty-all - 53 more jars for a superclass, none of them
+              reachable from a scanner that never submits a job.
+
+              slf4j-reload4j and the reload4j it binds are the reason this is not merely wasteful:
+              a second slf4j provider in the directory is a coin flip over which one wins, and the
+              plugin's logging only reaches log/jni.log through slf4j-jdk14 - which is also why
+              hadoop-common above excludes reload4j.
+
+              hadoop-hdfs-client is excluded on the same principle as elsewhere in this file: hdfs://
+              arrives through the explicit declaration above and nowhere else.
+            -->
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-hdfs-client</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-yarn-client</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-yarn-common</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-reload4j</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.google.inject.extensions</groupId>
+                    <artifactId>guice-servlet</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.netty</groupId>
+                    <artifactId>netty-all</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!--
+          The AWS SDK hadoop-aws runs on. fe/pom.xml excludes hadoop-aws's own dependency on the
+          monolithic software.amazon.awssdk:bundle, so the modules it actually uses are named here:
+          s3 brings the client and its protocol/auth/http closure, apache-client is the http
+          implementation hadoop-aws wires up, and s3-transfer-manager is not optional either -
+          S3AFileSystem's own methods reference software.amazon.awssdk.transfer.s3, so the class
+          does not load without it. sts is not optional either: hadoop-aws's
+          AssumedRoleCredentialProvider resolves software.amazon.awssdk.services.sts.* from its
+          constant pool, and Doris names that class by string whenever a catalog carries
+          s3.role_arn - fs.s3a.aws.credentials.provider is set to it in S3FileSystemProperties.
+          The web_identity and container provider types, and the default provider chain an
+          EKS/IRSA deployment lands on, reach the same module. Without it the first split of the
+          first scan dies with ClassNotFoundException on sts.model.AssumeRoleRequest.
+
+          This is a second S3 client in the plugin, next to the one paimon-s3 shades. They serve
+          different schemes (s3a:// versus s3://) and cannot be merged: paimon-s3's copy is
+          relocated under org.apache.paimon and is not an AWS SDK any more as far as hadoop-aws is
+          concerned.
+        -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>apache-client</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3-transfer-manager</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sts</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Reached transitively through java-common until this module became a plugin. -->
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+        </dependency>
+
+        <!--
+          Logging: this plugin and the libraries inside it must reach the one file BE's plugin
+          runtime configures - log/jni.log, written through java.util.logging. So the plugin speaks
+          slf4j and deploys slf4j-jdk14.
+
+          The three log4j artifacts are narrowed to test because the fe parent pom declares them
+          compile on EVERY module: log4j-core is a second logging implementation writing wherever
+          its own configuration says (nowhere, since BE's log4j2 config is not on a plugin's
+          classpath), log4j-slf4j2-impl would route slf4j into it, and log4j-1.2-api is not the pure
+          facade its name suggests - its org.apache.log4j.Logger resolves log4j-core classes. Maven
+          cannot drop an inherited dependency, only narrow its scope.
+
+          log4j-to-slf4j is the bridge for the log4j2 callers in this closure: fe-kerberos, whose
+          UGI login and ticket-renewal messages are the ones an operator goes looking for. Without
+          it log4j-api finds no provider and falls back to writing on stderr.
+        -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-jdk14</artifactId>
+            <version>${slf4j.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-to-slf4j</artifactId>
+            <version>${log4j2.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-slf4j2-impl</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-1.2-api</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
+
+    <!--
+      Huawei OBS support. Active by default; disabled by -Ddisable.obs=true (build.sh
+      exclude-obs-dependencies flag), which drops the hadoop-huaweicloud dependency and the Huawei
+      Maven repository so nothing from com.huaweicloud is resolved or bundled into this plugin.
+      Without it the plugin simply has no obs:// filesystem, which is what the flag asks for.
+
+      The repository has to be declared here rather than inherited: com.huaweicloud:hadoop-huaweicloud
+      is not on Maven Central, and a module does not inherit repositories from its parent in this
+      tree. hadoop-deps and the two FE modules that use the same artifact each declare it the same way.
+
+      The artifact is a fat jar - it self-contains the esdk-obs SDK, so OBS needs nothing else.
+    -->
+    <profiles>
+        <profile>
+            <id>obs</id>
+            <activation>
+                <property>
+                    <name>!disable.obs</name>
+                </property>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>com.huaweicloud</groupId>
+                    <artifactId>hadoop-huaweicloud</artifactId>
+                    <scope>runtime</scope>
+                </dependency>
+                <!-- commons-lang 2.x, NOT lang3: seven classes of the fat jar above call
+                     org.apache.commons.lang.StringUtils - OBSFileSystem, OBSCommonUtils,
+                     OBSLoginHelper, DefaultOBSClientFactory, OBSInputStream,
+                     OBSObjectBucketUtils - and it carries no copy of its own. It used to reach
+                     them from preload-extensions' runtime classpath, the shared parent of every
+                     JNI scanner; that module is gone and a plugin classloader cannot see the
+                     system classpath, so without this the FIRST obs:// path a scanner opens dies
+                     linking OBSFileSystem.initialize() with NoClassDefFoundError. Inside this
+                     profile, so -Ddisable.obs=true drops it along with the filesystem that needs
+                     it. This IS caught statically now: check_plugin_layout.py walks every jar
+                     holding a class Doris names by string into a hadoop Configuration, and
+                     fs.obs.impl names OBSFileSystem - so dropping this dependency fails the build
+                     rather than the first obs:// scan. It did not, when the hole shipped. -->
+                <dependency>
+                    <groupId>commons-lang</groupId>
+                    <artifactId>commons-lang</artifactId>
+                    <scope>runtime</scope>
+                </dependency>
+            </dependencies>
+            <repositories>
+                <repository>
+                    <id>huawei-obs-sdk</id>
+                    <url>https://repo.huaweicloud.com/repository/maven/huaweicloudsdk/</url>
+                </repository>
+            </repositories>
+        </profile>
+    </profiles>
 
     <build>
         <finalName>paimon-scanner</finalName>
         <directory>${project.basedir}/target/</directory>
         <plugins>
+            <!--
+              A plugin is a directory of jars, not one jar with everything shaded into it. Its own
+              jar is built by the parent's jar plugin; its runtime closure lands beside it here.
+              `provided` dependencies are excluded by scope, which is what keeps the SPI out.
+            -->
+            <!--
+              Give the tests the same logging the deployed plugin has: slf4j-jdk14 as slf4j's only
+              provider, log4j-to-slf4j as log4j2's. Both artifacts excluded here are declared test
+              only because maven cannot drop what the fe parent pom declares compile on every
+              module - narrowing the scope keeps them out of the plugin directory, and this keeps
+              them out of the test JVM, where each would be a second provider competing for the
+              same slot. With them on the classpath, which one wins is a classpath-order accident.
+            -->
+            <plugin>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <classpathDependencyExcludes>
+                        <classpathDependencyExclude>
+                            org.apache.logging.log4j:log4j-core
+                        </classpathDependencyExclude>
+                        <classpathDependencyExclude>
+                            org.apache.logging.log4j:log4j-slf4j2-impl
+                        </classpathDependencyExclude>
+                    </classpathDependencyExcludes>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-assembly-plugin</artifactId>
-                <configuration>
-                    <descriptors>
-                        <descriptor>src/main/resources/package.xml</descriptor>
-                    </descriptors>
-                    <archive>
-                        <manifest>
-                            <mainClass></mainClass>
-                        </manifest>
-                    </archive>
-                </configuration>
+                <artifactId>maven-dependency-plugin</artifactId>
                 <executions>
                     <execution>
-                        <id>make-assembly</id>
+                        <id>copy-plugin-dependencies</id>
                         <phase>package</phase>
                         <goals>
-                            <goal>single</goal>
+                            <goal>copy-dependencies</goal>
                         </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
+                            <includeScope>runtime</includeScope>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>

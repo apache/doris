@@ -30,6 +30,7 @@
 #include "format/jni/jni_data_bridge.h"
 #include "runtime/runtime_profile.h"
 #include "util/jni-util.h"
+#include "util/jni_plugin_registry.h"
 #include "util/profile_collector.h"
 #include "util/string_util.h"
 
@@ -45,7 +46,7 @@ namespace doris {
 /**
  * JniReader is the base class for all JNI-based readers. It directly manages
  * the JNI lifecycle (open/read/close) for Java scanners that extend
- * org.apache.doris.common.jni.JniScanner.
+ * org.apache.doris.jni.spi.JniScanner.
  *
  * Subclasses only need to:
  * 1. Build scanner_params/column_names in their constructor
@@ -61,22 +62,22 @@ public:
      * @param file_slot_descs  Slot descriptors for the output columns
      * @param state            Runtime state
      * @param profile          Runtime profile for metrics
-     * @param connector_class  Java scanner class path (e.g. "org/apache/doris/paimon/PaimonJniScanner")
-     * @param scanner_params   Configuration map passed to Java scanner constructor
+     * @param plugin_ref       Plugin and factory that build the Java scanner (e.g. {"paimon", "paimon"})
+     * @param scanner_params   Configuration map passed to the Java scanner factory
      * @param column_names     Fields to read (also the required_fields in scanner_params)
      * @param self_split_weight  Weight for this split (for profile conditition counter)
      */
     JniReader(const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
-              RuntimeProfile* profile, std::string connector_class,
+              RuntimeProfile* profile, Jni::PluginRef plugin_ref,
               std::map<std::string, std::string> scanner_params,
               std::vector<std::string> column_names, int64_t self_split_weight = -1);
 
     /**
      * Constructor for table-schema-only mode (no data reading).
-     * @param connector_class  Java scanner class path
-     * @param scanner_params   Configuration map passed to Java scanner constructor
+     * @param plugin_ref       Plugin and factory that build the Java scanner
+     * @param scanner_params   Configuration map passed to the Java scanner factory
      */
-    JniReader(std::string connector_class, std::map<std::string, std::string> scanner_params);
+    JniReader(Jni::PluginRef plugin_ref, std::map<std::string, std::string> scanner_params);
 
     ~JniReader() override = default;
 
@@ -100,11 +101,6 @@ public:
      * Read next batch from Java scanner and fill the block.
      */
     Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-
-    /**
-     * Get table schema from Java scanner (used by Avro schema discovery).
-     */
-    Status get_table_schema(std::string& table_schema_str);
 
     /**
      * Close the scanner and release JNI resources.
@@ -147,8 +143,8 @@ private:
     Status _fill_block(Block* block, size_t num_rows);
     Status _get_statistics(JNIEnv* env, std::map<std::string, std::string>* result);
 
+    Jni::PluginRef _plugin_ref;
     std::string _connector_name;
-    std::string _connector_class;
     std::map<std::string, std::string> _scanner_params;
     std::vector<std::string> _column_names;
     int32_t _self_split_weight = -1;
@@ -170,18 +166,10 @@ private:
     bool _closed = false;
     bool _scanner_opened = false;
 
-    Jni::GlobalClass _jni_scanner_cls;
     Jni::GlobalObject _jni_scanner_obj;
-    Jni::MethodId _jni_scanner_open;
-    Jni::MethodId _jni_scanner_get_append_data_time;
-    Jni::MethodId _jni_scanner_get_create_vector_table_time;
-    Jni::MethodId _jni_scanner_get_next_batch;
-    Jni::MethodId _jni_scanner_get_table_schema;
-    Jni::MethodId _jni_scanner_close;
-    Jni::MethodId _jni_scanner_release_column;
-    Jni::MethodId _jni_scanner_release_table;
-    Jni::MethodId _jni_scanner_get_statistics;
-    Jni::MethodId _jni_scanner_set_batch_size;
+    // Resolved on the SPI base class and shared by every reader in the process, so this is a
+    // borrowed pointer into storage that outlives any reader.
+    const Jni::ScannerApi* _scanner_api = nullptr;
 
     JniDataBridge::TableMetaAddress _table_meta;
     size_t _batch_size = 0;
@@ -193,22 +181,6 @@ private:
     std::unordered_map<std::string, bool> _partition_value_is_null;
 
     void _set_meta(long meta_addr) { _table_meta.set_meta(meta_addr); }
-};
-
-/**
- * The demo usage of JniReader, showing how to read data from java scanner.
- * The java side is also a mock reader that provide values for each type.
- * This class will only be retained during the functional testing phase to verify that
- * the communication and data exchange with the jvm are correct.
- */
-class MockJniReader : public JniReader {
-public:
-    MockJniReader(const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
-                  RuntimeProfile* profile);
-
-    ~MockJniReader() override = default;
-
-    Status init_reader();
 };
 
 } // namespace doris

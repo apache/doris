@@ -17,8 +17,8 @@
 
 package org.apache.doris.jdbc;
 
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ColumnValueConverter;
+import org.apache.doris.jni.spi.vec.ColumnType;
+import org.apache.doris.jni.spi.vec.ColumnValueConverter;
 
 import java.math.BigDecimal;
 import java.sql.Array;
@@ -170,8 +170,7 @@ public class PostgreSQLTypeHandler extends DefaultTypeHandler {
 
     /**
      * Recursively convert array elements for nested ARRAY types.
-     * Handles DATE/DATETIME/TIMESTAMPTZ element conversion, matching
-     * the old PostgreSQLJdbcExecutor.convertArray() behavior.
+     * Handles DATE/DATETIME/TIMESTAMPTZ element conversion.
      */
     private List<?> convertArray(List<?> input, ColumnType childType) {
         if (input == null) {

@@ -19,25 +19,20 @@ package org.apache.doris.udf;
 
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.classloader.ScannerLoader;
-import org.apache.doris.common.exception.InternalException;
-import org.apache.doris.common.exception.UdfRuntimeException;
-import org.apache.doris.common.jni.utils.JavaUdfDataType;
-import org.apache.doris.common.jni.utils.JavaUdfStructType;
-import org.apache.doris.common.jni.utils.UdfClassCache;
-import org.apache.doris.common.jni.utils.UdfUtils;
-import org.apache.doris.common.jni.vec.ColumnValueConverter;
-import org.apache.doris.common.jni.vec.VectorTable;
+import org.apache.doris.jni.spi.ThreadContextClassLoader;
+import org.apache.doris.jni.spi.vec.ColumnValueConverter;
+import org.apache.doris.jni.spi.vec.VectorTable;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
 import org.apache.doris.thrift.TPrimitiveType;
 
 import com.esotericsoftware.reflectasm.MethodAccess;
 import com.google.common.base.Strings;
-import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TBinaryProtocol;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.FileNotFoundException;
 import java.lang.reflect.Constructor;
@@ -53,7 +48,7 @@ import java.util.Map.Entry;
 public abstract class BaseExecutor {
     // Object to deserialize ctor params from BE.
     protected static final TBinaryProtocol.Factory PROTOCOL_FACTORY = new TBinaryProtocol.Factory();
-    private static final Logger LOG = Logger.getLogger(BaseExecutor.class);
+    private static final Logger LOG = LoggerFactory.getLogger(BaseExecutor.class);
     protected Object udf;
     // setup by init() and cleared by close()
     protected URLClassLoader classLoader;
@@ -105,14 +100,12 @@ public abstract class BaseExecutor {
             Type funcRetType, Type... parameterTypes) throws UdfRuntimeException {
         try {
             isStaticLoad = request.getFn().isSetIsStaticLoad() && request.getFn().is_static_load;
-            long expirationTime = 360L; // default is 6 hours
-            if (request.getFn().isSetExpirationTime()) {
-                expirationTime = request.getFn().getExpirationTime();
-            }
-            objCache = getClassCache(jarPath, request.getFn().getSignature(), request.getFn().getId(),
-                    expirationTime, funcRetType, parameterTypes);
+            objCache = getClassCache(jarPath, request.getFn().isSetId() ? request.getFn().getId() : 0L,
+                    request.getFn().getSignature(), funcRetType, parameterTypes);
             Constructor<?> ctor = objCache.udfClass.getConstructor();
-            udf = ctor.newInstance();
+            try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(udfClassLoader())) {
+                udf = ctor.newInstance();
+            }
         } catch (MalformedURLException e) {
             throw new UdfRuntimeException("Unable to load jar.", e);
         } catch (SecurityException e) {
@@ -131,17 +124,20 @@ public abstract class BaseExecutor {
     }
 
 
-    public UdfClassCache getClassCache(String jarPath, String functionSignature, long functionId,
-            long expirationTime, Type funcRetType, Type... parameterTypes)
+    public UdfClassCache getClassCache(String jarPath, long functionId, String functionSignature,
+            Type funcRetType, Type... parameterTypes)
             throws MalformedURLException, FileNotFoundException, ClassNotFoundException, InternalException,
             UdfRuntimeException {
+        // Keyed by the function's id rather than by its signature - see
+        // UdfClassCacheRegistry#cacheKey for what the signature cannot tell apart.
+        String functionKey = UdfClassCacheRegistry.cacheKey(functionId, functionSignature);
         UdfClassCache cache = null;
         if (isStaticLoad) {
-            cache = ScannerLoader.getUdfClassLoader(functionId);
+            cache = UdfClassCacheRegistry.get(functionKey);
             if (cache != null) {
                 // Reuse the cached classLoader to ensure dependent classes can be loaded.
-                // NOTE: cache.classLoader may be null when the UDF was originally loaded via
-                // the system class loader (jarPath empty / custom_lib UDF); see
+                // NOTE: cache.classLoader may be null when the function was loaded from the
+                // pre-installed directories rather than from a jar of its own; see
                 // UdfClassCache#classLoader. A null value here is a valid cached state and
                 // must NOT trigger a rebuild — only an actual cache miss does.
                 classLoader = cache.classLoader;
@@ -150,13 +146,12 @@ public abstract class BaseExecutor {
         if (cache == null) {
             ClassLoader loader;
             if (Strings.isNullOrEmpty(jarPath)) {
-                // if jarPath is empty, which means the UDF jar is located in custom_lib
-                // and already be loaded when BE start.
-                // so here we use system class loader to load UDF class.
-                loader = ClassLoader.getSystemClassLoader();
+                // No jar of its own: the class is expected in plugins/java_extensions or in the
+                // deprecated custom_lib. That loader is shared by every such function, so it is
+                // deliberately not stored in the cache below - nothing may close it.
+                loader = UserFunctionLoaders.preinstalled();
             } else {
-                ClassLoader parent = getClass().getClassLoader();
-                classLoader = UdfUtils.getClassLoader(jarPath, parent);
+                classLoader = UserFunctionLoaders.forJar(jarPath);
                 loader = classLoader;
             }
             cache = new UdfClassCache();
@@ -166,18 +161,32 @@ public abstract class BaseExecutor {
             cache.classLoader = classLoader;
             checkAndCacheUdfClass(cache, funcRetType, parameterTypes);
             if (isStaticLoad) {
-                UdfClassCache effective = ScannerLoader.cacheClassLoader(
-                        functionSignature, functionId, cache, expirationTime);
+                UdfClassCache effective = UdfClassCacheRegistry.publish(functionKey, functionSignature, cache);
                 if (effective != cache) {
                     // Another thread won the publish race. Our locally-built cache (and its
-                    // URLClassLoader) was already closed inside cacheClassLoader(); switch to
-                    // the published one so we share its live classLoader.
+                    // URLClassLoader) was already closed inside publish(); switch to the
+                    // published one so we share its live classLoader.
                     cache = effective;
                     classLoader = cache.classLoader;
                 }
             }
         }
         return cache;
+    }
+
+    /**
+     * The classloader the user function was loaded from, to be installed as the thread context
+     * classloader around anything that runs user code.
+     *
+     * <p>BE's threads carry whatever context classloader they were created with, which is BE's
+     * system classpath - a place a user function has nothing to find. Anything the function does
+     * reflectively, or any library it calls that resolves through the context classloader, has to
+     * see the jar the function came from instead. The SPI base classes install the plugin's
+     * classloader at every scanner and writer entry point for the same reason; executors have no
+     * base class in the SPI, so each entry point below does it itself.
+     */
+    protected ClassLoader udfClassLoader() {
+        return objCache.udfClass.getClassLoader();
     }
 
     protected abstract void checkAndCacheUdfClass(UdfClassCache cache, Type funcRetType, Type... parameterTypes)

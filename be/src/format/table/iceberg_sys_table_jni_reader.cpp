@@ -48,8 +48,7 @@ IcebergSysTableJniReader::IcebergSysTableJniReader(
         RuntimeProfile* profile, const TFileRangeDesc& range,
         const TFileScanRangeParams* range_params)
         : JniReader(
-                  file_slot_descs, state, profile,
-                  "org/apache/doris/iceberg/IcebergSysTableJniScanner",
+                  file_slot_descs, state, profile, Jni::plugin::ICEBERG_SYS_TABLE_SCANNER,
                   [&]() {
                       std::vector<std::string> required_fields;
                       std::vector<std::string> required_types;

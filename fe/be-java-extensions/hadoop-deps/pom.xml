@@ -28,6 +28,23 @@ under the License.
     </parent>
 
     <artifactId>hadoop-deps</artifactId>
+    <name>Doris BE libhdfs Runtime</name>
+    <description>
+        The Java side of BE's NATIVE filesystem reader - read it as "libhdfs-runtime", not as a
+        be-java-extension. The C++ libhdfs in be/src/io reaches these classes through the system
+        classpath, so this module is the one thing here that is deliberately NOT a plugin: it has no
+        plugin name, no DorisPlugin, and no directory under plugins/jni. build.sh deploys it
+        whole into lib/hadoop_hdfs/ instead.
+
+        Consequences worth knowing before editing:
+        - It is invisible to every plugin. A plugin that reads through hadoop carries its own copy
+          of hadoop-common and its own filesystem implementations; nothing here reaches it.
+        - Which schemes actually arrive here is decided in FE. StorageRegistry maps s3a/s3n/cosn/
+          oss/obs/cos/gs/abfs*/wasb* to the native C++ reader, so only hdfs/viewfs/jfs/local, the
+          empty scheme, oss-dls (JindoFS) and OneLake's abfs (hadoop-azure) come through libhdfs.
+          Check that mapping before concluding a jar here is dead.
+        - It lives under be-java-extensions for historical reasons only.
+    </description>
 
     <dependencies>
         <dependency>

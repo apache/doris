@@ -40,8 +40,7 @@ MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_des
                                          const TFileRangeDesc& range, RuntimeState* state,
                                          RuntimeProfile* profile)
         : JniReader(
-                  file_slot_descs, state, profile,
-                  "org/apache/doris/maxcompute/MaxComputeJniScanner",
+                  file_slot_descs, state, profile, Jni::plugin::MAX_COMPUTE_SCANNER,
                   [&]() {
                       std::ostringstream required_fields;
                       std::ostringstream columns_types;

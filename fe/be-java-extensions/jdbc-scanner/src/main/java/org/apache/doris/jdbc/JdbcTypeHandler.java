@@ -17,8 +17,8 @@
 
 package org.apache.doris.jdbc;
 
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ColumnValueConverter;
+import org.apache.doris.jni.spi.vec.ColumnType;
+import org.apache.doris.jni.spi.vec.ColumnValueConverter;
 
 import com.zaxxer.hikari.HikariDataSource;
 
@@ -35,8 +35,8 @@ import java.sql.SQLException;
  * that customizes how column values are read from ResultSets, how connections are configured,
  * and how output values are converted.
  *
- * <p>Used by {@link JdbcJniScanner} to provide database-specific behavior without
- * requiring the old {@link BaseJdbcExecutor} class hierarchy.
+ * <p>Used by {@link JdbcJniScanner} to provide database-specific behavior: one scanner picks a
+ * handler by table type, rather than one scanner subclass per database.
  */
 public interface JdbcTypeHandler {
 
@@ -95,7 +95,9 @@ public interface JdbcTypeHandler {
 
     /**
      * Set JVM-level system properties needed by specific JDBC drivers.
-     * Called once during scanner initialization.
+     *
+     * <p>Called before the driver class is loaded - that is when a driver reads these - which means
+     * once per scanner open rather than once per process. Setting the same value again is free.
      */
     default void setSystemProperties() {
         System.setProperty("com.zaxxer.hikari.useWeakReferences", "true");

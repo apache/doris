@@ -19,7 +19,8 @@ package org.apache.doris.jdbc;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.zaxxer.hikari.HikariDataSource;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Iterator;
 import java.util.Map;
@@ -31,7 +32,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
 public class JdbcDataSource {
-    private static final Logger LOG = Logger.getLogger(JdbcDataSource.class);
+    private static final Logger LOG = LoggerFactory.getLogger(JdbcDataSource.class);
     private static final ThreadFactory THREAD_FACTORY = new ThreadFactoryBuilder()
             .setDaemon(true)
             .setNameFormat("jdbc-datasource-cleanup-%d")
