@@ -957,11 +957,13 @@ public class ExpressionUtils {
      */
     public static Set<Slot> inferNotNullSlots(Set<Expression> predicates, Set<Slot> targetSlots,
             CascadesContext cascadesContext) {
-        return inferNotNullSlots(predicates, targetSlots, cascadesContext, ExpressionUtils::isFalseOrNull);
+        return inferNotNullSlots(predicates, targetSlots, cascadesContext,
+                result -> result == NullInputEvaluator.Result.NULL
+                        || result == NullInputEvaluator.Result.FALSE);
     }
 
     private static Set<Slot> inferNotNullSlots(Set<Expression> predicates, Set<Slot> targetSlots,
-            CascadesContext cascadesContext, Predicate<Expression> nullInputResultPredicate) {
+            CascadesContext cascadesContext, Predicate<NullInputEvaluator.Result> nullInputResultPredicate) {
         ImmutableSet.Builder<Slot> notNullSlots = ImmutableSet.builderWithExpectedSize(targetSlots.size());
         Set<Slot> inputSlots = new HashSet<>();
         for (Expression predicate : predicates) {
@@ -1001,14 +1003,10 @@ public class ExpressionUtils {
     }
 
     private static boolean matchesWhenSlotIsNull(Expression expression, Slot slot, CascadesContext cascadesContext,
-            Predicate<Expression> nullInputResultPredicate) {
-        Map<Expression, Expression> replaceMap = new HashMap<>();
-        Literal nullLiteral = new NullLiteral(slot.getDataType());
-        replaceMap.put(slot, nullLiteral);
-        Expression evalExpr = FoldConstantRule.evaluate(
-                ExpressionUtils.replace(expression, replaceMap),
-                new ExpressionRewriteContext(cascadesContext));
-        return nullInputResultPredicate.apply(evalExpr);
+            Predicate<NullInputEvaluator.Result> nullInputResultPredicate) {
+        NullInputEvaluator.Result result = NullInputEvaluator.evaluate(
+                expression, ImmutableSet.of(slot), new ExpressionRewriteContext(cascadesContext));
+        return nullInputResultPredicate.apply(result);
     }
 
     private static Optional<Set<Slot>> mergeInputSlotsWithinLimit(Set<Slot> inputSlots, Set<Slot> predicateInputSlots) {
@@ -1042,7 +1040,8 @@ public class ExpressionUtils {
             Set<Expression> arguments, CascadesContext cascadesContext) {
         Set<Slot> targetSlots = collectNotNullInferenceTargetSlots(arguments);
         Set<Slot> notNullSlots = inferNotNullSlots(
-                arguments, targetSlots, cascadesContext, Expression::isNullLiteral);
+                arguments, targetSlots, cascadesContext,
+                result -> result == NullInputEvaluator.Result.NULL);
         return buildNotNullPredicates(notNullSlots);
     }
 

@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.NullToNonNullFunction;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -132,7 +131,6 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
 
         Set<AggregateFunction> aggFunctions = Sets.newHashSet();
         boolean hasDecomposedAggIf = false;
-        boolean containsNullToNonNull = false;
         Map<NamedExpression, List<AggregateFunction>> aggFunctionsForOutputExpressions = Maps.newHashMap();
         Set<AggregateFunction> allAggFunctions = agg.getAggregateFunctions();
         boolean hasDistinctAgg = allAggFunctions.stream().anyMatch(AggregateFunction::isDistinct);
@@ -155,19 +153,6 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                     }
                     if (aggFunction.containsVolatileExpression()) {
                         return agg;
-                    }
-                    // NullToNonNullFunction / AlwaysNotNullable: expressions that can convert NULL
-                    // input to non-NULL output (e.g. COALESCE, NVL, IF, CASE WHEN, Array).
-                    // When an agg function contains such an expression wrapping a column from the
-                    // nullable side of an outer join, null-extended rows would produce non-NULL values
-                    // that get counted by the aggregation. But the pre-aggregation on the base table
-                    // cannot see null-extended rows (they are produced by the join), so the push-down
-                    // would lose those contributions — producing wrong results.
-                    if (!containsNullToNonNull
-                            && aggFunction.children().stream().anyMatch(
-                                    arg -> arg.anyMatch(e ->
-                                            NullToNonNullFunction.canConvertNullToNonNull((Expression) e)))) {
-                        containsNullToNonNull = true;
                     }
                     if (aggFunction.arity() > 0 && aggFunction.child(0) instanceof If
                             && !(aggFunction instanceof Count)) {
@@ -209,7 +194,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
         groupKeys = groupKeys.stream().distinct().collect(Collectors.toList());
 
         PushDownAggContext pushDownContext = new PushDownAggContext(new ArrayList<>(aggFunctions),
-                groupKeys, null, context.getCascadesContext(), false, hasDecomposedAggIf, containsNullToNonNull,
+                groupKeys, null, context.getCascadesContext(), false, hasDecomposedAggIf,
                 new BilateralState());
         if (groupKeys.isEmpty()) {
             return agg;

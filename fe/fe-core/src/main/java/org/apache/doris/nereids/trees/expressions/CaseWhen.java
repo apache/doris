@@ -43,7 +43,7 @@ import java.util.function.Supplier;
  *
  * Children layout: [value?, WhenClause+, defaultValue?]
  */
-public class CaseWhen extends Expression implements NeedSessionVarGuard, NullToNonNullFunction {
+public class CaseWhen extends Expression implements NeedSessionVarGuard {
 
     private final Optional<Expression> value;
     private final List<WhenClause> whenClauses;
