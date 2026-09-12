@@ -121,19 +121,24 @@ suite("test_gram_stop_gram", "p0") {
     }
 
     // information_schema reports a fresh table's sizes with a delay, and 0 there means "not
-    // yet" rather than "empty".
+    // yet" rather than "empty". A non-zero reading is not enough either: the figure is
+    // aggregated across tablets as their reports arrive, so an early sample can be a fraction
+    // of the real size -- which once made the comparison below read the dropped index as the
+    // larger of the two. Wait for the same value twice in a row before believing it.
     def indexBytes = { String table ->
         def deadline = System.currentTimeMillis() + 180_000
+        long previous = -1L
         while (System.currentTimeMillis() < deadline) {
             def r = sql """SELECT INDEX_LENGTH FROM information_schema.tables
                            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '${table}'"""
             def bytes = r.isEmpty() ? 0L : (r[0][0] as long)
-            if (bytes > 0) {
+            if (bytes > 0 && bytes == previous) {
                 return bytes
             }
-            sleep(3000)
+            previous = bytes
+            sleep(5000)
         }
-        throw new IllegalStateException("index size of ${table} never reported")
+        throw new IllegalStateException("index size of ${table} never settled")
     }
 
     def oneSegment = "test_gram_stop_gram_one"
