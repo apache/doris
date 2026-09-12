@@ -492,4 +492,20 @@ TEST(ColumnNullableTest, ScalaTypeNullStringTest2erase) {
     }
 }
 
+TEST(ColumnNullableTest, InsertNonNullableColumnReportsError) {
+    // A nullable column can only be filled from another nullable column, nested inserts such as
+    // ColumnStruct::insert_from (used by the ARRAY/MAP/STRUCT constructors) rely on the mismatch
+    // being reported as an error: aborting the whole backend process for a query level mistake is
+    // not acceptable.
+    ColumnNullable::MutablePtr dst_col =
+            ColumnNullable::create(ColumnInt32::create(), ColumnUInt8::create());
+    ColumnInt32::MutablePtr src_col = ColumnInt32::create();
+    src_col->insert_value(42);
+
+    EXPECT_THROW(dst_col->insert_from(*src_col, 0), doris::Exception);
+    EXPECT_THROW(dst_col->insert_range_from(*src_col, 0, 1), doris::Exception);
+    EXPECT_THROW(dst_col->insert_many_from(*src_col, 0, 1), doris::Exception);
+    EXPECT_EQ(0, dst_col->size());
+}
+
 } // namespace doris
