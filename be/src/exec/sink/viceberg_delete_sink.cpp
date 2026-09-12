@@ -107,6 +107,13 @@ Status load_rewritable_delete_rows(RuntimeState* state, RuntimeProfile* profile,
     return Status::OK();
 }
 
+std::string join_delete_file_path(std::string base_path, const std::string& file_name) {
+    if (!base_path.empty() && base_path.back() != '/') {
+        base_path += '/';
+    }
+    return base_path + file_name;
+}
+
 } // namespace
 
 Status calculate_iceberg_deletion_vector_content_size(size_t bitmap_size, int64_t* content_size) {
@@ -487,12 +494,13 @@ Status VIcebergDeleteSink::_write_position_delete_files(
             continue;
         }
         // Generate unique delete file path
-        std::string delete_file_path = _generate_delete_file_path(data_file_path);
+        DeleteFileLocation delete_file = _generate_delete_file_path(data_file_path);
 
-        // Create delete file writer
+        // Create delete file writer. It writes through the normalized path and reports the
+        // original one, so the manifest never records a backend-internal URI.
         auto writer = VIcebergDeleteFileWriterFactory::create_writer(
-                TFileContent::POSITION_DELETES, delete_file_path, _file_format_type,
-                _compress_type);
+                TFileContent::POSITION_DELETES, delete_file.write_path, delete_file.original_path,
+                _file_format_type, _compress_type);
 
         // Build column names for position delete
         std::vector<std::string> column_names = {"file_path", "pos"};
@@ -506,7 +514,7 @@ Status VIcebergDeleteSink::_write_position_delete_files(
                 writer->open(_state, _state->runtime_profile(), _position_delete_output_expr_ctxs,
                              column_names, _hadoop_conf, _file_type, _broker_addresses);
         if (writer->file_system() != nullptr) {
-            _created_files.emplace_back(writer->file_system(), delete_file_path);
+            _created_files.emplace_back(writer->file_system(), delete_file.write_path);
         }
         RETURN_IF_ERROR(open_status);
 
@@ -542,8 +550,11 @@ Status VIcebergDeleteSink::_write_position_delete_files(
         _commit_data_list.push_back(commit_data);
         _delete_file_count++;
 
-        VLOG(1) << fmt::format("Written position delete file: path={}, rows={}, referenced_file={}",
-                               delete_file_path, commit_data.row_count, data_file_path);
+        VLOG(1) << fmt::format(
+                "Written position delete file: path={}, manifest_path={}, rows={}, "
+                "referenced_file={}",
+                delete_file.write_path, delete_file.original_path, commit_data.row_count,
+                data_file_path);
     }
 
     return Status::OK();
@@ -687,13 +698,13 @@ Status VIcebergDeleteSink::_write_deletion_vector_files(
         return Status::OK();
     }
 
-    std::string puffin_path = _generate_puffin_file_path();
+    DeleteFileLocation puffin_file = _generate_puffin_file_path();
     int64_t puffin_file_size = 0;
-    RETURN_IF_ERROR(_write_puffin_file(puffin_path, &blobs, &puffin_file_size));
+    RETURN_IF_ERROR(_write_puffin_file(puffin_file.write_path, &blobs, &puffin_file_size));
 
     for (const auto& blob : blobs) {
         TIcebergCommitData commit_data;
-        commit_data.__set_file_path(puffin_path);
+        commit_data.__set_file_path(puffin_file.original_path);
         commit_data.__set_row_count(blob.merged_count);
         commit_data.__set_affected_rows(blob.delete_count);
         commit_data.__set_file_size(puffin_file_size);
@@ -803,37 +814,35 @@ std::string VIcebergDeleteSink::_build_puffin_footer_json(
     return {buffer.GetString(), buffer.GetSize()};
 }
 
-std::string VIcebergDeleteSink::_generate_delete_file_path(
+VIcebergDeleteSink::DeleteFileLocation VIcebergDeleteSink::_resolve_delete_file_location(
+        const std::string& file_name) const {
+    // `_output_path` and `_table_location` denote the same directory in two URI forms. Writing must
+    // use the normalized form, committing must use the original one; when either is absent, the
+    // other stands in for both (a location that was never rewritten is identical in both forms).
+    const std::string& write_base = _output_path.empty() ? _table_location : _output_path;
+    const std::string& original_base = _table_location.empty() ? write_base : _table_location;
+
+    // Delete files are data files in Iceberg, write under data location
+    return {join_delete_file_path(write_base, file_name),
+            join_delete_file_path(original_base, file_name)};
+}
+
+VIcebergDeleteSink::DeleteFileLocation VIcebergDeleteSink::_generate_delete_file_path(
         const std::string& referenced_data_file) {
     // Generate unique delete file name using UUID
     std::string uuid = generate_uuid_string();
-    std::string file_name;
 
     std::string file_extension = _get_file_extension();
-    file_name =
+    std::string file_name =
             fmt::format("delete_pos_{}_{}{}", uuid,
                         std::hash<std::string> {}(referenced_data_file) % 10000000, file_extension);
 
-    // Combine with output path or table location
-    std::string base_path = _output_path.empty() ? _table_location : _output_path;
-
-    // Ensure base path ends with /
-    if (!base_path.empty() && base_path.back() != '/') {
-        base_path += '/';
-    }
-
-    // Delete files are data files in Iceberg, write under data location
-    return fmt::format("{}{}", base_path, file_name);
+    return _resolve_delete_file_location(file_name);
 }
 
-std::string VIcebergDeleteSink::_generate_puffin_file_path() {
+VIcebergDeleteSink::DeleteFileLocation VIcebergDeleteSink::_generate_puffin_file_path() {
     std::string uuid = generate_uuid_string();
-    std::string file_name = fmt::format("delete_dv_{}.puffin", uuid);
-    std::string base_path = _output_path.empty() ? _table_location : _output_path;
-    if (!base_path.empty() && base_path.back() != '/') {
-        base_path += '/';
-    }
-    return fmt::format("{}{}", base_path, file_name);
+    return _resolve_delete_file_location(fmt::format("delete_dv_{}.puffin", uuid));
 }
 
 } // namespace doris
