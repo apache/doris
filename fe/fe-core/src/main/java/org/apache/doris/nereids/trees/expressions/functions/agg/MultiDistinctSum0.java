@@ -40,7 +40,8 @@ import java.util.List;
 
 /** MultiDistinctSum0 */
 public class MultiDistinctSum0 extends NotNullableAggregateFunction implements UnaryExpression,
-        ExplicitlyCastableSignature, ComputePrecisionForSum, MultiDistinction, NeedSessionVarGuard {
+        ExplicitlyCastableSignature, ComputePrecisionForSum, MultiDistinction, NeedSessionVarGuard,
+        NullIgnoringAggregateFunction {
     public MultiDistinctSum0(Expression arg0) {
         this(false, arg0);
     }
