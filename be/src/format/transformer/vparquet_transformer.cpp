@@ -23,7 +23,9 @@
 #include <arrow/util/key_value_metadata.h>
 #include <glog/logging.h>
 #include <parquet/api/reader.h>
+#include <parquet/arrow/schema.h>
 #include <parquet/column_writer.h>
+#include <parquet/file_writer.h>
 #include <parquet/platform.h>
 #include <parquet/schema.h>
 #include <parquet/type_fwd.h>
@@ -31,12 +33,14 @@
 
 #include <ctime>
 #include <exception>
+#include <numeric>
 #include <ostream>
 #include <string>
 #include <unordered_set>
 
 #include "common/config.h"
 #include "common/status.h"
+#include "exprs/function/geo/functions_geo.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format/arrow/arrow_block_convertor.h"
@@ -57,6 +61,110 @@ namespace {
 arrow::MemoryPool* get_arrow_memory_pool() {
     auto* pool = ExecEnv::GetInstance()->arrow_memory_pool();
     return pool != nullptr ? pool : arrow::default_memory_pool();
+}
+
+::parquet::schema::NodePtr clone_parquet_node(const ::parquet::schema::Node& node) {
+    if (node.is_primitive()) {
+        const auto& primitive = static_cast<const ::parquet::schema::PrimitiveNode&>(node);
+        return ::parquet::schema::PrimitiveNode::Make(
+                primitive.name(), primitive.repetition(), primitive.logical_type(),
+                primitive.physical_type(), primitive.type_length(), primitive.field_id());
+    }
+
+    const auto& group = static_cast<const ::parquet::schema::GroupNode&>(node);
+    ::parquet::schema::NodeVector fields;
+    fields.reserve(group.field_count());
+    for (int index = 0; index < group.field_count(); ++index) {
+        fields.push_back(clone_parquet_node(*group.field(index)));
+    }
+    return ::parquet::schema::GroupNode::Make(group.name(), group.repetition(), fields,
+                                               group.logical_type(), group.field_id());
+}
+
+arrow::Result<::parquet::LogicalType::EdgeInterpolationAlgorithm> geography_algorithm(
+        const std::string& algorithm) {
+    using Algorithm = ::parquet::LogicalType::EdgeInterpolationAlgorithm;
+    if (algorithm == "spherical") {
+        return Algorithm::SPHERICAL;
+    }
+    if (algorithm == "vincenty") {
+        return Algorithm::VINCENTY;
+    }
+    if (algorithm == "thomas") {
+        return Algorithm::THOMAS;
+    }
+    if (algorithm == "andoyer") {
+        return Algorithm::ANDOYER;
+    }
+    if (algorithm == "karney") {
+        return Algorithm::KARNEY;
+    }
+    return arrow::Status::Invalid("Unsupported Iceberg geography edge algorithm: ", algorithm);
+}
+
+bool contains_spatial_type(iceberg::Type* type) {
+    switch (type->type_id()) {
+    case iceberg::TypeID::GEOMETRY:
+    case iceberg::TypeID::GEOGRAPHY:
+        return true;
+    case iceberg::TypeID::STRUCT:
+        for (const auto& field : type->as_struct_type()->fields()) {
+            if (contains_spatial_type(field.field_type())) {
+                return true;
+            }
+        }
+        return false;
+    case iceberg::TypeID::LIST:
+        return contains_spatial_type(type->as_list_type()->element_field().field_type());
+    case iceberg::TypeID::MAP:
+        return contains_spatial_type(type->as_map_type()->key_field().field_type()) ||
+               contains_spatial_type(type->as_map_type()->value_field().field_type());
+    default:
+        return false;
+    }
+}
+
+arrow::Result<std::shared_ptr<::parquet::schema::GroupNode>> make_iceberg_parquet_schema(
+        const std::shared_ptr<arrow::Schema>& arrow_schema, const iceberg::Schema& iceberg_schema,
+        const std::shared_ptr<::parquet::WriterProperties>& writer_properties,
+        const std::shared_ptr<::parquet::ArrowWriterProperties>& arrow_properties) {
+    std::shared_ptr<::parquet::SchemaDescriptor> parquet_schema;
+    ARROW_RETURN_NOT_OK(::parquet::arrow::ToParquetSchema(arrow_schema.get(), *writer_properties,
+                                                           *arrow_properties, &parquet_schema));
+
+    const auto* source_root = parquet_schema->group_node();
+    ::parquet::schema::NodeVector fields;
+    fields.reserve(source_root->field_count());
+    for (int index = 0; index < source_root->field_count(); ++index) {
+        const auto& source_field = source_root->field(index);
+        const auto& iceberg_field = iceberg_schema.columns()[index];
+        if (iceberg_field.field_type()->type_id() == iceberg::TypeID::GEOMETRY) {
+            const auto& geometry =
+                    static_cast<const iceberg::GeometryType&>(*iceberg_field.field_type());
+            fields.push_back(::parquet::schema::PrimitiveNode::Make(
+                    source_field->name(), source_field->repetition(),
+                    ::parquet::LogicalType::Geometry(geometry.crs()), ::parquet::Type::BYTE_ARRAY,
+                    -1, source_field->field_id()));
+        } else if (iceberg_field.field_type()->type_id() == iceberg::TypeID::GEOGRAPHY) {
+            const auto& geography =
+                    static_cast<const iceberg::GeographyType&>(*iceberg_field.field_type());
+            ARROW_ASSIGN_OR_RAISE(auto algorithm, geography_algorithm(geography.algorithm()));
+            fields.push_back(::parquet::schema::PrimitiveNode::Make(
+                    source_field->name(), source_field->repetition(),
+                    ::parquet::LogicalType::Geography(geography.crs(), algorithm),
+                    ::parquet::Type::BYTE_ARRAY, -1, source_field->field_id()));
+        } else if (contains_spatial_type(iceberg_field.field_type())) {
+            return arrow::Status::NotImplemented(
+                    "Nested Iceberg spatial columns are not supported for Parquet writes: ",
+                    iceberg_field.field_name());
+        } else {
+            fields.push_back(clone_parquet_node(*source_field));
+        }
+    }
+    return std::static_pointer_cast<::parquet::schema::GroupNode>(
+            ::parquet::schema::GroupNode::Make(source_root->name(), source_root->repetition(),
+                                                fields, source_root->logical_type(),
+                                                source_root->field_id()));
 }
 
 } // namespace
@@ -279,6 +387,12 @@ Status VParquetTransformer::write(const Block& block) {
         return Status::OK();
     }
 
+    if (_iceberg_schema != nullptr) {
+        ColumnNumbers column_numbers(block.columns());
+        std::iota(column_numbers.begin(), column_numbers.end(), 0);
+        RETURN_IF_ERROR(validate_spatial_wkb_inputs(block, column_numbers));
+    }
+
     // serialize
     std::shared_ptr<arrow::RecordBatch> result;
     RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema, get_arrow_memory_pool(), &result,
@@ -295,6 +409,26 @@ Status VParquetTransformer::write(const Block& block) {
 }
 
 arrow::Status VParquetTransformer::_open_file_writer() {
+    if (_iceberg_schema != nullptr) {
+        bool has_spatial_column = false;
+        for (const auto& column : _iceberg_schema->columns()) {
+            const auto type_id = column.field_type()->type_id();
+            has_spatial_column = has_spatial_column || type_id == iceberg::TypeID::GEOMETRY ||
+                                 type_id == iceberg::TypeID::GEOGRAPHY;
+        }
+        if (has_spatial_column) {
+            ARROW_ASSIGN_OR_RAISE(auto parquet_schema,
+                                  make_iceberg_parquet_schema(_arrow_schema, *_iceberg_schema,
+                                                              _parquet_writer_properties,
+                                                              _arrow_properties));
+            auto parquet_writer = ::parquet::ParquetFileWriter::Open(
+                    _outstream, std::move(parquet_schema), _parquet_writer_properties);
+            ARROW_RETURN_NOT_OK(::parquet::arrow::FileWriter::Make(
+                    get_arrow_memory_pool(), std::move(parquet_writer), _arrow_schema,
+                    _arrow_properties, &_writer));
+            return arrow::Status::OK();
+        }
+    }
     ARROW_ASSIGN_OR_RAISE(_writer, ::parquet::arrow::FileWriter::Open(
                                            *_arrow_schema, get_arrow_memory_pool(), _outstream,
                                            _parquet_writer_properties, _arrow_properties));

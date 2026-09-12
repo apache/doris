@@ -182,8 +182,17 @@ TEST_F(VParquetTransformerTest, WritesIcebergSpatialWkbAsBinary) {
     const auto& shape = static_cast<const ::parquet::schema::PrimitiveNode&>(*root->field(0));
     const auto& place = static_cast<const ::parquet::schema::PrimitiveNode&>(*root->field(1));
     EXPECT_EQ(::parquet::Type::BYTE_ARRAY, shape.physical_type());
+    EXPECT_TRUE(shape.logical_type()->is_geometry());
+    EXPECT_EQ("EPSG:3857",
+              static_cast<const ::parquet::GeometryLogicalType&>(*shape.logical_type()).crs());
     EXPECT_EQ(1, shape.field_id());
     EXPECT_EQ(::parquet::Type::BYTE_ARRAY, place.physical_type());
+    EXPECT_TRUE(place.logical_type()->is_geography());
+    const auto& geography_logical =
+            static_cast<const ::parquet::GeographyLogicalType&>(*place.logical_type());
+    EXPECT_EQ("OGC:CRS84", geography_logical.crs());
+    EXPECT_EQ(::parquet::LogicalType::EdgeInterpolationAlgorithm::VINCENTY,
+              geography_logical.algorithm());
     EXPECT_EQ(2, place.field_id());
 
     auto input_result = ::arrow::io::ReadableFile::Open(_file_path);
@@ -207,6 +216,37 @@ TEST_F(VParquetTransformerTest, WritesIcebergSpatialWkbAsBinary) {
               table->schema()->field(0)->metadata()->Get("iceberg.binary-type").ValueUnsafe());
     EXPECT_EQ("GEOGRAPHY",
               table->schema()->field(1)->metadata()->Get("iceberg.binary-type").ValueUnsafe());
+}
+
+TEST_F(VParquetTransformerTest, RejectsInvalidIcebergSpatialWkb) {
+    auto geometry_type = std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY, "EPSG:3857");
+    VExprContextSPtrs output_exprs = MockSlotRef::create_mock_contexts(DataTypes {geometry_type});
+
+    const std::string schema_json = R"JSON({
+        "type": "struct",
+        "fields": [
+            {"id": 1, "name": "shape", "required": false, "type": "geometry(EPSG:3857)"}
+        ]
+    })JSON";
+    const auto schema = iceberg::SchemaParser::from_json(schema_json);
+
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+    RuntimeState state;
+    state.set_timezone("UTC");
+    ParquetFileOptions options {.compression_type = TParquetCompressionType::UNCOMPRESSED,
+                                .parquet_version = TParquetVersion::PARQUET_1_0,
+                                .parquet_disable_dictionary = false,
+                                .enable_int96_timestamps = false};
+    VParquetTransformer transformer(&state, file_writer.get(), output_exprs, {"shape"}, false,
+                                    options, &schema_json, schema.get());
+    ASSERT_TRUE(transformer.open().ok());
+
+    auto geometry_column = ColumnSpatial::create(TYPE_GEOMETRY);
+    geometry_column->insert_data("\x01", 1);
+    Block block;
+    block.insert(ColumnWithTypeAndName(std::move(geometry_column), geometry_type, "shape"));
+    EXPECT_FALSE(transformer.write(block).ok());
 }
 
 TEST_F(VParquetTransformerTest, WritesNestedIcebergVariant) {

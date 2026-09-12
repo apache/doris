@@ -47,6 +47,8 @@ constexpr uint32_t WKB_TYPE_MASK = 0xFF;
 class WkbParse {
 public:
     static GeoParseStatus parse_wkb(std::istream& is, std::unique_ptr<GeoShape>& shape);
+    static GeoParseStatus parse_wkb_bytes(const char* data, size_t size,
+                                          std::unique_ptr<GeoShape>& shape);
 
 private:
     static void read_hex(std::istream& is, WkbParseContext& ctx);

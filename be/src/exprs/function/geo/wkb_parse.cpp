@@ -86,6 +86,17 @@ GeoParseStatus WkbParse::parse_wkb(std::istream& is, std::unique_ptr<GeoShape>& 
     return ctx.parse_status;
 }
 
+GeoParseStatus WkbParse::parse_wkb_bytes(const char* data, size_t size,
+                                         std::unique_ptr<GeoShape>& shape) {
+    WkbParseContext ctx;
+    std::istringstream wkb(std::string(data, size), std::ios_base::binary | std::ios_base::in);
+    WkbParse::read(wkb, ctx);
+    if (ctx.parse_status == GEO_PARSE_OK) {
+        shape = std::move(ctx.shape);
+    }
+    return ctx.parse_status;
+}
+
 void WkbParse::read_hex(std::istream& is, WkbParseContext& ctx) {
     // setup input/output stream
     std::stringstream os(std::ios_base::binary | std::ios_base::in | std::ios_base::out);

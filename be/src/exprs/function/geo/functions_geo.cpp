@@ -72,17 +72,8 @@ static std::unique_ptr<GeoShape> decode_geo_shape(StringRef value, const DataTyp
         return GeoShape::from_encoded(value.data, value.size);
     }
 
-    static constexpr char HEX[] = "0123456789ABCDEF";
-    std::string hex_wkb;
-    hex_wkb.reserve(value.size * 2);
-    for (size_t i = 0; i < value.size; ++i) {
-        const auto byte = static_cast<unsigned char>(value.data[i]);
-        hex_wkb.push_back(HEX[byte >> 4]);
-        hex_wkb.push_back(HEX[byte & 0x0F]);
-    }
-
     GeoParseStatus status;
-    auto shape = GeoShape::from_wkb(hex_wkb.data(), hex_wkb.size(), status);
+    auto shape = GeoShape::from_wkb_bytes(value.data, value.size, status);
     if (parse_status != nullptr) {
         *parse_status = status;
     }
