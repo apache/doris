@@ -29,6 +29,7 @@
 #include <simdjson/simdjson.h> // IWYU pragma: keep
 
 #include <algorithm>
+#include <cctype>
 #include <cinttypes>
 #include <cstdio>
 #include <cstring>
@@ -74,6 +75,56 @@ enum class FileCachePolicy : uint8_t;
 
 namespace doris {
 using namespace ErrorCode;
+
+namespace json_reader_detail {
+namespace {
+
+std::string lowercase_column_name(std::string name) {
+    std::ranges::transform(name, name.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return name;
+}
+
+std::string jsonpath_column_name(const std::vector<JsonPath>& jsonpath) {
+    std::string name;
+    for (size_t i = 1; i < jsonpath.size(); ++i) {
+        if (jsonpath[i].key.empty()) {
+            continue;
+        }
+        if (!name.empty()) {
+            name += "_";
+        }
+        name += jsonpath[i].key;
+    }
+    return name.empty() ? jsonpath.back().key : name;
+}
+
+} // namespace
+
+Status derive_jsonpath_column_names(const std::vector<std::vector<JsonPath>>& parsed_jsonpaths,
+                                    std::vector<std::string>* column_names) {
+    DORIS_CHECK(column_names != nullptr);
+    std::vector<std::string> leaf_names;
+    std::unordered_map<std::string, size_t> leaf_name_counts;
+    leaf_names.reserve(parsed_jsonpaths.size());
+    for (const auto& jsonpath : parsed_jsonpaths) {
+        if (jsonpath.empty()) {
+            return Status::InvalidArgument("It's invalid jsonpaths.");
+        }
+        leaf_names.emplace_back(jsonpath.back().key);
+        ++leaf_name_counts[lowercase_column_name(leaf_names.back())];
+    }
+
+    for (size_t i = 0; i < parsed_jsonpaths.size(); ++i) {
+        const auto& leaf_name = leaf_names[i];
+        column_names->emplace_back(leaf_name_counts[lowercase_column_name(leaf_name)] > 1
+                                           ? jsonpath_column_name(parsed_jsonpaths[i])
+                                           : leaf_name);
+    }
+    return Status::OK();
+}
+
+} // namespace json_reader_detail
 
 NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                              const TFileScanRangeParams& params, const TFileRangeDesc& range,
@@ -392,13 +443,9 @@ Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
 
     // use jsonpaths to col_names
     if (!_parsed_jsonpaths.empty()) {
-        for (auto& _parsed_jsonpath : _parsed_jsonpaths) {
-            size_t len = _parsed_jsonpath.size();
-            if (len == 0) {
-                return Status::InvalidArgument("It's invalid jsonpaths.");
-            }
-            std::string key = _parsed_jsonpath[len - 1].key;
-            col_names->emplace_back(key);
+        RETURN_IF_ERROR(
+                json_reader_detail::derive_jsonpath_column_names(_parsed_jsonpaths, col_names));
+        for (size_t i = 0; i < _parsed_jsonpaths.size(); ++i) {
             col_types->emplace_back(
                     DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, true));
         }
