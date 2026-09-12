@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.GeometryType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -39,6 +40,7 @@ public class StAstext extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable, PropagateNullLiteral {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(new GeometryType("OGC:CRS84")),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(StringType.INSTANCE)
     );

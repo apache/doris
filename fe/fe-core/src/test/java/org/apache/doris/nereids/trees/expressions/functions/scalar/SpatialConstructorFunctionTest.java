@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.GeometryType;
+import org.apache.doris.nereids.types.VarcharType;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -33,5 +34,15 @@ public class SpatialConstructorFunctionTest {
         Assert.assertEquals(defaultGeometry,
                 new StGeometryFromWKB(new StringLiteral("0101000000000000000000F03F0000000000000040"))
                         .getDataType());
+    }
+
+    @Test
+    public void testAsTextAcceptsGeometry() {
+        GeometryType defaultGeometry = new GeometryType("OGC:CRS84");
+        StAstext asText = new StAstext(new StGeomFromWKB(
+                new StringLiteral("0101000000000000000000F03F0000000000000040")));
+        Assert.assertEquals(VarcharType.SYSTEM_DEFAULT,
+                asText.getDataType());
+        Assert.assertEquals(defaultGeometry, asText.expectedInputTypes().get(0));
     }
 }
