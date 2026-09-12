@@ -534,6 +534,11 @@ struct TQueryOptions {
   // index reads -- the two formats amplify write-back differently, so each
   // needs its own switch.
   1005: optional bool inverted_index_snii_read_no_write_file_cache = false
+  // Whether a cut string zone map bound may answer a pushed-down MIN/MAX. A string bound is cut
+  // at 512 bytes, so a cut bound is a prefix, not a value the column holds. Statistics collection
+  // accepts that and reads the bound; every other query reads the data instead.
+  // Defaults to true because an old FE never sends this field, and true is what BE did before.
+  1006: optional bool enable_pushdown_string_minmax = true
 }
 
 
