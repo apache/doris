@@ -198,6 +198,11 @@ public:
     // including insert, clear, COW mutation, or future row transformations, may invalidate it.
     VariantRef get_value_ref(size_t row) const;
 
+    int compare_at(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint) const override;
+    void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
+                          int direction, std::vector<uint8_t>& cmp_res,
+                          uint8_t* __restrict filter) const override;
+
     Field operator[](size_t row) const override;
     void get(size_t row, Field& result) const override;
     void insert(const Field& field) override;
@@ -220,6 +225,8 @@ public:
     size_t deserialize_impl(const char* pos) override;
     size_t get_max_row_byte_size() const override;
     void serialize(StringRef* keys, size_t num_rows) const override;
+    void serialize_with_nullable(StringRef* keys, size_t num_rows, bool has_null,
+                                 const uint8_t* __restrict null_map) const override;
     void deserialize(StringRef* keys, size_t num_rows) override;
 
     void update_hash_with_value(size_t row, SipHash& hash) const override;
@@ -246,6 +253,8 @@ public:
 
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint, HybridSorter& sorter,
                          Permutation& result) const override;
+    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, Permutation& perms,
+                     EqualRange& range, bool last_column) const override;
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override;
 
 private:
@@ -261,6 +270,8 @@ private:
     void _adopt_state_from(ColumnVariantV2& replacement);
     void _detach_metadata_for_write();
     void _check_invariants() const;
+    template <bool with_nullable>
+    void _serialize(StringRef* keys, size_t num_rows) const;
     void mutate_subcolumns() override;
 
     // Encoded state: each row owns a value and references one deduplicated metadata blob. The

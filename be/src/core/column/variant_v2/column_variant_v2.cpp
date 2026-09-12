@@ -44,6 +44,7 @@
 #include "core/value/variant/variant_canonical.h"
 #include "core/value/variant/variant_field.h"
 #include "core/value/variant/variant_parquet_encoding.h"
+#include "exec/sort/sort_block.h"
 
 namespace doris {
 namespace {
@@ -1037,6 +1038,71 @@ VariantRef ColumnVariantV2::get_value_ref(size_t row) const {
     return {.metadata = {.data = metadata.data, .size = metadata.size}, .value = value};
 }
 
+int ColumnVariantV2::compare_at(size_t n, size_t m, const IColumn& rhs,
+                                int nan_direction_hint) const {
+    const auto& right = assert_cast<const ColumnVariantV2&, TypeCheckOnRelease::DISABLE>(rhs);
+    DCHECK_LT(n, size());
+    DCHECK_LT(m, right.size());
+
+    if (is_typed() && right.is_typed() &&
+        (_typed_type == right._typed_type || _typed_type->equals(*right._typed_type))) {
+        const PrimitiveType type = _typed_type->get_primitive_type();
+        // IPv4 and IPv6 typed values use their textual representation in Variant, whose lexical
+        // ordering differs from the native address ordering.
+        if (type != TYPE_IPV4 && type != TYPE_IPV6) {
+            const auto& left_nullable =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(typed_column());
+            const auto& right_nullable =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                            right.typed_column());
+            if (left_nullable.is_null_at(n)) {
+                return right_nullable.is_null_at(m) ? 0 : -1;
+            }
+            if (right_nullable.is_null_at(m)) {
+                return 1;
+            }
+            return left_nullable.get_nested_column().compare_at(
+                    n, m, right_nullable.get_nested_column(), nan_direction_hint);
+        }
+    }
+
+    int result = 0;
+    visit_variant_v2_values(
+            *this, n, n + 1, {}, [](size_t) { DCHECK(false); },
+            [&](size_t, VariantRef left_value) {
+                visit_variant_v2_values(
+                        right, m, m + 1, {}, [](size_t) { DCHECK(false); },
+                        [&](size_t, VariantRef right_value) {
+                            result = canonical_compare(left_value, right_value);
+                        });
+            });
+    return result;
+}
+
+void ColumnVariantV2::compare_internal(size_t rhs_row_id, const IColumn& rhs,
+                                       int nan_direction_hint, int direction,
+                                       std::vector<uint8_t>& cmp_res,
+                                       uint8_t* __restrict filter) const {
+    const auto& right = assert_cast<const ColumnVariantV2&, TypeCheckOnRelease::DISABLE>(rhs);
+    if (is_typed() && right.is_typed() &&
+        (_typed_type == right._typed_type || _typed_type->equals(*right._typed_type))) {
+        const PrimitiveType type = _typed_type->get_primitive_type();
+        // ColumnVector::compare_internal does not provide Variant's canonical NaN ordering, while
+        // IP typed values use a textual Variant ordering that differs from native address order.
+        if (type != TYPE_FLOAT && type != TYPE_DOUBLE && type != TYPE_IPV4 && type != TYPE_IPV6) {
+            const auto& left_nullable =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(typed_column());
+            const auto& right_nullable =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                            right.typed_column());
+            left_nullable.compare_internal(rhs_row_id, right_nullable, -1, direction, cmp_res,
+                                           filter);
+            return;
+        }
+    }
+    IColumn::compare_internal(rhs_row_id, rhs, nan_direction_hint, direction, cmp_res, filter);
+}
+
 Field ColumnVariantV2::operator[](size_t row) const {
     Field result;
     get(row, result);
@@ -1525,7 +1591,8 @@ size_t ColumnVariantV2::get_max_row_byte_size() const {
     return maximum_size;
 }
 
-void ColumnVariantV2::serialize(StringRef* keys, size_t num_rows) const {
+template <bool with_nullable>
+void ColumnVariantV2::_serialize(StringRef* keys, size_t num_rows) const {
     DCHECK(keys != nullptr || num_rows == 0);
     DCHECK_LE(num_rows, size());
     if (_typed) {
@@ -1533,6 +1600,10 @@ void ColumnVariantV2::serialize(StringRef* keys, size_t num_rows) const {
         visit_typed_scalar_column(
                 nullable, _typed_type->get_primitive_type(), _typed_type->get_scale(), 0, num_rows,
                 [&](size_t row, const VariantScalarRef& scalar) {
+                    if constexpr (with_nullable) {
+                        *(const_cast<char*>(keys[row].data) + keys[row].size) = 0;
+                        keys[row].size += sizeof(UInt8);
+                    }
                     const CanonicalScalarSerializationPlan plan =
                             prepare_canonical_serialize(scalar);
                     DCHECK(keys[row].data != nullptr);
@@ -1544,6 +1615,10 @@ void ColumnVariantV2::serialize(StringRef* keys, size_t num_rows) const {
     }
     DCHECK(_typed_type == nullptr);
     for (size_t row = 0; row < num_rows; ++row) {
+        if constexpr (with_nullable) {
+            *(const_cast<char*>(keys[row].data) + keys[row].size) = 0;
+            keys[row].size += sizeof(UInt8);
+        }
         const CanonicalSerializationPlan plan = prepare_canonical_serialize(get_value_ref(row));
         const size_t cell_size = plan.size();
         DCHECK(keys[row].data != nullptr);
@@ -1551,6 +1626,19 @@ void ColumnVariantV2::serialize(StringRef* keys, size_t num_rows) const {
         plan.write(const_cast<char*>(keys[row].data) + keys[row].size, cell_size);
         keys[row].size += cell_size;
     }
+}
+
+void ColumnVariantV2::serialize(StringRef* keys, size_t num_rows) const {
+    _serialize<false>(keys, num_rows);
+}
+
+void ColumnVariantV2::serialize_with_nullable(StringRef* keys, size_t num_rows, bool has_null,
+                                              const uint8_t* __restrict null_map) const {
+    if (has_null) {
+        IColumn::serialize_with_nullable(keys, num_rows, has_null, null_map);
+        return;
+    }
+    _serialize<true>(keys, num_rows);
 }
 
 void ColumnVariantV2::deserialize(StringRef* keys, size_t num_rows) {
@@ -1896,8 +1984,28 @@ void ColumnVariantV2::resize(size_t new_size) {
     }
 }
 
-void ColumnVariantV2::get_permutation(bool, size_t, int, HybridSorter&, Permutation&) const {
-    throw_unsupported("get_permutation");
+void ColumnVariantV2::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+                                      HybridSorter& sorter, Permutation& result) const {
+    const size_t row_count = size();
+    result.resize(row_count);
+    for (size_t row = 0; row < row_count; ++row) {
+        result[row] = row;
+    }
+
+    const auto less = [&](size_t left, size_t right) {
+        const int comparison = compare_at(left, right, *this, nan_direction_hint);
+        return reverse ? comparison > 0 : comparison < 0;
+    };
+    if (limit != 0 && limit < row_count) {
+        std::partial_sort(result.begin(), result.begin() + limit, result.end(), less);
+    } else {
+        sorter.sort(result.begin(), result.end(), less);
+    }
+}
+
+void ColumnVariantV2::sort_column(const ColumnSorter* sorter, EqualFlags& flags, Permutation& perms,
+                                  EqualRange& range, bool last_column) const {
+    sorter->sort_column(*this, flags, perms, range, last_column);
 }
 
 void ColumnVariantV2::replace_column_data(const IColumn&, size_t, size_t) {
