@@ -17,6 +17,7 @@
 
 package org.apache.doris.arrowflight;
 
+import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
 import org.apache.doris.common.FeConstants;
@@ -171,7 +172,7 @@ public class DorisFlightSqlProducerTest {
                     // handleQuery plans + submits to BE and defers the coordinator (coordBase == coord),
                     // exactly as executeAndSendResult() does for an Arrow Flight external-table scan.
                     Mockito.doAnswer(invocation -> {
-                        ctx.setReturnResultFromLocal(false);
+                        FlightProtocolAdapter.of(ctx).beforeQuery(ctx);
                         ctx.addFlightSqlDeferredExecutor(deferred);
                         return null;
                     }).when(mock).handleQuery(Mockito.anyString());

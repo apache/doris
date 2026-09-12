@@ -22,6 +22,7 @@ import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectPoolMgr;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TResultSinkType;
 
 import java.io.IOException;
@@ -61,6 +62,67 @@ public interface ProtocolAdapter {
      * re-executes the query and never populates the cache either.
      */
     boolean supportsSqlCacheReplay();
+
+    /**
+     * Whether a query forwarded to the master can be answered with the result the master sends
+     * back. The master produces it as MySQL wire packets ({@code TMasterOpResult.queryResultBufList}),
+     * so only a MySQL connection can replay it; a connection of any other protocol refuses to
+     * forward a query instead of answering it with a synthesized empty success. Forwarded
+     * statements whose result is a {@code ShowResultSet} or just a status are not affected.
+     */
+    boolean canReplayForwardedQueryResult();
+
+    /**
+     * Whether a query the planner can answer without a backend (a literal, a session variable)
+     * may be answered by this frontend, through {@link ResultSender#sendResultSet}, instead of
+     * being run on a backend.
+     */
+    boolean supportsFeSideResult();
+
+    /**
+     * Whether a point query on a merge-on-write unique table may take the short circuit:
+     * {@code PointQueryExecutor} looks the row up on the backend over a plain rpc and encodes it
+     * on this frontend, instead of running a query whose result the backend keeps in a result
+     * sink of this connection's {@link #resultSinkType}.
+     */
+    boolean supportsShortCircuitPointQuery();
+
+    /**
+     * Whether the query being executed, which just failed, may be run again under a new query id
+     * without the client noticing. Asked after each failed attempt of
+     * {@code StmtExecutor.handleQueryWithRetry}.
+     */
+    boolean canRetryQuery(ConnectContext ctx);
+
+    /**
+     * Called by the connect processor before each statement of a request is executed. The
+     * protocol drops what the previous statement of the same request left behind, so that a
+     * request delivers only the outcome of its last statement.
+     */
+    void beforeStatement(ConnectContext ctx);
+
+    /**
+     * Called by the executor when the statement's plan is about to be run on the backends as a
+     * query, before the coordinator is built. The protocol decides here where the query's result
+     * goes: relayed by this frontend row by row, or left on the backends for the client to pull;
+     * see {@link #returnsResultFromLocal}.
+     */
+    void beforeQuery(ConnectContext ctx);
+
+    /**
+     * Whether the result of the statement being executed comes from this frontend: materialized
+     * by it, or relayed by it from the backends, and delivered through the {@link ResultSender}.
+     * It does not when the backends keep the result for the client to pull; such a statement is
+     * not over when its executor returns, and its query registration and coordinator are released
+     * only once the client has pulled the result.
+     */
+    boolean returnsResultFromLocal(ConnectContext ctx);
+
+    /**
+     * Adds to the request that forwards a statement to the master what the master needs to
+     * know about this connection's client to produce the response the client expects.
+     */
+    void fillForwardRequest(ConnectContext ctx, TMasterOpRequest request);
 
     /**
      * Called by {@code ConnectProcessor.executeQuery} after the {@code stmtIndex}-th of the

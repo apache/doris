@@ -129,6 +129,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         // null bitmap
         String stmtStr = "";
         try {
+            ctx.getProtocolAdapter().beforeStatement(ctx);
             StatementContext statementContext = prepCtx.getStatementContext();
             if (!ctx.isProxy()) {
                 // An empty buffer still identifies a zero-parameter COM_STMT_EXECUTE when forwarding.

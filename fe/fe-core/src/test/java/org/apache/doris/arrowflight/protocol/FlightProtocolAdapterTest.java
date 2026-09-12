@@ -17,6 +17,7 @@
 
 package org.apache.doris.arrowflight.protocol;
 
+import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
@@ -30,6 +31,8 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TMasterOpRequest;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TResultSinkType;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -216,6 +219,70 @@ public class FlightProtocolAdapterTest {
         Assertions.assertNull(ConnectContext.get());
         ctx.getSessionVariable().setQueryTimeoutS(1);
         Assertions.assertEquals("ok", callFromAnotherThread(adapter, ctx));
+    }
+
+    @Test
+    public void testAFlightSessionTakesNoResultProducedForAMysqlClient() {
+        ConnectContext ctx = flightSession();
+        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
+
+        // The SQL cache and the master answer with MySQL packets; a FE-side result is untyped
+        // Utf8; a short circuit has no Arrow result at either end; a retry would leave the failed
+        // attempt's endpoints behind.
+        Assertions.assertFalse(adapter.supportsSqlCacheReplay());
+        Assertions.assertFalse(adapter.canReplayForwardedQueryResult());
+        Assertions.assertFalse(adapter.supportsFeSideResult());
+        Assertions.assertFalse(ctx.supportHandleByFe());
+        Assertions.assertFalse(adapter.supportsShortCircuitPointQuery());
+        Assertions.assertFalse(adapter.canRetryQuery(ctx));
+
+        // The master needs to know nothing about the client: its response is consumed here.
+        TMasterOpRequest request = new TMasterOpRequest();
+        adapter.fillForwardRequest(ctx, request);
+        Assertions.assertFalse(request.isSetMysqlCapability());
+        Assertions.assertFalse(request.isSetClientDeprecatedEOF());
+        Assertions.assertFalse(request.isSetPrepareExecuteBuffer());
+        Assertions.assertFalse(request.isSetCursorFetchRequested());
+    }
+
+    @Test
+    public void testWhereTheResultIsFollowsTheStatementLifecycle() throws Exception {
+        ConnectContext ctx = flightSession();
+        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
+        ShowResultSet resultSet = new ShowResultSet(
+                ShowResultSetMetaData.builder().addColumn(new Column("c", ScalarType.createVarchar(20))).build(),
+                Lists.<List<String>>newArrayList(Lists.newArrayList("v")));
+
+        // A statement's result is on this frontend (a SHOW, a SET) ...
+        adapter.beforeStatement(ctx);
+        Assertions.assertTrue(ctx.isReturnResultFromLocal());
+        // ... until a query is run for it on the backends: then the client pulls it from where
+        // the coordinator registered it.
+        adapter.beforeQuery(ctx);
+        Assertions.assertFalse(ctx.isReturnResultFromLocal());
+        ctx.addFlightSqlEndpointsLocation(new FlightSqlEndpointsLocation(new TUniqueId(1, 1),
+                new TNetworkAddress("127.0.0.1", 8070), new TNetworkAddress("127.0.0.1", 8060), new ArrayList<>()));
+        Assertions.assertEquals(1, ctx.getFlightSqlEndpointsLocations().size());
+        // The next statement of the request starts on this frontend again.
+        adapter.beforeStatement(ctx);
+        Assertions.assertTrue(ctx.isReturnResultFromLocal());
+        // An EXPLAIN is answered here without ever touching a backend, so it never leaves the
+        // frontend: the sender does not decide where the result is.
+        ctx.setQueryId(new TUniqueId(2, 2));
+        ctx.getResultSender().sendResultSet(resultSet, null, false);
+        Assertions.assertTrue(ctx.isReturnResultFromLocal());
+        Assertions.assertEquals(1, adapter.getChannel().resultNum());
+
+        // A new request drops everything the previous one left: its deferred coordinator, the
+        // result nobody pulled, the endpoints, and the result is on this frontend again.
+        adapter.beforeQuery(ctx);
+        StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
+        ctx.addFlightSqlDeferredExecutor(deferred);
+        adapter.beginRequest();
+        Mockito.verify(deferred).finalizeArrowFlightQuery();
+        Assertions.assertEquals(0, adapter.getChannel().resultNum());
+        Assertions.assertTrue(ctx.getFlightSqlEndpointsLocations().isEmpty());
+        Assertions.assertTrue(ctx.isReturnResultFromLocal());
     }
 
     @Test

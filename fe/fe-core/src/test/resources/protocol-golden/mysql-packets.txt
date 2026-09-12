@@ -258,13 +258,6 @@ client capability: deprecate_eof=true multi_statements=true
 === case multi-statement-without-capability ===
 client capability: deprecate_eof=true multi_statements=false
 --> COM_QUERY select 1; select 2
-  packet seq=1 len=1 kind=PAYLOAD
-    0000  01                                               |.|
-  packet seq=2 len=23 kind=PAYLOAD
-    0000  03 64 65 66 00 00 00 01 31 00 0c 21 00 04 00 00  |.def....1..!....|
-    0010  00 01 00 00 00 00 00                             |.......|
-  packet seq=3 len=2 kind=PAYLOAD
-    0000  01 31                                            |.1|
   packet seq=4 len=1 kind=PAYLOAD
     0000  01                                               |.|
   packet seq=5 len=23 kind=PAYLOAD
@@ -274,6 +267,27 @@ client capability: deprecate_eof=true multi_statements=false
     0000  01 32                                            |.2|
   packet seq=7 len=8 kind=EOF flushed
     0000  fe 00 00 00 00 00 00 00                          |........|
+
+=== case multi-statement-with-capability-query-then-set ===
+client capability: deprecate_eof=true multi_statements=true
+--> COM_QUERY select 1; set @a = 1
+  packet seq=1 len=1 kind=PAYLOAD
+    0000  01                                               |.|
+  packet seq=2 len=23 kind=PAYLOAD
+    0000  03 64 65 66 00 00 00 01 31 00 0c 21 00 04 00 00  |.def....1..!....|
+    0010  00 01 00 00 00 00 00                             |.......|
+  packet seq=3 len=2 kind=PAYLOAD
+    0000  01 31                                            |.1|
+  packet seq=4 len=8 kind=EOF flushed
+    0000  fe 00 00 08 00 00 00 00                          |........|
+  packet seq=5 len=8 kind=OK flushed
+    0000  00 00 00 00 00 00 00 00                          |........|
+
+=== case multi-statement-without-capability-query-then-set ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_QUERY select 1; set @a = 1
+  packet seq=4 len=8 kind=OK flushed
+    0000  00 00 00 00 00 00 00 00                          |........|
 
 === case com-field-list ===
 client capability: deprecate_eof=true multi_statements=false

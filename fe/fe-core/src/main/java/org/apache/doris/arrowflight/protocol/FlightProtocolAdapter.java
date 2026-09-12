@@ -30,6 +30,7 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.protocol.ProtocolAdapter;
+import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TResultSinkType;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -66,6 +67,10 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     private final Map<String, String> preparedQuerys = new HashMap<>();
     private String runningQuery;
     private final List<FlightSqlEndpointsLocation> endpointsLocations = Lists.newArrayList();
+    // Whether the result of the statement being executed is on this frontend (a SHOW, a SET, an
+    // EXPLAIN: cached on the channel for the client's DoGet) or on the backends the coordinator
+    // ran the query on, registered in endpointsLocations for the client to pull from. Set by the
+    // statement lifecycle hooks below.
     private boolean returnResultFromLocal = true;
     // Executors of already-planned queries whose results are produced on the BE and pulled later
     // during the DoGet phase. Their coordinators must stay alive until the BE finishes scanning:
@@ -127,6 +132,80 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     @Override
     public boolean supportsSqlCacheReplay() {
         return false;
+    }
+
+    /**
+     * The master returns a query result as MySQL wire packets, which cannot be turned into the
+     * Arrow batches a Flight client needs. The executor refuses to forward a query rather than
+     * let the master build a result set this frontend would discard and answer the client with a
+     * synthesized empty success.
+     */
+    @Override
+    public boolean canReplayForwardedQueryResult() {
+        return false;
+    }
+
+    /**
+     * A result this frontend materializes is cached with every column as a Utf8 vector, whatever
+     * its type ({@link FlightResultSender}). That is acceptable for the text a SHOW or an EXPLAIN
+     * produces, not for a SELECT a client expects typed Arrow data from, so a query the planner
+     * could answer here is run on a backend until the sender types its vectors.
+     */
+    @Override
+    public boolean supportsFeSideResult() {
+        return false;
+    }
+
+    /**
+     * The short circuit produces no Arrow result at either end. PointQueryExecutor is not a
+     * Coordinator, and Coordinator/NereidsCoordinator are the only places that register a
+     * FlightSqlEndpointsLocation, so GetFlightInfo found none and failed the query with
+     * "no FlightSqlEndpointsLocations"; the backend side cannot be pointed at either, since the
+     * lookup rpc serializes with VMysqlResultWriter into PTabletKeyLookupResponse.row_batch and
+     * never creates the ArrowFlightResultBlockBuffer that fetch_arrow_flight_schema looks up.
+     * Arrow Flight SQL stays on the normal execution path. See #67368.
+     */
+    @Override
+    public boolean supportsShortCircuitPointQuery() {
+        return false;
+    }
+
+    /**
+     * A Flight session does not retry a failed query: the backend endpoints the failed attempt
+     * registered would have to be withdrawn first, and nothing does that yet.
+     */
+    @Override
+    public boolean canRetryQuery(ConnectContext ctx) {
+        return false;
+    }
+
+    /** A statement's result is on this frontend until {@link #beforeQuery} says otherwise. */
+    @Override
+    public void beforeStatement(ConnectContext ctx) {
+        returnResultFromLocal = true;
+    }
+
+    /**
+     * The query's result stays on the backends for the client to pull with DoGet; the
+     * coordinator registers where ({@link #addEndpointsLocation}) instead of fetching the rows.
+     */
+    @Override
+    public void beforeQuery(ConnectContext ctx) {
+        returnResultFromLocal = false;
+    }
+
+    @Override
+    public boolean returnsResultFromLocal(ConnectContext ctx) {
+        return returnResultFromLocal;
+    }
+
+    /**
+     * The master's response is consumed here as a status and, for a SHOW, a result set (see
+     * {@link #carryForwardedOutcome}); it is never replayed to the client as packets, so the
+     * master needs to know nothing about the client.
+     */
+    @Override
+    public void fillForwardRequest(ConnectContext ctx, TMasterOpRequest request) {
     }
 
     @Override
@@ -232,16 +311,18 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
         return endpointsLocations;
     }
 
-    public void clearEndpointsLocations() {
+    /**
+     * Starts a request of the session: whatever the previous request left behind is dropped.
+     * Its query's coordinator, if its close was deferred, is finalized now -- the previous DoGet
+     * is done by the time the next request arrives (#62259); the result it may have cached and
+     * never pulled with DoGet is released; its endpoints are forgotten; and the new request's
+     * result is on this frontend until a query is run for it.
+     */
+    public void beginRequest() {
+        closeDeferredExecutors();
+        channel.reset();
         endpointsLocations.clear();
-    }
-
-    public void setReturnResultFromLocal(boolean returnResultFromLocal) {
-        this.returnResultFromLocal = returnResultFromLocal;
-    }
-
-    public boolean isReturnResultFromLocal() {
-        return returnResultFromLocal;
+        returnResultFromLocal = true;
     }
 
     public void addDeferredExecutor(StmtExecutor executor) {
