@@ -59,8 +59,8 @@ import java.util.List;
  *   <li>errors: a syntax error, an unknown table, and an error followed by a healthy statement on
  *       the same connection;</li>
  *   <li>multi-statement requests with and without {@code CLIENT_MULTI_STATEMENTS}, which decides
- *       whether the intermediate result set gets a terminator at all, ending in a query and ending
- *       in a {@code SET};</li>
+ *       whether the intermediate result set gets a terminator at all, ending in a query, in a
+ *       {@code SET} and in a {@code BEGIN};</li>
  *   <li>connection commands: {@code COM_FIELD_LIST}, {@code COM_STMT_PREPARE},
  *       {@code COM_STMT_CLOSE}, {@code COM_SET_OPTION}, {@code COM_RESET_CONNECTION},
  *       {@code COM_PING}, {@code COM_INIT_DB}, {@code COM_STATISTICS}, an unknown command, and
@@ -145,6 +145,11 @@ public class MysqlPacketGoldenTest extends TestWithFeService {
                 .add(query("select 1; set @a = 1")));
         cases.add(new GoldenCase("multi-statement-without-capability-query-then-set", MODERN_CLIENT)
                 .add(query("select 1; set @a = 1")));
+        // A transaction command used to reset the channel on its own; only the shape is kept, the
+        // OK carries a label derived from the query id.
+        cases.add(new GoldenCase("multi-statement-without-capability-query-then-begin", MODERN_CLIENT,
+                ProtocolGolden.Fidelity.SUMMARY)
+                .add(query("select 1; begin")));
         cases.add(new GoldenCase("com-field-list", MODERN_CLIENT)
                 .add(fieldList(TABLE_NAME)));
         cases.add(new GoldenCase("com-stmt-prepare", MODERN_CLIENT)

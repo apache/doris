@@ -289,6 +289,11 @@ client capability: deprecate_eof=true multi_statements=false
   packet seq=4 len=8 kind=OK flushed
     0000  00 00 00 00 00 00 00 00                          |........|
 
+=== case multi-statement-without-capability-query-then-begin ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_QUERY select 1; begin
+  kinds: OK flushed
+
 === case com-field-list ===
 client capability: deprecate_eof=true multi_statements=false
 --> COM_FIELD_LIST golden_tbl

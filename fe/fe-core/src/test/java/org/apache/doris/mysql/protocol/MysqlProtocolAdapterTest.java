@@ -38,6 +38,7 @@ import org.apache.doris.thrift.TResultSinkType;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -87,13 +88,23 @@ public class MysqlProtocolAdapterTest {
     }
 
     @Test
-    public void testProxyContextCollectsThePacketsOfTheForwardedStatement() {
+    public void testProxyContextCollectsThePacketsOfTheForwardedStatement() throws Exception {
         ConnectContext ctx = ConnectContext.forMysqlProxy("session-1");
+        MysqlProtocolAdapter protocol = MysqlProtocolAdapter.of(ctx);
 
         Assertions.assertEquals(ConnectType.MYSQL, ctx.getConnectType());
         Assertions.assertTrue(ctx.isProxy());
         Assertions.assertEquals("session-1", ctx.getSessionId());
         Assertions.assertTrue(ctx.getMysqlChannel() instanceof ProxyMysqlChannel);
+
+        // What the forwarded statement sends is kept, in order, for the frontend the client is
+        // connected to.
+        Assertions.assertTrue(protocol.proxyResultPackets().isEmpty());
+        ByteBuffer first = ByteBuffer.wrap(new byte[] {1});
+        ByteBuffer second = ByteBuffer.wrap(new byte[] {2, 3});
+        ctx.getResultSender().sendRow(first);
+        ctx.getResultSender().sendRow(second);
+        Assertions.assertEquals(Lists.newArrayList(first, second), protocol.proxyResultPackets());
     }
 
     @Test
