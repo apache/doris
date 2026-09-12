@@ -994,7 +994,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         ConnectContext connectContext = jobContext.getCascadesContext().getConnectContext();
         Cost enforceCost = CostCalculator.calculateCost(connectContext, enforcer, Lists.newArrayList(childOutput));
         enforcer.setCost(enforceCost);
-        Cost totalCost = enforceCost.add(currentCost);
+        Cost totalCost = enforceCost.add(currentCost, connectContext.getStatementContext().getCostWeight());
 
         if (enforcer.updateLowestCostTable(newOutputProperty,
                 Lists.newArrayList(childOutput), totalCost)) {

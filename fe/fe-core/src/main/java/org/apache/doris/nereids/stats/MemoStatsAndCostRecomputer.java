@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
+import org.apache.doris.nereids.cost.CostWeight;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -314,6 +315,7 @@ public final class MemoStatsAndCostRecomputer {
         groupExpression.clearCostState();
 
         Cost bestNodeCost = null;
+        CostWeight costWeight = cascadesContext.getStatementContext().getCostWeight();
         for (Map.Entry<PhysicalProperties, Pair<Cost, List<PhysicalProperties>>> entry
                 : originalLowestCostTable.entrySet()) {
             PhysicalProperties outputProperties = entry.getKey();
@@ -331,7 +333,7 @@ public final class MemoStatsAndCostRecomputer {
                     totalCost = null;
                     break;
                 }
-                totalCost = totalCost.add(childBestPlan.get().first);
+                totalCost = totalCost.add(childBestPlan.get().first, costWeight);
             }
             if (totalCost == null) {
                 continue;

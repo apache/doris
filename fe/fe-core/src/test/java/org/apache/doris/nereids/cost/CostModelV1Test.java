@@ -43,17 +43,22 @@ import java.util.Optional;
 class CostModelV1Test extends SqlTestBase {
 
     @Test
-    void testAddCost() {
-        CostWeight costWeight = connectContext.getStatementContext().getCostWeight();
-        Cost planCost = Cost.of(costWeight, 1, 2, 3);
-        Cost childCost = Cost.of(costWeight, 4, 5, 6);
+    void testAddCostRecomputesWeightedValueFromComponents() {
+        CostWeight costWeight = new CostWeight(1, 1, 1.5, 1);
+        Cost planCost = Cost.of(costWeight, 0.1, 0.1, 0.1);
+        Cost childCost = Cost.of(costWeight, 0.1, 0.3, 0.7);
 
-        Cost totalCost = planCost.add(childCost);
+        Cost totalCost = planCost.add(childCost, costWeight);
+        Cost expectedCost = Cost.of(costWeight,
+                planCost.getCpuCost() + childCost.getCpuCost(),
+                planCost.getMemoryCost() + childCost.getMemoryCost(),
+                planCost.getNetworkCost() + childCost.getNetworkCost());
 
-        Assertions.assertEquals(planCost.getValue() + childCost.getValue(), totalCost.getValue());
-        Assertions.assertEquals(5, totalCost.getCpuCost());
-        Assertions.assertEquals(7, totalCost.getMemoryCost());
-        Assertions.assertEquals(9, totalCost.getNetworkCost());
+        Assertions.assertEquals(expectedCost.getValue(), totalCost.getValue());
+        Assertions.assertNotEquals(planCost.getValue() + childCost.getValue(), totalCost.getValue());
+        Assertions.assertEquals(expectedCost.getCpuCost(), totalCost.getCpuCost());
+        Assertions.assertEquals(expectedCost.getMemoryCost(), totalCost.getMemoryCost());
+        Assertions.assertEquals(expectedCost.getNetworkCost(), totalCost.getNetworkCost());
     }
 
     @Test

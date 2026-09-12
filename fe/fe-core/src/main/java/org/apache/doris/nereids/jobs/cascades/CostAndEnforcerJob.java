@@ -20,6 +20,7 @@ package org.apache.doris.nereids.jobs.cascades;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
+import org.apache.doris.nereids.cost.CostWeight;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
@@ -221,6 +222,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
         }
 
         boolean hasSuccess = false;
+        CostWeight costWeight = context.getCascadesContext().getStatementContext().getCostWeight();
         for (List<PhysicalProperties> outputChildrenProperties : childrenOutputSpace) {
             // Not need to do pruning here because it has been done when we get the
             // best expr from the child group
@@ -248,7 +250,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             for (int i = 0; i < outputChildrenProperties.size(); i++) {
                 PhysicalProperties childProperties = outputChildrenProperties.get(i);
                 curTotalCost = curTotalCost.add(
-                        groupExpression.child(i).getLowestCostPlan(childProperties).get().first);
+                        groupExpression.child(i).getLowestCostPlan(childProperties).get().first, costWeight);
             }
 
             // record map { outputProperty -> outputProperty }, { ANY -> outputProperty },
