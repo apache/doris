@@ -749,23 +749,32 @@ struct StGeoFromText {
 struct StGeometryFromWKB {
     static constexpr auto NAME = "st_geometryfromwkb";
     static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
+    static constexpr PrimitiveType OUTPUT_TYPE = TYPE_GEOMETRY;
 };
 
 struct StGeomFromWKB {
     static constexpr auto NAME = "st_geomfromwkb";
     static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
+    static constexpr PrimitiveType OUTPUT_TYPE = TYPE_GEOMETRY;
+};
+
+struct StGeogFromWKB {
+    static constexpr auto NAME = "st_geogfromwkb";
+    static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
+    static constexpr PrimitiveType OUTPUT_TYPE = TYPE_GEOGRAPHY;
 };
 
 template <typename Impl>
 struct StGeoFromWkb {
     static constexpr auto NAME = Impl::NAME;
+    static constexpr PrimitiveType OUTPUT_TYPE = Impl::OUTPUT_TYPE;
     static const size_t NUM_ARGS = 1;
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 1);
         auto& geo = block.get_by_position(arguments[0]).column;
 
         const auto size = geo->size();
-        auto res = ColumnSpatial::create(TYPE_GEOMETRY);
+        auto res = ColumnSpatial::create(Impl::OUTPUT_TYPE);
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
         GeoParseStatus status;
@@ -801,7 +810,7 @@ public:
     bool is_variadic() const override { return false; }
 
     DataTypePtr get_return_type_impl(const DataTypes&) const override {
-        return make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY));
+        return make_nullable(std::make_shared<DataTypeSpatial>(Impl::OUTPUT_TYPE));
     }
 
     Status execute_impl(FunctionContext*, Block& block, const ColumnNumbers& arguments,
@@ -1027,6 +1036,7 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StAreaSquareKm>>();
     factory.register_function<SpatialWkbConstructorFunction<StGeoFromWkb<StGeometryFromWKB>>>();
     factory.register_function<SpatialWkbConstructorFunction<StGeoFromWkb<StGeomFromWKB>>>();
+    factory.register_function<SpatialWkbConstructorFunction<StGeoFromWkb<StGeogFromWKB>>>();
     factory.register_function<GeoFunction<StAsBinary>>();
     factory.register_function<GeoFunction<StLength>>();
     factory.register_function<GeoFunction<StGeometryType>>();

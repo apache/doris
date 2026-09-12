@@ -501,6 +501,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StDisjoint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistanceSphere;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromWKB;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeogFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryfromtext;
@@ -2461,6 +2462,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStGeomfromwkb(StGeomFromWKB stGeomfromwkb, C context) {
         return visitScalarFunction(stGeomfromwkb, context);
+    }
+
+    default R visitStGeogfromwkb(StGeogFromWKB stGeogfromwkb, C context) {
+        return visitScalarFunction(stGeogfromwkb, context);
     }
 
     default R visitStAsBinary(StAsBinary stAsBinary, C context) {

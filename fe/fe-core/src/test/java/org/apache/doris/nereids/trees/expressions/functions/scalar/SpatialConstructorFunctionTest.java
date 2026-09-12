@@ -39,6 +39,14 @@ public class SpatialConstructorFunctionTest {
     }
 
     @Test
+    public void testGeogFromWkbReturnsDefaultGeography() {
+        GeographyType defaultGeography = new GeographyType("OGC:CRS84", "spherical");
+        Assert.assertEquals(defaultGeography,
+                new StGeogFromWKB(new StringLiteral("0101000000000000000000F03F0000000000000040"))
+                        .getDataType());
+    }
+
+    @Test
     public void testAsTextAcceptsGeometry() {
         GeometryType defaultGeometry = new GeometryType("OGC:CRS84");
         StAstext asText = new StAstext(new StGeomFromWKB(

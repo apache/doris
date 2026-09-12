@@ -24,7 +24,7 @@ suite("test_iceberg_spatial_v3", "p0,external,iceberg,external_docker,external_d
 
     String catalogName = "test_iceberg_spatial_v3"
     String dbName = "iceberg_spatial_v3_db"
-    String tableName = "geometry_values"
+    String tableName = "spatial_values"
     String restPort = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -95,7 +95,8 @@ public class CreateIcebergSpatialV3Table {
         }
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
-                Types.NestedField.optional(2, "geom", Types.GeometryType.crs84()));
+                Types.NestedField.optional(2, "geom", Types.GeometryType.crs84()),
+                Types.NestedField.optional(3, "geog", Types.GeographyType.crs84()));
         Map<String, String> tableProperties = new HashMap<>();
         tableProperties.put("format-version", "3");
         tableProperties.put("write.format.default", "parquet");
@@ -128,16 +129,18 @@ public class CreateIcebergSpatialV3Table {
         sql """set enable_fallback_to_original_planner = false"""
         sql """
             insert into ${tableName} values
-                (1, ST_GeomFromWKB('0101000000000000000000F03F0000000000000040'))
+                (1, ST_GeomFromWKB('0101000000000000000000F03F0000000000000040'),
+                 ST_GeogFromWKB('0101000000000000000000F03F0000000000000040'))
         """
         def rows = sql """
-            select id, ST_AsText(geom)
+            select id, ST_AsText(geom), ST_AsText(geog)
             from ${tableName}
             order by id
         """
         assertEquals(1, rows.size())
         assertEquals(1, rows[0][0].toString().toInteger())
         assertEquals("POINT (1 2)", rows[0][1].toString())
+        assertEquals("POINT (1 2)", rows[0][2].toString())
     } finally {
         sql """drop catalog if exists ${catalogName}"""
     }
