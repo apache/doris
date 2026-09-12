@@ -26,7 +26,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
@@ -202,7 +201,12 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     /** analyze */
     public Expression analyze(Expression expression, ExpressionRewriteContext context) {
-        return expression.accept(this, context);
+        Expression analyzed = expression.accept(this, context);
+        // Inspect the bound tree to include parser-bound functions and expanded alias UDF bodies.
+        if (context != null && analyzed.containsNondeterministic()) {
+            context.cascadesContext.getStatementContext().setHasNondeterministic(true);
+        }
+        return analyzed;
     }
 
     @Override
@@ -631,14 +635,13 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             });
         }
 
+        if (builder instanceof AliasUdfBuilder && context != null) {
+            context.cascadesContext.getStatementContext().recordAliasUdf();
+        }
         Pair<? extends Expression, ? extends BoundFunction> buildResult = builder.build(functionName, arguments);
         buildResult.second.checkOrderExprIsValid();
         Optional<SqlCacheContext> sqlCacheContext = Optional.empty();
 
-        if (!buildResult.second.isDeterministic() && context != null) {
-            StatementContext statementContext = context.cascadesContext.getStatementContext();
-            statementContext.setHasNondeterministic(true);
-        }
         if (wantToParseSqlFromSqlCache) {
             sqlCacheContext = context.cascadesContext.getStatementContext().getSqlCacheContext();
             if (builder instanceof AliasUdfBuilder
