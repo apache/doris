@@ -2373,7 +2373,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
             // Load delete files from cache (or from storage if not cached)
             ManifestCacheValue value = IcebergManifestCacheLoader.loadDeleteFilesWithCache(cache,
-                    targetExternalTable, manifest, icebergTable, this::recordManifestCacheAccess);
+                    targetExternalTable, manifest, icebergTable, runtimeContext, this::recordManifestCacheAccess);
             deleteFiles.addAll(value.getDeleteFiles());
         }
 
@@ -2406,7 +2406,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
                 // Load data files from cache (or from storage if not cached)
                 ManifestCacheValue value = IcebergManifestCacheLoader.loadDataFilesWithCache(cache,
-                        targetExternalTable, manifest, icebergTable, this::recordManifestCacheAccess);
+                        targetExternalTable, manifest, icebergTable, runtimeContext, this::recordManifestCacheAccess);
 
                 // Process each data file in the manifest
                 for (org.apache.iceberg.DataFile dataFile : value.getDataFiles()) {

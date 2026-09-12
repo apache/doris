@@ -560,6 +560,7 @@ public class IcebergExternalMetaCacheTest {
             }
         };
         try {
+            cache.initCatalog(1L, Collections.emptyMap());
             NameMapping mapping = new NameMapping(1L, "db", "tbl", "remote_db", "remote_tbl");
             ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
             Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(mapping);
@@ -3189,6 +3190,54 @@ public class IcebergExternalMetaCacheTest {
         Map<String, String> properties = com.google.common.collect.Maps.newHashMap();
         properties.put("meta.cache.iceberg.manifest.enable", "true");
         return properties;
+    }
+
+    @Test
+    public void testFrozenRuntimeDoesNotUseOrPopulateReplacementManifestCache() {
+        long catalogId = 1L;
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor);
+            Map<String, String> properties = manifestCacheEnabledProperties();
+            properties.put("meta.cache.iceberg.manifest.max-weight", "16MB");
+            cache.initCatalog(catalogId, properties);
+            MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue> generationOneEntry = cache.entry(
+                    catalogId, IcebergExternalMetaCache.ENTRY_MANIFEST,
+                    IcebergManifestEntryKey.class, ManifestCacheValue.class);
+            Assert.assertTrue(generationOneEntry.isWeightAccounting());
+            IcebergRuntimeContext generationOne = new IcebergRuntimeContext(
+                    Mockito.mock(ExecutionAuthenticator.class), null, generationOneEntry, null,
+                    Collections.emptyMap());
+
+            cache.invalidateCatalogEntries(catalogId);
+            Assert.assertFalse(generationOneEntry.isWeightAccounting());
+            cache.initCatalog(catalogId, properties);
+            MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue> generationTwoEntry = cache.entry(
+                    catalogId, IcebergExternalMetaCache.ENTRY_MANIFEST,
+                    IcebergManifestEntryKey.class, ManifestCacheValue.class);
+            Assert.assertNotSame(generationOneEntry, generationTwoEntry);
+            IcebergManifestEntryKey key = new IcebergManifestEntryKey(
+                    "/shared/manifest.avro", ManifestContent.DATA);
+            ManifestCacheValue generationOneValue = ManifestCacheValue.forDataFiles(Collections.emptyList());
+            ManifestCacheValue generationTwoValue = ManifestCacheValue.forDataFiles(Collections.singletonList(
+                    DataFiles.builder(PartitionSpec.unpartitioned())
+                            .withPath("/generation-two.parquet")
+                            .withFileSizeInBytes(1L)
+                            .withRecordCount(1L)
+                            .build()));
+            generationTwoEntry.put(key, generationTwoValue);
+            AtomicBoolean cacheHit = new AtomicBoolean(true);
+
+            ManifestCacheValue loaded = cache.getManifestCacheValue(
+                    catalogId, generationOne, key, ignored -> generationOneValue, cacheHit::set);
+
+            Assert.assertFalse(cacheHit.get());
+            Assert.assertSame(generationOneValue, loaded);
+            Assert.assertNull(generationOneEntry.peekIfPresent(key));
+            Assert.assertSame(generationTwoValue, generationTwoEntry.peekIfPresent(key));
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     private long snapshotWeight(IcebergSnapshotEntryKey key, int partitionCount) {
