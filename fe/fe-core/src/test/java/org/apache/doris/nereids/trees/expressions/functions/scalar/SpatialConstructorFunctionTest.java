@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.GeometryType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -44,5 +45,13 @@ public class SpatialConstructorFunctionTest {
         Assert.assertEquals(VarcharType.SYSTEM_DEFAULT,
                 asText.getDataType());
         Assert.assertEquals(defaultGeometry, asText.expectedInputTypes().get(0));
+    }
+
+    @Test
+    public void testAsTextPreservesGeometryCrs() {
+        GeometryType webMercator = new GeometryType("EPSG:3857");
+        StAstext asText = new StAstext(new SlotReference("spatial", webMercator));
+        Assert.assertEquals(VarcharType.SYSTEM_DEFAULT, asText.getDataType());
+        Assert.assertEquals(webMercator, asText.expectedInputTypes().get(0));
     }
 }

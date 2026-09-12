@@ -40,7 +40,6 @@ public class StAstext extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable, PropagateNullLiteral {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(new GeometryType("OGC:CRS84")),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(StringType.INSTANCE)
     );
@@ -69,6 +68,14 @@ public class StAstext extends ScalarFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
+        if (child(0).getDataType() instanceof GeometryType) {
+            return FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(child(0).getDataType());
+        }
+        return ExplicitlyCastableSignature.super.searchSignature(signatures);
     }
 
     @Override
