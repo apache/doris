@@ -159,7 +159,7 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
                                  .count();
         s3_file_reader_latency << (end_ts - begin_ts);
     }};
-    SCOPED_RAW_TIMER(&_s3_stats.total_get_request_time_ns);
+    SCOPED_ATOMIC_TIMER(&_s3_stats.total_get_request_time_ns);
 
     int total_sleep_time = 0;
     Status last_error;
