@@ -27,10 +27,10 @@ import com.google.common.util.concurrent.SettableFuture;
 import com.google.protobuf.DescriptorProtos;
 import com.google.protobuf.Descriptors;
 import com.google.protobuf.DynamicMessage;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.Map;
@@ -51,7 +51,7 @@ public class MetaServiceProxyTest {
     private int originRateLimitBurstSeconds;
     private long originRateLimitWaitTimeoutMs;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         originEndpoint = Config.meta_service_endpoint;
         originReconnectIntervalMs = Config.meta_service_rpc_reconnect_interval_ms;
@@ -75,7 +75,7 @@ public class MetaServiceProxyTest {
         MetaServiceProxy.resetMetaServiceRpcRateLimitForTest();
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         Config.meta_service_endpoint = originEndpoint;
         Config.meta_service_rpc_reconnect_interval_ms = originReconnectIntervalMs;
@@ -109,7 +109,7 @@ public class MetaServiceProxyTest {
                 .build();
         Cloud.GetVersionResponse response = wrapper.executeRequest("ignored", (ignored) -> okResponse,
                 Cloud.GetVersionResponse::getStatus);
-        Assert.assertEquals(Cloud.MetaServiceCode.OK, response.getStatus().getCode());
+        Assertions.assertEquals(Cloud.MetaServiceCode.OK, response.getStatus().getCode());
         Mockito.verify(client, Mockito.never()).shutdown(Mockito.anyBoolean());
     }
 
@@ -131,7 +131,7 @@ public class MetaServiceProxyTest {
             wrapper.executeRequest("ignored", (ignored) -> {
                 throw new RuntimeException("rpc failed");
             }, Cloud.GetVersionResponse::getStatus);
-            Assert.fail("should throw RpcException");
+            Assertions.fail("should throw RpcException");
         } catch (RpcException ignored) {
             // expected
         }
@@ -182,9 +182,9 @@ public class MetaServiceProxyTest {
 
         try {
             wrapper.executeRequest("ignored", (ignored) -> response, Cloud.GetVersionResponse::getStatus);
-            Assert.fail("should throw RpcException");
+            Assertions.fail("should throw RpcException");
         } catch (RpcException e) {
-            Assert.assertEquals("server is overloaded", e.getMessage());
+            Assertions.assertEquals("server is overloaded", e.getMessage());
         }
         Mockito.verify(client, Mockito.never()).shutdown(Mockito.anyBoolean());
     }
@@ -217,8 +217,8 @@ public class MetaServiceProxyTest {
         Cloud.GetVersionResponse result = wrapper.executeRequest("ignored", (ignored) ->
                 callCount.incrementAndGet() == 1 ? tooBusyResponse : okResponse, Cloud.GetVersionResponse::getStatus);
 
-        Assert.assertEquals(Cloud.MetaServiceCode.OK, result.getStatus().getCode());
-        Assert.assertEquals(2, callCount.get());
+        Assertions.assertEquals(Cloud.MetaServiceCode.OK, result.getStatus().getCode());
+        Assertions.assertEquals(2, callCount.get());
         Mockito.verify(client, Mockito.never()).shutdown(Mockito.anyBoolean());
     }
 
@@ -230,8 +230,8 @@ public class MetaServiceProxyTest {
                         .setActualCode(Cloud.MetaServiceCode.MS_TOO_BUSY.getNumber())
                         .build());
 
-        Assert.assertEquals(Cloud.MetaServiceCode.MS_TOO_BUSY, status.getCode());
-        Assert.assertEquals(Cloud.MetaServiceCode.MS_TOO_BUSY.getNumber(), status.getActualCode());
+        Assertions.assertEquals(Cloud.MetaServiceCode.MS_TOO_BUSY, status.getCode());
+        Assertions.assertEquals(Cloud.MetaServiceCode.MS_TOO_BUSY.getNumber(), status.getActualCode());
     }
 
     @Test
@@ -241,7 +241,7 @@ public class MetaServiceProxyTest {
                         .setActualCode(Cloud.MetaServiceCode.MS_TOO_BUSY.getNumber())
                         .build());
 
-        Assert.assertEquals(Cloud.MetaServiceCode.MS_TOO_BUSY, status.getCode());
+        Assertions.assertEquals(Cloud.MetaServiceCode.MS_TOO_BUSY, status.getCode());
     }
 
     @Test
@@ -252,8 +252,8 @@ public class MetaServiceProxyTest {
                         .setActualCode(Integer.MAX_VALUE)
                         .build());
 
-        Assert.assertEquals(Cloud.MetaServiceCode.KV_TXN_CONFLICT, status.getCode());
-        Assert.assertEquals(Integer.MAX_VALUE, status.getActualCode());
+        Assertions.assertEquals(Cloud.MetaServiceCode.KV_TXN_CONFLICT, status.getCode());
+        Assertions.assertEquals(Integer.MAX_VALUE, status.getActualCode());
     }
 
     @Test
@@ -264,15 +264,15 @@ public class MetaServiceProxyTest {
                         .setActualCode(Integer.MAX_VALUE)
                         .build());
 
-        Assert.assertEquals(Cloud.MetaServiceCode.UNDEFINED_ERR, status.getCode());
-        Assert.assertEquals(Integer.MAX_VALUE, status.getActualCode());
+        Assertions.assertEquals(Cloud.MetaServiceCode.UNDEFINED_ERR, status.getCode());
+        Assertions.assertEquals(Integer.MAX_VALUE, status.getActualCode());
 
         status = callGetInstanceWithStatus(Cloud.MetaServiceResponseStatus.newBuilder()
                 .setActualCode(Integer.MAX_VALUE)
                 .build());
 
-        Assert.assertEquals(Cloud.MetaServiceCode.UNDEFINED_ERR, status.getCode());
-        Assert.assertEquals(Integer.MAX_VALUE, status.getActualCode());
+        Assertions.assertEquals(Cloud.MetaServiceCode.UNDEFINED_ERR, status.getCode());
+        Assertions.assertEquals(Integer.MAX_VALUE, status.getActualCode());
     }
 
     @Test
@@ -280,7 +280,7 @@ public class MetaServiceProxyTest {
         Cloud.MetaServiceResponseStatus status = callGetInstanceWithStatus(
                 Cloud.MetaServiceResponseStatus.getDefaultInstance());
 
-        Assert.assertEquals(Cloud.MetaServiceCode.UNDEFINED_ERR, status.getCode());
+        Assertions.assertEquals(Cloud.MetaServiceCode.UNDEFINED_ERR, status.getCode());
     }
 
     @Test
@@ -290,8 +290,8 @@ public class MetaServiceProxyTest {
                 "restoreActualCode",
                 Cloud.GetInstanceResponse.getDefaultInstance());
 
-        Assert.assertTrue(response.hasStatus());
-        Assert.assertEquals(Cloud.MetaServiceCode.UNDEFINED_ERR, response.getStatus().getCode());
+        Assertions.assertTrue(response.hasStatus());
+        Assertions.assertEquals(Cloud.MetaServiceCode.UNDEFINED_ERR, response.getStatus().getCode());
     }
 
     @Test
@@ -301,8 +301,8 @@ public class MetaServiceProxyTest {
                         .setCode(Cloud.MetaServiceCode.KV_TXN_CONFLICT)
                         .build());
 
-        Assert.assertEquals(Cloud.MetaServiceCode.KV_TXN_CONFLICT, status.getCode());
-        Assert.assertFalse(status.hasActualCode());
+        Assertions.assertEquals(Cloud.MetaServiceCode.KV_TXN_CONFLICT, status.getCode());
+        Assertions.assertFalse(status.hasActualCode());
     }
 
     @Test
@@ -324,8 +324,8 @@ public class MetaServiceProxyTest {
         Cloud.GetVersionResponse response = normalizedFuture.get();
         response = Deencapsulation.invoke(MetaServiceClient.class, "restoreActualCode", response);
         Cloud.MetaServiceResponseStatus status = response.getStatus();
-        Assert.assertEquals(Cloud.MetaServiceCode.MS_TOO_BUSY, status.getCode());
-        Assert.assertEquals(Cloud.MetaServiceCode.MS_TOO_BUSY.getNumber(), status.getActualCode());
+        Assertions.assertEquals(Cloud.MetaServiceCode.MS_TOO_BUSY, status.getCode());
+        Assertions.assertEquals(Cloud.MetaServiceCode.MS_TOO_BUSY.getNumber(), status.getActualCode());
     }
 
     @Test
@@ -342,16 +342,16 @@ public class MetaServiceProxyTest {
                 legacyStatusDescriptor, currentStatus.toByteArray());
         Descriptors.EnumValueDescriptor legacyCode =
                 (Descriptors.EnumValueDescriptor) legacyStatus.getField(legacyCodeField);
-        Assert.assertEquals(Cloud.MetaServiceCode.KV_TXN_CONFLICT.getNumber(), legacyCode.getNumber());
-        Assert.assertNull(legacyStatusDescriptor.findFieldByName("actual_code"));
-        Assert.assertTrue(legacyStatus.getUnknownFields().hasField(3));
-        Assert.assertEquals(Long.valueOf(Cloud.MetaServiceCode.MS_TOO_BUSY.getNumber()),
+        Assertions.assertEquals(Cloud.MetaServiceCode.KV_TXN_CONFLICT.getNumber(), legacyCode.getNumber());
+        Assertions.assertNull(legacyStatusDescriptor.findFieldByName("actual_code"));
+        Assertions.assertTrue(legacyStatus.getUnknownFields().hasField(3));
+        Assertions.assertEquals(Long.valueOf(Cloud.MetaServiceCode.MS_TOO_BUSY.getNumber()),
                 legacyStatus.getUnknownFields().getField(3).getVarintList().get(0));
 
         Cloud.MetaServiceResponseStatus roundTripStatus =
                 Cloud.MetaServiceResponseStatus.parseFrom(legacyStatus.toByteArray());
-        Assert.assertEquals(Cloud.MetaServiceCode.KV_TXN_CONFLICT, roundTripStatus.getCode());
-        Assert.assertEquals(Cloud.MetaServiceCode.MS_TOO_BUSY.getNumber(), roundTripStatus.getActualCode());
+        Assertions.assertEquals(Cloud.MetaServiceCode.KV_TXN_CONFLICT, roundTripStatus.getCode());
+        Assertions.assertEquals(Cloud.MetaServiceCode.MS_TOO_BUSY.getNumber(), roundTripStatus.getActualCode());
     }
 
     @Test
@@ -366,10 +366,10 @@ public class MetaServiceProxyTest {
                 legacyStatusDescriptor, incompatibleStatus.toByteArray());
         Descriptors.EnumValueDescriptor legacyCode =
                 (Descriptors.EnumValueDescriptor) legacyStatus.getField(legacyCodeField);
-        Assert.assertFalse(legacyStatus.hasField(legacyCodeField));
-        Assert.assertEquals(Cloud.MetaServiceCode.OK.getNumber(), legacyCode.getNumber());
-        Assert.assertTrue(legacyStatus.getUnknownFields().hasField(1));
-        Assert.assertEquals(Long.valueOf(Cloud.MetaServiceCode.MS_TOO_BUSY.getNumber()),
+        Assertions.assertFalse(legacyStatus.hasField(legacyCodeField));
+        Assertions.assertEquals(Cloud.MetaServiceCode.OK.getNumber(), legacyCode.getNumber());
+        Assertions.assertTrue(legacyStatus.getUnknownFields().hasField(1));
+        Assertions.assertEquals(Long.valueOf(Cloud.MetaServiceCode.MS_TOO_BUSY.getNumber()),
                 legacyStatus.getUnknownFields().getField(1).getVarintList().get(0));
     }
 
@@ -395,12 +395,12 @@ public class MetaServiceProxyTest {
                 callCount.incrementAndGet();
                 return tooBusyResponse;
             }, Cloud.GetVersionResponse::getStatus);
-            Assert.fail("should throw RpcException");
+            Assertions.fail("should throw RpcException");
         } catch (RpcException e) {
-            Assert.assertEquals("server is overloaded", e.getMessage());
+            Assertions.assertEquals("server is overloaded", e.getMessage());
         }
 
-        Assert.assertEquals(2, callCount.get());
+        Assertions.assertEquals(2, callCount.get());
         Mockito.verify(client, Mockito.never()).shutdown(Mockito.anyBoolean());
     }
 
@@ -426,12 +426,12 @@ public class MetaServiceProxyTest {
                 callCount.incrementAndGet();
                 return okResponse;
             }, Cloud.GetVersionResponse::getStatus);
-            Assert.fail("should throw RpcException");
+            Assertions.fail("should throw RpcException");
         } catch (RpcException e) {
-            Assert.assertTrue(e.getMessage().contains("meta service rpc rate limited"));
+            Assertions.assertTrue(e.getMessage().contains("meta service rpc rate limited"));
         }
 
-        Assert.assertEquals(CPU_CORES, callCount.get());
+        Assertions.assertEquals(CPU_CORES, callCount.get());
         Mockito.verify(client, Mockito.never()).shutdown(Mockito.anyBoolean());
     }
 
@@ -452,9 +452,9 @@ public class MetaServiceProxyTest {
 
         try {
             secondWrapper.executeRequest("shared", (ignored) -> okResponse, Cloud.GetVersionResponse::getStatus);
-            Assert.fail("should throw RpcException");
+            Assertions.fail("should throw RpcException");
         } catch (RpcException e) {
-            Assert.assertTrue(e.getMessage().contains("meta service rpc rate limited"));
+            Assertions.assertTrue(e.getMessage().contains("meta service rpc rate limited"));
         }
     }
 
@@ -468,9 +468,9 @@ public class MetaServiceProxyTest {
 
         try {
             proxy.getInstance(Cloud.GetInstanceRequest.newBuilder().build());
-            Assert.fail("should throw RpcException");
+            Assertions.fail("should throw RpcException");
         } catch (RpcException e) {
-            Assert.assertTrue(e.getMessage().contains("meta service rpc rate limited"));
+            Assertions.assertTrue(e.getMessage().contains("meta service rpc rate limited"));
         }
 
         Mockito.verify(client, Mockito.never()).getInstance(Mockito.any());
@@ -494,9 +494,9 @@ public class MetaServiceProxyTest {
 
         try {
             proxy.getVisibleVersionAsync(Cloud.GetVersionRequest.newBuilder().build());
-            Assert.fail("should throw RpcException");
+            Assertions.fail("should throw RpcException");
         } catch (RpcException e) {
-            Assert.assertTrue(e.getMessage().contains("meta service rpc rate limited"));
+            Assertions.assertTrue(e.getMessage().contains("meta service rpc rate limited"));
         }
 
         Mockito.verify(client, Mockito.times(1)).getVisibleVersionAsync(Mockito.any());
@@ -518,9 +518,9 @@ public class MetaServiceProxyTest {
             proxy.getVisibleVersionAsync(Cloud.GetVersionRequest.newBuilder()
                     .setIsTableVersion(true)
                     .build());
-            Assert.fail("should throw RpcException");
+            Assertions.fail("should throw RpcException");
         } catch (RpcException e) {
-            Assert.assertTrue(e.getMessage().contains("meta service rpc rate limited"));
+            Assertions.assertTrue(e.getMessage().contains("meta service rpc rate limited"));
         }
         Mockito.verify(client, Mockito.times(1)).getVisibleVersionAsync(Mockito.any());
     }

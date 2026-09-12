@@ -19,8 +19,8 @@ package org.apache.doris.qe;
 
 import org.apache.doris.planner.OlapScanNode;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 public class PointQueryExecutorTest {
@@ -29,9 +29,9 @@ public class PointQueryExecutorTest {
         OlapScanNode scanNode = Mockito.mock(OlapScanNode.class);
 
         Mockito.when(scanNode.isScanBackendOrderBySelection()).thenReturn(false);
-        Assert.assertTrue(PointQueryExecutor.shouldShuffleCandidateBackends(scanNode));
+        Assertions.assertTrue(PointQueryExecutor.shouldShuffleCandidateBackends(scanNode));
 
         Mockito.when(scanNode.isScanBackendOrderBySelection()).thenReturn(true);
-        Assert.assertFalse(PointQueryExecutor.shouldShuffleCandidateBackends(scanNode));
+        Assertions.assertFalse(PointQueryExecutor.shouldShuffleCandidateBackends(scanNode));
     }
 }

@@ -18,9 +18,9 @@
 package org.apache.doris.common;
 
 import org.apache.commons.codec.digest.DigestUtils;
-import org.junit.AfterClass;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -32,7 +32,7 @@ public class MD5Test {
 
     private static String fileName = "job_info.txt";
 
-    @BeforeClass
+    @BeforeAll
     public static void createFile() {
         String json = "{'key': 'value'}";
 
@@ -43,7 +43,7 @@ public class MD5Test {
         }
     }
 
-    @AfterClass
+    @AfterAll
     public static void deleteFile() {
         File file = new File(fileName);
         if (file.exists()) {

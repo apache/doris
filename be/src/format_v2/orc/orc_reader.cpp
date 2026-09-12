@@ -945,8 +945,15 @@ Status OrcReader::init(RuntimeState* state) {
         if (is_orc_stop(_io_ctx.get(), e)) {
             return Status::EndOfFile("stop");
         }
+        // invoker maybe just skip Status.NotFound and continue
+        // so we need distinguish between it and other kinds of errors
+        const std::string err_msg = e.what();
+        if (err_msg.find("No such file or directory") != std::string::npos ||
+            err_msg.find("NoSuchKey") != std::string::npos) {
+            return Status::NotFound(err_msg);
+        }
         return Status::InternalError("Failed to open ORC file {}: {}", _file_description->path,
-                                     e.what());
+                                     err_msg);
     }
     return Status::OK();
 }

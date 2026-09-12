@@ -67,6 +67,26 @@ under the License.
         <property name="fileExtensions" value=".java"/>
     </module>
     <!--
+      JUnit 4 is gone from this reactor. It is not a style preference: junit-vintage-engine is
+      still declared in fe/pom.xml only because the be-java-extensions modules have not been
+      migrated yet, and it is what drags in junit:junit - the one EPL-1.0 artifact in the build,
+      and a licence the Dependency License Review workflow has to carry a package exception for.
+      Every JUnit 4 test that comes back keeps both of those alive, so the gate is here rather
+      than in review. checkstyle runs at the validate phase with includeTestSourceDirectory, so
+      this fires on a plain `mvn test` too, not only in CI.
+
+      The pattern deliberately matches anywhere on the line, not just an import: a fully
+      qualified `@org.junit.After` needs no import, and the jupiter engine silently IGNORES it
+      rather than failing, so a teardown written that way stops running and takes its cleanup
+      with it. That is exactly how one survived in this tree.
+    -->
+    <module name="RegexpSingleline">
+        <property name="id" value="banJUnit4"/>
+        <property name="format" value="(?&lt;![\w.])(?:junit\.framework|junit\.textui|org\.junit)\.(?!jupiter\.|platform\.)"/>
+        <property name="message" value="JUnit 3/4 is not allowed; write the test with JUnit 5. org.junit.Test -&gt; org.junit.jupiter.api.Test, org.junit.Assert -&gt; Assertions (the message argument moves to the END of the call), @Before/@After -&gt; @BeforeEach/@AfterEach, @BeforeClass/@AfterClass -&gt; @BeforeAll/@AfterAll, @Ignore -&gt; @Disabled, @Rule TemporaryFolder -&gt; @TempDir, and @Test(expected=) or the ExpectedException rule -&gt; Assertions.assertThrows."/>
+        <property name="fileExtensions" value=".java"/>
+    </module>
+    <!--
       Best effort guard against writing credentials to the log: catches a value whose name says it
       holds a token/password/secret/peer identity being passed straight to a log call, either as a
       parameter or concatenated into the message. Logs are routinely shipped off the host, so a

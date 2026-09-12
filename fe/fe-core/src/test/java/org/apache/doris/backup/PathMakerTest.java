@@ -17,7 +17,7 @@
 
 package org.apache.doris.backup;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 public class PathMakerTest {
 

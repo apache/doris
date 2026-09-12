@@ -22,9 +22,10 @@ import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.util.StreamingJobUtils;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -93,7 +94,7 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
     private TestableProvider provider;
     private MockedStatic<StreamingJobUtils> utilsMock;
 
-    @Before
+    @BeforeEach
     public void setup() {
         provider = new TestableProvider();
         utilsMock = Mockito.mockStatic(StreamingJobUtils.class);
@@ -104,7 +105,7 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
                 .then(invocation -> null);
     }
 
-    @org.junit.After
+    @AfterEach
     public void tearDown() {
         if (utilsMock != null) {
             utilsMock.close();
@@ -127,16 +128,16 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
     @Test
     public void testInitWithEmptySyncTablesIsAllDone() throws JobException {
         provider.initOnCreate(Collections.emptyList());
-        Assert.assertTrue(provider.noMoreSplits());
+        Assertions.assertTrue(provider.noMoreSplits());
     }
 
     @Test
     public void testInitWithSyncTablesNotDone() throws JobException {
         provider.initOnCreate(Arrays.asList("db.tbl_a"));
-        Assert.assertNotNull(provider.committedSplitProgress);
-        Assert.assertNotNull(provider.cdcSplitProgress);
-        Assert.assertNull(provider.cdcSplitProgress.getCurrentSplittingTable());
-        Assert.assertFalse(provider.noMoreSplits());
+        Assertions.assertNotNull(provider.committedSplitProgress);
+        Assertions.assertNotNull(provider.cdcSplitProgress);
+        Assertions.assertNull(provider.cdcSplitProgress.getCurrentSplittingTable());
+        Assertions.assertFalse(provider.noMoreSplits());
     }
 
     @Test
@@ -147,7 +148,7 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
         // scheduler re-cut snapshot chunks after snapshot phase is over.
         provider.initOnCreate(Arrays.asList("db.tbl_a", "db.tbl_b"));
         provider.setCurrentOffset(new JdbcOffset(Collections.singletonList(new BinlogSplit())));
-        Assert.assertTrue(provider.noMoreSplits());
+        Assertions.assertTrue(provider.noMoreSplits());
     }
 
     @Test
@@ -157,7 +158,7 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
         provider.initOnCreate(Arrays.asList("db.tbl_a"));
         provider.setCurrentOffset(new JdbcOffset(
                 Collections.singletonList(split("db.tbl_a", 0, null, 100L))));
-        Assert.assertFalse(provider.noMoreSplits());
+        Assertions.assertFalse(provider.noMoreSplits());
     }
 
     // ===== advanceSplits =====
@@ -171,16 +172,16 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
 
         provider.advanceSplits();
 
-        Assert.assertEquals(2, provider.remainingSplits.size());
-        Assert.assertEquals("tbl_a", provider.cdcSplitProgress.getCurrentSplittingTable());
-        Assert.assertArrayEquals(new Object[]{200L}, provider.cdcSplitProgress.getNextSplitStart());
-        Assert.assertEquals(Integer.valueOf(2), provider.cdcSplitProgress.getNextSplitId());
+        Assertions.assertEquals(2, provider.remainingSplits.size());
+        Assertions.assertEquals("tbl_a", provider.cdcSplitProgress.getCurrentSplittingTable());
+        Assertions.assertArrayEquals(new Object[]{200L}, provider.cdcSplitProgress.getNextSplitStart());
+        Assertions.assertEquals(Integer.valueOf(2), provider.cdcSplitProgress.getNextSplitId());
 
-        Assert.assertEquals(1, provider.rpcCalls.size());
+        Assertions.assertEquals(1, provider.rpcCalls.size());
         RpcCall first = provider.rpcCalls.get(0);
-        Assert.assertEquals("tbl_a", first.table);
-        Assert.assertNull("first call should pass null nextSplitStart (= START_BOUND)", first.startVal);
-        Assert.assertNull(first.splitId);
+        Assertions.assertEquals("tbl_a", first.table);
+        Assertions.assertNull(first.startVal, "first call should pass null nextSplitStart (= START_BOUND)");
+        Assertions.assertNull(first.splitId);
     }
 
     @Test
@@ -192,12 +193,12 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
         provider.advanceSplits();
         provider.advanceSplits();
 
-        Assert.assertEquals(2, provider.rpcCalls.size());
+        Assertions.assertEquals(2, provider.rpcCalls.size());
         RpcCall second = provider.rpcCalls.get(1);
-        Assert.assertEquals("tbl_a", second.table);
-        Assert.assertArrayEquals(new Object[]{100L}, second.startVal);
-        Assert.assertEquals(Integer.valueOf(1), second.splitId);
-        Assert.assertEquals(2, provider.remainingSplits.size());
+        Assertions.assertEquals("tbl_a", second.table);
+        Assertions.assertArrayEquals(new Object[]{100L}, second.startVal);
+        Assertions.assertEquals(Integer.valueOf(1), second.splitId);
+        Assertions.assertEquals(2, provider.remainingSplits.size());
     }
 
     @Test
@@ -209,16 +210,15 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
         provider.mockBatches.add(Arrays.asList(split("db.tbl_b", 0, null, 50L)));
 
         provider.advanceSplits();
-        Assert.assertNull("after tbl_a done, currentSplittingTable should clear",
-                provider.cdcSplitProgress.getCurrentSplittingTable());
-        Assert.assertFalse("tbl_b still pending", provider.noMoreSplits());
+        Assertions.assertNull(provider.cdcSplitProgress.getCurrentSplittingTable(), "after tbl_a done, currentSplittingTable should clear");
+        Assertions.assertFalse(provider.noMoreSplits(), "tbl_b still pending");
 
         provider.advanceSplits();
 
-        Assert.assertEquals(2, provider.rpcCalls.size());
-        Assert.assertEquals("tbl_b", provider.rpcCalls.get(1).table);
-        Assert.assertEquals("tbl_b", provider.cdcSplitProgress.getCurrentSplittingTable());
-        Assert.assertArrayEquals(new Object[]{50L}, provider.cdcSplitProgress.getNextSplitStart());
+        Assertions.assertEquals(2, provider.rpcCalls.size());
+        Assertions.assertEquals("tbl_b", provider.rpcCalls.get(1).table);
+        Assertions.assertEquals("tbl_b", provider.cdcSplitProgress.getCurrentSplittingTable());
+        Assertions.assertArrayEquals(new Object[]{50L}, provider.cdcSplitProgress.getNextSplitStart());
     }
 
     @Test
@@ -228,8 +228,8 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
 
         provider.advanceSplits();
 
-        Assert.assertTrue(provider.noMoreSplits());
-        Assert.assertEquals(1, provider.remainingSplits.size());
+        Assertions.assertTrue(provider.noMoreSplits());
+        Assertions.assertEquals(1, provider.remainingSplits.size());
     }
 
     @Test
@@ -242,8 +242,7 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
 
         provider.advanceSplits();
 
-        Assert.assertEquals("duplicate splitId should be filtered out",
-                1, provider.remainingSplits.size());
+        Assertions.assertEquals(1, provider.remainingSplits.size(), "duplicate splitId should be filtered out");
     }
 
     @Test
@@ -252,11 +251,11 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
         // mockBatches empty → rpcFetchSplitsBatch returns empty list
         provider.advanceSplits();
 
-        Assert.assertEquals(0, provider.remainingSplits.size());
+        Assertions.assertEquals(0, provider.remainingSplits.size());
         // currentSplittingTable was set then RPC returned empty; we leave it set
         // (next advance retries on same table from null start). Just assert no progress.
-        Assert.assertNull(provider.cdcSplitProgress.getNextSplitStart());
-        Assert.assertNull(provider.cdcSplitProgress.getNextSplitId());
+        Assertions.assertNull(provider.cdcSplitProgress.getNextSplitStart());
+        Assertions.assertNull(provider.cdcSplitProgress.getNextSplitId());
     }
 
     // ===== updateOffset advances committedSplitProgress =====
@@ -281,13 +280,13 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
         JdbcOffset endOffset = new JdbcOffset(Collections.singletonList(commitSplit("db.tbl_a:0")));
         provider.updateOffset(endOffset);
 
-        Assert.assertEquals(1, provider.finishedSplits.size());
-        Assert.assertEquals(1, provider.remainingSplits.size());
+        Assertions.assertEquals(1, provider.finishedSplits.size());
+        Assertions.assertEquals(1, provider.remainingSplits.size());
 
         JdbcSourceOffsetProvider.SplitProgress committed = provider.committedSplitProgress;
-        Assert.assertEquals("tbl_a", committed.getCurrentSplittingTable());
-        Assert.assertArrayEquals(new Object[]{100L}, committed.getNextSplitStart());
-        Assert.assertEquals(Integer.valueOf(1), committed.getNextSplitId());
+        Assertions.assertEquals("tbl_a", committed.getCurrentSplittingTable());
+        Assertions.assertArrayEquals(new Object[]{100L}, committed.getNextSplitStart());
+        Assertions.assertEquals(Integer.valueOf(1), committed.getNextSplitId());
     }
 
     @Test
@@ -300,11 +299,11 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
         provider.updateOffset(endOffset);
 
         JdbcSourceOffsetProvider.SplitProgress committed = provider.committedSplitProgress;
-        Assert.assertNull(committed.getCurrentSplittingTable());
-        Assert.assertNull(committed.getNextSplitStart());
-        Assert.assertNull(committed.getNextSplitId());
-        Assert.assertEquals(1, provider.finishedSplits.size());
-        Assert.assertEquals(0, provider.remainingSplits.size());
+        Assertions.assertNull(committed.getCurrentSplittingTable());
+        Assertions.assertNull(committed.getNextSplitStart());
+        Assertions.assertNull(committed.getNextSplitId());
+        Assertions.assertEquals(1, provider.finishedSplits.size());
+        Assertions.assertEquals(0, provider.remainingSplits.size());
     }
 
     @Test
@@ -316,8 +315,8 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
         provider.updateOffset(endOffset);
 
         // committed progress untouched; finishedSplits not added (we have nothing to fill in).
-        Assert.assertNull(provider.committedSplitProgress.getCurrentSplittingTable());
-        Assert.assertEquals(0, provider.finishedSplits.size());
+        Assertions.assertNull(provider.committedSplitProgress.getCurrentSplittingTable());
+        Assertions.assertEquals(0, provider.finishedSplits.size());
     }
 
     // ===== computeCdcRemainingTables (covered indirectly via noMoreSplits) =====
@@ -330,20 +329,20 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
 
         // tbl_a is now done (in remainingSplits + currentSplittingTable cleared).
         // 2 more tables remain; noMoreSplits should still be false.
-        Assert.assertFalse(provider.noMoreSplits());
-        Assert.assertNull(provider.cdcSplitProgress.getCurrentSplittingTable());
+        Assertions.assertFalse(provider.noMoreSplits());
+        Assertions.assertNull(provider.cdcSplitProgress.getCurrentSplittingTable());
 
         // 2nd advance picks tbl_b
         provider.mockBatches.add(Arrays.asList(split("db.tbl_b", 0, null, null)));
         provider.advanceSplits();
-        Assert.assertEquals("tbl_b", provider.rpcCalls.get(1).table);
+        Assertions.assertEquals("tbl_b", provider.rpcCalls.get(1).table);
 
         // 3rd advance picks tbl_c
         provider.mockBatches.add(Arrays.asList(split("db.tbl_c", 0, null, null)));
         provider.advanceSplits();
-        Assert.assertEquals("tbl_c", provider.rpcCalls.get(2).table);
+        Assertions.assertEquals("tbl_c", provider.rpcCalls.get(2).table);
 
-        Assert.assertTrue(provider.noMoreSplits());
+        Assertions.assertTrue(provider.noMoreSplits());
     }
 
     // ===== findResumeMidSplit (replay helper) =====
@@ -356,7 +355,7 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
                 Collections.singletonList("db.tbl_a"),
                 Arrays.asList(s0, s1),
                 Collections.emptyList());
-        Assert.assertNull(mid);
+        Assertions.assertNull(mid);
     }
 
     @Test
@@ -367,9 +366,9 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
                 Collections.singletonList("db.tbl_a"),
                 Arrays.asList(s0, s1),
                 Collections.emptyList());
-        Assert.assertNotNull(mid);
-        Assert.assertEquals("db.tbl_a:1", mid.getSplitId());
-        Assert.assertArrayEquals(new Object[]{200L}, mid.getSplitEnd());
+        Assertions.assertNotNull(mid);
+        Assertions.assertEquals("db.tbl_a:1", mid.getSplitId());
+        Assertions.assertArrayEquals(new Object[]{200L}, mid.getSplitEnd());
     }
 
     @Test
@@ -381,8 +380,8 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
                 Arrays.asList("db.tbl_a", "db.tbl_b", "db.tbl_c"),
                 Collections.singletonList(a0),
                 Collections.singletonList(b0));
-        Assert.assertNotNull(mid);
-        Assert.assertEquals("db.tbl_b:0", mid.getSplitId());
+        Assertions.assertNotNull(mid);
+        Assertions.assertEquals("db.tbl_b:0", mid.getSplitId());
     }
 
     @Test
@@ -395,16 +394,16 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
                 Collections.singletonList("db.tbl_a"),
                 Arrays.asList(f0, f1),
                 Collections.singletonList(r2));
-        Assert.assertNotNull(mid);
-        Assert.assertEquals("db.tbl_a:2", mid.getSplitId());
-        Assert.assertArrayEquals(new Object[]{300L}, mid.getSplitEnd());
+        Assertions.assertNotNull(mid);
+        Assertions.assertEquals("db.tbl_a:2", mid.getSplitId());
+        Assertions.assertArrayEquals(new Object[]{300L}, mid.getSplitEnd());
     }
 
     @Test
     public void testFindResumeMidSplitEmptyInputs() {
-        Assert.assertNull(JdbcSourceOffsetProvider.findResumeMidSplit(
+        Assertions.assertNull(JdbcSourceOffsetProvider.findResumeMidSplit(
                 Collections.emptyList(), Collections.emptyList(), Collections.emptyList()));
-        Assert.assertNull(JdbcSourceOffsetProvider.findResumeMidSplit(
+        Assertions.assertNull(JdbcSourceOffsetProvider.findResumeMidSplit(
                 Collections.singletonList("db.tbl_a"),
                 Collections.emptyList(), Collections.emptyList()));
     }
@@ -420,8 +419,8 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
                 Collections.singletonList("tbl_a"),
                 Arrays.asList(s0, s1),
                 Collections.emptyList());
-        Assert.assertNotNull(mid);
-        Assert.assertEquals("schema.tbl_a:1", mid.getSplitId());
+        Assertions.assertNotNull(mid);
+        Assertions.assertEquals("schema.tbl_a:1", mid.getSplitId());
     }
 
     @Test
@@ -433,37 +432,45 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
                 Arrays.asList("db.tbl_a", "db.tbl_b"),
                 Collections.singletonList(a0),
                 Collections.emptyList());
-        Assert.assertNull(mid);
+        Assertions.assertNull(mid);
     }
 
     // ===== splitIdOf validation =====
 
     @Test
     public void testSplitIdOfHappyPath() {
-        Assert.assertEquals(0, JdbcSourceOffsetProvider.splitIdOf("db.tbl_a:0"));
-        Assert.assertEquals(42, JdbcSourceOffsetProvider.splitIdOf("db.tbl_a:42"));
+        Assertions.assertEquals(0, JdbcSourceOffsetProvider.splitIdOf("db.tbl_a:0"));
+        Assertions.assertEquals(42, JdbcSourceOffsetProvider.splitIdOf("db.tbl_a:42"));
         // table with colon in its qualifier: lastIndexOf(':') takes the trailing one.
-        Assert.assertEquals(7, JdbcSourceOffsetProvider.splitIdOf("schema:tbl:7"));
+        Assertions.assertEquals(7, JdbcSourceOffsetProvider.splitIdOf("schema:tbl:7"));
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test
     public void testSplitIdOfNoColonThrows() {
-        JdbcSourceOffsetProvider.splitIdOf("db.tbl_a_0");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> {
+            JdbcSourceOffsetProvider.splitIdOf("db.tbl_a_0");
+        });
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test
     public void testSplitIdOfTrailingColonThrows() {
-        JdbcSourceOffsetProvider.splitIdOf("db.tbl_a:");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> {
+            JdbcSourceOffsetProvider.splitIdOf("db.tbl_a:");
+        });
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test
     public void testSplitIdOfNonNumericSuffixThrows() {
-        JdbcSourceOffsetProvider.splitIdOf("db.tbl_a:abc");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> {
+            JdbcSourceOffsetProvider.splitIdOf("db.tbl_a:abc");
+        });
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test
     public void testSplitIdOfNullThrows() {
-        JdbcSourceOffsetProvider.splitIdOf(null);
+        Assertions.assertThrows(IllegalArgumentException.class, () -> {
+            JdbcSourceOffsetProvider.splitIdOf(null);
+        });
     }
 
     // ===== mode gate =====
@@ -476,7 +483,7 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
         // Even if cachedSyncTables is populated (e.g. by replayIfNeed), latest mode
         // must report noMoreSplits=true so scheduler skips advanceSplits entirely.
         provider.cachedSyncTables = Arrays.asList("db.tbl_a", "db.tbl_b");
-        Assert.assertTrue(provider.noMoreSplits());
+        Assertions.assertTrue(provider.noMoreSplits());
     }
 
     @Test
@@ -485,7 +492,6 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
                 org.apache.doris.job.cdc.DataSourceConfigKeys.OFFSET,
                 org.apache.doris.job.cdc.DataSourceConfigKeys.OFFSET_SNAPSHOT);
         provider.initOnCreate(Arrays.asList("db.tbl_a"));
-        Assert.assertFalse("snapshot mode with un-split tables must return false",
-                provider.noMoreSplits());
+        Assertions.assertFalse(provider.noMoreSplits(), "snapshot mode with un-split tables must return false");
     }
 }

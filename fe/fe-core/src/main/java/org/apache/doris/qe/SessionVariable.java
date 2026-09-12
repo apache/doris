@@ -809,8 +809,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
-    public static final String ENABLE_PAIMON_CPP_READER = "enable_paimon_cpp_reader";
-
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
     public static final String FETCH_ALL_FE_FOR_SYSTEM_TABLE = "fetch_all_fe_for_system_table";
@@ -1171,7 +1169,7 @@ public class SessionVariable implements Serializable, Writable {
             + "read data of FileScanNode, default 16")
     public int maxFileScannersConcurrency = 16;
 
-    @VarAttrDef.VarAttr(name = ENABLE_FILE_SCANNER_V2, needForward = true, fuzzy = true, description = "When enabled, "
+    @VarAttrDef.VarAttr(name = ENABLE_FILE_SCANNER_V2, needForward = true, description = "When enabled, "
             + "FileScanNode uses FileScannerV2 for supported query scans. Enabled by default.")
     public boolean enableFileScannerV2 = true;
 
@@ -1473,6 +1471,7 @@ public class SessionVariable implements Serializable, Writable {
         NONE,
         IGNORE_JNI,
         IGNORE_NATIVE,
+        // Deprecated compatibility value. It behaves like NONE because no C++ splits are emitted.
         IGNORE_PAIMON_CPP
     }
 
@@ -1992,7 +1991,12 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = GLOBAL_PARTITION_TOPN_THRESHOLD)
     private double globalPartitionTopNThreshold = 100;
 
-    @VarAttrDef.VarAttr(name = RETURN_OBJECT_DATA_AS_BINARY)
+    // Forwarded to the BE as a query option and read by the MySQL result writer: when it is false
+    // the object types (HLL / BITMAP / QUANTILE_STATE) are serialized as NULL instead of their raw
+    // bytes. It therefore changes the result rows the sql cache stores, and must take part in the
+    // cache key, otherwise a session that turns it on replays the NULLs cached by a session that
+    // had it off. It only affects execution, not the plan, so it does not force forwarding.
+    @VarAttrDef.VarAttr(name = RETURN_OBJECT_DATA_AS_BINARY, affectQueryResultInExecution = true)
     private boolean returnObjectDataAsBinary = false;
 
     @VarAttrDef.VarAttr(name = BLOCK_ENCRYPTION_MODE, affectQueryResultInPlan = true)
@@ -2927,11 +2931,6 @@ public class SessionVariable implements Serializable, Writable {
             description = "Force the use of jni mode to read external table")
     private boolean forceJniScanner = false;
 
-    @VarAttrDef.VarAttr(name = ENABLE_PAIMON_CPP_READER,
-            fuzzy = true,
-            description = "Use paimon-cpp for non-native Paimon reads")
-    private boolean enablePaimonCppReader = false;
-
     @VarAttrDef.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
             fuzzy = true,
             description = "enable count(*) pushdown optimization for external table")
@@ -3637,10 +3636,9 @@ public class SessionVariable implements Serializable, Writable {
         this.enableLocalExchange = random.nextBoolean();
         this.enableSharedExchangeSinkBuffer = random.nextBoolean();
         this.useSerialExchange = random.nextBoolean();
-        // Randomize the external file scanner engine (FileScannerV2 vs the legacy V1 path). Kept
-        // here rather than in setFuzzyForCatalog() so it also runs in the external regression
-        // pipeline, which enables fuzzy sessions with fuzzy_test_type=p1 (not "external").
-        this.enableFileScannerV2 = random.nextBoolean();
+        // Fuzzy sessions must exercise the production-default V2 path consistently. Dedicated
+        // compatibility cases can still select the legacy scanner explicitly after initialization.
+        this.enableFileScannerV2 = true;
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableStreamingAggHashJoinForcePassthrough = random.nextBoolean();
         this.enableLocalExchangeBeforeAgg = random.nextBoolean();
@@ -3806,8 +3804,6 @@ public class SessionVariable implements Serializable, Writable {
 
         // jni
         this.forceJniScanner = random.nextBoolean();
-        this.enablePaimonCppReader = random.nextBoolean();
-
         // statistics
         this.fetchHiveRowCountSync = random.nextBoolean();
 
@@ -5596,7 +5592,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableParquetFilePageCache(enableParquetFilePageCache);
         tResult.setEnableOrcFilterByMinMax(enableOrcFilterByMinMax);
         tResult.setEnableExprZonemapFilter(enableExprZonemapFilter);
-        tResult.setEnablePaimonCppReader(enablePaimonCppReader);
         tResult.setFilePresignedUrlTtlSeconds(filePresignedUrlTtlSeconds);
         tResult.setEmbedMaxBatchSize(embedMaxBatchSize);
         tResult.setAiContextWindowSize(aiContextWindowSize);
@@ -6347,6 +6342,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableDmlMaterializedViewRewrite;
     }
 
+    public void setEnableDmlMaterializedViewRewrite(boolean enableDmlMaterializedViewRewrite) {
+        this.enableDmlMaterializedViewRewrite = enableDmlMaterializedViewRewrite;
+    }
+
     public boolean isEnableDmlMaterializedViewRewriteWhenBaseTableUnawareness() {
         return enableDmlMaterializedViewRewriteWhenBaseTableUnawareness;
     }
@@ -6413,10 +6412,6 @@ public class SessionVariable implements Serializable, Writable {
         return forceJniScanner;
     }
 
-    public boolean isEnablePaimonCppReader() {
-        return enablePaimonCppReader;
-    }
-
     public String getIgnoreSplitType() {
         return ignoreSplitType;
     }
@@ -6436,10 +6431,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setForceJniScanner(boolean force) {
         forceJniScanner = force;
-    }
-
-    public void setEnablePaimonCppReader(boolean enable) {
-        enablePaimonCppReader = enable;
     }
 
     public boolean isEnableCountPushDownForExternalTable() {

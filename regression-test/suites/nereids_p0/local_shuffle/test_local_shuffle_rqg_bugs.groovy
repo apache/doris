@@ -1663,5 +1663,40 @@ suite("test_local_shuffle_rqg_bugs") {
         assertTrue(false, "Bug 26: ${t.message}")
     }
 
+    // Bug 27: do not insert a local exchange in a pipeline whose parent pipeline is serial.
+    // Otherwise the local exchange raises the lower AggSink pipeline to N tasks while its
+    // paired AggSource remains at one task, leaving task 1+ without a source dependency.
+    def bug27Query = { planner -> """
+        SELECT /*+SET_VAR(enable_local_shuffle_planner=${planner},
+                          enable_local_exchange_before_agg=false,
+                          enable_local_exchange_before_streaming_agg=true,
+                          enable_broadcast_join_force_passthrough=true,
+                          enable_share_hash_table_for_broadcast_join=false,
+                          parallel_pipeline_task_num=3,
+                          enable_sql_cache=false)*/
+               COUNT(*),
+               COUNT(DISTINCT CAST(f.pk AS STRING)),
+               MIN(CAST(f.pk AS STRING)),
+               MAX(CAST(f.pk AS STRING)),
+               COUNT(DISTINCT CAST(d.pk AS STRING)),
+               MIN(CAST(d.pk AS STRING)),
+               MAX(CAST(d.pk AS STRING)),
+               COUNT(DISTINCT CAST(f.col_int_undef_signed AS STRING)),
+               MIN(CAST(f.col_int_undef_signed AS STRING)),
+               MAX(CAST(f.col_int_undef_signed AS STRING))
+        FROM rqg_t1 f
+        INNER JOIN (
+            SELECT * FROM rqg_t2 d
+            WHERE d.col_int_undef_signed = 1 AND COALESCE(d.pk, -1) >= 10
+        ) d ON d.col_int_undef_signed = f.col_int_undef_signed
+            AND f.col_int_undef_signed = f.col_int_undef_signed2
+            AND f.pk = d.pk
+    """ }
+
+    def bug27BeResult = sql bug27Query(false)
+    for (int i = 0; i < 20; i++) {
+        assertEquals(bug27BeResult, sql(bug27Query(true)), "Bug 27 run ${i}")
+    }
+
     logger.info("=== All RQG bug reproduction tests completed ===")
 }

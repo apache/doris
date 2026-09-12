@@ -486,59 +486,16 @@ else
     LAST_THIRDPARTY_LIB='hadoop_hdfs_3_4/native/libhdfs.a'
 fi
 
-# The final-library sentinel only proves that some third-party build completed. It cannot
-# distinguish an older prebuilt whose Arrow/Paimon closure predates the selected sources.
-# shellcheck source=thirdparty/arrow-paimon-vars.sh
-. "${DORIS_HOME}/thirdparty/arrow-paimon-vars.sh"
-NEED_ARROW_PAIMON_THIRDPARTY=false
-if [[ "${BUILD_BE}" -eq 1 || "${BUILD_CLOUD}" -eq 1 ||
-    "${BUILD_META_TOOL}" == "ON" || "${BUILD_FILE_CACHE_MICROBENCH_TOOL}" == "ON" ||
-    "${BUILD_INDEX_TOOL}" == "ON" ]]; then
-    NEED_ARROW_PAIMON_THIRDPARTY=true
-fi
-
-rebuild_thirdparty_libraries() {
-    local remove_installed="$1"
-    shift
-    local build_script="${DORIS_THIRDPARTY}/build-thirdparty.sh"
-    local build_args=(-j "${PARALLEL}")
-    local selected_thirdparty_root
-    local checkout_thirdparty_root
-
-    if [[ ! -f "${build_script}" ]]; then
-        echo "Cannot rebuild thirdparty libraries: ${build_script} is missing." >&2
-        echo "DORIS_THIRDPARTY=${DORIS_THIRDPARTY} is an install-only or incomplete prefix. Use a matching compilation image/prebuilt, or unset DORIS_THIRDPARTY to rebuild with this checkout's thirdparty tree." >&2
-        exit 1
-    fi
-    selected_thirdparty_root="$(cd "${DORIS_THIRDPARTY}" && pwd -P)"
-    checkout_thirdparty_root="$(cd "${DORIS_HOME}/thirdparty" && pwd -P)"
-    if [[ "${selected_thirdparty_root}" != "${checkout_thirdparty_root}" ]]; then
-        echo "Cannot rebuild thirdparty libraries with an external source tree: ${selected_thirdparty_root}." >&2
-        echo "Unset DORIS_THIRDPARTY to rebuild with this checkout's thirdparty tree, then use the resulting version-matched installation." >&2
-        exit 1
-    fi
-    build_script="${checkout_thirdparty_root}/build-thirdparty.sh"
-    if [[ "${remove_installed}" == "true" ]]; then
-        # Some libraries, such as lz4, fail when an earlier installation remains.
-        rm -rf "${DORIS_THIRDPARTY}/installed"
-    fi
-    if [[ "${CLEAN}" -eq 1 ]]; then
-        build_args+=(--clean)
-    fi
-    bash "${build_script}" "${build_args[@]}" "$@"
-    if ! arrow_paimon_prebuilt_valid "${DORIS_THIRDPARTY}/installed"; then
-        echo "Rebuilt Arrow/Paimon artifacts do not match this checkout's selected inputs." >&2
-        exit 1
-    fi
-}
-
 if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ]]; then
     echo "Thirdparty libraries need to be build ..."
-    rebuild_thirdparty_libraries true
-elif [[ "${NEED_ARROW_PAIMON_THIRDPARTY}" == "true" ]] &&
-    ! arrow_paimon_prebuilt_valid "${DORIS_THIRDPARTY}/installed"; then
-    echo "Arrow/Paimon thirdparty libraries need to be rebuilt ..."
-    rebuild_thirdparty_libraries false "${ARROW_PAIMON_BUILD_PACKAGES[@]}"
+    # need remove all installed pkgs because some lib like lz4 will throw error if its lib alreay exists
+    rm -rf "${DORIS_THIRDPARTY}/installed"
+
+    if [[ "${CLEAN}" -eq 0 ]]; then
+        bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
+    else
+        bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" --clean
+    fi
 fi
 
 update_submodule() {
@@ -851,6 +808,17 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         fi
     done
     unset _conn_mod
+    # Authorization plugin modules (loaded at runtime from plugins/authorization/). Keep this list
+    # identical to the deploy loop's (search AUTHZ_PLUGIN_DIR), for the same reason as the connectors:
+    # the deploy step unzips whatever archive is left in the module's target/, so a module built here
+    # but not deployed there - or the other way round - ships a stale plugin without failing anything.
+    # ranger-common is a library the two below depend on; -am builds it, nothing deploys it alone.
+    for _authz_mod in ranger-doris ranger-hive; do
+        if [[ -d "${DORIS_HOME}/fe/fe-authorization/fe-authorization-plugins/fe-authorization-plugin-${_authz_mod}" ]]; then
+            modules+=("fe-authorization/fe-authorization-plugins/fe-authorization-plugin-${_authz_mod}")
+        fi
+    done
+    unset _authz_mod
     for extra_module_path in "${FE_EXTRA_MODULE_PATHS[@]}"; do
         modules+=("${extra_module_path}")
     done
@@ -1231,6 +1199,12 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
             continue
         fi
         mkdir -p "${fs_plugin_target}"
+        # unzip -o overwrites but never removes: the one jar in these zips whose name carries the version is
+        # also the one holding the plugin's own classes, so a version bump would leave both copies here and the
+        # loader would bind whichever the sorted URL order reached first. Clear what the zip owns - the jars -
+        # and leave anything else in the directory alone.
+        rm -rf "${fs_plugin_target}/lib"
+        rm -f "${fs_plugin_target}"/*.jar
         # Unpack the self-contained plugin zip produced by maven-assembly-plugin.
         # Layout inside the zip: <plugin>.jar at root + lib/*.jar for runtime deps.
         # DirectoryPluginRuntimeManager picks up both root and lib/ jars automatically.
@@ -1253,6 +1227,13 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
             continue
         fi
         mkdir -p "${conn_plugin_target}"
+        # unzip -o overwrites but never removes: the one jar in these zips whose name carries the version is
+        # also the one holding the plugin's own classes, so a version bump would leave both copies here and the
+        # loader would bind whichever the sorted URL order reached first. Clear what the zip owns - the jars -
+        # and leave anything else in the directory alone.
+        # A connector's live <name>.conf is not a jar, so it survives this and the seeding below keeps it.
+        rm -rf "${conn_plugin_target}/lib"
+        rm -f "${conn_plugin_target}"/*.jar
         unzip -o "${conn_zip}" -d "${conn_plugin_target}/"
         # A connector's own settings file. The zip carries only <name>.conf.template; the live
         # <name>.conf is seeded from it here and never overwritten, so an upgrade that unzips a new
@@ -1265,6 +1246,34 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         done
     done
     unset CONN_PLUGIN_DIR conn_module conn_plugin_target conn_module_dir conn_zip conn_conf_tpl
+
+    # Deploy authorization sources as independent plugin directories.
+    # Each sub-directory is one source AccessControllerManager can install, named in fe.conf by
+    # access_controller_type or in a catalog's access_controller.class. Created even when no module
+    # produced a zip, because it is also where an administrator drops a third-party source.
+    # Keep the module list identical to the build list's (search _authz_mod).
+    AUTHZ_PLUGIN_DIR="${DORIS_OUTPUT}/fe/plugins/authorization"
+    mkdir -p "${AUTHZ_PLUGIN_DIR}"
+    for authz_module in ranger-doris ranger-hive; do
+        authz_plugin_target="${AUTHZ_PLUGIN_DIR}/${authz_module}"
+        authz_module_dir="${DORIS_HOME}/fe/fe-authorization/fe-authorization-plugins/fe-authorization-plugin-${authz_module}"
+        if [ ! -d "${authz_module_dir}" ]; then
+            continue
+        fi
+        authz_zip="${authz_module_dir}/target/doris-fe-authorization-${authz_module}.zip"
+        if [ ! -f "${authz_zip}" ]; then
+            continue
+        fi
+        mkdir -p "${authz_plugin_target}"
+        # unzip -o overwrites but never removes: the one jar in these zips whose name carries the version is
+        # also the one holding the plugin's own classes, so a version bump would leave both copies here and the
+        # loader would bind whichever the sorted URL order reached first. Clear what the zip owns - the jars -
+        # and leave anything else in the directory alone.
+        rm -rf "${authz_plugin_target}/lib"
+        rm -f "${authz_plugin_target}"/*.jar
+        unzip -o "${authz_zip}" -d "${authz_plugin_target}/"
+    done
+    unset AUTHZ_PLUGIN_DIR authz_module authz_plugin_target authz_module_dir authz_zip
 
     # RC-4: self-contain the paimon connector plugin for OSS. The connector sets
     # fs.oss.impl=com.aliyun.jindodata.oss.JindoOssFileSystem; that impl lives in the jindofs jars,

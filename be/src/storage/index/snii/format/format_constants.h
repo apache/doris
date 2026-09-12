@@ -64,34 +64,26 @@ enum class SectionType : uint8_t {
 };
 
 // ---- Logical index postings storage content configuration (fixed per logical
-// index, not per-term) ---- Determines whether to write freq / positions /
-// norms+stats.
+// index, not per-term) ---- Determines whether to write positions.
 enum class IndexConfig : uint8_t {
-    kDocsOnly = 0,             // docid only: term/match filtering
-    kDocsPositions = 1,        // docid+positions (+freq only when the caller keeps
-                               // it -- SniiIndexInput::write_freq, G16-c): MATCH_PHRASE
-    kDocsPositionsScoring = 2, // + norms + stats: phrase + BM25
-    kPositionsOffsets = 3,     // reserved (highlight/RAG), not implemented in this release
+    kDocsOnly = 0,      // docid only: term/match filtering
+    kDocsPositions = 1, // docid+positions: MATCH_PHRASE; BM25 tf = position count
+    // Value 2 was kDocsPositionsScoring, the removed CommonGrams scoring tier. Scoring now
+    // depends on the norms region (CoreMetadata::section_refs.norms); readers reject value 2.
+    kPositionsOffsets = 3, // reserved (highlight/RAG), not implemented in this release
 };
 
-// term stats / postings capability tiers: only tier>=kT2 writes
-// ttf_delta/max_freq and .prx.
+// Postings capability tiers: only tier>=kT2 writes .prx.
 enum class IndexTier : uint8_t {
     kT1 = 1, // docs-only
     kT2 = 2, // docs-positions
-    kT3 = 3, // docs-positions-scoring
 };
 
 inline constexpr IndexTier tier_of(IndexConfig cfg) {
-    return cfg == IndexConfig::kDocsOnly        ? IndexTier::kT1
-           : cfg == IndexConfig::kDocsPositions ? IndexTier::kT2
-                                                : IndexTier::kT3; // scoring / offsets
+    return cfg == IndexConfig::kDocsOnly ? IndexTier::kT1 : IndexTier::kT2;
 }
 inline constexpr bool has_positions(IndexConfig cfg) {
     return cfg != IndexConfig::kDocsOnly;
-}
-inline constexpr bool has_scoring(IndexConfig cfg) {
-    return cfg == IndexConfig::kDocsPositionsScoring;
 }
 
 // ---- DictEntry flags bit definitions ----

@@ -46,6 +46,8 @@ import org.apache.doris.catalog.TableKeyMeta;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
@@ -83,9 +85,11 @@ import org.apache.doris.job.extensions.insert.streaming.AbstractStreamingTask;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.task.AbstractTask;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.util.FrontendConjunctsUtils;
@@ -143,6 +147,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
@@ -1161,10 +1166,12 @@ public class MetadataGenerator {
         List<TRow> dataBatch = Lists.newArrayList();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<Table> tables;
+        DatabaseIf db;
         try {
-            tables = Env.getCurrentEnv().getCatalogMgr()
+            db = Env.getCurrentEnv().getCatalogMgr()
                     .getCatalogOrAnalysisException(InternalCatalog.INTERNAL_CATALOG_NAME)
-                    .getDbOrAnalysisException(dbName).getTables();
+                    .getDbOrAnalysisException(dbName);
+            tables = db.getTables();
         } catch (AnalysisException e) {
             LOG.warn(e.getMessage());
             return errorResult(e.getMessage());
@@ -1198,6 +1205,7 @@ public class MetadataGenerator {
                 trow.addToColumnValue(new TCell().setStringVal(mv.getMvProperties().toString()));
                 trow.addToColumnValue(new TCell().setStringVal(mv.getMvPartitionInfo().toNameString()));
                 trow.addToColumnValue(new TCell().setBoolVal(isSync));
+                trow.addToColumnValue(new TCell().setStringVal(buildIvmStreams(db, mv)));
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("mv end: {}", mv.getName());
                 }
@@ -1210,6 +1218,40 @@ public class MetadataGenerator {
             LOG.debug("mtmvMetadataResult() end");
         }
         return result;
+    }
+
+    /**
+     * {@code {baseTableFullPath=streamFullPath, ...}} of the IVM streams backing this MV,
+     * or empty string for non-IVM materialized views. Stream names are derived from
+     * {@link IvmUtil#streamName}; only streams that actually exist are listed.
+     */
+    private static String buildIvmStreams(DatabaseIf db, MTMV mv) {
+        if (!mv.isIvm()) {
+            return "";
+        }
+        MTMVRelation relation = mv.getRelation();
+        Set<BaseTableInfo> baseTables = relation == null ? null : relation.getBaseTables();
+        Map<String, String> streams = new LinkedHashMap<>();
+        if (baseTables != null && !baseTables.isEmpty()) {
+            Set<TableNameInfo> excluded = mv.getExcludedTriggerTables();
+            for (BaseTableInfo baseTableInfo : baseTables) {
+                if (excluded != null && MTMVPartitionUtil.isTableExcluded(excluded,
+                        new TableNameInfo(baseTableInfo.getCtlName(),
+                                baseTableInfo.getDbName(), baseTableInfo.getTableName()))) {
+                    continue;
+                }
+                List<String> qualifiers = baseTableInfo.toList();
+                TableIf streamTable = db.getTableNullable(IvmUtil.streamName(mv.getId(), qualifiers));
+                if (!(streamTable instanceof BaseTableStream)
+                        || !IvmUtil.isStreamOwnedBy((BaseTableStream) streamTable, qualifiers)) {
+                    continue;
+                }
+                String baseTableFullPath = String.join(".", qualifiers);
+                String streamFullPath = String.join(".", streamTable.getFullQualifiers());
+                streams.put(baseTableFullPath, streamFullPath);
+            }
+        }
+        return streams.toString();
     }
 
     private static TFetchSchemaTableDataResult partitionMetadataResult(TMetadataTableRequestParams params) {

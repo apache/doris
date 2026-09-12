@@ -28,9 +28,9 @@ import org.apache.doris.thrift.TGroupCommitInfo;
 import org.apache.doris.thrift.TMasterOpResult;
 
 import org.apache.logging.log4j.Level;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -38,7 +38,7 @@ import java.lang.reflect.Method;
 
 public class FrontendServiceImplBackendSelectionTest {
 
-    @After
+    @AfterEach
     public void resetBackendSelectionProvider() {
         BackendSelectionManager.resetProviderForTest();
     }
@@ -50,8 +50,8 @@ public class FrontendServiceImplBackendSelectionTest {
 
         BackendSelectionManager.setProviderForTest(policy);
 
-        Assert.assertNull(FrontendServiceImpl.forwardedGroupCommitLoadSelectionHint(info));
-        Assert.assertEquals(0, policy.forwardedLoadSelectionHintCalls);
+        Assertions.assertNull(FrontendServiceImpl.forwardedGroupCommitLoadSelectionHint(info));
+        Assertions.assertEquals(0, policy.forwardedLoadSelectionHintCalls);
     }
 
     @Test
@@ -63,10 +63,10 @@ public class FrontendServiceImplBackendSelectionTest {
 
         BackendSelectionManager.setProviderForTest(policy);
 
-        Assert.assertSame(policy.decision, FrontendServiceImpl.forwardedGroupCommitLoadSelectionHint(info));
-        Assert.assertEquals(1, policy.forwardedLoadSelectionHintCalls);
-        Assert.assertEquals("key_a", policy.preferredKey);
-        Assert.assertEquals(BackendSelection.Mode.PREFER.name(), policy.mode);
+        Assertions.assertSame(policy.decision, FrontendServiceImpl.forwardedGroupCommitLoadSelectionHint(info));
+        Assertions.assertEquals(1, policy.forwardedLoadSelectionHintCalls);
+        Assertions.assertEquals("key_a", policy.preferredKey);
+        Assertions.assertEquals(BackendSelection.Mode.PREFER.name(), policy.mode);
     }
 
     @Test
@@ -88,9 +88,9 @@ public class FrontendServiceImplBackendSelectionTest {
 
             TMasterOpResult result = invokeHandleGroupCommitLoadBeId(service, info);
 
-            Assert.assertEquals(1, result.getStatusCode());
-            Assert.assertTrue(result.getErrMessage().contains("no backend"));
-            Assert.assertTrue(appender.contains(Level.WARN,
+            Assertions.assertEquals(1, result.getStatusCode());
+            Assertions.assertTrue(result.getErrMessage().contains("no backend"));
+            Assertions.assertTrue(appender.contains(Level.WARN,
                     "failed to select backend for forwarded group commit load, tableId=10, cluster=cluster_a"));
         }
     }
@@ -112,10 +112,10 @@ public class FrontendServiceImplBackendSelectionTest {
 
             try {
                 invokeHandleGroupCommitLoadBeId(service, info);
-                Assert.fail("expected TException for a follower without supportsSelectionErrorResult");
+                Assertions.fail("expected TException for a follower without supportsSelectionErrorResult");
             } catch (java.lang.reflect.InvocationTargetException e) {
-                Assert.assertTrue(e.getCause() instanceof org.apache.thrift.TException);
-                Assert.assertTrue(e.getCause().getMessage().contains("no backend"));
+                Assertions.assertTrue(e.getCause() instanceof org.apache.thrift.TException);
+                Assertions.assertTrue(e.getCause().getMessage().contains("no backend"));
             }
         }
     }

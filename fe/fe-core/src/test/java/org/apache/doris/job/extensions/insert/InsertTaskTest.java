@@ -19,13 +19,13 @@ package org.apache.doris.job.extensions.insert;
 
 import org.apache.doris.qe.ConnectContext;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class InsertTaskTest {
     @Test
     public void testMakeConnection() {
         ConnectContext ctx = InsertTask.makeConnectContext(null, null);
-        Assert.assertTrue(ctx.getState().isNereids());
+        Assertions.assertTrue(ctx.getState().isNereids());
     }
 }

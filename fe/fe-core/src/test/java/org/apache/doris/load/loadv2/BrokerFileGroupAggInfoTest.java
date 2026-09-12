@@ -24,8 +24,8 @@ import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 
 import com.google.common.collect.Lists;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
@@ -75,44 +75,46 @@ public class BrokerFileGroupAggInfoTest {
         brokerFileGroupAggInfo.addFileGroup(group5);
 
         Map<FileGroupAggKey, List<BrokerFileGroup>> map = brokerFileGroupAggInfo.getAggKeyToFileGroups();
-        Assert.assertEquals(4, map.keySet().size());
+        Assertions.assertEquals(4, map.keySet().size());
         FileGroupAggKey aggKey = new FileGroupAggKey(1L, Lists.newArrayList(10L));
-        Assert.assertEquals(2, map.get(aggKey).size());
+        Assertions.assertEquals(2, map.get(aggKey).size());
         aggKey = new FileGroupAggKey(2L, Lists.newArrayList());
-        Assert.assertEquals(1, map.get(aggKey).size());
+        Assertions.assertEquals(1, map.get(aggKey).size());
         aggKey = new FileGroupAggKey(3L, Lists.newArrayList(11L, 12L));
-        Assert.assertEquals(1, map.get(aggKey).size());
+        Assertions.assertEquals(1, map.get(aggKey).size());
         aggKey = new FileGroupAggKey(4L, Lists.newArrayList());
-        Assert.assertEquals(1, map.get(aggKey).size());
+        Assertions.assertEquals(1, map.get(aggKey).size());
     }
 
-    @Test(expected = DdlException.class)
+    @Test
     public void test2() throws DdlException {
-        /*
-         * data description:
-         *  table 1 -> partition[10, 11] file1
-         *  table 1 -> partition[11, 12] file2
-         *  table 2 -> partition[]   file3
-         *
-         * output:
-         *  throw exception
-         */
-        BrokerFileGroupAggInfo brokerFileGroupAggInfo = new BrokerFileGroupAggInfo();
+        Assertions.assertThrows(DdlException.class, () -> {
+            /*
+             * data description:
+             *  table 1 -> partition[10, 11] file1
+             *  table 1 -> partition[11, 12] file2
+             *  table 2 -> partition[]   file3
+             *
+             * output:
+             *  throw exception
+             */
+            BrokerFileGroupAggInfo brokerFileGroupAggInfo = new BrokerFileGroupAggInfo();
 
-        BrokerFileGroup group1 = Deencapsulation.newInstance(BrokerFileGroup.class);
-        Deencapsulation.setField(group1, "tableId", 1L);
-        Deencapsulation.setField(group1, "partitionIds", Lists.newArrayList(10L, 11L));
+            BrokerFileGroup group1 = Deencapsulation.newInstance(BrokerFileGroup.class);
+            Deencapsulation.setField(group1, "tableId", 1L);
+            Deencapsulation.setField(group1, "partitionIds", Lists.newArrayList(10L, 11L));
 
-        BrokerFileGroup group2 = Deencapsulation.newInstance(BrokerFileGroup.class);
-        Deencapsulation.setField(group2, "tableId", 1L);
-        Deencapsulation.setField(group2, "partitionIds", Lists.newArrayList(11L, 12L));
+            BrokerFileGroup group2 = Deencapsulation.newInstance(BrokerFileGroup.class);
+            Deencapsulation.setField(group2, "tableId", 1L);
+            Deencapsulation.setField(group2, "partitionIds", Lists.newArrayList(11L, 12L));
 
-        BrokerFileGroup group3 = Deencapsulation.newInstance(BrokerFileGroup.class);
-        Deencapsulation.setField(group3, "tableId", 2L);
-        Deencapsulation.setField(group3, "partitionIds", Lists.newArrayList());
+            BrokerFileGroup group3 = Deencapsulation.newInstance(BrokerFileGroup.class);
+            Deencapsulation.setField(group3, "tableId", 2L);
+            Deencapsulation.setField(group3, "partitionIds", Lists.newArrayList());
 
-        brokerFileGroupAggInfo.addFileGroup(group1);
-        brokerFileGroupAggInfo.addFileGroup(group2);
+            brokerFileGroupAggInfo.addFileGroup(group1);
+            brokerFileGroupAggInfo.addFileGroup(group2);
+        });
     }
 
 }

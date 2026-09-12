@@ -24,10 +24,10 @@ import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.ListMultimap;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -45,7 +45,7 @@ public class RowBinlogReportHandlerTest {
     private MockedStatic<Env> mockedEnvStatic;
     private TabletInvertedIndex invertedIndex;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         invertedIndex = Mockito.mock(TabletInvertedIndex.class);
 
@@ -53,7 +53,7 @@ public class RowBinlogReportHandlerTest {
         mockedEnvStatic.when(Env::getCurrentInvertedIndex).thenReturn(invertedIndex);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         mockedEnvStatic.close();
     }
@@ -85,12 +85,12 @@ public class RowBinlogReportHandlerTest {
 
         ReportHandler.filterRowBinlogTabletMigration(migrationMap, 10001L);
 
-        Assert.assertEquals(3, migrationMap.size());
-        Assert.assertTrue(migrationMap.containsEntry(TStorageMedium.SSD, baseTabletId));
-        Assert.assertTrue(migrationMap.containsEntry(TStorageMedium.SSD, rollupTabletId));
-        Assert.assertTrue(migrationMap.containsEntry(TStorageMedium.SSD, ordinaryTabletId));
-        Assert.assertFalse(migrationMap.containsEntry(TStorageMedium.SSD, rowBinlogTabletId));
-        Assert.assertFalse(migrationMap.containsEntry(TStorageMedium.SSD, missingTabletId));
+        Assertions.assertEquals(3, migrationMap.size());
+        Assertions.assertTrue(migrationMap.containsEntry(TStorageMedium.SSD, baseTabletId));
+        Assertions.assertTrue(migrationMap.containsEntry(TStorageMedium.SSD, rollupTabletId));
+        Assertions.assertTrue(migrationMap.containsEntry(TStorageMedium.SSD, ordinaryTabletId));
+        Assertions.assertFalse(migrationMap.containsEntry(TStorageMedium.SSD, rowBinlogTabletId));
+        Assertions.assertFalse(migrationMap.containsEntry(TStorageMedium.SSD, missingTabletId));
     }
 
     private TabletMeta tabletMeta(long tableId, long partitionId, long indexId) {

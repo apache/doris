@@ -106,6 +106,9 @@ struct ReadProfile {
     RuntimeProfile::Counter* num_delete_files = nullptr;
     RuntimeProfile::Counter* num_delete_rows = nullptr;
     RuntimeProfile::Counter* parse_delete_file_time = nullptr;
+    RuntimeProfile::Counter* equality_delete_index_cache_hit_count = nullptr;
+    RuntimeProfile::Counter* equality_delete_index_cache_miss_count = nullptr;
+    RuntimeProfile::Counter* equality_delete_hash_index_memory = nullptr;
     RuntimeProfile::Counter* decoded_dv_cache_hit_count = nullptr;
     RuntimeProfile::Counter* decoded_dv_cache_miss_count = nullptr;
     RuntimeProfile::Counter* dv_file_cache_hit_count = nullptr;
@@ -462,7 +465,6 @@ protected:
             RETURN_IF_ERROR(close_current_reader());
             return Status::OK();
         }
-        RETURN_IF_ERROR(validate_file_mapping(*_data_reader.column_mapper));
         // COUNT(*) has no semantic column argument, but Nereids retains a minimum-width scan slot
         // so the scan node still has an output tuple. Record only the current non-predicate file
         // columns before table-format hooks add row-position or equality-delete dependencies. This
@@ -481,6 +483,9 @@ protected:
             }
         }
         RETURN_IF_ERROR(customize_file_scan_request(file_request.get()));
+        RETURN_IF_ERROR(_data_reader.column_mapper->reconcile_scan_request_after_customization(
+                file_request.get()));
+        RETURN_IF_ERROR(validate_file_mapping(*_data_reader.column_mapper));
         RETURN_IF_ERROR(_open_local_filter_exprs(*file_request));
         _data_reader.file_block_layout.clear();
         _data_reader.block_template.clear();

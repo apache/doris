@@ -1214,26 +1214,12 @@ Status Compaction::do_inverted_index_compaction() {
                         auto* destination_writer =
                                 inverted_index_file_writers[cast_set<int>(destination_ordinal)]
                                         .get();
-                        if (merge_eligibility.kind ==
-                            snii::compaction::SniiStreamedMergeKind::kCommonGramsT3) {
-                            merge_status = destination_writer->add_snii_index_streamed(
-                                    index_meta, dest_segment_num_rows[destination_ordinal],
-                                    merge_plan->take_destination_null_docids(destination_ordinal),
-                                    merge_plan->take_destination_encoded_norms(destination_ordinal),
-                                    merge_plan->destination_common_grams_metadata(
-                                            destination_ordinal),
-                                    merge_plan->destination_common_grams_posting_policy(),
-                                    merge_plan->destination_index_config(),
-                                    snii_merge_memory_reporter,
-                                    &destination_sessions[destination_ordinal]);
-                        } else {
-                            merge_status = destination_writer->add_snii_index_streamed(
-                                    index_meta, dest_segment_num_rows[destination_ordinal],
-                                    merge_plan->take_destination_null_docids(destination_ordinal),
-                                    merge_plan->destination_index_config(),
-                                    snii_merge_memory_reporter,
-                                    &destination_sessions[destination_ordinal]);
-                        }
+                        merge_status = destination_writer->add_snii_index_streamed(
+                                index_meta, dest_segment_num_rows[destination_ordinal],
+                                merge_plan->take_destination_null_docids(destination_ordinal),
+                                merge_plan->destination_writes_norms(),
+                                merge_plan->destination_index_config(), snii_merge_memory_reporter,
+                                &destination_sessions[destination_ordinal]);
                         if (!merge_status.ok()) {
                             break;
                         }

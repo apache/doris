@@ -29,8 +29,8 @@ import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TTabletType;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.Collections;
@@ -48,21 +48,21 @@ public class CloudInternalCatalogTest {
         try {
             Config.enable_partition_inverted_index_storage_format_rollout = false;
             OlapFile.TabletMetaCloudPB disabledTabletMeta = createTabletMeta(tablet);
-            Assert.assertEquals(17, disabledTabletMeta.getSchemaVersion());
-            Assert.assertEquals(17, disabledTabletMeta.getSchema().getSchemaVersion());
-            Assert.assertEquals(OlapFile.InvertedIndexStorageFormatPB.SNII,
+            Assertions.assertEquals(17, disabledTabletMeta.getSchemaVersion());
+            Assertions.assertEquals(17, disabledTabletMeta.getSchema().getSchemaVersion());
+            Assertions.assertEquals(OlapFile.InvertedIndexStorageFormatPB.SNII,
                     disabledTabletMeta.getSchema().getInvertedIndexStorageFormat());
-            Assert.assertFalse(disabledTabletMeta.hasInvertedIndexStorageFormat());
-            Assert.assertEquals(1, disabledTabletMeta.getRsMetasCount());
-            Assert.assertFalse(disabledTabletMeta.getRsMetas(0).hasInvertedIndexStorageFormat());
+            Assertions.assertFalse(disabledTabletMeta.hasInvertedIndexStorageFormat());
+            Assertions.assertEquals(1, disabledTabletMeta.getRsMetasCount());
+            Assertions.assertFalse(disabledTabletMeta.getRsMetas(0).hasInvertedIndexStorageFormat());
 
             Config.enable_partition_inverted_index_storage_format_rollout = true;
             OlapFile.TabletMetaCloudPB enabledTabletMeta = createTabletMeta(tablet);
-            Assert.assertTrue(enabledTabletMeta.hasInvertedIndexStorageFormat());
-            Assert.assertEquals(OlapFile.InvertedIndexStorageFormatPB.SNII,
+            Assertions.assertTrue(enabledTabletMeta.hasInvertedIndexStorageFormat());
+            Assertions.assertEquals(OlapFile.InvertedIndexStorageFormatPB.SNII,
                     enabledTabletMeta.getInvertedIndexStorageFormat());
-            Assert.assertTrue(enabledTabletMeta.getRsMetas(0).hasInvertedIndexStorageFormat());
-            Assert.assertEquals(OlapFile.InvertedIndexStorageFormatPB.SNII,
+            Assertions.assertTrue(enabledTabletMeta.getRsMetas(0).hasInvertedIndexStorageFormat());
+            Assertions.assertEquals(OlapFile.InvertedIndexStorageFormatPB.SNII,
                     enabledTabletMeta.getRsMetas(0).getInvertedIndexStorageFormat());
         } finally {
             Config.enable_partition_inverted_index_storage_format_rollout = original;

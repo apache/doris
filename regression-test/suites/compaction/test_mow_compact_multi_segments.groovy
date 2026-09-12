@@ -190,7 +190,13 @@ suite("test_mow_compact_multi_segments", "nonConcurrent") {
     getTabletStatus(tablet, 2, 3)
 
     // trigger compaction
+    // The cloud and the local cumulative policies are different classes with their own debug point,
+    // and this suite runs in both deployments, so pin the input rowsets on both. Without the local
+    // one, the storage-compute-coupled BE picks the input rowsets by size/score: [2-2] alone is
+    // below both thresholds and is skipped, and the next round merges [2-2] with [3-3].
     GetDebugPoint().enableDebugPointForAllBEs("CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
+            [tablet_id: "${tablet.TabletId}", start_version: 2, end_version: 2])
+    GetDebugPoint().enableDebugPointForAllBEs("SizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
             [tablet_id: "${tablet.TabletId}", start_version: 2, end_version: 2])
     def (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
     logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
@@ -204,7 +210,9 @@ suite("test_mow_compact_multi_segments", "nonConcurrent") {
         }
         sleep(100)
     }
-    getTabletStatus(tablet, 2, 1)
+    // enableAssert: the loop above exits on timeout as well, so assert the segment count here
+    // instead of letting a compaction that never ran slip through to the next step.
+    getTabletStatus(tablet, 2, 1, true)
     sql """ select * from ${tableName} limit 1; """
 
     // load 2
@@ -236,6 +244,8 @@ suite("test_mow_compact_multi_segments", "nonConcurrent") {
     // trigger compaction for load 2
     GetDebugPoint().enableDebugPointForAllBEs("CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
             [tablet_id: "${tablet.TabletId}", start_version: 3, end_version: 3])
+    GetDebugPoint().enableDebugPointForAllBEs("SizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
+            [tablet_id: "${tablet.TabletId}", start_version: 3, end_version: 3])
     (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
     logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
     assertEquals(code, 0)
@@ -249,7 +259,9 @@ suite("test_mow_compact_multi_segments", "nonConcurrent") {
         }
         sleep(100)
     }
-    getTabletStatus(tablet, 3, 1)
+    // enableAssert: the loop above exits on timeout as well, so assert the segment count here
+    // instead of letting a compaction that never ran slip through to the next step.
+    getTabletStatus(tablet, 3, 1, true)
 
     GetDebugPoint().enableDebugPointForAllBEs("DeleteBitmapAction._handle_show_local_delete_bitmap_count.vacuum_stale_rowsets") // cloud
     GetDebugPoint().enableDebugPointForAllBEs("DeleteBitmapAction._handle_show_local_delete_bitmap_count.start_delete_unused_rowset") // local
