@@ -98,6 +98,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
@@ -470,11 +471,11 @@ public class BindRelation extends OneAnalysisRuleFactory {
      */
     public static LogicalPlan checkAndAddDeleteSignFilter(LogicalOlapScan scan, ConnectContext connectContext,
             OlapTable olapTable) {
-        return checkAndAddDeleteSignFilter(scan, connectContext, olapTable, false);
+        return checkAndAddDeleteSignFilter(scan, connectContext, olapTable, false, false);
     }
 
     private static LogicalPlan checkAndAddDeleteSignFilter(LogicalOlapScan scan, ConnectContext connectContext,
-            OlapTable olapTable, boolean force) {
+            OlapTable olapTable, boolean force, boolean addCheckPolicy) {
         if (scan.getTable().hasDeleteSign()
                 && (force || (!Util.showHiddenColumns()
                 && !connectContext.getSessionVariable().skipDeleteSign()
@@ -495,9 +496,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 scan = scan.withPreAggStatus(PreAggStatus.off(
                         Column.DELETE_SIGN + " is used as conjuncts."));
             }
-            return new LogicalFilter<>(ImmutableSet.of(conjunct), scan);
+            LogicalPlan child = addCheckPolicy ? new LogicalCheckPolicy<>(scan) : scan;
+            return new LogicalFilter<>(ImmutableSet.of(conjunct), child);
         }
-        return scan;
+        return addCheckPolicy ? new LogicalCheckPolicy<>(scan) : scan;
     }
 
     /**
@@ -587,8 +589,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     /**
-     * mow time-travel: A|t1 = base(survived rows, tso&lt;=t1) UNION ALL binlog(before-image of
-     * UPDATE_BEFORE/DELETE since t1). The binlog right branch reuses the @incr (MIN_DELTA) machinery;
+     * mow time-travel: A|t1 = base(survived rows, tso &lt; targetTso) UNION ALL binlog(before-image of
+     * UPDATE_BEFORE/DELETE from targetTso). The binlog right branch reuses the @incr (MIN_DELTA) machinery;
      * BE splits each change into rows where UPDATE_BEFORE/DELETE rows already carry the before value.
      */
     private LogicalPlan buildMowTimeTravelUnion(LogicalOlapScan baseScan, OlapTable olapTable,
@@ -601,7 +603,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 .collect(Collectors.toList());
 
         // left: base survived rows at t1 = delete_sign=0 AND commit_tso < targetTso, projected to visible.
-        LogicalPlan left = checkAndAddDeleteSignFilter(baseScan, ConnectContext.get(), olapTable, true);
+        LogicalPlan left = checkAndAddDeleteSignFilter(
+                baseScan, ConnectContext.get(), olapTable, true, true);
         left = projectFromOriginSlots(addCommitTsoFilter(left, targetTso, olapTable), visibleOutput);
 
         // right: binlog MIN_DELTA over tso >= targetTso, keep UPDATE_BEFORE/DELETE rows (before image),
@@ -624,7 +627,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         binlogScan = binlogScan.withTableScanParams(
                 new TableScanParams(TableScanParams.INCREMENTAL_READ, incrParams, Lists.newArrayList()));
 
-        LogicalPlan right = checkAndAddChangeScanFilter(binlogScan, StreamScanType.MIN_DELTA, true);
+        LogicalPlan right = checkAndAddChangeScanFilter(binlogScan, StreamScanType.MIN_DELTA, true, true);
         right = projectFromOriginSlots(right, visibleOutput);
 
         // both children are bound; BindExpression aligns by position and fills the union output.
@@ -1057,7 +1060,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
      */
     public static LogicalPlan checkAndAddChangeScanFilter(LogicalOlapScan scan,
                                                           StreamScanType scanType, boolean beforeImageOnly) {
-        LogicalPlan plan = scan;
+        return checkAndAddChangeScanFilter(scan, scanType, beforeImageOnly, false);
+    }
+
+    private static LogicalPlan checkAndAddChangeScanFilter(LogicalOlapScan scan,
+            StreamScanType scanType, boolean beforeImageOnly, boolean addCheckPolicy) {
+        LogicalPlan plan = addCheckPolicy ? new LogicalCheckPolicy<>(scan) : scan;
         Slot opSlot = null;
         for (Slot slot : scan.getOutput()) {
             if (slot.getName().equals(Column.BINLOG_OPERATION_COL)) {
