@@ -62,8 +62,11 @@ public class PrunePartitionPredicate extends PlanPostProcessor {
         if (!entryOpt.isPresent()) {
             return filter;
         }
+        // Short-circuit point queries need equality conjuncts on all key columns kept in
+        // the scan for distribution pruning and key tuple construction, see PointQueryExecutor.
         boolean skipPrunePredicate = context.getConnectContext().getSessionVariable().skipPrunePredicate
-                || context.getStatementContext().isDelete();
+                || context.getStatementContext().isDelete()
+                || context.getStatementContext().isShortCircuitQuery();
         if (skipPrunePredicate) {
             return filter;
         }
