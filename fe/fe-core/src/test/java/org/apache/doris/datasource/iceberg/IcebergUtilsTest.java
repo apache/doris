@@ -458,12 +458,12 @@ public class IcebergUtilsTest {
         Assert.assertEquals(Types.GeographyType.of("EPSG:4326", org.apache.iceberg.types.EdgeAlgorithm.VINCENTY),
                 IcebergUtils.dorisTypeToIcebergType(geography));
 
-        try {
-            IcebergUtils.icebergTypeToDorisType(Types.GeographyType.of("EPSG:4326"), false, false);
-            Assert.fail("Iceberg geography with an unspecified edge algorithm must not be mapped to a different type");
-        } catch (IllegalArgumentException e) {
-            Assert.assertTrue(e.getMessage().contains("no edge algorithm"));
-        }
+        Type geographyWithDefaultAlgorithm = IcebergUtils.icebergTypeToDorisType(
+                Types.GeographyType.of("EPSG:4326"), false, false);
+        Assert.assertEquals("EPSG:4326", ((ScalarType) geographyWithDefaultAlgorithm).getSpatialCrs());
+        Assert.assertEquals("spherical", ((ScalarType) geographyWithDefaultAlgorithm).getSpatialAlgorithm());
+        Assert.assertEquals(Types.GeographyType.of("EPSG:4326", org.apache.iceberg.types.EdgeAlgorithm.SPHERICAL),
+                IcebergUtils.dorisTypeToIcebergType(geographyWithDefaultAlgorithm));
     }
 
     @Test
