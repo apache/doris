@@ -149,6 +149,8 @@ public:
     ~BinaryDictPageDecoder() override;
 
 private:
+    Status _validate_dict_codes(const int32_t* codes, size_t start_index, size_t count) const;
+
     Slice _data;
     PageDecoderOptions _options;
     std::unique_ptr<PageDecoder> _data_page_decoder;
