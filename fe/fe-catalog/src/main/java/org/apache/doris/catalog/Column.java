@@ -412,6 +412,7 @@ public class Column implements GsonPostProcessable {
         this.comment = column.getComment();
         this.visible = column.visible;
         this.children = column.getChildren();
+        this.fieldPatternType = column.fieldPatternType;
         this.uniqueId = column.getUniqueId();
         this.reservedPassthrough = column.reservedPassthrough;
         this.defineExpr = column.getDefineExpr();
@@ -784,9 +785,6 @@ public class Column implements GsonPostProcessable {
         }
 
         if (type.isVariantType() && other.type.isVariantType()) {
-            if (this.getVariantMaxSubcolumnsCount() != other.getVariantMaxSubcolumnsCount()) {
-                throw new DdlException("Can not change variant max subcolumns count");
-            }
             if (this.getVariantEnableTypedPathsToSparse() != other.getVariantEnableTypedPathsToSparse()) {
                 throw new DdlException("Can not change variant enable typed paths to sparse");
             }
@@ -805,9 +803,8 @@ public class Column implements GsonPostProcessable {
             if (this.getVariantEnableNestedGroup() != other.getVariantEnableNestedGroup()) {
                 throw new DdlException("Can not change variant enable nested group");
             }
-            if (CollectionUtils.isNotEmpty(this.getChildren()) || CollectionUtils.isNotEmpty(other.getChildren())) {
-                throw new DdlException("Can not change variant schema templates");
-            }
+            // Templates and the materialized-subcolumn limit are write policies. Existing
+            // segments retain their schema until compaction applies the current policy.
         }
     }
 
@@ -939,7 +936,7 @@ public class Column implements GsonPostProcessable {
     public int hashCode() {
         return Objects.hash(name, getDataType(), getStrLen(), getPrecision(), getScale(), aggregationType,
                 isAggregationTypeImplicit, isKey, isAllowNull, isAutoInc, defaultValue, getComment(), children, visible,
-                realDefaultValue, clusterKeyId);
+                realDefaultValue, clusterKeyId, fieldPatternType);
     }
 
     @Override
@@ -964,6 +961,7 @@ public class Column implements GsonPostProcessable {
                 && Objects.equals(getComment(), other.getComment())
                 && visible == other.visible
                 && Objects.equals(children, other.children)
+                && Objects.equals(fieldPatternType, other.fieldPatternType)
                 && Objects.equals(realDefaultValue, other.realDefaultValue)
                 && clusterKeyId == other.clusterKeyId;
     }

@@ -37,6 +37,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
@@ -50,6 +51,10 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.lang.reflect.Method;
 import java.util.LinkedList;
 import java.util.List;
@@ -667,6 +672,92 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             testChangeExistingSubColumnType(defaultVal, tableName);
             testAddUnsupportedSubColumnType(defaultVal, tableName);
         }
+    }
+
+    @Test
+    public void testModifyVariantPropertiesLightSchemaChange() throws Exception {
+        createTable("CREATE TABLE test.sc_variant_properties (id INT, "
+                + "v VARIANT<'a': STRING, PROPERTIES('variant_max_subcolumns_count'='1')>) "
+                + "DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                + "PROPERTIES ('replication_num'='1', 'light_schema_change'='true')");
+        OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbOrMetaException("test")
+                .getTableOrMetaException("sc_variant_properties", Table.TableType.OLAP);
+        createTable("CREATE TABLE test.sc_variant_replay (id INT, "
+                + "v VARIANT<'a': STRING, PROPERTIES('variant_max_subcolumns_count'='1')>) "
+                + "DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                + "PROPERTIES ('replication_num'='1', 'light_schema_change'='true')");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable replayTable = (OlapTable) db.getTableOrMetaException("sc_variant_replay", Table.TableType.OLAP);
+        int uniqueId = table.getColumn("v").getUniqueId();
+        int schemaVersion = table.getIndexMetaByIndexId(table.getBaseIndexId()).getSchemaVersion();
+        List<String> definitions = List.of(
+                "VARIANT<'a': STRING, PROPERTIES('variant_max_subcolumns_count'='3')>",
+                "VARIANT<'a': INT, 'b': STRING, PROPERTIES('variant_max_subcolumns_count'='3')>",
+                "VARIANT<MATCH_NAME 'a': INT, 'b': STRING, PROPERTIES('variant_max_subcolumns_count'='3')>",
+                "VARIANT<PROPERTIES('variant_max_subcolumns_count'='0')>");
+        for (int i = 0; i < definitions.size(); ++i) {
+            alterTable("ALTER TABLE test.sc_variant_properties MODIFY COLUMN v " + definitions.get(i), connectContext);
+            jobSize++;
+            Assertions.assertEquals(uniqueId, table.getColumn("v").getUniqueId());
+            Assertions.assertEquals(++schemaVersion,
+                    table.getIndexMetaByIndexId(table.getBaseIndexId()).getSchemaVersion());
+            Assertions.assertEquals(OlapTable.OlapTableState.NORMAL, table.getState());
+            // Round-trip the actual journal payload type, then apply the follower replay path.
+            Map<Long, LinkedList<Column>> replaySchema = Maps.newHashMap();
+            replaySchema.put(replayTable.getBaseIndexId(), table.getBaseSchema().stream()
+                    .map(Column::new).collect(Collectors.toCollection(LinkedList::new)));
+            TableAddOrDropColumnsInfo journal = new TableAddOrDropColumnsInfo("", db.getId(),
+                    replayTable.getId(), replayTable.getBaseIndexId(), replaySchema,
+                    Maps.newHashMap(), Maps.newHashMap(), table.getIndexes(), Env.getCurrentEnv().getNextId());
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            journal.write(new DataOutputStream(bytes));
+            TableAddOrDropColumnsInfo restored = TableAddOrDropColumnsInfo.read(
+                    new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
+            Env.getCurrentEnv().getSchemaChangeHandler().replayModifyTableLightSchemaChange(restored);
+            jobSize++;
+            Assertions.assertEquals(table.getColumn("v"), replayTable.getColumn("v"));
+            Assertions.assertEquals(schemaVersion,
+                    replayTable.getIndexMetaByIndexId(replayTable.getBaseIndexId()).getSchemaVersion());
+
+        }
+        Assertions.assertEquals(0, table.getColumn("v").getVariantMaxSubcolumnsCount());
+        Assertions.assertNull(table.getColumn("v").getChildren());
+
+
+        createTable("CREATE TABLE test.sc_variant_row_store (id INT, "
+                + "v VARIANT<PROPERTIES('variant_max_subcolumns_count'='1')>) "
+                + "UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                + "PROPERTIES ('replication_num'='1', 'store_row_column'='true')");
+        alterTable("ALTER TABLE test.sc_variant_row_store MODIFY COLUMN v "
+                + "VARIANT<PROPERTIES('variant_max_subcolumns_count'='0')>", connectContext);
+        jobSize++;
+        DdlException exception = Assertions.assertThrows(DdlException.class, () ->
+                alterTable("ALTER TABLE test.sc_variant_row_store MODIFY COLUMN v VARIANT<'a': INT>",
+                        connectContext));
+        Assertions.assertTrue(exception.getMessage().contains("schema templates on a row-store table"));
+
+    }
+
+    @Test
+    public void testModifyVariantIndexedTemplateValidation() throws Exception {
+        createTable("CREATE TABLE test.sc_variant_indexed (id INT, v VARIANT<'a': STRING>, "
+                + "INDEX idx_a(v) USING INVERTED PROPERTIES('field_pattern'='a', 'parser'='english')) "
+                + "DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                + "PROPERTIES ('replication_num'='1', 'light_schema_change'='true')");
+        expectException("ALTER TABLE test.sc_variant_indexed MODIFY COLUMN v VARIANT<'b': INT>",
+                "referenced by index idx_a");
+        expectException("ALTER TABLE test.sc_variant_indexed MODIFY COLUMN v VARIANT",
+                "referenced by index idx_a");
+        expectException("ALTER TABLE test.sc_variant_indexed MODIFY COLUMN v VARIANT<'a': INT>",
+                "parser");
+        alterTable("ALTER TABLE test.sc_variant_indexed MODIFY COLUMN v "
+                + "VARIANT<'a': STRING, PROPERTIES('variant_max_subcolumns_count'='0')>", connectContext);
+        jobSize++;
+        OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbOrMetaException("test")
+                .getTableOrMetaException("sc_variant_indexed", Table.TableType.OLAP);
+        Assertions.assertEquals(0, table.getColumn("v").getVariantMaxSubcolumnsCount());
+        Assertions.assertEquals("a", table.getColumn("v").getChildren().get(0).getName());
+        Assertions.assertEquals(PrimitiveType.STRING, table.getColumn("v").getChildren().get(0).getDataType());
     }
 
     @Test
