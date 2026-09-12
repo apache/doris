@@ -69,6 +69,7 @@ import org.apache.commons.lang3.BooleanUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -119,6 +120,10 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     // Values: TRIM_HORIZON, LATEST, or a timestamp string.
     private String kinesisDefaultPosition = "";
 
+    // Null means this field was absent in a legacy image. New jobs set it explicitly.
+    @SerializedName("kips")
+    private Boolean kinesisInitialPositionSet;
+
     // custom Kinesis properties including AWS credentials and client settings.
     @SerializedName("prop")
     private Map<String, String> customProperties = Maps.newHashMap();
@@ -142,6 +147,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         this.region = region;
         this.stream = stream;
         this.progress = new KinesisProgress();
+        this.kinesisInitialPositionSet = false;
     }
 
     public KinesisRoutineLoadJob(Long id, String name, long dbId,
@@ -151,7 +157,22 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         this.region = region;
         this.stream = stream;
         this.progress = new KinesisProgress();
+        this.kinesisInitialPositionSet = false;
         setMultiTable(isMultiTable);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
+        if (kinesisInitialPositionSet == null) {
+            // Legacy images have no marker. A job that has already left the initial
+            // scheduling state must not treat a later empty progress as first setup.
+            kinesisInitialPositionSet = state != JobState.NEED_SCHEDULE
+                    || ((KinesisProgress) progress).hasShards()
+                    || !openKinesisShards.isEmpty()
+                    || !closedKinesisShards.isEmpty()
+                    || !customKinesisShards.isEmpty();
+        }
     }
 
     public String getRegion() {
@@ -285,6 +306,10 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
 
     private void updateProgressAndOffsetsCache(RLTaskTxnCommitAttachment attachment) {
         KinesisProgress taskProgress = (KinesisProgress) attachment.getProgress();
+
+        // A completed task proves that initial positions have already been resolved.
+        // Keep this marker across the parent-shard progress being removed below.
+        kinesisInitialPositionSet = true;
 
         // Keep the latest observed MillisBehindLatest per shard instead of the historical max.
         taskProgress.getShardIdToMillsBehindLatest().forEach(cachedShardWithMillsBehindLatest::put);
@@ -541,8 +566,9 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     }
 
     private void updateNewShardProgress() throws UserException {
-        // Check if this is initial setup (no shards in progress yet)
-        boolean isInitialSetup = !((KinesisProgress) progress).hasShards();
+        // Progress can be empty after all previously tracked shards were consumed.
+        // Use the lifecycle marker instead of emptiness to distinguish first setup.
+        boolean isInitialSetup = !Boolean.TRUE.equals(kinesisInitialPositionSet);
 
         // Combine open and closed shards
         List<String> allShards = Lists.newArrayList();
@@ -572,6 +598,9 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
                             .add("msg", "The new shard has been added in job"));
                 }
             }
+        }
+        if (!allShards.isEmpty()) {
+            kinesisInitialPositionSet = true;
         }
     }
 
@@ -735,6 +764,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
 
             if (resetProgress) {
                 this.progress = new KinesisProgress();
+                this.kinesisInitialPositionSet = false;
                 this.openKinesisShards.clear();
                 this.closedKinesisShards.clear();
                 this.cachedShardWithMillsBehindLatest.clear();
