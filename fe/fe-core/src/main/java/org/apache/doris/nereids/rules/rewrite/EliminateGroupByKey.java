@@ -242,9 +242,12 @@ public class EliminateGroupByKey extends DefaultPlanRewriter<Map<ExprId, ExprId>
     private static FindResult findCanBeRemovedExpressionsInternal(LogicalAggregate<? extends Plan> agg,
             Set<Slot> requireOutput, DataTrait dataTrait) {
         Map<Expression, Set<Slot>> groupBySlots = new HashMap<>();
+        Map<Expression, Boolean> safeToEliminate = new HashMap<>();
         Set<Slot> validSlots = new HashSet<>();
         for (Expression expression : agg.getGroupByExpressions()) {
             groupBySlots.put(expression, expression.getInputSlots());
+            safeToEliminate.put(expression,
+                    AggregateGroupKeyUtils.canSafelyEliminateByFunctionalDependency(expression, agg.child()));
             validSlots.addAll(expression.getInputSlots());
         }
 
@@ -257,7 +260,7 @@ public class EliminateGroupByKey extends DefaultPlanRewriter<Map<ExprId, ExprId>
         Set<Expression> removeExpression = new HashSet<>();
         Set<Expression> wrapWithAnyValue = new HashSet<>();
         for (Entry<Expression, Set<Slot>> entry : groupBySlots.entrySet()) {
-            if (!minGroupBySlots.contains(entry.getValue())) {
+            if (!minGroupBySlots.contains(entry.getValue()) && safeToEliminate.get(entry.getKey())) {
                 // FD redundant: can remove from group-by
                 if (!requireOutput.containsAll(entry.getValue())) {
                     // Not needed in output either: remove completely
