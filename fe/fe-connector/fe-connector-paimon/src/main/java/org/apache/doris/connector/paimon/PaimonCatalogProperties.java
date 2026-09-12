@@ -137,7 +137,11 @@ public final class PaimonCatalogProperties {
      * @return this, so the provider can call it in one expression
      */
     public PaimonCatalogProperties checkCreateTimeOnlyRules() {
-        checkMetaCacheProperties(raw);
+        return checkCreateTimeOnlyRules(raw);
+    }
+
+    public PaimonCatalogProperties checkCreateTimeOnlyRules(Map<String, String> submittedProperties) {
+        checkMetaCacheProperties(raw, submittedProperties);
         warnIgnoredDeadTableCacheKeys(raw);
         // #65955: an unknown or unparseable paimon.table-option.* must fail the CREATE/ALTER CATALOG.
         // Upstream got this from AbstractPaimonProperties.initNormalizeAndCheckProps(), which the SPI
@@ -159,7 +163,9 @@ public final class PaimonCatalogProperties {
      * {@code table.enable} must be boolean, {@code table.ttl-second} must be a long &ge; -1,
      * {@code table.capacity} must be a long &ge; 0. Absent keys are skipped.
      */
-    private static void checkMetaCacheProperties(Map<String, String> properties) {
+    private static void checkMetaCacheProperties(
+            Map<String, String> properties, Map<String, String> submittedProperties) {
+        CacheSpec.checkWeightProperties(properties, submittedProperties, "paimon", "partition_view");
         CacheSpec.checkBooleanProperty(properties.get(PaimonConnector.TABLE_CACHE_ENABLE),
                 PaimonConnector.TABLE_CACHE_ENABLE);
         CacheSpec.checkLongProperty(properties.get(PaimonConnector.TABLE_CACHE_TTL_SECOND),

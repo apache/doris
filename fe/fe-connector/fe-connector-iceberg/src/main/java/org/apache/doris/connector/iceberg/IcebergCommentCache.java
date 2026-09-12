@@ -21,6 +21,7 @@ import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimators;
 import org.apache.doris.connector.cache.ScopePath;
 
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -57,7 +58,7 @@ final class IcebergCommentCache {
     private final MetaCache<TableIdentifier, String> entry;
 
     IcebergCommentCache(long ttlSeconds, int maxSize) {
-        this(new CatalogMetaCache(), ttlSeconds, maxSize);
+        this(CatalogMetaCache.unmanaged(), ttlSeconds, maxSize);
     }
 
     IcebergCommentCache(CatalogMetaCache owner, long ttlSeconds, int maxSize) {
@@ -68,6 +69,7 @@ final class IcebergCommentCache {
         CacheSpec spec = CacheSpec.ofConnectorTtl(ttlSeconds, maxSize);
         this.entry = owner.create(MetaCacheDefinition
                 .<TableIdentifier, String>builder("iceberg-comment", spec, IcebergCommentCache::scope)
+                .sizeEstimator(MetaCacheSizeEstimators.reflective())
                 .build());
     }
 

@@ -990,6 +990,22 @@ final class IcebergPartitionUtils {
             this.lastUpdateTime = lastUpdateTime;
             this.lastSnapshotId = lastSnapshotId;
         }
+
+        String nameForWeight() {
+            return name;
+        }
+
+        List<String> columnNamesForWeight() {
+            return columnNames;
+        }
+
+        List<String> valuesForWeight() {
+            return values;
+        }
+
+        List<String> transformsForWeight() {
+            return transforms;
+        }
     }
 
     /** A single physical partition's computed range: time interval (for the overlap merge) + pre-rendered bounds. */

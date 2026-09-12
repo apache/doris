@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimators;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -87,7 +88,8 @@ public abstract class ExternalCatalogMetaCache implements ExternalMetaCache {
     public void initCatalog(long catalogId, Map<String, String> catalogProperties) {
         Map<String, String> safeCatalogProperties = CacheSpec.applyCompatibilityMap(
                 catalogProperties, catalogPropertyCompatibilityMap());
-        catalogEntries.computeIfAbsent(catalogId, id -> buildCatalogRuntime(safeCatalogProperties));
+        catalogEntries.computeIfAbsent(catalogId,
+                id -> buildCatalogRuntime(id, safeCatalogProperties));
     }
 
     @Override
@@ -271,8 +273,8 @@ public abstract class ExternalCatalogMetaCache implements ExternalMetaCache {
         ensureTypeCompatible(registered, entryDef.getKeyType(), entryDef.getValueType());
     }
 
-    private CatalogMetaCacheRuntime buildCatalogRuntime(Map<String, String> catalogProperties) {
-        CatalogMetaCacheRuntime group = new CatalogMetaCacheRuntime();
+    private CatalogMetaCacheRuntime buildCatalogRuntime(long catalogId, Map<String, String> catalogProperties) {
+        CatalogMetaCacheRuntime group = new CatalogMetaCacheRuntime(catalogId, engine, catalogProperties);
         metaCacheEntryDefs.values()
                 .forEach(entryDef -> group.put(entryDef.getName(),
                         newMetaCacheEntry(group, entryDef, catalogProperties)));
@@ -286,8 +288,9 @@ public abstract class ExternalCatalogMetaCache implements ExternalMetaCache {
         CacheSpec cacheSpec = CacheSpec.fromProperties(
                 catalogProperties, engine, entryDef.getName(), entryDef.getDefaultCacheSpec());
         Function<K, V> loader = wrapSchemaValidator(entryDef.getLoader(), entryDef.getValueType());
-        MetaCacheDefinition.Builder<K, V> builder = MetaCacheDefinition.builder(
-                entryDef.getName(), cacheSpec, entryDef.getInvalidation()::scope);
+        MetaCacheDefinition.Builder<K, V> builder = MetaCacheDefinition.<K, V>builder(
+                entryDef.getName(), cacheSpec, entryDef.getInvalidation()::scope)
+                .sizeEstimator(MetaCacheSizeEstimators.reflective());
         if (loader != null) {
             builder.loader(loader);
         }

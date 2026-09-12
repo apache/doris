@@ -136,6 +136,19 @@ public class HiveConnectorSiblingTest {
         Assertions.assertEquals(0, context.buildCount, "close must not trigger a sibling build");
     }
 
+    @Test
+    public void closePreventsLateSiblingCreation() throws Exception {
+        RecordingSiblingContext context = new RecordingSiblingContext(new FakeSibling());
+        HiveConnector connector = new HiveConnector(HiveTestProperties.minimalMap(), context);
+
+        connector.close();
+
+        Assertions.assertThrows(DorisConnectorException.class, connector::getOrCreateIcebergSibling);
+        Assertions.assertThrows(DorisConnectorException.class, connector::getOrCreateHudiSibling);
+        Assertions.assertEquals(0, context.buildCount,
+                "a closed gateway must not publish a new managed sibling cache owner");
+    }
+
     // ---- hudi sibling holder (mirrors the iceberg cases above; hudi synthesizes props verbatim, no flavor) ----
 
     @Test

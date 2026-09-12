@@ -20,6 +20,7 @@ package org.apache.doris.connector.cache;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.OptionalLong;
@@ -245,5 +246,56 @@ public class CacheSpecTest {
         Assertions.assertFalse(
                 CacheSpec.isMetaCacheKeyForEngine("meta.cache.paimon.table.ttl-second", "iceberg"));
         Assertions.assertFalse(CacheSpec.isMetaCacheKeyForEngine(null, "iceberg"));
+    }
+
+    @Test
+    public void parsesAndValidatesWeightProperties() {
+        Assertions.assertEquals(1024L, CacheSpec.parseWeight("1KB", "weight", false, 0L));
+        Assertions.assertEquals(512L, CacheSpec.parseWeight("25%", "weight", true, 2048L));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> CacheSpec.parseWeight("1.5GB", "weight", false, 0L));
+
+        Map<String, String> properties = new HashMap<>();
+        properties.put("meta.cache.max-weight", "2GB");
+        properties.put("meta.cache.iceberg.table.max-weight", "1GB");
+        CacheSpec.checkWeightProperties(properties, "iceberg", "table");
+
+        properties.put("meta.cache.iceberg.table.max-weight", "3GB");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> CacheSpec.checkWeightProperties(properties, "iceberg", "table"));
+
+        properties.put("meta.cache.iceberg.table.max-weight", "0");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> CacheSpec.checkWeightProperties(properties, "iceberg", "table"));
+
+        properties.put("meta.cache.iceberg.table.max-weight", "1GB");
+        properties.put("meta.cache.iceberg.unknown.max-weight", "1MB");
+        Assertions.assertDoesNotThrow(() -> CacheSpec.checkWeightProperties(properties, "iceberg", "table"));
+
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> CacheSpec.checkWeightProperties(properties, properties, "iceberg", "table"));
+        Assertions.assertDoesNotThrow(() -> CacheSpec.checkWeightProperties(
+                properties, Collections.singletonMap("comment", "updated"), "iceberg", "table"));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> CacheSpec.checkWeightProperties(
+                properties, Collections.singletonMap("meta.cache.iceberg.max-weight", "1MB"), "iceberg", "table"));
+
+        properties.clear();
+        properties.put("meta.cache.max-weight", "invalid");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> CacheSpec.checkCatalogWeightProperty(properties));
+    }
+
+    @Test
+    public void invalidPersistedEntryWeightFallsBackToUnbounded() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("meta.cache.hive.file.max-weight", "invalid");
+        CacheSpec spec = CacheSpec.fromProperties(
+                properties, "hive", "file", CacheSpec.of(true, 60L, 100L));
+        Assertions.assertFalse(spec.getMaxWeight().isPresent());
+
+        properties.put("meta.cache.hive.file.max-weight", "0");
+        spec = CacheSpec.fromProperties(properties, "hive", "file",
+                CacheSpec.of(true, 10L, 100L));
+        Assertions.assertFalse(spec.getMaxWeight().isPresent());
     }
 }

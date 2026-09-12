@@ -20,7 +20,9 @@ package org.apache.doris.connector.cache;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -33,15 +35,57 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public final class CatalogMetaCache implements AutoCloseable {
     private final ScopedMetaCacheRegistry registry;
+    private final MetaCacheBudgetManager budgetManager;
+    private final long catalogId;
+    private final String engine;
+    private final OptionalLong catalogMaxWeight;
+    private final boolean managed;
     private final Set<String> names = ConcurrentHashMap.newKeySet();
+    private final Map<String, MetaCache<?, ?>> entries = new ConcurrentHashMap<>();
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
-    public CatalogMetaCache() {
-        this(new ScopedMetaCacheRegistry());
+    private CatalogMetaCache() {
+        this(new ScopedMetaCacheRegistry(), new MetaCacheBudgetManager(OptionalLong.empty()),
+                0L, "standalone", OptionalLong.empty(), false);
     }
 
     CatalogMetaCache(ScopedMetaCacheRegistry registry) {
+        this(registry, new MetaCacheBudgetManager(OptionalLong.empty()),
+                0L, "standalone", OptionalLong.empty(), false);
+    }
+
+    public CatalogMetaCache(MetaCacheBudgetManager budgetManager, long catalogId,
+            String engine, Map<String, String> catalogProperties) {
+        this(new ScopedMetaCacheRegistry(), budgetManager, catalogId, engine,
+                budgetManager.parseCatalogMaxWeight(catalogProperties), false);
+    }
+
+    /**
+     * Creates an isolated owner without shared global/catalog budgets or unified statistics registration.
+     * Entry-local weight limits still apply. Use for independent caches and tests; governed catalog caches
+     * must use {@link #managed}.
+     */
+    public static CatalogMetaCache unmanaged() {
+        return new CatalogMetaCache();
+    }
+
+    public static CatalogMetaCache managed(long catalogId, String engine,
+            Map<String, String> catalogProperties) {
+        MetaCacheBudgetManager manager = MetaCacheGovernance.budgetManager();
+        CatalogMetaCache cache = new CatalogMetaCache(new ScopedMetaCacheRegistry(), manager,
+                catalogId, engine, manager.parseCatalogMaxWeight(catalogProperties), true);
+        MetaCacheGovernance.register(cache);
+        return cache;
+    }
+
+    CatalogMetaCache(ScopedMetaCacheRegistry registry, MetaCacheBudgetManager budgetManager,
+            long catalogId, String engine, OptionalLong catalogMaxWeight, boolean managed) {
         this.registry = Objects.requireNonNull(registry, "registry can not be null");
+        this.budgetManager = Objects.requireNonNull(budgetManager, "budgetManager can not be null");
+        this.catalogId = catalogId;
+        this.engine = Objects.requireNonNull(engine, "engine can not be null");
+        this.catalogMaxWeight = Objects.requireNonNull(catalogMaxWeight, "catalogMaxWeight can not be null");
+        this.managed = managed;
     }
 
     public <K, V> MetaCache<K, V> create(MetaCacheDefinition<K, V> definition) {
@@ -51,14 +95,39 @@ public final class CatalogMetaCache implements AutoCloseable {
         if (!names.add(nonNullDefinition.name())) {
             throw new IllegalArgumentException("Duplicate meta cache name: " + nonNullDefinition.name());
         }
+        MetaCacheBudgetManager.EntryBudget entryBudget = null;
         try {
-            return new MetaCache<>(nonNullDefinition,
+            boolean weightLimited = budgetManager.hasLimit(
+                    catalogMaxWeight, nonNullDefinition.cacheSpec().getMaxWeight());
+            if (weightLimited && nonNullDefinition.sizeEstimator() == null) {
+                throw new IllegalArgumentException("Weighted metadata cache requires a size estimator: "
+                        + nonNullDefinition.name());
+            }
+            if (weightLimited) {
+                entryBudget = budgetManager.createEntryBudget(catalogId, engine,
+                        nonNullDefinition.name(), nonNullDefinition.budgetGroup(), catalogMaxWeight,
+                        nonNullDefinition.cacheSpec().getMaxWeight());
+            }
+            MetaCache<K, V> created = new MetaCache<>(nonNullDefinition,
                     registry.createCacheWithMetaRemovalListener(nonNullDefinition.name(),
                             nonNullDefinition.cacheSpec(), nonNullDefinition.removalListener(),
                             nonNullDefinition.discardListener(),
-                            nonNullDefinition.refreshAfterWrite(), nonNullDefinition.refreshExecutor()));
+                            nonNullDefinition.refreshAfterWrite(), nonNullDefinition.refreshExecutor(),
+                            entryBudget == null ? null : nonNullDefinition.sizeEstimator(), entryBudget));
+            entries.put(nonNullDefinition.name(), created);
+            return created;
         } catch (RuntimeException | Error throwable) {
+            if (entryBudget != null) {
+                entryBudget.close();
+            }
             names.remove(nonNullDefinition.name());
+            if (managed) {
+                try {
+                    close();
+                } catch (RuntimeException | Error closeFailure) {
+                    throwable.addSuppressed(closeFailure);
+                }
+            }
             throw throwable;
         }
     }
@@ -100,11 +169,38 @@ public final class CatalogMetaCache implements AutoCloseable {
         return registry.metrics();
     }
 
+    public Map<String, MetaCache<?, ?>> entries() {
+        return java.util.Collections.unmodifiableMap(entries);
+    }
+
+    public long catalogId() {
+        return catalogId;
+    }
+
+    public String engine() {
+        return engine;
+    }
+
+    public OptionalLong catalogMaxWeight() {
+        return catalogMaxWeight;
+    }
+
+    public boolean hasEnclosingWeightLimit() {
+        return budgetManager.hasLimit(catalogMaxWeight, OptionalLong.empty());
+    }
+
     @Override
     public void close() {
         if (closed.compareAndSet(false, true)) {
-            registry.close();
-            names.clear();
+            try {
+                registry.close();
+            } finally {
+                names.clear();
+                entries.clear();
+                if (managed) {
+                    MetaCacheGovernance.unregister(this);
+                }
+            }
         }
     }
 

@@ -68,7 +68,7 @@ public class HudiConnector implements Connector {
     private final HudiCatalogProperties props;
     private final Map<String, String> properties;
     private final ConnectorContext context;
-    private final CatalogMetaCache metaCache = new CatalogMetaCache();
+    private final CatalogMetaCache metaCache;
     private volatile HmsClient hmsClient;
 
     // HMS and storage deliberately have separate authenticators: hive.metastore.username must affect set_ugi
@@ -83,6 +83,7 @@ public class HudiConnector implements Connector {
         this.props = HudiCatalogProperties.of(properties);
         this.properties = props.getRaw();
         this.context = context;
+        this.metaCache = CatalogMetaCache.managed(context.getCatalogId(), "hudi", this.properties);
     }
 
     @Override

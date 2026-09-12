@@ -140,14 +140,13 @@ public class PaimonConnector implements Connector {
     // returns a fresh metadata per query, so this lives on the connector and is injected into the metadata so
     // beginQuerySnapshot pins a stable id across queries. Cleared wholesale on REFRESH CATALOG (connector rebuilt).
     private final PaimonLatestSnapshotCache latestSnapshotCache;
-    private final CatalogMetaCache metaCache = new CatalogMetaCache();
+    private final CatalogMetaCache metaCache;
 
     // FIX-B-MC2: connector-level (per-catalog, long-lived) second-level memo for the time-travel
     // schema-at-snapshot read. getMetadata() returns a FRESH metadata per query, so this must live on the
     // connector (not the metadata) to give the cross-query hit the legacy PaimonExternalMetaCache provided.
     // Cleared wholesale on REFRESH CATALOG (the connector is rebuilt). See PaimonSchemaAtMemo.
-    private final PaimonSchemaAtMemo schemaAtMemo =
-            new PaimonSchemaAtMemo(metaCache, PaimonSchemaAtMemo.DEFAULT_MAX_SIZE);
+    private final PaimonSchemaAtMemo schemaAtMemo;
 
     // PERF-06: cross-query DERIVED partition-view cache ("cache A", the generic ConnectorMetadataCache from
     // fe-connector-cache), layered ABOVE the raw remote catalog.listPartitions call (PaimonCatalogOps#listPartitions):
@@ -180,13 +179,17 @@ public class PaimonConnector implements Connector {
         // this a DDL/read against secured HDFS negotiates SIMPLE auth. See TcclPinningConnectorContext.
         this.context = new TcclPinningConnectorContext(context, getClass().getClassLoader(),
                 this::pluginAuthenticator);
+        this.metaCache = CatalogMetaCache.managed(context.getCatalogId(), "paimon", properties);
+        this.schemaAtMemo = new PaimonSchemaAtMemo(metaCache, PaimonSchemaAtMemo.DEFAULT_MAX_SIZE);
         this.latestSnapshotCache =
                 new PaimonLatestSnapshotCache(
                         metaCache, resolveTableCacheTtlSecond(properties), DEFAULT_TABLE_CACHE_CAPACITY);
         // Reads its own meta.cache.paimon.partition_view.(enable|ttl-second|capacity) from the catalog
         // properties via the framework's CacheSpec (default ON / 24h / 1000).
         this.partitionViewCache = new ConnectorMetadataCache<>(
-                metaCache, "paimon.partition-view", "paimon", "partition_view", properties);
+                metaCache, "paimon.partition-view", "paimon", "partition_view", properties,
+                key -> org.apache.doris.connector.cache.ScopePath.table(key.getDb(), key.getTable()),
+                PaimonPartitionViewSizeEstimator::estimateEntry);
     }
 
     /**
@@ -408,7 +411,7 @@ public class PaimonConnector implements Connector {
     }
 
     private Catalog createCatalog() {
-        Options options = PaimonCatalogFactory.buildCatalogOptions(catalogProps);
+        Options options = buildCatalogOptions();
         String flavor = catalogProps.getFlavor();
         // Canonical storage config from the FE-bound fe-filesystem StorageProperties (P1-T03), replacing
         // the legacy buildObjectStorageHadoopConfig path: object stores contribute their fs.s3a.*/fs.oss.*
@@ -493,6 +496,10 @@ public class PaimonConnector implements Connector {
     static boolean hasDlfCompatibleStorage(List<StorageProperties> storageProperties) {
         return storageProperties.stream().anyMatch(storage -> "OSS".equals(storage.providerName())
                 || "OSS_HDFS".equals(storage.providerName()));
+    }
+
+    Options buildCatalogOptions() {
+        return PaimonCatalogFactory.buildCatalogOptions(catalogProps, metaCache.hasEnclosingWeightLimit());
     }
 
     /**
