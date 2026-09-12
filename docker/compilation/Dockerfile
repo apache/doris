@@ -112,10 +112,16 @@ RUN rm -f /etc/profile.d/ccache.* \
 # Install the Rust toolchain required by Lance-C.
 ENV CARGO_HOME=/opt/cargo RUSTUP_HOME=/opt/rustup
 ENV PATH="/opt/cargo/bin:${PATH}"
+# The CI compile pipeline installs rustup inside this image and then runs
+# `source ~/.cargo/env` in an `&&` chain. With CARGO_HOME relocated to /opt/cargo,
+# rustup-init writes /opt/cargo/env and ~/.cargo/env never exists, so that `source`
+# fails and the chain aborts before anything is built. Keep the default path valid.
 RUN wget -q https://sh.rustup.rs -O /tmp/rustup-init.sh \
     && sh /tmp/rustup-init.sh -y --no-modify-path --profile minimal --default-toolchain 1.91.0 \
     && rm -f /tmp/rustup-init.sh \
-    && cargo --version && rustc --version
+    && mkdir -p /root/.cargo \
+    && ln -sf "${CARGO_HOME}/env" /root/.cargo/env \
+    && bash -c 'source ~/.cargo/env && cargo --version && rustc --version'
 
 # clone lastest source code, download and build third party
 COPY doris ${DEFAULT_DIR}/doris
