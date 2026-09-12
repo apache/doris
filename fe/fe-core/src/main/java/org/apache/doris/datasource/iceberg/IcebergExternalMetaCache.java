@@ -217,6 +217,8 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
     public WritableTableLease acquireWritableIcebergTable(
             ExternalTable dorisTable, @Nullable IcebergMetadataOps expectedOps) {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
+        MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue> retainedManifestEntry =
+                manifestEntry.get(nameMapping.getCtlId());
         CatalogIf catalog = getCatalog(nameMapping.getCtlId());
         if (catalog == null) {
             throw new RuntimeException("Cannot find catalog " + nameMapping.getCtlId()
@@ -243,6 +245,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                     owner.add(context.promote()::close);
                     IcebergRuntimeContext runtimeContext = new IcebergRuntimeContext(
                             context.getAuthenticator(), ops.getThreadPoolWithPreAuth(),
+                            retainedManifestEntry,
                             context.getMetastoreProperties(), context.getStorageProperties());
                     WritableTableLease lease = new WritableTableLease(
                             table, ops, runtimeContext, context.isEnableMappingVarbinary(),
@@ -275,6 +278,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                     owner.add(context.promote()::close);
                     IcebergRuntimeContext runtimeContext = new IcebergRuntimeContext(
                             context.getAuthenticator(), context.getExecutor(),
+                            retainedManifestEntry,
                             context.getMetastoreProperties(), context.getStorageProperties());
                     WritableTableLease lease = new WritableTableLease(
                             table, ops, runtimeContext, enableMappingVarbinary,
@@ -520,18 +524,39 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
     public ManifestCacheValue getManifestCacheValue(ExternalTable dorisTable,
             org.apache.iceberg.ManifestFile manifest,
             Table icebergTable,
+            @Nullable IcebergRuntimeContext runtimeContext,
             Consumer<Boolean> cacheHitRecorder) {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
-        MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue> manifestEntry =
-                this.manifestEntry.get(nameMapping.getCtlId());
         IcebergManifestEntryKey key = IcebergManifestEntryKey.of(manifest);
+        MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue> retainedManifestEntry =
+                resolveManifestEntry(nameMapping.getCtlId(), runtimeContext);
+        return getManifestCacheValue(retainedManifestEntry, key,
+                ignored -> loadManifestCacheValue(
+                        manifest, icebergTable, key.getContent(), retainedManifestEntry.isWeightAccounting()),
+                cacheHitRecorder);
+    }
+
+    @VisibleForTesting
+    ManifestCacheValue getManifestCacheValue(long catalogId, @Nullable IcebergRuntimeContext runtimeContext,
+            IcebergManifestEntryKey key, Function<IcebergManifestEntryKey, ManifestCacheValue> loader,
+            Consumer<Boolean> cacheHitRecorder) {
+        return getManifestCacheValue(resolveManifestEntry(catalogId, runtimeContext), key, loader, cacheHitRecorder);
+    }
+
+    private ManifestCacheValue getManifestCacheValue(
+            MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue> manifestEntry,
+            IcebergManifestEntryKey key, Function<IcebergManifestEntryKey, ManifestCacheValue> loader,
+            Consumer<Boolean> cacheHitRecorder) {
         boolean hit = manifestEntry.peekIfPresent(key) != null;
         if (cacheHitRecorder != null) {
             cacheHitRecorder.accept(hit);
         }
-        return manifestEntry.get(key,
-                ignored -> loadManifestCacheValue(
-                        manifest, icebergTable, key.getContent(), manifestEntry.isWeightAccounting()));
+        return manifestEntry.get(key, loader);
+    }
+
+    private MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue> resolveManifestEntry(
+            long catalogId, @Nullable IcebergRuntimeContext runtimeContext) {
+        return runtimeContext == null ? manifestEntry.get(catalogId) : runtimeContext.getManifestEntry();
     }
 
     @Override
@@ -546,12 +571,15 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
 
     @Override
     public void invalidateCatalogEntries(long catalogId) {
-        List<FileIO> retainedFileIos = collectManifestFileIos(catalogId);
-        super.invalidateCatalogEntries(catalogId);
-        dropManifestFileIoCaches(retainedFileIos);
+        // A retained table generation also retains this group's manifest entry. Retire the
+        // complete group so pre-reset scans hold a closed entry: they may finish by loading
+        // directly, but can neither consume nor publish the replacement generation's payloads.
+        invalidateCatalog(catalogId);
     }
 
     private IcebergTableCacheValue loadTableCacheValue(NameMapping nameMapping) {
+        MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue> retainedManifestEntry =
+                manifestEntry.get(nameMapping.getCtlId());
         CatalogIf catalog = getCatalog(nameMapping.getCtlId());
         if (catalog == null) {
             throw new RuntimeException(String.format("Cannot find catalog %d when loading table %s/%s.",
@@ -576,6 +604,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                     try (TableResourceOwner catalogOwner = new TableResourceOwner(context.promote()::close)) {
                         IcebergTableCacheValue value = execute(context.getAuthenticator(), () -> createLoadedTableValue(
                                 nameMapping, table, ops.getThreadPoolWithPreAuth(), context.getAuthenticator(),
+                                retainedManifestEntry,
                                 context.getMetastoreProperties(), context.getStorageProperties(),
                                 enableMappingVarbinary, enableMappingTimestampTz,
                                 owner, catalogOwner.cleanup()));
@@ -604,6 +633,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                     try (TableResourceOwner catalogOwner = new TableResourceOwner(context.promote()::close)) {
                         IcebergTableCacheValue value = execute(context.getAuthenticator(), () -> createLoadedTableValue(
                                 nameMapping, table, context.getExecutor(), context.getAuthenticator(),
+                                retainedManifestEntry,
                                 context.getMetastoreProperties(), context.getStorageProperties(),
                                 enableMappingVarbinary, enableMappingTimestampTz,
                                 owner, catalogOwner.cleanup()));
@@ -620,6 +650,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
 
     private IcebergTableCacheValue createLoadedTableValue(NameMapping nameMapping, Table table,
             ThreadPoolExecutor planningExecutor, ExecutionAuthenticator authenticator,
+            MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue> retainedManifestEntry,
             org.apache.doris.datasource.property.metastore.MetastoreProperties metastoreProperties,
             Map<org.apache.doris.datasource.property.storage.StorageProperties.Type,
                     org.apache.doris.datasource.property.storage.StorageProperties> storageProperties,
@@ -630,7 +661,8 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         try {
             loaded.bindAuthenticator(authenticator);
             loaded.bindRuntimeContext(new IcebergRuntimeContext(
-                    authenticator, planningExecutor, metastoreProperties, storageProperties));
+                    authenticator, planningExecutor, retainedManifestEntry,
+                    metastoreProperties, storageProperties));
             loaded.bindSchemaMappingOptions(enableMappingVarbinary, enableMappingTimestampTz);
             MetaCacheEntry<NameMapping, IcebergTableCacheValue> currentEntry =
                     tableEntry.getIfInitialized(nameMapping.getCtlId());

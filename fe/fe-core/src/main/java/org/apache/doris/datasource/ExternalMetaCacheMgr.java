@@ -425,10 +425,10 @@ public class ExternalMetaCacheMgr {
      */
     /**
      * A committed catalog property ALTER (fresh or replayed) resets the catalog's execution
-     * context and closes its SDK resources without retiring the engine cache groups. Cached base
-     * generations and their projections are bound to the replaced context: served as-is they
-     * would fail the planning fences until expiry, so retire the entries (groups and policies
-     * stay) and let the next statement load a generation bound to the new context.
+     * context and closes its SDK resources. Cached base generations and their projections are
+     * bound to the replaced context: served as-is they would fail the planning fences until expiry,
+     * so each engine retires its operational entries (and, when entry identity is part of the
+     * retained runtime, its group) and lets the next statement load a coherent generation.
      */
     public void onCatalogOperationalContextChanged(long catalogId) {
         routeCatalogEngines(catalogId, cache -> safeInvalidate(

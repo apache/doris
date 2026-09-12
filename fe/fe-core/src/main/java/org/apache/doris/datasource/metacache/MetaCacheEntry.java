@@ -616,7 +616,7 @@ public class MetaCacheEntry<K, V> {
      * which case preparing values for publication is pure waste.
      */
     public boolean isWeightAccounting() {
-        return weightBounded && effectiveEnabled;
+        return weightBounded && effectiveEnabled && !closed.get();
     }
 
     private AdmissionResult admitWeightedValue(

@@ -18,26 +18,32 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
+import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.collect.ImmutableMap;
 
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ThreadPoolExecutor;
 
 /** Immutable execution state retained together with one Iceberg table generation. */
 public final class IcebergRuntimeContext {
     private final ExecutionAuthenticator authenticator;
     private final ThreadPoolExecutor planningExecutor;
+    private final MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue> manifestEntry;
     private final MetastoreProperties metastoreProperties;
     private final Map<StorageProperties.Type, StorageProperties> storageProperties;
 
     IcebergRuntimeContext(ExecutionAuthenticator authenticator, ThreadPoolExecutor planningExecutor,
+            MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue> manifestEntry,
             MetastoreProperties metastoreProperties,
             Map<StorageProperties.Type, StorageProperties> storageProperties) {
         this.authenticator = authenticator;
         this.planningExecutor = planningExecutor;
+        this.manifestEntry = Objects.requireNonNull(manifestEntry, "manifestEntry");
         this.metastoreProperties = metastoreProperties;
         this.storageProperties = ImmutableMap.copyOf(storageProperties);
     }
@@ -48,6 +54,10 @@ public final class IcebergRuntimeContext {
 
     public ThreadPoolExecutor getPlanningExecutor() {
         return planningExecutor;
+    }
+
+    MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue> getManifestEntry() {
+        return manifestEntry;
     }
 
     public MetastoreProperties getMetastoreProperties() {
