@@ -134,6 +134,13 @@ public class GroupingSetsTest extends TestWithFeService {
     }
 
     @Test
+    public void testPercentileApproxWeightedWithGroupingSets() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select k1, percentile_approx_weighted(k2, k3, 0.5) from t1"
+                        + " group by grouping sets((k1), ());");
+    }
+
+    @Test
     public void testGroupingNullable() {
         PlanChecker.from(connectContext)
                 .checkPlannerResult("select k3, k4 from t1 group by grouping sets((k1, k3, k4), (k2))");

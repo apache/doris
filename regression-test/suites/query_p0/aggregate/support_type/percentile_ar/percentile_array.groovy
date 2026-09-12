@@ -61,4 +61,27 @@ suite("percentile_array") {
     qt_percentile_array_largeint """select percentile_array(col_largeint, array(0.5, 0.8)) from d_table;"""
     qt_percentile_array_float """select percentile_array(col_float, array(0.5, 0.8)) from d_table;"""
     qt_percentile_array_double """select percentile_array(col_double, array(0.5, 0.8)) from d_table;"""
+    qt_percentile_array_distinct_const_arg """select percentile_array(distinct col_double, array(cast('0.5' as double), cast('0.8' as double))) from d_table;"""
+    order_qt_percentile_array_window_range """select k1, percentile_array(col_double, array(0.25, 0.5, 0.75)) over(order by k1 rows between current row and 1 following) from d_table order by k1;"""
+    sql """set debug_skip_fold_constant=true;"""
+    order_qt_percentile_array_window_const_expr """select k1, percentile_array(col_double, array(cast('0.25' as double), coalesce(cast(null as double), cast(0.5 as double)), cast('0.75' as double))) over(order by k1 rows between current row and 1 following) from d_table order by k1;"""
+    sql """set debug_skip_fold_constant=false;"""
+
+    test {
+        sql """select percentile_array(col_double, array(-0.1, 0.8)) from d_table;"""
+        exception "percentile_array quantile must be in [0, 1]"
+    }
+    test {
+        sql """select percentile_array(col_double, array(0.5, 1.1)) from d_table;"""
+        exception "percentile_array quantile must be in [0, 1]"
+    }
+    test {
+        sql """select percentile_array_state(col_double, [null]) from d_table;"""
+        exception "percentile_array quantile should not be null"
+        check { result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            assertTrue(exception.toString().contains("percentile_array quantile should not be null"))
+            assertFalse(exception.toString().contains("INTERNAL_ERROR"))
+        }
+    }
 }

@@ -19,12 +19,17 @@
 
 #include <glog/logging.h>
 
+#include <array>
 #include <memory>
 
+#include "core/block/column_with_type_and_name.h"
+#include "core/column/column_const.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/aggregate/aggregate_function.h"
+#include "exprs/vexpr_context.h"
+#include "util/percentile_util.h"
 #include "util/reservoir_sampler.h"
 
 namespace doris {
@@ -33,33 +38,55 @@ class Arena;
 class BufferReadable;
 
 struct QuantileReservoirSampler {
-    void add(const double x, const double input_level) {
-        this->level = input_level;
-        data.insert(x);
+    void init(double input_level) {
+        if (!level_initialized) {
+            check_quantile(input_level);
+            level = input_level;
+            level_initialized = true;
+        }
     }
 
-    void add_batch(const double* values, size_t size, const double input_level) {
-        this->level = input_level;
-        data.insert_many(values, size);
-    }
+    bool is_level_initialized() const { return level_initialized; }
+
+    void add(const double x) { data.insert(x); }
+
+    void add_batch(const double* values, size_t size) { data.insert_many(values, size); }
 
     void merge(const QuantileReservoirSampler& rhs) {
-        level = rhs.level;
+        if (!rhs.level_initialized) {
+            return;
+        }
+        if (!level_initialized) {
+            level = rhs.level;
+            level_initialized = true;
+        }
         data.merge(rhs.data);
     }
 
     void reset() {
-        level = 0.0;
+        // The level is a semantic constant for the aggregate expression, so keep the validated
+        // value when analytic execution resets only the samples for the next window frame.
         data.clear();
     }
 
     void serialize(BufferWritable& buf) const {
+        buf.write_binary(level_initialized);
+        if (!level_initialized) {
+            return;
+        }
         buf.write_binary(level);
         data.write(buf);
     }
 
     void deserialize(BufferReadable& buf) {
+        level = 0.0;
+        data.clear();
+        buf.read_binary(level_initialized);
+        if (!level_initialized) {
+            return;
+        }
         buf.read_binary(level);
+        check_quantile(level);
         data.read(buf);
     }
 
@@ -71,6 +98,7 @@ struct QuantileReservoirSampler {
 
 private:
     double level = 0.0;
+    bool level_initialized = false;
     ReservoirSampler data;
 };
 
@@ -88,27 +116,38 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
 
+    const std::vector<size_t>& get_const_argument_indexes() const override {
+        static const std::vector<size_t> indexes {1};
+        return indexes;
+    }
+
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
         auto value = assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0])
                              .get_data()[row_num];
-        auto level = assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1])
-                             .get_data()[0];
-        this->data(place).add(value, level);
+        auto& state = this->data(place);
+        if (!state.is_level_initialized()) {
+            const auto& level_column = *check_and_get_column_with_const<ColumnFloat64>(*columns[1]);
+            state.init(level_column.get_data()[0]);
+        }
+        state.add(value);
     }
 
     void check_input_columns_type(const IColumn** columns) const override {
         this->template check_argument_column_type<ColumnFloat64>(columns[0]);
-        this->template check_argument_column_type<ColumnFloat64>(columns[1]);
+        this->template check_const_argument_column_type<ColumnFloat64>(columns[1]);
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena&) const override {
         const auto& sources =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-        const auto& levels =
-                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
-        this->data(place).add_batch(sources.get_data().data(), batch_size, levels.get_data()[0]);
+        auto& state = this->data(place);
+        if (!state.is_level_initialized()) {
+            const auto& level_column = *check_and_get_column_with_const<ColumnFloat64>(*columns[1]);
+            state.init(level_column.get_data()[0]);
+        }
+        state.add_batch(sources.get_data().data(), batch_size);
     }
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
@@ -120,10 +159,13 @@ public:
         if (frame_start < frame_end) {
             const auto& sources =
                     assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-            const auto& levels =
-                    assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
-            this->data(place).add_batch(sources.get_data().data() + frame_start,
-                                        frame_end - frame_start, levels.get_data()[0]);
+            auto& state = this->data(place);
+            if (!state.is_level_initialized()) {
+                const auto& level_column =
+                        *check_and_get_column_with_const<ColumnFloat64>(*columns[1]);
+                state.init(level_column.get_data()[0]);
+            }
+            state.add_batch(sources.get_data().data() + frame_start, frame_end - frame_start);
             *use_null_result = false;
             *could_use_previous_result = true;
         } else if (!*could_use_previous_result) {

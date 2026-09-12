@@ -110,6 +110,11 @@ suite("test_aggregate_percentile_no_cast") {
     sql "INSERT INTO percentile_test_db2 values(1,10.1), (2,8.2), (2,114.3) ,(3,10.4) ,(5,29.5) ,(6,101.6)"
     qt_select "select percentile_array(level,[0.5,0.55,0.805])from percentile_test_db2;"
 
+    test {
+        sql "select percentile_array(level, id) from percentile_test_db2;"
+        exception "percentile_array requires second parameter must be a constant"
+    }
+
     sql "DROP TABLE IF EXISTS TINYINTDATA_NOT_EMPTY_NOT_NULLABLE"
     sql """
     CREATE TABLE TINYINTDATA_NOT_EMPTY_NOT_NULLABLE(id INT, data TINYINT  NOT NULL) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num' = '1');

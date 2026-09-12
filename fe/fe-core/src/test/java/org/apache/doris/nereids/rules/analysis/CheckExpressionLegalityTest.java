@@ -24,9 +24,16 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Percentile;
+import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApprox;
+import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApproxWeighted;
+import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArray;
+import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileReservoir;
 import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnelV2;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -107,5 +114,65 @@ public class CheckExpressionLegalityTest implements MemoPatternMatchSupported {
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
                 "supports at most " + WindowFunnelV2.MAX_EVENT_CONDITIONS + " event conditions",
                 expression::checkLegalityBeforeTypeCoercion);
+    }
+
+    @Test
+    public void testPercentileChecksAfterRewrite() {
+        Percentile percentile = new Percentile(false, true,
+                new IntegerLiteral(1), new org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral(1.2));
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "percentile quantile must be in [0, 1]", percentile::checkLegalityAfterRewrite);
+    }
+
+    @Test
+    public void testPercentileArrayChecksAfterRewrite() {
+        PercentileArray percentileArray = new PercentileArray(false, new IntegerLiteral(1),
+                new org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral(
+                        ImmutableList.of(
+                                new org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral(0.1),
+                                new org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral(1.2))));
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "percentile_array quantile must be in [0, 1]", percentileArray::checkLegalityAfterRewrite);
+    }
+
+    @Test
+    public void testPercentileApproxChecksAfterRewrite() {
+        PercentileApprox percentileApprox = new PercentileApprox(false, true,
+                new IntegerLiteral(1), new org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral(1.2));
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "percentile_approx quantile must be in [0, 1]",
+                percentileApprox::checkLegalityAfterRewrite);
+    }
+
+    @Test
+    public void testPercentileRejectsNonFiniteQuantilesAfterRewrite() {
+        DoubleLiteral nan = new DoubleLiteral(Double.NaN);
+        IntegerLiteral input = new IntegerLiteral(1);
+
+        Percentile percentile = new Percentile(false, true, input, nan);
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "percentile quantile must be in [0, 1]", percentile::checkLegalityAfterRewrite);
+
+        PercentileApprox percentileApprox = new PercentileApprox(false, true, input, nan);
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "percentile_approx quantile must be in [0, 1]",
+                percentileApprox::checkLegalityAfterRewrite);
+
+        PercentileApproxWeighted percentileApproxWeighted =
+                new PercentileApproxWeighted(false, true, input, input, nan);
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "percentile_approx_weighted quantile must be in [0, 1]",
+                percentileApproxWeighted::checkLegalityAfterRewrite);
+
+        PercentileArray percentileArray =
+                new PercentileArray(false, input, new ArrayLiteral(ImmutableList.of(nan)));
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "percentile_array quantile must be in [0, 1]",
+                percentileArray::checkLegalityAfterRewrite);
+
+        PercentileReservoir percentileReservoir = new PercentileReservoir(false, true, input, nan);
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "percentile_reservoir level must be in [0, 1]",
+                percentileReservoir::checkLegalityAfterRewrite);
     }
 }

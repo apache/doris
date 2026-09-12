@@ -19,16 +19,26 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
+import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 public class BindFunctionTest extends TestWithFeService implements MemoPatternMatchSupported {
 
+    private static final String AI_RESOURCE_NAME = "bind_function_ai_resource";
     private final NereidsParser parser = new NereidsParser();
 
     @Override
@@ -42,6 +52,17 @@ public class BindFunctionTest extends TestWithFeService implements MemoPatternMa
                 "CREATE TABLE t2 (col1 date, col2 int) DISTRIBUTED BY HASH(col2)\n" + "BUCKETS 1\n" + "PROPERTIES(\n"
                         + "    \"replication_num\"=\"1\"\n" + ");"
         );
+        LogicalPlan createResource = parser.parseSingle("CREATE RESOURCE \"" + AI_RESOURCE_NAME + "\"\n"
+                + "PROPERTIES (\n"
+                + "  \"type\" = \"ai\",\n"
+                + "  \"ai.provider_type\" = \"deepseek\",\n"
+                + "  \"ai.endpoint\" = \"https://api.deepseek.com/chat/completions\",\n"
+                + "  \"ai.model_name\" = \"deepseek-chat\",\n"
+                + "  \"ai.api_key\" = \"sk-xxx\",\n"
+                + "  \"ai.validity_check\" = \"false\"\n"
+                + ");");
+        ((CreateResourceCommand) createResource).run(connectContext, null);
+        connectContext.getSessionVariable().defaultAIResource = AI_RESOURCE_NAME;
     }
 
     @Test
@@ -73,5 +94,30 @@ public class BindFunctionTest extends TestWithFeService implements MemoPatternMa
                                 logicalProject(logicalOlapScan())
                         ).when(join -> join.getHashJoinConjuncts().size() == 1)
                 );
+    }
+
+    @Test
+    void testAIAggStateDefaultResourceTypeCoercion() {
+        PlanChecker.from(connectContext)
+                .analyze("SELECT ai_agg_state(col2, 'task') FROM t1")
+                .matches(logicalResultSink(logicalProject().when(project -> {
+                    List<StateCombinator> stateExpressions = project.getProjects().stream()
+                            .flatMap(expression -> expression.collectToList(
+                                    StateCombinator.class::isInstance).stream())
+                            .map(StateCombinator.class::cast)
+                            .toList();
+                    Assertions.assertEquals(1, stateExpressions.size());
+
+                    StateCombinator state = stateExpressions.get(0);
+                    Assertions.assertEquals(3, state.arity());
+                    Assertions.assertEquals(3, state.getNestedFunction().arity());
+                    Assertions.assertEquals(state.children(), state.getNestedFunction().children());
+                    Assertions.assertEquals(AI_RESOURCE_NAME,
+                            ((StringLikeLiteral) state.child(0)).getStringValue());
+                    Assertions.assertInstanceOf(Cast.class, state.child(1));
+                    Assertions.assertEquals(StringType.INSTANCE, state.child(1).getDataType());
+                    Assertions.assertEquals("task", ((StringLikeLiteral) state.child(2)).getStringValue());
+                    return true;
+                })));
     }
 }

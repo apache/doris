@@ -25,6 +25,7 @@
 #include "common/exception.h"
 #include "common/object_pool.h"
 #include "core/column/column_array.h"
+#include "core/column/column_const.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
@@ -138,6 +139,39 @@ TEST(AggFnEvaluatorTest, test_single) {
 
     // reset place
     agg_fn->reset(place);
+}
+
+TEST(AggFnEvaluatorTest, always_const_slot_is_calculated_from_current_block) {
+    ObjectPool pool;
+    auto double_type = std::make_shared<DataTypeFloat64>();
+    auto* agg_fn = create_agg_fn(pool, "percentile", {double_type, double_type}, nullptr, false);
+
+    // An old FE plan represents a constant expression such as 0.1 + 0.1 as a SlotRef.
+    // Opening the evaluator must not try to evaluate that SlotRef without an input block.
+    ASSERT_TRUE(agg_fn->open(nullptr).ok());
+
+    Arena arena;
+    auto evaluate_percentile = [&](double quantile) {
+        Block block = ColumnHelper::create_block<DataTypeFloat64>({1.0, 2.0, 3.0},
+                                                                  {quantile, quantile, quantile});
+        auto* place = reinterpret_cast<AggregateDataPtr>(arena.alloc(agg_fn->size_of_data()));
+        agg_fn->create(place);
+
+        EXPECT_TRUE(agg_fn->execute_single_add(&block, place, arena).ok());
+        EXPECT_EQ(block.columns(), 3);
+        EXPECT_TRUE(is_column<ColumnConst>(*block.get_by_position(2).column));
+
+        ColumnFloat64 result_column;
+        agg_fn->insert_result_info(place, &result_column);
+        double result = result_column.get_element(0);
+        agg_fn->destroy(place);
+        return result;
+    };
+
+    // Use different values to ensure each invocation reads its own input block instead
+    // of retaining the first value in AggFnEvaluator::open().
+    EXPECT_DOUBLE_EQ(evaluate_percentile(0.5), 2.0);
+    EXPECT_DOUBLE_EQ(evaluate_percentile(1.0), 3.0);
 }
 
 TEST(AggFnEvaluatorTest, test_batch) {

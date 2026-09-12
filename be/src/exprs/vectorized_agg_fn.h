@@ -115,6 +115,9 @@ public:
     bool result_column_could_resize() const { return _function->result_column_could_resize(); }
     bool supported_incremental_mode() const { return _function->supported_incremental_mode(); }
     bool is_simple_count() const { return _function->is_simple_count(); }
+    const std::vector<bool>& always_const_argument_idx() const {
+        return _always_const_argument_idx;
+    }
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena& arena) const {
         _function->merge(place, rhs, arena);
     }
@@ -206,6 +209,9 @@ private:
     std::string _expr_name;
 
     std::vector<const IColumn*> _agg_columns;
+    // Bool map of argument positions that must be constant by aggregate semantics.
+    // FE checks these positions before execution.
+    std::vector<bool> _always_const_argument_idx;
 };
 
 } // namespace doris

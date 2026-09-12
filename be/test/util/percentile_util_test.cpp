@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 namespace doris {
@@ -141,6 +142,9 @@ TEST_F(PercentileUtilTest, CheckQuantileBoundary) {
     EXPECT_NO_THROW(check_quantile(1.0));
     EXPECT_THROW(check_quantile(-0.0001), Exception);
     EXPECT_THROW(check_quantile(1.0001), Exception);
+    EXPECT_THROW(check_quantile(std::numeric_limits<double>::quiet_NaN()), Exception);
+    EXPECT_THROW(check_quantile(std::numeric_limits<double>::infinity()), Exception);
+    EXPECT_THROW(check_quantile(-std::numeric_limits<double>::infinity()), Exception);
 }
 
 TEST_F(PercentileUtilTest, EmptyLevelsState) {

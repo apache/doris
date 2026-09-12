@@ -298,6 +298,11 @@ suite("test_aggregate_all_functions", "arrow_flight_sql") {
     qt_select22_1 "select id,percentile(level + 0.1,0.805) from ${tableName_13} group by id order by id"
     qt_select22_1_1 "select id,percentile(level + 0.1, null) from ${tableName_13} group by id order by id"
 
+    test {
+        sql "select percentile(level, id) from ${tableName_13}"
+        exception "percentile requires second parameter must be a constant"
+    }
+
     try {
         sql "select id,percentile(level + 0.1, -1) from ${tableName_13} group by id order by id"
     } catch (Exception ex) {
@@ -359,16 +364,32 @@ suite("test_aggregate_all_functions", "arrow_flight_sql") {
     qt_select28 "select id,PERCENTILE_APPROX(level,0.805,2048) from ${tableName_14} group by id order by id"
     qt_select28_1 "select id,PERCENTILE_APPROX(level, null ,2048) from ${tableName_14} group by id order by id"
 
+    test {
+        sql "select PERCENTILE_APPROX(level, id) from ${tableName_14}"
+        exception "percentile_approx requires second parameter must be a constant"
+    }
+
+    test {
+        sql "select PERCENTILE_APPROX(level, 0.5, id) from ${tableName_14}"
+        exception "percentile_approx requires the third parameter must be a constant"
+    }
+
     try {
         sql "select id,PERCENTILE_APPROX(level, -1, 2048) from ${tableName_14} group by id order by id"
     } catch (Exception ex) {
         assert("${ex}".contains("-1"))
+    }
+    test {
+        sql "select id,PERCENTILE_APPROX(level, 1.1, 2048) from ${tableName_14} group by id order by id"
+        exception "percentile_approx quantile must be in [0, 1]"
     }
     try {
         sql "select id,PERCENTILE_APPROX(level, 3000 ,2048) from ${tableName_14} group by id order by id"
     } catch (Exception ex) {
         assert("${ex}".contains("3000"))
     }
+    qt_select28_2 "select id,PERCENTILE_APPROX(level, 0.5, 2047) from ${tableName_14} group by id order by id"
+    qt_select28_3 "select id,PERCENTILE_APPROX(level, 0.5, 10001) from ${tableName_14} group by id order by id"
 
     sql "DROP TABLE IF EXISTS ${tableName_14}"
     
