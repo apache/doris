@@ -30,6 +30,7 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
@@ -425,7 +426,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // MaxCompute table that genuinely has ZERO partitions this scan-all is row-equivalent to legacy's
         // unconditional empty short-circuit — MaxComputeScanPlanProvider.planScan returns no splits when
         // getFileNum() <= 0, still zero rows.
-        if (selectedPartitions.selectedPartitions.isEmpty() && selectedPartitions.totalPartitionNum == 0) {
+        if (selectedPartitions.selectedPartitions.isEmpty() && selectedPartitions.totalPartitionNum == 0
+                && !selectedPartitions.hasPartitionPredicate) {
             return null;
         }
         // A predicate-driven connector re-plans through its SDK with the pushed predicate (its planScan
@@ -457,7 +459,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * must read ALL partitions, so it pushes no partition restriction.</p>
      */
     static long[] displayPartitionCounts(SelectedPartitions selectedPartitions) {
-        if (selectedPartitions == null || selectedPartitions == SelectedPartitions.NOT_PRUNED) {
+        if (selectedPartitions == null || selectedPartitions.isNotPruned()) {
             return null;
         }
         return new long[] {
@@ -659,7 +661,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             // line itself; the counts are populated from the Nereids pruning result in
             // getSplits()/startSplit() (see setSelectedPartitions).
             output.append(prefix).append("partition=").append(selectedPartitionNum)
-                    .append("/").append(totalPartitionNum).append("\n");
+                    .append("/").append(totalPartitionNum < 0 ? "?" : totalPartitionNum).append("\n");
             // FIX-E / FIX-R3-RESIDUAL (explain gap): the VERBOSE per-backend block (the backends: list,
             // per-file "path start/length" lines, and dataFileNum/deleteFileNum/deleteSplitNum) lives in
             // the parent FileScanNode but this override does not call super, so re-emit it under the SAME
@@ -1143,10 +1145,33 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     protected void doFinalize() throws UserException {
         scanNodeProperties = null;
         cachedPropertiesResult = null;
+        materializeDeferredSelectedPartitions();
         // Nereids prunes scan slots between init and finalize; fencing the init-time table-wide
         // tuple would reject old backends even when the executable scan no longer carries Variant.
         checkVariantBackendCompatibilityForCurrentScan(backendPolicy.getBackends());
         super.doFinalize();
+    }
+
+    private void materializeDeferredSelectedPartitions() throws UserException {
+        if (!selectedPartitions.isDeferredPartitionPruning()) {
+            return;
+        }
+        // A logical filter materializes this state earlier in PruneFileScanPartition. Reaching finalize still
+        // deferred therefore means a no-filter full scan, which must recover the complete map before the
+        // batch-mode gate so it keeps the legacy asynchronous split-generation path.
+        PluginDrivenExternalTable table = (PluginDrivenExternalTable) getTargetTable();
+        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(table,
+                Optional.ofNullable(getQueryTableSnapshot()), Optional.ofNullable(getScanParams()));
+        Map<String, PartitionItem> partitions = table.getNameToPartitionItems(snapshot);
+        selectedPartitions = materializeDeferredSelectedPartitions(selectedPartitions, partitions);
+    }
+
+    static SelectedPartitions materializeDeferredSelectedPartitions(SelectedPartitions selectedPartitions,
+            Map<String, PartitionItem> partitions) {
+        if (!selectedPartitions.isDeferredPartitionPruning()) {
+            return selectedPartitions;
+        }
+        return new SelectedPartitions(partitions.size(), partitions, false);
     }
 
     @Override
@@ -1945,7 +1970,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      */
     static boolean shouldUseBatchMode(SelectedPartitions selectedPartitions, boolean hasSlots,
             boolean supportsBatchScan, int numPartitionsInBatchMode) {
-        if (selectedPartitions == null || selectedPartitions == SelectedPartitions.NOT_PRUNED) {
+        if (selectedPartitions == null || selectedPartitions.isNotPruned()) {
             return false;
         }
         if (!hasSlots) {

@@ -250,8 +250,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         String tableName = hiveHandle.getTableName();
         recordPruningProfile(hiveHandle);
 
-        // Resolve ONLY this batch's partitions (scoped to partitionBatch), NOT handle.getPrunedPartitions().
-        List<HmsPartitionInfo> hmsPartitions = loadPartitionsWithProfile(dbName, tableName, partitionBatch);
+        List<HmsPartitionInfo> hmsPartitions = resolveBatchPartitions(hiveHandle, partitionBatch);
         List<PartitionScanInfo> partitions = convertPartitions(
                 hmsPartitions, hiveHandle.getPartitionKeyNames());
         if (partitions.isEmpty()) {
@@ -277,6 +276,21 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                     splittable, isLzo, targetSplitSize, fs, ranges);
         }
         return ranges;
+    }
+
+    private List<HmsPartitionInfo> resolveBatchPartitions(HiveTableHandle handle, List<String> partitionBatch) {
+        if (handle.getPrunedPartitionsByName().isEmpty()) {
+            return loadPartitionsWithProfile(handle.getDbName(), handle.getTableName(), partitionBatch);
+        }
+        List<HmsPartitionInfo> partitions = new ArrayList<>(partitionBatch.size());
+        for (String partitionName : partitionBatch) {
+            HmsPartitionInfo partition = handle.getPrunedPartitionsByName().get(partitionName);
+            if (partition == null) {
+                throw new DorisConnectorException("Missing connector-pruned Hive partition: " + partitionName);
+            }
+            partitions.add(partition);
+        }
+        return partitions;
     }
 
     /**

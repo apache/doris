@@ -17,8 +17,14 @@
 
 package org.apache.doris.connector.hms;
 
+import org.apache.hadoop.hive.metastore.IMetaStoreClient;
+import org.apache.hadoop.hive.metastore.api.Partition;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.lang.reflect.Proxy;
+import java.util.ArrayList;
+import java.util.Collections;
 
 /**
  * Tests {@link ThriftHmsClient#toThriftMaxParts}: the connector's {@code maxParts} contract mapped onto the
@@ -55,5 +61,42 @@ public class ThriftHmsClientMaxPartsTest {
         short mapped = ThriftHmsClient.toThriftMaxParts(100000);
         Assertions.assertEquals((short) 100000, mapped);
         Assertions.assertTrue(mapped < 0, "a value above Short.MAX_VALUE must narrow to a negative (unbounded) short");
+    }
+
+    @Test
+    public void testFilteredPartitionResponseIsBounded() {
+        Assertions.assertFalse(ThriftHmsClient.isFilteredPartitionResponseSaturated(
+                HmsClientConfig.DEFAULT_PARTITION_BATCH_SIZE));
+        Assertions.assertTrue(ThriftHmsClient.isFilteredPartitionResponseSaturated(
+                HmsClientConfig.DEFAULT_PARTITION_BATCH_SIZE + 1));
+    }
+
+    @Test
+    public void testFilteredPartitionResponseFallsBackWhenSaturated() throws Exception {
+        IMetaStoreClient metastore = (IMetaStoreClient) Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[] {IMetaStoreClient.class}, (proxy, method, args) -> {
+                    if ("listPartitionsByFilter".equals(method.getName())) {
+                        Assertions.assertEquals("db", args[0]);
+                        Assertions.assertEquals("tbl", args[1]);
+                        Assertions.assertEquals("p=1", args[2]);
+                        Assertions.assertEquals((short) (HmsClientConfig.DEFAULT_PARTITION_BATCH_SIZE + 1), args[3]);
+                        return new ArrayList<>(Collections.nCopies(
+                                HmsClientConfig.DEFAULT_PARTITION_BATCH_SIZE + 1, new Partition()));
+                    }
+                    return null;
+                });
+        ThriftHmsClient client = new ThriftHmsClient(new HmsClientConfig(Collections.emptyMap(), 0),
+                new ThriftHmsClient.AuthAction() {
+                    @Override
+                    public <T> T execute(java.util.concurrent.Callable<T> callable) throws Exception {
+                        return callable.call();
+                    }
+                }, hiveConf -> metastore, HmsTypeMapping.Options.DEFAULT);
+        try {
+            Assertions.assertThrows(HmsPartitionFilterSaturatedException.class,
+                    () -> client.listPartitionsByFilter("db", "tbl", "p=1"));
+        } finally {
+            client.close();
+        }
     }
 }

@@ -299,11 +299,25 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
      * Mainly for hive table partition pruning.
      */
     public static class SelectedPartitions {
+        /** Materialization state for the partition selection. */
+        public enum State {
+            NOT_PRUNED,
+            DEFERRED,
+            MATERIALIZED
+        }
+
+        public static final long UNKNOWN_TOTAL_PARTITION_NUM = -1L;
+
         // NOT_PRUNED means the Nereids planner does not handle the partition pruning.
         // This can be treated as the initial value of SelectedPartitions.
         // Or used to indicate that the partition pruning is not processed.
         public static SelectedPartitions NOT_PRUNED = new SelectedPartitions(0, ImmutableMap.of(), false, false,
-                Optional.empty());
+                Optional.empty(), State.NOT_PRUNED);
+        // DEFERRED_PARTITION_PRUNING means a connector will materialize the partition view after Nereids has
+        // supplied a predicate. It must stay distinct from NOT_PRUNED because PluginDrivenScanNode preserves
+        // batch split generation for a no-predicate full scan by materializing this state before dispatch.
+        public static SelectedPartitions DEFERRED_PARTITION_PRUNING = new SelectedPartitions(
+                UNKNOWN_TOTAL_PARTITION_NUM, ImmutableMap.of(), false, false, Optional.empty(), State.DEFERRED);
         /**
          * total partition number
          */
@@ -330,6 +344,8 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
          */
         public final Optional<SortedPartitionRanges<String>> sortedPartitionRanges;
 
+        public final State state;
+
         /**
          * Constructor for SelectedPartitions.
          */
@@ -352,12 +368,28 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
                 boolean isPruned, boolean hasPartitionPredicate,
                 Optional<SortedPartitionRanges<String>> sortedPartitionRanges) {
+            this(totalPartitionNum, selectedPartitions, isPruned, hasPartitionPredicate, sortedPartitionRanges,
+                    State.MATERIALIZED);
+        }
+
+        private SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
+                boolean isPruned, boolean hasPartitionPredicate,
+                Optional<SortedPartitionRanges<String>> sortedPartitionRanges, State state) {
             this.totalPartitionNum = totalPartitionNum;
             this.selectedPartitions = ImmutableMap.copyOf(Objects.requireNonNull(selectedPartitions,
                     "selectedPartitions is null"));
             this.isPruned = isPruned;
             this.hasPartitionPredicate = hasPartitionPredicate;
             this.sortedPartitionRanges = sortedPartitionRanges;
+            this.state = state;
+        }
+
+        public boolean isNotPruned() {
+            return state == State.NOT_PRUNED;
+        }
+
+        public boolean isDeferredPartitionPruning() {
+            return state == State.DEFERRED;
         }
 
         @Override
@@ -371,6 +403,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             SelectedPartitions that = (SelectedPartitions) o;
             return isPruned == that.isPruned
                     && hasPartitionPredicate == that.hasPartitionPredicate
+                    && state == that.state
                     && Objects.equals(
                     selectedPartitions.keySet(), that.selectedPartitions.keySet())
                     && Objects.equals(
@@ -379,7 +412,8 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
 
         @Override
         public int hashCode() {
-            return Objects.hash(selectedPartitions, isPruned, hasPartitionPredicate, sortedPartitionRanges.isPresent());
+            return Objects.hash(selectedPartitions, isPruned, hasPartitionPredicate,
+                    sortedPartitionRanges.isPresent(), state);
         }
     }
 

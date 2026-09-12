@@ -65,6 +65,7 @@ import com.google.common.collect.Range;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -107,6 +108,11 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     public PluginDrivenMvccExternalTable(long id, String name, String remoteName,
             ExternalCatalog catalog, ExternalDatabase db) {
         super(id, name, remoteName, catalog, db);
+    }
+
+    @Override
+    public boolean supportsLatestSnapshotPreload() {
+        return supportsConnectorPartitionPruning();
     }
 
     // ──────────────────── snapshot materialization ────────────────────
@@ -165,6 +171,16 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         // An empty (no-snapshot) connector still pins: fall back to a snapshot id of -1.
         ConnectorMvccSnapshot connectorSnapshot = existingFence.orElseGet(
                 () -> metadata.beginQuerySnapshot(session, handle).orElseGet(this::emptySnapshot));
+
+        // A connector that can materialize a partition predicate remotely must not populate the latest
+        // snapshot with every partition before Nereids has supplied that predicate. Plain Hive reaches this
+        // MVCC table class because the catalog also serves snapshot-capable sibling formats, but its latest
+        // pin is deliberately not a data snapshot and applySnapshot is a no-op. Keep only that lightweight
+        // query-begin pin here; PruneFileScanPartition will request the selected partition view later.
+        if (supportsConnectorPartitionPruning()) {
+            return new PluginDrivenMvccSnapshot(connectorSnapshot,
+                    Collections.emptyMap(), Collections.emptyMap());
+        }
 
         // Range-view path (e.g. iceberg): thread the query's pin onto the handle FIRST (applySnapshot), so
         // the partition/freshness enumeration stays consistent with the data-scan pin, then ask the connector
@@ -671,7 +687,39 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
 
     @Override
     public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
+        if (supportsConnectorPartitionPruning()) {
+            PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
+            if (!pin.getNameToPartitionItem().isEmpty()) {
+                return pin.getNameToPartitionItem();
+            }
+            // The latest Hive query pin intentionally carries no partition map so selective scans can send a
+            // predicate to HMS first. Consumers that explicitly ask for a partition map (MTMV alignment,
+            // no-filter scan finalization, and a connector-declined pruning fallback) require the real full
+            // view instead of treating that query-only pin as an empty table.
+            return super.getNameToPartitionItems(snapshot);
+        }
         return getOrMaterialize(snapshot).getNameToPartitionItem();
+    }
+
+    /**
+     * Materializes the complete partition view for an MTMV refresh before it acquires base-table locks.
+     * The lightweight Hive query pin keeps the connector snapshot/freshness kind but deliberately omits the
+     * partition map; MTMV alignment needs that map and must not load it while holding internal table locks.
+     */
+    public MvccSnapshot materializePartitionViewForMtmv(MvccSnapshot snapshot) {
+        if (!supportsConnectorPartitionPruning() || !(snapshot instanceof PluginDrivenMvccSnapshot)) {
+            return snapshot;
+        }
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot) snapshot;
+        if (!pin.getNameToPartitionItem().isEmpty()) {
+            return pin;
+        }
+        Map<String, PartitionItem> partitionItems = super.getNameToPartitionItems(Optional.of(pin));
+        Map<String, Long> partitionLastModified = new HashMap<>();
+        for (String partitionName : partitionItems.keySet()) {
+            partitionLastModified.put(partitionName, ConnectorPartitionInfo.UNKNOWN);
+        }
+        return new PluginDrivenMvccSnapshot(pin.getConnectorSnapshot(), partitionItems, partitionLastModified);
     }
 
     @Override
@@ -769,6 +817,13 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
             Optional<MvccSnapshot> snapshot) throws AnalysisException {
         PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
+        if (supportsConnectorPartitionPruning() && pin.getConnectorSnapshot().isLastModifiedFreshness()) {
+            OptionalLong onDemand = queryPartitionFreshnessMillis(partitionName);
+            if (!onDemand.isPresent()) {
+                throw new AnalysisException("can not find partition: " + partitionName);
+            }
+            return new MTMVTimestampSnapshot(onDemand.getAsLong());
+        }
         Long value = pin.getNameToLastModifiedMillis().get(partitionName);
         if (value == null) {
             throw new AnalysisException("can not find partition: " + partitionName);
@@ -804,9 +859,10 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
         Map<String, MTMVSnapshotIf> snapshots = new LinkedHashMap<>();
         if (pin.getConnectorSnapshot().isLastModifiedFreshness()) {
-            List<String> existingPartitionNames = partitionNames.stream()
-                    .filter(pin.getNameToLastModifiedMillis()::containsKey)
-                    .collect(Collectors.toList());
+            List<String> existingPartitionNames = supportsConnectorPartitionPruning()
+                    ? new ArrayList<>(partitionNames)
+                    : partitionNames.stream().filter(pin.getNameToLastModifiedMillis()::containsKey)
+                            .collect(Collectors.toList());
             Map<String, Long> freshness = queryPartitionFreshnessMillis(existingPartitionNames);
             for (String partitionName : partitionNames) {
                 Long value = freshness.get(partitionName);
