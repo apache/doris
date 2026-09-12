@@ -207,6 +207,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(compaction_used_permits, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(compaction_waitting_permits, MetricUnit::NOUNIT);
 
 DEFINE_HISTOGRAM_METRIC_PROTOTYPE_2ARG(tablet_version_num_distribution, MetricUnit::NOUNIT);
+DEFINE_HISTOGRAM_METRIC_PROTOTYPE_2ARG(tablet_approximate_num_rowsets_distribution,
+                                       MetricUnit::NOUNIT);
 
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(query_scan_bytes_per_second, MetricUnit::BYTES);
 
@@ -406,6 +408,7 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, compaction_waitting_permits);
 
     HISTOGRAM_METRIC_REGISTER(_server_metric_entity, tablet_version_num_distribution);
+    HISTOGRAM_METRIC_REGISTER(_server_metric_entity, tablet_approximate_num_rowsets_distribution);
 
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, query_scan_bytes_per_second);
 
