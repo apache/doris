@@ -186,12 +186,14 @@ VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWri
                                          bool output_object_data,
                                          const ParquetFileOptions& parquet_options,
                                          const std::string* iceberg_schema_json,
-                                         const iceberg::Schema* iceberg_schema)
+                                         const iceberg::Schema* iceberg_schema,
+                                         const ArrowWriteConverter& arrow_write_converter)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _column_names(std::move(column_names)),
           _parquet_options(parquet_options),
           _iceberg_schema_json(iceberg_schema_json),
-          _iceberg_schema(iceberg_schema) {
+          _iceberg_schema(iceberg_schema),
+          _arrow_write_converter(arrow_write_converter) {
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
 }
 
@@ -200,12 +202,14 @@ VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWri
                                          std::vector<TParquetSchema> parquet_schemas,
                                          bool output_object_data,
                                          const ParquetFileOptions& parquet_options,
-                                         const std::string* iceberg_schema_json)
+                                         const std::string* iceberg_schema_json,
+                                         const ArrowWriteConverter& arrow_write_converter)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _parquet_schemas(std::move(parquet_schemas)),
           _parquet_options(parquet_options),
-          _iceberg_schema_json(iceberg_schema_json) {
-    _iceberg_schema = nullptr;
+          _iceberg_schema_json(iceberg_schema_json),
+          _iceberg_schema(nullptr),
+          _arrow_write_converter(arrow_write_converter) {
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
 }
 
@@ -282,7 +286,8 @@ Status VParquetTransformer::write(const Block& block) {
     // serialize
     std::shared_ptr<arrow::RecordBatch> result;
     RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema, get_arrow_memory_pool(), &result,
-                                           _state->timezone_obj()));
+                                           _state->timezone_obj(), 0, block.rows(),
+                                           _arrow_write_converter));
     if (_write_size == 0) {
         RETURN_DORIS_STATUS_IF_ERROR(_writer->NewBufferedRowGroup());
     }

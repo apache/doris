@@ -584,6 +584,30 @@ Status DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
     return Status::OK();
 }
 
+Status DataTypeDateTimeV2SerDe::write_column_to_paimon(const std::shared_ptr<const IDataType>& type,
+                                                       const IColumn& column,
+                                                       const NullMap* null_map,
+                                                       const std::shared_ptr<arrow::Field>& field,
+                                                       arrow::ArrayBuilder* array_builder,
+                                                       int64_t start, int64_t end,
+                                                       const cctz::time_zone& ctz) const {
+    if (field->type()->id() != arrow::Type::TIMESTAMP) {
+        return Status::InvalidArgument(
+                "Paimon timestamp writer has no binding for Doris type {} and Arrow field {}",
+                type->get_name(), field->ToString());
+    }
+    const auto& timestamp = assert_cast<const arrow::TimestampType&>(*field->type());
+    const arrow::TimeUnit::type expected_unit = type->get_scale() > 3   ? arrow::TimeUnit::MICRO
+                                                : type->get_scale() > 0 ? arrow::TimeUnit::MILLI
+                                                                        : arrow::TimeUnit::SECOND;
+    if (timestamp.unit() != expected_unit) {
+        return Status::InvalidArgument(
+                "Paimon timestamp writer has no binding for Doris type {} and Arrow field {}",
+                type->get_name(), field->ToString());
+    }
+    return write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
+}
+
 Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
                                                        const arrow::Array* arrow_array,
                                                        int64_t start, int64_t end,
