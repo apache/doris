@@ -63,6 +63,25 @@ public class ConnectorSessionImplTest {
     }
 
     @Test
+    public void testExternalScanTaskReuseRequiresExplicitSessionProperty() {
+        ConnectorSession missing = ConnectorSessionBuilder.create().build();
+        ConnectorSession disabled = ConnectorSessionBuilder.create()
+                .withSessionProperties(Map.of("enable_external_scan_task_reuse", "false"))
+                .build();
+        ConnectorSession enabled = ConnectorSessionBuilder.create()
+                .withSessionProperties(Map.of("enable_external_scan_task_reuse", "TRUE"))
+                .build();
+        ConnectorSession catalogOnly = ConnectorSessionBuilder.create()
+                .withCatalogProperties(Map.of("enable_external_scan_task_reuse", "true"))
+                .build();
+
+        Assertions.assertFalse(missing.isExternalScanTaskReuseEnabled());
+        Assertions.assertFalse(disabled.isExternalScanTaskReuseEnabled());
+        Assertions.assertTrue(enabled.isExternalScanTaskReuseEnabled());
+        Assertions.assertFalse(catalogOnly.isExternalScanTaskReuseEnabled());
+    }
+
+    @Test
     public void testSessionPropertyOverridesCatalogProperty() {
         Map<String, String> catalogProps = new HashMap<>();
         catalogProps.put("timeout", "3000");
