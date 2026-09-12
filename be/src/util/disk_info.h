@@ -69,6 +69,13 @@ public:
     static Status get_disk_devices(const std::vector<std::string>& paths,
                                    std::set<std::string>* devices);
 
+    // Strips the trailing partition number from a /proc/partitions device name,
+    // e.g. sda2 -> sda. dm-N (device-mapper / LVM logical volumes) is left as-is:
+    // the trailing number there names a distinct device, not a partition, so
+    // trimming it would collapse dm-0 and dm-1 into the same disk.
+    // Exposed for testing.
+    static std::string strip_partition_suffix(std::string name);
+
 private:
     static bool _s_initialized;
 
