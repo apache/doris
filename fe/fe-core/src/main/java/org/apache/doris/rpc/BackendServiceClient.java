@@ -99,6 +99,16 @@ public class BackendServiceClient {
         return stub.tabletFetchData(request);
     }
 
+    public ListenableFuture<InternalService.PTabletKeyLookupResponse> fetchTabletDataAsync(
+            InternalService.PTabletKeyLookupRequest request, long timeoutMs) {
+        return stub.withDeadlineAfter(timeoutMs, TimeUnit.MILLISECONDS).tabletFetchData(request);
+    }
+
+    public ListenableFuture<InternalService.PTabletKeyLookupBatchResponse> fetchTabletDataBatchAsync(
+            InternalService.PTabletKeyLookupBatchRequest request, long timeoutMs) {
+        return stub.withDeadlineAfter(timeoutMs, TimeUnit.MILLISECONDS).tabletFetchDataBatch(request);
+    }
+
     public InternalService.PFetchDataResult fetchDataSync(InternalService.PFetchDataRequest request) {
         return blockingStub.fetchData(request);
     }

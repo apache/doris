@@ -368,6 +368,24 @@ message PTabletKeyLookupResponse {
     optional bool need_resend_query_context = 4;
 }
 
+message PTabletKeyLookupBatchItem {
+    required PTabletKeyLookupRequest request = 1;
+    // Remaining budget at FE dispatch; includes waiting in the BE work pool.
+    required uint32 remaining_timeout_ms = 2;
+}
+
+message PTabletKeyLookupBatchRequest {
+    // At most 8 items and 1 MiB of serialized request bytes.
+    repeated PTabletKeyLookupBatchItem items = 1;
+}
+
+message PTabletKeyLookupBatchResponse {
+    // Validation/admission errors only. Each lookup has its own status below.
+    required PStatus status = 1;
+    // Exactly one result per request, in request order, including failed lookups.
+    repeated PTabletKeyLookupResponse results = 2;
+}
+
 //Add message definition to fetch and update cache
 enum PCacheStatus {    
     DEFAULT = 0;
@@ -1290,4 +1308,5 @@ service PBackendService {
     rpc get_tablet_rowsets(PGetTabletRowsetsRequest) returns (PGetTabletRowsetsResponse);
     rpc fetch_peer_data(PFetchPeerDataRequest) returns (PFetchPeerDataResponse);
     rpc request_cdc_client(PRequestCdcClientRequest) returns (PRequestCdcClientResult);
+    rpc tablet_fetch_data_batch(PTabletKeyLookupBatchRequest) returns (PTabletKeyLookupBatchResponse);
 };
