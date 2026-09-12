@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.types.GeographyType;
 import org.apache.doris.nereids.types.GeometryType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -53,5 +54,13 @@ public class SpatialConstructorFunctionTest {
         StAstext asText = new StAstext(new SlotReference("spatial", webMercator));
         Assert.assertEquals(VarcharType.SYSTEM_DEFAULT, asText.getDataType());
         Assert.assertEquals(webMercator, asText.expectedInputTypes().get(0));
+    }
+
+    @Test
+    public void testAsTextPreservesGeographyMetadata() {
+        GeographyType geography = new GeographyType("OGC:CRS84", "vincenty");
+        StAstext asText = new StAstext(new SlotReference("spatial", geography));
+        Assert.assertEquals(VarcharType.SYSTEM_DEFAULT, asText.getDataType());
+        Assert.assertEquals(geography, asText.expectedInputTypes().get(0));
     }
 }

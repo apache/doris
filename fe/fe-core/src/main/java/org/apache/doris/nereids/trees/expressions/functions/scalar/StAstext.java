@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.GeographyType;
 import org.apache.doris.nereids.types.GeometryType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -72,7 +73,8 @@ public class StAstext extends ScalarFunction
 
     @Override
     public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
-        if (child(0).getDataType() instanceof GeometryType) {
+        if (child(0).getDataType() instanceof GeometryType
+                || child(0).getDataType() instanceof GeographyType) {
             return FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(child(0).getDataType());
         }
         return ExplicitlyCastableSignature.super.searchSignature(signatures);
