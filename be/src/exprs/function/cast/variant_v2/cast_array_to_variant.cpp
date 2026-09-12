@@ -55,8 +55,8 @@ struct ArrayEncodePlan {
 
 Status validate_local_nulls(const IColumn& source, const NullMap* nulls) {
     if (nulls != nullptr && nulls->size() != source.size()) {
-        return Status::InvalidArgument("Array element null map has {} rows, expected {}",
-                                       nulls->size(), source.size());
+        return Status::InternalError("Array element null map has {} rows, expected {}",
+                                     nulls->size(), source.size());
     }
     return Status::OK();
 }
@@ -90,8 +90,8 @@ Status populate_effective_nulls(const IColumn& source, const NullMap* local_null
                                 ForcedNulls inherited_nulls, ArrayEncodePlan* plan) {
     RETURN_IF_ERROR(validate_local_nulls(source, local_nulls));
     if (!inherited_nulls.empty() && inherited_nulls.size() != source.size()) {
-        return Status::InvalidArgument("Array ancestor null map has {} rows, expected {}",
-                                       inherited_nulls.size(), source.size());
+        return Status::InternalError("Array ancestor null map has {} rows, expected {}",
+                                     inherited_nulls.size(), source.size());
     }
     const ForcedNulls local = local_nulls == nullptr
                                       ? ForcedNulls {}
@@ -124,8 +124,8 @@ Status build_array_node_plan(const ColumnPtr& source, const DataTypePtr& source_
                              ArrayEncodePlan* plan) {
     plan->array = check_and_get_column<ColumnArray>(source.get());
     if (plan->array == nullptr) {
-        return Status::InvalidArgument("Array Variant V2 CAST expected ColumnArray, got {}",
-                                       source->get_name());
+        return Status::InternalError("Array Variant V2 CAST expected ColumnArray, got {}",
+                                     source->get_name());
     }
     const auto& elements = assert_cast<const ColumnNullable&>(plan->array->get_data());
     const auto& array_type = assert_cast<const DataTypeArray&>(*source_type);
@@ -142,7 +142,7 @@ Status build_array_leaf_plan(const ColumnPtr& source, PrimitiveType primitive,
     } else if (primitive == TYPE_VARIANT) {
         const auto* variant = check_and_get_column<ColumnVariantV2>(source.get());
         if (variant == nullptr) {
-            return Status::InvalidArgument("Array Variant V2 CAST received a legacy Variant leaf");
+            return Status::InternalError("Array Variant V2 CAST received a legacy Variant leaf");
         }
         if (variant->is_typed()) {
             const auto& typed = assert_cast<const ColumnNullable&>(variant->typed_column());
@@ -154,8 +154,8 @@ Status build_array_leaf_plan(const ColumnPtr& source, PrimitiveType primitive,
     } else if (primitive == TYPE_JSONB) {
         plan->jsonb_leaf = check_and_get_column<ColumnString>(source.get());
         if (plan->jsonb_leaf == nullptr) {
-            return Status::InvalidArgument("Array JSONB leaf expected ColumnString, got {}",
-                                           source->get_name());
+            return Status::InternalError("Array JSONB leaf expected ColumnString, got {}",
+                                         source->get_name());
         }
     } else if (is_supported_scalar_source(plan->type)) {
         configure_scalar_leaf(*source, plan->type, plan);
@@ -170,7 +170,7 @@ Status build_array_encode_plan(const ColumnPtr& source, const DataTypePtr& sourc
                                const NullMap* local_nulls, ForcedNulls inherited_nulls,
                                ArrayEncodePlan* plan) {
     if (!source || !source_type) {
-        return Status::InvalidArgument("Array Variant V2 CAST received an empty source");
+        return Status::InternalError("Array Variant V2 CAST received an empty source");
     }
     plan->type = remove_nullable(source_type);
     RETURN_IF_ERROR(populate_effective_nulls(*source, local_nulls, inherited_nulls, plan));
@@ -215,7 +215,7 @@ Status cast_array_to_variant(const ColumnPtr& source, const DataTypePtr& source_
                              ForcedNulls forced_nulls, ColumnPtr* output) {
     if (!source || source->size() != rows ||
         (!forced_nulls.empty() && forced_nulls.size() != rows)) {
-        return Status::InvalidArgument("Invalid ARRAY input shape for Variant V2 CAST");
+        return Status::InternalError("Invalid ARRAY input shape for Variant V2 CAST");
     }
     ArrayEncodePlan plan;
     RETURN_IF_ERROR(build_array_encode_plan(source, source_type, nullptr, forced_nulls, &plan));

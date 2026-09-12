@@ -788,7 +788,7 @@ TEST(CastVariantV2FromTest, OuterNullMapMasksValueAndConstContractIsExplicit) {
     ColumnPtr one = source->clone_resized(1);
     ColumnPtr constant = ColumnConst::create(IColumn::mutate(one), 3);
     CastResult const_result = execute_from_variant(constant, std::make_shared<DataTypeInt32>());
-    EXPECT_TRUE(const_result.status.is<ErrorCode::INVALID_ARGUMENT>());
+    EXPECT_TRUE(const_result.status.is<ErrorCode::INTERNAL_ERROR>());
     EXPECT_EQ(const_result.column.get(), const_result.initial_result.get());
 }
 

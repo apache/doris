@@ -91,7 +91,7 @@ public:
             TimestampTzValue tz_value;
 
             if (!tz_value.from_datetime(from_dt, local_time_zone, dt_scale, tz_scale)) {
-                return Status::InternalError(
+                return Status::InvalidArgument(
                         "can not cast from  datetime : {} to timestamptz in timezone : {}",
                         from_dt.to_string(), context->state()->timezone());
             }
@@ -214,7 +214,7 @@ public:
             auto& to_tz = col_to_data[i];
 
             if (!transform_date_scale(to_scale, from_scale, to_tz, from_tz)) {
-                return Status::InternalError(
+                return Status::InvalidArgument(
                         "can not cast from  timestamptz : {} to timestamptz in timezone : {}",
                         TimestampTzValue {from_tz}.to_string(local_time_zone, from_scale),
                         context->state()->timezone());
