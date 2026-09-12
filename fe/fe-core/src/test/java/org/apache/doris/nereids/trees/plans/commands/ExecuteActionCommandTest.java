@@ -27,6 +27,8 @@ import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache;
+import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache.CatalogGenerationChangedException;
+import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache.WritableTableLease;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.info.TableNameInfo;
@@ -53,6 +55,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 class ExecuteActionCommandTest {
@@ -132,6 +135,7 @@ class ExecuteActionCommandTest {
         AtomicReference<ExecutionAuthenticator> currentAuthenticator = new AtomicReference<>();
         AtomicReference<IcebergMetadataOps> currentOps = new AtomicReference<>(generationOneOps);
         AtomicReference<ExecutionAuthenticator> activeAuthenticator = new AtomicReference<>();
+        AtomicInteger acquisitionAttempts = new AtomicInteger();
         RecordingAuthenticator generationTwo = new RecordingAuthenticator(activeAuthenticator, null);
         RecordingAuthenticator generationOne = new RecordingAuthenticator(activeAuthenticator, () -> {
             currentOps.set(generationTwoOps);
@@ -145,6 +149,19 @@ class ExecuteActionCommandTest {
             @Override
             protected CatalogIf<?> getCatalog(long catalogId) {
                 return externalCatalog;
+            }
+
+            @Override
+            public WritableTableLease acquireWritableIcebergTable(
+                    org.apache.doris.datasource.ExternalTable dorisTable, IcebergMetadataOps expectedOps) {
+                acquisitionAttempts.incrementAndGet();
+                if (expectedOps != currentOps.get()) {
+                    throw new CatalogGenerationChangedException("Iceberg catalog runtime changed");
+                }
+                WritableTableLease lease = Mockito.mock(WritableTableLease.class);
+                Mockito.when(lease.getTable()).thenReturn(generationTwoTable);
+                Mockito.when(lease.getAuthenticator()).thenReturn(generationTwo);
+                return lease;
             }
         };
 
@@ -172,10 +189,6 @@ class ExecuteActionCommandTest {
         Mockito.when(externalCatalog.getMetadataOps()).thenAnswer(invocation -> currentOps.get());
         Mockito.when(generationOneOps.getExecutionAuthenticator()).thenReturn(generationOne);
         Mockito.when(generationTwoOps.getExecutionAuthenticator()).thenReturn(generationTwo);
-        Mockito.when(generationTwoOps.loadTable("remote_db", "remote_table")).thenAnswer(invocation -> {
-            Assertions.assertSame(generationTwo, activeAuthenticator.get());
-            return generationTwoTable;
-        });
         Mockito.when(generationTwoTable.snapshot(123L)).thenReturn(targetSnapshot);
         Mockito.when(generationTwoTable.currentSnapshot()).thenReturn(previousSnapshot);
         Mockito.when(previousSnapshot.snapshotId()).thenReturn(456L);
@@ -195,8 +208,9 @@ class ExecuteActionCommandTest {
 
             Assertions.assertEquals(1, generationOne.executionCount);
             Assertions.assertEquals(2, generationTwo.executionCount);
+            Assertions.assertEquals(2, acquisitionAttempts.get());
             Mockito.verify(generationOneOps, Mockito.never()).loadTable(Mockito.anyString(), Mockito.anyString());
-            Mockito.verify(generationTwoOps).loadTable("remote_db", "remote_table");
+            Mockito.verify(generationTwoOps, Mockito.never()).loadTable(Mockito.anyString(), Mockito.anyString());
             Mockito.verify(manageSnapshots).commit();
         } finally {
             cache.close();

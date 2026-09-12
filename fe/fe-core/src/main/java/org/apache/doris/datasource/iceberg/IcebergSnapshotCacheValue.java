@@ -63,6 +63,10 @@ public class IcebergSnapshotCacheValue {
      */
     @Nullable
     private transient volatile ExecutionAuthenticator capturedAuthenticator;
+    @Nullable
+    private transient volatile IcebergRuntimeContext runtimeContext;
+    private transient volatile boolean enableMappingVarbinary;
+    private transient volatile boolean enableMappingTimestampTz;
 
     public IcebergSnapshotCacheValue(IcebergPartitionInfo partitionInfo, IcebergSnapshot snapshot) {
         this(partitionInfo, snapshot, Optional.empty(), Optional.empty(), null, false);
@@ -136,9 +140,34 @@ public class IcebergSnapshotCacheValue {
         return this;
     }
 
+    public IcebergSnapshotCacheValue bindRuntimeContext(@Nullable IcebergRuntimeContext runtimeContext) {
+        this.runtimeContext = runtimeContext;
+        return this;
+    }
+
+    public IcebergSnapshotCacheValue bindSchemaMappingOptions(
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
+        this.enableMappingVarbinary = enableMappingVarbinary;
+        this.enableMappingTimestampTz = enableMappingTimestampTz;
+        return this;
+    }
+
     @Nullable
     public ExecutionAuthenticator getCapturedAuthenticator() {
         return capturedAuthenticator;
+    }
+
+    @Nullable
+    public IcebergRuntimeContext getRuntimeContext() {
+        return runtimeContext;
+    }
+
+    public boolean isEnableMappingVarbinary() {
+        return enableMappingVarbinary;
+    }
+
+    public boolean isEnableMappingTimestampTz() {
+        return enableMappingTimestampTz;
     }
 
     /**
@@ -159,6 +188,10 @@ public class IcebergSnapshotCacheValue {
 
     public Optional<Map<Integer, List<String>>> getNameMapping() {
         return nameMapping;
+    }
+
+    IcebergSnapshotCacheValue withoutRetainedTable() {
+        return new IcebergSnapshotCacheValue(partitionInfo, snapshot, nameMapping);
     }
 
     public Optional<Table> getIcebergTable() {
@@ -373,6 +406,11 @@ public class IcebergSnapshotCacheValue {
     }
 
     private static class FrozenTableOperations implements TableOperations {
+        // REST, Glue and S3 Tables catalog FileIOTracker use weak TableOperations keys and close the
+        // associated FileIO when a key disappears. Retain the SDK operations for the whole frozen
+        // generation; the promoted catalog-generation guard keeps the tracker itself alive until
+        // all borrowers end.
+        private final TableOperations sdkTrackedOperations;
         private final TableMetadata metadata;
         private final FileIO fileIO;
         private final EncryptionManager encryptionManager;
@@ -381,6 +419,7 @@ public class IcebergSnapshotCacheValue {
 
         private FrozenTableOperations(TableOperations source, TableMetadata metadata,
                 boolean nonGrowing) {
+            this.sdkTrackedOperations = source;
             this.metadata = metadata;
             this.fileIO = source.io();
             this.encryptionManager = source.encryption();

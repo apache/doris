@@ -1009,6 +1009,38 @@ public class MetaCacheEntryTest {
     }
 
     @Test
+    public void testResourceOwningWeightedCacheCanUseStrongValues() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExternalMetaCacheBudgetManager manager = new ExternalMetaCacheBudgetManager(OptionalLong.of(2_000L));
+        AtomicReference<byte[]> retired = new AtomicReference<>();
+        AtomicInteger retireCount = new AtomicInteger();
+        CountDownLatch retiredLatch = new CountDownLatch(1);
+        ResourceOwningWeightedExternalMetaCache cache = new ResourceOwningWeightedExternalMetaCache(
+                refreshExecutor, manager, retired, retireCount, retiredLatch);
+        try {
+            cache.initCatalog(1L, Maps.newHashMap());
+            MetaCacheEntry<String, byte[]> entry = cache.entry(
+                    1L, "resource", String.class, byte[].class);
+            byte[] value = new byte[1];
+            entry.put("k", value);
+            Object node = extractNode(extractLoadingCache(entry));
+            Object valueReference = findMethod(node.getClass(), "getValueReference").invoke(node);
+
+            Assert.assertSame(value, findMethod(node.getClass(), "getValue").invoke(node));
+            Assert.assertSame("strong-value node must not wrap V in a java.lang.ref.Reference",
+                    value, valueReference);
+
+            entry.invalidateAll();
+            Assert.assertTrue(retiredLatch.await(3L, TimeUnit.SECONDS));
+            Assert.assertSame(value, retired.get());
+            Assert.assertEquals(1, retireCount.get());
+        } finally {
+            cache.close();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testAutomaticEvictionTelemetryKeepsExactWeightAboveWeigherLimit() throws Exception {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         long hugeEstimate = 3L << 30; // above Caffeine's int weigher limit
@@ -1700,11 +1732,21 @@ public class MetaCacheEntryTest {
         ExternalMetaCacheBudgetManager.EntryBudget budget = manager.createEntryBudget(
                 1L, "test", "refresh-reject", OptionalLong.empty(), OptionalLong.empty());
         byte[] current = new byte[1];
+        AtomicReference<byte[]> refreshedValue = new AtomicReference<>();
+        AtomicReference<byte[]> retiredValue = new AtomicReference<>();
+        AtomicReference<byte[]> removedValue = new AtomicReference<>();
+        MetaCacheEntryRemovalListener<String, byte[]> removalListener =
+                (key, value) -> removedValue.compareAndSet(null, value);
         MetaCacheEntry<String, byte[]> entry = new MetaCacheEntry<>(
-                "refresh-reject", key -> new byte[100],
+                "refresh-reject", key -> {
+                    byte[] value = new byte[100];
+                    refreshedValue.set(value);
+                    return value;
+                },
                 CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 10L, 600L),
                 refreshExecutor, true, false,
-                (key, value) -> MetaCacheSizeEstimate.complete(value.length), budget);
+                (key, value) -> MetaCacheSizeEstimate.complete(value.length), budget, null,
+                value -> value, removalListener, value -> retiredValue.compareAndSet(null, value));
         try {
             entry.put("k", current);
             entry.triggerRefreshForTest("k");
@@ -1713,7 +1755,53 @@ public class MetaCacheEntryTest {
             Assert.assertSame(current, entry.peekIfPresent("k"));
             Assert.assertEquals(accountedWeight(1L), manager.getGlobalUsedWeight());
             Assert.assertEquals(1L, entry.stats().getWeightAdmissionRejectedCount());
+            Assert.assertSame(refreshedValue.get(), retiredValue.get());
+            Assert.assertNull(removedValue.get());
         } finally {
+            entry.close();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testFencedNonWeightedRefreshRetiresUnpublishedValue() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        CountDownLatch refreshStarted = new CountDownLatch(1);
+        CountDownLatch allowRefresh = new CountDownLatch(1);
+        String current = new String("current");
+        String refreshed = new String("refreshed");
+        AtomicBoolean refreshedRetired = new AtomicBoolean();
+        AtomicReference<String> removedValue = new AtomicReference<>();
+        MetaCacheEntryRemovalListener<String, String> removalListener =
+                (key, value) -> removedValue.set(value);
+        MetaCacheEntry<String, String> entry = new MetaCacheEntry<>(
+                "refresh-fenced", key -> {
+                    refreshStarted.countDown();
+                    try {
+                        Assert.assertTrue(allowRefresh.await(3L, TimeUnit.SECONDS));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException(e);
+                    }
+                    return refreshed;
+                }, CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                refreshExecutor, true, false, null, null, null,
+                value -> value, removalListener,
+                value -> refreshedRetired.set(value == refreshed));
+        try {
+            entry.put("k", current);
+            entry.triggerRefreshForTest("k");
+            Assert.assertTrue(refreshStarted.await(3L, TimeUnit.SECONDS));
+
+            entry.invalidateKey("k");
+            allowRefresh.countDown();
+            refreshExecutor.submit(() -> { }).get(3L, TimeUnit.SECONDS);
+
+            Assert.assertNull(entry.peekIfPresent("k"));
+            Assert.assertTrue(refreshedRetired.get());
+            Assert.assertNotSame(refreshed, removedValue.get());
+        } finally {
+            allowRefresh.countDown();
             entry.close();
             refreshExecutor.shutdownNow();
         }
@@ -1916,6 +2004,82 @@ public class MetaCacheEntryTest {
     }
 
     @Test
+    public void testCloseDoesNotDropRemovalTokenClaimedByCleanupWorker() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        CountDownLatch tokenClaimed = new CountDownLatch(1);
+        CountDownLatch releaseClaimedToken = new CountDownLatch(1);
+        CountDownLatch retired = new CountDownLatch(1);
+        MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<String, Integer>(
+                "close-after-token-poll", key -> 1,
+                CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                refreshExecutor, false, false, null, null, null,
+                value -> value, (key, token) -> retired.countDown()) {
+            @Override
+            void afterRemovalNotificationPollForTest(String key) {
+                tokenClaimed.countDown();
+                awaitLatch(releaseClaimedToken);
+            }
+        };
+        try {
+            entry.put("k", 1);
+            entry.invalidateKey("k");
+            Assert.assertTrue(tokenClaimed.await(3L, TimeUnit.SECONDS));
+
+            entry.close();
+            Assert.assertEquals("the worker still owns the polled token", 1L, retired.getCount());
+            releaseClaimedToken.countDown();
+
+            Assert.assertTrue(retired.await(3L, TimeUnit.SECONDS));
+        } finally {
+            releaseClaimedToken.countDown();
+            entry.close();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testRemovalPublicationAfterCloseDrainInvokesListenerInline() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService removalExecutor = Executors.newSingleThreadExecutor();
+        CountDownLatch callbackPassedOpenCheck = new CountDownLatch(1);
+        CountDownLatch releaseCallback = new CountDownLatch(1);
+        CountDownLatch retired = new CountDownLatch(1);
+        AtomicBoolean pauseCallback = new AtomicBoolean();
+        MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<String, Integer>(
+                "publish-after-close-drain", key -> 1,
+                CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                refreshExecutor, false, false, null, null, null,
+                value -> value, (key, token) -> retired.countDown()) {
+            @Override
+            void beforeRemovalOwnerSnapshotForTest(String key) {
+                if (pauseCallback.compareAndSet(true, false)) {
+                    callbackPassedOpenCheck.countDown();
+                    awaitLatch(releaseCallback);
+                }
+            }
+        };
+        try {
+            entry.put("k", 1);
+            pauseCallback.set(true);
+            LoadingCache<String, Integer> loadingCache = extractLoadingCache(entry);
+            Future<?> removal = removalExecutor.submit(() -> loadingCache.invalidate("k"));
+            Assert.assertTrue(callbackPassedOpenCheck.await(3L, TimeUnit.SECONDS));
+
+            entry.close();
+            Assert.assertEquals("close drained before the callback published", 1L, retired.getCount());
+            releaseCallback.countDown();
+            removal.get(3L, TimeUnit.SECONDS);
+
+            Assert.assertTrue(retired.await(3L, TimeUnit.SECONDS));
+        } finally {
+            releaseCallback.countDown();
+            entry.close();
+            removalExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testLocalEvictionStopsOnceTheDeficitIsReclaimed() {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         ExternalMetaCacheBudgetManager manager = new ExternalMetaCacheBudgetManager(OptionalLong.of(1L << 20));
@@ -2023,14 +2187,18 @@ public class MetaCacheEntryTest {
     }
 
     private Reference<?> extractValueReference(LoadingCache<?, ?> loadingCache) throws Exception {
-        Object boundedLocalCache = readField(loadingCache, "cache");
-        Map<?, ?> nodes = (Map<?, ?>) readField(boundedLocalCache, "data");
-        Assert.assertEquals(1, nodes.size());
-        Object node = nodes.values().iterator().next();
+        Object node = extractNode(loadingCache);
         Method valueReferenceMethod = findMethod(node.getClass(), "getValueReference");
         Object valueReference = valueReferenceMethod.invoke(node);
         Assert.assertTrue(valueReference instanceof Reference);
         return (Reference<?>) valueReference;
+    }
+
+    private Object extractNode(LoadingCache<?, ?> loadingCache) throws Exception {
+        Object boundedLocalCache = readField(loadingCache, "cache");
+        Map<?, ?> nodes = (Map<?, ?>) readField(boundedLocalCache, "data");
+        Assert.assertEquals(1, nodes.size());
+        return nodes.values().iterator().next();
     }
 
     private Object readField(Object target, String name) throws Exception {
@@ -2070,5 +2238,23 @@ public class MetaCacheEntryTest {
 
     private static long accountedWeight(long estimatedPayloadBytes) {
         return estimatedPayloadBytes + MetaCacheEntry.FIXED_ENTRY_ACCOUNTING_OVERHEAD_BYTES;
+    }
+
+    private static final class ResourceOwningWeightedExternalMetaCache extends AbstractExternalMetaCache {
+        private ResourceOwningWeightedExternalMetaCache(ExecutorService refreshExecutor,
+                ExternalMetaCacheBudgetManager budgetManager, AtomicReference<byte[]> retired,
+                AtomicInteger retireCount, CountDownLatch retiredLatch) {
+            super("strong_value_plumbing", refreshExecutor, budgetManager);
+            registerEntry(MetaCacheEntryDef.of(
+                    "resource", String.class, byte[].class, key -> new byte[1],
+                    CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 10L, 2_000L))
+                    .withSizeEstimator((key, value) -> MetaCacheSizeEstimate.complete(value.length))
+                    .withRemovalListener(value -> value, (key, value) -> {
+                        retired.set(value);
+                        retireCount.incrementAndGet();
+                        retiredLatch.countDown();
+                    })
+                    .withStrongValues());
+        }
     }
 }

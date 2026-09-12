@@ -40,6 +40,7 @@ import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.datasource.SplitAssignment;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.credentials.CredentialUtils;
 import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
@@ -48,6 +49,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
+import org.apache.doris.datasource.iceberg.IcebergRuntimeContext;
 import org.apache.doris.datasource.iceberg.IcebergSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
@@ -139,6 +141,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.ByteArrayOutputStream;
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.io.OutputStream;
@@ -159,7 +162,8 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -196,6 +200,9 @@ public class IcebergScanNode extends FileQueryScanNode {
     private boolean isPartitionedTable;
     private int formatVersion;
     private ExecutionAuthenticator preExecutionAuthenticator;
+    private IcebergRuntimeContext runtimeContext;
+    private Boolean frozenEnableMappingVarbinary;
+    private Boolean frozenEnableMappingTimestampTz;
     private TableScan icebergTableScan;
     private Schema querySchema;
     // Store PropertiesMap, including vended credentials or static credentials
@@ -307,12 +314,16 @@ public class IcebergScanNode extends FileQueryScanNode {
                 // These tables are always readable regardless of format version
                 formatVersion = MIN_DELETE_FILE_SUPPORT_VERSION;
             }
-            preExecutionAuthenticator = source.getCatalog().getExecutionAuthenticator();
-            storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
-                    source.getCatalog().getCatalogProperty().getMetastoreProperties(),
-                    source.getCatalog().getCatalogProperty().getStoragePropertiesMap(),
-                    icebergTable
-            );
+            if (runtimeContext == null) {
+                preExecutionAuthenticator = source.getCatalog().getExecutionAuthenticator();
+                storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
+                        source.getCatalog().getCatalogProperty().getMetastoreProperties(),
+                        source.getCatalog().getCatalogProperty().getStoragePropertiesMap(), icebergTable);
+            } else {
+                preExecutionAuthenticator = runtimeContext.getAuthenticator();
+                storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
+                        runtimeContext.getMetastoreProperties(), runtimeContext.getStorageProperties(), icebergTable);
+            }
             storagePropertiesMap = IcebergUtils.selectEffectiveStorageProperties(storagePropertiesMap);
             backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
         } finally {
@@ -1665,7 +1676,10 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     public void doStartSplit() throws UserException {
         TableScan scan = createTableScan();
-        CompletableFuture.runAsync(() -> {
+        ExecutorService executor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
+        Closeable generationLease = IcebergUtils.retainStatementTableGenerationForAsyncPlanning(
+                source.getTargetTable());
+        AsyncPlanningTask planningTask = new AsyncPlanningTask(executor, splitAssignment, generationLease, () -> {
             AtomicReference<CloseableIterable<FileScanTask>> taskRef = new AtomicReference<>();
             try {
                 preExecutionAuthenticator.execute(
@@ -1709,7 +1723,109 @@ public class IcebergScanNode extends FileQueryScanNode {
                     }
                 }
             }
-        }, Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor());
+        });
+        splitAssignment.addCloseable(planningTask);
+        planningTask.submit();
+    }
+
+    /** Owns the planner generation until the worker actually exits, including cancellation races. */
+    @VisibleForTesting
+    static final class AsyncPlanningTask implements Runnable, Closeable {
+        private final ExecutorService executor;
+        private final SplitAssignment splitAssignment;
+        private final Closeable generationLease;
+        private final Runnable planning;
+        private boolean submitted;
+        private boolean started;
+        private boolean closeRequested;
+        private boolean finished;
+        private Thread runner;
+
+        AsyncPlanningTask(ExecutorService executor, SplitAssignment splitAssignment,
+                Closeable generationLease, Runnable planning) {
+            this.executor = Objects.requireNonNull(executor, "executor is null");
+            this.splitAssignment = Objects.requireNonNull(splitAssignment, "splitAssignment is null");
+            this.generationLease = Objects.requireNonNull(generationLease, "generationLease is null");
+            this.planning = Objects.requireNonNull(planning, "planning is null");
+        }
+
+        void submit() {
+            try {
+                synchronized (this) {
+                    if (finished) {
+                        return;
+                    }
+                    submitted = true;
+                }
+                executor.execute(this);
+            } catch (RuntimeException | Error e) {
+                finish();
+                throw e;
+            }
+        }
+
+        @Override
+        public void run() {
+            boolean cancelled;
+            synchronized (this) {
+                if (finished) {
+                    return;
+                }
+                started = true;
+                runner = Thread.currentThread();
+                cancelled = closeRequested;
+            }
+            try {
+                if (!cancelled) {
+                    planning.run();
+                }
+            } finally {
+                finish();
+            }
+        }
+
+        @Override
+        public void close() {
+            Thread threadToInterrupt = null;
+            boolean finishBeforeStart = false;
+            synchronized (this) {
+                if (finished) {
+                    return;
+                }
+                closeRequested = true;
+                if (started) {
+                    threadToInterrupt = runner;
+                } else {
+                    finishBeforeStart = true;
+                    if (submitted && executor instanceof ThreadPoolExecutor) {
+                        ((ThreadPoolExecutor) executor).remove(this);
+                    }
+                }
+            }
+            if (threadToInterrupt != null) {
+                threadToInterrupt.interrupt();
+            }
+            if (finishBeforeStart) {
+                finish();
+            }
+        }
+
+        private void finish() {
+            synchronized (this) {
+                if (finished) {
+                    return;
+                }
+                finished = true;
+                runner = null;
+            }
+            splitAssignment.removeCloseable(this);
+            try {
+                generationLease.close();
+            } catch (IOException e) {
+                splitAssignment.setException(
+                        new UserException("Failed to release Iceberg planning generation", e));
+            }
+        }
     }
 
     @VisibleForTesting
@@ -1754,7 +1870,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             this.pushdownIcebergPredicates.add(predicate.toString());
         }
 
-        icebergTableScan = scan.planWith(source.getCatalog().getThreadPoolWithPreAuth());
+        icebergTableScan = scan.planWith(getPlanningExecutor());
 
         return icebergTableScan;
     }
@@ -1764,20 +1880,11 @@ public class IcebergScanNode extends FileQueryScanNode {
         if (snapshot.filter(IcebergMvccSnapshot.class::isInstance).isPresent()) {
             IcebergSnapshotCacheValue cacheValue =
                     ((IcebergMvccSnapshot) snapshot.get()).getSnapshotCacheValue();
+            frozenEnableMappingVarbinary = cacheValue.isEnableMappingVarbinary();
+            frozenEnableMappingTimestampTz = cacheValue.isEnableMappingTimestampTz();
             Optional<Table> frozenTable = cacheValue.getIcebergTable();
             if (frozenTable.isPresent()) {
-                // Planning the frozen generation (regular relations and snapshot-selectable
-                // system tables alike) uses the catalog's current authenticator, storage state
-                // and pre-authenticated executor. Those are only coherent with the retained
-                // frozen operations/FileIO while the catalog still serves the generation this
-                // statement pinned; after a credential/storage ALTER the statement must fail and
-                // be retried. Count-mode values retain no frozen handle and plan the live table,
-                // so they are not fenced; values without a captured context resolve nothing here.
-                if (cacheValue.getCapturedAuthenticator() != null) {
-                    cacheValue.ensurePlannableUnder(
-                            source.getCatalog().getExecutionAuthenticator(),
-                            source.getTargetTable().getName());
-                }
+                runtimeContext = cacheValue.getRuntimeContext();
                 Table frozenBaseTable = frozenTable.get();
                 if (isSystemTable && source.getTargetTable() instanceof IcebergSysExternalTable) {
                     IcebergSysExternalTable systemTable = (IcebergSysExternalTable) source.getTargetTable();
@@ -1797,6 +1904,24 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
         }
         return currentTable;
+    }
+
+    @Override
+    protected boolean getEnableMappingVarbinary() {
+        return frozenEnableMappingVarbinary == null
+                ? super.getEnableMappingVarbinary() : frozenEnableMappingVarbinary;
+    }
+
+    @Override
+    protected boolean getEnableMappingTimestampTz() {
+        return frozenEnableMappingTimestampTz == null
+                ? super.getEnableMappingTimestampTz() : frozenEnableMappingTimestampTz;
+    }
+
+    private java.util.concurrent.ExecutorService getPlanningExecutor() {
+        return runtimeContext == null
+                ? source.getCatalog().getThreadPoolWithPreAuth()
+                : runtimeContext.getPlanningExecutor();
     }
 
     @VisibleForTesting
@@ -2248,7 +2373,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
             // Load delete files from cache (or from storage if not cached)
             ManifestCacheValue value = IcebergManifestCacheLoader.loadDeleteFilesWithCache(cache,
-                    targetExternalTable, manifest, icebergTable, this::recordManifestCacheAccess);
+                    targetExternalTable, manifest, icebergTable, runtimeContext, this::recordManifestCacheAccess);
             deleteFiles.addAll(value.getDeleteFiles());
         }
 
@@ -2281,7 +2406,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
                 // Load data files from cache (or from storage if not cached)
                 ManifestCacheValue value = IcebergManifestCacheLoader.loadDataFilesWithCache(cache,
-                        targetExternalTable, manifest, icebergTable, this::recordManifestCacheAccess);
+                        targetExternalTable, manifest, icebergTable, runtimeContext, this::recordManifestCacheAccess);
 
                 // Process each data file in the manifest
                 for (org.apache.iceberg.DataFile dataFile : value.getDataFiles()) {
@@ -2701,7 +2826,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
 
         long startTime = System.currentTimeMillis();
-        scan = scan.planWith(source.getCatalog().getThreadPoolWithPreAuth());
+        scan = scan.planWith(getPlanningExecutor());
         BatchScan plannedScan = scan;
         try {
             positionDeleteTasks = getOrPlanPositionDeleteTasks(plannedScan, () -> {
