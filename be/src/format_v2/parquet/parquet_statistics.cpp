@@ -945,11 +945,8 @@ void add_slot_zonemap(ZoneMapEvalContext* ctx, int slot_index, const DataTypePtr
                       std::shared_ptr<segment_v2::ZoneMap> zone_map) {
     DORIS_CHECK(ctx != nullptr);
     ZoneMapEvalContext::SlotZoneMap slot_zone_map;
-    slot_zone_map.data_type = data_type;
+    slot_zone_map.set_data_type_from_parquet(data_type);
     slot_zone_map.zone_map = std::move(zone_map);
-    const auto primitive_type = remove_nullable(data_type)->get_primitive_type();
-    slot_zone_map.floating_nan_count_unknown =
-            primitive_type == TYPE_FLOAT || primitive_type == TYPE_DOUBLE;
     ctx->slots.emplace(slot_index, std::move(slot_zone_map));
 }
 

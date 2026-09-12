@@ -140,6 +140,23 @@ ZoneMapEvalContext make_context(segment_v2::ZoneMap zone_map, const DataTypePtr&
     return ctx;
 }
 
+// Two slots in one context, which is what the segment-level and Parquet row-group-level callers
+// build for a compound expression. Slot 0 is the left operand, slot 1 the right.
+ZoneMapEvalContext make_two_slot_context(segment_v2::ZoneMap left, segment_v2::ZoneMap right,
+                                         const DataTypePtr& left_type,
+                                         const DataTypePtr& right_type) {
+    ZoneMapEvalContext ctx;
+    ZoneMapEvalContext::SlotZoneMap left_slot;
+    left_slot.data_type = left_type;
+    left_slot.zone_map = std::make_shared<segment_v2::ZoneMap>(std::move(left));
+    ctx.slots.emplace(0, std::move(left_slot));
+    ZoneMapEvalContext::SlotZoneMap right_slot;
+    right_slot.data_type = right_type;
+    right_slot.zone_map = std::make_shared<segment_v2::ZoneMap>(std::move(right));
+    ctx.slots.emplace(1, std::move(right_slot));
+    return ctx;
+}
+
 DictionaryEvalContext make_dictionary_context(std::vector<Field> values,
                                               const DataTypePtr& data_type) {
     DictionaryEvalContext ctx;
@@ -1950,6 +1967,317 @@ TEST(ExprZonemapFilterTest, ExprContextZonemapEvaluationShortCircuitsOnNoMatch) 
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
               VExprContext::evaluate_zonemap_filter({unsupported, no_match}, ctx));
     EXPECT_EQ(0, ctx.stats.unusable_zonemap_eval_count);
+}
+
+TEST(ExprZonemapFilterTest, SlotSlotNotEqualsPrunesOnlyWhenBothCollapseToOneValue) {
+    auto type = int_type();
+    auto left = make_slot(0, type);
+    auto right = make_slot(1, type);
+    FunctionComparison<NotEqualsOp, NameNotEquals> not_equals;
+
+    // Both columns hold the single value 5, so `a != b` is false on every row.
+    auto same_point =
+            make_two_slot_context(make_int_zonemap(5, 5), make_int_zonemap(5, 5), type, type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              not_equals.evaluate_zonemap_filter(same_point, {left, right}));
+
+    // Two different single values: `a != b` is true everywhere, so nothing can be pruned.
+    auto other_point =
+            make_two_slot_context(make_int_zonemap(5, 5), make_int_zonemap(6, 6), type, type);
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              not_equals.evaluate_zonemap_filter(other_point, {left, right}));
+
+    // A non-degenerate range on either side leaves the outcome unknown.
+    auto left_range =
+            make_two_slot_context(make_int_zonemap(5, 6), make_int_zonemap(5, 5), type, type);
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              not_equals.evaluate_zonemap_filter(left_range, {left, right}));
+    auto right_range =
+            make_two_slot_context(make_int_zonemap(5, 5), make_int_zonemap(5, 6), type, type);
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              not_equals.evaluate_zonemap_filter(right_range, {left, right}));
+}
+
+TEST(ExprZonemapFilterTest, SlotSlotCoversAllSixOperatorsAtTheBoundary) {
+    auto type = int_type();
+    auto left = make_slot(0, type);
+    auto right = make_slot(1, type);
+    // Left entirely above right, ranges touching at 10: [10, 20] vs [1, 10].
+    auto ctx = make_two_slot_context(make_int_zonemap(10, 20), make_int_zonemap(1, 10), type, type);
+
+    // a < b needs min_a >= max_b, which holds at the touching bound.
+    FunctionComparison<LessOp, NameLess> less;
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch, less.evaluate_zonemap_filter(ctx, {left, right}));
+    // a <= b needs min_a > max_b, which does not hold: a == b == 10 is possible.
+    FunctionComparison<LessOrEqualsOp, NameLessOrEquals> less_equals;
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              less_equals.evaluate_zonemap_filter(ctx, {left, right}));
+    FunctionComparison<GreaterOp, NameGreater> greater;
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch, greater.evaluate_zonemap_filter(ctx, {left, right}));
+    FunctionComparison<EqualsOp, NameEquals> equals;
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch, equals.evaluate_zonemap_filter(ctx, {left, right}));
+
+    // Fully disjoint: equality becomes impossible and so does a <= b.
+    auto disjoint =
+            make_two_slot_context(make_int_zonemap(10, 20), make_int_zonemap(1, 9), type, type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              equals.evaluate_zonemap_filter(disjoint, {left, right}));
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              less_equals.evaluate_zonemap_filter(disjoint, {left, right}));
+
+    // Mirrored, so a > b and a >= b become impossible.
+    auto mirrored =
+            make_two_slot_context(make_int_zonemap(1, 9), make_int_zonemap(10, 20), type, type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              greater.evaluate_zonemap_filter(mirrored, {left, right}));
+    FunctionComparison<GreaterOrEqualsOp, NameGreaterOrEquals> greater_equals;
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              greater_equals.evaluate_zonemap_filter(mirrored, {left, right}));
+
+    // Partially overlapping ranges: every operator must keep the zone. These are the cases that
+    // pin down which end of each range the rule reads. Taking max_a instead of min_a for a < b, or
+    // max_b instead of min_b for a > b, still prunes here and would drop the overlapping rows.
+    // [10, 20] vs [5, 15] overlap on [10, 15]: a = 12, b = 14 satisfies a < b and a <= b.
+    auto left_high =
+            make_two_slot_context(make_int_zonemap(10, 20), make_int_zonemap(5, 15), type, type);
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              less.evaluate_zonemap_filter(left_high, {left, right}));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              less_equals.evaluate_zonemap_filter(left_high, {left, right}));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              equals.evaluate_zonemap_filter(left_high, {left, right}));
+    // [5, 15] vs [10, 20]: a = 14, b = 12 satisfies a > b and a >= b.
+    auto right_high =
+            make_two_slot_context(make_int_zonemap(5, 15), make_int_zonemap(10, 20), type, type);
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              greater.evaluate_zonemap_filter(right_high, {left, right}));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              greater_equals.evaluate_zonemap_filter(right_high, {left, right}));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              equals.evaluate_zonemap_filter(right_high, {left, right}));
+}
+
+TEST(ExprZonemapFilterTest, SlotSlotGuardsCoverNullAndMissingStatistics) {
+    auto type = int_type();
+    auto left = make_slot(0, type);
+    auto right = make_slot(1, type);
+    FunctionComparison<LessOp, NameLess> less;
+
+    // A column with no non-null value makes the comparison NULL on every row. Production builds
+    // such a zone map with default-constructed min/max, which carry TYPE_NULL rather than the
+    // column type. That is why the has_not_null check has to run before the range check: the range
+    // check asserts the bounds match the slot type and would fatal on TYPE_NULL.
+    segment_v2::ZoneMap all_null_zonemap;
+    all_null_zonemap.has_null = true;
+    all_null_zonemap.has_not_null = false;
+    auto left_all_null =
+            make_two_slot_context(all_null_zonemap, make_int_zonemap(1, 9), type, type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              less.evaluate_zonemap_filter(left_all_null, {left, right}));
+    EXPECT_EQ(0, left_all_null.stats.unusable_zonemap_eval_count);
+    // The same on the right operand: both halves of the check are load-bearing.
+    auto right_all_null =
+            make_two_slot_context(make_int_zonemap(1, 9), all_null_zonemap, type, type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              less.evaluate_zonemap_filter(right_all_null, {left, right}));
+    EXPECT_EQ(0, right_all_null.stats.unusable_zonemap_eval_count);
+
+    // The right slot is absent from the context entirely.
+    auto missing_slot = make_context(make_int_zonemap(1, 9), type);
+    EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+              less.evaluate_zonemap_filter(missing_slot, {left, right}));
+    EXPECT_EQ(1, missing_slot.stats.unusable_zonemap_eval_count);
+
+    // The right slot is present with a type but without a zone map.
+    auto missing_zonemap = make_context(make_int_zonemap(1, 9), type);
+    ZoneMapEvalContext::SlotZoneMap slot_without_zonemap;
+    slot_without_zonemap.data_type = type;
+    missing_zonemap.slots.emplace(1, std::move(slot_without_zonemap));
+    EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+              less.evaluate_zonemap_filter(missing_zonemap, {left, right}));
+    EXPECT_EQ(1, missing_zonemap.stats.unusable_zonemap_eval_count);
+
+    // pass_all marks the bounds as unusable even though has_not_null is set.
+    auto pass_all_zonemap = make_int_zonemap(1, 9);
+    pass_all_zonemap.pass_all = true;
+    auto pass_all = make_two_slot_context(make_int_zonemap(10, 20), std::move(pass_all_zonemap),
+                                          type, type);
+    EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+              less.evaluate_zonemap_filter(pass_all, {left, right}));
+    EXPECT_EQ(1, pass_all.stats.unusable_zonemap_eval_count);
+}
+
+TEST(ExprZonemapFilterTest, SlotSlotHandlesTheSameSlotOnBothSides) {
+    // FE's SimplifySelfComparison does not fold NotEqualTo, so `a != a` reaches the BE. It is never
+    // true, so returning kNoMatch is always sound; the range rule proves it when a is a single
+    // value and stays conservative otherwise.
+    auto type = int_type();
+    auto slot = make_slot(0, type);
+    FunctionComparison<NotEqualsOp, NameNotEquals> not_equals;
+
+    auto single_value = make_context(make_int_zonemap(7, 7), type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              not_equals.evaluate_zonemap_filter(single_value, {slot, slot}));
+    auto range = make_context(make_int_zonemap(7, 8), type);
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              not_equals.evaluate_zonemap_filter(range, {slot, slot}));
+}
+
+TEST(ExprZonemapFilterTest, SlotSlotWidensOnlyTheZonemapGateNotDictionaryOrBloom) {
+    // This is the regression guard for the trap in this change: comparison_zonemap_detail's
+    // can_evaluate is shared by dictionary filtering and can_evaluate_equality, and both dereference
+    // extract_slot_and_literal behind a DORIS_CHECK. Widening it would abort on `a != b`, so the
+    // slot-vs-slot shape must only ever be accepted by can_evaluate_zonemap_filter.
+    auto type = int_type();
+    auto left = make_slot(0, type);
+    auto right = make_slot(1, type);
+    FunctionComparison<NotEqualsOp, NameNotEquals> not_equals;
+
+    EXPECT_TRUE(not_equals.can_evaluate_zonemap_filter({left, right}));
+    EXPECT_FALSE(not_equals.can_evaluate_dictionary_filter({left, right}));
+
+    // The bloom gate has to be checked through EQ. can_evaluate_bloom_filter starts with
+    // `op == Op::EQ`, so asserting it on NE would pass no matter what the rest of the gate does.
+    FunctionComparison<EqualsOp, NameEquals> equals;
+    EXPECT_TRUE(equals.can_evaluate_zonemap_filter({left, right}));
+    EXPECT_FALSE(equals.can_evaluate_bloom_filter({left, right}));
+    EXPECT_TRUE(equals.can_evaluate_bloom_filter({left, make_int_literal(1)}));
+
+    // Slot vs literal keeps working on every gate.
+    EXPECT_TRUE(not_equals.can_evaluate_zonemap_filter({left, make_int_literal(1)}));
+    EXPECT_TRUE(not_equals.can_evaluate_dictionary_filter({left, make_int_literal(1)}));
+
+    // Two columns of incompatible types are rejected: the two Fields would be compared directly and
+    // Field comparison throws on mismatched non-string types.
+    auto bigint = std::make_shared<DataTypeInt64>();
+    EXPECT_FALSE(not_equals.can_evaluate_zonemap_filter({left, make_slot(1, bigint)}));
+}
+
+TEST(ExprZonemapFilterTest, SlotSlotBailsOutWhenAFloatingNanCountIsUnknown) {
+    // Parquet bounds omit NaN without reporting how many were skipped, so a zone map that looks like
+    // a single point may still hide one. That would flip the NE rule from false to true, so the
+    // slot-vs-slot path refuses to prune for every operator once either side is marked unknown.
+    auto type = std::make_shared<DataTypeFloat64>();
+    auto left = make_slot(0, type);
+    auto right = make_slot(1, type);
+
+    auto make_double_zonemap = [](double value) {
+        segment_v2::ZoneMap zone_map;
+        zone_map.min_value = Field::create_field<TYPE_DOUBLE>(value);
+        zone_map.max_value = Field::create_field<TYPE_DOUBLE>(value);
+        zone_map.has_not_null = true;
+        return zone_map;
+    };
+
+    // Control group. Both sides are the same single value, so NE prunes without the guard; the
+    // contrast with the loop below is what shows the guard is what changes the outcome. The counter
+    // alone cannot show that, since every bail-out path in evaluate_slot_slot bumps the same one.
+    FunctionComparison<NotEqualsOp, NameNotEquals> not_equals;
+    auto known =
+            make_two_slot_context(make_double_zonemap(1.0), make_double_zonemap(1.0), type, type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              not_equals.evaluate_zonemap_filter(known, {left, right}));
+    EXPECT_EQ(0, known.stats.unusable_zonemap_eval_count);
+
+    auto expect_bails_out = [&](auto&& comparison, const char* predicate) {
+        for (int unknown_slot : {0, 1}) {
+            auto ctx = make_two_slot_context(make_double_zonemap(1.0), make_double_zonemap(1.0),
+                                             type, type);
+            ctx.slots[unknown_slot].floating_nan_count_unknown = true;
+            EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+                      comparison.evaluate_zonemap_filter(ctx, {left, right}))
+                    << predicate << " must stop pruning when slot " << unknown_slot
+                    << " has an unknown NaN count";
+            EXPECT_EQ(1, ctx.stats.unusable_zonemap_eval_count);
+        }
+    };
+
+    // All six operators bail out. On these bounds NE, LT and GT would otherwise prune and EQ, LE
+    // and GE would otherwise keep the zone, so none of the six is vacuously covered.
+    expect_bails_out(FunctionComparison<EqualsOp, NameEquals> {}, "a = b");
+    expect_bails_out(FunctionComparison<NotEqualsOp, NameNotEquals> {}, "a != b");
+    expect_bails_out(FunctionComparison<LessOp, NameLess> {}, "a < b");
+    expect_bails_out(FunctionComparison<LessOrEqualsOp, NameLessOrEquals> {}, "a <= b");
+    expect_bails_out(FunctionComparison<GreaterOp, NameGreater> {}, "a > b");
+    expect_bails_out(FunctionComparison<GreaterOrEqualsOp, NameGreaterOrEquals> {}, "a >= b");
+}
+
+TEST(ExprZonemapFilterTest, SlotSlotComparesDecimalBoundsInOneDomain) {
+    // Decimal bounds are unscaled payloads, so the rule is only meaningful when both sides share a
+    // scale. The v1 Parquet reader decodes row-group bounds in the file's own logical type while
+    // _type_matches compares only primitive types, so it now leaves the zone map out when the file
+    // and table types differ; this pins the behaviour the rule needs when they agree.
+    auto decimal_type = DataTypeFactory::instance().create_data_type(TYPE_DECIMAL64, false, 18, 2);
+    auto left = make_slot(0, decimal_type);
+    auto right = make_slot(1, decimal_type);
+    FunctionComparison<LessOp, NameLess> less;
+
+    auto make_decimal_zonemap = [](int64_t unscaled_min, int64_t unscaled_max) {
+        segment_v2::ZoneMap zone_map;
+        zone_map.min_value = Field::create_field<TYPE_DECIMAL64>(Decimal64(unscaled_min));
+        zone_map.max_value = Field::create_field<TYPE_DECIMAL64>(Decimal64(unscaled_max));
+        zone_map.has_not_null = true;
+        return zone_map;
+    };
+
+    // 10.00 .. 20.00 against 0.50 .. 1.00: a < b cannot hold.
+    auto separated =
+            make_two_slot_context(make_decimal_zonemap(1000, 2000), make_decimal_zonemap(50, 100),
+                                  decimal_type, decimal_type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              less.evaluate_zonemap_filter(separated, {left, right}));
+
+    // Touching at 10.00, which is what separates `lmin >= rmax` from `lmin > rmax`: a < b still
+    // cannot hold, so LT must prune while LE must not.
+    auto touching =
+            make_two_slot_context(make_decimal_zonemap(1000, 2000), make_decimal_zonemap(500, 1000),
+                                  decimal_type, decimal_type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch, less.evaluate_zonemap_filter(touching, {left, right}));
+    FunctionComparison<LessOrEqualsOp, NameLessOrEquals> less_equals;
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              less_equals.evaluate_zonemap_filter(touching, {left, right}));
+
+    // Overlapping in the same scale: nothing can be concluded.
+    auto overlapping =
+            make_two_slot_context(make_decimal_zonemap(1000, 2000),
+                                  make_decimal_zonemap(1500, 2500), decimal_type, decimal_type);
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              less.evaluate_zonemap_filter(overlapping, {left, right}));
+}
+
+TEST(ExprZonemapFilterTest, ParquetSlotZoneMapMarksFloatingNanCountUnknown) {
+    // The rule used to be spelled out in format_v2's add_slot_zonemap only, and the v1 Parquet
+    // reader assigned data_type directly and so left the flag false. Two double columns whose
+    // Parquet bounds both read [1.0, 1.0] then got pruned by `a != b` even when one of them hid a
+    // NaN. Both readers now go through this setter, so this test pins the rule down in one place.
+    ZoneMapEvalContext::SlotZoneMap double_slot;
+    double_slot.set_data_type_from_parquet(std::make_shared<DataTypeFloat64>());
+    EXPECT_TRUE(double_slot.floating_nan_count_unknown);
+
+    ZoneMapEvalContext::SlotZoneMap float_slot;
+    float_slot.set_data_type_from_parquet(std::make_shared<DataTypeFloat32>());
+    EXPECT_TRUE(float_slot.floating_nan_count_unknown);
+
+    // Nullable wrappers must not hide the floating type.
+    ZoneMapEvalContext::SlotZoneMap nullable_double_slot;
+    nullable_double_slot.set_data_type_from_parquet(
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeFloat64>()));
+    EXPECT_TRUE(nullable_double_slot.floating_nan_count_unknown);
+
+    // Non-floating columns keep exact bounds, so they must stay prunable.
+    ZoneMapEvalContext::SlotZoneMap int_slot;
+    auto int_data_type = int_type();
+    int_slot.set_data_type_from_parquet(int_data_type);
+    EXPECT_FALSE(int_slot.floating_nan_count_unknown);
+    EXPECT_EQ(int_data_type, int_slot.data_type);
+
+    // A slot with no type at all is copied through as before rather than dereferenced. The type is
+    // null only for SlotDescriptor's test-only default constructor, and the evaluator treats a slot
+    // without a type as unusable anyway.
+    ZoneMapEvalContext::SlotZoneMap untyped_slot;
+    untyped_slot.set_data_type_from_parquet(nullptr);
+    EXPECT_EQ(nullptr, untyped_slot.data_type);
+    EXPECT_FALSE(untyped_slot.floating_nan_count_unknown);
 }
 
 } // namespace doris
