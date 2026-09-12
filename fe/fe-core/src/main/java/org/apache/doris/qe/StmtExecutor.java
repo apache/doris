@@ -1552,7 +1552,8 @@ public class StmtExecutor {
         if (statementContext.isShortCircuitQuery()) {
             ShortCircuitQueryContext shortCircuitQueryContext = statementContext.getShortCircuitQueryContext();
             if (shortCircuitQueryContext == null) {
-                shortCircuitQueryContext = new ShortCircuitQueryContext(planner, (Queriable) parsedStmt);
+                shortCircuitQueryContext = new ShortCircuitQueryContext(planner, (Queriable) parsedStmt,
+                        statementContext.getSecurityDependencyContext());
                 // ExecuteCommand publishes this same context after a successful first prepared execution.
                 statementContext.setShortCircuitQueryContext(shortCircuitQueryContext);
             }

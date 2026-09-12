@@ -183,6 +183,7 @@ public class StatementContext implements Closeable {
     private final Map<CTEId, LogicalPlan> rewrittenCteConsumer = new HashMap<>();
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
     private final SqlCacheContext sqlCacheContext;
+    private final SecurityDependencyContext securityDependencyContext;
 
     // generate for next id for prepared statement's placeholders, which is
     // connection level
@@ -383,6 +384,8 @@ public class StatementContext implements Closeable {
         this.connectContext = connectContext;
         this.originStatement = originStatement;
         exprIdGenerator = ExprId.createGenerator(initialId);
+        this.securityDependencyContext = new SecurityDependencyContext(
+                connectContext == null ? null : connectContext.getCurrentUserIdentity());
         if (connectContext != null && connectContext.getSessionVariable() != null) {
             if (CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
                 // cannot set the queryId here because the queryId for the current query is set
@@ -690,6 +693,10 @@ public class StatementContext implements Closeable {
 
     public Optional<SqlCacheContext> getSqlCacheContext() {
         return Optional.ofNullable(sqlCacheContext);
+    }
+
+    public SecurityDependencyContext getSecurityDependencyContext() {
+        return securityDependencyContext;
     }
 
     public boolean isDpHyp() {
