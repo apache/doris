@@ -419,6 +419,78 @@ TEST_F(TestRle, TestSkip) {
     encoder.Flush();
 }
 
+TEST_F(TestRle, TestBoolSkipPreservesLiteralOffsetAcrossRuns) {
+    std::vector<bool> values;
+    for (int i = 0; i < 24; ++i) {
+        values.push_back(i % 3 == 1);
+    }
+    values.insert(values.end(), 16, true);
+    for (int i = 0; i < 24; ++i) {
+        values.push_back((i / 2) % 2 == 0);
+    }
+    values.insert(values.end(), 12, false);
+    for (int i = 0; i < 17; ++i) {
+        values.push_back(i % 2 == 0);
+    }
+
+    faststring buffer;
+    RleEncoder<bool> encoder(&buffer, 1);
+    for (bool value : values) {
+        encoder.Put(value);
+    }
+    encoder.Flush();
+
+    const std::vector<size_t> skip_counts = {1, 3, 7, 9, 17, 23, 25, 39, 41, 63, 77};
+    for (size_t skip_count : skip_counts) {
+        RleDecoder<bool> decoder(buffer.data(), buffer.size(), 1);
+        EXPECT_EQ(std::count(values.begin(), values.begin() + skip_count, true),
+                  decoder.Skip(skip_count))
+                << "skip_count=" << skip_count;
+
+        for (size_t i = skip_count; i < values.size(); ++i) {
+            bool decoded = false;
+            ASSERT_TRUE(decoder.Get(&decoded)) << "skip_count=" << skip_count << ", index=" << i;
+            EXPECT_EQ(values[i], decoded) << "skip_count=" << skip_count << ", index=" << i;
+        }
+    }
+}
+
+TEST_F(TestRle, TestBoolSkipReadsMultipleChunksFromUnalignedLiteral) {
+    constexpr size_t literal_count = 192;
+    std::vector<bool> values;
+    values.reserve(literal_count + 16);
+    for (size_t i = 0; i < literal_count; ++i) {
+        values.push_back(i % 2 == 0);
+    }
+    values.insert(values.end(), 16, true);
+
+    faststring buffer;
+    RleEncoder<bool> encoder(&buffer, 1);
+    for (bool value : values) {
+        encoder.Put(value);
+    }
+    encoder.Flush();
+
+    RleDecoder<bool> decoder(buffer.data(), buffer.size(), 1);
+    constexpr size_t prefix_count = 3;
+    for (size_t i = 0; i < prefix_count; ++i) {
+        bool decoded = false;
+        ASSERT_TRUE(decoder.Get(&decoded));
+        EXPECT_EQ(values[i], decoded);
+    }
+
+    constexpr size_t skip_count = 129;
+    EXPECT_EQ(std::count(values.begin() + prefix_count, values.begin() + prefix_count + skip_count,
+                         true),
+              decoder.Skip(skip_count));
+
+    for (size_t i = prefix_count + skip_count; i < values.size(); ++i) {
+        bool decoded = false;
+        ASSERT_TRUE(decoder.Get(&decoded)) << "index=" << i;
+        EXPECT_EQ(values[i], decoded) << "index=" << i;
+    }
+}
+
 // Helper to compare Put with run_length vs multiple Put(value) calls
 template <typename T>
 void ValidatePutRunLength(const std::vector<std::pair<T, size_t>>& runs, int bit_width) {
