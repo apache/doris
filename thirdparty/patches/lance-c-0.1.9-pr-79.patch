@@ -1,0 +1,1782 @@
+From d819fbdfa52031d84d1fa01f2d06c51a6712c40b Mon Sep 17 00:00:00 2001
+From: zhangstar333 <zhangsida@selectdb.com>
+Date: Tue, 8 Sep 2026 22:30:48 +0800
+Subject: [PATCH 1/5] scalar index segment
+
+---
+ docs/scalar-segment-scans.md |  78 +++++++++++
+ include/lance/lance.h        |  24 ++++
+ include/lance/lance.hpp      |  14 ++
+ src/lib.rs                   |   1 +
+ src/scalar_segment.rs        | 224 +++++++++++++++++++++++++++++++
+ src/scanner.rs               |  61 +++++++++
+ tests/c_api_test.rs          | 249 +++++++++++++++++++++++++++++++++++
+ 7 files changed, 651 insertions(+)
+ create mode 100644 docs/scalar-segment-scans.md
+ create mode 100644 src/scalar_segment.rs
+
+diff --git a/docs/scalar-segment-scans.md b/docs/scalar-segment-scans.md
+new file mode 100644
+index 0000000..dc7c141
+--- /dev/null
++++ b/docs/scalar-segment-scans.md
+@@ -0,0 +1,78 @@
++# Scalar index segment scans
++
++An ordinary scanner can use one physical BTree/Bitmap segment to generate
++candidates, then read those candidates with the complete scanner filter. This
++does not run a global search of the other segments of the logical index. It does
++not subdivide a physical segment or make its own index search incremental.
++
++## Configuring a task
++
++Open a fixed dataset version. Select the physical index UUID from that version's
++metadata and pass the task's complete fragment domain explicitly:
++
++```c
++LanceScanner *scanner = lance_scanner_new(dataset, columns, full_filter_sql);
++/* Check every return value in production. */
++lance_scanner_set_fragment_ids(scanner, fragment_ids, fragment_count);
++lance_scanner_set_scalar_index_segment(scanner, segment_uuid_16_bytes);
++lance_scanner_set_limit(scanner, 20000);
++/* The scanner-owning thread calls lance_scanner_next as usual. */
++```
++
++SQL, Substrait and additional SQL filters keep their existing precedence and AND
++composition. The caller does not supply a separate driver predicate: Lance-C
++uses the typed filter planner and selects a necessary indexed leaf belonging to
++the requested logical index. It only descends through AND, never through OR or
++NOT. It then searches the selected UUID and applies the complete filter while
++reading candidates with automatic scalar-index planning disabled.
++
++Each task's fragment IDs define its result domain, including on fallback. A
++distributed planner must assign disjoint domains whose union covers the intended
++scan. Unindexed fragments need their own tasks, or an explicit domain including
++them (which causes that task to use fallback). Merely listing indexed segments
++does not include appended, unindexed data automatically.
++
++An unknown UUID, absent fragment or invalid option combination is an error. A
++known segment with incomplete/unknown coverage, no suitable driver, unsupported
++index type, nested key, overlays, fragment reuse, non-exact results or unsupported
++row-ID domain falls back to a non-indexed scan of the entire explicit domain.
++I/O and corruption errors are propagated, not converted to empty results or
++successful fallback.
++
++The first implementation supports live-row ordinary scans and cannot be combined
++with vector/FTS queries. Physical row-address
++results on stable-row-ID datasets currently fall back; results already expressed
++in the correct row-ID domain use the candidate path. Deletes and all remaining
++predicates are handled by the ordinary reader. No candidate-count limit is
++applied: LIMIT/OFFSET remain after the scanner's complete filter.
++
++If the host has additional predicates outside Lance, do not set a local limit
++before those predicates. Never divide the global limit by the number of tasks.
++Global OFFSET belongs to the coordinator, not independently to each task.
++
++## Stopping after the host limit
++
++This mode uses the existing scanner/stream lifecycle. Once the host has enough
++rows, it stops requesting further batches and closes the scanner after any active
++call has returned. Do not call `lance_scanner_close` concurrently with `next`.
++Exported Arrow streams remain owned by the caller and must also be released after
++their active consumers have finished.
++
++A host stop flag does not interrupt an in-progress `lance_scanner_next`: current
++index evaluation or I/O may finish before the host observes stop and closes the
++stream. No separate cancellation signal or thread is introduced. The host remains
++responsible for enforcing the global LIMIT across concurrent tasks.
++
++## Memory and statistics
++
++Candidate masks stay in Rust, and record batches are streamed. Each active task
++can still hold a complete segment's candidate set; scanner I/O buffer size does
++not cap that allocation. Control task concurrency and physical segment size.
++
++Successful exhaustion merges segment-search metrics into the existing statistics
++callback exactly once. New metrics include `scalar_segments_requested`,
++`scalar_segments_searched`, `scalar_segment_candidate_rows`,
++`scalar_segment_prepare_time`, `scalar_segment_search_time`, and
++`scalar_segment_fallback_*` reasons. `prepare_time` includes search time. Early
++release, cancellation and errors retain the existing callback contract: final
++statistics are not guaranteed. Metrics do not establish global task concurrency.
+diff --git a/include/lance/lance.h b/include/lance/lance.h
+index 8173ae5..cbd8330 100644
+--- a/include/lance/lance.h
++++ b/include/lance/lance.h
+@@ -1858,6 +1858,30 @@ int32_t lance_scanner_set_index_segments(
+     size_t len
+ );
+ 
++/**
++ * Accelerate an ordinary scalar-filtered scan with one physical index segment.
++ * segment_uuid points to 16 UUID bytes in RFC 4122 order; NULL clears the setting.
++ * Must be configured before scanning. Requires explicit nonempty fragment_ids,
++ * which define BOTH the read and fallback domain, independently of the segment.
++ * Missing snapshot UUIDs / fragment IDs are errors. Extra segment coverage is
++ * excluded by fragment_ids; incomplete coverage falls back to a full filtered
++ * scan of those fragment_ids. Callers distributing work must assign disjoint
++ * fragment domains and separately include any unindexed data they wish to read.
++ *
++ * BTree/Bitmap searches use a necessary AND-conjunct of the full scanner filter
++ * on the selected logical index. All predicates are reapplied during candidate
++ * reads; other scalar indices are disabled. OR/NOT-only filters, overlays,
++ * fragment reuse, unsupported index types / result domains
++ * and missing coverage use the same domain without an index. No filter also
++ * falls back. LIMIT/OFFSET apply after the complete scanner filter, never to the
++ * unfiltered candidate set. Vector/FTS queries are rejected.
++ *
++ * UUID bytes are copied. Metadata and final option compatibility are validated
++ * when creating the stream. Index corruption or I/O failures remain errors.
++ */
++int32_t lance_scanner_set_scalar_index_segment(
++    LanceScanner* scanner, const uint8_t* segment_uuid);
++
+ /* ─── Full-text search (Phase 2) ─── */
+ 
+ /**
+diff --git a/include/lance/lance.hpp b/include/lance/lance.hpp
+index c12c0c6..8e1c6cf 100644
+--- a/include/lance/lance.hpp
++++ b/include/lance/lance.hpp
+@@ -1311,6 +1311,20 @@ class Scanner {
+         return *this;
+     }
+ 
++    /// Restrict scalar candidate generation to one segment; fragment_ids is
++    /// required and defines the complete read/fallback domain. See lance.h.
++    Scanner& scalar_index_segment(const std::array<uint8_t, 16>& segment_uuid) {
++        if (lance_scanner_set_scalar_index_segment(handle_.get(), segment_uuid.data()) != 0)
++            check_error();
++        return *this;
++    }
++
++    Scanner& clear_scalar_index_segment() {
++        if (lance_scanner_set_scalar_index_segment(handle_.get(), nullptr) != 0)
++            check_error();
++        return *this;
++    }
++
+     /// Restrict scan to specific fragment IDs.
+     Scanner& fragment_ids(const uint64_t* ids, size_t len) {
+         if (lance_scanner_set_fragment_ids(handle_.get(), ids, len) != 0)
+diff --git a/src/lib.rs b/src/lib.rs
+index 8b212f5..c7ca4cf 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -39,6 +39,7 @@ mod index_segment;
+ mod merge_insert;
+ mod restore;
+ pub mod runtime;
++mod scalar_segment;
+ mod scanner;
+ mod session;
+ pub mod stream_guard;
+diff --git a/src/scalar_segment.rs b/src/scalar_segment.rs
+new file mode 100644
+index 0000000..2ab1297
+--- /dev/null
++++ b/src/scalar_segment.rs
+@@ -0,0 +1,224 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright The Lance Authors
++
++//! Segment-scoped candidate generation for ordinary scans. The explicit fragment
++//! list is the read domain, including on fallback; a segment is only an accelerator.
++
++use std::collections::HashSet;
++use std::sync::Arc;
++use std::time::Instant;
++
++use datafusion::physical_plan::metrics::ExecutionPlanMetricsSet;
++use lance::Dataset;
++use lance::dataset::scanner::{
++    ExecutionStatsCallback, ExecutionSummaryCounts, RowAddrMask, Scanner,
++};
++use lance::index::{DatasetIndexExt, DatasetIndexInternalExt};
++use lance::io::exec::utils::IndexMetrics;
++use lance_core::{Error, Result};
++use lance_datafusion::planner::Planner;
++use lance_datafusion::utils::MetricsExt;
++use lance_index::IndexType;
++use lance_index::scalar::SearchResult;
++use lance_index::scalar::expression::{PlannerIndexExt, ScalarIndexExpr, ScalarIndexSearch};
++use uuid::Uuid;
++
++pub(crate) struct PreparedScalarSegment {
++    pub dataset: Arc<Dataset>,
++    pub segment_uuid: Uuid,
++    pub fragment_ids: Vec<u64>,
++    pub callback: Option<ExecutionStatsCallback>,
++}
++
++fn invalid(message: impl Into<String>) -> Error {
++    Error::invalid_input_source(message.into().into())
++}
++
++// Only descend through AND: a leaf below OR or NOT need not contain all matches
++// of the full expression. The original expression is always reapplied by reader.
++fn driver<'a>(expr: &'a ScalarIndexExpr, index_name: &str) -> Option<&'a ScalarIndexSearch> {
++    match expr {
++        ScalarIndexExpr::Query(search) if search.index_name == index_name => Some(search),
++        ScalarIndexExpr::And(lhs, rhs) => {
++            driver(lhs, index_name).or_else(|| driver(rhs, index_name))
++        }
++        _ => None,
++    }
++}
++
++impl PreparedScalarSegment {
++    pub async fn configure(self, mut reader: Scanner) -> Result<Scanner> {
++        // Never let either candidate reads or fallback re-enter a global index search.
++        reader.use_scalar_index(false);
++        let mut stats = ExecutionSummaryCounts::default();
++        stats
++            .all_counts
++            .insert("scalar_segments_requested".into(), 1);
++        let plan_metrics = ExecutionPlanMetricsSet::new();
++        let metrics = IndexMetrics::new(&plan_metrics, 0);
++        let started = Instant::now();
++        let reason = self
++            .configure_candidates(&mut reader, &metrics, &mut stats)
++            .await?;
++        metrics.flush_io();
++        stats.all_times.insert(
++            "scalar_segment_prepare_time".into(),
++            started.elapsed().as_nanos().min(usize::MAX as u128) as usize,
++        );
++        if let Some(reason) = reason {
++            stats
++                .all_counts
++                .insert("scalar_segment_fallbacks".into(), 1);
++            stats
++                .all_counts
++                .insert(format!("scalar_segment_fallback_{reason}"), 1);
++        }
++        for (name, count) in plan_metrics.clone_inner().iter_counts() {
++            let name = name.as_ref();
++            match name {
++                "iops" => stats.iops += count.value(),
++                "requests" => stats.requests += count.value(),
++                "bytes_read" => stats.bytes_read += count.value(),
++                "indices_loaded" => stats.indices_loaded += count.value(),
++                "parts_loaded" => stats.parts_loaded += count.value(),
++                "index_comparisons" => stats.index_comparisons += count.value(),
++                _ => *stats.all_counts.entry(name.to_string()).or_default() += count.value(),
++            }
++        }
++        if let Some(callback) = self.callback {
++            // Preserve the callback's once-per-successfully-exhausted-stream contract.
++            // Candidate work is not part of the underlying reader's plan metrics.
++            reader.scan_stats_callback(Arc::new(move |read| {
++                let mut combined = read.clone();
++                combined.iops += stats.iops;
++                combined.requests += stats.requests;
++                combined.bytes_read += stats.bytes_read;
++                combined.indices_loaded += stats.indices_loaded;
++                combined.parts_loaded += stats.parts_loaded;
++                combined.index_comparisons += stats.index_comparisons;
++                for (name, value) in &stats.all_counts {
++                    *combined.all_counts.entry(name.clone()).or_default() += value;
++                }
++                for (name, value) in &stats.all_times {
++                    *combined.all_times.entry(name.clone()).or_default() += value;
++                }
++                callback(&combined);
++            }));
++        }
++        Ok(reader)
++    }
++
++    async fn configure_candidates(
++        &self,
++        reader: &mut Scanner,
++        metrics: &IndexMetrics,
++        stats: &mut ExecutionSummaryCounts,
++    ) -> Result<Option<&'static str>> {
++        let fragments = self.dataset.get_fragments();
++        let visible: HashSet<u64> = fragments.iter().map(|f| f.id() as u64).collect();
++        if self.fragment_ids.iter().any(|id| !visible.contains(id)) {
++            return Err(invalid(
++                "scalar segment fragment_ids contains a fragment absent from the dataset snapshot",
++            ));
++        }
++        let indices = self.dataset.load_indices().await?;
++        let index_meta = indices
++            .iter()
++            .find(|i| i.uuid == self.segment_uuid)
++            .ok_or_else(|| {
++                invalid(format!(
++                    "scalar index segment {} is absent from the dataset snapshot",
++                    self.segment_uuid
++                ))
++            })?;
++        let field_id = index_meta
++            .keyed_field()
++            .ok_or_else(|| invalid("scalar segment must index a single key field"))?;
++        let field =
++            self.dataset.schema().field_by_id(field_id).ok_or_else(|| {
++                invalid("scalar segment key field is absent from the dataset schema")
++            })?;
++        // Keep V1 to flat scalar fields. A dotted name is not sufficient to prove
++        // the field path of an evolved or nested schema.
++        if !self
++            .dataset
++            .schema()
++            .fields
++            .iter()
++            .any(|f| f.id == field.id)
++        {
++            return Ok(Some("nested_field"));
++        }
++        let scope: HashSet<u64> = self.fragment_ids.iter().copied().collect();
++        let Some(coverage) = index_meta.fragment_bitmap.as_ref() else {
++            return Ok(Some("unknown_coverage"));
++        };
++        if self
++            .fragment_ids
++            .iter()
++            .any(|id| u32::try_from(*id).map_or(true, |id| !coverage.contains(id)))
++        {
++            // Scan the ENTIRE explicit read domain, not just the covered part.
++            return Ok(Some("partial_coverage"));
++        }
++        if fragments
++            .iter()
++            .filter(|f| scope.contains(&(f.id() as u64)))
++            .any(|f| !f.metadata().overlays.is_empty() || f.metadata().physical_rows.is_none())
++        {
++            return Ok(Some("fragment_state"));
++        }
++        // Fragment reuse can change the domain of an old segment. Until its
++        // coverage mapping is handled here, preserve correctness with a scoped scan.
++        if self.dataset.frag_reuse_index_uuid().await.is_some() {
++            return Ok(Some("fragment_reuse"));
++        }
++        let Some(filter) = reader.get_expr_filter()? else {
++            return Ok(Some("no_filter"));
++        };
++        let planner = Planner::new(Arc::new(self.dataset.schema().into()));
++        let index_info = self.dataset.scalar_index_info().await?;
++        let filter_plan = planner.create_filter_plan(filter, &index_info, true)?;
++        let Some(search) = filter_plan
++            .index_query
++            .as_ref()
++            .and_then(|expr| driver(expr, &index_meta.name))
++        else {
++            return Ok(Some("no_driver"));
++        };
++        if search.column != field.name {
++            return Ok(Some("field_path"));
++        }
++        let index = self
++            .dataset
++            .open_scalar_index(&search.column, &self.segment_uuid, metrics)
++            .await?;
++        if !matches!(index.index_type(), IndexType::BTree | IndexType::Bitmap) {
++            return Ok(Some("index_type"));
++        }
++        // External masks use _rowid, not necessarily physical row addresses.
++        if index.results_are_row_addresses() && self.dataset.manifest.uses_stable_row_ids() {
++            return Ok(Some("row_id_domain"));
++        }
++        let started = Instant::now();
++        let result = index.search(search.query.as_ref(), metrics).await?;
++        stats.all_times.insert(
++            "scalar_segment_search_time".into(),
++            started.elapsed().as_nanos().min(usize::MAX as u128) as usize,
++        );
++        stats
++            .all_counts
++            .insert("scalar_segments_searched".into(), 1);
++        let SearchResult::Exact(rows) = result else {
++            return Ok(Some("inexact_result"));
++        };
++        stats.all_counts.insert(
++            "scalar_segment_candidate_rows".into(),
++            rows.len().unwrap_or(0) as usize,
++        );
++        // Do not truncate candidates at LIMIT. The reader evaluates the complete
++        // filter before applying its existing limit/offset operators.
++        reader.with_row_addr_prefilter(RowAddrMask::from_allowed(rows.selected_rows().clone()));
++        Ok(None)
++    }
++}
+diff --git a/src/scanner.rs b/src/scanner.rs
+index 4ceeb0e..ac3cff6 100644
+--- a/src/scanner.rs
++++ b/src/scanner.rs
+@@ -39,6 +39,7 @@ use crate::fts_query::{
+ };
+ use crate::helpers;
+ use crate::runtime::{RT, block_on};
++use crate::scalar_segment::PreparedScalarSegment;
+ use crate::stream_guard::GuardedReader;
+ 
+ /// Data type tag for query vectors, mirroring the C enum `LanceDataType`.
+@@ -108,6 +109,7 @@ pub struct LanceScanner {
+     include_deleted_rows: bool,
+     fragment_ids: Option<Vec<u64>>,
+     index_segments: Option<Vec<Uuid>>,
++    scalar_index_segment: Option<Uuid>,
+     nearest: Option<NearestQuery>,
+     nprobes: NprobesRange,
+     approx_mode: Option<LanceApproxMode>,
+@@ -256,6 +258,7 @@ impl LanceScanner {
+             include_deleted_rows: false,
+             fragment_ids: None,
+             index_segments: None,
++            scalar_index_segment: None,
+             nearest: None,
+             nprobes: NprobesRange::default(),
+             approx_mode: None,
+@@ -470,12 +473,37 @@ impl LanceScanner {
+             None
+         };
+         self.apply_filter(&mut scanner)?;
++        let scalar_segment = if let Some(segment_uuid) = self.scalar_index_segment {
++            if self.nearest.is_some()
++                || self.fts_query.is_some()
++                || self.fts_context.is_some()
++                || self.index_segments.is_some()
++                || self.fts_index_segments.is_some()
++            {
++                return Err(lance_core::Error::invalid_input_source(
++                    "scalar_index_segment requires an ordinary scan of live rows".into(),
++                ));
++            }
++            let fragment_ids = self.fragment_ids.as_ref().filter(|ids| !ids.is_empty())
++                .ok_or_else(|| lance_core::Error::invalid_input_source(
++                    "scalar_index_segment requires explicit nonempty fragment_ids for its read and fallback domain".into(),
++                ))?;
++            Some(PreparedScalarSegment {
++                dataset: Arc::clone(&self.dataset),
++                segment_uuid,
++                fragment_ids: fragment_ids.clone(),
++                callback: self.scan_statistics_callback.clone(),
++            })
++        } else {
++            None
++        };
+         if let Some(callback) = &self.scan_statistics_callback {
+             scanner.scan_stats_callback(callback.clone());
+         }
+         Ok(PreparedScanner {
+             scanner,
+             distributed_fts,
++            scalar_segment,
+         })
+     }
+ }
+@@ -490,10 +518,18 @@ struct PreparedFtsExecution {
+ struct PreparedScanner {
+     scanner: lance::dataset::scanner::Scanner,
+     distributed_fts: Option<PreparedFtsExecution>,
++    scalar_segment: Option<PreparedScalarSegment>,
+ }
+ 
+ impl PreparedScanner {
+     async fn try_into_stream(self) -> Result<DatasetRecordBatchStream> {
++        if let Some(scalar_segment) = self.scalar_segment {
++            return scalar_segment
++                .configure(self.scanner)
++                .await?
++                .try_into_stream()
++                .await;
++        }
+         let Some(distributed_fts) = self.distributed_fts else {
+             return self.scanner.try_into_stream().await;
+         };
+@@ -858,6 +894,31 @@ macro_rules! scanner_ffi_try {
+     }};
+ }
+ 
++/// Select one physical scalar index segment. NULL clears the selection.
++/// Requires explicit fragment_ids and an ordinary live-row scan. See the C header.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_scanner_set_scalar_index_segment(
++    scanner: *mut LanceScanner,
++    segment_uuid: *const u8,
++) -> i32 {
++    scanner_poison_check!(scanner, -1);
++    scanner_ffi_try!(scanner, {
++        let scanner = unsafe { scanner.as_mut() }
++            .ok_or_else(|| lance_core::Error::invalid_input_source("scanner is NULL".into()))?;
++        scanner.ensure_scan_not_started("scalar_index_segment")?;
++        let segment = if segment_uuid.is_null() {
++            None
++        } else {
++            Some(
++                Uuid::from_slice(unsafe { std::slice::from_raw_parts(segment_uuid, 16) })
++                    .map_err(|e| lance_core::Error::invalid_input_source(e.into()))?,
++            )
++        };
++        scanner.scalar_index_segment = segment;
++        Ok(0)
++    })
++}
++
+ // ---------------------------------------------------------------------------
+ // Scanner lifecycle + builder
+ // ---------------------------------------------------------------------------
+diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
+index 3b3424b..a8a7eab 100644
+--- a/tests/c_api_test.rs
++++ b/tests/c_api_test.rs
+@@ -12513,3 +12513,252 @@ fn test_add_columns_stream_null_dataset_consumes_stream() {
+     assert_eq!(lance_last_error_code(), LanceErrorCode::InvalidArgument);
+     assert_stream_consumed(&stream, &drop_count);
+ }
++
++// Segment scans deliberately use an unprojected nullable key and a residual
++// predicate so a candidate LIMIT or loss of filter columns changes the answer.
++fn create_scalar_segment_fixture(
++    kind: lance_index::IndexType,
++    stable: bool,
++) -> (tempfile::TempDir, String, Vec<[u8; 16]>) {
++    use lance::dataset::WriteParams;
++    use lance::index::DatasetIndexExt;
++    use lance_index::scalar::{BuiltinIndexType, ScalarIndexParams};
++    let tmp = tempfile::tempdir().unwrap();
++    let uri = tmp.path().join("segments").to_str().unwrap().to_owned();
++    let uuids = lance_c::runtime::block_on(async {
++        let schema = Arc::new(Schema::new(vec![
++            Field::new("id", DataType::Int32, false),
++            Field::new("key", DataType::Int32, true),
++        ]));
++        let batch = RecordBatch::try_new(
++            schema.clone(),
++            vec![
++                Arc::new(Int32Array::from_iter_values(0..12)),
++                Arc::new(Int32Array::from(
++                    (0..12)
++                        .map(|id| if id % 4 == 0 { None } else { Some(id % 3) })
++                        .collect::<Vec<_>>(),
++                )),
++            ],
++        )
++        .unwrap();
++        let mut ds = Dataset::write(
++            arrow::record_batch::RecordBatchIterator::new(vec![Ok(batch)], schema),
++            &uri,
++            Some(WriteParams {
++                max_rows_per_file: 4,
++                enable_stable_row_ids: stable,
++                ..Default::default()
++            }),
++        )
++        .await
++        .unwrap();
++        let params = ScalarIndexParams::for_builtin(if kind == lance_index::IndexType::Bitmap {
++            BuiltinIndexType::Bitmap
++        } else {
++            BuiltinIndexType::BTree
++        });
++        let fragments = ds.get_fragments();
++        assert_eq!(fragments.len(), 3);
++        let mut segments = Vec::new();
++        for fragment in fragments.iter().take(2) {
++            segments.push(
++                ds.create_index_builder(&["key"], kind, &params)
++                    .name("key_idx".into())
++                    .fragments(vec![fragment.id() as u32])
++                    .execute_uncommitted()
++                    .await
++                    .unwrap(),
++            );
++        }
++        let uuids = segments.iter().map(|s| *s.uuid.as_bytes()).collect();
++        ds.commit_existing_index_segments("key_idx", "key", segments)
++            .await
++            .unwrap();
++        uuids
++    });
++    (tmp, uri, uuids)
++}
++
++fn scalar_segment_ids(
++    uri: &str,
++    uuid: &[u8; 16],
++    fragments: &[u64],
++    filter: &str,
++    limit: Option<i64>,
++    offset: i64,
++) -> (Vec<i32>, CapturedScanStatistics) {
++    let uri = c_str(uri);
++    let filter = c_str(filter);
++    let id = c_str("id");
++    let columns = [id.as_ptr(), ptr::null()];
++    let mut captured = CapturedScanStatistics::default();
++    let mut ids = Vec::new();
++    unsafe {
++        let ds = lance_dataset_open(uri.as_ptr(), ptr::null(), 0);
++        assert!(!ds.is_null());
++        let scanner = lance_scanner_new(ds, columns.as_ptr(), filter.as_ptr());
++        assert!(!scanner.is_null());
++        assert_eq!(
++            lance_scanner_set_fragment_ids(scanner, fragments.as_ptr(), fragments.len()),
++            0
++        );
++        assert_eq!(
++            lance_scanner_set_scalar_index_segment(scanner, uuid.as_ptr()),
++            0
++        );
++        if let Some(limit) = limit {
++            assert_eq!(lance_scanner_set_limit(scanner, limit), 0);
++        }
++        assert_eq!(lance_scanner_set_offset(scanner, offset), 0);
++        assert_eq!(
++            lance_scanner_set_statistics_callback(
++                scanner,
++                Some(capture_scan_statistics),
++                (&mut captured as *mut CapturedScanStatistics).cast()
++            ),
++            0
++        );
++        let mut stream = FFI_ArrowArrayStream::empty();
++        let rc = lance_scanner_to_arrow_stream(scanner, &mut stream);
++        assert_eq!(
++            rc,
++            0,
++            "{}",
++            if rc != 0 {
++                take_last_error_message()
++            } else {
++                String::new()
++            }
++        );
++        assert_eq!(
++            lance_scanner_set_scalar_index_segment(scanner, ptr::null()),
++            -1
++        );
++        {
++            let reader = ArrowArrayStreamReader::from_raw(&mut stream).unwrap();
++            for batch in reader {
++                let batch = batch.unwrap();
++                assert_eq!(batch.num_columns(), 1);
++                ids.extend(
++                    batch
++                        .column(0)
++                        .as_any()
++                        .downcast_ref::<Int32Array>()
++                        .unwrap()
++                        .values()
++                        .iter()
++                        .copied(),
++                );
++            }
++        }
++        lance_scanner_close(scanner);
++        lance_dataset_close(ds);
++    }
++    (ids, captured)
++}
++
++#[test]
++fn test_scalar_segment_scope_residual_limit_and_unindexed_fallback() {
++    for kind in [
++        lance_index::IndexType::BTree,
++        lance_index::IndexType::Bitmap,
++    ] {
++        let (_tmp, uri, uuids) = create_scalar_segment_fixture(kind, false);
++        let (ids, stats) =
++            scalar_segment_ids(&uri, &uuids[0], &[0], "key >= 0 AND id >= 2", None, 0);
++        assert_eq!(ids, vec![2, 3]);
++        assert_eq!(stats.calls, 1);
++        assert!(
++            stats
++                .metrics
++                .iter()
++                .any(|(name, _, value)| name == "scalar_segments_searched" && *value == 1)
++        );
++        let (ids, _) =
++            scalar_segment_ids(&uri, &uuids[0], &[0], "key >= 0 AND id >= 2", Some(1), 1);
++        assert_eq!(
++            ids,
++            vec![3],
++            "offset and limit must apply after residual filtering"
++        );
++        let (ids, _) = scalar_segment_ids(&uri, &uuids[1], &[1], "key >= 0 AND id >= 2", None, 0);
++        assert_eq!(ids, vec![5, 6, 7]);
++        let (ids, stats) =
++            scalar_segment_ids(&uri, &uuids[0], &[0, 2], "key >= 0 AND id >= 2", None, 0);
++        assert_eq!(
++            ids,
++            vec![2, 3, 9, 10, 11],
++            "partial coverage must not omit unindexed rows"
++        );
++        assert!(
++            stats
++                .metrics
++                .iter()
++                .any(|(name, _, _)| name == "scalar_segment_fallback_partial_coverage")
++        );
++        let (ids, stats) = scalar_segment_ids(&uri, &uuids[0], &[0], "key = 99 OR id = 0", None, 0);
++        assert_eq!(
++            ids,
++            vec![0],
++            "OR must not use just one branch as candidates"
++        );
++        assert!(
++            stats
++                .metrics
++                .iter()
++                .any(|(name, _, _)| name == "scalar_segment_fallback_no_driver")
++        );
++        let (ids, _) = scalar_segment_ids(&uri, &uuids[0], &[0], "key = 99", None, 0);
++        assert!(ids.is_empty());
++    }
++}
++
++#[test]
++fn test_scalar_segment_stable_row_ids_and_deletes() {
++    use lance::index::DatasetIndexExt;
++    let (_tmp, uri, uuids) = create_scalar_segment_fixture(lance_index::IndexType::BTree, true);
++    lance_c::runtime::block_on(async {
++        let mut ds = Dataset::open(&uri).await.unwrap();
++        ds.delete("id = 2").await.unwrap();
++        assert_eq!(ds.load_indices().await.unwrap().len(), 2);
++    });
++    let (ids, _) = scalar_segment_ids(&uri, &uuids[0], &[0], "key >= 0 AND id >= 2", None, 0);
++    assert_eq!(ids, vec![3]);
++}
++
++#[test]
++fn test_scalar_segment_requires_explicit_domain_and_checks_uuid() {
++    let (_tmp, uri, uuids) = create_scalar_segment_fixture(lance_index::IndexType::BTree, false);
++    let uri = c_str(&uri);
++    let filter = c_str("key >= 0");
++    unsafe {
++        assert_eq!(
++            lance_scanner_set_scalar_index_segment(ptr::null_mut(), ptr::null()),
++            -1
++        );
++        let ds = lance_dataset_open(uri.as_ptr(), ptr::null(), 0);
++        let scanner = lance_scanner_new(ds, ptr::null(), filter.as_ptr());
++        assert_eq!(
++            lance_scanner_set_scalar_index_segment(scanner, uuids[0].as_ptr()),
++            0
++        );
++        let mut batch = ptr::null_mut();
++        assert_eq!(lance_scanner_next(scanner, &mut batch), -1);
++        assert_eq!(lance_last_error_code(), LanceErrorCode::InvalidArgument);
++        lance_scanner_close(scanner);
++        let scanner = lance_scanner_new(ds, ptr::null(), filter.as_ptr());
++        assert_eq!(
++            lance_scanner_set_fragment_ids(scanner, [0u64].as_ptr(), 1),
++            0
++        );
++        assert_eq!(
++            lance_scanner_set_scalar_index_segment(scanner, [0u8; 16].as_ptr()),
++            0
++        );
++        assert_eq!(lance_scanner_next(scanner, &mut batch), -1);
++        assert_eq!(lance_last_error_code(), LanceErrorCode::InvalidArgument);
++        lance_scanner_close(scanner);
++        lance_dataset_close(ds);
++    }
++}
+
+From 17240674d739293a494c07dfe5aec92a97185363 Mon Sep 17 00:00:00 2001
+From: zhangstar333 <zhangsida@selectdb.com>
+Date: Tue, 8 Sep 2026 23:17:23 +0800
+Subject: [PATCH 2/5] update
+
+---
+ docs/scalar-segment-scans.md |  3 ++
+ include/lance/lance.h        |  4 +--
+ src/scalar_segment.rs        |  7 +++++
+ tests/c_api_test.rs          | 60 ++++++++++++++++++++++++++++++++++--
+ 4 files changed, 70 insertions(+), 4 deletions(-)
+
+diff --git a/docs/scalar-segment-scans.md b/docs/scalar-segment-scans.md
+index dc7c141..f72dbfc 100644
+--- a/docs/scalar-segment-scans.md
++++ b/docs/scalar-segment-scans.md
+@@ -36,6 +36,9 @@ An unknown UUID, absent fragment or invalid option combination is an error. A
+ known segment with incomplete/unknown coverage, no suitable driver, unsupported
+ index type, nested key, overlays, fragment reuse, non-exact results or unsupported
+ row-ID domain falls back to a non-indexed scan of the entire explicit domain.
++Legacy (v1) storage also takes this fallback because ordinary scans cannot consume
++external row masks; it reports `scalar_segment_fallback_legacy_storage` without
++searching the index.
+ I/O and corruption errors are propagated, not converted to empty results or
+ successful fallback.
+ 
+diff --git a/include/lance/lance.h b/include/lance/lance.h
+index cbd8330..ab15247 100644
+--- a/include/lance/lance.h
++++ b/include/lance/lance.h
+@@ -1870,8 +1870,8 @@ int32_t lance_scanner_set_index_segments(
+  *
+  * BTree/Bitmap searches use a necessary AND-conjunct of the full scanner filter
+  * on the selected logical index. All predicates are reapplied during candidate
+- * reads; other scalar indices are disabled. OR/NOT-only filters, overlays,
+- * fragment reuse, unsupported index types / result domains
++ * reads; other scalar indices are disabled. Legacy storage, OR/NOT-only filters,
++ * overlays, fragment reuse, unsupported index types / result domains
+  * and missing coverage use the same domain without an index. No filter also
+  * falls back. LIMIT/OFFSET apply after the complete scanner filter, never to the
+  * unfiltered candidate set. Vector/FTS queries are rejected.
+diff --git a/src/scalar_segment.rs b/src/scalar_segment.rs
+index 2ab1297..5e121c9 100644
+--- a/src/scalar_segment.rs
++++ b/src/scalar_segment.rs
+@@ -138,6 +138,13 @@ impl PreparedScalarSegment {
+             self.dataset.schema().field_by_id(field_id).ok_or_else(|| {
+                 invalid("scalar segment key field is absent from the dataset schema")
+             })?;
++        // Match Lance's plain-scan external-mask restriction. Keep the scoped,
++        // full-filtered reader intact and avoid index work on legacy storage.
++        if self.dataset.manifest().data_storage_format.lance_file_format()
++            == lance_file::version::ConcreteFileVersion::V1
++        {
++            return Ok(Some("legacy_storage"));
++        }
+         // Keep V1 to flat scalar fields. A dotted name is not sufficient to prove
+         // the field path of an evolved or nested schema.
+         if !self
+diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
+index a8a7eab..0cb998b 100644
+--- a/tests/c_api_test.rs
++++ b/tests/c_api_test.rs
+@@ -12519,6 +12519,15 @@ fn test_add_columns_stream_null_dataset_consumes_stream() {
+ fn create_scalar_segment_fixture(
+     kind: lance_index::IndexType,
+     stable: bool,
++) -> (tempfile::TempDir, String, Vec<[u8; 16]>) {
++    create_scalar_segment_fixture_with_options(kind, stable, None, &[&[0], &[1]])
++}
++
++fn create_scalar_segment_fixture_with_options(
++    kind: lance_index::IndexType,
++    stable: bool,
++    storage_version: Option<lance_file::version::LanceFileVersion>,
++    segment_fragments: &[&[u32]],
+ ) -> (tempfile::TempDir, String, Vec<[u8; 16]>) {
+     use lance::dataset::WriteParams;
+     use lance::index::DatasetIndexExt;
+@@ -12548,6 +12557,7 @@ fn create_scalar_segment_fixture(
+             Some(WriteParams {
+                 max_rows_per_file: 4,
+                 enable_stable_row_ids: stable,
++                data_storage_version: storage_version,
+                 ..Default::default()
+             }),
+         )
+@@ -12561,11 +12571,11 @@ fn create_scalar_segment_fixture(
+         let fragments = ds.get_fragments();
+         assert_eq!(fragments.len(), 3);
+         let mut segments = Vec::new();
+-        for fragment in fragments.iter().take(2) {
++        for fragment_ids in segment_fragments {
+             segments.push(
+                 ds.create_index_builder(&["key"], kind, &params)
+                     .name("key_idx".into())
+-                    .fragments(vec![fragment.id() as u32])
++                    .fragments(fragment_ids.to_vec())
+                     .execute_uncommitted()
+                     .await
+                     .unwrap(),
+@@ -12714,6 +12724,52 @@ fn test_scalar_segment_scope_residual_limit_and_unindexed_fallback() {
+     }
+ }
+ 
++#[test]
++fn test_scalar_segment_legacy_storage_falls_back() {
++    use lance_file::version::{ConcreteFileVersion, LanceFileVersion};
++
++    // Three fragments, with one segment covering 0 and 1. Reading only fragment
++    // 0 must retain the full predicate and must not leak rows from fragment 1.
++    let (_tmp, uri, uuids) = create_scalar_segment_fixture_with_options(
++        lance_index::IndexType::BTree,
++        false,
++        Some(LanceFileVersion::Legacy),
++        &[&[0, 1]],
++    );
++    assert_eq!(uuids.len(), 1);
++    lance_c::runtime::block_on(async {
++        let ds = Dataset::open(&uri).await.unwrap();
++        assert_eq!(
++            ds.manifest().data_storage_format.lance_file_format(),
++            ConcreteFileVersion::V1
++        );
++    });
++
++    let (ids, stats) =
++        scalar_segment_ids(&uri, &uuids[0], &[0], "key >= 0 AND id >= 2", None, 0);
++    assert_eq!(ids, vec![2, 3]);
++    assert_eq!(stats.calls, 1);
++    assert_eq!(stats.indices_loaded, 0);
++    assert_eq!(stats.index_comparisons, 0);
++    assert!(stats.metrics.iter().any(|(name, _, value)| {
++        name == "scalar_segment_fallback_legacy_storage" && *value == 1
++    }));
++    assert!(
++        !stats
++            .metrics
++            .iter()
++            .any(|(name, _, value)| name == "scalar_segments_searched" && *value != 0)
++    );
++
++    let (ids, _) =
++        scalar_segment_ids(&uri, &uuids[0], &[0], "key >= 0 AND id >= 2", Some(1), 1);
++    assert_eq!(
++        ids,
++        vec![3],
++        "fallback must retain LIMIT/OFFSET after filtering"
++    );
++}
++
+ #[test]
+ fn test_scalar_segment_stable_row_ids_and_deletes() {
+     use lance::index::DatasetIndexExt;
+
+From f9ce263e4e32540c26afa6ccd18021ca81c090f1 Mon Sep 17 00:00:00 2001
+From: zhangstar333 <zhangsida@selectdb.com>
+Date: Tue, 8 Sep 2026 23:21:02 +0800
+Subject: [PATCH 3/5] update
+
+---
+ src/scalar_segment.rs | 6 +++++-
+ tests/c_api_test.rs   | 6 ++----
+ 2 files changed, 7 insertions(+), 5 deletions(-)
+
+diff --git a/src/scalar_segment.rs b/src/scalar_segment.rs
+index 5e121c9..01df58b 100644
+--- a/src/scalar_segment.rs
++++ b/src/scalar_segment.rs
+@@ -140,7 +140,11 @@ impl PreparedScalarSegment {
+             })?;
+         // Match Lance's plain-scan external-mask restriction. Keep the scoped,
+         // full-filtered reader intact and avoid index work on legacy storage.
+-        if self.dataset.manifest().data_storage_format.lance_file_format()
++        if self
++            .dataset
++            .manifest()
++            .data_storage_format
++            .lance_file_format()
+             == lance_file::version::ConcreteFileVersion::V1
+         {
+             return Ok(Some("legacy_storage"));
+diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
+index 0cb998b..efd4284 100644
+--- a/tests/c_api_test.rs
++++ b/tests/c_api_test.rs
+@@ -12745,8 +12745,7 @@ fn test_scalar_segment_legacy_storage_falls_back() {
+         );
+     });
+ 
+-    let (ids, stats) =
+-        scalar_segment_ids(&uri, &uuids[0], &[0], "key >= 0 AND id >= 2", None, 0);
++    let (ids, stats) = scalar_segment_ids(&uri, &uuids[0], &[0], "key >= 0 AND id >= 2", None, 0);
+     assert_eq!(ids, vec![2, 3]);
+     assert_eq!(stats.calls, 1);
+     assert_eq!(stats.indices_loaded, 0);
+@@ -12761,8 +12760,7 @@ fn test_scalar_segment_legacy_storage_falls_back() {
+             .any(|(name, _, value)| name == "scalar_segments_searched" && *value != 0)
+     );
+ 
+-    let (ids, _) =
+-        scalar_segment_ids(&uri, &uuids[0], &[0], "key >= 0 AND id >= 2", Some(1), 1);
++    let (ids, _) = scalar_segment_ids(&uri, &uuids[0], &[0], "key >= 0 AND id >= 2", Some(1), 1);
+     assert_eq!(
+         ids,
+         vec![3],
+
+From 221d8800f56790ab8b48b12f3aaaf9da06359380 Mon Sep 17 00:00:00 2001
+From: zhangstar333 <zhangsida@selectdb.com>
+Date: Wed, 9 Sep 2026 12:59:08 +0800
+Subject: [PATCH 4/5] add LabelList
+
+---
+ docs/scalar-segment-scans.md |  12 ++-
+ include/lance/lance.h        |   8 +-
+ include/lance/lance.hpp      |   4 +-
+ src/scalar_segment.rs        |   7 +-
+ tests/c_api_test.rs          | 190 ++++++++++++++++++++++++++++++++---
+ 5 files changed, 200 insertions(+), 21 deletions(-)
+
+diff --git a/docs/scalar-segment-scans.md b/docs/scalar-segment-scans.md
+index f72dbfc..72f6188 100644
+--- a/docs/scalar-segment-scans.md
++++ b/docs/scalar-segment-scans.md
+@@ -1,10 +1,18 @@
+ # Scalar index segment scans
+ 
+-An ordinary scanner can use one physical BTree/Bitmap segment to generate
+-candidates, then read those candidates with the complete scanner filter. This
++An ordinary scanner can use one physical BTree, Bitmap, or LabelList segment to
++generate candidates, then read them with the complete scanner filter. This
+ does not run a global search of the other segments of the logical index. It does
+ not subdivide a physical segment or make its own index search incremental.
+ 
++LabelList supports indexed array membership predicates. Every candidate search
++must return `SearchResult::Exact`.
++LabelList query values should match the array element type, for example
++`array_contains(int32_labels, CAST(42 AS INT))`; a cast on the indexed column
++can prevent the planner from finding an index driver and cause fallback.
++`AtMost` and `AtLeast` results still fall back; this mode does not enable FMIndex,
++NGram, BloomFilter, ZoneMap, or Inverted indices.
++
+ ## Configuring a task
+ 
+ Open a fixed dataset version. Select the physical index UUID from that version's
+diff --git a/include/lance/lance.h b/include/lance/lance.h
+index ab15247..b5c6902 100644
+--- a/include/lance/lance.h
++++ b/include/lance/lance.h
+@@ -1868,9 +1868,11 @@ int32_t lance_scanner_set_index_segments(
+  * scan of those fragment_ids. Callers distributing work must assign disjoint
+  * fragment domains and separately include any unindexed data they wish to read.
+  *
+- * BTree/Bitmap searches use a necessary AND-conjunct of the full scanner filter
+- * on the selected logical index. All predicates are reapplied during candidate
+- * reads; other scalar indices are disabled. Legacy storage, OR/NOT-only filters,
++ * BTree/Bitmap/LabelList searches use a necessary AND-conjunct of the
++ * full scanner filter on the selected logical index and require an Exact result.
++ * AtMost/AtLeast results fall back to a full filtered scan of fragment_ids.
++ * All predicates are reapplied during candidate reads; other scalar indices
++ * are disabled. Legacy storage, OR/NOT-only filters,
+  * overlays, fragment reuse, unsupported index types / result domains
+  * and missing coverage use the same domain without an index. No filter also
+  * falls back. LIMIT/OFFSET apply after the complete scanner filter, never to the
+diff --git a/include/lance/lance.hpp b/include/lance/lance.hpp
+index 8e1c6cf..ebb8141 100644
+--- a/include/lance/lance.hpp
++++ b/include/lance/lance.hpp
+@@ -1311,8 +1311,8 @@ class Scanner {
+         return *this;
+     }
+ 
+-    /// Restrict scalar candidate generation to one segment; fragment_ids is
+-    /// required and defines the complete read/fallback domain. See lance.h.
++    /// Generate exact candidates from one BTree/Bitmap/LabelList segment.
++    /// fragment_ids is required and defines the complete read/fallback domain. See lance.h.
+     Scanner& scalar_index_segment(const std::array<uint8_t, 16>& segment_uuid) {
+         if (lance_scanner_set_scalar_index_segment(handle_.get(), segment_uuid.data()) != 0)
+             check_error();
+diff --git a/src/scalar_segment.rs b/src/scalar_segment.rs
+index 01df58b..1faf500 100644
+--- a/src/scalar_segment.rs
++++ b/src/scalar_segment.rs
+@@ -204,7 +204,12 @@ impl PreparedScalarSegment {
+             .dataset
+             .open_scalar_index(&search.column, &self.segment_uuid, metrics)
+             .await?;
+-        if !matches!(index.index_type(), IndexType::BTree | IndexType::Bitmap) {
++        // These implementations can return exact candidates. Keep the runtime
++        // Exact check below: a type alone is not a guarantee for every query.
++        if !matches!(
++            index.index_type(),
++            IndexType::BTree | IndexType::Bitmap | IndexType::LabelList
++        ) {
+             return Ok(Some("index_type"));
+         }
+         // External masks use _rowid, not necessarily physical row addresses.
+diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
+index efd4284..3322d42 100644
+--- a/tests/c_api_test.rs
++++ b/tests/c_api_test.rs
+@@ -12528,6 +12528,21 @@ fn create_scalar_segment_fixture_with_options(
+     stable: bool,
+     storage_version: Option<lance_file::version::LanceFileVersion>,
+     segment_fragments: &[&[u32]],
++) -> (tempfile::TempDir, String, Vec<[u8; 16]>) {
++    let key = Arc::new(Int32Array::from(
++        (0..12)
++            .map(|id| if id % 4 == 0 { None } else { Some(id % 3) })
++            .collect::<Vec<_>>(),
++    ));
++    create_scalar_segment_fixture_from_key(kind, stable, storage_version, segment_fragments, key)
++}
++
++fn create_scalar_segment_fixture_from_key(
++    kind: lance_index::IndexType,
++    stable: bool,
++    storage_version: Option<lance_file::version::LanceFileVersion>,
++    segment_fragments: &[&[u32]],
++    key: arrow_array::ArrayRef,
+ ) -> (tempfile::TempDir, String, Vec<[u8; 16]>) {
+     use lance::dataset::WriteParams;
+     use lance::index::DatasetIndexExt;
+@@ -12537,17 +12552,14 @@ fn create_scalar_segment_fixture_with_options(
+     let uuids = lance_c::runtime::block_on(async {
+         let schema = Arc::new(Schema::new(vec![
+             Field::new("id", DataType::Int32, false),
+-            Field::new("key", DataType::Int32, true),
++            Field::new("key", key.data_type().clone(), true),
+         ]));
++        let row_count = key.len();
+         let batch = RecordBatch::try_new(
+             schema.clone(),
+             vec![
+-                Arc::new(Int32Array::from_iter_values(0..12)),
+-                Arc::new(Int32Array::from(
+-                    (0..12)
+-                        .map(|id| if id % 4 == 0 { None } else { Some(id % 3) })
+-                        .collect::<Vec<_>>(),
+-                )),
++                Arc::new(Int32Array::from_iter_values(0..row_count as i32)),
++                key,
+             ],
+         )
+         .unwrap();
+@@ -12563,13 +12575,9 @@ fn create_scalar_segment_fixture_with_options(
+         )
+         .await
+         .unwrap();
+-        let params = ScalarIndexParams::for_builtin(if kind == lance_index::IndexType::Bitmap {
+-            BuiltinIndexType::Bitmap
+-        } else {
+-            BuiltinIndexType::BTree
+-        });
++        let params = ScalarIndexParams::for_builtin(BuiltinIndexType::try_from(kind).unwrap());
+         let fragments = ds.get_fragments();
+-        assert_eq!(fragments.len(), 3);
++        assert_eq!(fragments.len(), row_count.div_ceil(4));
+         let mut segments = Vec::new();
+         for fragment_ids in segment_fragments {
+             segments.push(
+@@ -12724,6 +12732,162 @@ fn test_scalar_segment_scope_residual_limit_and_unindexed_fallback() {
+     }
+ }
+ 
++#[test]
++fn test_scalar_segment_label_list_exact_candidates() {
++    use arrow_array::builder::{Int32Builder, ListBuilder};
++    use lance::index::DatasetIndexExt;
++    use lance_index::IndexType;
++
++    for stable in [false, true] {
++        let mut lists = ListBuilder::new(Int32Builder::new());
++        for row in 0..16 {
++            match row {
++                0 | 9 | 13 => lists.append(false),
++                1 | 10 | 14 => lists.append(true),
++                4 => {
++                    lists.values().append_value(7);
++                    lists.append(true);
++                }
++                _ => {
++                    lists.values().append_value(42);
++                    if row == 3 || row == 11 || row == 15 {
++                        lists.values().append_value(7);
++                    }
++                    if row == 6 {
++                        lists.values().append_null();
++                    }
++                    lists.append(true);
++                }
++            }
++        }
++        // S0 covers fragments 0 and 1, S1 covers 2, and 3 is unindexed.
++        let (_tmp, uri, uuids) = create_scalar_segment_fixture_from_key(
++            IndexType::LabelList,
++            stable,
++            None,
++            &[&[0, 1], &[2]],
++            Arc::new(lists.finish()),
++        );
++        let predicate = "array_contains(key, CAST(42 AS INT))";
++        let filter = format!("{predicate} AND id >= 3");
++        for (fragments, expected) in [(vec![0, 1], vec![3, 5, 6, 7]), (vec![0], vec![3])] {
++            let (ids, stats) = scalar_segment_ids(&uri, &uuids[0], &fragments, &filter, None, 0);
++            assert_eq!(ids, expected, "stable={stable}");
++            assert_eq!(stats.calls, 1);
++            assert!(
++                stats
++                    .metrics
++                    .iter()
++                    .any(|(name, _, value)| { name == "scalar_segments_searched" && *value == 1 }),
++                "stable={stable}, metrics={:?}",
++                stats.metrics
++            );
++            assert!(
++                !stats
++                    .metrics
++                    .iter()
++                    .any(|(name, _, value)| { name == "scalar_segment_fallbacks" && *value != 0 })
++            );
++        }
++        let (ids, _) = scalar_segment_ids(&uri, &uuids[0], &[0, 1], &filter, Some(1), 1);
++        assert_eq!(ids, vec![5], "limit/offset must follow the residual filter");
++        let (ids, _) = scalar_segment_ids(&uri, &uuids[1], &[2], &filter, None, 0);
++        assert_eq!(ids, vec![8, 11]);
++        let (ids, stats) = scalar_segment_ids(&uri, &uuids[0], &[0, 3], &filter, None, 0);
++        assert_eq!(ids, vec![3, 12, 15]);
++        assert!(stats.metrics.iter().any(|(name, _, value)| {
++            name == "scalar_segment_fallback_partial_coverage" && *value == 1
++        }));
++        let (ids, stats) = scalar_segment_ids(
++            &uri,
++            &uuids[0],
++            &[0],
++            &format!("{predicate} OR id = 0"),
++            None,
++            0,
++        );
++        assert_eq!(ids, vec![0, 2, 3]);
++        assert!(stats.metrics.iter().any(|(name, _, value)| {
++            name == "scalar_segment_fallback_no_driver" && *value == 1
++        }));
++
++        for (predicate, expected) in [
++            (
++                "array_has_all(key, [CAST(42 AS INT), CAST(7 AS INT)])",
++                vec![3],
++            ),
++            (
++                "array_has_any(key, [CAST(42 AS INT), CAST(99 AS INT)])",
++                vec![2, 3, 5, 6, 7],
++            ),
++            ("array_contains(key, CAST(99 AS INT))", vec![]),
++            ("array_contains(key, CAST(NULL AS INT))", vec![]),
++            ("array_has_any(key, [])", vec![]),
++        ] {
++            let (ids, _) = scalar_segment_ids(&uri, &uuids[0], &[0, 1], predicate, None, 0);
++            assert_eq!(ids, expected, "{predicate}, stable={stable}");
++        }
++        // An untyped integer literal casts this Int32 list to Int64. Such
++        // a column expression must retain the scan fallback.
++        let (ids, stats) =
++            scalar_segment_ids(&uri, &uuids[0], &[0, 1], "array_contains(key, 42)", None, 0);
++        assert_eq!(ids, vec![2, 3, 5, 6, 7]);
++        assert!(stats.metrics.iter().any(|(name, _, value)| {
++            name == "scalar_segment_fallback_no_driver" && *value == 1
++        }));
++
++        lance_c::runtime::block_on(async {
++            let mut ds = Dataset::open(&uri).await.unwrap();
++            ds.delete("id = 3").await.unwrap();
++            assert_eq!(ds.load_indices().await.unwrap().len(), 2);
++        });
++        let (ids, _) = scalar_segment_ids(&uri, &uuids[0], &[0, 1], &filter, None, 0);
++        assert_eq!(ids, vec![5, 6, 7]);
++    }
++}
++
++#[test]
++fn test_scalar_segment_text_indices_still_fall_back() {
++    for kind in [lance_index::IndexType::Fm, lance_index::IndexType::NGram] {
++        for stable in [false, true] {
++            let key = Arc::new(StringArray::from(vec![
++                Some("needle"),
++                None,
++                Some(""),
++                Some("other"),
++                Some("needle"),
++                Some("other"),
++                Some(""),
++                None,
++            ]));
++            let (_tmp, uri, uuids) =
++                create_scalar_segment_fixture_from_key(kind, stable, None, &[&[0, 1]], key);
++            for (predicate, expected) in [
++                ("contains(key, 'needle')", vec![0]),
++                ("contains(key, '')", vec![0, 2, 3]),
++            ] {
++                let (ids, stats) = scalar_segment_ids(&uri, &uuids[0], &[0], predicate, None, 0);
++                assert_eq!(ids, expected, "{kind:?}, stable={stable}, {predicate}");
++                assert!(
++                    stats.metrics.iter().any(|(name, _, value)| {
++                        name == "scalar_segment_fallbacks" && *value == 1
++                    })
++                );
++                if predicate == "contains(key, 'needle')" {
++                    assert!(stats.metrics.iter().any(|(name, _, value)| {
++                        name == "scalar_segment_fallback_index_type" && *value == 1
++                    }));
++                }
++                assert!(
++                    !stats.metrics.iter().any(|(name, _, value)| {
++                        name == "scalar_segments_searched" && *value != 0
++                    })
++                );
++            }
++        }
++    }
++}
++
+ #[test]
+ fn test_scalar_segment_legacy_storage_falls_back() {
+     use lance_file::version::{ConcreteFileVersion, LanceFileVersion};
+
+From 30dda06a1cc6bad37d04ed207115409ccef91715 Mon Sep 17 00:00:00 2001
+From: zhangstar333 <zhangsida@selectdb.com>
+Date: Wed, 9 Sep 2026 13:27:54 +0800
+Subject: [PATCH 5/5] update
+
+---
+ docs/scalar-segment-scans.md |  55 +++++++++--
+ include/lance/lance.h        |  16 ++-
+ include/lance/lance.hpp      |   5 +
+ src/scalar_segment.rs        |  12 ++-
+ src/scanner.rs               |  13 ++-
+ tests/c_api_test.rs          | 187 +++++++++++++++++++++++++++++++++++
+ 6 files changed, 272 insertions(+), 16 deletions(-)
+
+diff --git a/docs/scalar-segment-scans.md b/docs/scalar-segment-scans.md
+index 72f6188..efd0498 100644
+--- a/docs/scalar-segment-scans.md
++++ b/docs/scalar-segment-scans.md
+@@ -27,11 +27,19 @@ lance_scanner_set_limit(scanner, 20000);
+ /* The scanner-owning thread calls lance_scanner_next as usual. */
+ ```
+ 
++The segment setter copies the UUID; passing NULL clears it. Final option
++compatibility and snapshot metadata are checked when preparing the stream, not
++by the setter. Configure all options before the first `next`, Arrow stream
++export, or asynchronous scan. A failed preparation also freezes the options;
++create a new scanner to retry with different settings.
++
+ SQL, Substrait and additional SQL filters keep their existing precedence and AND
+ composition. The caller does not supply a separate driver predicate: Lance-C
+ uses the typed filter planner and selects a necessary indexed leaf belonging to
+ the requested logical index. It only descends through AND, never through OR or
+-NOT. It then searches the selected UUID and applies the complete filter while
++NOT, and chooses the first matching leaf in the planner's expression tree;
++this is not a selectivity-based choice or a guarantee of SQL text order.
++It then searches the selected UUID and applies the complete filter while
+ reading candidates with automatic scalar-index planning disabled.
+ 
+ Each task's fragment IDs define its result domain, including on fallback. A
+@@ -40,9 +48,16 @@ scan. Unindexed fragments need their own tasks, or an explicit domain including
+ them (which causes that task to use fallback). Merely listing indexed segments
+ does not include appended, unindexed data automatically.
+ 
+-An unknown UUID, absent fragment or invalid option combination is an error. A
+-known segment with incomplete/unknown coverage, no suitable driver, unsupported
+-index type, nested key, overlays, fragment reuse, non-exact results or unsupported
++`use_scalar_index=false` disables segment search regardless of setter order.
++The scanner validates the selected snapshot UUID and fragment domain, then scans
++that domain with the full filter and LIMIT/OFFSET without opening the index or
++generating candidates. It reports `scalar_segment_fallback_disabled`.
++
++An unknown UUID, absent fragment, invalid option combination or segment metadata
++without one valid schema key field is an error. A known segment with
++incomplete/unknown coverage, no suitable driver, unsupported
++index type, nested key, overlays, unknown physical row counts, fragment reuse,
++non-exact results or unsupported
+ row-ID domain falls back to a non-indexed scan of the entire explicit domain.
+ Legacy (v1) storage also takes this fallback because ordinary scans cannot consume
+ external row masks; it reports `scalar_segment_fallback_legacy_storage` without
+@@ -50,8 +65,15 @@ searching the index.
+ I/O and corruption errors are propagated, not converted to empty results or
+ successful fallback.
+ 
+-The first implementation supports live-row ordinary scans and cannot be combined
+-with vector/FTS queries. Physical row-address
++The first implementation supports live-row ordinary scans and rejects vector/FTS
++queries and `include_deleted_rows=true` at stream creation, even when
++`use_scalar_index=false`. An index built after a delete does not contain the
++tombstoned rows, so even exact segment candidates
++cannot satisfy a scan that includes deleted rows. To read those rows, clear the
++segment setting and use an ordinary scan with `with_row_id=true`,
++`include_deleted_rows=true`, and `use_scalar_index=false`.
++Fragments removed from the current snapshot are not scanned by this option.
++Physical row-address
+ results on stable-row-ID datasets currently fall back; results already expressed
+ in the correct row-ID domain use the candidate path. Deletes and all remaining
+ predicates are handled by the ordinary reader. No candidate-count limit is
+@@ -84,6 +106,23 @@ Successful exhaustion merges segment-search metrics into the existing statistics
+ callback exactly once. New metrics include `scalar_segments_requested`,
+ `scalar_segments_searched`, `scalar_segment_candidate_rows`,
+ `scalar_segment_prepare_time`, `scalar_segment_search_time`, and
+-`scalar_segment_fallback_*` reasons. `prepare_time` includes search time. Early
+-release, cancellation and errors retain the existing callback contract: final
++`scalar_segment_fallbacks` plus `scalar_segment_fallback_*` reasons.
++`scalar_segment_prepare_time` includes search time. Metrics describe each
++successfully exhausted stream, including separately exported streams:
++
++- `scalar_segments_requested` is 1 even on fallback.
++- `scalar_segments_searched` is 1 after a completed index search, including one
++  whose inexact result causes fallback. A fallback can therefore include index work.
++- `scalar_segment_candidate_rows` counts TRUE rows in the exact segment result before fragment
++  restriction, residual filtering, deletion handling and LIMIT/OFFSET. It is not
++  the output or physical-read row count; a result without a known cardinality is
++  reported as 0. The reader's mask may also include NULL candidates that the full
++  filter subsequently discards.
++- A fallback records one reason, the first eligibility check that fails. Disabled
++  scalar indices and legacy storage bypass index opening and search after snapshot
++  validation. Other fallback reasons may be found after opening or searching an index.
++- Search and candidate metrics may be absent when their stage did not execute;
++  consumers should treat absent counts as 0.
++
++Early release, cancellation and errors retain the existing callback contract: final
+ statistics are not guaranteed. Metrics do not establish global task concurrency.
+diff --git a/include/lance/lance.h b/include/lance/lance.h
+index b5c6902..ed5bb6c 100644
+--- a/include/lance/lance.h
++++ b/include/lance/lance.h
+@@ -1015,7 +1015,9 @@ int32_t lance_scanner_set_scan_in_order(LanceScanner* scanner, bool scan_in_orde
+  * Configure whether scalar indices may be used to optimize filters.
+  *
+  * Scalar indices are enabled by default. Disable this to force filter
+- * evaluation without scalar indices. This setting is independent of
++ * evaluation without scalar indices, including an explicitly selected scalar
++ * segment (which falls back to a scan of its explicit fragment_ids).
++ * This setting is independent of
+  * `lance_scanner_set_use_index`, which controls vector ANN index usage.
+  * Must be set before scanning starts.
+  */
+@@ -1051,7 +1053,11 @@ int32_t lance_scanner_with_row_address(LanceScanner* scanner, bool enable);
+ 
+ /**
+  * Configure whether deleted rows still present in storage are returned.
+- * Deleted rows have a NULL `_rowid`; callers should also enable row IDs.
++ * Requires with_row_id=true; deleted rows have a NULL `_rowid`.
++ * For filtered scans, also set use_scalar_index=false: indices built after a
++ * deletion may omit tombstoned rows. Incompatible with scalar_index_segment,
++ * even when scalar indices are disabled.
++ * Fragments removed from the current snapshot are not scanned.
+  * Must be set before scanning starts.
+  */
+ int32_t lance_scanner_set_include_deleted_rows(
+@@ -1867,16 +1873,20 @@ int32_t lance_scanner_set_index_segments(
+  * excluded by fragment_ids; incomplete coverage falls back to a full filtered
+  * scan of those fragment_ids. Callers distributing work must assign disjoint
+  * fragment domains and separately include any unindexed data they wish to read.
++ * The segment metadata must identify one key field present in the schema.
+  *
+  * BTree/Bitmap/LabelList searches use a necessary AND-conjunct of the
+  * full scanner filter on the selected logical index and require an Exact result.
++ * use_scalar_index=false skips segment search and uses the scoped fallback;
++ * snapshot UUID and fragment validation still applies.
+  * AtMost/AtLeast results fall back to a full filtered scan of fragment_ids.
+  * All predicates are reapplied during candidate reads; other scalar indices
+  * are disabled. Legacy storage, OR/NOT-only filters,
+  * overlays, fragment reuse, unsupported index types / result domains
+  * and missing coverage use the same domain without an index. No filter also
+  * falls back. LIMIT/OFFSET apply after the complete scanner filter, never to the
+- * unfiltered candidate set. Vector/FTS queries are rejected.
++ * unfiltered candidate set. Vector/FTS queries and include_deleted_rows=true
++ * are rejected even when use_scalar_index=false; segment mode is live-row-only.
+  *
+  * UUID bytes are copied. Metadata and final option compatibility are validated
+  * when creating the stream. Index corruption or I/O failures remain errors.
+diff --git a/include/lance/lance.hpp b/include/lance/lance.hpp
+index ebb8141..d96cf9f 100644
+--- a/include/lance/lance.hpp
++++ b/include/lance/lance.hpp
+@@ -1270,6 +1270,7 @@ class Scanner {
+     }
+ 
+     /// Configure whether scalar indices may be used to optimize filters.
++    /// False also disables explicit scalar segment search, retaining its fragment domain.
+     Scanner& use_scalar_index(bool enable = true) {
+         if (lance_scanner_set_use_scalar_index(handle_.get(), enable) != 0)
+             check_error();
+@@ -1305,6 +1306,8 @@ class Scanner {
+     }
+ 
+     /// Configure whether deleted rows still present in storage are returned.
++    /// Requires with_row_id(true); use_scalar_index(false) is needed for filtered scans.
++    /// Incompatible with scalar_index_segment. See lance.h.
+     Scanner& include_deleted_rows(bool include_deleted_rows = true) {
+         if (lance_scanner_set_include_deleted_rows(handle_.get(), include_deleted_rows) != 0)
+             check_error();
+@@ -1313,6 +1316,8 @@ class Scanner {
+ 
+     /// Generate exact candidates from one BTree/Bitmap/LabelList segment.
+     /// fragment_ids is required and defines the complete read/fallback domain. See lance.h.
++    /// Requires live rows only: include_deleted_rows(true) is rejected at stream creation.
++    /// use_scalar_index(false) selects the scoped fallback without searching the segment.
+     Scanner& scalar_index_segment(const std::array<uint8_t, 16>& segment_uuid) {
+         if (lance_scanner_set_scalar_index_segment(handle_.get(), segment_uuid.data()) != 0)
+             check_error();
+diff --git a/src/scalar_segment.rs b/src/scalar_segment.rs
+index 1faf500..747dac6 100644
+--- a/src/scalar_segment.rs
++++ b/src/scalar_segment.rs
+@@ -27,6 +27,7 @@ pub(crate) struct PreparedScalarSegment {
+     pub dataset: Arc<Dataset>,
+     pub segment_uuid: Uuid,
+     pub fragment_ids: Vec<u64>,
++    pub use_scalar_index: bool,
+     pub callback: Option<ExecutionStatsCallback>,
+ }
+ 
+@@ -138,6 +139,11 @@ impl PreparedScalarSegment {
+             self.dataset.schema().field_by_id(field_id).ok_or_else(|| {
+                 invalid("scalar segment key field is absent from the dataset schema")
+             })?;
++        // Explicitly disabling scalar indices also disables this accelerator.
++        // Keep snapshot validation above, but do not plan, open or search an index.
++        if !self.use_scalar_index {
++            return Ok(Some("disabled"));
++        }
+         // Match Lance's plain-scan external-mask restriction. Keep the scoped,
+         // full-filtered reader intact and avoid index work on legacy storage.
+         if self
+@@ -149,8 +155,8 @@ impl PreparedScalarSegment {
+         {
+             return Ok(Some("legacy_storage"));
+         }
+-        // Keep V1 to flat scalar fields. A dotted name is not sufficient to prove
+-        // the field path of an evolved or nested schema.
++        // Keep this implementation to flat scalar fields. A dotted name cannot
++        // prove the field path of an evolved or nested schema.
+         if !self
+             .dataset
+             .schema()
+@@ -234,6 +240,8 @@ impl PreparedScalarSegment {
+         );
+         // Do not truncate candidates at LIMIT. The reader evaluates the complete
+         // filter before applying its existing limit/offset operators.
++        // The raw selected bitmap can overlap NULL rows; the full filter removes
++        // those as well. The metric above counts semantic TRUE rows, not mask size.
+         reader.with_row_addr_prefilter(RowAddrMask::from_allowed(rows.selected_rows().clone()));
+         Ok(None)
+     }
+diff --git a/src/scanner.rs b/src/scanner.rs
+index ac3cff6..bda554d 100644
+--- a/src/scanner.rs
++++ b/src/scanner.rs
+@@ -479,9 +479,10 @@ impl LanceScanner {
+                 || self.fts_context.is_some()
+                 || self.index_segments.is_some()
+                 || self.fts_index_segments.is_some()
++                || self.include_deleted_rows
+             {
+                 return Err(lance_core::Error::invalid_input_source(
+-                    "scalar_index_segment requires an ordinary scan of live rows".into(),
++                    "scalar_index_segment requires an ordinary scan of live rows; vector/FTS queries and include_deleted_rows=true are unsupported".into(),
+                 ));
+             }
+             let fragment_ids = self.fragment_ids.as_ref().filter(|ids| !ids.is_empty())
+@@ -492,6 +493,7 @@ impl LanceScanner {
+                 dataset: Arc::clone(&self.dataset),
+                 segment_uuid,
+                 fragment_ids: fragment_ids.clone(),
++                use_scalar_index: self.use_scalar_index.unwrap_or(true),
+                 callback: self.scan_statistics_callback.clone(),
+             })
+         } else {
+@@ -896,6 +898,8 @@ macro_rules! scanner_ffi_try {
+ 
+ /// Select one physical scalar index segment. NULL clears the selection.
+ /// Requires explicit fragment_ids and an ordinary live-row scan. See the C header.
++/// include_deleted_rows=true is rejected when preparing the scan, even if
++/// use_scalar_index=false selects the scoped non-indexed fallback.
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn lance_scanner_set_scalar_index_segment(
+     scanner: *mut LanceScanner,
+@@ -1239,7 +1243,8 @@ unsafe fn scanner_set_scan_in_order_inner(
+ /// Configure whether scalar indices may be used to optimize filters.
+ ///
+ /// Scalar indices are enabled by default in Lance. Must be set before the scan
+-/// starts.
++/// starts. False also disables explicit scalar segment search while preserving
++/// the configured fragment domain and snapshot validation.
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn lance_scanner_set_use_scalar_index(
+     scanner: *mut LanceScanner,
+@@ -1381,7 +1386,9 @@ unsafe fn scanner_with_row_address_inner(scanner: *mut LanceScanner, enable: boo
+ 
+ /// Configure whether deleted rows still present in storage are returned.
+ ///
+-/// Deleted rows have a NULL `_rowid`, so callers should also enable row IDs.
++/// Requires with_row_id=true; deleted rows have a NULL `_rowid`.
++/// Filtered scans also need use_scalar_index=false because indices may omit
++/// tombstoned rows. Incompatible with scalar_index_segment.
+ /// Must be set before the scan starts.
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn lance_scanner_set_include_deleted_rows(
+diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
+index 3322d42..513f8d0 100644
+--- a/tests/c_api_test.rs
++++ b/tests/c_api_test.rs
+@@ -12945,6 +12945,193 @@ fn test_scalar_segment_stable_row_ids_and_deletes() {
+     assert_eq!(ids, vec![3]);
+ }
+ 
++#[test]
++fn test_scalar_segment_honors_use_scalar_index_false() {
++    let (_tmp, uri, uuids) = create_scalar_segment_fixture(lance_index::IndexType::BTree, false);
++    let (ids, stats) = scalar_segment_ids(&uri, &uuids[0], &[0], "key >= 0", None, 0);
++    assert_eq!(ids, vec![1, 2, 3]);
++    assert!(
++        stats
++            .metrics
++            .iter()
++            .any(|(name, _, value)| name == "scalar_segments_searched" && *value == 1)
++    );
++
++    let uri = c_str(&uri);
++    unsafe {
++        let ds = lance_dataset_open(uri.as_ptr(), ptr::null(), 0);
++        assert!(!ds.is_null());
++        for disable_first in [false, true] {
++            for (fragments, filter, limit, offset, expected) in [
++                (vec![0u64], "key >= 0", None, 0, vec![1, 2, 3]),
++                (vec![0, 2], "key >= 0 AND id >= 2", Some(2), 1, vec![3, 9]),
++            ] {
++                let filter = c_str(filter);
++                let scanner = lance_scanner_new(ds, ptr::null(), filter.as_ptr());
++                assert!(!scanner.is_null());
++                assert_eq!(
++                    lance_scanner_set_fragment_ids(scanner, fragments.as_ptr(), fragments.len()),
++                    0
++                );
++                if disable_first {
++                    assert_eq!(lance_scanner_set_use_scalar_index(scanner, false), 0);
++                }
++                assert_eq!(
++                    lance_scanner_set_scalar_index_segment(scanner, uuids[0].as_ptr()),
++                    0
++                );
++                if !disable_first {
++                    assert_eq!(lance_scanner_set_use_scalar_index(scanner, false), 0);
++                }
++                if let Some(limit) = limit {
++                    assert_eq!(lance_scanner_set_limit(scanner, limit), 0);
++                }
++                assert_eq!(lance_scanner_set_offset(scanner, offset), 0);
++                let mut captured = CapturedScanStatistics::default();
++                assert_eq!(
++                    lance_scanner_set_statistics_callback(
++                        scanner,
++                        Some(capture_scan_statistics),
++                        (&mut captured as *mut CapturedScanStatistics).cast(),
++                    ),
++                    0
++                );
++                let mut stream = FFI_ArrowArrayStream::empty();
++                assert_eq!(lance_scanner_to_arrow_stream(scanner, &mut stream), 0);
++                let mut ids = Vec::new();
++                for batch in ArrowArrayStreamReader::from_raw(&mut stream).unwrap() {
++                    let batch = batch.unwrap();
++                    ids.extend_from_slice(
++                        batch
++                            .column_by_name("id")
++                            .unwrap()
++                            .as_any()
++                            .downcast_ref::<Int32Array>()
++                            .unwrap()
++                            .values(),
++                    );
++                }
++                assert_eq!(ids, expected);
++                assert_eq!(captured.calls, 1);
++                for metric in ["scalar_segments_searched", "scalar_segment_candidate_rows"] {
++                    assert_eq!(
++                        captured
++                            .metrics
++                            .iter()
++                            .filter(|(name, _, _)| name == metric)
++                            .map(|(_, _, value)| *value)
++                            .sum::<u64>(),
++                        0,
++                        "{metric}"
++                    );
++                }
++                assert_eq!(captured.indices_loaded, 0);
++                assert_eq!(captured.index_comparisons, 0);
++                assert!(captured.metrics.iter().any(|(name, _, value)| name
++                    == "scalar_segment_fallback_disabled"
++                    && *value == 1));
++                lance_scanner_close(scanner);
++            }
++        }
++        lance_dataset_close(ds);
++    }
++}
++
++#[test]
++fn test_scalar_segment_rejects_include_deleted_rows_after_index_rebuild() {
++    use lance::index::DatasetIndexExt;
++    use lance_index::scalar::{BuiltinIndexType, ScalarIndexParams};
++
++    let (_tmp, uri, _) = create_scalar_segment_fixture(lance_index::IndexType::BTree, false);
++    let uuid = lance_c::runtime::block_on(async {
++        let mut ds = Dataset::open(&uri).await.unwrap();
++        ds.delete("id = 2").await.unwrap();
++        ds.drop_index("key_idx").await.unwrap();
++        // A segment built after the delete cannot return the tombstoned row,
++        // even though its search result is Exact for the indexed live rows.
++        let params = ScalarIndexParams::for_builtin(BuiltinIndexType::BTree);
++        let segment = ds
++            .create_index_builder(&["key"], lance_index::IndexType::BTree, &params)
++            .name("key_idx".into())
++            .fragments(vec![0])
++            .execute_uncommitted()
++            .await
++            .unwrap();
++        let uuid = *segment.uuid.as_bytes();
++        ds.commit_existing_index_segments("key_idx", "key", vec![segment])
++            .await
++            .unwrap();
++        uuid
++    });
++
++    let (ids, _) = scalar_segment_ids(&uri, &uuid, &[0], "key >= 0 AND id >= 2", None, 0);
++    assert_eq!(ids, vec![3], "live-row segment scans remain supported");
++
++    let uri = c_str(&uri);
++    let filter = c_str("key >= 0 AND id >= 2");
++    unsafe {
++        let ds = lance_dataset_open(uri.as_ptr(), ptr::null(), 0);
++        assert!(!ds.is_null());
++        // Check both setter orders: compatibility is validated at stream creation.
++        for segment_first in [None, Some(false), Some(true)] {
++            let scanner = lance_scanner_new(ds, ptr::null(), filter.as_ptr());
++            assert!(!scanner.is_null());
++            assert_eq!(
++                lance_scanner_set_fragment_ids(scanner, [0u64].as_ptr(), 1),
++                0
++            );
++            assert_eq!(lance_scanner_with_row_id(scanner, true), 0);
++            if segment_first.is_none() {
++                assert_eq!(lance_scanner_set_use_scalar_index(scanner, false), 0);
++            }
++            if segment_first == Some(true) {
++                assert_eq!(
++                    lance_scanner_set_scalar_index_segment(scanner, uuid.as_ptr()),
++                    0
++                );
++            }
++            assert_eq!(lance_scanner_set_include_deleted_rows(scanner, true), 0);
++            if segment_first == Some(false) {
++                assert_eq!(
++                    lance_scanner_set_scalar_index_segment(scanner, uuid.as_ptr()),
++                    0
++                );
++            }
++            let mut stream = FFI_ArrowArrayStream::empty();
++            let rc = lance_scanner_to_arrow_stream(scanner, &mut stream);
++            if segment_first.is_some() {
++                assert_eq!(rc, -1, "segment scans must not silently omit deleted rows");
++                assert_eq!(lance_last_error_code(), LanceErrorCode::InvalidArgument);
++                assert!(take_last_error_message().contains("include_deleted_rows=true"));
++            } else {
++                assert_eq!(rc, 0);
++                let reader = ArrowArrayStreamReader::from_raw(&mut stream).unwrap();
++                let mut ids = Vec::new();
++                for batch in reader {
++                    let batch = batch.unwrap();
++                    ids.extend_from_slice(
++                        batch
++                            .column_by_name("id")
++                            .unwrap()
++                            .as_any()
++                            .downcast_ref::<Int32Array>()
++                            .unwrap()
++                            .values(),
++                    );
++                }
++                ids.sort_unstable();
++                assert_eq!(
++                    ids,
++                    vec![2, 3],
++                    "ordinary scans can still read tombstoned rows"
++                );
++            }
++            lance_scanner_close(scanner);
++        }
++        lance_dataset_close(ds);
++    }
++}
++
+ #[test]
+ fn test_scalar_segment_requires_explicit_domain_and_checks_uuid() {
+     let (_tmp, uri, uuids) = create_scalar_segment_fixture(lance_index::IndexType::BTree, false);
