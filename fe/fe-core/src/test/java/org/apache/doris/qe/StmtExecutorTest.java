@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchemaInitializer;
@@ -24,12 +25,16 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.IncrWindowNotReadyException;
+import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Status;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
@@ -43,6 +48,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
@@ -69,6 +75,28 @@ public class StmtExecutorTest extends TestWithFeService {
         InternalSchemaInitializer.createDb();
         InternalSchemaInitializer.createTbl();
         createDatabase("testDb");
+    }
+
+    @Test
+    public void testCommittedTsoErrorSurvivesPlannerWrapping() throws Exception {
+        for (ErrorCode code : new ErrorCode[] {ErrorCode.ERR_INCR_WINDOW_NOT_READY,
+                ErrorCode.ERR_INCR_VISIBLE_WAIT_TIMEOUT}) {
+            connectContext.getState().reset();
+            IncrWindowNotReadyException rejected = new IncrWindowNotReadyException(code, "test reason",
+                    2000, 3000, 1000, 1000, 5000);
+            StmtExecutor executor = new StmtExecutor(connectContext, "select 1");
+            try (MockedConstruction<NereidsPlanner> planners = Mockito.mockConstruction(NereidsPlanner.class,
+                    (planner, construction) -> Mockito.doThrow(new NereidsException(rejected.getMessage(), rejected))
+                            .when(planner).plan(Mockito.any(StatementBase.class), Mockito.any(TQueryOptions.class)))) {
+                executor.execute();
+                Assertions.assertEquals(1, planners.constructed().size());
+            }
+            Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+            Assertions.assertEquals(code, connectContext.getState().getErrorCode());
+            Assertions.assertTrue(connectContext.getState().getErrorMessage().contains("requestedEndTimestampMs=2000"));
+            Assertions.assertTrue(connectContext.getState().getErrorMessage().contains("retryAfterMs=1000"));
+            Assertions.assertTrue(connectContext.getState().getErrorMessage().contains("timeoutMs=5000"));
+        }
     }
 
     @Test

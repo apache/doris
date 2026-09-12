@@ -2781,6 +2781,290 @@ TEST(MetaServiceTest, GetCurrentMaxTxnIdTest) {
     ASSERT_GE(max_txn_id_res.current_max_txn_id(), begin_txn_res.txn_id());
 }
 
+TEST(MetaServiceTest, TsoFenceIsMonotonicAndRejectsStaleCommit) {
+    auto meta_service = get_meta_service();
+    brpc::Controller cntl;
+    AdvanceTsoFenceRequest fence_request;
+    fence_request.set_cloud_unique_id("test_cloud_unique_id");
+    fence_request.set_proposed_fence_tso(100);
+    AdvanceTsoFenceResponse fence_response;
+    meta_service->advance_tso_fence(&cntl, &fence_request, &fence_response, nullptr);
+    ASSERT_EQ(fence_response.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(fence_response.tso_fence(), 100);
+
+    fence_request.set_proposed_fence_tso(90);
+    fence_response.Clear();
+    meta_service->advance_tso_fence(&cntl, &fence_request, &fence_response, nullptr);
+    ASSERT_EQ(fence_response.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(fence_response.tso_fence(), 100);
+
+    int64_t txn_id = -1;
+    begin_txn(meta_service.get(), 666, "tso_fence_commit", 1234, txn_id);
+    CommitTxnRequest commit_request;
+    commit_request.set_db_id(666);
+    commit_request.set_txn_id(txn_id);
+    commit_request.set_commit_tso(100);
+    CommitTxnResponse commit_response;
+    meta_service->commit_txn(&cntl, &commit_request, &commit_response, nullptr);
+    ASSERT_EQ(commit_response.status().actual_code(), MetaServiceCode::TXN_COMMIT_TSO_FENCED);
+    ASSERT_EQ(commit_response.tso_fence(), 100);
+
+    commit_request.set_commit_tso(101);
+    commit_response.Clear();
+    meta_service->commit_txn(&cntl, &commit_request, &commit_response, nullptr);
+    ASSERT_EQ(commit_response.status().code(), MetaServiceCode::OK);
+
+    // A response retry after the transaction became visible remains idempotent.
+    commit_request.set_commit_tso(100);
+    commit_response.Clear();
+    meta_service->commit_txn(&cntl, &commit_request, &commit_response, nullptr);
+    ASSERT_EQ(commit_response.status().code(), MetaServiceCode::OK);
+
+    // Transactions without a commit TSO do not participate in binlog fencing.
+    int64_t non_tso_txn_id = -1;
+    begin_txn(meta_service.get(), 666, "tso_fence_non_tso_commit", 1234, non_tso_txn_id);
+    CommitTxnRequest non_tso_commit_request;
+    non_tso_commit_request.set_db_id(666);
+    non_tso_commit_request.set_txn_id(non_tso_txn_id);
+    CommitTxnResponse non_tso_commit_response;
+    meta_service->commit_txn(&cntl, &non_tso_commit_request, &non_tso_commit_response, nullptr);
+    ASSERT_EQ(non_tso_commit_response.status().code(), MetaServiceCode::OK);
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->remove(txn_tso_fence_key({mock_instance}));
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+}
+
+TEST(MetaServiceTest, TsoRecoveryChecksAllDatabasesAndExpiredLazyTransactions) {
+    auto meta_service = get_meta_service();
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    TxnRunningPB running;
+    running.set_timeout_time(1); // Expired is not terminal for a persisted COMMITTED lazy txn.
+    running.add_table_ids(777);
+    txn->put(txn_running_key({mock_instance, 1, 100}), running.SerializeAsString());
+    txn->put(txn_running_key({mock_instance, 2, 150}), running.SerializeAsString());
+    txn->put(txn_running_key({"another_instance", 1, 1}), running.SerializeAsString());
+    const auto blocking_key = txn_running_key({mock_instance, 999, 50});
+    txn->put(blocking_key, running.SerializeAsString());
+    TxnInfoPB info;
+    info.set_db_id(999);
+    info.set_txn_id(50);
+    info.add_table_ids(777);
+    info.set_status(TxnStatusPB::TXN_STATUS_COMMITTED);
+    info.set_commit_tso(12345);
+    const auto info_key = txn_info_key({mock_instance, 999, 50});
+    txn->put(info_key, info.SerializeAsString());
+    for (const auto& [txn_id, status, commit_tso] :
+         std::vector<std::tuple<int64_t, TxnStatusPB, int64_t>> {
+                 {30, TxnStatusPB::TXN_STATUS_COMMITTED, 20001},
+                 {35, TxnStatusPB::TXN_STATUS_COMMITTED, 0},
+                 {40, TxnStatusPB::TXN_STATUS_PREPARED, 0}}) {
+        txn->put(txn_running_key({mock_instance, 999, txn_id}), running.SerializeAsString());
+        TxnInfoPB additional_info = info;
+        additional_info.set_txn_id(txn_id);
+        additional_info.set_status(status);
+        if (commit_tso > 0) {
+            additional_info.set_commit_tso(commit_tso);
+        } else {
+            additional_info.clear_commit_tso();
+        }
+        txn->put(txn_info_key({mock_instance, 999, txn_id}), additional_info.SerializeAsString());
+    }
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    brpc::Controller cntl;
+    GetTsoRecoveryTransactionsRequest request;
+    request.set_cloud_unique_id("test_cloud_unique_id");
+    request.set_end_txn_id(100);
+    request.set_batch_size(256);
+    request.set_tso_fence(20000);
+    GetTsoRecoveryTransactionsResponse response;
+    meta_service->get_tso_recovery_transactions(&cntl, &request, &response, nullptr);
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(response.txn_infos_size(), 1);
+
+    // The legacy table-scoped check still skips expired transactions; its result cannot recover TSO.
+    CheckTxnConflictRequest legacy;
+    legacy.set_cloud_unique_id("test_cloud_unique_id");
+    legacy.set_end_txn_id(100);
+    legacy.set_db_id(999);
+    legacy.add_table_ids(777);
+    CheckTxnConflictResponse legacy_response;
+    meta_service->check_txn_conflict(&cntl, &legacy, &legacy_response, nullptr);
+    ASSERT_EQ(legacy_response.status().code(), MetaServiceCode::OK);
+    ASSERT_TRUE(legacy_response.finished());
+
+    // Real publication removes the running key in the same KV transaction as the terminal state.
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    info.set_status(TxnStatusPB::TXN_STATUS_VISIBLE);
+    txn->put(info_key, info.SerializeAsString());
+    txn->remove(blocking_key);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    response.Clear();
+    meta_service->get_tso_recovery_transactions(&cntl, &request, &response, nullptr);
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    // IDs equal to or above the fixed exclusive bound are ignored.
+    ASSERT_EQ(response.txn_infos_size(), 0);
+    ASSERT_TRUE(response.has_next_start_key());
+    ASSERT_TRUE(response.next_start_key().empty());
+}
+
+TEST(MetaServiceTest, TsoRecoveryRejectsMalformedRunningKeys) {
+    auto meta_service = get_meta_service();
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key = txn_running_key({mock_instance, 1, 1});
+    key.push_back('\xff');
+    txn->put(key, "");
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    brpc::Controller cntl;
+    GetTsoRecoveryTransactionsRequest request;
+    request.set_cloud_unique_id("test_cloud_unique_id");
+    request.set_end_txn_id(100);
+    request.set_batch_size(256);
+    request.set_tso_fence(20000);
+    GetTsoRecoveryTransactionsResponse response;
+    meta_service->get_tso_recovery_transactions(&cntl, &request, &response, nullptr);
+    ASSERT_NE(response.status().code(), MetaServiceCode::OK);
+    ASSERT_FALSE(response.has_next_start_key());
+}
+
+TEST(MetaServiceTest, TsoRecoveryBatchesUseCurrentTablesAndKeepExpiredTransactions) {
+    auto meta_service = get_meta_service();
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    TxnRunningPB running;
+    running.set_timeout_time(1);
+    running.add_table_ids(777);
+    auto put_transaction = [&](const std::string& instance, int64_t db, int64_t id, int64_t table) {
+        txn->put(txn_running_key({instance, db, id}), running.SerializeAsString());
+        TxnInfoPB info;
+        info.set_db_id(db);
+        info.set_txn_id(id);
+        info.add_table_ids(table);
+        info.set_status(TxnStatusPB::TXN_STATUS_COMMITTED);
+        info.set_commit_tso(12345);
+        txn->put(txn_info_key({instance, db, id}), info.SerializeAsString());
+    };
+    put_transaction(mock_instance, 1, 99, 100);
+    put_transaction(mock_instance, 1, 100,
+                    200); // Equal to the exclusive bound, still consumes a scan slot.
+    put_transaction(mock_instance, 2, 10, 300); // txn_info includes tables added after begin_txn.
+    put_transaction("another_instance", 1, 1, 400);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    brpc::Controller cntl;
+    GetTsoRecoveryTransactionsRequest request;
+    request.set_cloud_unique_id("test_cloud_unique_id");
+    request.set_end_txn_id(100);
+    request.set_batch_size(2);
+    request.set_tso_fence(20000);
+    GetTsoRecoveryTransactionsResponse response;
+    meta_service->get_tso_recovery_transactions(&cntl, &request, &response, nullptr);
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    ASSERT_FALSE(response.next_start_key().empty());
+    ASSERT_EQ(response.txn_infos_size(), 1);
+    EXPECT_EQ(response.txn_infos(0).txn_id(), 99);
+    EXPECT_EQ(response.txn_infos(0).commit_tso(), 12345);
+    EXPECT_EQ(response.txn_infos(0).table_ids(0), 100);
+
+    // Deleting already scanned keys does not invalidate the next batch position.
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->remove(txn_running_key({mock_instance, 1, 99}));
+    txn->remove(txn_running_key({mock_instance, 1, 100}));
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    request.set_start_key(response.next_start_key());
+    response.Clear();
+    meta_service->get_tso_recovery_transactions(&cntl, &request, &response, nullptr);
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    ASSERT_TRUE(response.has_next_start_key());
+    ASSERT_TRUE(response.next_start_key().empty());
+    ASSERT_EQ(response.txn_infos_size(), 1);
+    EXPECT_EQ(response.txn_infos(0).db_id(), 2);
+    EXPECT_EQ(response.txn_infos(0).txn_id(), 10);
+    EXPECT_EQ(response.txn_infos(0).table_ids(0), 300);
+    EXPECT_EQ(response.txn_infos(0).commit_tso(), 12345);
+}
+
+TEST(MetaServiceTest, TsoRecoveryBatchCanBeEmptyBeforeTheScanCompletes) {
+    auto meta_service = get_meta_service();
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    TxnRunningPB running;
+    // All IDs in the first database exceed the bound. A later database still contains an old txn.
+    txn->put(txn_running_key({mock_instance, 1, 200}), running.SerializeAsString());
+    txn->put(txn_running_key({mock_instance, 2, 10}), running.SerializeAsString());
+    TxnInfoPB info;
+    info.set_db_id(2);
+    info.set_txn_id(10);
+    info.add_table_ids(300);
+    info.set_status(TxnStatusPB::TXN_STATUS_COMMITTED);
+    info.set_commit_tso(12345);
+    txn->put(txn_info_key({mock_instance, 2, 10}), info.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    brpc::Controller cntl;
+    GetTsoRecoveryTransactionsRequest request;
+    request.set_cloud_unique_id("test_cloud_unique_id");
+    request.set_end_txn_id(100);
+    request.set_batch_size(1);
+    request.set_tso_fence(20000);
+    GetTsoRecoveryTransactionsResponse response;
+    meta_service->get_tso_recovery_transactions(&cntl, &request, &response, nullptr);
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(response.txn_infos_size(), 0);
+    ASSERT_FALSE(response.next_start_key().empty());
+    request.set_start_key(response.next_start_key());
+    response.Clear();
+    meta_service->get_tso_recovery_transactions(&cntl, &request, &response, nullptr);
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(response.txn_infos_size(), 1);
+    EXPECT_EQ(response.txn_infos(0).txn_id(), 10);
+    // Hitting the KV batch limit can require one final empty batch to establish completion.
+    ASSERT_FALSE(response.next_start_key().empty());
+    request.set_start_key(response.next_start_key());
+    response.Clear();
+    meta_service->get_tso_recovery_transactions(&cntl, &request, &response, nullptr);
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(response.txn_infos_size(), 0);
+    EXPECT_TRUE(response.has_next_start_key());
+    EXPECT_TRUE(response.next_start_key().empty());
+}
+
+TEST(MetaServiceTest, TsoRecoveryBatchRejectsInvalidArgumentsAndMissingDetails) {
+    auto meta_service = get_meta_service();
+    brpc::Controller cntl;
+    GetTsoRecoveryTransactionsRequest request;
+    request.set_cloud_unique_id("test_cloud_unique_id");
+    request.set_batch_size(256);
+    GetTsoRecoveryTransactionsResponse response;
+    meta_service->get_tso_recovery_transactions(&cntl, &request, &response, nullptr);
+    EXPECT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    request.set_end_txn_id(100);
+    request.set_tso_fence(20000);
+    for (int size : {0, 1001}) {
+        request.set_batch_size(size);
+        response.Clear();
+        meta_service->get_tso_recovery_transactions(&cntl, &request, &response, nullptr);
+        EXPECT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+    request.set_batch_size(1);
+    request.set_start_key(txn_running_key({"another_instance", 1, 1}));
+    response.Clear();
+    meta_service->get_tso_recovery_transactions(&cntl, &request, &response, nullptr);
+    EXPECT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    request.clear_start_key();
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(txn_running_key({mock_instance, 1, 10}), TxnRunningPB().SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    response.Clear();
+    meta_service->get_tso_recovery_transactions(&cntl, &request, &response, nullptr);
+    EXPECT_NE(response.status().code(), MetaServiceCode::OK);
+    EXPECT_FALSE(response.has_next_start_key());
+}
+
 TEST(MetaServiceTest, CreateMetaSyncPointTest) {
     auto meta_service = get_meta_service();
     const std::string cloud_unique_id = "test_cloud_unique_id";

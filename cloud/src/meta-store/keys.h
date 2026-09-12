@@ -165,6 +165,9 @@ using TxnIndexKeyInfo      = BasicKeyInfo<__LINE__ , std::tuple<std::string,  in
 //                                                      0:instance_id  1:db_id  2:txn_id
 using TxnRunningKeyInfo    = BasicKeyInfo<__LINE__ , std::tuple<std::string,  int64_t, int64_t>>;
 
+//                                                      0:instance_id
+using TxnTsoFenceKeyInfo   = BasicKeyInfo<__LINE__ , std::tuple<std::string>>;
+
 //                                                      0:instance_id  1:db_id  2:tbl_id  3:partition_id
 using PartitionVersionKeyInfo     = BasicKeyInfo<__LINE__ , std::tuple<std::string,  int64_t, int64_t,  int64_t>>;
 
@@ -361,10 +364,12 @@ void txn_label_key(const TxnLabelKeyInfo& in, std::string* out);
 void txn_info_key(const TxnInfoKeyInfo& in, std::string* out);
 void txn_index_key(const TxnIndexKeyInfo& in, std::string* out);
 void txn_running_key(const TxnRunningKeyInfo& in, std::string* out);
+void txn_tso_fence_key(const TxnTsoFenceKeyInfo& in, std::string* out);
 static inline std::string txn_label_key(const TxnLabelKeyInfo& in) { std::string s; txn_label_key(in, &s); return s; }
 static inline std::string txn_info_key(const TxnInfoKeyInfo& in) { std::string s; txn_info_key(in, &s); return s; }
 static inline std::string txn_index_key(const TxnIndexKeyInfo& in) { std::string s; txn_index_key(in, &s); return s; }
 static inline std::string txn_running_key(const TxnRunningKeyInfo& in) { std::string s; txn_running_key(in, &s); return s; }
+static inline std::string txn_tso_fence_key(const TxnTsoFenceKeyInfo& in) { std::string s; txn_tso_fence_key(in, &s); return s; }
 
 std::string version_key_prefix(std::string_view instance_id);
 void partition_version_key(const PartitionVersionKeyInfo& in, std::string* out);

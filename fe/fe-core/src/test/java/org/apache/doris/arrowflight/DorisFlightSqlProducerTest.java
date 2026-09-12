@@ -19,13 +19,20 @@ package org.apache.doris.arrowflight;
 
 import org.apache.doris.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 
+import org.apache.arrow.flight.CallStatus;
+import org.apache.arrow.flight.ErrorFlightMetadata;
 import org.apache.arrow.flight.FlightDescriptor;
 import org.apache.arrow.flight.FlightProducer.CallContext;
 import org.apache.arrow.flight.FlightProducer.StreamListener;
+import org.apache.arrow.flight.FlightRuntimeException;
+import org.apache.arrow.flight.FlightStatusCode;
 import org.apache.arrow.flight.Location;
 import org.apache.arrow.flight.Result;
 import org.apache.arrow.flight.sql.impl.FlightSql.ActionCreatePreparedStatementRequest;
@@ -44,6 +51,88 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class DorisFlightSqlProducerTest {
 
     private boolean prevRunningUnitTest;
+
+    @Test
+    public void testWindowNotReadyHasRetryableFlightStatusAndStableBusinessCode() {
+        QueryState state = new QueryState();
+        IncrWindowNotReadyException error = new IncrWindowNotReadyException(2000, 100, 1000);
+        state.setError(error.getMysqlErrorCode(), error.getDetailMessage());
+        FlightRuntimeException result = DorisFlightSqlProducer.queryFailure(state, state.getErrorMessage(), error);
+        Assertions.assertEquals(FlightStatusCode.UNAVAILABLE, result.status().code());
+        Assertions.assertEquals(Integer.toString(ErrorCode.ERR_INCR_WINDOW_NOT_READY.getCode()),
+                result.status().metadata().get("doris-error-code"));
+        Assertions.assertTrue(result.status().description().contains("requestedEndTimestampMs=2000"));
+        Assertions.assertTrue(result.status().description().contains("retryAfterMs=1000"));
+        state.setError(ErrorCode.ERR_UNKNOWN_ERROR, "other failure");
+        Assertions.assertEquals(FlightStatusCode.INTERNAL,
+                DorisFlightSqlProducer.queryFailure(state, "other failure", error).status().code());
+    }
+
+    @Test
+    public void testGetFlightInfoPreservesBothWindowErrors() throws Exception {
+        for (ErrorCode code : new ErrorCode[] {ErrorCode.ERR_INCR_WINDOW_NOT_READY,
+                ErrorCode.ERR_INCR_VISIBLE_WAIT_TIMEOUT}) {
+            QueryState state = new QueryState();
+            IncrWindowNotReadyException error = new IncrWindowNotReadyException(code, "test reason",
+                    2000, 3000, 100, 1000, 5000);
+            state.setError(error.getMysqlErrorCode(), error.getDetailMessage());
+            FlightRuntimeException failure = DorisFlightSqlProducer.queryFailure(state, state.getErrorMessage(), error);
+            Assertions.assertEquals(FlightStatusCode.UNAVAILABLE, failure.status().code());
+            Assertions.assertEquals(Integer.toString(code.getCode()), failure.status().metadata().get("doris-error-code"));
+            Assertions.assertEquals(code.name(), failure.status().metadata().get("doris-error-name"));
+            Assertions.assertTrue(failure.status().description().contains("currentTSO=3000"));
+            Assertions.assertTrue(failure.status().description().contains("committedTSO=100"));
+            Assertions.assertTrue(failure.status().description().contains("timeoutMs=5000"));
+            Assertions.assertSame(failure, getFlightInfoFailure(failure));
+        }
+    }
+
+    @Test
+    public void testGetFlightInfoWrapsOtherFlightErrors() throws Exception {
+        for (CallStatus status : new CallStatus[] {CallStatus.INTERNAL, CallStatus.UNAVAILABLE,
+                CallStatus.INVALID_ARGUMENT, CallStatus.UNAUTHENTICATED}) {
+            FlightRuntimeException failure = status.withDescription("other flight failure").toRuntimeException();
+            assertLegacyFlightWrapper(failure, getFlightInfoFailure(failure));
+        }
+    }
+
+    @Test
+    public void testGetFlightInfoWrapsOtherBusinessErrors() throws Exception {
+        ErrorFlightMetadata metadata = new ErrorFlightMetadata();
+        metadata.insert("doris-error-code", Integer.toString(ErrorCode.ERR_UNKNOWN_ERROR.getCode()));
+        FlightRuntimeException failure = CallStatus.UNAVAILABLE.withDescription("other business failure")
+                .withMetadata(metadata).toRuntimeException();
+
+        assertLegacyFlightWrapper(failure, getFlightInfoFailure(failure));
+    }
+
+    @Test
+    public void testGetFlightInfoWrapsNonFlightErrors() throws Exception {
+        RuntimeException failure = new RuntimeException("session lookup failed");
+        assertLegacyFlightWrapper(failure, getFlightInfoFailure(failure));
+    }
+
+    private FlightRuntimeException getFlightInfoFailure(RuntimeException failure) throws Exception {
+        FlightSessionsManager sessionsManager = Mockito.mock(FlightSessionsManager.class);
+        Mockito.when(sessionsManager.getConnectContext("token")).thenThrow(failure);
+        CallContext callContext = Mockito.mock(CallContext.class);
+        Mockito.when(callContext.peerIdentity()).thenReturn("token");
+        try (DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
+                Location.forGrpcInsecure("127.0.0.1", 9090), sessionsManager)) {
+            CommandStatementQuery request = CommandStatementQuery.newBuilder().setQuery("select 1").build();
+            return Assertions.assertThrows(FlightRuntimeException.class,
+                    () -> producer.getFlightInfoStatement(request, callContext, FlightDescriptor.command(new byte[0])));
+        }
+    }
+
+    private void assertLegacyFlightWrapper(RuntimeException failure, FlightRuntimeException result) {
+        Assertions.assertEquals(FlightStatusCode.INTERNAL, result.status().code());
+        Assertions.assertNotSame(failure, result);
+        Assertions.assertSame(failure, result.getCause());
+        Assertions.assertEquals("get flight info statement failed, " + failure.getMessage(),
+                result.status().description());
+        Assertions.assertFalse(result.status().metadata().containsKey("doris-error-code"));
+    }
 
     @BeforeEach
     public void setUp() {

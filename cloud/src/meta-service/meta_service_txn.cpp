@@ -127,6 +127,39 @@ static void append_table_stream_commit_size_error(TxnErrorCode err, std::string&
     }
 }
 
+static bool check_txn_commit_tso_fence(Transaction* txn, const std::string& instance_id,
+                                       int64_t commit_tso, CommitTxnResponse* response,
+                                       MetaServiceCode& code, std::string& msg) {
+    if (commit_tso <= 0) {
+        return true;
+    }
+
+    std::string value;
+    TxnErrorCode err = txn->get(txn_tso_fence_key({instance_id}), &value);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        return true;
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to read TSO fence, err={}", err);
+        return false;
+    }
+
+    TxnTsoFencePB fence;
+    if (!fence.ParseFromString(value) || !fence.has_fence_tso() || fence.fence_tso() <= 0) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = "failed to parse TSO fence";
+        return false;
+    }
+    if (commit_tso <= fence.fence_tso()) {
+        response->set_tso_fence(fence.fence_tso());
+        code = MetaServiceCode::TXN_COMMIT_TSO_FENCED;
+        msg = fmt::format("commit TSO {} is fenced by {}", commit_tso, fence.fence_tso());
+        return false;
+    }
+    return true;
+}
+
 class TableStreamUpdateTxnContext {
 public:
     TableStreamUpdateTxnContext(Transaction* txn, const std::string& instance_id,
@@ -1911,6 +1944,11 @@ void MetaServiceImpl::commit_txn_immediately(
             return;
         }
 
+        if (txn_info.status() != TxnStatusPB::TXN_STATUS_COMMITTED &&
+            !check_txn_commit_tso_fence(txn.get(), instance_id, commit_tso, response, code, msg)) {
+            return;
+        }
+
         MultiVersionStatus table_stream_multi_version_status =
                 MultiVersionStatus::MULTI_VERSION_DISABLED;
         if (!request->table_stream_updates().empty()) {
@@ -2743,6 +2781,11 @@ void MetaServiceImpl::commit_txn_eventually(
             return;
         }
 
+        if (txn_info.status() != TxnStatusPB::TXN_STATUS_COMMITTED &&
+            !check_txn_commit_tso_fence(txn.get(), instance_id, commit_tso, response, code, msg)) {
+            return;
+        }
+
         auto now_time = system_clock::now();
         uint64_t commit_time = duration_cast<milliseconds>(now_time.time_since_epoch()).count();
         if ((txn_info.prepare_time() + txn_info.timeout_ms()) < commit_time) {
@@ -3140,6 +3183,11 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             msg = ss.str();
             LOG(INFO) << msg;
             response->mutable_txn_info()->CopyFrom(txn_info);
+            return;
+        }
+
+        if (txn_info.status() != TxnStatusPB::TXN_STATUS_COMMITTED &&
+            !check_txn_commit_tso_fence(txn.get(), instance_id, commit_tso, response, code, msg)) {
             return;
         }
 
@@ -4722,6 +4770,171 @@ std::string get_txn_info_key_from_txn_running_key(std::string_view txn_running_k
         conflict_txn_info_key = txn_info_key({decode_instance_id, db_id, txn_id});
     }
     return conflict_txn_info_key;
+}
+
+void MetaServiceImpl::advance_tso_fence(::google::protobuf::RpcController* controller,
+                                        const AdvanceTsoFenceRequest* request,
+                                        AdvanceTsoFenceResponse* response,
+                                        ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(advance_tso_fence, get, put);
+    if (!request->has_proposed_fence_tso() || request->proposed_fence_tso() <= 0) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "invalid proposed TSO fence";
+        return;
+    }
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "cannot find instance_id for TSO fence";
+        return;
+    }
+    RPC_RATE_LIMIT(advance_tso_fence)
+
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to create TSO fence transaction";
+        return;
+    }
+
+    const std::string key = txn_tso_fence_key({instance_id});
+    std::string value;
+    err = txn->get(key, &value);
+    int64_t current_fence_tso = 0;
+    if (err == TxnErrorCode::TXN_OK) {
+        TxnTsoFencePB fence;
+        if (!fence.ParseFromString(value) || !fence.has_fence_tso() || fence.fence_tso() <= 0) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = "failed to parse TSO fence";
+            return;
+        }
+        current_fence_tso = fence.fence_tso();
+    } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = "failed to read TSO fence";
+        return;
+    }
+
+    const int64_t effective_fence_tso = std::max(current_fence_tso, request->proposed_fence_tso());
+    if (effective_fence_tso > current_fence_tso) {
+        TxnTsoFencePB fence;
+        fence.set_fence_tso(effective_fence_tso);
+        if (!fence.SerializeToString(&value)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = "failed to serialize TSO fence";
+            return;
+        }
+        txn->put(key, value);
+        err = txn->commit();
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::COMMIT>(err);
+            msg = "failed to commit TSO fence";
+            return;
+        }
+    }
+    response->set_tso_fence(effective_fence_tso);
+}
+
+void MetaServiceImpl::get_tso_recovery_transactions(
+        ::google::protobuf::RpcController* controller,
+        const GetTsoRecoveryTransactionsRequest* request,
+        GetTsoRecoveryTransactionsResponse* response, ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(get_tso_recovery_transactions, get);
+    if (request->end_txn_id() <= 0 || request->batch_size() <= 0 || request->batch_size() > 1000 ||
+        request->tso_fence() <= 0) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "invalid TSO recovery transaction bound or batch size";
+        return;
+    }
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "cannot find instance_id for TSO recovery";
+        return;
+    }
+    RPC_RATE_LIMIT(get_tso_recovery_transactions)
+    // Keys sort by database first. Scan the instance and apply the fixed exclusive ID bound
+    // to each key; a batch containing only newer transactions does not finish the scan.
+    std::string begin_key = txn_running_key({instance_id, 0, 0});
+    std::string end_key = txn_running_key({instance_id, INT64_MAX, INT64_MAX});
+    end_key.push_back('\x00');
+    if (!request->start_key().empty()) {
+        if (request->start_key() < begin_key || request->start_key() >= end_key) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "invalid TSO recovery start key";
+            return;
+        }
+        begin_key = request->start_key();
+    }
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to create TSO recovery read transaction";
+        return;
+    }
+    std::unique_ptr<RangeGetIterator> it;
+    err = txn->get(begin_key, end_key, &it, true, request->batch_size());
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = "failed to get running transactions during TSO recovery";
+        return;
+    }
+    while (it->has_next()) {
+        auto [key, value] = it->next();
+        if (!it->has_next()) {
+            begin_key = key;
+        }
+        std::string_view encoded_key = key;
+        encoded_key.remove_prefix(1);
+        std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> fields;
+        if (decode_key(&encoded_key, &fields) != 0 || fields.size() != 5 ||
+            !std::holds_alternative<int64_t>(std::get<0>(fields[3])) ||
+            !std::holds_alternative<int64_t>(std::get<0>(fields[4]))) {
+            code = MetaServiceCode::UNDEFINED_ERR;
+            msg = "failed to decode running transaction key during TSO recovery";
+            return;
+        }
+        const auto db_id = std::get<int64_t>(std::get<0>(fields[3]));
+        const auto txn_id = std::get<int64_t>(std::get<0>(fields[4]));
+        if (txn_id >= request->end_txn_id()) {
+            continue;
+        }
+        // Running keys are removed atomically with real VISIBLE/ABORTED. Expired COMMITTED
+        // lazy transactions still block. Read the details in the same KV snapshot.
+        std::string info_val;
+        err = txn->get(txn_info_key({instance_id, db_id, txn_id}), &info_val, true);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to read TSO recovery transaction, db_id={}, txn_id={}", db_id,
+                              txn_id);
+            return;
+        }
+        TxnInfoPB info;
+        if (!info.ParseFromString(info_val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = "failed to parse TSO recovery transaction";
+            return;
+        }
+        // Subtransactions update txn_info.table_ids; the running record can be older.
+        if (info.db_id() != db_id || info.txn_id() != txn_id || info.table_ids().empty()) {
+            code = MetaServiceCode::UNDEFINED_ERR;
+            msg = "invalid TSO recovery transaction identity or tables";
+            return;
+        }
+        if (info.status() != TxnStatusPB::TXN_STATUS_COMMITTED || !info.has_commit_tso() ||
+            info.commit_tso() <= 0 || info.commit_tso() > request->tso_fence()) {
+            continue;
+        }
+        // Recovery needs identities and visibility boundaries, not commit attachments.
+        auto* recovered = response->add_txn_infos();
+        recovered->set_db_id(db_id);
+        recovered->set_txn_id(txn_id);
+        recovered->mutable_table_ids()->CopyFrom(info.table_ids());
+        recovered->set_status(info.status());
+        recovered->set_commit_tso(info.commit_tso());
+    }
+    begin_key.push_back('\x00');
+    response->set_next_start_key(it->more() ? begin_key : "");
 }
 
 void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* controller,

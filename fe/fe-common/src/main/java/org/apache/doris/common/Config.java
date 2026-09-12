@@ -3601,8 +3601,8 @@ public class Config extends ConfigBase {
     public static int tso_max_get_retry_count = 10;
 
     @ConfField(mutable = true, masterOnly = true, description = "TSO service time window in milliseconds. Default is "
-            + "5000, which means the TSO service will apply for a " + "TSO time window of 5000ms from BDBJE once.")
-    public static int tso_service_window_duration_ms = 5000;
+            + "1000. Persist the readable committed TSO together with the reserved allocation window.")
+    public static int tso_service_window_duration_ms = 1000;
 
     @ConfField(mutable = true, masterOnly = true, description = "Max tolerated clock backward threshold during TSO "
             + "calibration in milliseconds. Exceeding this " + "threshold will fail enabling TSO. Default is 30 "

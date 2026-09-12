@@ -19,21 +19,33 @@ package org.apache.doris.tso;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.journal.local.LocalJournal;
+import org.apache.doris.metric.GaugeMetric;
+import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.EditLog;
 
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.LongSupplier;
 
 public class TSOService extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(TSOService.class);
@@ -47,7 +59,39 @@ public class TSOService extends MasterDaemon {
 
     private final AtomicBoolean isInitialized = new AtomicBoolean(false);
     private final AtomicBoolean fatalClockBackwardReported = new AtomicBoolean(false);
-    private final AtomicLong windowEndTSO = new AtomicLong(0);
+    private volatile TSOServiceState durableState = new TSOServiceState(0, 0);
+    private final TSOTransactionTracker transactionTracker = new TSOTransactionTracker(lock);
+    private long pendingCalibrationPhysicalTime;
+    private long pendingCalibrationWindowEnd;
+    private long lastPersistNanos;
+    private final MasterDaemon transactionChecker = new MasterDaemon("TSO-transaction-checker", 1000) {
+        private long lastFailureLogNanos;
+
+        @Override
+        protected void runAfterCatalogReady() {
+            if (!Config.isCloudMode() || !isTsoEnabled() || !isInitialized.get()
+                    || !Env.getCurrentEnv().isMaster()) {
+                return;
+            }
+            long startNanos = System.nanoTime();
+            try {
+                transactionTracker.checkTransactions(Env.getCurrentGlobalTransactionMgr(), startNanos);
+            } catch (Exception e) {
+                if (lastFailureLogNanos == 0 || startNanos - lastFailureLogNanos >= TimeUnit.MINUTES.toNanos(1)) {
+                    LOG.warn("Failed to reconcile TSO transactions; retaining the committed TSO", e);
+                    lastFailureLogNanos = startNanos;
+                }
+                if (MetricRepo.isInit) {
+                    MetricRepo.COUNTER_TSO_RECONCILE_FAILED.increase(1L);
+                }
+            } finally {
+                if (MetricRepo.isInit) {
+                    MetricRepo.HISTO_TSO_RECONCILE_LATENCY.update(
+                            TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos));
+                }
+            }
+        }
+    };
 
     /**
      * Immutable snapshot of the current TSO service status.
@@ -56,11 +100,21 @@ public class TSOService extends MasterDaemon {
         private final boolean initialized;
         private final long currentTso;
         private final long windowEndPhysicalTime;
+        private final long committedTso;
 
         public TSOStatusSnapshot(boolean initialized, long currentTso, long windowEndPhysicalTime) {
+            this(initialized, currentTso, windowEndPhysicalTime, 0);
+        }
+
+        public TSOStatusSnapshot(boolean initialized, long currentTso, long windowEndPhysicalTime, long committedTso) {
             this.initialized = initialized;
             this.currentTso = currentTso;
             this.windowEndPhysicalTime = windowEndPhysicalTime;
+            this.committedTso = committedTso;
+        }
+
+        public long getCommittedTso() {
+            return committedTso;
         }
 
         public boolean isInitialized() {
@@ -89,12 +143,32 @@ public class TSOService extends MasterDaemon {
         super("TSO-service", Config.tso_service_update_interval_ms);
     }
 
+    public void registerMetrics() {
+        Map<String, LongSupplier> gauges = new LinkedHashMap<>();
+        gauges.put("tso_committed", () -> durableState.getCommittedTso());
+        gauges.put("tso_window_end_physical_time", () -> durableState.getPhysicalTimestamp());
+        gauges.put("tso_pending_transactions", transactionTracker::getPendingCount);
+        gauges.put("tso_oldest_pending_tso", transactionTracker::getOldestPendingTso);
+        gauges.put("tso_oldest_pending_txn_id", transactionTracker::getOldestPendingTxnId);
+        gauges.put("tso_oldest_pending_age_ms", transactionTracker::getOldestPendingAgeMs);
+        gauges.put("tso_recovery_ready", () -> transactionTracker.isRecoveryReady() ? 1 : 0);
+        gauges.put("tso_recovery_watermark", transactionTracker::getRecoveryWatermark);
+        gauges.forEach((name, value) -> MetricRepo.DORIS_METRIC_REGISTER.addMetrics(
+                new GaugeMetric<Long>(name, MetricUnit.NOUNIT, name) {
+                    @Override
+                    public Long getValue() {
+                        return value.getAsLong();
+                    }
+                }));
+    }
+
     /**
      * Start the TSO service.
      */
     @Override
     public synchronized void start() {
         super.start();
+        transactionChecker.start();
     }
 
     /**
@@ -103,13 +177,9 @@ public class TSOService extends MasterDaemon {
      */
     @Override
     protected void runAfterCatalogReady() {
-        if (!isTsoEnabled()) {
-            lock.lock();
-            try {
-                isInitialized.set(false);
-            } finally {
-                lock.unlock();
-            }
+        Env env = Env.getCurrentEnv();
+        if (!isTsoEnabled() || env == null || !env.isReady() || !env.isMaster()) {
+            deactivate();
             return;
         }
         int maxUpdateRetryCount = Math.max(1, Config.tso_max_update_retry_count);
@@ -187,6 +257,28 @@ public class TSOService extends MasterDaemon {
      * @throws RuntimeException if TSO is not calibrated or other errors occur
      */
     public long getTSO() {
+        return getTSO(null, Collections.emptySet());
+    }
+
+    public long getCommitTSO(long dbId, long txnId, Set<Long> tableIds) {
+        return getTSO(Pair.of(dbId, txnId), tableIds);
+    }
+
+    public long getCommitTSOAfterFence(long dbId, long txnId, Set<Long> tableIds,
+            long rejectedTso, long fenceTso) {
+        return getTSO(Pair.of(dbId, txnId), tableIds, rejectedTso, fenceTso);
+    }
+
+    public void transactionFinished(long dbId, long txnId) {
+        transactionTracker.transactionFinished(dbId, txnId);
+    }
+
+    private long getTSO(Pair<Long, Long> transactionIdentity, Set<Long> tableIds) {
+        return getTSO(transactionIdentity, tableIds, -1, -1);
+    }
+
+    private long getTSO(Pair<Long, Long> transactionIdentity, Set<Long> tableIds,
+            long rejectedTso, long fenceTso) {
         if (!isTsoEnabled()) {
             throw new RuntimeException("TSO feature is disabled, please check enable_feature_binlog");
         }
@@ -210,6 +302,10 @@ public class TSOService extends MasterDaemon {
                 continue;
             } else if (!env.isMaster()) {
                 LOG.warn("TSO service only run on master FE");
+                if (fenceTso > 0) {
+                    throw new RuntimeException(
+                            "TXN_COMMIT_TSO_FENCED: retry the commit through the current master FE");
+                }
                 lastFailure = new RuntimeException("Current FE is not master");
                 try {
                     sleep(200);
@@ -220,7 +316,7 @@ public class TSOService extends MasterDaemon {
                 continue;
             }
 
-            Pair<Long, Long> pair = generateTSO();
+            Pair<Long, Long> pair = generateTSO(transactionIdentity, tableIds, rejectedTso, fenceTso);
             long physical = pair.first;
             long logical = pair.second;
 
@@ -270,11 +366,62 @@ public class TSOService extends MasterDaemon {
     public TSOStatusSnapshot getStatusSnapshot() {
         lock.lock();
         try {
-            return new TSOStatusSnapshot(
-                    isInitialized.get(), globalTimestamp.composeTimestamp(), windowEndTSO.get());
+            TSOServiceState state = durableState;
+            return new TSOStatusSnapshot(isInitialized.get(), globalTimestamp.composeTimestamp(),
+                    state.getPhysicalTimestamp(), state.getCommittedTso());
         } finally {
             lock.unlock();
         }
+    }
+
+    /** Establish a bounded cloud read on the master without draining unrelated or later transactions. */
+    public TSOStatusSnapshot waitForReadableWindow(Map<Long, List<Long>> dbToTableIds,
+            long endTimestampMs, long timeoutMs) throws UserException {
+        long startNanos = System.nanoTime();
+        lock.lock();
+        try {
+            TSOStatusSnapshot snapshot = getStatusSnapshot();
+            if (!snapshot.isInitialized()) {
+                throw new UserException("TSO timestamp is not calibrated, please check");
+            }
+            if (endTimestampMs > TSOTimestamp.extractPhysicalTime(snapshot.getCurrentTso())) {
+                throw windowError(ErrorCode.ERR_INCR_WINDOW_NOT_READY, "END_AFTER_CURRENT_TSO",
+                        endTimestampMs, snapshot, timeoutMs);
+            }
+            if (snapshot.getCommittedTso() > 0
+                    && endTimestampMs <= TSOTimestamp.extractPhysicalTime(snapshot.getCommittedTso())) {
+                return snapshot;
+            }
+            // Logical zero matches the BE upper boundary for the physical interval [start, end).
+            TSOTransactionTracker.WaitResult result = transactionTracker.awaitTransactions(dbToTableIds,
+                    TSOTimestamp.composePhysicalTimestamp(endTimestampMs),
+                    TimeUnit.MILLISECONDS.toNanos(timeoutMs) - (System.nanoTime() - startNanos));
+            snapshot = getStatusSnapshot();
+            if (result == TSOTransactionTracker.WaitResult.RECOVERING) {
+                throw windowError(ErrorCode.ERR_INCR_WINDOW_NOT_READY, "TSO_RECOVERING",
+                        endTimestampMs, snapshot, timeoutMs);
+            }
+            if (!Env.getCurrentEnv().isMaster()) {
+                throw windowError(ErrorCode.ERR_INCR_WINDOW_NOT_READY, "TSO_MASTER_CHANGED",
+                        endTimestampMs, snapshot, timeoutMs);
+            }
+            if (result == TSOTransactionTracker.WaitResult.TIMED_OUT) {
+                throw windowError(ErrorCode.ERR_INCR_VISIBLE_WAIT_TIMEOUT, "VISIBLE_WAIT_TIMEOUT",
+                        endTimestampMs, snapshot, timeoutMs);
+            }
+            return snapshot;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new UserException("interrupted while waiting for incremental read transactions", e);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private IncrWindowNotReadyException windowError(ErrorCode code, String reason, long endTimestampMs,
+            TSOStatusSnapshot snapshot, long timeoutMs) {
+        return new IncrWindowNotReadyException(code, reason, endTimestampMs, snapshot.getCurrentTso(),
+                snapshot.getCommittedTso(), Config.tso_service_window_duration_ms, timeoutMs);
     }
 
     /**
@@ -285,7 +432,7 @@ public class TSOService extends MasterDaemon {
      * - If Tnow - Tlast < 1ms, then Tnext = Tlast + 1
      * - Otherwise Tnext = Tnow
      */
-    private void calibrateTimestamp() {
+    private void calibrateTimestamp() throws UserException {
         if (isInitialized.get()) {
             return;
         }
@@ -296,38 +443,86 @@ public class TSOService extends MasterDaemon {
             return;
         }
 
-        long timeLast = windowEndTSO.get(); // Last timestamp from image/editlog replay
+        long timeLast = durableState.getPhysicalTimestamp(); // Last timestamp from image/editlog replay
         long timeNow = System.currentTimeMillis() + Config.tso_time_offset_debug_mode;
-        long backwardMs = timeLast - timeNow;
-        if (backwardMs > Config.tso_clock_backward_startup_threshold_ms) {
-            throw new TSOClockBackwardException("TSO clock backward too much during calibration, backwardMs="
-                    + backwardMs + ", thresholdMs=" + Config.tso_clock_backward_startup_threshold_ms
-                    + ", lastWindowEndTSO=" + timeLast + ", currentMillis=" + timeNow);
-        }
-
-        // Calculate next physical time to ensure monotonicity
         long nextPhysicalTime;
-        if (timeNow - timeLast < 1) {
-            nextPhysicalTime = timeLast + 1;
+        long timeWindowEnd;
+        lock.lock();
+        try {
+            nextPhysicalTime = pendingCalibrationPhysicalTime;
+            timeWindowEnd = pendingCalibrationWindowEnd;
+        } finally {
+            lock.unlock();
+        }
+        if (nextPhysicalTime == 0) {
+            long backwardMs = timeLast - timeNow;
+            if (backwardMs > Config.tso_clock_backward_startup_threshold_ms) {
+                throw new TSOClockBackwardException("TSO clock backward too much during calibration, backwardMs="
+                        + backwardMs + ", thresholdMs=" + Config.tso_clock_backward_startup_threshold_ms
+                        + ", lastWindowEndTSO=" + timeLast + ", currentMillis=" + timeNow);
+            }
+            // Calculate next physical time to ensure monotonicity.
+            nextPhysicalTime = timeNow - timeLast < 1 ? timeLast + 1 : timeNow;
+            timeWindowEnd = persistCalibrationWindow(nextPhysicalTime);
         } else {
-            nextPhysicalTime = timeNow;
+            Preconditions.checkState(timeWindowEnd > nextPhysicalTime,
+                    "pending calibration window must cover its TSO");
         }
 
-        // Construct new timestamp (physical time with reset logical counter)
-        setTSOPhysical(nextPhysicalTime, true);
-
-        // Write the right boundary of time window to BDBJE for persistence
-        long timeWindowEnd = nextPhysicalTime + Config.tso_service_window_duration_ms;
-        writeTimestampToBDBJE(timeWindowEnd);
-        windowEndTSO.set(timeWindowEnd);
+        long proposedFenceTso;
+        while (true) {
+            proposedFenceTso = TSOTimestamp.composePhysicalTimestamp(nextPhysicalTime);
+            if (!Config.isCloudMode()) {
+                break;
+            }
+            long effectiveFenceTso = env.getGlobalTransactionMgr().advanceTsoFence(proposedFenceTso);
+            Preconditions.checkState(effectiveFenceTso >= proposedFenceTso,
+                    "MetaService TSO fence must not regress");
+            if (effectiveFenceTso == proposedFenceTso) {
+                break;
+            }
+            nextPhysicalTime = TSOTimestamp.extractPhysicalTime(effectiveFenceTso) + 1;
+            timeWindowEnd = persistCalibrationWindow(nextPhysicalTime);
+        }
+        lock.lock();
+        try {
+            pendingCalibrationPhysicalTime = 0;
+            pendingCalibrationWindowEnd = 0;
+        } finally {
+            lock.unlock();
+        }
         isInitialized.set(true);
         fatalClockBackwardReported.set(false);
 
-        LOG.info("TSO timestamp calibrated: lastTimestamp={}, currentMillis={}, nextPhysicalTime={}, timeWindowEnd={}",
-                timeLast, timeNow, nextPhysicalTime, timeWindowEnd);
+        LOG.info("TSO timestamp calibrated: lastTimestamp={}, currentMillis={}, nextPhysicalTime={}, "
+                        + "timeWindowEnd={}, fenceTso={}",
+                timeLast, timeNow, nextPhysicalTime, timeWindowEnd, proposedFenceTso);
         if (MetricRepo.isInit) {
             MetricRepo.COUNTER_TSO_CLOCK_CALCULATED.increase(1L);
         }
+    }
+
+    private long persistCalibrationWindow(long physicalTime) {
+        long fenceTso = TSOTimestamp.composePhysicalTimestamp(physicalTime);
+        lock.lock();
+        try {
+            transactionTracker.reset(fenceTso);
+        } finally {
+            lock.unlock();
+        }
+
+        // Persist the allocation window before publishing its inclusive commit fence.
+        long windowEnd = physicalTime + Config.tso_service_window_duration_ms;
+        writeTimestampToBDBJE(windowEnd);
+        setTSOPhysical(physicalTime, true);
+        lock.lock();
+        try {
+            pendingCalibrationPhysicalTime = physicalTime;
+            pendingCalibrationWindowEnd = windowEnd;
+        } finally {
+            lock.unlock();
+        }
+        return windowEnd;
     }
 
     /**
@@ -400,11 +595,12 @@ public class TSOService extends MasterDaemon {
         }
 
         // 4. Check if time window right boundary needs renewal
-        if ((windowEndTSO.get() - nextPhysicalTime) <= UPDATE_TIME_WINDOW_GUARD) {
-            // Time window right boundary needs renewal
-            long nextWindowEnd = nextPhysicalTime + Config.tso_service_window_duration_ms;
+        if ((durableState.getPhysicalTimestamp() - nextPhysicalTime) <= UPDATE_TIME_WINDOW_GUARD
+                || System.nanoTime() - lastPersistNanos
+                        >= TimeUnit.MILLISECONDS.toNanos(Config.tso_service_window_duration_ms)) {
+            long nextWindowEnd = Math.max(durableState.getPhysicalTimestamp(),
+                    nextPhysicalTime + Config.tso_service_window_duration_ms);
             writeTimestampToBDBJE(nextWindowEnd);
-            windowEndTSO.set(nextWindowEnd);
         }
 
         // 5. Update global timestamp
@@ -445,7 +641,16 @@ public class TSOService extends MasterDaemon {
                     + "timestamp=" + timestamp);
         }
 
-        TSOTimestamp tsoTimestamp = new TSOTimestamp(timestamp, 0);
+        TSOServiceState nextState;
+        lock.lock();
+        try {
+            long committedTso = Config.isCloudMode()
+                    ? transactionTracker.candidateCommittedTso(globalTimestamp.composeTimestamp(),
+                            durableState.getCommittedTso()) : 0;
+            nextState = new TSOServiceState(timestamp, committedTso);
+        } finally {
+            lock.unlock();
+        }
 
         // Check if EditLog is available
         EditLog editLog = env.getEditLog();
@@ -467,10 +672,25 @@ public class TSOService extends MasterDaemon {
             }
         }
 
+        long persistStartNanos = System.nanoTime();
         try {
-            editLog.logTSOTimestampWindowEnd(tsoTimestamp);
+            editLog.logTSOTimestampWindowEnd(nextState);
+            // Readers must never observe a candidate that has not survived a journal write.
+            durableState = nextState;
+            lastPersistNanos = System.nanoTime();
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_TSO_STATE_PERSISTED.increase(1L);
+            }
         } catch (Exception e) {
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_TSO_STATE_PERSIST_FAILED.increase(1L);
+            }
             throw new RuntimeException("Failed to write TSO timestamp to BDBJE, timestamp=" + timestamp, e);
+        } finally {
+            if (MetricRepo.isInit) {
+                MetricRepo.HISTO_TSO_STATE_PERSIST_LATENCY.update(
+                        TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - persistStartNanos));
+            }
         }
     }
 
@@ -480,6 +700,15 @@ public class TSOService extends MasterDaemon {
      * @return Pair of (physicalTime, updatedLogicalCounter) for the base timestamp
      */
     private Pair<Long, Long> generateTSO() {
+        return generateTSO(null, Collections.emptySet());
+    }
+
+    private Pair<Long, Long> generateTSO(Pair<Long, Long> transactionIdentity, Set<Long> tableIds) {
+        return generateTSO(transactionIdentity, tableIds, -1, -1);
+    }
+
+    private Pair<Long, Long> generateTSO(Pair<Long, Long> transactionIdentity, Set<Long> tableIds,
+            long rejectedTso, long fenceTso) {
         lock.lock();
         try {
             if (!isTsoEnabled() || !isInitialized.get()) {
@@ -489,13 +718,37 @@ public class TSOService extends MasterDaemon {
             if (physicalTime == 0) {
                 return Pair.of(0L, 0L);
             }
+            if (fenceTso > 0 && globalTimestamp.composeTimestamp() < fenceTso) {
+                throw new RuntimeException("TXN_COMMIT_TSO_FENCED: local TSO "
+                        + globalTimestamp.composeTimestamp() + " is behind MetaService fence " + fenceTso);
+            }
             long logicalCounter = globalTimestamp.getLogicalCounter();
             if (logicalCounter >= TSOTimestamp.MAX_LOGICAL_COUNTER) {
                 return Pair.of(physicalTime, logicalCounter + 1);
             }
             long nextLogical = logicalCounter + 1;
             globalTimestamp.setLogicalCounter(nextLogical);
+            if (transactionIdentity != null) {
+                long tso = TSOTimestamp.composeRealTso(physicalTime, nextLogical);
+                if (fenceTso > 0) {
+                    transactionTracker.replaceFenced(transactionIdentity, rejectedTso, fenceTso,
+                            tso, System.nanoTime(), tableIds);
+                } else {
+                    transactionTracker.register(transactionIdentity, tso, System.nanoTime(), tableIds);
+                }
+            }
             return Pair.of(physicalTime, nextLogical);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private void deactivate() {
+        lock.lock();
+        try {
+            if (isInitialized.getAndSet(false)) {
+                transactionTracker.invalidate();
+            }
         } finally {
             lock.unlock();
         }
@@ -530,34 +783,34 @@ public class TSOService extends MasterDaemon {
      *
      * @param windowEnd New window end physical time
      */
-    public void replayWindowEndTSO(TSOTimestamp windowEnd) {
-        windowEndTSO.set(windowEnd.getPhysicalTimestamp());
+    public void replayWindowEndTSO(TSOServiceState state) {
+        durableState = state;
     }
 
     public long getWindowEndTSO() {
-        return windowEndTSO.get();
+        return durableState.getPhysicalTimestamp();
     }
 
     public long saveTSO(CountingDataOutputStream dos, long checksum) throws IOException {
         if (!isTsoEnabled()) {
             return checksum;
         }
-        long currentWindowEnd = windowEndTSO.get();
+        TSOServiceState state = durableState;
+        long currentWindowEnd = state.getPhysicalTimestamp();
         if (currentWindowEnd <= 0) {
             return checksum;
         }
-        TSOTimestamp tsoTimestamp = new TSOTimestamp(currentWindowEnd, 0);
-        tsoTimestamp.write(dos);
-        checksum ^= tsoTimestamp.getPhysicalTimestamp();
-        LOG.info("Save TSO windowEndTSO {} to image", tsoTimestamp);
+        state.write(dos);
+        checksum ^= currentWindowEnd;
+        LOG.info("Save TSO window end {} and committed TSO {} to image", currentWindowEnd, state.getCommittedTso());
         return checksum;
     }
 
     public long loadTSO(DataInputStream dis, long checksum) throws IOException {
-        TSOTimestamp tsoTimestamp = TSOTimestamp.read(dis);
-        windowEndTSO.set(tsoTimestamp.getPhysicalTimestamp());
-        long newChecksum = checksum ^ tsoTimestamp.getPhysicalTimestamp();
-        LOG.info("Finished replay TSO windowEndTSO {} from image", windowEndTSO.get());
+        TSOServiceState state = TSOServiceState.read(dis);
+        durableState = state;
+        long newChecksum = checksum ^ state.getPhysicalTimestamp();
+        LOG.info("Finished replay TSO windowEndTSO {} from image", durableState.getPhysicalTimestamp());
         return newChecksum;
     }
 

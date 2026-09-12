@@ -913,6 +913,8 @@ public class SchemaTable extends Table {
                                             ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("CURRENT_TSO_LOGICAL_COUNTER",
                                             ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("COMMITTED_TSO", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("COMMITTED_TSO_PHYSICAL_TIME", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build()))
             .put("be_compaction_tasks",
                     new SchemaTable(SystemIdGenerator.getNextId(), "be_compaction_tasks", TableType.SCHEMA,

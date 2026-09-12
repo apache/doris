@@ -413,6 +413,8 @@ TEST(MetaServiceHelperTest, ResponseStatusCoversEveryMetaServiceCode) {
 
     expect_legacy_fallback_response_status(covered_codes, MetaServiceCode::TXN_ALREADY_COMMITED,
                                            LegacyFallbackCode::UNDEFINED_ERR);
+    expect_legacy_fallback_response_status(covered_codes, MetaServiceCode::TXN_COMMIT_TSO_FENCED,
+                                           LegacyFallbackCode::UNDEFINED_ERR);
     EXPECT_EQ(covered_codes.size(),
               static_cast<size_t>(MetaServiceCode_descriptor()->value_count()))
             << "A new MetaServiceCode was added. Map it to a LegacyFallbackCode in "

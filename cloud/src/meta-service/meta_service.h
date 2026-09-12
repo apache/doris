@@ -145,6 +145,15 @@ public:
                             CheckTxnConflictResponse* response,
                             ::google::protobuf::Closure* done) override;
 
+    void get_tso_recovery_transactions(::google::protobuf::RpcController* controller,
+                                       const GetTsoRecoveryTransactionsRequest* request,
+                                       GetTsoRecoveryTransactionsResponse* response,
+                                       ::google::protobuf::Closure* done) override;
+
+    void advance_tso_fence(::google::protobuf::RpcController* controller,
+                           const AdvanceTsoFenceRequest* request, AdvanceTsoFenceResponse* response,
+                           ::google::protobuf::Closure* done) override;
+
     void abort_txn_with_coordinator(::google::protobuf::RpcController* controller,
                                     const AbortTxnWithCoordinatorRequest* request,
                                     AbortTxnWithCoordinatorResponse* response,
@@ -617,6 +626,20 @@ public:
                             CheckTxnConflictResponse* response,
                             ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::check_txn_conflict, controller, request, response, done);
+    }
+
+    void get_tso_recovery_transactions(::google::protobuf::RpcController* controller,
+                                       const GetTsoRecoveryTransactionsRequest* request,
+                                       GetTsoRecoveryTransactionsResponse* response,
+                                       ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::get_tso_recovery_transactions, controller, request, response,
+                  done);
+    }
+
+    void advance_tso_fence(::google::protobuf::RpcController* controller,
+                           const AdvanceTsoFenceRequest* request, AdvanceTsoFenceResponse* response,
+                           ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::advance_tso_fence, controller, request, response, done);
     }
 
     void abort_txn_with_coordinator(::google::protobuf::RpcController* controller,
