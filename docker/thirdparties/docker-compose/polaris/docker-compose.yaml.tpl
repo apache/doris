@@ -20,7 +20,7 @@ version: "3.8"
 services:
   # MinIO: S3 compatible object storage for local dev
   minio:
-    image: minio/minio:RELEASE.2025-01-20T14-49-07Z
+    image: quay.io/minio/minio:RELEASE.2025-01-20T14-49-07Z
     container_name: ${CONTAINER_UID}polaris-minio
     ports:
       - "${MINIO_API_PORT}:9000"
@@ -42,7 +42,7 @@ services:
 
   # MinIO client to bootstrap bucket and path
   minio-client:
-    image: minio/mc:RELEASE.2025-01-17T23-25-50Z
+    image: quay.io/minio/mc:RELEASE.2025-01-17T23-25-50Z
     container_name: ${CONTAINER_UID}polaris-mc
     depends_on:
       minio:
