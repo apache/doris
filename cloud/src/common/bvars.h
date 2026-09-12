@@ -628,6 +628,7 @@ extern bvar::Adder<int64_t> g_bvar_ms_rate_limit_trigger_fdb_cluster;
 extern bvar::Adder<int64_t> g_bvar_ms_rate_limit_trigger_fdb_client_thread;
 extern bvar::Adder<int64_t> g_bvar_ms_rate_limit_trigger_ms_resource;
 extern bvar::Adder<int64_t> g_bvar_ms_rate_limit_trigger_test_injection;
+extern bvar::Adder<int64_t> g_bvar_ms_repair_tablet_index;
 extern bvar::Status<int64_t> g_bvar_ms_cpu_usage_percent;
 extern bvar::Status<int64_t> g_bvar_ms_memory_usage_percent;
 extern bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
