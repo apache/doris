@@ -469,24 +469,35 @@ bool VariantRef::object_find_by_id(uint32_t field_id, VariantRef* out) const {
 
 bool VariantRef::_object_find_by_id(const ContainerLayout& layout, uint32_t field_id,
                                     VariantRef* out) const {
+    const uint32_t dictionary_size = metadata.dict_size();
+    if (field_id >= dictionary_size) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant metadata dictionary id {} is out of range [0, {})", field_id,
+                        dictionary_size);
+    }
+    const bool strings_are_sorted = metadata.sorted_strings();
+    // Besides supplying the key for unsorted dictionaries, this preserves the public lookup
+    // contract's validation of the requested dictionary entry for sorted dictionaries.
     const StringRef target_key = metadata.key_at(field_id);
     uint32_t begin = 0;
     uint32_t end = layout.count;
     while (begin < end) {
         const uint32_t middle = begin + (end - begin) / 2;
-        const uint32_t middle_id = _object_field_id(layout, middle);
-        const int comparison = metadata.sorted_strings()
-                                       ? (middle_id > field_id) - (middle_id < field_id)
-                                       : metadata.key_at(middle_id).compare(target_key);
+        const uint32_t middle_id = _object_field_id(layout, middle, &dictionary_size);
+        const int comparison = strings_are_sorted ? (middle_id > field_id) - (middle_id < field_id)
+                                                  : metadata.key_at(middle_id).compare(target_key);
         if (comparison < 0) {
             begin = middle + 1;
         } else {
             end = middle;
         }
     }
-    if (begin == layout.count || _object_field_id(layout, begin) != field_id) {
-        if (!metadata.sorted_strings() && begin < layout.count &&
-            metadata.key_at(_object_field_id(layout, begin)) == target_key) {
+    if (begin == layout.count) {
+        return false;
+    }
+    const uint32_t found_id = _object_field_id(layout, begin, &dictionary_size);
+    if (found_id != field_id) {
+        if (!strings_are_sorted && metadata.key_at(found_id) == target_key) {
             *out = _container_value_at(layout, begin, false);
             return true;
         }

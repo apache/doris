@@ -25,7 +25,10 @@
 #include <limits>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <string_view>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "common/exception.h"
@@ -34,14 +37,19 @@
 #include "core/column/column_decimal.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/column/variant_v2/column_variant_v2_typed_column.h"
+#include "core/custom_allocator.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_metadata.h"
+#include "core/value/variant/variant_scalar.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 
 namespace doris::format::parquet {
@@ -51,6 +59,9 @@ struct Cell {
     const IColumn* column = nullptr;
     bool is_null = false;
 };
+
+constexpr std::array<char, 1> VARIANT_NULL_VALUE {static_cast<char>(
+        static_cast<uint8_t>(VariantPrimitiveId::NULL_VALUE) << VARIANT_VALUE_HEADER_SHIFT)};
 
 Cell cell_at(const IColumn& column, size_t row) {
     if (row >= column.size()) {
@@ -444,6 +455,20 @@ void encode_variant_range(const ParquetColumnSchema& schema, const IColumn& wrap
     }
 }
 
+std::optional<std::pair<size_t, size_t>> unshredded_child_indices(
+        const ParquetColumnSchema& schema) {
+    if (schema.children.size() != 2 || find_child(schema, "typed_value", nullptr) != nullptr) {
+        return std::nullopt;
+    }
+    size_t metadata_index = 0;
+    size_t value_index = 0;
+    if (find_child(schema, "metadata", &metadata_index) == nullptr ||
+        find_child(schema, "value", &value_index) == nullptr) {
+        return std::nullopt;
+    }
+    return std::pair {metadata_index, value_index};
+}
+
 ColumnVariantV2::MutablePtr encode_variant_column(const ParquetColumnSchema& schema,
                                                   const IColumn& physical,
                                                   bool require_metadata = true) {
@@ -586,13 +611,105 @@ ColumnPtr normalize_projected_primitive_leaf(const ParquetColumnSchema& schema,
     return ColumnNullable::create(std::move(values), std::move(nulls));
 }
 
-bool find_materialized_path(VariantRef current, std::span<const VariantShreddedPathSegment> path,
-                            VariantRef* output) {
-    DORIS_CHECK(output != nullptr);
-    for (const auto& segment : path) {
+struct UnshreddedPathCacheEntry {
+    static constexpr uint32_t MISSING = std::numeric_limits<uint32_t>::max();
+
+    uint32_t value_offset = MISSING;
+    uint32_t value_size = 0;
+
+    bool present() const noexcept { return value_offset != MISSING; }
+};
+
+struct UnshreddedPathCache {
+    DorisVector<UnshreddedPathCacheEntry> entries;
+
+    size_t byte_size() const noexcept { return entries.size() * sizeof(UnshreddedPathCacheEntry); }
+    size_t allocated_bytes() const noexcept {
+        return entries.capacity() * sizeof(UnshreddedPathCacheEntry);
+    }
+};
+
+struct UnshreddedMetadataIndex {
+    static constexpr uint32_t NULL_ROW = std::numeric_limits<uint32_t>::max();
+
+    const IColumn* physical_identity = nullptr;
+    DorisVector<VariantMetadataRef> dictionaries;
+    DorisVector<uint32_t> row_dictionary_ids;
+
+    size_t byte_size() const noexcept {
+        return dictionaries.size() * sizeof(VariantMetadataRef) +
+               row_dictionary_ids.size() * sizeof(uint32_t);
+    }
+    size_t allocated_bytes() const noexcept {
+        return dictionaries.capacity() * sizeof(VariantMetadataRef) +
+               row_dictionary_ids.capacity() * sizeof(uint32_t);
+    }
+};
+
+std::shared_ptr<const UnshreddedMetadataIndex> build_unshredded_metadata_index(
+        const ParquetColumnSchema& schema, const IColumn& physical,
+        std::pair<size_t, size_t> child_indices) {
+    const auto* outer_nullable = check_and_get_column<ColumnNullable>(physical);
+    const IColumn& wrapper =
+            outer_nullable == nullptr ? physical : outer_nullable->get_nested_column();
+    const auto& structure = assert_cast<const ColumnStruct&>(wrapper);
+    DORIS_CHECK_EQ(structure.tuple_size(), schema.children.size());
+
+    auto index = std::make_shared<UnshreddedMetadataIndex>();
+    index->physical_identity = &physical;
+    index->row_dictionary_ids.resize(physical.size(), UnshreddedMetadataIndex::NULL_ROW);
+    using MetadataIdMap =
+            std::unordered_map<std::string_view, uint32_t, std::hash<std::string_view>,
+                               std::equal_to<std::string_view>,
+                               CustomStdAllocator<std::pair<const std::string_view, uint32_t>>>;
+    MetadataIdMap dictionary_ids;
+    for (size_t row = 0; row < physical.size(); ++row) {
+        if (outer_nullable != nullptr && outer_nullable->get_null_map_data()[row] != 0) {
+            continue;
+        }
+        const Cell metadata = cell_at(structure.get_column(child_indices.first), row);
+        if (metadata.is_null) {
+            throw Exception(ErrorCode::CORRUPTION, "Parquet Variant {} has null metadata at row {}",
+                            schema.name, row);
+        }
+        const StringRef bytes = metadata.column->get_data_at(row);
+        uint32_t dictionary_id = 0;
+        if (index->dictionaries.empty()) {
+            index->dictionaries.push_back({.data = bytes.data, .size = bytes.size});
+        } else if (index->dictionaries.size() == 1 && dictionary_ids.empty() &&
+                   StringRef(index->dictionaries.front().data, index->dictionaries.front().size) ==
+                           bytes) {
+            // Iceberg normally repeats one metadata dictionary throughout a decoded block. Delay
+            // the hash table until a second dictionary is actually observed.
+        } else {
+            if (dictionary_ids.empty()) {
+                const VariantMetadataRef first = index->dictionaries.front();
+                dictionary_ids.emplace(std::string_view(first.data, first.size), 0);
+            }
+            const std::string_view key(bytes.data, bytes.size);
+            if (const auto found = dictionary_ids.find(key); found != dictionary_ids.end()) {
+                dictionary_id = found->second;
+            } else {
+                dictionary_id = static_cast<uint32_t>(index->dictionaries.size());
+                index->dictionaries.push_back({.data = bytes.data, .size = bytes.size});
+                dictionary_ids.emplace(key, dictionary_id);
+            }
+        }
+        index->row_dictionary_ids[row] = dictionary_id;
+    }
+    return index;
+}
+
+template <typename ObjectFinder>
+bool find_materialized_path_impl(VariantRef current,
+                                 std::span<const VariantShreddedPathSegment> path,
+                                 const ObjectFinder& find_object, VariantRef* output) {
+    DCHECK(output != nullptr);
+    for (size_t position = 0; position < path.size(); ++position) {
+        const auto& segment = path[position];
         if (segment.kind == VariantShreddedPathSegment::Kind::OBJECT_KEY) {
             if (current.basic_type() != VariantBasicType::OBJECT ||
-                !current.object_find(segment.key, &current)) {
+                !find_object(current, segment.key, position, &current)) {
                 return false;
             }
             continue;
@@ -609,6 +726,400 @@ bool find_materialized_path(VariantRef current, std::span<const VariantShreddedP
     }
     *output = current;
     return true;
+}
+
+bool find_materialized_path(VariantRef current, std::span<const VariantShreddedPathSegment> path,
+                            VariantRef* output) {
+    return find_materialized_path_impl(
+            current, path,
+            [](VariantRef object, StringRef key, size_t, VariantRef* found) {
+                return object.object_find(key, found);
+            },
+            output);
+}
+
+bool find_materialized_path_with_index(VariantRef current, uint32_t dictionary_id,
+                                       const UnshreddedMetadataIndex& metadata_index,
+                                       std::span<const VariantShreddedPathSegment> path,
+                                       DorisVector<int64_t>& resolved_field_ids,
+                                       VariantRef* output) {
+    DCHECK_LT(dictionary_id, metadata_index.dictionaries.size());
+    DCHECK_EQ(resolved_field_ids.size(), metadata_index.dictionaries.size() * path.size());
+    constexpr int64_t UNRESOLVED_FIELD_ID = -2;
+    return find_materialized_path_impl(
+            current, path,
+            [&](VariantRef object, StringRef key, size_t position, VariantRef* found) {
+                int64_t& field_id = resolved_field_ids[dictionary_id * path.size() + position];
+                bool layout_validated = false;
+                if (field_id == UNRESOLVED_FIELD_ID) {
+                    // object_find() validates the object layout before consulting metadata.
+                    static_cast<void>(object.num_elements());
+                    layout_validated = true;
+                    field_id = metadata_index.dictionaries[dictionary_id].find_key(key);
+                }
+                if (field_id < 0) {
+                    // A cached metadata miss must not hide a corrupt object in a later row.
+                    if (!layout_validated) {
+                        static_cast<void>(object.num_elements());
+                    }
+                    return false;
+                }
+                return object.object_find_by_id(static_cast<uint32_t>(field_id), found);
+            },
+            output);
+}
+
+struct UnshreddedPathScan {
+    MutableColumnPtr outer_nulls;
+    MutableColumnPtr typed_values;
+    DataTypePtr typed_type;
+    std::shared_ptr<const UnshreddedPathCache> path_cache;
+    int64_t copied_bytes = 0;
+};
+
+enum class UnshreddedTypedKind : uint8_t { UNKNOWN, STRING, INTEGER, UNSUPPORTED };
+
+class UnshreddedTypedValueBuilder {
+public:
+    UnshreddedTypedValueBuilder(size_t rows, const UnshreddedMetadataIndex& metadata_index)
+            : _rows(rows),
+              _metadata_index(metadata_index),
+              _inner_nulls(ColumnUInt8::create()),
+              _result_nulls(ColumnUInt8::create()),
+              _validated_metadata(metadata_index.dictionaries.size(), 0) {
+        _inner_nulls->reserve(rows);
+        _result_nulls->reserve(rows);
+    }
+
+    void append_outer_null() { append_null(1); }
+
+    void append_json_null(uint32_t dictionary_id) {
+        if (_typed_kind == UnshreddedTypedKind::UNKNOWN) {
+            _pending_json_null_dictionaries.push_back(dictionary_id);
+        } else if (_typed_kind == UnshreddedTypedKind::INTEGER &&
+                   !validate_integer_metadata(dictionary_id)) {
+            mark_unsupported();
+        }
+        append_null(0);
+    }
+
+    void append_scalar(const VariantRef& found, uint32_t dictionary_id, size_t row) {
+        if (_typed_kind == UnshreddedTypedKind::UNSUPPORTED) {
+            append_null(0);
+            return;
+        }
+
+        const VariantBasicType basic_type = found.basic_type();
+        const bool is_string = basic_type == VariantBasicType::SHORT_STRING ||
+                               (basic_type == VariantBasicType::PRIMITIVE &&
+                                found.primitive_id() == VariantPrimitiveId::STRING);
+        if (is_string) {
+            if (!prepare(UnshreddedTypedKind::STRING, row)) {
+                append_null(0);
+                return;
+            }
+            const StringRef string = found.get_string();
+            assert_cast<ColumnString&>(*_typed_values).insert_data(string.data, string.size);
+            _inner_nulls->insert_value(0);
+            _result_nulls->insert_value(0);
+            DCHECK_LE(string.size,
+                      static_cast<size_t>(std::numeric_limits<int64_t>::max() - _copied_bytes));
+            _copied_bytes += static_cast<int64_t>(string.size);
+            return;
+        }
+
+        const auto primitive_id = basic_type == VariantBasicType::PRIMITIVE
+                                          ? found.primitive_id()
+                                          : VariantPrimitiveId::NULL_VALUE;
+        const bool is_integer = primitive_id == VariantPrimitiveId::INT8 ||
+                                primitive_id == VariantPrimitiveId::INT16 ||
+                                primitive_id == VariantPrimitiveId::INT32 ||
+                                primitive_id == VariantPrimitiveId::INT64;
+        const int64_t integer = is_integer ? found.get_int() : 0;
+        // Typed Variant integers are re-encoded using the narrowest width. Keep explicitly widened
+        // source integers on the encoded path so observable physical types remain unchanged.
+        const bool has_canonical_width =
+                is_integer && VariantScalarRef::integer(integer).encoded_size() == found.value.size;
+        if (!has_canonical_width || !validate_integer_metadata(dictionary_id) ||
+            !prepare(UnshreddedTypedKind::INTEGER, row)) {
+            mark_unsupported();
+            append_null(0);
+            return;
+        }
+        assert_cast<ColumnInt64&>(*_typed_values).insert_value(integer);
+        _inner_nulls->insert_value(0);
+        _result_nulls->insert_value(0);
+        DCHECK_LE(static_cast<int64_t>(sizeof(int64_t)),
+                  std::numeric_limits<int64_t>::max() - _copied_bytes);
+        _copied_bytes += sizeof(int64_t);
+    }
+
+    UnshreddedPathScan finish(std::shared_ptr<const UnshreddedPathCache> path_cache) && {
+        DataTypePtr typed_type;
+        if (_typed_values) {
+            typed_type = _typed_kind == UnshreddedTypedKind::STRING
+                                 ? DataTypePtr(std::make_shared<DataTypeString>())
+                                 : DataTypePtr(std::make_shared<DataTypeInt64>());
+            _typed_values =
+                    ColumnNullable::create(std::move(_typed_values), std::move(_inner_nulls));
+        }
+        return {.outer_nulls = std::move(_result_nulls),
+                .typed_values = std::move(_typed_values),
+                .typed_type = std::move(typed_type),
+                .path_cache = std::move(path_cache),
+                .copied_bytes = _copied_bytes};
+    }
+
+private:
+    bool validate_integer_metadata(uint32_t dictionary_id) {
+        DCHECK_LT(dictionary_id, _metadata_index.dictionaries.size());
+        try {
+            if (_validated_metadata[dictionary_id] == 0) {
+                validate_variant_metadata(_metadata_index.dictionaries[dictionary_id]);
+                _validated_metadata[dictionary_id] = 1;
+            }
+            return true;
+        } catch (const Exception&) {
+            return false;
+        }
+    }
+
+    bool prepare(UnshreddedTypedKind kind, size_t row) {
+        if (_typed_kind == UnshreddedTypedKind::UNKNOWN) {
+            if (kind == UnshreddedTypedKind::INTEGER) {
+                for (const uint32_t dictionary_id : _pending_json_null_dictionaries) {
+                    if (!validate_integer_metadata(dictionary_id)) {
+                        mark_unsupported();
+                        return false;
+                    }
+                }
+                _typed_values = ColumnInt64::create();
+            } else {
+                DCHECK(kind == UnshreddedTypedKind::STRING);
+                _typed_values = ColumnString::create();
+            }
+            _pending_json_null_dictionaries.clear();
+            _typed_kind = kind;
+            _typed_values->reserve(_rows);
+            _typed_values->insert_many_defaults(row);
+            return true;
+        }
+        if (_typed_kind == kind) {
+            return true;
+        }
+        mark_unsupported();
+        return false;
+    }
+
+    void mark_unsupported() {
+        _typed_kind = UnshreddedTypedKind::UNSUPPORTED;
+        _typed_values.reset();
+        _pending_json_null_dictionaries.clear();
+    }
+
+    void append_null(uint8_t outer_null) {
+        if (_typed_values) {
+            _typed_values->insert_default();
+        }
+        _inner_nulls->insert_value(1);
+        _result_nulls->insert_value(outer_null);
+    }
+
+    size_t _rows;
+    const UnshreddedMetadataIndex& _metadata_index;
+    MutableColumnPtr _typed_values;
+    ColumnUInt8::MutablePtr _inner_nulls;
+    ColumnUInt8::MutablePtr _result_nulls;
+    UnshreddedTypedKind _typed_kind = UnshreddedTypedKind::UNKNOWN;
+    int64_t _copied_bytes = 0;
+    DorisVector<uint8_t> _validated_metadata;
+    DorisVector<uint32_t> _pending_json_null_dictionaries;
+};
+
+std::optional<VariantRef> unshredded_root_at(const ColumnNullable* outer_nullable,
+                                             const ColumnStruct& structure,
+                                             std::pair<size_t, size_t> child_indices,
+                                             const UnshreddedMetadataIndex& metadata_index,
+                                             size_t row) {
+    if (outer_nullable != nullptr && outer_nullable->get_null_map_data()[row] != 0) {
+        return std::nullopt;
+    }
+
+    const uint32_t dictionary_id = metadata_index.row_dictionary_ids[row];
+    DCHECK_LT(dictionary_id, metadata_index.dictionaries.size());
+    const Cell value = cell_at(structure.get_column(child_indices.second), row);
+    const StringRef value_bytes =
+            value.is_null ? StringRef(VARIANT_NULL_VALUE.data(), VARIANT_NULL_VALUE.size())
+                          : value.column->get_data_at(row);
+    return VariantRef {.metadata = metadata_index.dictionaries[dictionary_id],
+                       .value = value_bytes};
+}
+
+UnshreddedPathCacheEntry make_unshredded_path_cache_entry(const VariantRef& root,
+                                                          const VariantRef& found) {
+    const uintptr_t root_begin = reinterpret_cast<uintptr_t>(root.value.data);
+    const uintptr_t root_end = root_begin + root.value.size;
+    const uintptr_t found_begin = reinterpret_cast<uintptr_t>(found.value.data);
+    const uintptr_t found_end = found_begin + found.value.size;
+    DCHECK_GE(found_begin, root_begin);
+    DCHECK_LE(found_end, root_end);
+    const size_t offset = found_begin - root_begin;
+    DCHECK_LT(offset, static_cast<size_t>(UnshreddedPathCacheEntry::MISSING));
+    DCHECK_LE(found.value.size, static_cast<size_t>(std::numeric_limits<uint32_t>::max()));
+    return {.value_offset = static_cast<uint32_t>(offset),
+            .value_size = static_cast<uint32_t>(found.value.size)};
+}
+
+UnshreddedPathScan scan_unshredded_path(const ParquetColumnSchema& schema, const IColumn& physical,
+                                        std::pair<size_t, size_t> child_indices,
+                                        const UnshreddedMetadataIndex& metadata_index,
+                                        std::span<const VariantShreddedPathSegment> path,
+                                        const UnshreddedPathCache* prefix_cache = nullptr) {
+    const auto* outer_nullable = check_and_get_column<ColumnNullable>(physical);
+    const IColumn& wrapper =
+            outer_nullable == nullptr ? physical : outer_nullable->get_nested_column();
+    const auto& structure = assert_cast<const ColumnStruct&>(wrapper);
+    DORIS_CHECK_EQ(structure.tuple_size(), schema.children.size());
+
+    auto path_cache = std::make_shared<UnshreddedPathCache>();
+    path_cache->entries.reserve(physical.size());
+    DORIS_CHECK(prefix_cache == nullptr || prefix_cache->entries.size() == physical.size());
+    DORIS_CHECK_EQ(metadata_index.physical_identity, &physical);
+    DORIS_CHECK_EQ(metadata_index.row_dictionary_ids.size(), physical.size());
+    constexpr int64_t UNRESOLVED_FIELD_ID = -2;
+    DorisVector<int64_t> resolved_field_ids(metadata_index.dictionaries.size() * path.size(),
+                                            UNRESOLVED_FIELD_ID);
+    UnshreddedTypedValueBuilder typed_values(physical.size(), metadata_index);
+
+    for (size_t row = 0; row < physical.size(); ++row) {
+        const auto root =
+                unshredded_root_at(outer_nullable, structure, child_indices, metadata_index, row);
+        if (!root.has_value()) {
+            DCHECK(prefix_cache == nullptr || !prefix_cache->entries[row].present());
+            path_cache->entries.emplace_back();
+            typed_values.append_outer_null();
+            continue;
+        }
+
+        const uint32_t dictionary_id = metadata_index.row_dictionary_ids[row];
+        VariantRef current = *root;
+        if (prefix_cache != nullptr) {
+            const auto& cached = prefix_cache->entries[row];
+            if (!cached.present()) {
+                path_cache->entries.emplace_back();
+                typed_values.append_outer_null();
+                continue;
+            }
+            DCHECK_LE(static_cast<size_t>(cached.value_offset) + cached.value_size,
+                      root->value.size);
+            current.value = {root->value.data + cached.value_offset, cached.value_size};
+        }
+        VariantRef found;
+        if (!find_materialized_path_with_index(current, dictionary_id, metadata_index, path,
+                                               resolved_field_ids, &found)) {
+            path_cache->entries.emplace_back();
+            typed_values.append_outer_null();
+            continue;
+        }
+        path_cache->entries.push_back(make_unshredded_path_cache_entry(*root, found));
+        if (found.is_null()) {
+            typed_values.append_json_null(dictionary_id);
+        } else {
+            typed_values.append_scalar(found, dictionary_id, row);
+        }
+    }
+    return std::move(typed_values).finish(std::move(path_cache));
+}
+
+void append_variant_rows(ColumnVariantV2& output, std::span<const VariantRef> rows) {
+    try {
+        VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = rows.size()});
+        for (const VariantRef value : rows) {
+            auto row = builder.begin_row();
+            row.add_value(value);
+            row.finish();
+        }
+        output.insert_encoded_batch(builder.finish_batch());
+    } catch (...) {
+        if (rows.size() <= 1) {
+            throw;
+        }
+        // A builder has one metadata dictionary. Split heterogeneous batches while preserving the
+        // original validation error for a malformed single row.
+        const size_t middle = rows.size() / 2;
+        append_variant_rows(output, rows.first(middle));
+        append_variant_rows(output, rows.subspan(middle));
+    }
+}
+
+ColumnPtr normalize_unshredded_path(const ParquetColumnSchema& schema, const IColumn& physical,
+                                    std::pair<size_t, size_t> child_indices,
+                                    std::span<const VariantShreddedPathSegment> path,
+                                    int64_t* copied_bytes) {
+    DORIS_CHECK(copied_bytes != nullptr);
+    const auto* outer_nullable = check_and_get_column<ColumnNullable>(physical);
+    const IColumn& wrapper =
+            outer_nullable == nullptr ? physical : outer_nullable->get_nested_column();
+    const auto& structure = assert_cast<const ColumnStruct&>(wrapper);
+    DORIS_CHECK_EQ(structure.tuple_size(), schema.children.size());
+
+    auto values = ColumnVariantV2::create();
+    auto nulls = ColumnUInt8::create();
+    nulls->reserve(physical.size());
+    constexpr size_t MAX_DIRECT_SEEK_BATCH_ROWS = 4096;
+    DorisVector<VariantRef> encoded_rows;
+    encoded_rows.reserve(std::min(physical.size(), MAX_DIRECT_SEEK_BATCH_ROWS));
+    const VariantRef null_value {.metadata = {.data = VARIANT_EMPTY_METADATA.data(),
+                                              .size = VARIANT_EMPTY_METADATA.size()},
+                                 .value = {VARIANT_NULL_VALUE.data(), VARIANT_NULL_VALUE.size()}};
+    int64_t total_copied_bytes = 0;
+    auto count_copied_bytes = [&](const VariantRef value) {
+        for (const size_t bytes : {value.metadata.size, value.value.size}) {
+            DORIS_CHECK_LE(bytes, static_cast<size_t>(std::numeric_limits<int64_t>::max() -
+                                                      total_copied_bytes));
+            total_copied_bytes += static_cast<int64_t>(bytes);
+        }
+    };
+
+    for (size_t begin = 0; begin < physical.size(); begin += MAX_DIRECT_SEEK_BATCH_ROWS) {
+        const size_t end = std::min(physical.size(), begin + MAX_DIRECT_SEEK_BATCH_ROWS);
+        encoded_rows.clear();
+        for (size_t row = begin; row < end; ++row) {
+            if (outer_nullable != nullptr && outer_nullable->get_null_map_data()[row] != 0) {
+                encoded_rows.push_back(null_value);
+                nulls->insert_value(1);
+                count_copied_bytes(null_value);
+                continue;
+            }
+
+            const Cell metadata = cell_at(structure.get_column(child_indices.first), row);
+            if (metadata.is_null) {
+                throw Exception(ErrorCode::CORRUPTION,
+                                "Parquet Variant {} has null metadata at row {}", schema.name, row);
+            }
+            const StringRef metadata_bytes = metadata.column->get_data_at(row);
+            const Cell value = cell_at(structure.get_column(child_indices.second), row);
+            const StringRef value_bytes =
+                    value.is_null ? StringRef(VARIANT_NULL_VALUE.data(), VARIANT_NULL_VALUE.size())
+                                  : value.column->get_data_at(row);
+            const VariantRef root {
+                    .metadata = {.data = metadata_bytes.data, .size = metadata_bytes.size},
+                    .value = value_bytes};
+            VariantRef found;
+            if (find_materialized_path(root, path, &found)) {
+                encoded_rows.push_back(found);
+                nulls->insert_value(0);
+                count_copied_bytes(found);
+            } else {
+                encoded_rows.push_back(null_value);
+                nulls->insert_value(1);
+                count_copied_bytes(null_value);
+            }
+        }
+        append_variant_rows(*values, encoded_rows);
+    }
+    *copied_bytes = total_copied_bytes;
+    return ColumnNullable::create(std::move(values), std::move(nulls));
 }
 
 ColumnPtr normalize_materialized_path(const ColumnVariantV2& materialized,
@@ -671,15 +1182,27 @@ bool same_shredded_schema(const ParquetColumnSchema& left, const ParquetColumnSc
 void append_compatible_column(IColumn& output, const IColumn& converted);
 void validate_compatible_column(const IColumn& output, const IColumn& converted);
 
+struct OwnedShreddedPathSegment {
+    VariantShreddedPathSegment::Kind kind = VariantShreddedPathSegment::Kind::OBJECT_KEY;
+    std::string key;
+    int64_t index = 0;
+
+    bool operator==(const OwnedShreddedPathSegment&) const = default;
+};
+
 class ParquetVariantShreddedState final : public VariantShreddedState {
 public:
-    ParquetVariantShreddedState(std::shared_ptr<const ParquetColumnSchema> schema,
-                                ColumnPtr physical, bool complete,
-                                ParquetColumnReaderProfile profile = {})
+    ParquetVariantShreddedState(
+            std::shared_ptr<const ParquetColumnSchema> schema, ColumnPtr physical, bool complete,
+            ParquetColumnReaderProfile profile = {},
+            std::vector<OwnedShreddedPathSegment> unshredded_prefix = {},
+            std::shared_ptr<const UnshreddedPathCache> unshredded_path_cache = nullptr)
             : _schema(std::move(schema)),
               _physical(std::move(physical)),
               _complete(complete),
-              _profile(profile) {
+              _profile(profile),
+              _unshredded_prefix(std::move(unshredded_prefix)),
+              _unshredded_path_cache(std::move(unshredded_path_cache)) {
         DORIS_CHECK(_schema != nullptr && static_cast<bool>(_physical));
         const ColumnPtr wrapper = unwrap_nullable(_physical);
         const auto* structure = check_and_get_column<ColumnStruct>(*wrapper);
@@ -687,21 +1210,49 @@ public:
             throw Exception(ErrorCode::CORRUPTION,
                             "Parquet Variant {} physical field count mismatch", _schema->name);
         }
+        DORIS_CHECK(_unshredded_prefix.empty() || unshredded_child_indices(*_schema).has_value());
+        DORIS_CHECK(!_unshredded_path_cache ||
+                    (!_unshredded_prefix.empty() &&
+                     _unshredded_path_cache->entries.size() == _physical->size()));
     }
 
     size_t size() const override { return _physical->size(); }
     size_t byte_size() const override {
         std::lock_guard lock(_materialization_lock);
-        return _physical->byte_size() + (_materialized ? _materialized->byte_size() : 0) +
+        return _physical->byte_size() +
+               (_unshredded_path_cache ? _unshredded_path_cache->byte_size() : 0) +
+               (_unshredded_metadata_index ? _unshredded_metadata_index->byte_size() : 0) +
+               (_normalized_prefix ? _normalized_prefix->byte_size() : 0) +
+               (_materialized ? _materialized->byte_size() : 0) +
                (_serialized ? _serialized->byte_size() : 0);
     }
     size_t allocated_bytes() const override {
         std::lock_guard lock(_materialization_lock);
         return _physical->allocated_bytes() +
+               (_unshredded_path_cache ? _unshredded_path_cache->allocated_bytes() : 0) +
+               (_unshredded_metadata_index ? _unshredded_metadata_index->allocated_bytes() : 0) +
+               (_normalized_prefix ? _normalized_prefix->allocated_bytes() : 0) +
                (_materialized ? _materialized->allocated_bytes() : 0) +
                (_serialized ? _serialized->allocated_bytes() : 0);
     }
-    void sanity_check() const override { _physical->sanity_check(); }
+    void sanity_check() const override {
+        _physical->sanity_check();
+        DORIS_CHECK(!_unshredded_path_cache ||
+                    _unshredded_path_cache->entries.size() == _physical->size());
+        std::lock_guard lock(_materialization_lock);
+        if (_unshredded_metadata_index) {
+            DORIS_CHECK_EQ(_unshredded_metadata_index->physical_identity, _physical.get());
+            DORIS_CHECK_EQ(_unshredded_metadata_index->row_dictionary_ids.size(),
+                           _physical->size());
+            for (const uint32_t dictionary_id : _unshredded_metadata_index->row_dictionary_ids) {
+                DORIS_CHECK(dictionary_id == UnshreddedMetadataIndex::NULL_ROW ||
+                            dictionary_id < _unshredded_metadata_index->dictionaries.size());
+            }
+        }
+        if (_normalized_prefix) {
+            _normalized_prefix->sanity_check();
+        }
+    }
 
     void for_each_subcolumn(IColumn::ColumnCallback callback) const override {
         callback(*_physical);
@@ -713,21 +1264,52 @@ public:
         // no metadata/value columns from which a canonical Variant could be reconstructed.
         // The projection schema is immutable and reader-scoped, so derived selections share it
         // instead of cloning the whole shredded tree for every filter operation.
-        return std::make_shared<ParquetVariantShreddedState>(
-                _schema, _physical->filter(filter, result_size_hint), _complete, _profile);
+        auto select_path_cache = [&](const UnshreddedPathCache& source) {
+            DORIS_CHECK_EQ(filter.size(), source.entries.size());
+            auto selected = std::make_shared<UnshreddedPathCache>();
+            if (result_size_hint > 0) {
+                selected->entries.reserve(cast_set<size_t>(result_size_hint));
+            }
+            for (size_t row = 0; row < source.entries.size(); ++row) {
+                if (filter[row] != 0) {
+                    selected->entries.push_back(source.entries[row]);
+                }
+            }
+            return selected;
+        };
+        return select_state(_physical->filter(filter, result_size_hint), select_path_cache);
     }
 
     std::shared_ptr<VariantShreddedState> select_range(size_t start, size_t length) const override {
-        return std::make_shared<ParquetVariantShreddedState>(_schema, _physical->cut(start, length),
-                                                             _complete, _profile);
+        auto select_path_cache = [&](const UnshreddedPathCache& source) {
+            DORIS_CHECK_LE(start, source.entries.size());
+            DORIS_CHECK_LE(length, source.entries.size() - start);
+            auto selected = std::make_shared<UnshreddedPathCache>();
+            selected->entries.insert(selected->entries.end(),
+                                     source.entries.begin() + cast_set<ssize_t>(start),
+                                     source.entries.begin() + cast_set<ssize_t>(start + length));
+            return selected;
+        };
+        return select_state(_physical->cut(start, length), select_path_cache);
     }
 
     std::shared_ptr<VariantShreddedState> select_indices(
             const uint32_t* indices_begin, const uint32_t* indices_end) const override {
-        MutableColumnPtr selected = _physical->clone_empty();
-        selected->insert_indices_from(*_physical, indices_begin, indices_end);
-        return std::make_shared<ParquetVariantShreddedState>(_schema, std::move(selected),
-                                                             _complete, _profile);
+        auto select_column = [&](const ColumnPtr& column) {
+            MutableColumnPtr selected = column->clone_empty();
+            selected->insert_indices_from(*column, indices_begin, indices_end);
+            return ColumnPtr(std::move(selected));
+        };
+        auto select_path_cache = [&](const UnshreddedPathCache& source) {
+            auto selected = std::make_shared<UnshreddedPathCache>();
+            selected->entries.reserve(indices_end - indices_begin);
+            for (const uint32_t* index = indices_begin; index != indices_end; ++index) {
+                DORIS_CHECK_LT(*index, source.entries.size());
+                selected->entries.push_back(source.entries[*index]);
+            }
+            return selected;
+        };
+        return select_state(select_column(_physical), select_path_cache);
     }
 
     bool can_materialize() const override { return _complete; }
@@ -735,6 +1317,7 @@ public:
     bool try_append(const VariantShreddedState& source) override {
         const auto* parquet_source = dynamic_cast<const ParquetVariantShreddedState*>(&source);
         if (parquet_source == nullptr || _complete != parquet_source->_complete ||
+            _unshredded_prefix != parquet_source->_unshredded_prefix ||
             !same_shredded_schema(*_schema, *parquet_source->_schema)) {
             return false;
         }
@@ -743,6 +1326,9 @@ public:
         append_compatible_column(*mutable_physical, *parquet_source->_physical);
         _physical = std::move(mutable_physical);
         std::lock_guard lock(_materialization_lock);
+        _unshredded_path_cache.reset();
+        _unshredded_metadata_index.reset();
+        _normalized_prefix.reset();
         _materialized.reset();
         _serialized.reset();
         return true;
@@ -756,6 +1342,11 @@ public:
         };
         if (path.empty()) {
             return path_miss();
+        }
+
+        if (unshredded_child_indices(*_schema).has_value()) {
+            return VariantShreddedTypedValue {
+                    .column = nullptr, .type = nullptr, .normalized = direct_unshredded_path(path)};
         }
 
         const ParquetColumnSchema* typed_schema = nullptr;
@@ -827,6 +1418,10 @@ public:
             return std::nullopt;
         }
 
+        if (unshredded_child_indices(*_schema).has_value()) {
+            return direct_unshredded_path(path);
+        }
+
         const ParquetColumnSchema* typed_schema = nullptr;
         ColumnPtr typed = struct_child(*_schema, _physical, "typed_value", &typed_schema);
         if (typed && typed_schema->kind == ParquetColumnSchemaKind::STRUCT) {
@@ -878,6 +1473,24 @@ public:
                     ErrorCode::INTERNAL_ERROR,
                     "A projected Parquet Variant can only serve its validated shredded leaves");
         }
+        if (!_unshredded_prefix.empty()) {
+            if (!_normalized_prefix) {
+                const auto child_indices = unshredded_child_indices(*_schema);
+                DORIS_CHECK(child_indices.has_value());
+                const auto borrowed = borrow_unshredded_path(_unshredded_prefix);
+                int64_t copied_bytes = 0;
+                {
+                    SCOPED_TIMER(_profile.variant_unshredded_direct_seek_time.get());
+                    _normalized_prefix = normalize_unshredded_path(
+                            *_schema, *_physical, *child_indices, borrowed, &copied_bytes);
+                }
+                const auto rows = static_cast<int64_t>(_physical->size());
+                update_counter(_profile.variant_unshredded_direct_seek_rows, rows);
+                update_counter(_profile.variant_unshredded_direct_seek_bytes, copied_bytes);
+            }
+            const auto& nullable = assert_cast<const ColumnNullable&>(*_normalized_prefix);
+            return assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+        }
         if (!_materialized) {
             SCOPED_TIMER(_profile.variant_reconstruction_time.get());
             _materialized = encode_variant_column(*_schema, *_physical);
@@ -902,6 +1515,103 @@ public:
     }
 
 private:
+    template <typename PathCacheSelector>
+    std::shared_ptr<ParquetVariantShreddedState> select_state(
+            ColumnPtr selected_physical, const PathCacheSelector& select_path_cache) const {
+        std::shared_ptr<const UnshreddedPathCache> path_cache;
+        {
+            std::lock_guard lock(_materialization_lock);
+            path_cache = _unshredded_path_cache;
+        }
+
+        std::shared_ptr<const UnshreddedPathCache> selected_path_cache;
+        if (path_cache) {
+            selected_path_cache = select_path_cache(*path_cache);
+        }
+        return std::make_shared<ParquetVariantShreddedState>(
+                _schema, std::move(selected_physical), _complete, _profile, _unshredded_prefix,
+                std::move(selected_path_cache));
+    }
+
+    std::vector<OwnedShreddedPathSegment> combined_unshredded_path(
+            std::span<const VariantShreddedPathSegment> suffix) const {
+        std::vector<OwnedShreddedPathSegment> combined = _unshredded_prefix;
+        combined.reserve(combined.size() + suffix.size());
+        for (const auto& segment : suffix) {
+            combined.push_back(
+                    {.kind = segment.kind,
+                     .key = segment.kind == VariantShreddedPathSegment::Kind::OBJECT_KEY
+                                    ? (segment.key.size == 0
+                                               ? std::string()
+                                               : std::string(segment.key.data, segment.key.size))
+                                    : std::string(),
+                     .index = segment.index});
+        }
+        return combined;
+    }
+
+    static std::vector<VariantShreddedPathSegment> borrow_unshredded_path(
+            const std::vector<OwnedShreddedPathSegment>& owned) {
+        std::vector<VariantShreddedPathSegment> borrowed;
+        borrowed.reserve(owned.size());
+        for (const auto& segment : owned) {
+            borrowed.push_back({.kind = segment.kind,
+                                .key = {segment.key.data(), segment.key.size()},
+                                .index = segment.index});
+        }
+        return borrowed;
+    }
+
+    std::shared_ptr<const UnshreddedMetadataIndex> get_unshredded_metadata_index(
+            std::pair<size_t, size_t> child_indices) const {
+        std::lock_guard lock(_materialization_lock);
+        if (!_unshredded_metadata_index) {
+            _unshredded_metadata_index =
+                    build_unshredded_metadata_index(*_schema, *_physical, child_indices);
+        }
+        return _unshredded_metadata_index;
+    }
+
+    ColumnPtr direct_unshredded_path(std::span<const VariantShreddedPathSegment> suffix) const {
+        const auto child_indices = unshredded_child_indices(*_schema);
+        DORIS_CHECK(child_indices.has_value());
+        std::vector<OwnedShreddedPathSegment> combined = combined_unshredded_path(suffix);
+        const auto borrowed_combined = borrow_unshredded_path(combined);
+        std::shared_ptr<const UnshreddedMetadataIndex> metadata_index;
+        UnshreddedPathScan scan;
+        {
+            SCOPED_TIMER(_profile.variant_unshredded_direct_seek_time.get());
+            metadata_index = get_unshredded_metadata_index(*child_indices);
+            scan = scan_unshredded_path(
+                    *_schema, *_physical, *child_indices, *metadata_index,
+                    _unshredded_path_cache
+                            ? suffix
+                            : std::span<const VariantShreddedPathSegment>(borrowed_combined),
+                    _unshredded_path_cache.get());
+        }
+
+        const auto rows = static_cast<int64_t>(_physical->size());
+        update_counter(_profile.variant_unshredded_direct_seek_rows, rows);
+        if (_unshredded_path_cache) {
+            update_counter(_profile.variant_unshredded_prefix_reuse_rows, rows);
+        }
+        MutableColumnPtr values;
+        std::shared_ptr<ParquetVariantShreddedState> subtree_state;
+        if (scan.typed_values) {
+            values = ColumnVariantV2::create_typed(std::move(scan.typed_values),
+                                                   std::move(scan.typed_type));
+            update_counter(_profile.variant_unshredded_direct_seek_bytes, scan.copied_bytes);
+            update_counter(_profile.variant_direct_leaf_rows, rows);
+        } else {
+            subtree_state = std::make_shared<ParquetVariantShreddedState>(
+                    _schema, _physical, _complete, _profile, combined, std::move(scan.path_cache));
+            values = ColumnVariantV2::create_shredded(subtree_state);
+            update_counter(_profile.variant_direct_subtree_rows, rows);
+        }
+        ColumnPtr result = ColumnNullable::create(std::move(values), std::move(scan.outer_nulls));
+        return result;
+    }
+
     static void update_counter(const std::shared_ptr<RuntimeProfile::Counter>& counter,
                                int64_t value) {
         if (counter != nullptr) {
@@ -913,7 +1623,11 @@ private:
     ColumnPtr _physical;
     bool _complete = true;
     ParquetColumnReaderProfile _profile;
+    std::vector<OwnedShreddedPathSegment> _unshredded_prefix;
+    std::shared_ptr<const UnshreddedPathCache> _unshredded_path_cache;
     mutable std::mutex _materialization_lock;
+    mutable std::shared_ptr<const UnshreddedMetadataIndex> _unshredded_metadata_index;
+    mutable ColumnPtr _normalized_prefix;
     mutable ColumnVariantV2::MutablePtr _materialized;
     mutable ColumnVariantV2::MutablePtr _serialized;
 };
