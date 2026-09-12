@@ -54,7 +54,6 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.BoundType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMap.Builder;
@@ -424,8 +423,8 @@ public class OneRangePartitionEvaluator<K>
         }
 
         // shrink range and prune the other type: if previous column is literal and equals to the bound
-        andResult = determinateRangeOfOtherType(andResult, lowers, true);
-        andResult = determinateRangeOfOtherType(andResult, uppers, false);
+        andResult = determinateRangeOfOtherType(andResult, lowers, true, context.rangeMap);
+        andResult = determinateRangeOfOtherType(andResult, uppers, false, context.rangeMap);
         return andResult;
     }
 
@@ -527,59 +526,47 @@ public class OneRangePartitionEvaluator<K>
     }
 
     private EvaluateRangeResult determinateRangeOfOtherType(
-            EvaluateRangeResult context, List<Literal> partitionBound, boolean isLowerBound) {
+            EvaluateRangeResult context, List<Literal> partitionBound, boolean isLowerBound,
+            Map<Expression, ColumnRange> defaultColumnRanges) {
         if (context.result instanceof Literal) {
             return context;
         }
 
-        Slot qualifiedSlot = null;
-        ColumnRange qualifiedRange = null;
+        LexicographicBoundState boundState = new LexicographicBoundState(
+                partitionBound, isLowerBound, partitionSlots.size());
         for (int i = 0; i < partitionSlotTypes.size(); i++) {
             PartitionSlotType partitionSlotType = partitionSlotTypes.get(i);
             Slot slot = partitionSlots.get(i);
-            if (!context.columnRanges.containsKey(slot)) {
+            ColumnRange columnRange = context.columnRanges.containsKey(slot)
+                    ? context.columnRanges.get(slot) : defaultColumnRanges.get(slot);
+            if (columnRange == null) {
                 return context;
             }
             switch (partitionSlotType) {
                 case CONST: continue;
                 case RANGE:
-                    ColumnRange columnRange = context.columnRanges.get(slot);
-                    if (!columnRange.isSingleton()
-                            || !columnRange.getLowerBound().getValue().equals(partitionBound.get(i))) {
+                    if (!columnRange.isSingleton()) {
+                        return context;
+                    }
+                    boundState.observeLiteral(columnRange.getLowerBound().getValue(), i);
+                    if (!boundState.hasEqualPrefix()) {
                         return context;
                     }
                     continue;
                 case OTHER:
-                    columnRange = context.columnRanges.get(slot);
                     if (columnRange.isSingleton()
-                            && columnRange.getLowerBound().getValue().equals(partitionBound.get(i))) {
+                            && columnRange.getLowerBound().getValue().equals(partitionBound.get(i))
+                            && i + 1 < partitionSlots.size()) {
                         continue;
                     }
-
-                    qualifiedSlot = slot;
-                    if (isLowerBound) {
-                        qualifiedRange = ColumnRange.atLeast(partitionBound.get(i));
-                    } else {
-                        qualifiedRange = i + 1 == partitionSlots.size()
-                                ? ColumnRange.lessThen(partitionBound.get(i))
-                                : ColumnRange.atMost(partitionBound.get(i));
-                    }
-                    break;
+                    ColumnRange newRange = boundState.constrainFirstUnresolvedColumn(columnRange, i);
+                    Map<Expression, ColumnRange> newRanges = replaceExprRange(
+                            context.columnRanges, slot, newRange);
+                    return newRange.isEmptyRange()
+                            ? new EvaluateRangeResult(BooleanLiteral.FALSE, newRanges, context.childrenResult)
+                            : new EvaluateRangeResult(context.result, newRanges, context.childrenResult);
                 default:
-                    throw new AnalysisException("Unknown partition slot type: " + partitionSlotType);
-            }
-        }
-
-        if (qualifiedSlot != null) {
-            ColumnRange origin = context.columnRanges.get(qualifiedSlot);
-            ColumnRange newRange = origin.intersect(qualifiedRange);
-
-            Map<Expression, ColumnRange> newRanges = replaceExprRange(context.columnRanges, qualifiedSlot, newRange);
-
-            if (newRange.isEmptyRange()) {
-                return new EvaluateRangeResult(BooleanLiteral.FALSE, newRanges, context.childrenResult);
-            } else {
-                return new EvaluateRangeResult(context.result, newRanges, context.childrenResult);
+                    return context;
             }
         }
         return context;
@@ -748,49 +735,38 @@ public class OneRangePartitionEvaluator<K>
     private List<Map<Slot, PartitionSlotInput>> commonComputeOnePartitionInputs() {
         List<Map<Slot, PartitionSlotInput>> onePartitionInputs = Lists.newArrayListWithCapacity(inputs.size());
         for (List<Expression> input : inputs) {
-            boolean previousIsLowerBoundLiteral = true;
-            boolean previousIsUpperBoundLiteral = true;
+            LexicographicBoundState lowerState = new LexicographicBoundState(
+                    lowers, true, partitionSlots.size());
+            LexicographicBoundState upperState = new LexicographicBoundState(
+                    uppers, false, partitionSlots.size());
             Builder<Slot, PartitionSlotInput> slotToInputs = ImmutableMap.builderWithExpectedSize(16);
             for (int i = 0; i < partitionSlots.size(); ++i) {
                 Slot partitionSlot = partitionSlots.get(i);
                 // partitionSlot will be replaced to this expression
                 Expression expression = input.get(i);
-                ColumnRange slotRange = null;
+                ColumnRange slotRange;
                 PartitionSlotType partitionSlotType = partitionSlotTypes.get(i);
                 if (expression instanceof Literal) {
                     // const or expanded range
                     slotRange = ColumnRange.singleton((Literal) expression);
-                    if (!expression.equals(lowers.get(i))) {
-                        previousIsLowerBoundLiteral = false;
-                    }
-                    if (!expression.equals(uppers.get(i))) {
-                        previousIsUpperBoundLiteral = false;
-                    }
+                    lowerState.observeLiteral(expression, i);
+                    upperState.observeLiteral(expression, i);
                 } else {
-                    // un expanded range
+                    // The first unresolved column carries every still-active lexicographic bound.
+                    // Once that column can diverge, every suffix column must remain unbounded.
                     switch (partitionSlotType) {
                         case RANGE:
-                            boolean isLastPartitionColumn = i + 1 == partitionSlots.size();
-                            BoundType rightBoundType = isLastPartitionColumn
-                                    ? BoundType.OPEN : BoundType.CLOSED;
-                            slotRange = ColumnRange.range(
-                                    lowers.get(i), BoundType.CLOSED, uppers.get(i), rightBoundType);
-                            break;
                         case OTHER:
-                            if (previousIsLowerBoundLiteral) {
-                                slotRange = ColumnRange.atLeast(lowers.get(i));
-                            } else if (previousIsUpperBoundLiteral) {
-                                slotRange = ColumnRange.lessThen(uppers.get(i));
-                            } else {
-                                // unknown range
-                                slotRange = ColumnRange.all();
-                            }
+                            slotRange = lowerState.constrainFirstUnresolvedColumn(ColumnRange.all(), i);
+                            slotRange = upperState.constrainFirstUnresolvedColumn(slotRange, i);
                             break;
+                        case CONST:
                         default:
-                            throw new AnalysisException("Unknown partition slot type: " + partitionSlotType);
+                            // A CONST input should always be a literal. Keep an unexpected shape conservative.
+                            slotRange = ColumnRange.all();
+                            lowerState.diverge();
+                            upperState.diverge();
                     }
-                    previousIsLowerBoundLiteral = false;
-                    previousIsUpperBoundLiteral = false;
                 }
                 ImmutableMap<Expression, ColumnRange> slotToRange = ImmutableMap.of(partitionSlot, slotRange);
                 slotToInputs.put(partitionSlot, new PartitionSlotInput(expression, slotToRange));
@@ -800,6 +776,56 @@ public class OneRangePartitionEvaluator<K>
             onePartitionInputs.add(slotPartitionSlotInputMap);
         }
         return onePartitionInputs;
+    }
+
+    private enum BoundPrefixState {
+        EQUAL_PREFIX,
+        DIVERGED
+    }
+
+    /** Tracks whether a tuple prefix is still equal to one lexicographic partition bound. */
+    private static class LexicographicBoundState {
+        private final List<Literal> bound;
+        private final boolean lowerBound;
+        private final int columnCount;
+        private BoundPrefixState prefixState = BoundPrefixState.EQUAL_PREFIX;
+
+        private LexicographicBoundState(List<Literal> bound, boolean lowerBound, int columnCount) {
+            this.bound = bound;
+            this.lowerBound = lowerBound;
+            this.columnCount = columnCount;
+        }
+
+        private boolean hasEqualPrefix() {
+            return prefixState == BoundPrefixState.EQUAL_PREFIX;
+        }
+
+        private void observeLiteral(Expression literal, int index) {
+            if (hasEqualPrefix() && !literal.equals(bound.get(index))) {
+                diverge();
+            }
+        }
+
+        private ColumnRange constrainFirstUnresolvedColumn(ColumnRange origin, int index) {
+            if (!hasEqualPrefix()) {
+                return origin;
+            }
+            diverge();
+            Literal boundary = bound.get(index);
+            ColumnRange boundaryRange;
+            if (lowerBound) {
+                boundaryRange = ColumnRange.atLeast(boundary);
+            } else if (index + 1 == columnCount) {
+                boundaryRange = ColumnRange.lessThen(boundary);
+            } else {
+                boundaryRange = ColumnRange.atMost(boundary);
+            }
+            return origin.intersect(boundaryRange);
+        }
+
+        private void diverge() {
+            prefixState = BoundPrefixState.DIVERGED;
+        }
     }
 
     public EvaluateRangeResult visitMonotonic(Expression monotonic, EvaluateRangeInput context) {
