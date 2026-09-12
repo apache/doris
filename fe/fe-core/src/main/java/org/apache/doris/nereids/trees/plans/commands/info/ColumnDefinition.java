@@ -23,6 +23,7 @@ import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -382,6 +383,10 @@ public class ColumnDefinition {
         }
         type.validateDataType();
         type = updateCharacterTypeLength(type);
+        PrimitiveType primitiveType = type.toCatalogDataType().getPrimitiveType();
+        if (isOlap && (primitiveType == PrimitiveType.GEOMETRY || primitiveType == PrimitiveType.GEOGRAPHY)) {
+            throw new AnalysisException("GEOMETRY and GEOGRAPHY are not supported for Doris internal tables");
+        }
         if (type.isArrayType()) {
             int depth = 0;
             DataType curType = type;

@@ -425,6 +425,11 @@ public class ColumnDef {
 
         Type type = typeDef.getType();
 
+        if (isOlap && (type.getPrimitiveType() == PrimitiveType.GEOMETRY
+                || type.getPrimitiveType() == PrimitiveType.GEOGRAPHY)) {
+            throw new AnalysisException("GEOMETRY and GEOGRAPHY are not supported for Doris internal tables");
+        }
+
         if (!Config.enable_quantile_state_type && type.isQuantileStateType()) {
             throw new AnalysisException("quantile_state is disabled"
                     + "Set config 'enable_quantile_state_type' = 'true' to enable this column type.");
