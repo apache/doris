@@ -21,7 +21,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
+import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
 import org.apache.doris.datasource.iceberg.helper.IcebergWriterHelper;
+import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.foundation.util.SerializationUtils;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
 import org.apache.doris.thrift.TFileContent;
@@ -350,8 +352,11 @@ public class IcebergTransactionTest {
     }
 
     private IcebergRuntimeContext testRuntimeContext() {
-        return new IcebergRuntimeContext(ops.getExecutionAuthenticator(), null, null,
-                Collections.emptyMap());
+        @SuppressWarnings("unchecked")
+        MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue> manifestEntry =
+                Mockito.mock(MetaCacheEntry.class);
+        return new IcebergRuntimeContext(ops.getExecutionAuthenticator(), null, manifestEntry,
+                null, Collections.emptyMap());
     }
 
     @Test
