@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_uuid_aggregate_state_union", "p0") {
+suite("test_uuid_aggregate_state_union", "p0,nonConcurrent") {
     def matrix = this.evaluate(new File(context.file.parentFile, "uuid_matrix.groovy"))
     sql "SET enable_agg_state=true"
     sql "SET enable_sql_cache=false"
