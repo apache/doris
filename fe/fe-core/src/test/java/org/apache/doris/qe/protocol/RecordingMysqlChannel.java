@@ -34,6 +34,12 @@ import java.util.List;
  * the payload, then advances the sequence id. There is no send buffer here, so the header is not
  * materialized; the sequence id each packet would have carried is recorded next to the payload
  * instead, and the golden renders the header from the two.
+ *
+ * <p>What the send buffer does is modeled, though: a flush pushes everything written so far, and
+ * {@link #reset()} drops what was written after the last flush, the way
+ * {@link org.apache.doris.mysql.MysqlChannel#reset()} clears the buffer. So the golden shows what
+ * reaches the client, not everything the server wrote, and a packet that was written and then
+ * dropped leaves a gap in the sequence ids, as it does on the wire.
  */
 public class RecordingMysqlChannel extends DummyMysqlChannel {
 
@@ -116,13 +122,28 @@ public class RecordingMysqlChannel extends DummyMysqlChannel {
     @Override
     public void sendAndFlush(ByteBuffer packet) {
         record(packet, true);
+        isSend = true;
     }
 
     @Override
     public void flush() {
-        if (!outbound.isEmpty()) {
+        // Nothing to push when the last packet already went out with a flush.
+        if (!outbound.isEmpty() && !outbound.get(outbound.size() - 1).isFlushed()) {
             outbound.get(outbound.size() - 1).markFlushed();
+            isSend = true;
         }
+    }
+
+    @Override
+    public void reset() {
+        isSend = false;
+        // A flush pushes everything written so far; what was written after the last one is still
+        // in the buffer, and that is what a reset throws away.
+        int end = outbound.size();
+        while (end > 0 && !outbound.get(end - 1).isFlushed()) {
+            end--;
+        }
+        outbound.subList(end, outbound.size()).clear();
     }
 
     private void record(ByteBuffer packet, boolean flushed) {
