@@ -112,6 +112,7 @@ import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunctio
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.thrift.TDictFunction;
 
 import com.google.common.collect.ImmutableList;
@@ -723,6 +724,16 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitScalarFunction(ScalarFunction function, PlanTranslatorContext context) {
+        // Rewriting an expression can change the type of an argument, e.g. constant folding replaces
+        // `repeat('x', 2)` (nullable) with the literal 'xx' (not nullable) and drops the nullable marker
+        // of the enclosing struct field. The function keeps the signature it was bound with, so cast
+        // such arguments back to the expected input types: the backend builds the argument column from
+        // the argument type but lays out the parent result from the declared type, and inserting a
+        // required child column into a nullable one fails.
+        // Last resort guard for the contract with the backend: the arguments above are already repaired
+        // where the rewrites rebuilt them, this only catches a producer that still hands over a function
+        // call whose arguments do not match its signature.
+        function = (ScalarFunction) TypeCoercionUtils.coerceFunctionArguments(function);
         List<Expr> arguments = function.getArguments().stream()
                 .map(arg -> arg.accept(this, context))
                 .collect(Collectors.toList());

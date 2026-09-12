@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeBinaryPredicatesRule;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -52,7 +53,8 @@ public class ExpressionRuleExecutor {
         for (ExpressionRewriteRule<ExpressionRewriteContext> rule : rules) {
             result = applyRule(result, rule, ctx);
         }
-        return result;
+        // a rule may rebuild a function call whose arguments no longer match its signature, restore it
+        return TypeCoercionUtils.restoreFunctionArgumentTypes(result);
     }
 
     /**

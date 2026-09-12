@@ -192,6 +192,75 @@ public class TypeCoercionUtils {
     }
 
     /**
+     * Cast the arguments of a function back to the input types its signature expects.
+     *
+     * <p>Rewriting the children of an expression can change their types. For example constant folding
+     * replaces {@code repeat('x', 2)} (nullable) with the literal {@code 'xx'} (not nullable), which
+     * drops the nullable marker of the enclosing struct field. The parent function is rebuilt with the
+     * signature it was bound with, so such an argument no longer matches the expected input type and
+     * the plan becomes self-inconsistent: the backend lays out the parent result from the declared
+     * type, while the argument column is built from the drifted type, and inserting a required child
+     * column into a nullable one fails. Cast the arguments to the expected types to keep the rewritten
+     * call consistent.</p>
+     *
+     * @return the given expression, or a rebuilt one with the arguments cast to the expected types
+     */
+    public static Expression coerceFunctionArguments(Expression expr) {
+        if (!(expr instanceof BoundFunction)) {
+            return expr;
+        }
+        BoundFunction function = (BoundFunction) expr;
+        List<Expression> arguments = function.getArguments();
+        List<DataType> expectedInputTypes = function.expectedInputTypes();
+        if (expectedInputTypes.size() != arguments.size()) {
+            return expr;
+        }
+        for (int i = 0; i < arguments.size(); i++) {
+            if (!expectedInputTypes.get(i).equals(arguments.get(i).getDataType())) {
+                return implicitCastInputTypes(function, expectedInputTypes);
+            }
+        }
+        return expr;
+    }
+
+    /**
+     * Apply {@link #coerceFunctionArguments} to every node of the expression, and report the function
+     * calls that stay inconsistent, i.e. whose arguments cannot be cast to the input types the signature
+     * expects.
+     *
+     * <p>Expression rewrites that rebuild a parent after rewriting its children can leave an argument
+     * whose type drifted, and the rest of the optimization (statistics, other rewrites, the plan that is
+     * finally handed to the backend) would then work on an expression the backend cannot execute. Run
+     * this at the boundaries of the expression rewrites to restore the invariant there, and to make a
+     * producer that cannot be repaired visible instead of surfacing later as a backend error.</p>
+     */
+    public static Expression restoreFunctionArgumentTypes(Expression expr) {
+        return expr.rewriteUp(e -> {
+            Expression restored = coerceFunctionArguments(e);
+            reportUnrepairableArguments(restored);
+            return restored;
+        });
+    }
+
+    /**
+     * Report a function call that {@link #coerceFunctionArguments} is still able to change, i.e. whose
+     * arguments cannot be brought back to the input types the signature expects. Such a call is kept as
+     * it is and the backend rejects it, the report points at the rule that produced it while the plan is
+     * still being built instead of leaving a wrong type behind that spreads unnoticed.
+     */
+    private static void reportUnrepairableArguments(Expression expr) {
+        if (!(expr instanceof BoundFunction) || coerceFunctionArguments(expr) == expr) {
+            return;
+        }
+        BoundFunction function = (BoundFunction) expr;
+        SessionVariable.throwAnalysisExceptionWhenFeDebug(String.format(
+                "cannot restore the arguments of function %s, expected input types %s but got %s",
+                function.getName(), function.expectedInputTypes(),
+                function.getArguments().stream().map(Expression::getDataType)
+                        .collect(Collectors.toList())));
+    }
+
+    /**
      * Return Optional.empty() if we cannot do implicit cast.
      */
     public static Optional<DataType> implicitCast(DataType input, DataType expected) {
