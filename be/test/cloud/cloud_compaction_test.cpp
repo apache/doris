@@ -27,7 +27,6 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
-#include <utility>
 
 #include "cloud/cloud_base_compaction.h"
 #include "cloud/cloud_cluster_info.h"
@@ -413,7 +412,7 @@ TEST_F(CloudCompactionTest, generate_cloud_compaction_tasks_clears_metrics_witho
 }
 
 static RowsetSharedPtr create_rowset(Version version, int num_segments, bool overlapping,
-                                     int64_t data_size, int num_key_columns = 1) {
+                                     int data_size, int num_key_columns = 1) {
     auto rs_meta = std::make_shared<RowsetMeta>();
     rs_meta->set_rowset_type(BETA_ROWSET); // important
     rs_meta->_rowset_meta_pb.set_start_version(version.first);
@@ -491,8 +490,7 @@ static RowsetSharedPtr create_delete_rowset(Version version) {
     auto rowset = create_rowset(version, 0, false, 0);
     DORIS_CHECK(rowset != nullptr);
     DeletePredicatePB delete_predicate;
-    DORIS_CHECK(std::in_range<int32_t>(version.second));
-    delete_predicate.set_version(static_cast<int32_t>(version.second));
+    delete_predicate.set_version(version.second);
     rowset->rowset_meta()->set_delete_predicate(std::move(delete_predicate));
     return rowset;
 }

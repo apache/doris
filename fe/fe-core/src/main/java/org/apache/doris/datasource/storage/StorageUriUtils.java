@@ -29,7 +29,6 @@ import java.net.URISyntaxException;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -213,28 +212,6 @@ public final class StorageUriUtils {
     }
 
     /**
-     * Compatibility entry point for callers that used the former fe-core Azure helper directly.
-     * Azure normalization is provider-owned now, so this validates and preserves the native URI
-     * instead of rewriting it to an S3-shaped path.
-     */
-    public static String validateAndNormalizeAzureUri(String path) {
-        if (StringUtils.isBlank(path)) {
-            throw new StoragePropertiesException("Path cannot be null or empty");
-        }
-        int delimiter = path.indexOf(SCHEME_DELIM);
-        if (delimiter <= 0) {
-            throw new StoragePropertiesException("Azure URI must contain a scheme: " + path);
-        }
-        String scheme = path.substring(0, delimiter).toLowerCase(Locale.ROOT);
-        if (!(scheme.equals("wasb") || scheme.equals("wasbs") || scheme.equals("abfs")
-                || scheme.equals("abfss") || scheme.equals("http") || scheme.equals("https")
-                || scheme.equals("s3"))) {
-            throw new StoragePropertiesException("Unsupported Azure URI scheme: " + path);
-        }
-        return scheme.equals(path.substring(0, delimiter)) ? path : scheme + path.substring(delimiter);
-    }
-
-    /**
      * Port of legacy {@code AzurePropertyUtils.isOneLakeLocation}: true when the location is a
      * Microsoft Fabric OneLake abfs/abfss URI. OneLake remains Hadoop-routed until native OAuth2
      * support is complete; ordinary Azure ABFS locations are routed through FILE_S3.
@@ -277,19 +254,4 @@ public final class StorageUriUtils {
         }
     }
 
-    /**
-     * Port of legacy {@code AzurePropertyUtils.validateAndGetUri}: extracts the raw URI string
-     * from the given props map (case-insensitive {@code uri} key).
-     */
-    public static String validateAndGetAzureUri(Map<String, String> props) {
-        if (props == null || props.isEmpty()) {
-            throw new StoragePropertiesException("Properties map cannot be null or empty");
-        }
-
-        return props.entrySet().stream()
-                .filter(e -> URI_KEY.equalsIgnoreCase(e.getKey()))
-                .map(Map.Entry::getValue)
-                .findFirst()
-                .orElseThrow(() -> new StoragePropertiesException("Properties must contain 'uri' key"));
-    }
 }
