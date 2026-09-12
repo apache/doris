@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.expression;
 
 import org.apache.doris.nereids.rules.expression.rules.SimplifyTimeFieldFromUnixtime;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.collect.ImmutableList;
@@ -46,14 +47,75 @@ public class SimplifyTimeFieldFromUnixtimeTest extends ExpressionRewriteTestHelp
 
     @Test
     public void testRewriteWithCast() {
-        assertRewriteAfterTypeCoercion("hour(cast(from_unixtime(IA) as datetime))",
-                "hour_from_unixtime(IA)");
-        assertRewriteAfterTypeCoercion("minute(cast(from_unixtime(IA) as datetime))",
-                "minute_from_unixtime(IA)");
-        assertRewriteAfterTypeCoercion("second(cast(from_unixtime(IA) as datetime))",
-                "second_from_unixtime(IA)");
-        assertRewriteAfterTypeCoercion("microsecond(cast(from_unixtime(DECIMAL_V3_A) as datetimev2(6)))",
+        String hourWithCast = "hour(cast(from_unixtime(IA) as datetime))";
+        assertRewriteAfterTypeCoercion(hourWithCast, "hour_from_unixtime(IA)");
+
+        String minuteWithCast = "minute(cast(from_unixtime(IA) as datetime))";
+        assertRewriteAfterTypeCoercion(minuteWithCast, "minute_from_unixtime(IA)");
+
+        String secondWithCast = "second(cast(from_unixtime(IA) as datetimev2(0)))";
+        assertRewriteAfterTypeCoercion(secondWithCast, "second_from_unixtime(IA)");
+
+        String microsecondWithCast =
+                "microsecond(cast(from_unixtime(DECIMAL_V3_A) as datetimev2(6)))";
+        assertRewriteAfterTypeCoercion(microsecondWithCast,
                 "microsecond_from_unixtime(cast(DECIMAL_V3_A as DECIMALV3(18, 6)))");
+
+        assertRewriteAfterTypeCoercion(
+                "hour(cast(from_unixtime(DECIMAL_V3_A) as datetimev2(6)))",
+                "hour_from_unixtime(cast(DECIMAL_V3_A as DECIMALV3(18, 6)))");
+        assertRewriteAfterTypeCoercion(
+                "minute(cast(from_unixtime(DECIMAL_V3_A) as datetimev2(6)))",
+                "minute_from_unixtime(cast(DECIMAL_V3_A as DECIMALV3(18, 6)))");
+        assertRewriteAfterTypeCoercion(
+                "second(cast(from_unixtime(DECIMAL_V3_A) as datetimev2(6)))",
+                "second_from_unixtime(cast(DECIMAL_V3_A as DECIMALV3(18, 6)))");
+    }
+
+    @Test
+    public void testNoRewriteWithLossyCast() {
+        String hourWithSecondPrecisionCast =
+                "hour(cast(from_unixtime(DECIMAL_V3_A) as datetime))";
+        assertRewriteAfterTypeCoercion(hourWithSecondPrecisionCast, hourWithSecondPrecisionCast);
+
+        String microsecondWithMillisecondCast =
+                "microsecond(cast(from_unixtime(DECIMAL_V3_A) as datetimev2(3)))";
+        assertRewriteAfterTypeCoercion(microsecondWithMillisecondCast, microsecondWithMillisecondCast);
+
+        for (String function : ImmutableList.of("hour", "minute", "second")) {
+            for (int scale : ImmutableList.of(0, 3)) {
+                String expression = String.format(
+                        "%s(cast(from_unixtime(DECIMAL_V3_A) as datetimev2(%d)))",
+                        function, scale);
+                assertRewriteAfterTypeCoercion(expression, expression);
+            }
+        }
+    }
+
+    @Test
+    public void testNoRewriteWithTryCast() {
+        String hourWithTryCast = "hour(try_cast(from_unixtime(IA) as datetime))";
+        assertRewriteAfterTypeCoercion(hourWithTryCast, hourWithTryCast);
+
+        String microsecondWithTryCast =
+                "microsecond(try_cast(from_unixtime(DECIMAL_V3_A) as datetimev2(6)))";
+        assertRewriteAfterTypeCoercion(microsecondWithTryCast, microsecondWithTryCast);
+    }
+
+    @Test
+    public void testNoRewriteWithStrictCast() {
+        Expression hour = replaceUnboundSlot(
+                PARSER.parseExpression("hour(from_unixtime(IA))"), Maps.newHashMap());
+        hour = typeCoercion(hour);
+        Assertions.assertInstanceOf(Cast.class, hour.child(0));
+
+        Cast implicitCast = (Cast) hour.child(0);
+        Assertions.assertFalse(implicitCast.isExplicitType());
+        Assertions.assertFalse(implicitCast.isStrict());
+
+        Cast strictCast = new Cast(implicitCast.child(), implicitCast.getDataType(), false, true);
+        Expression hourWithStrictCast = hour.withChildren(ImmutableList.of(strictCast));
+        Assertions.assertEquals(hourWithStrictCast, executor.rewrite(hourWithStrictCast, context));
     }
 
     @Test
