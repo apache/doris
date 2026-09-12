@@ -46,24 +46,15 @@
 #include "util/var_int.h"
 
 namespace doris {
-struct AggregateFunctionCollectLimitData {
-    // Limits are Int32 inputs. Keep all of them, including negative limits, distinct from
-    // the fresh/reset marker while retaining the existing Int64 serialized field.
-    static constexpr Int64 UNINITIALIZED_MAX_SIZE =
-            static_cast<Int64>(std::numeric_limits<Int32>::min()) - 1;
-    Int64 max_size = UNINITIALIZED_MAX_SIZE;
-
-    bool is_initialized() const { return max_size != UNINITIALIZED_MAX_SIZE; }
-};
-
 template <PrimitiveType T, bool HasLimit>
-struct AggregateFunctionCollectSetData : AggregateFunctionCollectLimitData {
+struct AggregateFunctionCollectSetData {
     static constexpr PrimitiveType PType = T;
     using ElementType = typename PrimitiveTypeTraits<T>::CppType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using SelfType = AggregateFunctionCollectSetData;
     using Set = doris::flat_hash_set<ElementType>;
     Set data_set;
+    Int64 max_size = -1;
 
     AggregateFunctionCollectSetData(const DataTypes& argument_types) {}
 
@@ -76,7 +67,7 @@ struct AggregateFunctionCollectSetData : AggregateFunctionCollectLimitData {
 
     void merge(const SelfType& rhs) {
         if constexpr (HasLimit) {
-            if (!is_initialized()) {
+            if (max_size == -1) {
                 max_size = rhs.max_size;
             }
 
@@ -122,19 +113,20 @@ struct AggregateFunctionCollectSetData : AggregateFunctionCollectLimitData {
 
     void reset() {
         data_set.clear();
-        max_size = UNINITIALIZED_MAX_SIZE;
+        max_size = -1;
     }
 };
 
 template <PrimitiveType T, bool HasLimit>
     requires(is_string_type(T))
-struct AggregateFunctionCollectSetData<T, HasLimit> : AggregateFunctionCollectLimitData {
+struct AggregateFunctionCollectSetData<T, HasLimit> {
     static constexpr PrimitiveType PType = T;
     using ElementType = StringRef;
     using ColVecType = ColumnString;
     using SelfType = AggregateFunctionCollectSetData<T, HasLimit>;
     using Set = doris::flat_hash_set<ElementType>;
     Set data_set;
+    Int64 max_size = -1;
 
     AggregateFunctionCollectSetData(const DataTypes& argument_types) {}
 
@@ -147,7 +139,7 @@ struct AggregateFunctionCollectSetData<T, HasLimit> : AggregateFunctionCollectLi
     }
 
     void merge(const SelfType& rhs, Arena& arena) {
-        if (!is_initialized()) {
+        if (max_size == -1) {
             max_size = rhs.max_size;
         }
 
@@ -192,17 +184,18 @@ struct AggregateFunctionCollectSetData<T, HasLimit> : AggregateFunctionCollectLi
 
     void reset() {
         data_set.clear();
-        max_size = UNINITIALIZED_MAX_SIZE;
+        max_size = -1;
     }
 };
 
 template <PrimitiveType T, bool HasLimit>
-struct AggregateFunctionCollectListData : AggregateFunctionCollectLimitData {
+struct AggregateFunctionCollectListData {
     static constexpr PrimitiveType PType = T;
     using ElementType = typename PrimitiveTypeTraits<T>::CppType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using SelfType = AggregateFunctionCollectListData<T, HasLimit>;
     PaddedPODArray<ElementType> data;
+    Int64 max_size = -1;
 
     AggregateFunctionCollectListData(const DataTypes& argument_types) {}
 
@@ -216,7 +209,7 @@ struct AggregateFunctionCollectListData : AggregateFunctionCollectLimitData {
 
     void merge(const SelfType& rhs) {
         if constexpr (HasLimit) {
-            if (!is_initialized()) {
+            if (max_size == -1) {
                 max_size = rhs.max_size;
             }
             for (auto& rhs_elem : rhs.data) {
@@ -246,7 +239,7 @@ struct AggregateFunctionCollectListData : AggregateFunctionCollectLimitData {
 
     void reset() {
         data.clear();
-        max_size = UNINITIALIZED_MAX_SIZE;
+        max_size = -1;
     }
 
     void insert_result_into(IColumn& to) const {
@@ -259,11 +252,12 @@ struct AggregateFunctionCollectListData : AggregateFunctionCollectLimitData {
 
 template <PrimitiveType T, bool HasLimit>
     requires(is_string_type(T))
-struct AggregateFunctionCollectListData<T, HasLimit> : AggregateFunctionCollectLimitData {
+struct AggregateFunctionCollectListData<T, HasLimit> {
     static constexpr PrimitiveType PType = T;
     using ElementType = StringRef;
     using ColVecType = ColumnString;
     MutableColumnPtr data;
+    Int64 max_size = -1;
 
     AggregateFunctionCollectListData(const DataTypes& argument_types) {
         data = ColVecType::create();
@@ -275,7 +269,7 @@ struct AggregateFunctionCollectListData<T, HasLimit> : AggregateFunctionCollectL
 
     void merge(const AggregateFunctionCollectListData& rhs) {
         if constexpr (HasLimit) {
-            if (!is_initialized()) {
+            if (max_size == -1) {
                 max_size = rhs.max_size;
             }
 
@@ -314,7 +308,7 @@ struct AggregateFunctionCollectListData<T, HasLimit> : AggregateFunctionCollectL
 
     void reset() {
         data->clear();
-        max_size = UNINITIALIZED_MAX_SIZE;
+        max_size = -1;
     }
 
     void insert_result_into(IColumn& to) const {
@@ -326,12 +320,13 @@ struct AggregateFunctionCollectListData<T, HasLimit> : AggregateFunctionCollectL
 template <PrimitiveType T, bool HasLimit>
     requires(!is_string_type(T) && !is_int_or_bool(T) && !is_float_or_double(T) && !is_decimal(T) &&
              !is_date_type(T) && !is_timestamp_ns_type(T) && !is_ip(T) && !is_timestamptz_type(T))
-struct AggregateFunctionCollectListData<T, HasLimit> : AggregateFunctionCollectLimitData {
+struct AggregateFunctionCollectListData<T, HasLimit> {
     static constexpr PrimitiveType PType = T;
     using ElementType = StringRef;
     using Self = AggregateFunctionCollectListData<T, HasLimit>;
     DataTypeSerDeSPtr serde; // for complex serialize && deserialize from multi BE
     MutableColumnPtr column_data;
+    Int64 max_size = -1;
 
     AggregateFunctionCollectListData(const DataTypes& argument_types) {
         DataTypePtr column_type = argument_types[0];
@@ -345,7 +340,7 @@ struct AggregateFunctionCollectListData<T, HasLimit> : AggregateFunctionCollectL
 
     void merge(const AggregateFunctionCollectListData& rhs) {
         if constexpr (HasLimit) {
-            if (!is_initialized()) {
+            if (max_size == -1) {
                 max_size = rhs.max_size;
             }
 
@@ -407,7 +402,7 @@ struct AggregateFunctionCollectListData<T, HasLimit> : AggregateFunctionCollectL
 
     void reset() {
         column_data->clear();
-        max_size = UNINITIALIZED_MAX_SIZE;
+        max_size = -1;
     }
 
     void insert_result_into(IColumn& to) const { to.insert_range_from(*column_data, 0, size()); }
@@ -444,7 +439,7 @@ public:
              Arena& arena) const override {
         auto& data = this->data(place);
         if constexpr (HasLimit) {
-            if (!data.is_initialized()) {
+            if (data.max_size == -1) {
                 data.max_size =
                         assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(columns[1])
                                 ->get_element(row_num);
@@ -470,12 +465,10 @@ public:
             }
             if (data.size() == 0) {
                 data.max_size = rhs_data.max_size;
-            } else {
-                if (UNLIKELY(data.max_size != rhs_data.max_size)) {
-                    throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                    "{} aggregate states have incompatible limits: {} vs {}",
-                                    get_name(), data.max_size, rhs_data.max_size);
-                }
+            } else if (UNLIKELY(data.max_size != rhs_data.max_size)) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "{} aggregate states have incompatible limits: {} vs {}",
+                                get_name(), data.max_size, rhs_data.max_size);
             }
         }
         if constexpr (ENABLE_ARENA) {

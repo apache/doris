@@ -174,6 +174,24 @@ public:
         EXPECT_TRUE(ColumnHelper::column_equal(result(destination), result(expected)));
     }
 
+    void check_serialization_size(const Arguments& arguments, size_t empty_size,
+                                  size_t populated_size) {
+        auto* state = create();
+        for (int reuse = 0; reuse < 2; ++reuse) {
+            SCOPED_TRACE(reuse);
+            EXPECT_EQ(serialize(state)->get_data_at(0).size, empty_size);
+            add(state, arguments);
+            auto serialized = serialize(state);
+            EXPECT_EQ(serialized->get_data_at(0).size, populated_size);
+
+            auto* restored = create();
+            _function->deserialize_and_merge_from_column(restored, *serialized, _arena);
+            EXPECT_TRUE(ColumnHelper::column_equal(result(restored), result(state)));
+            EXPECT_EQ(serialize(restored)->get_data_at(0).size, populated_size);
+            _function->reset(state);
+        }
+    }
+
     void check_invalid_outputs(const Arguments& arguments, const std::string& message) {
         auto* state = create(arguments);
         for (bool serialize_state : {false, true}) {
@@ -459,6 +477,33 @@ TEST(AggregateStateParametersTest, CollectZeroAndNegativeLimits) {
     for (int limit : {-2, -1}) {
         check_parameters("collect_list", {quantiles({0.5}), argument<DataTypeInt32>(limit)},
                          {quantiles({0.5}), argument<DataTypeInt32>(1)});
+    }
+    check_parameters("collect_list", {quantiles({0.5}), argument<DataTypeInt32>(-1)},
+                     {quantiles({0.5}), argument<DataTypeInt32>(-2)});
+}
+
+TEST(AggregateStateParametersTest, CollectNoLimitSerializationSize) {
+    auto check = [](const char* name, const ColumnWithTypeAndName& value, size_t empty_size,
+                    size_t populated_size) {
+        SCOPED_TRACE(name);
+        SCOPED_TRACE(value.type->get_name());
+        auto function = AggregateFunctionSimpleFactory::instance().get(
+                name, {value.type}, nullptr, false, BeExecVersionManager::get_newest_version());
+        ASSERT_NE(function, nullptr);
+        function->set_version(BeExecVersionManager::get_newest_version());
+        StateParameterChecks checks(function);
+        checks.check_serialization_size({value}, empty_size, populated_size);
+    };
+
+    // The legacy -1 field takes two bytes: one length byte and one ZigZag byte.
+    for (const auto* name : {"collect_list", "group_array", "array_agg"}) {
+        check(name, argument<DataTypeInt32>(7), 4, 8);
+        check(name, argument<DataTypeString>("a"), 6, 7 + sizeof(IColumn::Offset));
+        check(name, quantiles({}), sizeof(size_t) + 2, sizeof(size_t) + 6);
+    }
+    for (const auto* name : {"collect_set", "group_uniq_array"}) {
+        check(name, argument<DataTypeInt32>(7), 4, 8);
+        check(name, argument<DataTypeString>("a"), 4, 7);
     }
 }
 
