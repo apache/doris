@@ -33,13 +33,6 @@ class GeoLine;
 class GeoPoint;
 class GeoPolygon;
 
-// WKB format constants
-// According to OpenGIS Implementation Specification:
-// The high bit of the type value is set to 1 if the WKB contains a SRID.
-// Reference: OpenGIS Implementation Specification for Geographic information - Simple feature access - Part 1: Common architecture
-// Bit mask to check if WKB contains SRID
-constexpr uint32_t WKB_SRID_FLAG = 0x20000000;
-
 // The geometry type is stored in the least significant byte of the type value
 // Bit mask to extract the base geometry type
 constexpr uint32_t WKB_TYPE_MASK = 0xFF;

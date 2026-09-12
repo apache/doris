@@ -167,6 +167,31 @@ TEST(VGeoFunctionsTest, function_geo_st_geogfromwkb_returns_raw_geography_wkb) {
     EXPECT_EQ(wkb, std::string(value.data, value.size));
 }
 
+TEST(VGeoFunctionsTest, function_geo_fromwkb_rejects_unsupported_metadata) {
+    const std::vector<std::string> unsupported_wkb {
+            "0101000080000000000000F03F00000000000000400000000000000840",
+            "0101000020E6100000000000000000F03F0000000000000040"};
+    for (const auto& function_name : {"st_geomfromwkb", "st_geogfromwkb"}) {
+        for (const auto& wkb : unsupported_wkb) {
+            auto input_column = ColumnString::create();
+            input_column->insert_data(wkb.data(), wkb.size());
+            auto input_type = std::make_shared<DataTypeString>();
+            ColumnsWithTypeAndName arguments {{std::move(input_column), input_type, "wkb"}};
+            auto result_type = make_nullable(std::make_shared<DataTypeSpatial>(
+                    function_name == "st_geomfromwkb" ? TYPE_GEOMETRY : TYPE_GEOGRAPHY));
+            auto function =
+                    SimpleFunctionFactory::instance().get_function(function_name, arguments, result_type);
+            ASSERT_NE(nullptr, function);
+
+            Block block;
+            block.insert(arguments.front());
+            block.insert({nullptr, result_type, "result"});
+            ASSERT_TRUE(function->execute(nullptr, block, {0}, 1, 1).ok());
+            EXPECT_TRUE(block.get_by_position(1).column->is_null_at(0));
+        }
+    }
+}
+
 TEST(VGeoFunctionsTest, function_geo_st_distance_rejects_geometry) {
     const std::string wkb(
             "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
@@ -291,6 +316,29 @@ TEST(VGeoFunctionsTest, function_geo_st_astext_rejects_invalid_spatial_wkb) {
     EXPECT_NE(status.to_string().find("Invalid WKB in spatial input"), std::string::npos)
             << status.to_string();
     EXPECT_NE(status.to_string().find("WKB syntax error"), std::string::npos) << status.to_string();
+}
+
+TEST(VGeoFunctionsTest, function_geo_st_astext_rejects_spatial_wkb_with_trailing_bytes) {
+    const std::string wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@\x00",
+            22);
+    auto geometry_type = std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY);
+    auto geometry_column = ColumnSpatial::create(TYPE_GEOMETRY);
+    geometry_column->insert_data(wkb.data(), wkb.size());
+
+    ColumnsWithTypeAndName arguments {{std::move(geometry_column), geometry_type, "geometry"}};
+    auto result_type = make_nullable(std::make_shared<DataTypeString>());
+    auto function =
+            SimpleFunctionFactory::instance().get_function("st_astext", arguments, result_type);
+    ASSERT_NE(nullptr, function);
+
+    Block block;
+    block.insert(arguments.front());
+    block.insert({nullptr, result_type, "result"});
+    const auto status = function->execute(nullptr, block, {0}, 1, 1);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Invalid WKB in spatial input"), std::string::npos)
+            << status.to_string();
 }
 
 TEST(VGeoFunctionsTest, function_geo_st_astext_rejects_spatial_wkb_with_z) {

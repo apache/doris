@@ -166,7 +166,7 @@ void WkbParse::read(std::istream& is, WkbParseContext& ctx) {
     }
 
     std::unique_ptr<GeoShape> shape = readGeometry(ctx);
-    if (!shape) {
+    if (!shape || ctx.dis.size() != 0) {
         ctx.parse_status = GEO_PARSE_WKB_SYNTAX_ERROR;
         return;
     }
@@ -186,12 +186,12 @@ std::unique_ptr<GeoShape> WkbParse::readGeometry(WkbParseContext& ctx) {
 
         uint32_t typeInt = ctx.dis.readUnsigned();
 
-        // Check if geometry has SRID
-        bool has_srid = (typeInt & WKB_SRID_FLAG) != 0;
-
-        // Read SRID if present
-        if (has_srid) {
-            ctx.dis.readUnsigned(); // Read and store SRID if needed
+        constexpr uint32_t ewkb_z_flag = 0x80000000;
+        constexpr uint32_t ewkb_m_flag = 0x40000000;
+        constexpr uint32_t ewkb_srid_flag = 0x20000000;
+        constexpr uint32_t ewkb_metadata_flags = ewkb_z_flag | ewkb_m_flag | ewkb_srid_flag;
+        if ((typeInt & ewkb_metadata_flags) != 0 || (typeInt >= 1000 && typeInt < 4000)) {
+            return nullptr;
         }
 
         // Get the base geometry type
