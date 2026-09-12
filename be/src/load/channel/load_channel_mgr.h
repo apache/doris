@@ -78,7 +78,10 @@ private:
     Status _get_load_channel(std::shared_ptr<LoadChannel>& channel, bool& is_eof,
                              const UniqueId& load_id, const PTabletWriterAddBlockRequest& request);
 
-    void _finish_load_channel(UniqueId load_id);
+    Status _cancel_load_channel(const std::shared_ptr<LoadChannel>& channel, const Status& reason);
+    void _finish_load_channel(const std::shared_ptr<LoadChannel>& channel);
+    // Caller holds _lock.
+    void _record_cancelled_load_channel(const UniqueId& load_id, const std::string& reason);
 
     Status _start_bg_worker();
 
