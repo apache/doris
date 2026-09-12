@@ -24,6 +24,7 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "common/metrics/doris_metrics.h"
 #include "io/fs/kafka_consumer_pipe.h"
 #include "io/fs/kinesis_consumer_pipe.h"
 #include "librdkafka/rdkafkacpp.h"
@@ -227,9 +228,9 @@ Status KinesisDataConsumerGroup::assign_stream_shards(std::shared_ptr<StreamLoad
 KinesisDataConsumerGroup::~KinesisDataConsumerGroup() {
     _queue.shutdown();
     while (true) {
-        std::shared_ptr<Aws::Kinesis::Model::Record> record;
-        if (_queue.blocking_get(&record)) {
-            record.reset();
+        KinesisQueueItem item;
+        if (_queue.blocking_get(&item)) {
+            item.record.reset();
         } else {
             break;
         }
@@ -256,10 +257,16 @@ Status KinesisDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ct
 
 bool KinesisDataConsumerGroup::_dequeue_and_process(io::StreamLoadPipe* pipe, int64_t& left_rows,
                                                     int64_t& left_bytes, Status& result_st) {
-    std::shared_ptr<Aws::Kinesis::Model::Record> record;
-    if (!_queue.controlled_blocking_get(&record, config::blocking_queue_cv_wait_timeout_ms)) {
+    KinesisQueueItem item;
+    if (!_queue.controlled_blocking_get(&item, config::blocking_queue_cv_wait_timeout_ms)) {
         return false;
     }
+    if (item.end_of_shard) {
+        _closed_shard_ids.insert(item.shard_id);
+        DorisMetrics::instance()->routine_load_kinesis_closed_shard_count->increment(1);
+        return true;
+    }
+    auto& record = item.record;
     auto& data = record->GetData();
     const char* payload = reinterpret_cast<const char*>(data.GetUnderlyingData());
     size_t len = data.GetLength();
@@ -270,6 +277,7 @@ bool KinesisDataConsumerGroup::_dequeue_and_process(io::StreamLoadPipe* pipe, in
     if (st.ok()) {
         left_rows--;
         left_bytes -= len;
+        _candidate_sequence_numbers[item.shard_id] = record->GetSequenceNumber();
         VLOG_NOTICE << "consume kinesis record [seq=" << record->GetSequenceNumber() << "]";
     } else {
         LOG(WARNING) << "failed to append kinesis record to pipe. grp: " << _grp_id;
@@ -282,27 +290,23 @@ bool KinesisDataConsumerGroup::_dequeue_and_process(io::StreamLoadPipe* pipe, in
 }
 
 void KinesisDataConsumerGroup::_on_finish(std::shared_ptr<StreamLoadContext> ctx) {
+    ctx->kinesis_info->cmt_sequence_number = _candidate_sequence_numbers;
+    ctx->kinesis_info->closed_shard_ids = _closed_shard_ids;
     for (auto& consumer : _consumers) {
         auto kinesis_consumer = std::static_pointer_cast<KinesisDataConsumer>(consumer);
-        for (auto& [shard_id, seq_num] : kinesis_consumer->get_committed_sequence_numbers()) {
-            ctx->kinesis_info->cmt_sequence_number[shard_id] = seq_num;
-        }
         for (auto& [shard_id, millis] : kinesis_consumer->get_millis_behind_latest()) {
             auto [it, inserted] = ctx->kinesis_info->millis_behind_latest.emplace(shard_id, millis);
             if (!inserted && it->second < millis) {
                 it->second = millis;
             }
         }
-        for (auto& shard_id : kinesis_consumer->get_closed_shard_ids()) {
-            ctx->kinesis_info->closed_shard_ids.insert(shard_id);
-        }
     }
 }
 
-void KinesisDataConsumerGroup::actual_consume(
-        std::shared_ptr<DataConsumer> consumer,
-        BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue,
-        int64_t max_running_time_ms, ConsumeFinishCallback cb) {
+void KinesisDataConsumerGroup::actual_consume(std::shared_ptr<DataConsumer> consumer,
+                                              BlockingQueue<KinesisQueueItem>* queue,
+                                              int64_t max_running_time_ms,
+                                              ConsumeFinishCallback cb) {
     Status st = std::static_pointer_cast<KinesisDataConsumer>(consumer)->group_consume(
             queue, max_running_time_ms);
     cb(st);
