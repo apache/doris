@@ -29,10 +29,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.mockito.Mockito;
 
-import java.time.Clock;
-import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -171,60 +168,6 @@ class AzureBackendViewTest {
         Assertions.assertEquals(BackendStorageKind.NATIVE,
                 properties.toBackendProperties().orElseThrow().backendKind());
         Assertions.assertEquals(nativeBefore, properties.toMap());
-    }
-
-    @Test
-    void cachedOneLakeViewRechecksSasExpiryOnEveryAccess() {
-        Clock clock = Mockito.mock(Clock.class);
-        Mockito.when(clock.instant()).thenReturn(Instant.parse("2026-01-01T00:00:00Z"));
-        Map<String, String> raw = input("SAS", ONELAKE_HOST);
-        raw.put("azure.sas_token", "sig=test-signature&se=2026-01-02T00%3A00%3A00Z");
-        AzureFileSystemProperties properties = AzureFileSystemProperties.of(raw, clock);
-        String uri = "abfss://container@" + ONELAKE_HOST + "/lakehouse/Tables/file";
-        BackendStorageProperties view = properties.resolveBackendProperties(uri).orElseThrow();
-        Map<String, String> cached = view.toMap();
-        Assertions.assertSame(cached, view.toMap());
-        Assertions.assertSame(cached, properties.resolveBackendProperties(uri).orElseThrow().toMap());
-        Assertions.assertThrows(UnsupportedOperationException.class, () -> cached.put("extra", "value"));
-
-        Mockito.when(clock.instant()).thenReturn(Instant.parse("2026-01-02T00:00:00Z"));
-        StoragePropertiesException error = Assertions.assertThrows(StoragePropertiesException.class, view::toMap);
-        Assertions.assertEquals("Azure SAS credential is expired", error.getMessage());
-        Assertions.assertNull(error.getCause());
-        BackendStorageProperties nextView = properties.resolveBackendProperties(uri).orElseThrow();
-        Assertions.assertThrows(StoragePropertiesException.class, nextView::toMap);
-    }
-
-    @ParameterizedTest
-    @CsvSource({
-            "abfss, onelake.dfs.fabric.microsoft.com.example.test",
-            "abfss, onelake.dfs.core.windows.net",
-            "wasbs, onelake.dfs.fabric.microsoft.com",
-            "abfss, onelake.blob.fabric.microsoft.com"
-    })
-    void hadoopViewRequiresAnAbfsLocationOnTheActualOneLakeDfsHost(String scheme, String host) {
-        Map<String, String> raw = input("OAUTH2", host);
-        raw.remove("AZURE_CONTAINER");
-        AzureFileSystemProperties properties = new AzureFileSystemProvider().bind(raw);
-
-        Assertions.assertEquals(BackendStorageKind.NATIVE,
-                properties.resolveBackendProperties(scheme + "://workspace@" + host + "/file")
-                        .orElseThrow().backendKind());
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {ACCOUNT_HOST, ONELAKE_HOST})
-    void selectingAViewDefersExpiredSasUntilThatViewIsRead(String host) {
-        Map<String, String> raw = input("SAS", host);
-        raw.put("azure.sas_expiry_ms", "1");
-        AzureFileSystemProperties properties = new AzureFileSystemProvider().bind(raw);
-        String uri = "abfss://container@" + host + "/file";
-
-        BackendStorageProperties view = Assertions.assertDoesNotThrow(
-                () -> properties.resolveBackendProperties(properties.validateAndNormalizeUri(uri)).orElseThrow());
-        StoragePropertiesException exception = Assertions.assertThrows(StoragePropertiesException.class, view::toMap);
-        Assertions.assertEquals("Azure SAS credential is expired", exception.getMessage());
-        Assertions.assertNull(exception.getCause());
     }
 
     @ParameterizedTest

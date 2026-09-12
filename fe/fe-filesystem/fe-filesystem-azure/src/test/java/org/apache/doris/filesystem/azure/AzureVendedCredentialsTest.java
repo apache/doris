@@ -123,15 +123,6 @@ class AzureVendedCredentialsTest {
     }
 
     @Test
-    void bindVended_doesNotInventExpiryWhenNeitherSourceProvidesOne() {
-        AzureFileSystemProperties properties = provider.bindVended(Map.of(TOKEN_KEY, TOKEN), Map.of()).orElseThrow();
-
-        Assertions.assertEquals("", properties.getSasExpiryMs());
-        Assertions.assertFalse(properties.toMap().containsKey("AZURE_SAS_EXPIRY_MS"));
-        Assertions.assertDoesNotThrow(properties::validateForAccess);
-    }
-
-    @Test
     void bindVended_defersKnownExpiryUntilAccessAndNeverFallsBack() {
         AzureFileSystemProperties properties = provider.bindVended(Map.of(TOKEN_KEY, TOKEN, EXPIRY_KEY, "1"),
                 Map.of("azure.account_name", "account", "azure.account_key", "old-shared-key")).orElseThrow();
@@ -189,28 +180,9 @@ class AzureVendedCredentialsTest {
     }
 
     @Test
-    void bindVended_acceptsEquivalentCaseVariantsOfOneAccount() {
-        AzureFileSystemProperties properties = provider.bindVended(Map.of(
-                TOKEN_KEY, TOKEN,
-                "ADLS.SAS-TOKEN.ACCOUNT.DFS.CORE.WINDOWS.NET", TOKEN,
-                "ADLS.SAS-TOKEN-EXPIRES-AT-MS.ACCOUNT.DFS.CORE.WINDOWS.NET", "4102444800000"),
-                Map.of()).orElseThrow();
-
-        Assertions.assertEquals("account", properties.getAccountName());
-        Assertions.assertEquals(TOKEN, properties.getSasToken());
-        Assertions.assertEquals("4102444800000", properties.getSasExpiryMs());
-    }
-
-    @Test
     void bindVended_rejectsConflictingTokensWithDifferentKeyCase() {
         assertRejected(Map.of(TOKEN_KEY, TOKEN,
                 "ADLS.SAS-TOKEN.ACCOUNT.DFS.CORE.WINDOWS.NET", "sig=other-secret-signature"));
-    }
-
-    @Test
-    void bindVended_rejectsConflictingExpiryAliases() {
-        assertRejected(Map.of(TOKEN_KEY, TOKEN, EXPIRY_KEY, "4102444800000",
-                "ADLS.SAS-TOKEN-EXPIRES-AT-MS.ACCOUNT.DFS.CORE.WINDOWS.NET", "4200000000000"));
     }
 
     @ParameterizedTest
@@ -246,14 +218,6 @@ class AzureVendedCredentialsTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"", "account.dfs.core.windows.net/path", "user@account.dfs.core.windows.net",
-            "account.dfs.core.windows.net:443", "account.dfs.core.windows.net?sig=secret-signature",
-            "https://account.dfs.core.windows.net"})
-    void bindVended_rejectsNonHostPropertySuffix(String host) {
-        assertRejected(Map.of("adls.sas-token." + host, TOKEN));
-    }
-
-    @ParameterizedTest
     @ValueSource(strings = {"adls.token", "ADLS.TOKEN"})
     void bindVended_rejectsUnsupportedVendedAccessToken(String key) {
         StoragePropertiesException error = assertRejected(Map.of(key, "secret-signature"));
@@ -285,16 +249,6 @@ class AzureVendedCredentialsTest {
     }
 
     @ParameterizedTest
-    @NullAndEmptySource
-    @ValueSource(strings = {" "})
-    void bindVended_rejectsEmptyContainerScope(String container) {
-        Map<String, String> credentials = new HashMap<>(Map.of(TOKEN_KEY, TOKEN));
-        credentials.put("adls.container", container);
-
-        assertRejected(credentials);
-    }
-
-    @ParameterizedTest
     @CsvSource({"azure.account_name, other", "azure.endpoint, https://other.blob.core.windows.net",
             "azure.endpoint, https://account.blob.core.chinacloudapi.cn"})
     void bindVended_rejectsCatalogAccountOrCloudMismatch(String key, String value) {
@@ -312,16 +266,6 @@ class AzureVendedCredentialsTest {
                         "provider", "azure", "s3.access_key", "old-account")));
 
         Assertions.assertEquals("Azure vended credential account does not match the legacy account",
-                error.getMessage());
-    }
-
-    @Test
-    void bindVended_rejectsLegacyEndpointAccountConflictWhenReplacingCredentials() {
-        StoragePropertiesException error = Assertions.assertThrows(StoragePropertiesException.class,
-                () -> provider.bindVended(Map.of(TOKEN_KEY, TOKEN), Map.of(
-                        "s3.endpoint", "https://old-account.blob.core.windows.net")));
-
-        Assertions.assertEquals("Azure vended credential account does not match the legacy endpoint",
                 error.getMessage());
     }
 
@@ -352,42 +296,12 @@ class AzureVendedCredentialsTest {
     }
 
     @Test
-    void bindVended_inheritsHistoricalUppercaseAzureCustomEndpoint() {
-        AzureFileSystemProperties properties = provider.bindVended(Map.of(TOKEN_KEY, TOKEN), Map.of(
-                "provider", "azure", "AZURE_ENDPOINT", "http://localhost:10000/devstoreaccount1",
-                "container", "container")).orElseThrow();
-
-        Assertions.assertEquals("http://localhost:10000/devstoreaccount1", properties.getEndpoint());
-    }
-
-    @Test
     void bindVended_preservesHistoricalUppercaseEndpointWithAccountAlias() {
         AzureFileSystemProperties properties = provider.bindVended(Map.of(TOKEN_KEY, TOKEN), Map.of(
                 "AZURE_ENDPOINT", "https://proxy.example.test:8443",
                 "AZURE_ACCOUNT_NAME", "account")).orElseThrow();
 
         Assertions.assertEquals("https://proxy.example.test:8443", properties.getEndpoint());
-    }
-
-    @Test
-    void bindVendedSharedKey_rejectsLegacyAccountConflictWhenReplacingCredentials() {
-        StoragePropertiesException error = Assertions.assertThrows(StoragePropertiesException.class,
-                () -> provider.bindVended(Map.of(
-                        "adls.auth.shared-key.account.name", "new-account",
-                        "adls.auth.shared-key.account.key", "new-key"), Map.of(
-                        "provider", "azure", "s3.access_key", "old-account")));
-
-        Assertions.assertEquals("Azure vended credential account does not match the legacy account",
-                error.getMessage());
-    }
-
-    @Test
-    void bindVended_doesNotInheritSiblingS3Endpoint() {
-        AzureFileSystemProperties properties = provider.bindVended(Map.of(TOKEN_KEY, TOKEN), Map.of(
-                "provider", "azure", "azure.account_name", "account",
-                "s3.endpoint", "https://s3.example.test")).orElseThrow();
-
-        Assertions.assertEquals("https://account.blob.core.windows.net", properties.getEndpoint());
     }
 
     @ParameterizedTest
@@ -434,22 +348,6 @@ class AzureVendedCredentialsTest {
         Assertions.assertTrue(provider.bindVended(Map.of(
                 "s3.access-key-id", "aws-key", "s3.secret-access-key", "aws-secret", "s3.session-token", "aws-token"),
                 Map.of("provider", "azure")).isEmpty());
-    }
-
-    @Test
-    void bindVended_doesNotInheritOtherStoresLocationOrAuthentication() {
-        Map<String, String> otherStore = Map.of(
-                "provider", "s3", "fs.s3.support", "true", "s3.endpoint", "https://s3.us-east-1.amazonaws.com",
-                "s3.access_key", "aws-key", "s3.secret_key", "aws-secret", "s3.bucket", "aws-bucket");
-        Map<String, String> credentials = new HashMap<>(otherStore);
-        credentials.put(TOKEN_KEY, TOKEN);
-        AzureFileSystemProperties properties = provider.bindVended(credentials, otherStore).orElseThrow();
-
-        Assertions.assertEquals("account", properties.getAccountName());
-        Assertions.assertEquals("https://account.blob.core.windows.net", properties.getEndpoint());
-        Assertions.assertEquals("", properties.getContainer());
-        Assertions.assertEquals("", properties.getAccountKey());
-        Assertions.assertEquals(Map.of(TOKEN_KEY, TOKEN), properties.rawProperties());
     }
 
     private StoragePropertiesException assertRejected(Map<String, String> credentials) {

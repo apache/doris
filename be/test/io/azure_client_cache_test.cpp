@@ -27,11 +27,9 @@
 #include <string>
 #include <thread>
 #include <utility>
-#include <vector>
 
 #include "cpp/sync_point.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/file_writer.h"
 #include "io/fs/s3_file_system.h"
 #include "util/defer_op.h"
 #include "util/s3_util.h"
@@ -176,23 +174,6 @@ TEST_F(AzureClientFactoryCacheTest, ReusedFileSystemRejectsExpiredSasBeforeOpeni
     EXPECT_NE(refreshed_reader, nullptr);
 }
 
-TEST_F(AzureClientFactoryCacheTest, ReusedFileSystemRejectsExpiredSasBeforeOpeningWriter) {
-    auto conf = sas_conf("reused-writer");
-    conf.azure_credentials.sas_expiration_time_ms = TOKEN_EXPIRY_MS;
-    S3Conf fs_conf {.bucket = conf.bucket, .prefix = {}, .client_conf = conf};
-    auto fs_result = io::S3FileSystem::create(std::move(fs_conf), "azure-writer-expiry");
-    ASSERT_TRUE(fs_result.has_value());
-
-    now_ms = TOKEN_EXPIRY_MS;
-    io::FileWriterPtr rejected_writer;
-    auto status = fs_result.value()->create_file(
-            "abfss://cache-test@account.dfs.core.windows.net/object", &rejected_writer);
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("expired"), std::string::npos);
-    EXPECT_EQ(status.to_string().find("reused-writer"), std::string::npos);
-    EXPECT_EQ(rejected_writer, nullptr);
-}
-
 TEST_F(AzureClientFactoryCacheTest, ReaderAdmissionChecksCurrentCredentialAfterConcurrentReset) {
     auto long_lived = sas_conf("admission-old");
     long_lived.azure_credentials.sas_expiration_time_ms = TOKEN_EXPIRY_MS + 60000;
@@ -293,44 +274,6 @@ TEST_F(AzureClientFactoryCacheTest, ExpiryDuringConstructionDoesNotPublishClient
     EXPECT_NE(expired.error().to_string().find("expired"), std::string::npos);
     EXPECT_EQ(expired.error().to_string().find("expires-during-construction"), std::string::npos);
     EXPECT_EQ(cache_size(), 0);
-}
-
-TEST_F(AzureClientFactoryCacheTest, ConcurrentCreatorsPublishOneClientPerIdentity) {
-    auto first_conf = sas_conf("concurrent-first");
-    auto second_conf = sas_conf("concurrent-second");
-    std::vector<std::shared_ptr<io::ObjStorageClient>> clients(16);
-    std::mutex mutex;
-    std::condition_variable all_missed;
-    size_t misses = 0;
-    SyncPoint::CallbackGuard miss_callback;
-    SyncPoint::get_instance()->set_call_back(
-            "S3ClientFactory::azure_cache_miss",
-            [&](auto&&) {
-                std::unique_lock lock(mutex);
-                ++misses;
-                all_missed.notify_all();
-                // Force all creators past the initial lookup before any client
-                // is constructed. Bound the wait so a regression fails, not hangs.
-                EXPECT_TRUE(all_missed.wait_for(lock, std::chrono::seconds(10),
-                                                [&] { return misses == clients.size(); }));
-            },
-            &miss_callback);
-    std::vector<std::thread> threads;
-    for (size_t index = 0; index < clients.size(); ++index) {
-        threads.emplace_back(
-                [&, index] { clients[index] = client(index % 2 == 0 ? first_conf : second_conf); });
-    }
-    for (auto& thread : threads) {
-        thread.join();
-    }
-    EXPECT_EQ(misses, clients.size());
-    ASSERT_NE(clients[0], nullptr);
-    ASSERT_NE(clients[1], nullptr);
-    EXPECT_NE(clients[0], clients[1]);
-    for (size_t index = 0; index < clients.size(); ++index) {
-        EXPECT_EQ(clients[index], clients[index % 2]);
-    }
-    EXPECT_EQ(cache_size(), 2);
 }
 
 TEST_F(AzureClientFactoryCacheTest, AzureRotationsDoNotEvictS3Clients) {

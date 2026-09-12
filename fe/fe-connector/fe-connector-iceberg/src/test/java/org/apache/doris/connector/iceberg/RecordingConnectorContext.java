@@ -36,7 +36,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.function.BiPredicate;
 import java.util.function.Function;
 import java.util.function.UnaryOperator;
 
@@ -85,17 +84,12 @@ final class RecordingConnectorContext implements ConnectorContext, ConnectorStor
 
     /** Request-level storage access seam. Tests can supply a binding result independently of the legacy maps. */
     Function<String, ConnectorStorageAccess> storageAccessResolver;
-    BiPredicate<String, String> storageLocationPrefixMatcher = (rawLocation, rawPrefix) -> {
-        throw new UnsupportedOperationException("Storage prefix matching is not configured for this test");
-    };
     Set<String> storageAccessProviderNames = Collections.singleton("fake");
     int newStorageAccessResolverCount;
     int storageAccessResolveCount;
     Map<String, String> lastStorageAccessVendedToken;
     final List<String> resolvedStorageUris = new ArrayList<>();
     final List<ConnectorStorageAccess> resolvedStorageAccesses = new ArrayList<>();
-    final List<String> prefixMatchLocations = new ArrayList<>();
-    final List<String> prefixMatchPrefixes = new ArrayList<>();
     int getStoragePropertiesCount;
     int vendStorageCredentialsCount;
     int getBackendFileTypeCount;
@@ -171,17 +165,12 @@ final class RecordingConnectorContext implements ConnectorContext, ConnectorStor
                     fixtureBackendKind(), getBackendFileType(rawUri, vendedToken), backendProperties);
         }
         Function<String, ConnectorStorageAccess> requestResolver = resolver;
-        BiPredicate<String, String> requestPrefixMatcher = storageLocationPrefixMatcher;
         return new ConnectorStorageAccessResolver(storageAccessProviderNames, rawUri -> {
             storageAccessResolveCount++;
             resolvedStorageUris.add(rawUri);
             ConnectorStorageAccess access = requestResolver.apply(rawUri);
             resolvedStorageAccesses.add(access);
             return access;
-        }, (rawLocation, rawPrefix) -> {
-            prefixMatchLocations.add(rawLocation);
-            prefixMatchPrefixes.add(rawPrefix);
-            return requestPrefixMatcher.test(rawLocation, rawPrefix);
         });
     }
 

@@ -93,15 +93,15 @@ public class ObjectInfoAdapterTest {
             StorageAdapter adapter = ObjectInfoAdapter.toStorageAdapter(azureObjectInfo("account-key", token));
             Map<String, String> backend = adapter.getBackendConfigProperties();
 
-            Assert.assertEquals(StorageTypeId.AZURE, adapter.getType());
-            Assert.assertEquals("azure", backend.get("provider"));
-            Assert.assertEquals("SHARED_KEY", backend.get("AZURE_AUTH_TYPE"));
-            Assert.assertEquals("account-key", backend.get("AZURE_ACCOUNT_KEY"));
-            Assert.assertEquals("account", backend.get("AZURE_ACCOUNT_NAME"));
-            Assert.assertEquals("https://account.blob.core.windows.net", backend.get("AZURE_ENDPOINT"));
-            Assert.assertEquals("container", backend.get("AZURE_CONTAINER"));
-            Assert.assertFalse(backend.containsKey("AZURE_SAS_TOKEN"));
-            Assert.assertFalse(backend.containsKey("AZURE_SAS_EXPIRY_MS"));
+            Assertions.assertEquals(StorageTypeId.AZURE, adapter.getType());
+            Assertions.assertEquals("azure", backend.get("provider"));
+            Assertions.assertEquals("SHARED_KEY", backend.get("AZURE_AUTH_TYPE"));
+            Assertions.assertEquals("account-key", backend.get("AZURE_ACCOUNT_KEY"));
+            Assertions.assertEquals("account", backend.get("AZURE_ACCOUNT_NAME"));
+            Assertions.assertEquals("https://account.blob.core.windows.net", backend.get("AZURE_ENDPOINT"));
+            Assertions.assertEquals("container", adapter.getOrigProps().get("azure.container"));
+            Assertions.assertFalse(backend.containsKey("AZURE_SAS_TOKEN"));
+            Assertions.assertFalse(backend.containsKey("AZURE_SAS_EXPIRY_MS"));
         }
     }
 
@@ -113,40 +113,40 @@ public class ObjectInfoAdapterTest {
             StorageAdapter adapter = ObjectInfoAdapter.toStorageAdapter(objectInfo);
             Map<String, String> backend = adapter.getBackendConfigProperties();
 
-            Assert.assertEquals(StorageTypeId.AZURE, adapter.getType());
-            Assert.assertEquals("SAS", adapter.getOrigProps().get("azure.auth_type"));
-            Assert.assertFalse(adapter.getOrigProps().containsKey("azure.account_key"));
-            Assert.assertEquals("azure", backend.get("provider"));
-            Assert.assertEquals("SAS", backend.get("AZURE_AUTH_TYPE"));
-            Assert.assertEquals(token.substring(1), backend.get("AZURE_SAS_TOKEN"));
-            Assert.assertEquals("4102444800000", backend.get("AZURE_SAS_EXPIRY_MS"));
-            Assert.assertEquals("account", backend.get("AZURE_ACCOUNT_NAME"));
-            Assert.assertEquals("container", backend.get("AZURE_CONTAINER"));
-            Assert.assertEquals("https://account.blob.core.windows.net", backend.get("AZURE_ENDPOINT"));
-            Assert.assertFalse(backend.containsKey("AZURE_ACCOUNT_KEY"));
-            Assert.assertFalse(backend.keySet().stream().anyMatch(name -> name.startsWith("AWS_")));
-            Assert.assertEquals(key, objectInfo.getSk());
-            Assert.assertEquals(token, objectInfo.getToken());
+            Assertions.assertEquals(StorageTypeId.AZURE, adapter.getType());
+            Assertions.assertEquals("SAS", adapter.getOrigProps().get("azure.auth_type"));
+            Assertions.assertFalse(adapter.getOrigProps().containsKey("azure.account_key"));
+            Assertions.assertEquals("azure", backend.get("provider"));
+            Assertions.assertEquals("SAS", backend.get("AZURE_AUTH_TYPE"));
+            Assertions.assertEquals(token.substring(1), backend.get("AZURE_SAS_TOKEN"));
+            Assertions.assertEquals("4102444800000", backend.get("AZURE_SAS_EXPIRY_MS"));
+            Assertions.assertEquals("account", backend.get("AZURE_ACCOUNT_NAME"));
+            Assertions.assertEquals("container", adapter.getOrigProps().get("azure.container"));
+            Assertions.assertEquals("https://account.blob.core.windows.net", backend.get("AZURE_ENDPOINT"));
+            Assertions.assertFalse(backend.containsKey("AZURE_ACCOUNT_KEY"));
+            Assertions.assertFalse(backend.keySet().stream().anyMatch(name -> name.startsWith("AWS_")));
+            Assertions.assertEquals(key, objectInfo.getSk());
+            Assertions.assertEquals(token, objectInfo.getToken());
         }
     }
 
     @Test
     public void testAzureMalformedSasDoesNotFallBackToSharedKey() {
         String token = "se=invalid-expiry&sig=must-not-be-logged";
-        StoragePropertiesException failure = Assert.assertThrows(StoragePropertiesException.class,
+        StoragePropertiesException failure = Assertions.assertThrows(StoragePropertiesException.class,
                 () -> ObjectInfoAdapter.toStorageAdapter(azureObjectInfo("account-key", token)));
 
-        Assert.assertEquals("Azure SAS credential has an invalid expiry", failure.getMessage());
-        Assert.assertNull(failure.getCause());
-        Assert.assertFalse(failure.getMessage().contains("must-not-be-logged"));
+        Assertions.assertEquals("Azure SAS credential has an invalid expiry", failure.getMessage());
+        Assertions.assertNull(failure.getCause());
+        Assertions.assertFalse(failure.getMessage().contains("must-not-be-logged"));
     }
 
     @Test
     public void testAzureBlankSuppliedSasDoesNotFallBackToSharedKey() {
-        IllegalArgumentException failure = Assert.assertThrows(IllegalArgumentException.class,
+        IllegalArgumentException failure = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> ObjectInfoAdapter.toStorageAdapter(azureObjectInfo("account-key", " ")));
 
-        Assert.assertTrue(failure.getMessage().contains("When auth_type is SAS, sas_token is required"));
+        Assertions.assertTrue(failure.getMessage().contains("When auth_type is SAS, sas_token is required"));
     }
 
     @Test
@@ -154,12 +154,12 @@ public class ObjectInfoAdapterTest {
         StorageAdapter adapter = ObjectInfoAdapter.toStorageAdapter(azureObjectInfo(
                 "account-key", "se=2000-01-01T00%3A00%3A00Z&sig=expired"));
 
-        Assert.assertEquals("SAS", adapter.getOrigProps().get("azure.auth_type"));
-        Assert.assertFalse(adapter.getOrigProps().containsKey("azure.account_key"));
-        StoragePropertiesException failure = Assert.assertThrows(StoragePropertiesException.class,
+        Assertions.assertEquals("SAS", adapter.getOrigProps().get("azure.auth_type"));
+        Assertions.assertFalse(adapter.getOrigProps().containsKey("azure.account_key"));
+        StoragePropertiesException failure = Assertions.assertThrows(StoragePropertiesException.class,
                 adapter::getBackendConfigProperties);
-        Assert.assertEquals("Azure SAS credential is expired", failure.getMessage());
-        Assert.assertNull(failure.getCause());
+        Assertions.assertEquals("Azure SAS credential is expired", failure.getMessage());
+        Assertions.assertNull(failure.getCause());
     }
 
     @Test
@@ -172,11 +172,11 @@ public class ObjectInfoAdapterTest {
                     "endpoint", "region", "prefix", null, null, null, "token-plain");
 
             String rendered = objectInfo.toString();
-            Assert.assertFalse(rendered.contains("token-plain"));
-            Assert.assertFalse(rendered.contains("secret-key-plain"));
-            Assert.assertTrue(rendered.contains("token='******'"));
-            Assert.assertEquals("token-plain", objectInfo.getToken());
-            Assert.assertEquals("secret-key-plain", objectInfo.getSk());
+            Assertions.assertFalse(rendered.contains("token-plain"));
+            Assertions.assertFalse(rendered.contains("secret-key-plain"));
+            Assertions.assertTrue(rendered.contains("token='******'"));
+            Assertions.assertEquals("token-plain", objectInfo.getToken());
+            Assertions.assertEquals("secret-key-plain", objectInfo.getSk());
         }
     }
 

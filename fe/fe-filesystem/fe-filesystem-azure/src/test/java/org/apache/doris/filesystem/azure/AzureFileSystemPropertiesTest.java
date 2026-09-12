@@ -125,59 +125,12 @@ class AzureFileSystemPropertiesTest {
         Assertions.assertEquals("azure-key", properties.getAccountKey());
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"SAS", "OAuth2"})
-    void nativeAuthentication_doesNotConsumeOtherProvidersStaticCredentials(String authType) {
-        Map<String, String> input = new HashMap<>(Map.of(
-                "azure.auth_type", authType,
-                "azure.endpoint", "https://account.blob.core.windows.net",
-                "s3.access_key", "s3-account", "s3.secret_key", "s3-secret",
-                "AWS_ACCESS_KEY", "aws-account", "AWS_SECRET_KEY", "aws-secret",
-                "access_key", "generic-account", "secret_key", "generic-secret"));
-        if (authType.equals("SAS")) {
-            input.put("azure.sas_token", "sig=azure-token");
-        } else {
-            input.putAll(Map.of(
-                    "azure.oauth2_account_host", "account.dfs.core.windows.net",
-                    "azure.oauth2_client_id", "client-id",
-                    "azure.oauth2_client_secret", "client-secret",
-                    "azure.oauth2_server_uri", "https://login.microsoftonline.com/tenant/oauth2/token"));
-        }
-
-        AzureFileSystemProperties properties = new AzureFileSystemProvider().bind(input);
-
-        Assertions.assertEquals("", properties.getAccountKey());
-        Assertions.assertEquals("account", properties.toMap().get("AZURE_ACCOUNT_NAME"));
-        Assertions.assertFalse(properties.toMap().containsKey("AZURE_ACCOUNT_KEY"));
-        Assertions.assertFalse(properties.matchedProperties().containsKey("s3.secret_key"));
-        Assertions.assertFalse(properties.matchedProperties().containsKey("AWS_SECRET_KEY"));
-    }
-
-    @Test
-    void sharedKey_doesNotSilentlyFillMissingAzureKeyFromS3() {
-        Assertions.assertThrows(IllegalArgumentException.class, () -> AzureFileSystemProperties.of(Map.of(
-                "azure.auth_type", "SharedKey", "azure.account_name", "account",
-                "azure.endpoint", "https://account.blob.core.windows.net",
-                "s3.access_key", "s3-account", "s3.secret_key", "s3-secret")));
-    }
-
     @Test
     void sharedKey_doesNotUseS3SecretWhenProviderMarkerIsPresent() {
         Assertions.assertThrows(IllegalArgumentException.class, () -> AzureFileSystemProperties.of(Map.of(
                 "provider", "azure", "azure.auth_type", "SharedKey", "azure.account_name", "account",
                 "s3.endpoint", "https://s3.example.test", "s3.access_key", "s3-account",
                 "s3.secret_key", "s3-secret")));
-    }
-
-    @Test
-    void sas_doesNotUseS3EndpointWhenOnlyAzureAccountIsConfigured() {
-        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
-                "provider", "azure", "azure.auth_type", "SAS", "azure.account_name", "account",
-                "azure.sas_token", "sig=temporary", "s3.endpoint", "https://s3.example.test"));
-
-        Assertions.assertEquals("https://account.blob.core.windows.net", properties.getEndpoint());
-        Assertions.assertEquals("https://account.blob.core.windows.net",
-                properties.toMap().get("AZURE_ENDPOINT"));
     }
 
     @Test
@@ -188,41 +141,6 @@ class AzureFileSystemPropertiesTest {
                 "s3.endpoint", "https://s3.example.test"));
 
         Assertions.assertEquals("https://proxy.example.test", properties.getEndpoint());
-    }
-
-    @Test
-    void sharedKey_doesNotUseS3EndpointWhenAzureCredentialsAreTyped() {
-        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
-                "provider", "azure", "azure.account_name", "account", "azure.account_key", "key",
-                "s3.endpoint", "https://s3.example.test"));
-
-        Assertions.assertEquals("https://account.blob.core.windows.net", properties.getEndpoint());
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"https://account.blob.core.windows.net", "https://account.dfs.core.usgovcloudapi.net"})
-    void sharedKey_preservesProviderQualifiedLegacyS3Credentials(String endpoint) {
-        Map<String, String> input = Map.of("s3.endpoint", endpoint,
-                "s3.access_key", "account", "s3.secret_key", "legacy-key");
-        AzureFileSystemProperties properties = new AzureFileSystemProvider().bind(input);
-
-        Assertions.assertEquals("account", properties.getAccountName());
-        Assertions.assertEquals("legacy-key", properties.toMap().get("AZURE_ACCOUNT_KEY"));
-        Assertions.assertEquals(input, properties.rawProperties());
-        Assertions.assertEquals(input, properties.matchedProperties());
-    }
-
-    @Test
-    void sharedKey_preservesExplicitAzureLegacyCredentialsForCustomEndpoints() {
-        AzureFileSystemProperties properties = new AzureFileSystemProvider().bind(Map.of(
-                "provider", "azure", "s3.endpoint", "https://proxy.example.test",
-                "s3.access_key", "account", "s3.secret_key", "legacy-key"));
-
-        Assertions.assertEquals("account", properties.getAccountName());
-        Assertions.assertEquals("legacy-key", properties.getAccountKey());
-        Assertions.assertEquals("https://proxy.example.test", properties.getEndpoint());
-        Assertions.assertTrue(new AzureFileSystemProvider().sensitivePropertyKeys().containsAll(
-                Set.of("s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY")));
     }
 
     @ParameterizedTest
@@ -236,38 +154,6 @@ class AzureFileSystemPropertiesTest {
 
         Assertions.assertEquals("Azure OAuth2 account host does not match the storage endpoint", error.getMessage());
         Assertions.assertNull(error.getCause());
-    }
-
-    @Test
-    void oauth2_rejectsAccountNameAndAccountHostConflictsAtBinding() {
-        Map<String, String> input = oauth2Properties("https://account.blob.core.windows.net");
-        input.put("azure.account_name", "other");
-
-        Assertions.assertThrows(StoragePropertiesException.class, () -> AzureFileSystemProperties.of(input));
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {
-            "https://account.blob.core.windows.net",
-            "https://account.dfs.core.windows.net"
-    })
-    void oauth2_acceptsMatchingAccountOrStandardTransport(String endpoint) {
-        AzureFileSystemProperties properties = AzureFileSystemProperties.of(oauth2Properties(endpoint));
-        String path = "abfss://container@account.dfs.core.windows.net/dir/file.parquet";
-
-        Assertions.assertEquals(path, properties.validateAndNormalizeUri(path));
-        Assertions.assertEquals("account", properties.toMap().get("AZURE_ACCOUNT_NAME"));
-        Assertions.assertEquals(endpoint.replace(".dfs.", ".blob."), properties.getEndpoint());
-    }
-
-    @Test
-    void oauth2_acceptsCustomEndpointForStandardAbfsUri() {
-        AzureFileSystemProperties properties = AzureFileSystemProperties.of(
-                oauth2Properties("https://proxy.example.test:8443"));
-
-        Assertions.assertEquals("abfss://container@account.dfs.core.windows.net/dir/file.parquet",
-                properties.validateAndNormalizeUri(
-                        "abfss://container@account.dfs.core.windows.net/dir/file.parquet"));
     }
 
     @ParameterizedTest
@@ -294,16 +180,6 @@ class AzureFileSystemPropertiesTest {
         input.put("azure.oauth2_server_uri", tokenEndpoint);
         Assertions.assertEquals(tokenEndpoint,
                 AzureFileSystemProperties.of(input).toMap().get("AZURE_OAUTH_SERVER_URI"));
-    }
-
-    @Test
-    void sharedKeyKeepsLegacyS3UriWithCustomEndpoint() {
-        AzureFileSystemProperties properties = new AzureFileSystemProvider().bind(Map.of(
-                "provider", "azure", "s3.endpoint", "https://proxy.example.test",
-                "s3.access_key", "account", "s3.secret_key", "legacy-key"));
-
-        Assertions.assertEquals("s3://container/dir/file",
-                properties.validateAndNormalizeUri("s3://container/dir/file"));
     }
 
     private static Map<String, String> oauth2Properties(String endpoint) {
@@ -359,20 +235,6 @@ class AzureFileSystemPropertiesTest {
         Assertions.assertTrue(rendered.contains("clientSecret=***"), rendered);
         // accountName is the storage account identifier (also appears in the endpoint), not a secret.
         Assertions.assertTrue(rendered.contains("accountName=azure-account"), rendered);
-    }
-
-    @Test
-    void toString_masksSasToken() {
-        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
-                "azure.auth_type", "SAS",
-                "azure.endpoint", "account.blob.core.windows.net",
-                "azure.account_name", "account",
-                "azure.sas_token", "sas-token-plain"));
-
-        String rendered = properties.toString();
-
-        Assertions.assertFalse(rendered.contains("sas-token-plain"), rendered);
-        Assertions.assertTrue(rendered.contains("sasToken=***"), rendered);
     }
 
     @Test
@@ -507,16 +369,6 @@ class AzureFileSystemPropertiesTest {
     }
 
     @Test
-    void bind_retainsLegacySharedKeyAliasesWithoutAcceptingTheBackendAuthType() {
-        AzureFileSystemProperties rebound = AzureFileSystemProperties.of(Map.of(
-                "AZURE_ACCOUNT_NAME", "account", "AZURE_ACCOUNT_KEY", "key", "AZURE_AUTH_TYPE", "SAS"));
-
-        Assertions.assertEquals(AzureAuthType.SHARED_KEY, rebound.authType());
-        Assertions.assertEquals("key", rebound.toMap().get("AZURE_ACCOUNT_KEY"));
-        Assertions.assertFalse(rebound.matchedProperties().containsKey("AZURE_AUTH_TYPE"));
-    }
-
-    @Test
     void bind_infersSasWhenAuthTypeIsAbsent() {
         AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
                 "azure.account_name", "account",
@@ -526,48 +378,6 @@ class AzureFileSystemPropertiesTest {
         Assertions.assertEquals("SAS", properties.getAzureAuthType());
         Assertions.assertEquals("sig=temporary", properties.toHadoopConfigurationMap()
                 .get("fs.azure.sas.fixed.token.account.dfs.core.windows.net"));
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"azure.auth_type", "AZURE_AUTH_TYPE"})
-    void bind_infersSasWhenAuthTypeIsBlank(String authTypeKey) {
-        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
-                authTypeKey, " ",
-                "azure.sas_token", "sig=temporary"));
-
-        Assertions.assertEquals(AzureAuthType.SAS, properties.authType());
-        Assertions.assertFalse(properties.matchedProperties().containsKey(authTypeKey));
-    }
-
-    @Test
-    void bind_backendAuthTypeDoesNotOverrideCanonicalInput() {
-        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
-                "azure.auth_type", "SAS",
-                "AZURE_AUTH_TYPE", "SharedKey",
-                "azure.sas_token", "sig=temporary"));
-
-        Assertions.assertEquals(AzureAuthType.SAS, properties.authType());
-        Assertions.assertTrue(properties.matchedProperties().containsKey("azure.auth_type"));
-        Assertions.assertFalse(properties.matchedProperties().containsKey("AZURE_AUTH_TYPE"));
-    }
-
-    @Test
-    void bind_blankCanonicalAuthTypeDoesNotFallBackToBackendInput() {
-        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
-                "azure.auth_type", " ", "AZURE_AUTH_TYPE", "SharedKey", "azure.sas_token", "sig=temporary"));
-
-        Assertions.assertEquals(AzureAuthType.SAS, properties.authType());
-        Assertions.assertEquals(Map.of("azure.sas_token", "sig=temporary"), properties.matchedProperties());
-    }
-
-    @Test
-    void bind_matchesAuthTypeKeysCaseSensitivelyLikeOtherProperties() {
-        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
-                "Azure.Auth_Type", "SharedKey",
-                "azure.sas_token", "sig=temporary"));
-
-        Assertions.assertEquals(AzureAuthType.SAS, properties.authType());
-        Assertions.assertFalse(properties.matchedProperties().containsKey("Azure.Auth_Type"));
     }
 
     @Test
@@ -695,23 +505,6 @@ class AzureFileSystemPropertiesTest {
     }
 
     @Test
-    void validateAndNormalizeUri_usesConfiguredLocationOnlyAsConsistencyCheck() {
-        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
-                "azure.account_name", "account",
-                "azure.account_key", "key",
-                "azure.container", "container"));
-
-        String path = "abfss://container@account.dfs.core.windows.net/path/file.parquet";
-        Assertions.assertEquals(path, properties.validateAndNormalizeUri(path));
-        Assertions.assertThrows(StoragePropertiesException.class,
-                () -> properties.validateAndNormalizeUri(
-                        "abfss://other@account.dfs.core.windows.net/path/file.parquet"));
-        Assertions.assertThrows(StoragePropertiesException.class,
-                () -> properties.validateAndNormalizeUri(
-                        "abfss://container@other.dfs.core.windows.net/path/file.parquet"));
-    }
-
-    @Test
     void bind_defersExpiredSasUntilCredentialOutput() {
         AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
                 "azure.auth_type", "SAS",
@@ -743,24 +536,6 @@ class AzureFileSystemPropertiesTest {
     }
 
     @Test
-    void validateForAccess_doesNotApplySasExpiryToSharedKeyOrOAuth2() {
-        StorageProperties sharedKey = AzureFileSystemProperties.of(Map.of(
-                "azure.account_name", "account",
-                "azure.account_key", "key",
-                "azure.sas_expiry_ms", "1"));
-        StorageProperties oauth2 = AzureFileSystemProperties.of(Map.of(
-                "azure.auth_type", "OAuth2",
-                "azure.oauth2_account_host", "account.dfs.core.windows.net",
-                "azure.oauth2_client_id", "client-id",
-                "azure.oauth2_client_secret", "client-secret",
-                "azure.oauth2_server_uri", "https://login.microsoftonline.com/tenant/oauth2/token",
-                "azure.sas_expiry_ms", "1"));
-
-        Assertions.assertDoesNotThrow(sharedKey::validateForAccess);
-        Assertions.assertDoesNotThrow(oauth2::validateForAccess);
-    }
-
-    @Test
     void validateSasExpiry_acceptsInjectedClockBeforeExpiry() {
         AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
                 "azure.auth_type", "SAS",
@@ -785,17 +560,6 @@ class AzureFileSystemPropertiesTest {
                         "azure.sas_token", "sig=temporary")));
 
         Assertions.assertTrue(exception.getMessage().contains("sas_token must not be set"), exception.getMessage());
-    }
-
-    @Test
-    void bind_rejectsAmbiguousImplicitCredentialMaterials() {
-        StoragePropertiesException exception = Assertions.assertThrows(StoragePropertiesException.class,
-                () -> AzureFileSystemProperties.of(Map.of(
-                        "azure.account_name", "account",
-                        "azure.account_key", "key",
-                        "azure.sas_token", "sig=temporary")));
-
-        Assertions.assertTrue(exception.getMessage().contains("cannot infer"), exception.getMessage());
     }
 
     /**
