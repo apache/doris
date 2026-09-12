@@ -63,6 +63,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -496,7 +497,8 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         } else if (leftHashSpec.getShuffleType() == ShuffleType.NATURAL
                 && rightHashSpec.getShuffleType() == ShuffleType.STORAGE_BUCKETED) {
             shouldCheckLeftBucketDownGrade = true;
-            if (!bothSideShuffleKeysAreSameOrder(leftHashSpec, rightHashSpec,
+            if (leftHashSpec.getHashType() != rightHashSpec.getHashType()
+                    || !bothSideShuffleKeysAreSameOrder(leftHashSpec, rightHashSpec,
                     (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
                     (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec())) {
                 updatedForRight = Optional.of(calAnotherSideRequired(
@@ -591,7 +593,8 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
 
         } else if ((leftHashSpec.getShuffleType() == ShuffleType.STORAGE_BUCKETED
                 && rightHashSpec.getShuffleType() == ShuffleType.STORAGE_BUCKETED)) {
-            if (!bothSideShuffleKeysAreSameOrder(rightHashSpec, leftHashSpec,
+            if (leftHashSpec.getHashType() != rightHashSpec.getHashType()
+                    || !bothSideShuffleKeysAreSameOrder(rightHashSpec, leftHashSpec,
                     (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec(),
                     (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec())) {
                 if (children.get(0).getPlan() instanceof PhysicalDistribute) {
@@ -785,7 +788,8 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                     List<ExprId> shuffleSideIds = calAnotherSideRequiredShuffleIds(
                             notNeedShuffleOutput, notShuffleSideRequire, currentRequire);
                     PhysicalProperties target = new PhysicalProperties(
-                            new DistributionSpecHash(shuffleSideIds, ShuffleType.STORAGE_BUCKETED));
+                            new DistributionSpecHash(shuffleSideIds, ShuffleType.STORAGE_BUCKETED, -1L, -1L,
+                                    Collections.emptySet(), notNeedShuffleOutput.getHashType()));
                     updateChildEnforceAndCost(i, target);
                 }
             } else {
@@ -956,7 +960,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                 notNeedShuffleSideRequired, needShuffleSideRequired);
         return new PhysicalProperties(new DistributionSpecHash(shuffleSideIds, shuffleType,
                 needShuffleSideOutput.getTableId(), needShuffleSideOutput.getSelectedIndexId(),
-                needShuffleSideOutput.getPartitionIds()));
+                needShuffleSideOutput.getPartitionIds(), notNeedShuffleSideOutput.getHashType()));
     }
 
     private void updateChildEnforceAndCost(int index, PhysicalProperties targetProperties) {

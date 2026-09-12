@@ -138,11 +138,24 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                 "Partitioner", fmt::format("Crc32CHashPartitioner({})", _partition_count));
     } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         _partition_count = channels.size();
-        _partitioner = std::make_unique<Crc32HashPartitioner<ShuffleChannelIds>>(channels.size());
+        switch (p._distribution_hash_type) {
+        case TDistributionHashType::CRC32:
+            _partitioner =
+                    std::make_unique<Crc32HashPartitioner<ShuffleChannelIds>>(channels.size());
+            custom_profile()->add_info_string(
+                    "Partitioner", fmt::format("Crc32HashPartitioner({})", _partition_count));
+            break;
+        case TDistributionHashType::IDENTITY:
+            _partitioner = std::make_unique<IdentityHashPartitioner>(channels.size());
+            custom_profile()->add_info_string(
+                    "Partitioner", fmt::format("IdentityHashPartitioner({})", _partition_count));
+            break;
+        default:
+            return Status::InternalError("unsupported distribution_hash_type {}",
+                                         static_cast<int>(p._distribution_hash_type));
+        }
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
-        custom_profile()->add_info_string(
-                "Partitioner", fmt::format("Crc32HashPartitioner({})", _partition_count));
     } else if (_part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
         // in ExchangeOlapWriter we rely on type of _partitioner here
         _partition_count = channels.size();
@@ -301,6 +314,9 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
           _texprs(sink.output_partition.partition_exprs),
           _row_desc(row_desc),
           _part_type(sink.output_partition.type),
+          _distribution_hash_type(sink.output_partition.__isset.distribution_hash_type
+                                          ? sink.output_partition.distribution_hash_type
+                                          : TDistributionHashType::CRC32),
           _dests(destinations),
           _dest_node_id(sink.dest_node_id),
           _transfer_large_data_by_brpc(config::transfer_large_data_by_brpc),

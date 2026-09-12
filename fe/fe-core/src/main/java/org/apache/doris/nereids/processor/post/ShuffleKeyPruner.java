@@ -489,7 +489,7 @@ public class ShuffleKeyPruner extends PlanPostProcessor {
 
     private static DistributionSpecHash sliceHashSpec(DistributionSpecHash origin, List<ExprId> newOrderedKeys) {
         return new DistributionSpecHash(newOrderedKeys, origin.getShuffleType(),
-                origin.getTableId(), origin.getSelectedIndexId(), origin.getPartitionIds());
+                origin.getTableId(), origin.getSelectedIndexId(), origin.getPartitionIds(), origin.getHashType());
     }
 
     private static PhysicalDistribute<Plan> rebuildDistribute(PhysicalDistribute<Plan> origin,

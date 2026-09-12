@@ -26,6 +26,7 @@ import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.ToSqlParams;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.nereids.trees.plans.distribute.NereidsSpecifyInstances;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.ScanSource;
@@ -333,6 +334,11 @@ public class PlanFragment extends TreeNode<PlanFragment> {
             result.setPartition(dataPartition.toThrift());
         } else {
             result.setPartition(dataPartitionForThrift.toThrift());
+        }
+        HashDistributionInfo.HashType hashType = planRoot == null
+                ? null : planRoot.getStorageDistributionHashType();
+        if (hashType != null) {
+            result.setDistributionHashType(DataPartition.toTHashType(hashType));
         }
 
         // TODO chenhao , calculated by cost

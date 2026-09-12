@@ -2034,6 +2034,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
                 sb.append(Util.getSchemaSignatureString(hashDistributionInfo.getDistributionColumns()));
                 sb.append(hashDistributionInfo.getBucketNum());
+                sb.append(hashDistributionInfo.getHashType());
             }
         }
 

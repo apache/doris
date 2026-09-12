@@ -1015,9 +1015,14 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
     const bool use_global_hash_shuffle = bucket_seq_to_instance_idx.empty() &&
                                          !shuffle_idx_to_instance_idx.contains(-1) &&
                                          followed_by_shuffled_operator && !_use_serial_source;
+    if (data_distribution.distribution_type == TLocalPartitionType::BUCKET_HASH_SHUFFLE &&
+        _params.fragment.__isset.distribution_hash_type) {
+        data_distribution.distribution_hash_type = _params.fragment.distribution_hash_type;
+    }
     sink = std::make_shared<LocalExchangeSinkOperatorX>(
             sink_id, local_exchange_id, use_global_hash_shuffle ? _total_instances : _num_instances,
-            data_distribution.partition_exprs, bucket_seq_to_instance_idx);
+            data_distribution.partition_exprs, bucket_seq_to_instance_idx,
+            data_distribution.distribution_hash_type);
     if (bucket_seq_to_instance_idx.empty() &&
         data_distribution.distribution_type == TLocalPartitionType::BUCKET_HASH_SHUFFLE) {
         data_distribution.distribution_type =
