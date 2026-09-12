@@ -21,7 +21,10 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectPoolMgr;
 import org.apache.doris.qe.ConnectScheduler;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TResultSinkType;
+
+import java.io.IOException;
 
 /**
  * The wire-protocol half of a connection.
@@ -48,6 +51,28 @@ public interface ProtocolAdapter {
 
     /** The result sink a backend must use for a query on this connection. */
     TResultSinkType resultSinkType();
+
+    /** How a statement's result reaches the client of {@code ctx}'s connection. */
+    ResultSender resultSender(ConnectContext ctx);
+
+    /**
+     * Whether a hit in the SQL cache can be answered by replaying the cached rows. The cache keeps
+     * them in MySQL wire format, so only a MySQL connection can; a connection of any other protocol
+     * re-executes the query and never populates the cache either.
+     */
+    boolean supportsSqlCacheReplay();
+
+    /**
+     * Called by {@code ConnectProcessor.executeQuery} after the {@code stmtIndex}-th of the
+     * {@code stmtCount} statements of one request has been executed, before it is audited. The
+     * protocol hands the statement's outcome to its client where the transport needs it (an
+     * intermediate MySQL response, the outcome of a statement forwarded to the master) and
+     * decides whether the request goes on to the next statement.
+     *
+     * @return false to stop the request here, with {@code ctx.getState()} set to the reason
+     */
+    boolean finishStatement(ConnectContext ctx, StmtExecutor executor, int stmtIndex, int stmtCount)
+            throws IOException;
 
     /**
      * The pool this connection is registered in. Each protocol still keeps its own pool; this

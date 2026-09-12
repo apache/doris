@@ -186,6 +186,11 @@ client capability: deprecate_eof=true multi_statements=false
 --> COM_QUERY explain select 1
   kinds: PAYLOAD (repeated), EOF flushed
 
+=== case explain-plan-process ===
+client capability: deprecate_eof=true multi_statements=false
+--> COM_QUERY explain plan process select 1
+  kinds: PAYLOAD (repeated), EOF flushed
+
 === case syntax-error ===
 client capability: deprecate_eof=true multi_statements=false
 --> COM_QUERY select from

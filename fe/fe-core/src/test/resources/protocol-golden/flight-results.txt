@@ -42,6 +42,14 @@ schema:
   Explain String(Nereids Planner): Utf8 nullable
 rows: some
 
+=== statement explain plan process select 1 ===
+state: EOF
+schema:
+  Rule: Utf8 nullable
+  Before: Utf8 nullable
+  After: Utf8 nullable
+rows: some
+
 === statement select from ===
 state: ERR errorCode=ERR_UNKNOWN_ERROR message="errCode = 2, detailMessage = \nmismatched input 'from' expecting {'(', '..."
 
