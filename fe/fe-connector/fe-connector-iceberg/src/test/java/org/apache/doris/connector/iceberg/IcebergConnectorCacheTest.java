@@ -403,7 +403,7 @@ public class IcebergConnectorCacheTest {
     // ============ PERF-02: partition-view cache (session=user gated) + invalidation ============
 
     private static IcebergPartitionCache.Key partKey(String db, String tbl, long snapshotId) {
-        return new IcebergPartitionCache.Key(TableIdentifier.of(db, tbl), snapshotId);
+        return new IcebergPartitionCache.Key(TableIdentifier.of(db, tbl), snapshotId, 0, 0);
     }
 
     @Test
