@@ -265,6 +265,13 @@ ARROW_NAME="apache-arrow-24.0.0.tar.gz"
 ARROW_SOURCE="arrow-apache-arrow-24.0.0"
 ARROW_MD5SUM="66c53bd00baa79034bd2ca167beea436"
 
+# Official paimon-cpp v0.3.0 (efbfc848f8ce3d1d7a4df617a4ff1d0b17207d9b).
+# Keep its patched Arrow private to the Paimon shared libraries.
+PAIMON_CPP_DOWNLOAD="https://codeload.github.com/apache/paimon-cpp/tar.gz/refs/tags/v0.3.0"
+PAIMON_CPP_NAME="paimon-cpp-v0.3.0.tar.gz"
+PAIMON_CPP_SOURCE="paimon-cpp-0.3.0"
+PAIMON_CPP_MD5SUM="6588c276e31358c9ce1174cefdd9ef7e"
+
 # Abseil
 ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/releases/download/20250512.1/abseil-cpp-20250512.1.tar.gz"
 ABSEIL_NAME="abseil-cpp-20250512.1.tar.gz"
@@ -610,6 +617,7 @@ export TP_ARCHIVES=(
     'LIBRDKAFKA'
     'FLATBUFFERS'
     'ARROW'
+    'PAIMON_CPP'
     'BROTLI'
     'ZSTD'
     'ABSEIL'

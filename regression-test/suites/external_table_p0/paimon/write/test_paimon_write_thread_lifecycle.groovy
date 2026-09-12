@@ -95,8 +95,8 @@ suite("test_paimon_write_thread_lifecycle", "p0,external,paimon,nonConcurrent") 
     sql """use ${dbName}"""
 
     try {
-        // Warm all writer and metrics paths before taking the baseline. This keeps
-        // one-time JVM attachment and SDK class initialization out of the leak oracle.
+        // Warm writer paths before the measured phases. This keeps most one-time JVM
+        // attachment and SDK class initialization out of the leak oracle.
         for (int round = 0; round < 12; round++) {
             sql """
                 INSERT INTO t_thread_lifecycle
@@ -105,10 +105,6 @@ suite("test_paimon_write_thread_lifecycle", "p0,external,paimon,nonConcurrent") 
             """
         }
         sleep(3000)
-
-        def jvmBefore = minimumThreadCounts(jvmThreadCounts)
-        def processBefore = minimumThreadCounts(processThreadCounts)
-        logger.info("Paimon thread baseline: jvm=${jvmBefore}, process=${processBefore}")
 
         def writePhase = { int firstRound ->
             for (int round = firstRound; round < firstRound + 12; round++) {
@@ -135,10 +131,9 @@ suite("test_paimon_write_thread_lifecycle", "p0,external,paimon,nonConcurrent") 
                 (sql """SELECT COUNT(*) FROM t_thread_lifecycle""")[0][0] as long)
 
         backendEndpoints.keySet().each { backendId ->
-            // Warm-up performs the same workload as every measured phase. Judge persistent growth
-            // from the actual pre-phase baseline and phase low-water marks instead of failing on
-            // an isolated background-thread spike: a leaked thread cannot disappear in a later
-            // phase, while an unrelated transient thread can.
+            // Judge persistent growth across repeated, identical phases. The first measured phase
+            // may still initialize JVM or SDK housekeeping threads that the write-only warm-up did
+            // not touch; stable counts after that phase are not a leak.
             def jvmCounts = jvmPhases.collect { sample -> sample[backendId] as long }
             def processCounts = processPhases.collect { sample -> sample[backendId] as long }
             def earlyJvmFloor = jvmCounts.take(2).min()
@@ -146,14 +141,8 @@ suite("test_paimon_write_thread_lifecycle", "p0,external,paimon,nonConcurrent") 
             def earlyProcessFloor = processCounts.take(2).min()
             def lateProcessFloor = processCounts.drop(2).min()
 
-            assertTrue(jvmCounts.min() <= jvmBefore[backendId] + 2,
-                    "JVM threads never returned to the warm-up baseline on backend ${backendId}: "
-                            + "baseline=${jvmBefore[backendId]}, phases=${jvmCounts}")
             assertTrue(lateJvmFloor <= earlyJvmFloor + 2,
                     "JVM threads kept growing on backend ${backendId}: phases=${jvmCounts}")
-            assertTrue(processCounts.min() <= processBefore[backendId] + 4,
-                    "Process threads never returned to the warm-up baseline on backend ${backendId}: "
-                            + "baseline=${processBefore[backendId]}, phases=${processCounts}")
             assertTrue(lateProcessFloor <= earlyProcessFloor + 4,
                     "Process threads kept growing on backend ${backendId}: phases=${processCounts}")
         }

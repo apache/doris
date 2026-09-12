@@ -1093,6 +1093,69 @@ build_grpc() {
     # sed -i 's/find_dependency/find_package/g' "${TP_INSTALL_DIR}"/lib64/cmake/grpc/gRPCConfig.cmake
 }
 
+# paimon-cpp
+build_paimon_cpp() {
+    check_if_source_exist "${PAIMON_CPP_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
+    # Allow the writer to consume the FE-selected table schema.
+    if [[ ! -f doris-table-schema.patched ]]; then
+        patch -p1 < "${TP_DIR}/patches/paimon-cpp-0.3.0-table-schema.patch"
+        touch doris-table-schema.patched
+    fi
+    local paimon_runtime_flags="" paimon_install_rpath='$ORIGIN'
+    local -a paimon_runtime_libraries=()
+    if [[ "${KERNEL}" == "Linux" ]]; then
+        # LDB's unversioned C++ runtime libraries are linker scripts selecting static
+        # archives. Link the real DSOs before the compiler's implicit runtime libraries.
+        local soname library
+        for soname in libstdc++.so.6 libgcc_s.so.1; do
+            library="$("${CXX}" "-print-file-name=${soname}")"
+            if [[ "${library}" != /* || ! -f "${library}" ]]; then
+                echo "Cannot locate ${soname} from ${CXX}: ${library}" >&2
+                return 1
+            fi
+            paimon_runtime_libraries+=("${library}")
+            paimon_runtime_flags+=" \"${library}\""
+        done
+        paimon_runtime_flags="-Wl,--push-state,--no-as-needed${paimon_runtime_flags} -Wl,--pop-state"
+    elif [[ "${KERNEL}" == "Darwin" ]]; then
+        paimon_install_rpath='@loader_path'
+    fi
+    # All non-toolchain dependencies are bundled below Doris thirdparty. Never resolve a
+    # host Arrow package: v0.3.0 requires its own Arrow patches and symbol isolation.
+    # Explicitly disable glog's optional libunwind discovery. LDB and the host can provide
+    # different interfaces under the same libunwind SONAME; C++ exceptions use libgcc_s.
+    "${CMAKE_CMD}" -S . -B doris-build -G "${GENERATOR}" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_C_COMPILER="${CC:-cc}" -DCMAKE_CXX_COMPILER="${CXX:-c++}" \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}/paimon-cpp" \
+        -DCMAKE_INSTALL_LIBDIR=lib \
+        -DCMAKE_INSTALL_RPATH="${paimon_install_rpath}" \
+        -DCMAKE_CXX_STANDARD_LIBRARIES="${paimon_runtime_flags}" \
+        -DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF \
+        -DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=OFF \
+        -DPAIMON_DEPENDENCY_SOURCE=BUNDLED \
+        -DPAIMON_DEPENDENCY_USE_SHARED=OFF \
+        -DPAIMON_BUILD_SHARED=ON -DPAIMON_BUILD_STATIC=OFF \
+        -DPAIMON_BUILD_TESTS=OFF -DPAIMON_BUILD_BENCHMARKS=OFF \
+        -DPAIMON_USE_ASAN="${PAIMON_USE_ASAN:-OFF}" \
+        -DLIBUNWIND_LIBRARY:FILEPATH= \
+        -DPAIMON_ENABLE_AVRO=ON -DPAIMON_ENABLE_ORC=ON \
+        -DPAIMON_ENABLE_S3=OFF -DPAIMON_ENABLE_JINDO=OFF \
+        -DPAIMON_ENABLE_LUCENE=OFF -DPAIMON_ENABLE_LUMINA=OFF \
+        -DPAIMON_ENABLE_TANTIVY=OFF
+    "${CMAKE_CMD}" --build doris-build --parallel "${PARALLEL}"
+    "${CMAKE_CMD}" --install doris-build
+    if [[ "${KERNEL}" == "Linux" ]]; then
+        # Dereference toolchain symlinks so the installed package is relocatable.
+        cp -L "${paimon_runtime_libraries[@]}" "${TP_INSTALL_DIR}/paimon-cpp/lib/"
+    fi
+    # Expose only Paimon headers, never its private Arrow headers, to Doris compilation.
+    mkdir -p "${TP_INSTALL_DIR}/paimon-cpp/doris-include"
+    cp -a "${TP_INSTALL_DIR}/paimon-cpp/include/paimon" \
+        "${TP_INSTALL_DIR}/paimon-cpp/doris-include/"
+}
+
 # arrow
 build_arrow() {
     check_if_source_exist "${ARROW_SOURCE}"
@@ -2209,6 +2272,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         cares
         grpc # after cares, protobuf
         arrow
+        paimon_cpp
         lance_c
         s2
         bitshuffle
@@ -2300,6 +2364,7 @@ cleanup_package_source() {
         librdkafka)      src_var="LIBRDKAFKA_SOURCE" ;;
         flatbuffers)     src_var="FLATBUFFERS_SOURCE" ;;
         arrow)           src_var="ARROW_SOURCE" ;;
+        paimon_cpp)      src_var="PAIMON_CPP_SOURCE" ;;
         brotli)          src_var="BROTLI_SOURCE" ;;
         cares)           src_var="CARES_SOURCE" ;;
         grpc)            src_var="GRPC_SOURCE" ;;

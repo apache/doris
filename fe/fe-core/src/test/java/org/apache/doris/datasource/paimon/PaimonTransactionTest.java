@@ -175,6 +175,17 @@ public class PaimonTransactionTest {
         return transaction;
     }
 
+    @Test
+    public void testNativeV12EmptyIncrementEnvelope() throws Exception {
+        // 0.3.0 advertises version 12, while Java 1.4.2 advertises 11. Java's
+        // decoder accepts >=11. Empty index lists do not carry the newer global-index
+        // metadata layout; v1 explicitly excludes those table capabilities.
+        // This checks decoder dispatch only, not a native non-empty-file golden fixture.
+        byte[] payload = commitPayload().getPayload();
+        ByteBuffer.wrap(payload).putInt(4, 12);
+        Assert.assertEquals(1, PaimonTransaction.deserializePayload(payload).size());
+    }
+
     private TPaimonCommitMessage commitPayload() throws Exception {
         CommitMessage message = new CommitMessageImpl(
                 BinaryRow.EMPTY_ROW,

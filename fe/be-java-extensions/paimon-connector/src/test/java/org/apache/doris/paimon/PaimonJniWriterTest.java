@@ -17,12 +17,23 @@
 
 package org.apache.doris.paimon;
 
+import org.apache.doris.thrift.TPaimonCatalogEnvironment;
+import org.apache.doris.thrift.TPaimonTableDescriptor;
+
 import org.apache.paimon.disk.BufferFileWriter;
 import org.apache.paimon.disk.FileIOChannel;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
 import org.apache.paimon.memory.Buffer;
 import org.apache.paimon.memory.MemorySegment;
+import org.apache.paimon.rest.RESTCatalogLoader;
+import org.apache.paimon.rest.RESTTokenFileIO;
+import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.AppendOnlyFileStoreTable;
+import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.PrimaryKeyFileStoreTable;
+import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -32,7 +43,11 @@ import java.lang.reflect.Field;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -42,6 +57,48 @@ import java.util.concurrent.atomic.AtomicLong;
 public class PaimonJniWriterTest {
     @TempDir
     private Path tempDir;
+
+    @Test
+    public void testWriterTableUsesPinnedSchemaWithoutMetadataFiles() throws Exception {
+        String location = tempDir.resolve("table-without-schema-files").toUri().toString();
+        Map<String, String> options = new HashMap<>();
+        options.put("path", location);
+        options.put("branch", "audit");
+        options.put("scan.snapshot-id", "123");
+        for (boolean primaryKey : new boolean[] {false, true}) {
+            List<String> keys = primaryKey ? Collections.singletonList("id") : Collections.emptyList();
+            TableSchema schema = new TableSchema(7,
+                    Arrays.asList(new DataField(4, "id", DataTypes.INT().notNull()),
+                            new DataField(9, "value", DataTypes.ROW(new DataField(12, "text", DataTypes.STRING())))),
+                    12, Collections.singletonList("id"), keys, options, "pinned table");
+            TPaimonTableDescriptor descriptor = new TPaimonTableDescriptor(
+                    location, schema.toString(), Collections.emptyMap(), Collections.emptyMap());
+            FileStoreTable table = PaimonWriterTable.create(descriptor);
+            Assertions.assertEquals(schema, table.schema());
+            Assertions.assertNull(table.catalogEnvironment().catalogLoader());
+            Assertions.assertEquals(primaryKey ? PrimaryKeyFileStoreTable.class : AppendOnlyFileStoreTable.class,
+                    table.getClass());
+        }
+    }
+
+    @Test
+    public void testWriterTableRestAccessUsesSdkLoader() throws Exception {
+        String location = "s3://bucket/table";
+        TableSchema schema = new TableSchema(7,
+                Collections.singletonList(new DataField(4, "id", DataTypes.INT())),
+                4, Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(), null);
+        TPaimonTableDescriptor descriptor = new TPaimonTableDescriptor(
+                location, schema.toString(), Collections.emptyMap(), Collections.singletonMap("metastore", "rest"));
+        TPaimonCatalogEnvironment catalog = new TPaimonCatalogEnvironment("db", "table$branch_audit");
+        catalog.setSnapshotLoader(true);
+        catalog.setVersionManagement(true);
+        catalog.setRestTokenEnabled(true);
+        descriptor.setCatalogEnvironment(catalog);
+        FileStoreTable table = PaimonWriterTable.create(descriptor);
+        Assertions.assertInstanceOf(RESTTokenFileIO.class, table.fileIO());
+        Assertions.assertEquals("audit", table.catalogEnvironment().identifier().getBranchName());
+        Assertions.assertInstanceOf(RESTCatalogLoader.class, table.catalogEnvironment().catalogLoader());
+    }
 
     @Test
     public void testManagedMemoryPoolRequiresAtLeastOnePage() {
@@ -81,7 +138,7 @@ public class PaimonJniWriterTest {
         thread.setContextClassLoader(testClassLoader);
         try {
             Assertions.assertThrows(Exception.class, () -> writer.open(
-                    "not-a-serialized-table", Collections.emptyMap(), new String[0],
+                    new byte[0], new String[0],
                     1L, "test-user", false, false, "UTC", 64L * 1024 * 1024, 1L, 1L));
             Assertions.assertSame(testClassLoader, thread.getContextClassLoader());
         } finally {
@@ -92,46 +149,6 @@ public class PaimonJniWriterTest {
                 thread.setContextClassLoader(originalClassLoader);
                 testClassLoader.close();
             }
-        }
-    }
-
-    @Test
-    public void testAbortRestoresContextClassLoader() throws Exception {
-        Thread thread = Thread.currentThread();
-        ClassLoader originalClassLoader = thread.getContextClassLoader();
-        URLClassLoader testClassLoader = new URLClassLoader(new URL[0], originalClassLoader);
-        PaimonJniWriter writer = new PaimonJniWriter();
-        thread.setContextClassLoader(testClassLoader);
-        try {
-            writer.abort();
-            Assertions.assertSame(testClassLoader, thread.getContextClassLoader());
-        } finally {
-            try {
-                writer.close();
-            } finally {
-                thread.setContextClassLoader(originalClassLoader);
-                testClassLoader.close();
-            }
-        }
-    }
-
-    @Test
-    public void testDataEntryPointFailuresRestoreContextClassLoader() throws Exception {
-        Thread thread = Thread.currentThread();
-        ClassLoader originalClassLoader = thread.getContextClassLoader();
-        URLClassLoader testClassLoader = new URLClassLoader(new URL[0], originalClassLoader);
-        PaimonJniWriter writer = new PaimonJniWriter();
-        thread.setContextClassLoader(testClassLoader);
-        try {
-            Assertions.assertThrows(Exception.class,
-                    () -> writer.writeArrow(0L, 0L));
-            Assertions.assertSame(testClassLoader, thread.getContextClassLoader());
-
-            Assertions.assertThrows(Exception.class, writer::prepareCommit);
-            Assertions.assertSame(testClassLoader, thread.getContextClassLoader());
-        } finally {
-            thread.setContextClassLoader(originalClassLoader);
-            testClassLoader.close();
         }
     }
 

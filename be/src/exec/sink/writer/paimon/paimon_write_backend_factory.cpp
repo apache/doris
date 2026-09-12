@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/sink/writer/paimon/ffi_paimon_write_backend.h"
+#include "exec/sink/writer/paimon/cpp_paimon_write_backend.h"
 #include "exec/sink/writer/paimon/jni_paimon_write_backend.h"
 #include "exec/sink/writer/paimon/paimon_write_backend.h"
 
@@ -27,18 +27,28 @@ Status PaimonWriteBackendFactory::create(const TPaimonTableSink& sink,
     case PaimonBackendType::JNI:
         *backend = std::make_unique<JniPaimonWriteBackend>();
         return Status::OK();
-    case PaimonBackendType::FFI:
-        *backend = std::make_unique<FfiPaimonWriteBackend>();
+    case PaimonBackendType::CPP:
+        *backend = std::make_unique<CppPaimonWriteBackend>();
         return Status::OK();
+    case PaimonBackendType::UNKNOWN:
+        return Status::NotSupported(
+                "Unsupported Paimon write backend; refusing implicit JNI fallback");
     }
     return Status::InternalError("Unknown Paimon write backend");
 }
 
 PaimonBackendType PaimonWriteBackendFactory::select_backend_type(const TPaimonTableSink& sink) {
-    if (sink.__isset.backend_type && sink.backend_type == TPaimonWriteBackendType::FFI) {
-        return PaimonBackendType::FFI;
+    if (!sink.__isset.backend_type) {
+        return PaimonBackendType::JNI;
     }
-    return PaimonBackendType::JNI;
+    switch (sink.backend_type) {
+    case TPaimonWriteBackendType::JNI:
+        return PaimonBackendType::JNI;
+    case TPaimonWriteBackendType::CPP:
+        return PaimonBackendType::CPP;
+    default:
+        return PaimonBackendType::UNKNOWN;
+    }
 }
 
 } // namespace doris

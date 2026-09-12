@@ -25,10 +25,15 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.commands.insert.PaimonInsertCommandContext;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.thrift.TPaimonCatalogEnvironment;
+import org.apache.doris.thrift.TPaimonTableDescriptor;
 
 import com.google.common.base.Preconditions;
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.options.CatalogOptions;
+import org.apache.paimon.rest.RESTTokenFileIO;
+import org.apache.paimon.table.CatalogEnvironment;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypeRoot;
@@ -52,8 +57,7 @@ import java.util.TreeMap;
 public class PaimonWriteBinding {
     private final PaimonExternalTable dorisTable;
     private final FileStoreTable table;
-    private final String serializedTable;
-    private final Map<String, String> hadoopConfig;
+    private final TPaimonTableDescriptor tableDescriptor;
     private final boolean overwrite;
     private final Map<String, String> staticPartition;
 
@@ -62,8 +66,8 @@ public class PaimonWriteBinding {
             Map<String, String> staticPartition) {
         this.dorisTable = dorisTable;
         this.table = table;
-        this.serializedTable = PaimonUtil.encodeObjectToString(table);
-        this.hadoopConfig = Collections.unmodifiableMap(new HashMap<>(hadoopConfig));
+        this.tableDescriptor = describeTable(table,
+                ((PaimonExternalCatalog) dorisTable.getCatalog()).getPaimonOptionsMap(), hadoopConfig);
         this.overwrite = overwrite;
         this.staticPartition = Collections.unmodifiableMap(new LinkedHashMap<>(staticPartition));
     }
@@ -113,12 +117,33 @@ public class PaimonWriteBinding {
         return table;
     }
 
-    public String getSerializedTable() {
-        return serializedTable;
+    public TPaimonTableDescriptor getTableDescriptor() {
+        return tableDescriptor.deepCopy();
     }
 
-    public Map<String, String> getHadoopConfig() {
-        return hadoopConfig;
+    static TPaimonTableDescriptor describeTable(FileStoreTable table,
+            Map<String, String> catalogOptions, Map<String, String> hadoopConfig) {
+        CatalogEnvironment environment = table.catalogEnvironment();
+        CatalogContext context = environment.catalogContext();
+        Map<String, String> config = new HashMap<>();
+        if (context != null) {
+            // Includes normalized storage/HMS settings and REST server-provided options.
+            context.hadoopConf().forEach(entry -> config.put(entry.getKey(), entry.getValue()));
+            catalogOptions = context.options().toMap();
+        }
+        config.putAll(hadoopConfig);
+        TPaimonTableDescriptor descriptor = new TPaimonTableDescriptor(
+                table.location().toString(), table.schema().toString(), config, new HashMap<>(catalogOptions));
+        if (environment.identifier() != null) {
+            TPaimonCatalogEnvironment catalog = new TPaimonCatalogEnvironment(
+                    environment.identifier().getDatabaseName(), environment.identifier().getObjectName());
+            catalog.setUuid(environment.uuid());
+            catalog.setSnapshotLoader(environment.catalogLoader() != null);
+            catalog.setVersionManagement(environment.supportsVersionManagement());
+            catalog.setRestTokenEnabled(table.fileIO() instanceof RESTTokenFileIO);
+            descriptor.setCatalogEnvironment(catalog);
+        }
+        return descriptor;
     }
 
     public boolean isOverwrite() {

@@ -86,7 +86,6 @@ private:
     std::unique_ptr<ExternalSpillSession> _spill_session;
     RuntimeProfile::Counter* _native_page_memory_limit = nullptr;
     RuntimeProfile::Counter* _native_page_memory_peak = nullptr;
-    bool _opened = false;
 };
 
 /// Lightweight C++ adapter that delegates to the shared JNI backend.

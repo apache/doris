@@ -28,14 +28,27 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
     String catalogName = "test_pw_ao_catalog"
     String dbName = "test_pw_ao_db"
 
-    // Tables are created via Spark because Doris does not yet support
-    // Paimon DDL (CREATE TABLE ... engine=paimon).
+    def writeOnlyTables = [t_append_write_only: "parquet",
+                           t_append_write_only_orc: "orc", t_append_write_only_avro: "avro"]
+    String writeOnlyDdls = writeOnlyTables.collect { tableName, format ->
+        """
+        DROP TABLE IF EXISTS paimon.${dbName}.${tableName};
+        CREATE TABLE paimon.${dbName}.${tableName} (
+            id INT, name STRING, score DOUBLE
+        ) USING paimon
+        TBLPROPERTIES ('bucket'='-1', 'file.format'='${format}', 'write-only'='true');
+        """
+    }.join("\n")
+
+    // Create fixtures through Spark and verify Doris writes against the same tables.
     spark_paimon_multi """
         CREATE DATABASE IF NOT EXISTS paimon.${dbName};
         DROP TABLE IF EXISTS paimon.${dbName}.t_append;
         CREATE TABLE paimon.${dbName}.t_append (
             id INT, name STRING, score DOUBLE
         ) USING paimon;
+
+        ${writeOnlyDdls}
 
         DROP TABLE IF EXISTS paimon.${dbName}.t_append_part;
         CREATE TABLE paimon.${dbName}.t_append_part (
@@ -94,16 +107,37 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
             assertSparkDorisResultEquals(sparkRows, dorisRows)
         }
 
-        // FT-001: Append-only table — basic INSERT
-        sql """INSERT INTO t_append VALUES (1, 'alice', 95.5)"""
-        sql """INSERT INTO t_append VALUES (2, 'bob', 87.0), (3, 'charlie', 92.3)"""
-        order_qt_ao_basic """SELECT * FROM t_append ORDER BY id"""
-
-        sql """INSERT INTO t_append VALUES (4, 'diana', 88.0), (5, 'eve', 91.0)"""
-        // Full-column and partial-column writes with columns in non-schema order
-        sql """INSERT INTO t_append (score, name, id) VALUES (93.0, 'frank', 6)"""
-        sql """INSERT INTO t_append (name, id) VALUES ('grace', 7)"""
-        assertTableEquals("t_append", "ORDER BY id")
+        // FT-001: Reuse the same writes for default and paimon-cpp-compatible tables.
+        // Honor the session setting, including external fuzzy testing.
+        String appendBackend = sql("SELECT UPPER(@@paimon_write_backend)")[0][0]
+        def appendTables = [t_append: "JNI"]
+        writeOnlyTables.keySet().each { tableName -> appendTables[tableName] = appendBackend }
+        appendTables.each { tableName, expectedBackend ->
+            explain {
+                sql "INSERT INTO ${tableName} VALUES (1, 'alice', 95.5)"
+                contains "backend: ${expectedBackend}"
+            }
+            sql "INSERT INTO ${tableName} VALUES (1, 'alice', 95.5)"
+            sql "INSERT INTO ${tableName} VALUES (2, 'bob', 87.0), (3, 'charlie', 92.3)"
+            if (tableName == "t_append") {
+                order_qt_ao_basic "SELECT * FROM ${tableName} ORDER BY id"
+            }
+            sql "INSERT INTO ${tableName} VALUES (4, 'diana', 88.0), (5, 'eve', 91.0)"
+            // Full-column and partial-column writes with columns in non-schema order.
+            sql "INSERT INTO ${tableName} (score, name, id) VALUES (93.0, 'frank', 6)"
+            sql "INSERT INTO ${tableName} (name, id) VALUES ('grace', 7)"
+            assertTableEquals(tableName, "ORDER BY id")
+        }
+        writeOnlyTables.keySet().each { tableName ->
+            assertEquals(sql("SELECT * FROM t_append ORDER BY id"),
+                    sql("SELECT * FROM ${tableName} ORDER BY id"))
+        }
+        // Native v1 only supports APPEND. Planning must carry OVERWRITE into the
+        // backend decision so EXPLAIN and execution both select JNI.
+        explain {
+            sql "INSERT OVERWRITE TABLE t_append_write_only VALUES (8, 'overwrite', 80.0)"
+            contains "backend: JNI"
+        }
 
         // FT-002: Partitioned append-only
         sql """INSERT INTO t_append_part VALUES (1, 'alice', 95.5, 'east'), (2, 'bob', 87.0, 'west')"""

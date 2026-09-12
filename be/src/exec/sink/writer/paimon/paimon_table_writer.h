@@ -35,10 +35,10 @@ class RuntimeState;
 /// owns one IPaimonWriteBackend and one IPaimonWriter. Pipeline parallelism
 /// therefore determines the number of independent Paimon writer sessions;
 /// each writer session delegates partition and bucket routing to the Paimon
-/// SDK (Java via JNI, or Rust via FFI in the future).
+/// SDK (Java via JNI, or native C++).
 ///
 /// Doris does NOT compute partition values or bucket ids — it passes complete
-/// Blocks through the selected backend (JNI/FFI) to the Paimon SDK, which
+/// Blocks through the selected backend (JNI/CPP) to the Paimon SDK, which
 /// internally computes partition values, bucket ids, and routes rows to the
 /// correct file writers.
 ///
@@ -47,11 +47,11 @@ class RuntimeState;
 ///     │  sink_impl() → PaimonTableWriter::write()  (synchronous, no routing)
 ///     ▼
 ///   PaimonTableWriter (one per LocalState / pipeline instance)
-///     │  owns IPaimonWriteBackend (JNI or FFI)
+///     │  owns IPaimonWriteBackend (JNI or CPP)
 ///     │    └─ create_writer() → IPaimonWriter
 ///     │  write()
 ///     │    → JNI backend: Block → Arrow C Data → Java Paimon SDK
-///     │    → FFI backend: Block → Rust writer (future)
+///     │    → CPP backend: Block → Arrow C Data → native Paimon SDK
 ///     │    → selected SDK owns row normalization, routing, buffering,
 ///     │      file writing, and compaction
 ///     ▼
@@ -75,12 +75,13 @@ public:
     Status close(Status status);
 
 private:
+    friend class PaimonTableWriterTest;
+
     TDataSink _t_sink;
     const VExprContextSPtrs& _output_expr_ctxs;
     RuntimeState* _state = nullptr;
-    int64_t _written_rows = 0;
 
-    // Backend owns the JNI/FFI connection and creates the writer adapter.
+    // Backend owns the SDK resources and creates the writer adapter.
     // Both are scoped to this PaimonTableWriter (one per LocalState).
     std::unique_ptr<IPaimonWriteBackend> _backend;
     std::unique_ptr<IPaimonWriter> _writer;

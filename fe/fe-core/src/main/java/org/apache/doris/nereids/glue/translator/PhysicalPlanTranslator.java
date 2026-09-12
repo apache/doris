@@ -637,10 +637,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         paimonTableSink.getOutput().stream().map(Slot::getExprId)
                 .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
         PaimonTableSink sink = new PaimonTableSink(
-                paimonTableSink.getWriteTarget(), paimonTableSink.getDmlCommandType());
+                paimonTableSink.getWriteTarget(), paimonTableSink.getDmlCommandType(),
+                paimonTableSink.getWriteMode());
         sink.setCols(paimonTableSink.getCols());
         rootFragment.setSink(sink);
         sink.setOutputExprs(outputExprs);
+        try {
+            sink.prepareBackendDecision();
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
         if (paimonTableSink.requiresSingleWriter()) {
             rootFragment.setForceSingleInstance();
         }

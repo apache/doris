@@ -17,20 +17,37 @@
 
 #pragma once
 
+#include <paimon/memory/memory_pool.h>
+
+#include <memory>
+#include <string>
+
 #include "exec/sink/writer/paimon/paimon_write_backend.h"
 
 namespace doris {
 
-/// Placeholder for the future paimon-rust writer implementation. Keeping this
-/// backend in the factory makes the integration boundary explicit without
-/// introducing a BE commit contract that the Rust writer will not own.
-class FfiPaimonWriteBackend final : public IPaimonWriteBackend {
+class ResourceContext;
+std::shared_ptr<paimon::MemoryPool> make_paimon_query_memory_pool(
+        std::shared_ptr<ResourceContext> context, uint64_t limit);
+
+class CppPaimonWriteBackend final : public IPaimonWriteBackend {
 public:
-    Status open(const TPaimonTableSink& sink, RuntimeState* state,
-                RuntimeProfile* profile) override;
-    Status create_writer(std::unique_ptr<IPaimonWriter>* writer) override;
+    CppPaimonWriteBackend();
+    ~CppPaimonWriteBackend() override;
+    Status open(const TPaimonTableSink&, RuntimeState*, RuntimeProfile*) override;
+    Status create_writer(std::unique_ptr<IPaimonWriter>*) override;
     Status close() override;
-    PaimonBackendType type() const override { return PaimonBackendType::FFI; }
+    void on_commit_messages_transferred() override;
+    PaimonBackendType type() const override { return PaimonBackendType::CPP; }
+
+private:
+    class Impl;
+    class Writer;
+    std::shared_ptr<Impl> _impl;
 };
+
+// DPCM: magic, big-endian serializer version, big-endian payload length, payload.
+Status frame_paimon_cpp_commit(const std::string& data, int32_t version,
+                               TPaimonCommitMessage* message);
 
 } // namespace doris
