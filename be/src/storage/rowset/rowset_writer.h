@@ -156,6 +156,10 @@ public:
     // rowset is invalid if returned Status is not OK
     virtual Status build(RowsetSharedPtr& rowset) = 0;
 
+    // Cancel this writer's asynchronous delete bitmap tasks and wait for running tasks.
+    // Group rowset builders cancel their child builders and writers individually.
+    virtual void cancel_calc_delete_bitmap(const Status& st) {}
+
     // For ordered rowset compaction, manual build rowset
     virtual RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) = 0;
 
