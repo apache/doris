@@ -18,19 +18,32 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.kinesis.KinesisUtil;
 import org.apache.doris.load.routineload.kinesis.KinesisConfiguration;
 import org.apache.doris.load.routineload.kinesis.KinesisDataSourceProperties;
 import org.apache.doris.load.routineload.kinesis.KinesisProgress;
 import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
 import org.apache.doris.load.routineload.kinesis.KinesisTaskInfo;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
+import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -227,6 +240,159 @@ public class KinesisRoutineLoadJobTest {
         KinesisProgress progress = Deencapsulation.getField(routineLoadJob, "progress");
         Assertions.assertEquals("101", progress.getSequenceNumberByShard("shard-1"));
         Assertions.assertEquals("202", progress.getSequenceNumberByShard("shard-2"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testFailedAlterPreservesStateAndShardDiscovery(boolean explicitShards) throws Exception {
+        KinesisRoutineLoadJob job = createPausedJobForAlter(explicitShards);
+        Map<String, String> sourceProperties = new HashMap<>();
+        sourceProperties.put(KinesisConfiguration.KINESIS_REGION.getName(), "us-west-2");
+        sourceProperties.put(KinesisConfiguration.KINESIS_ENDPOINT.getName(), "http://new-endpoint:4566");
+        sourceProperties.put(KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName(), "TRIM_HORIZON");
+        sourceProperties.put(KinesisConfiguration.KINESIS_SHARDS.getName(), "shard-0,shard-unknown");
+        AlterRoutineLoadCommand command = createAlterCommand(
+                Map.of(CreateRoutineLoadInfo.MAX_ERROR_NUMBER_PROPERTY, "123"), sourceProperties);
+
+        assertAlterFailsWithoutChanges(job, command,
+                "The specified shard shard-unknown is not in the consumed shards");
+
+        job.updateState(RoutineLoadJob.JobState.NEED_SCHEDULE, null, true);
+        try (MockedStatic<KinesisUtil> kinesisUtil = Mockito.mockStatic(KinesisUtil.class)) {
+            kinesisUtil.when(() -> KinesisUtil.getAllKinesisShards(
+                    job.getRegion(), job.getStream(), job.getEndpoint(), job.getConvertedCustomProperties()))
+                    .thenReturn(Lists.newArrayList("shard-0", "shard-new"));
+            Assertions.assertTrue((Boolean) Deencapsulation.invoke(job, "refreshKafkaPartitions", false));
+            if (explicitShards) {
+                kinesisUtil.verifyNoInteractions();
+                Assertions.assertFalse((Boolean) Deencapsulation.invoke(job, "isKinesisShardsChanged"));
+                Assertions.assertEquals(List.of("shard-0"), Deencapsulation.getField(job, "openKinesisShards"));
+            } else {
+                kinesisUtil.verify(() -> KinesisUtil.getAllKinesisShards(
+                        job.getRegion(), job.getStream(), job.getEndpoint(), job.getConvertedCustomProperties()));
+                Assertions.assertTrue((Boolean) Deencapsulation.invoke(job, "isKinesisShardsChanged"));
+                List<String> openShards = Deencapsulation.getField(job, "openKinesisShards");
+                Assertions.assertEquals(Set.of("shard-0", "shard-new"), new HashSet<>(openShards));
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testFailedCommonPropertyValidationPreservesKinesisState(boolean changeStream) throws Exception {
+        KinesisRoutineLoadJob job = createPausedJobForAlter(true);
+        Deencapsulation.setField(job, "isMultiTable", true);
+        Map<String, String> sourceProperties = new HashMap<>();
+        sourceProperties.put(KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName(), "TRIM_HORIZON");
+        sourceProperties.put(KinesisConfiguration.KINESIS_SHARDS.getName(), "shard-0");
+        if (changeStream) {
+            sourceProperties.put(KinesisConfiguration.KINESIS_STREAM.getName(), "stream-2");
+        }
+        AlterRoutineLoadCommand command = createAlterCommand(Map.of(
+                CreateRoutineLoadInfo.MAX_ERROR_NUMBER_PROPERTY, "123",
+                CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, "UPDATE_FLEXIBLE_COLUMNS"), sourceProperties);
+
+        assertAlterFailsWithoutChanges(job, command,
+                "Flexible partial update is not supported in multi-table load");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testSuccessfulAlterMatchesJournalReplay(boolean changeStream) throws Exception {
+        KinesisRoutineLoadJob job = createPausedJobForAlter(true);
+        KinesisRoutineLoadJob replayedJob = createPausedJobForAlter(true);
+        Map<String, String> sourceProperties = new HashMap<>();
+        sourceProperties.put(KinesisConfiguration.KINESIS_REGION.getName(), "us-west-2");
+        sourceProperties.put(KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName(), "TRIM_HORIZON");
+        sourceProperties.put(KinesisConfiguration.KINESIS_SHARDS.getName(), changeStream ? "shard-new" : "shard-0");
+        if (changeStream) {
+            sourceProperties.put(KinesisConfiguration.KINESIS_STREAM.getName(), "stream-2");
+        }
+        AlterRoutineLoadCommand command = createAlterCommand(
+                Map.of(CreateRoutineLoadInfo.MAX_ERROR_NUMBER_PROPERTY, "123"), sourceProperties);
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            job.modifyProperties(command);
+
+            ArgumentCaptor<AlterRoutineLoadJobOperationLog> logCaptor =
+                    ArgumentCaptor.forClass(AlterRoutineLoadJobOperationLog.class);
+            Mockito.verify(editLog).logAlterRoutineLoadJob(logCaptor.capture());
+            AlterRoutineLoadJobOperationLog log = GsonUtils.GSON.fromJson(
+                    GsonUtils.GSON.toJson(logCaptor.getValue()), AlterRoutineLoadJobOperationLog.class);
+            replayedJob.replayModifyProperties(log);
+        }
+
+        Assertions.assertEquals(123L, (long) Deencapsulation.getField(job, "maxErrorNum"));
+        Assertions.assertEquals("us-west-2", job.getRegion());
+        Assertions.assertEquals(changeStream ? "stream-2" : "stream-1", job.getStream());
+        KinesisProgress progress = Deencapsulation.getField(job, "progress");
+        Assertions.assertEquals("TRIM_HORIZON",
+                progress.getSequenceNumberByShard(changeStream ? "shard-new" : "shard-0"));
+        Assertions.assertEquals(snapshotAlterState(job), snapshotAlterState(replayedJob));
+    }
+
+    private KinesisRoutineLoadJob createPausedJobForAlter(boolean explicitShards) throws Exception {
+        KinesisRoutineLoadJob job = new KinesisRoutineLoadJob(1L, "kinesis_routine_load_job", 1L,
+                1L, "ap-southeast-1", "stream-1", UserIdentity.ADMIN);
+        Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.PAUSED);
+        Deencapsulation.setField(job, "createTimestamp", 1L);
+        Deencapsulation.setField(job, "endpoint", "http://old-endpoint:4566");
+        List<String> openShards = Lists.newArrayList("shard-0");
+        Deencapsulation.setField(job, "openKinesisShards", openShards);
+        if (explicitShards) {
+            // The scheduler can make the open and explicit shard lists share the same instance.
+            Deencapsulation.setField(job, "customKinesisShards", openShards);
+        }
+        Deencapsulation.setField(job, "closedKinesisShards", Lists.newArrayList("shard-closed"));
+        Deencapsulation.setField(job, "progress", new KinesisProgress(Map.of("shard-0", "100", "shard-closed", "200")));
+        Deencapsulation.setField(job, "cachedShardWithMillsBehindLatest",
+                new HashMap<>(Map.of("shard-0", 10L)));
+        Deencapsulation.setField(job, "customProperties", new HashMap<>(Map.of("kinesis_default_pos", "LATEST")));
+        job.prepare();
+        return job;
+    }
+
+    private AlterRoutineLoadCommand createAlterCommand(Map<String, String> jobProperties,
+            Map<String, String> sourceProperties) throws Exception {
+        KinesisDataSourceProperties dataSourceProperties = new KinesisDataSourceProperties(sourceProperties);
+        dataSourceProperties.setAlter(true);
+        dataSourceProperties.setTimezone("Asia/Shanghai");
+        dataSourceProperties.analyze();
+        AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(jobProperties);
+        Mockito.when(command.getDataSourceProperties()).thenReturn(dataSourceProperties);
+        return command;
+    }
+
+    private Map<String, Object> snapshotAlterState(KinesisRoutineLoadJob job) {
+        Map<String, Object> snapshot = new HashMap<>();
+        snapshot.put("persisted", GsonUtils.GSON.toJsonTree(job));
+        // Include derived and transient fields that the persisted representation does not cover.
+        for (String field : List.of("convertedCustomProperties", "kinesisDefaultPosition",
+                "cachedShardWithMillsBehindLatest", "newCurrentKinesisShards", "maxFilterRatio",
+                "uniqueKeyUpdateMode", "isPartialUpdate", "partialUpdateNewKeyPolicy")) {
+            Object value = Deencapsulation.getField(job, field);
+            snapshot.put(field, new Gson().toJsonTree(value));
+        }
+        return snapshot;
+    }
+
+    private void assertAlterFailsWithoutChanges(KinesisRoutineLoadJob job, AlterRoutineLoadCommand command,
+            String expectedMessage) throws Exception {
+        Map<String, Object> before = snapshotAlterState(job);
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            DdlException exception = Assertions.assertThrows(DdlException.class, () -> job.modifyProperties(command));
+            Assertions.assertTrue(exception.getMessage().contains(expectedMessage), exception.getMessage());
+            Mockito.verifyNoInteractions(editLog);
+        }
+        Assertions.assertEquals(before, snapshotAlterState(job));
     }
 
     @Test
