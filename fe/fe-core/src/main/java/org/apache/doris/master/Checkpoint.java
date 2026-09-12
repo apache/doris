@@ -30,6 +30,7 @@ import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.common.CheckpointException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.httpv2.entity.ResponseBody;
@@ -48,6 +49,7 @@ import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -148,7 +150,7 @@ public class Checkpoint extends MasterDaemon {
         env.setEditLog(editLog);
         createStaticFieldForCkpt();
         boolean exceptionCaught = false;
-        String latestImageFilePath = null;
+        String checkpointImageFilePath = null;
         try {
             env.loadImage(imageDir);
             env.replayJournal(checkPointVersion);
@@ -159,7 +161,7 @@ public class Checkpoint extends MasterDaemon {
             }
             env.postProcessAfterMetadataReplayed(false);
             postProcessCloudMetadata();
-            latestImageFilePath = env.saveImage();
+            checkpointImageFilePath = env.saveCheckpointImage();
             replayedJournalId = env.getReplayedJournalId();
 
             // destroy checkpoint catalog, reclaim memory
@@ -172,7 +174,18 @@ public class Checkpoint extends MasterDaemon {
             // If failed, just return
             env = Env.getCurrentEnv();
             createStaticFieldForCkpt();
-            env.loadImage(imageDir);
+            File checkpointImage = new File(checkpointImageFilePath);
+            if (DebugPointUtil.isEnable("Checkpoint.doCheckpoint.before_validate")) {
+                LOG.info("Checkpoint paused before validating image.{}", replayedJournalId);
+                while (DebugPointUtil.isEnable("Checkpoint.doCheckpoint.before_validate")) {
+                    Thread.sleep(100);
+                }
+            }
+            env.loadImage(checkpointImage, replayedJournalId);
+            // A process stop during validation must leave only image.ckpt, which startup ignores.
+            File imageFile = storage.getImageFile(replayedJournalId);
+            LOG.info("Move {} to {}", checkpointImage.getAbsolutePath(), imageFile.getAbsolutePath());
+            Storage.rename(checkpointImage, imageFile);
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_IMAGE_WRITE_SUCCESS.increase(1L);
             }
@@ -189,12 +202,11 @@ public class Checkpoint extends MasterDaemon {
             env = null;
             Env.destroyCheckpoint();
             destroyStaticFieldForCkpt();
-            // if new image generated && exception caught, delete the latest image here
-            // delete the newest image file, cuz it is invalid
-            if ((!Strings.isNullOrEmpty(latestImageFilePath)) && exceptionCaught) {
+            // Validation or publication failed. Only remove the unpublished checkpoint.
+            if ((!Strings.isNullOrEmpty(checkpointImageFilePath)) && exceptionCaught) {
                 MetaCleaner cleaner = new MetaCleaner(Config.meta_dir + "/image");
                 try {
-                    cleaner.cleanTheLatestInvalidImageFile(latestImageFilePath);
+                    cleaner.cleanTheLatestInvalidImageFile(checkpointImageFilePath);
                     if (MetricRepo.isInit) {
                         MetricRepo.COUNTER_IMAGE_CLEAN_SUCCESS.increase(1L);
                     }
