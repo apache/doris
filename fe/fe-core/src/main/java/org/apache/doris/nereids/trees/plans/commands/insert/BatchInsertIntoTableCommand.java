@@ -53,7 +53,6 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -145,6 +144,10 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
                     .<TreeNode<?>>collect(PhysicalOlapTableSink.class::isInstance).stream().findAny();
             Preconditions.checkArgument(plan.isPresent(), "insert into command must contain OlapTableSinkNode");
             sink = ((PhysicalOlapTableSink<?>) plan.get());
+            if (sink.isPartialUpdate()) {
+                throw new AnalysisException(
+                        "Partial update is not supported for INSERT INTO VALUES in an explicit transaction.");
+            }
             Table targetTable = sink.getTargetTable();
             if (ctx.getTxnEntry().isFirstTxnInsert()) {
                 ctx.getTxnEntry().setTxnSchemaVersion(((OlapTable) targetTable).getBaseSchemaVersion());
@@ -158,19 +161,7 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
             }
             // should set columns of sink since we maybe generate some invisible columns
             List<Column> fullSchema = sink.getTargetTable().getFullSchema();
-            List<Column> targetSchema = Lists.newArrayList();
-            if (sink.isPartialUpdate()) {
-                List<String> partialUpdateColumns = sink.getCols().stream()
-                        .map(Column::getName)
-                        .collect(Collectors.toList());
-                for (Column column : fullSchema) {
-                    if (partialUpdateColumns.contains(column.getName())) {
-                        targetSchema.add(column);
-                    }
-                }
-            } else {
-                targetSchema = removeSkipBitmapCol(fullSchema);
-            }
+            List<Column> targetSchema = removeSkipBitmapCol(fullSchema);
             // check auth
             if (!Env.getCurrentEnv().getAccessManager()
                     .checkTblPriv(ConnectContext.get(), targetTable.getDatabase().getCatalog().getName(),
