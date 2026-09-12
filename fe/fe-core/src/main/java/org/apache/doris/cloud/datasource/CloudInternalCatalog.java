@@ -1403,6 +1403,10 @@ public class CloudInternalCatalog extends InternalCatalog {
             return;
         }
 
+        // Aggregate rather than log per replica: a batch entry covers every tablet of an index, and a
+        // dropped compute group strands a route on all of them, so a per-replica line would be one log
+        // record per tablet. Per-entry detail is available at DEBUG in removeInvalidRoutes().
+        int staleRouteNum = 0;
         try {
             if (info.getTabletId() != -1) {
                 Tablet tablet = materializedIndex.getTablet(info.getTabletId());
@@ -1418,6 +1422,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                 }
 
                 ((CloudReplica) replica).updateClusterToPrimaryBe(clusterId, info.getBeId());
+                // Routes for dropped compute groups otherwise accumulate on Followers forever during replay.
+                staleRouteNum += ((CloudReplica) replica).removeInvalidRoutes();
 
                 LOG.debug("update single cloud replica cluster {} replica {} be {}", info.getClusterId(),
                         replica.getId(), info.getBeId());
@@ -1444,7 +1450,14 @@ public class CloudInternalCatalog extends InternalCatalog {
                     LOG.debug("update cloud replica cluster {} replica {} be {}", info.getClusterId(),
                             replica.getId(), info.getBeIds().get(i));
                     ((CloudReplica) replica).updateClusterToPrimaryBe(clusterId, info.getBeIds().get(i));
+                    // Routes for dropped compute groups otherwise accumulate on Followers forever during replay.
+                    staleRouteNum += ((CloudReplica) replica).removeInvalidRoutes();
                 }
+            }
+            if (staleRouteNum > 0) {
+                LOG.info("replay update cloud replica swept stale routes, entries dropped {}, "
+                        + "table {}, partition {}, index {}, cluster {}", staleRouteNum, info.getTableId(),
+                        info.getPartitionId(), info.getIndexId(), info.getClusterId());
             }
         } catch (Exception e) {
             LOG.warn("unexpected exception", e);
