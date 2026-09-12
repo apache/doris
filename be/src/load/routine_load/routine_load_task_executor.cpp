@@ -35,6 +35,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/metrics/metrics.h"
@@ -83,15 +84,30 @@ RoutineLoadTaskExecutor::~RoutineLoadTaskExecutor() {
 
 Status RoutineLoadTaskExecutor::init(int64_t process_mem_limit) {
     _load_mem_limit = process_mem_limit * config::load_process_max_memory_limit_percent / 100;
-    return ThreadPoolBuilder("routine_load")
+    RETURN_IF_ERROR(ThreadPoolBuilder("routine_load")
+                            .set_min_threads(0)
+                            .set_max_threads(config::max_routine_load_thread_pool_size)
+                            .set_max_queue_size(config::max_routine_load_thread_pool_size)
+                            .build(&_thread_pool));
+    if (config::kinesis_latest_sequence_request_timeout_ms <= 0) {
+        return Status::InvalidArgument(
+                "kinesis_latest_sequence_request_timeout_ms must be positive");
+    }
+    return ThreadPoolBuilder("kinesis_latest_scan")
             .set_min_threads(0)
-            .set_max_threads(config::max_routine_load_thread_pool_size)
-            .set_max_queue_size(config::max_routine_load_thread_pool_size)
-            .build(&_thread_pool);
+            .set_max_threads(config::kinesis_latest_sequence_scan_threads)
+            .set_max_queue_size(1024)
+            .build(&_kinesis_scan_pool);
 }
 
 void RoutineLoadTaskExecutor::stop() {
     DEREGISTER_HOOK_METRIC(routine_load_task_count);
+    _kinesis_scan_stopping = true;
+    if (_kinesis_scan_pool) {
+        // Drain cancelled workers so every pending RPC still runs its completion callback.
+        _kinesis_scan_pool->wait();
+        _kinesis_scan_pool->shutdown();
+    }
     if (_thread_pool) {
         _thread_pool->shutdown();
     }
@@ -181,6 +197,109 @@ Status RoutineLoadTaskExecutor::get_kinesis_shard_meta(const PKinesisMetaProxyRe
         _data_consumer_pool.return_consumer(consumer);
     }
     return st;
+}
+
+// All workers of one RPC share a deadline and publish results only after all workers exit.
+struct KinesisLatestSequenceBatch {
+    PKinesisMetaProxyRequest request;
+    int64_t deadline_ms;
+    std::function<bool()> is_cancelled;
+    RoutineLoadTaskExecutor::KinesisScanCallback on_finish;
+    std::atomic<int> next_shard {0};
+    std::atomic<int> remaining_workers;
+    std::mutex mutex;
+    Status status;
+    std::map<std::string, std::string> sequences;
+
+    KinesisLatestSequenceBatch(PKinesisMetaProxyRequest req, int64_t timeout_ms,
+                               std::function<bool()> cancelled,
+                               RoutineLoadTaskExecutor::KinesisScanCallback finish, int workers)
+            : request(std::move(req)),
+              deadline_ms(timeout_ms == -1 ? -1 : MonotonicMillis() + timeout_ms),
+              is_cancelled(std::move(cancelled)),
+              on_finish(std::move(finish)),
+              remaining_workers(workers) {}
+
+    Status check_status() {
+        std::lock_guard<std::mutex> lock(mutex);
+        RETURN_IF_ERROR(status);
+        if (is_cancelled()) {
+            return Status::Cancelled("Kinesis latest sequence scan cancelled");
+        }
+        if (deadline_ms != -1 && MonotonicMillis() >= deadline_ms) {
+            return Status::TimedOut("Kinesis latest sequence scan exceeded its total timeout");
+        }
+        return Status::OK();
+    }
+
+    void finish_worker(const Status& worker_status) {
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            if (status.ok() && !worker_status.ok()) {
+                status = worker_status;
+            }
+        }
+        if (remaining_workers.fetch_sub(1) == 1) {
+            // No worker or SDK callback may access the RPC controller after on_finish runs.
+            Status final_status = check_status();
+            on_finish(final_status, sequences);
+        }
+    }
+};
+
+Status RoutineLoadTaskExecutor::_run_kinesis_scan_worker(
+        const std::shared_ptr<KinesisLatestSequenceBatch>& batch) {
+    RETURN_IF_ERROR(batch->check_status());
+    auto ctx = std::make_shared<StreamLoadContext>(_exec_env);
+    RETURN_IF_ERROR(_prepare_ctx(batch->request, ctx));
+    // Each worker owns a client. Never share or return an in-flight scan consumer.
+    KinesisDataConsumer consumer(ctx, config::kinesis_latest_sequence_request_timeout_ms);
+    RETURN_IF_ERROR(consumer.init(ctx));
+    while (true) {
+        RETURN_IF_ERROR(batch->check_status());
+        int index = batch->next_shard.fetch_add(1);
+        if (index >= batch->request.shard_ids_for_latest_sequences_size()) {
+            return Status::OK();
+        }
+        const auto& shard = batch->request.shard_ids_for_latest_sequences(index);
+        std::string sequence;
+        RETURN_IF_ERROR(consumer.get_latest_sequence_number(
+                shard, [batch] { return batch->check_status(); }, &sequence));
+        std::lock_guard<std::mutex> lock(batch->mutex);
+        batch->sequences.emplace(shard, std::move(sequence));
+    }
+}
+
+void RoutineLoadTaskExecutor::get_kinesis_latest_sequence_numbers(
+        const PKinesisMetaProxyRequest& request, int64_t timeout_ms,
+        std::function<bool()> is_cancelled, KinesisScanCallback on_finish) {
+    CHECK(request.has_kinesis_info());
+    int workers = std::min(request.shard_ids_for_latest_sequences_size(),
+                           config::kinesis_latest_sequence_scan_threads);
+    DCHECK_GT(workers, 0);
+    auto batch = std::make_shared<KinesisLatestSequenceBatch>(
+            request, timeout_ms,
+            [this, is_cancelled = std::move(is_cancelled)] {
+                return _kinesis_scan_stopping.load() || is_cancelled();
+            },
+            std::move(on_finish), workers);
+    for (int i = 0; i < workers; ++i) {
+        auto st = _kinesis_scan_pool->submit_func([this, batch] {
+            Status worker_status;
+            try {
+                worker_status = _run_kinesis_scan_worker(batch);
+            } catch (const Exception& e) {
+                worker_status = Status::Error<false>(e.code(), e.to_string());
+            } catch (const std::exception& e) {
+                worker_status =
+                        Status::InternalError("Kinesis latest sequence scan failed: {}", e.what());
+            }
+            batch->finish_worker(worker_status);
+        });
+        if (!st.ok()) {
+            batch->finish_worker(st);
+        }
+    }
 }
 
 Status RoutineLoadTaskExecutor::get_kafka_partition_offsets_for_times(

@@ -139,6 +139,23 @@ public class BackendServiceClient {
         return stub.getInfo(request);
     }
 
+    // Only use on a dedicated client: completing/cancelling this call closes its connection.
+    public ListenableFuture<InternalService.PProxyResult> getInfoAndClose(
+            InternalService.PProxyRequest request) {
+        try {
+            PBackendServiceGrpc.PBackendServiceFutureStub requestStub = stub;
+            if (request.getTimeoutSecs() > 0) {
+                requestStub = stub.withDeadlineAfter(request.getTimeoutSecs(), TimeUnit.SECONDS);
+            }
+            ListenableFuture<InternalService.PProxyResult> future = requestStub.getInfo(request);
+            future.addListener(() -> channel.shutdownNow(), Runnable::run);
+            return future;
+        } catch (RuntimeException e) {
+            channel.shutdownNow();
+            throw e;
+        }
+    }
+
     public Future<InternalService.PSendDataResult> sendData(InternalService.PSendDataRequest request) {
         return stub.sendData(request);
     }
