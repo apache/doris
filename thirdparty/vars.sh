@@ -353,10 +353,10 @@ JEMALLOC_DORIS_SOURCE="jemalloc-5.3.0"
 JEMALLOC_DORIS_MD5SUM="09a8328574dab22a7df848eae6dbbf53"
 
 # libunwind
-LIBUNWIND_DOWNLOAD="https://github.com/libunwind/libunwind/releases/download/v1.6.2/libunwind-1.6.2.tar.gz"
-LIBUNWIND_NAME="libunwind-1.6.2.tar.gz"
-LIBUNWIND_SOURCE="libunwind-1.6.2"
-LIBUNWIND_MD5SUM="f625b6a98ac1976116c71708a73dc44a"
+LIBUNWIND_DOWNLOAD="https://github.com/libunwind/libunwind/releases/download/v1.8.3/libunwind-1.8.3.tar.gz"
+LIBUNWIND_NAME="libunwind-1.8.3.tar.gz"
+LIBUNWIND_SOURCE="libunwind-1.8.3"
+LIBUNWIND_MD5SUM="13bc7b41462ac6ea157d350eaf6c1503"
 
 # cctz
 CCTZ_DOWNLOAD="https://github.com/google/cctz/archive/refs/tags/v2.5.tar.gz"
