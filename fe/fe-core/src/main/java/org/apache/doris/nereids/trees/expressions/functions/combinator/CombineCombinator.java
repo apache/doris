@@ -96,7 +96,7 @@ public class CombineCombinator extends AggregateFunction
 
     @Override
     public CombineCombinator withChildren(List<Expression> children) {
-        return new CombineCombinator(getFunctionParams(children), nested);
+        return new CombineCombinator(getFunctionParams(children), nested.withChildren(children));
     }
 
     @Override
@@ -104,7 +104,7 @@ public class CombineCombinator extends AggregateFunction
         if (distinct) {
             throw new AnalysisException(getName() + " doesn't support DISTINCT");
         }
-        return new CombineCombinator(getFunctionParams(false, children), nested);
+        return new CombineCombinator(getFunctionParams(false, children), nested.withChildren(children));
     }
 
     @Override
@@ -121,7 +121,17 @@ public class CombineCombinator extends AggregateFunction
 
     @Override
     public DataType getDataType() {
-        return returnType;
+        return getSignature().returnType;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        return super.equals(other) && getDataType().equals(((CombineCombinator) other).getDataType());
+    }
+
+    @Override
+    public int computeHashCode() {
+        return Objects.hash(super.computeHashCode(), getDataType());
     }
 
     @Override

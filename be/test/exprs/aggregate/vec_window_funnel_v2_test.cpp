@@ -118,6 +118,105 @@ TEST_F(VWindowFunnelV2Test, testEmpty) {
     agg_function->destroy(place2);
 }
 
+namespace {
+void check_legacy_eventless_configuration(int64_t window, WindowFunnelMode mode) {
+    ColumnString buffer;
+    VectorBufferWriter writer(buffer);
+    // Original V2 header: event count, window, mode, sorted, payload size.
+    write_var_int(2, writer);
+    write_var_int(window, writer);
+    write_var_int(static_cast<Int64>(mode), writer);
+    write_var_int(1, writer);
+    write_var_int(0, writer);
+    writer.commit();
+
+    VectorBufferReader reader(buffer.get_data_at(0));
+    WindowFunnelStateV2<TYPE_DATETIMEV2> state;
+    state.read(reader);
+    EXPECT_EQ(state.window, window);
+    EXPECT_EQ(state.window_funnel_mode, mode);
+    EXPECT_EQ(state.event_count, 2);
+    EXPECT_TRUE(state.events_list.empty());
+
+    WindowFunnelStateV2<TYPE_DATETIMEV2> destination;
+    destination.merge(state);
+    EXPECT_EQ(destination.window, WindowFunnelStateV2<TYPE_DATETIMEV2>::WINDOW_UNSET);
+    EXPECT_EQ(destination.window_funnel_mode, WindowFunnelMode::INVALID);
+
+    DateV2Value<DateTimeV2ValueType> time;
+    time.unchecked_set_time(2024, 1, 1, 0, 0, 0, 0);
+    WindowFunnelStateV2<TYPE_DATETIMEV2> populated(2);
+    populated.window = 10;
+    populated.window_funnel_mode = WindowFunnelMode::DEFAULT;
+    populated.events_list.push_back({time.to_date_int_val(), 1});
+    EXPECT_NO_THROW(state.merge(populated));
+    EXPECT_EQ(state.window, populated.window);
+    EXPECT_EQ(state.window_funnel_mode, populated.window_funnel_mode);
+    EXPECT_EQ(state.get(), 1);
+    state.reset();
+    EXPECT_NO_THROW(populated.merge(state));
+    EXPECT_EQ(populated.get(), 1);
+}
+
+void check_configured_eventless_encoding(bool reset) {
+    auto timestamp = ColumnDateTimeV2::create();
+    DateV2Value<DateTimeV2ValueType> time;
+    time.unchecked_set_time(2024, 1, 1, 0, 0, 0, 0);
+    timestamp->insert_value(time);
+    auto event = ColumnUInt8::create();
+    event->insert_value(0);
+    const IColumn* columns[] = {nullptr, nullptr, timestamp.get(), event.get()};
+
+    WindowFunnelStateV2<TYPE_DATETIMEV2> state(1);
+    // Empty payloads use the original boolean sorted field without an initialization tag.
+    state.add(columns, 0, -1, WindowFunnelMode::INVALID);
+    if (reset) {
+        state.reset();
+    }
+    ColumnString buffer;
+    VectorBufferWriter writer(buffer);
+    state.write(writer);
+    write_var_int(42, writer);
+    writer.commit();
+
+    VectorBufferReader legacy_reader(buffer.get_data_at(0));
+    Int64 value;
+    read_var_int(value, legacy_reader);
+    EXPECT_EQ(value, 1);
+    read_var_int(value, legacy_reader);
+    EXPECT_EQ(value, -1);
+    read_var_int(value, legacy_reader);
+    EXPECT_EQ(value, static_cast<Int64>(WindowFunnelMode::INVALID));
+    read_var_int(value, legacy_reader);
+    EXPECT_EQ(value, 1);
+    read_var_int(value, legacy_reader);
+    EXPECT_EQ(value, 0);
+    read_var_int(value, legacy_reader);
+    EXPECT_EQ(value, 42);
+
+    VectorBufferReader reader(buffer.get_data_at(0));
+    WindowFunnelStateV2<TYPE_DATETIMEV2> restored;
+    restored.read(reader);
+    EXPECT_TRUE(restored.events_list.empty());
+    EXPECT_TRUE(restored.sorted);
+    read_var_int(value, reader);
+    EXPECT_EQ(value, 42);
+}
+} // namespace
+
+TEST(VWindowFunnelV2SerializationTest, IgnoreEventlessConfiguration) {
+    for (int64_t window : {-1, 0, 3}) {
+        for (auto mode : {WindowFunnelMode::INVALID, WindowFunnelMode::DEFAULT}) {
+            check_legacy_eventless_configuration(window, mode);
+        }
+    }
+}
+
+TEST(VWindowFunnelV2SerializationTest, EventlessEncodingUsesBooleanSortedFlag) {
+    check_configured_eventless_encoding(false);
+    check_configured_eventless_encoding(true);
+}
+
 TEST_F(VWindowFunnelV2Test, testSerialize) {
     const int NUM_CONDS = 4;
     auto column_mode = ColumnString::create();
