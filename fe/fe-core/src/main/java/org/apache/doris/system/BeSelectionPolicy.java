@@ -62,6 +62,9 @@ public class BeSelectionPolicy {
 
     public List<String> preferredLocations = new ArrayList<>();
 
+    // Empty means any backend ID is eligible.
+    public Set<Long> requiredBackendIds = Sets.newHashSet();
+
     public boolean requireAliveBe = false;
 
     private BeSelectionPolicy() {
@@ -131,6 +134,12 @@ public class BeSelectionPolicy {
             return this;
         }
 
+        /** Restrict candidates to the specified backend IDs. */
+        public Builder addRequiredBackendIds(Collection<Long> backendIds) {
+            policy.requiredBackendIds.addAll(backendIds);
+            return this;
+        }
+
         public Builder setEnableRoundRobin(boolean enableRoundRobin) {
             policy.enableRoundRobin = enableRoundRobin;
             return this;
@@ -165,6 +174,7 @@ public class BeSelectionPolicy {
                 || needLoadAvailable && !backend.isLoadAvailable()
                 || needNonDecommissioned && (backend.isDecommissioned() || backend.isDecommissioning())
                 || (!resourceTags.isEmpty() && !resourceTags.contains(backend.getLocationTag()))
+                || (!requiredBackendIds.isEmpty() && !requiredBackendIds.contains(backend.getId()))
                 || storageMedium != null && !backend.hasSpecifiedStorageMedium(storageMedium)
                 || (requireAliveBe && !backend.isAlive())) {
             if (LOG.isDebugEnabled()) {

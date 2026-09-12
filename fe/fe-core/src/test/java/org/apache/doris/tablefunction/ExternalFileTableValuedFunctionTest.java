@@ -23,15 +23,24 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
+import org.apache.doris.datasource.lance.LanceTableMetadata;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.LanceFileFormatProperties;
 import org.apache.doris.thrift.TFileFormatType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.arrow.vector.types.TimeUnit;
+import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.FieldType;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -125,5 +134,56 @@ public class ExternalFileTableValuedFunctionTest {
             e.printStackTrace();
             Assert.fail();
         }
+    }
+
+    // Verifies a shared-storage Lance TVF executes on the backend that provided its schema.
+    @Test
+    public void testLocalLanceExecutionUsesSchemaBackend() throws Exception {
+        LocalTableValuedFunction tvf =
+                Mockito.mock(LocalTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+        setLongField(tvf, "backendId", -1L);
+        setLongField(tvf, "backendIdForRequest", 23L);
+
+        Mockito.doReturn(true).when(tvf).isLanceFormat();
+        Assert.assertEquals(23L, tvf.getBackendIdForExecution());
+
+        Mockito.doReturn(false).when(tvf).isLanceFormat();
+        Assert.assertEquals(-1L, tvf.getBackendIdForExecution());
+    }
+
+    // Verifies S3 Lance metadata records which columns require the current BE reader.
+    @Test
+    public void testLanceMetadataTracksCurrentReaderColumns() throws Exception {
+        ExternalFileTableValuedFunction tvf =
+                Mockito.mock(ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+        Field jsonField = new Field(
+                "json_value",
+                new FieldType(true, ArrowType.Utf8.INSTANCE, null,
+                        Collections.singletonMap("ARROW:extension:name", "arrow.json")),
+                Collections.emptyList());
+        LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
+                "s3://bucket/table.lance", 1L,
+                new Schema(Arrays.asList(
+                        jsonField,
+                        Field.nullable("null_value", ArrowType.Null.INSTANCE),
+                        Field.nullable("duration_value",
+                                new ArrowType.Duration(TimeUnit.MILLISECOND)),
+                        Field.nullable("ordinary", ArrowType.Utf8.INSTANCE))),
+                Collections.emptyList(), Collections.emptyMap());
+
+        tvf.setLanceTableMetadata(metadata);
+
+        Assert.assertTrue(tvf.requiresCurrentLanceReader("JSON_VALUE"));
+        Assert.assertTrue(tvf.requiresCurrentLanceReader("null_value"));
+        Assert.assertTrue(tvf.requiresCurrentLanceReader("DURATION_VALUE"));
+        Assert.assertFalse(tvf.requiresCurrentLanceReader("ordinary"));
+    }
+
+    // Sets a private long field without invoking the table function's environment-dependent constructor.
+    private static void setLongField(Object target, String fieldName, long value) throws Exception {
+        java.lang.reflect.Field field =
+                LocalTableValuedFunction.class.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.setLong(target, value);
     }
 }
