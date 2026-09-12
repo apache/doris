@@ -70,7 +70,6 @@ import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.mysql.MysqlCommand;
-import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlanProcess;
@@ -120,7 +119,6 @@ import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.POutfileWriteSuccessRequest;
 import org.apache.doris.proto.InternalService.POutfileWriteSuccessResult;
 import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
-import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
@@ -696,9 +694,6 @@ public class StmtExecutor {
         SessionVariable sessionVariable = context.getSessionVariable();
         context.setEffectiveCloudCluster(null);
         externalDmlAuditCoordinator = null;
-        if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
-            context.setReturnResultFromLocal(true);
-        }
 
         try {
             try {
@@ -902,12 +897,12 @@ public class StmtExecutor {
                 if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
                     throw new UserException("Forward master command is not supported for prepare statement");
                 }
-                if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
+                if (!context.getProtocolAdapter().canReplayForwardedQueryResult()) {
                     // The master returns a query result as MySQL wire packets in
-                    // TMasterOpResult.queryResultBufList, which only ConnectProcessor.finalizeCommand()
-                    // can replay and which cannot be converted to Arrow batches. Refuse here, before
-                    // the RPC, rather than let the master build a result set this FE would discard
-                    // and answer the client with a synthesized empty success.
+                    // TMasterOpResult.queryResultBufList, which only a MySQL connection can replay to
+                    // its client (MysqlProtocolAdapter.finishCommand). Refuse here, before the RPC,
+                    // rather than let the master build a result set this FE would discard and answer
+                    // the client with a synthesized empty success.
                     throw new UserException("Forwarding a query to the master FE is not supported on an"
                             + " Arrow Flight SQL connection. Connect to the master FE to run this query.");
                 }
@@ -1150,9 +1145,6 @@ public class StmtExecutor {
                         }
                     }
                 }
-                if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
-                    context.setReturnResultFromLocal(false);
-                }
                 handleQueryStmt();
                 LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
                 break;
@@ -1202,8 +1194,7 @@ public class StmtExecutor {
                         }
                     }
                 }
-                if (i != retryTime - 1 && isNeedRetry
-                        && context.getConnectType().equals(ConnectType.MYSQL) && !context.getMysqlChannel().isSend()) {
+                if (i != retryTime - 1 && isNeedRetry && context.getProtocolAdapter().canRetryQuery(context)) {
                     LOG.warn("retry {} times. stmt: {}", (i + 1), parsedStmt.getOrigStmt().originStmt);
                 } else {
                     throw e;
@@ -1448,7 +1439,9 @@ public class StmtExecutor {
         }
 
         ResultSender sender = context.getResultSender();
-        // Every time set no send flag and clean all data in buffer
+        // Each attempt of the query starts from a clean sender: a failed attempt may have left
+        // packets behind that never reached the client (or it would not be retried, see
+        // ProtocolAdapter.canRetryQuery).
         sender.reset();
 
         Queriable queryStmt = (Queriable) parsedStmt;
@@ -1531,6 +1524,11 @@ public class StmtExecutor {
         //          Query OK, 10 rows affected (0.01 sec)
         //
         // 2. If this is a query, send the result expr fields first, and send result data back to client.
+        //
+        // Where the result goes is the protocol's decision, made now, before the coordinator is
+        // built: relayed by this frontend through the sender, or left on the backends for the
+        // client to pull (context.isReturnResultFromLocal() is false then).
+        context.getProtocolAdapter().beforeQuery(context);
         RowBatch batch;
         CoordInterface coordBase = null;
         if (statementContext.isShortCircuitQuery()) {
@@ -1574,22 +1572,21 @@ public class StmtExecutor {
             profile.getSummaryProfile().setQueryScheduleFinishTime(TimeUtils.getStartTimeMs());
             updateProfile(false);
 
-            if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
-                Preconditions.checkState(!context.isReturnResultFromLocal());
+            if (!context.isReturnResultFromLocal()) {
                 profile.getSummaryProfile().setTempStartTime();
-                // The client pulls the results from the BE later (DoGet). Only an external-table
-                // scan in batch mode still needs the coordinator after this point: the BE fetches
-                // its splits lazily from the split source the coordinator holds, so closing the
-                // coordinator here would release that source too early and break DoGet (#62259).
-                // Such a coordinator is closed later by ConnectContext: on the session's next
-                // query, on teardown, or by the idle reaper in checkTimeout. The trade-off is that
-                // its query queue slot and query registration stay held until then. Every other
-                // query closes its coordinator in the finally block below and releases both right
-                // away, the BE buffering its results independently of the coordinator (#67503).
-                // A short-circuit point query is the one case with a different coordBase, and it
-                // can no longer reach here: it has no Arrow result on either side, so
-                // LogicalResultSinkToShortCircuitPointQuery keeps Arrow Flight SQL on the normal
-                // execution path (#67368).
+                // The client pulls the results from the BE later (Arrow Flight SQL's DoGet). Only an
+                // external-table scan in batch mode still needs the coordinator after this point:
+                // the BE fetches its splits lazily from the split source the coordinator holds, so
+                // closing the coordinator here would release that source too early and break DoGet
+                // (#62259). Such a coordinator is closed later by ConnectContext: on the session's
+                // next query, on teardown, or by the idle reaper in checkTimeout. The trade-off is
+                // that its query queue slot and query registration stay held until then. Every
+                // other query closes its coordinator in the finally block below and releases both
+                // right away, the BE buffering its results independently of the coordinator
+                // (#67503). A short-circuit point query is the one case with a different coordBase,
+                // and it cannot reach here: it has no Arrow result on either side, so
+                // LogicalResultSinkToShortCircuitPointQuery keeps a Flight session on the normal
+                // execution path (ProtocolAdapter.supportsShortCircuitPointQuery, #67368).
                 if (coordBase == coord && coord.hasBatchSplitSource()) {
                     deferForArrowFlight();
                 }
@@ -2278,10 +2275,6 @@ public class StmtExecutor {
             LOG.warn("failed to prepare masked statement for FE logging", e);
             return MASKED_STMT_FALLBACK;
         }
-    }
-
-    public List<ByteBuffer> getProxyQueryResultBufList() {
-        return ((ProxyMysqlChannel) context.getMysqlChannel()).getProxyResultBufferList();
     }
 
     public void sendProxyQueryResult() throws IOException {

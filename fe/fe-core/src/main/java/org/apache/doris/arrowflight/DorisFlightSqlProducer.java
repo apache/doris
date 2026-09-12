@@ -197,13 +197,11 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         try {
             Preconditions.checkState(null != connectContext);
             Preconditions.checkState(!query.isEmpty());
-            // Finalize the previous query's coordinator on this connection whose close was
-            // deferred (Arrow Flight keeps it alive across GetFlightInfo -> DoGet so the BE can
-            // fetch external-table splits during DoGet). By now the previous DoGet is done. #62259
-            connectContext.closeFlightSqlDeferredExecutors();
-            // After the previous query was executed, there was no getStreamStatement to take away the result.
-            connectContext.getFlightSqlChannel().reset();
-            connectContext.clearFlightSqlEndpointsLocations();
+            // Drops what the previous request left on the session: its deferred coordinator (Arrow
+            // Flight keeps it alive across GetFlightInfo -> DoGet so the BE can fetch external-table
+            // splits during DoGet, and by now that DoGet is done, #62259), a result no
+            // getStreamStatement took away, and its endpoints.
+            FlightProtocolAdapter.of(connectContext).beginRequest();
             try (FlightSqlConnectProcessor flightSQLConnectProcessor = new FlightSqlConnectProcessor(connectContext)) {
                 flightSQLConnectProcessor.handleQuery(query);
                 if (connectContext.getState().getStateType() == MysqlStateType.ERR) {

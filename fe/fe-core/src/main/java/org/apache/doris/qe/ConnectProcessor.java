@@ -52,7 +52,6 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
@@ -322,6 +321,7 @@ public abstract class ConnectProcessor {
                 if (i > 0) {
                     ctx.resetReturnRows();
                 }
+                ctx.getProtocolAdapter().beforeStatement(ctx);
                 // Re-resolve per statement: an earlier statement in the same multi-stmt
                 // request (e.g. SET workload_group=...) may have changed the effective
                 // workload group, and later statements that fail before Coordinator.exec
@@ -578,7 +578,7 @@ public abstract class ConnectProcessor {
         ctx.setThreadLocalInfo();
         StmtExecutor executor = null;
         try {
-            restoreForwardedMysqlContext(ctx, request);
+            MysqlProtocolAdapter.of(ctx).restoreFromForwardRequest(ctx, request);
             // 0 for compatibility.
             int idx = request.isSetStmtIdx() ? request.getStmtIdx() : 0;
             executor = new StmtExecutor(ctx, new OriginStatement(request.getSql(), idx), true);
@@ -694,29 +694,11 @@ public abstract class ConnectProcessor {
             }
             if (executor.getProxyShowResultSet() != null) {
                 result.setResultSet(executor.getProxyShowResultSet().tothrift());
-            } else if (!executor.getProxyQueryResultBufList().isEmpty()) {
-                result.setQueryResultBufList(executor.getProxyQueryResultBufList());
+            } else if (!mysqlAdapter.proxyResultPackets().isEmpty()) {
+                result.setQueryResultBufList(mysqlAdapter.proxyResultPackets());
             }
         }
         return result;
-    }
-
-    static void restoreForwardedMysqlContext(ConnectContext context, TMasterOpRequest request) {
-        int flags = request.isSetMysqlCapability() ? request.getMysqlCapability()
-                : MysqlCapability.DEFAULT_CAPABILITY.getFlags()
-                        & ~MysqlCapability.Flag.CLIENT_DEPRECATE_EOF.getFlagBit();
-        if (request.isSetClientDeprecatedEOF() && request.isClientDeprecatedEOF()) {
-            flags |= MysqlCapability.Flag.CLIENT_DEPRECATE_EOF.getFlagBit();
-        }
-        MysqlCapability capability = new MysqlCapability(flags);
-        context.setCapability(capability);
-        context.getMysqlChannel().getSerializer().setCapability(capability);
-        if (capability.isDeprecatedEOF()) {
-            context.getMysqlChannel().setClientDeprecatedEOF();
-        }
-        // Old followers do not carry the cursor flag. Keep their existing behavior; they must
-        // be upgraded to preserve cursor intent. Do not reject their ordinary prepared statements.
-        context.setCursorFetchRequested(request.isSetCursorFetchRequested() && request.isCursorFetchRequested());
     }
 
     static void restoreForwardedSessionContext(ConnectContext context, TMasterOpRequest request) {

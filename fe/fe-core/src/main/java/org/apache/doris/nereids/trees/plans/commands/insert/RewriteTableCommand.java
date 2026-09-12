@@ -175,9 +175,6 @@ public class RewriteTableCommand extends Command implements NeedAuditEncryption,
         try {
             stmtExecutor.setPlanner(planner);
             stmtExecutor.checkBlockRules();
-            if (ctx.getConnectType() == ConnectContext.ConnectType.MYSQL && ctx.getMysqlChannel() != null) {
-                ctx.getMysqlChannel().reset();
-            }
             Optional<PhysicalSink<?>> plan = (planner.getPhysicalPlan()
                     .<PhysicalSink<?>>collect(PhysicalSink.class::isInstance)).stream().findAny();
             Preconditions.checkArgument(plan.isPresent(), "rewrite command must contain target table");

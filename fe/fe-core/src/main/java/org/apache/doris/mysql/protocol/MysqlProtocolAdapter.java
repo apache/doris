@@ -20,6 +20,7 @@ package org.apache.doris.mysql.protocol;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
+import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlCursorFetchCompatibility;
 import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlPacket;
@@ -27,6 +28,7 @@ import org.apache.doris.mysql.MysqlResultSetEndPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.mysql.MysqlSslContext;
+import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.qe.ConnectContext;
@@ -38,6 +40,7 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.protocol.ProtocolAdapter;
+import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TResultSinkType;
 
 import org.apache.logging.log4j.LogManager;
@@ -45,6 +48,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.List;
 
 /**
  * The MySQL protocol side of a connection: the channel to the client, the capabilities negotiated
@@ -112,6 +116,100 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
     }
 
     @Override
+    public boolean canReplayForwardedQueryResult() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsFeSideResult() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsShortCircuitPointQuery() {
+        return true;
+    }
+
+    /**
+     * The packets of a failed attempt are dropped when the next attempt resets the channel, so a
+     * retry is invisible to the client as long as none of them was flushed to the socket yet.
+     */
+    @Override
+    public boolean canRetryQuery(ConnectContext ctx) {
+        return !channel.isSend();
+    }
+
+    /**
+     * Clears the send flag and whatever the previous statement of the request left in the send
+     * buffer. Between the statements of a request run for a client that did not negotiate
+     * CLIENT_MULTI_STATEMENTS nothing is flushed (see {@link #finishStatement}), so what a
+     * statement wrote is still in the buffer when the next one starts.
+     */
+    @Override
+    public void beforeStatement(ConnectContext ctx) {
+        channel.reset();
+    }
+
+    @Override
+    public void beforeQuery(ConnectContext ctx) {
+        // The rows are relayed through the channel as the coordinator fetches them.
+    }
+
+    @Override
+    public boolean returnsResultFromLocal(ConnectContext ctx) {
+        return true;
+    }
+
+    /**
+     * The master encodes the response of a forwarded statement for this connection's client, so
+     * it needs the client's negotiated capabilities, and for a forwarded COM_STMT_EXECUTE the
+     * execute packet and whether it asked for a cursor. {@link #restoreFromForwardRequest} is the
+     * master's side.
+     */
+    @Override
+    public void fillForwardRequest(ConnectContext ctx, TMasterOpRequest request) {
+        if (ctx.getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
+            if (prepareExecuteBuffer != null) {
+                request.setPrepareExecuteBuffer(prepareExecuteBuffer);
+            }
+            request.setCursorFetchRequested(cursorFetchRequested);
+        }
+        request.setClientDeprecatedEOF(channel.clientDeprecatedEOF());
+        request.setMysqlCapability(capability.getFlags());
+    }
+
+    /**
+     * On the master, gives the proxy context of a forwarded statement the capabilities of the
+     * client it is answering, as {@link #fillForwardRequest} put them in the request. A request
+     * from an old frontend carries neither the capability flags nor the cursor flag; it gets the
+     * default capabilities without CLIENT_DEPRECATE_EOF, plus that flag when set separately, and
+     * its ordinary prepared statements are not rejected.
+     */
+    public void restoreFromForwardRequest(ConnectContext ctx, TMasterOpRequest request) {
+        int flags = request.isSetMysqlCapability() ? request.getMysqlCapability()
+                : MysqlCapability.DEFAULT_CAPABILITY.getFlags()
+                        & ~MysqlCapability.Flag.CLIENT_DEPRECATE_EOF.getFlagBit();
+        if (request.isSetClientDeprecatedEOF() && request.isClientDeprecatedEOF()) {
+            flags |= MysqlCapability.Flag.CLIENT_DEPRECATE_EOF.getFlagBit();
+        }
+        MysqlCapability restored = new MysqlCapability(flags);
+        setCapability(restored);
+        channel.getSerializer().setCapability(restored);
+        if (restored.isDeprecatedEOF()) {
+            channel.setClientDeprecatedEOF();
+        }
+        cursorFetchRequested = request.isSetCursorFetchRequested() && request.isCursorFetchRequested();
+    }
+
+    /**
+     * On the master, the packets the forwarded statement produced, collected by the proxy
+     * context's channel to be handed back to the frontend the client is connected to.
+     */
+    public List<ByteBuffer> proxyResultPackets() {
+        return ((ProxyMysqlChannel) channel).getProxyResultBufferList();
+    }
+
+    @Override
     public ConnectPoolMgr connectPool(ConnectScheduler scheduler) {
         return scheduler.getConnectPoolMgr();
     }
@@ -120,9 +218,10 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
      * Between the statements of a multi-statement request the intermediate response carries
      * SERVER_MORE_RESULTS_EXISTS, and is sent right away if the client negotiated
      * CLIENT_MULTI_STATEMENTS. Here Doris differs from MySQL: a client that did not negotiate it
-     * gets the request run as several statements anyway, but only the last result is delivered
-     * (the next query resets the channel, see {@link MysqlResultSender#reset}). The response of the
-     * last statement is the response of the command, sent by {@link #finishCommand}.
+     * gets the request run as several statements anyway, but only the last statement's outcome
+     * is delivered (the next statement resets the channel, see {@link #beforeStatement}). The
+     * response of the last statement is the response of the command, sent by
+     * {@link #finishCommand}.
      */
     @Override
     public boolean finishStatement(ConnectContext ctx, StmtExecutor executor, int stmtIndex, int stmtCount)
