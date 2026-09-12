@@ -484,6 +484,14 @@ private:
     bool _count_fastpath_hit = false;
     bool _count_emit_shortcut = false;
     uint64_t _count_emit_rows_remaining = 0;
+
+    // An indexed conjunct prefix emptied _row_bitmap, proving the WHOLE
+    // pushed-down conjunction false. Set by the _apply_index_expr short
+    // circuit when it consumes (clears) the remaining conjuncts, and read
+    // where an empty conjunct list would otherwise zero the condition-cache
+    // digest: the all-false result stays valid for the full conjunction, so
+    // it must remain cacheable.
+    bool _index_conjuncts_proved_empty = false;
     // Batch size for shortcut emission: VStatisticsIterator's
     // MAX_ROW_SIZE_IN_COUNT, the largest default-rows block shape already
     // proven through every consumer above the segment iterator by the plain

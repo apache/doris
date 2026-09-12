@@ -332,13 +332,14 @@ Status OlapScanner::_init_tso_predicates() {
 
     const auto* tso_column = read_schema->column(tso_ordinal);
     const auto& tso_data_type = read_schema->data_type(tso_ordinal);
+    // The TSO scan range is left-closed right-open [start_tso, end_tso).
     if (_start_tso.has_value()) {
-        _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
+        _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::GE>(
                 tso_ordinal, tso_column->name(), tso_data_type,
                 Field::create_field<TYPE_BIGINT>(*_start_tso), false));
     }
     if (_end_tso.has_value()) {
-        _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::LE>(
+        _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::LT>(
                 tso_ordinal, tso_column->name(), tso_data_type,
                 Field::create_field<TYPE_BIGINT>(*_end_tso), false));
     }
@@ -881,6 +882,8 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.inverted_index_searcher_cache_miss);
     COUNTER_UPDATE(local_state->_inverted_index_downgrade_count_counter,
                    stats.inverted_index_downgrade_count);
+    COUNTER_UPDATE(local_state->_inverted_index_conjuncts_short_circuited_counter,
+                   stats.inverted_index_conjuncts_short_circuited);
     COUNTER_UPDATE(local_state->_inverted_index_analyzer_timer,
                    stats.inverted_index_analyzer_timer);
     COUNTER_UPDATE(local_state->_inverted_index_lookup_timer, stats.inverted_index_lookup_timer);

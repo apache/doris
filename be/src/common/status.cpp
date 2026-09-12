@@ -19,9 +19,42 @@
 namespace doris {
 namespace ErrorCode {
 
+// Pairing lock between the literal values in APPLY_FOR_THRIFT_ERROR_CODES and
+// the thrift enum generated from Status.thrift: if either side drifts, this
+// translation unit fails to compile.
+#define M(NAME, VALUE, ENABLESTACKTRACE)                          \
+    static_assert(static_cast<int>(TStatusCode::NAME) == (VALUE), \
+                  "ErrorCode::" #NAME " drifted from Status.thrift");
+APPLY_FOR_THRIFT_ERROR_CODES(M)
+#undef M
+
 ErrorCodeState error_states[MAX_ERROR_CODE_DEFINE_NUM];
 ErrorCodeInitializer error_code_init(10);
 } // namespace ErrorCode
+
+template <bool stacktrace>
+Status Status::create(const TStatus& status) {
+    return Error<stacktrace>(status.status_code,
+                             "TStatus: " + (status.error_msgs.empty() ? "" : status.error_msgs[0]));
+}
+
+template Status Status::create<true>(const TStatus& status);
+template Status Status::create<false>(const TStatus& status);
+
+template <bool stacktrace>
+Status Status::create(const PStatus& pstatus) {
+    return Error<stacktrace>(
+            pstatus.status_code(),
+            "PStatus: " + (pstatus.error_msgs_size() == 0 ? "" : pstatus.error_msgs(0)));
+}
+
+template Status Status::create<true>(const PStatus& pstatus);
+template Status Status::create<false>(const PStatus& pstatus);
+
+std::string Status::code_as_string() const {
+    return (int)_code >= 0 ? doris::to_string(static_cast<TStatusCode::type>(_code))
+                           : fmt::format("E{}", (int16_t)_code);
+}
 
 void Status::to_thrift(TStatus* s) const {
     s->error_msgs.clear();

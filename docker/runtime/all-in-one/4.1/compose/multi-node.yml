@@ -1,0 +1,168 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# Doris 4.1 with storage and compute together on the BEs, three FEs and
+# three BEs, one container per node. For multi-node behaviour -- FE election
+# and failover, three replicas, balancing, decommission -- that the
+# single-container image cannot show.
+#
+#   docker compose -f multi-node.yml up --wait
+#   docker compose -f multi-node.yml exec client mysql -uroot -hfe-1 -P9030
+#   docker compose -f multi-node.yml kill fe-1        # watch the election
+#   docker compose -f multi-node.yml down             # clean slate (nothing persists)
+#
+#   fe-1 (bootstraps) ─┬─ fe-2, fe-3 (followers, or FE3_ROLE=observer)
+#                      ├─ be-1, be-2, be-3
+#                      └─ client (healthy = cluster ready)
+#
+# Knobs, as environment variables or a .env file next to this file:
+#   DORIS_IMAGE   apache/doris:all-in-one-4.1.3     any tag built from ../Dockerfile
+#   SUBNET        172.31.81                         first three octets; differs from
+#                                                   cloud.yml so both can run at once
+#                                                   (give one of them other host ports)
+#   FE_PORT 9030  FE2_PORT 9031  FE3_PORT 9032      host ports, mysql protocol
+#   FE_HTTP_PORT 8030  FE2_HTTP_PORT 8031  FE3_HTTP_PORT 8032  BE_HTTP_PORT 8040
+#   FE_HEAP 1024m  BE_MEM_LIMIT 25%                 per-process memory
+#   FE3_ROLE follower                               or observer
+#
+# Tables default to three replicas here, one per BE, as they would on a real
+# cluster. Node addresses are pinned inside the private network, so a
+# restarted container keeps the identity Doris knows it by. From the host,
+# use the published ports; on Docker Desktop the container addresses
+# themselves are not routable, which is what the client service is for.
+
+name: doris-multi
+
+x-node: &node
+  image: ${DORIS_IMAGE:-apache/doris:all-in-one-4.1.3}
+  stop_grace_period: 60s
+
+x-fe-follower: &fe-follower
+  <<: *node
+  depends_on:
+    fe-1:
+      condition: service_healthy
+
+x-be: &be
+  <<: *node
+  depends_on:
+    fe-1:
+      condition: service_healthy
+
+services:
+  fe-1:
+    <<: *node
+    environment:
+      DORIS_ROLE: fe
+      FE_HEAP: ${FE_HEAP:-1024m}
+    ports:
+      - "${FE_PORT:-9030}:9030"
+      - "${FE_HTTP_PORT:-8030}:8030"
+    networks:
+      doris:
+        ipv4_address: ${SUBNET:-172.31.81}.40
+
+  fe-2:
+    <<: *fe-follower
+    environment:
+      DORIS_ROLE: fe
+      FE_MASTER: fe-1,fe-2,fe-3
+      FE_ROLE: follower
+      FE_HEAP: ${FE_HEAP:-1024m}
+    ports:
+      - "${FE2_PORT:-9031}:9030"
+      - "${FE2_HTTP_PORT:-8031}:8030"
+    networks:
+      doris:
+        ipv4_address: ${SUBNET:-172.31.81}.41
+
+  fe-3:
+    <<: *fe-follower
+    environment:
+      DORIS_ROLE: fe
+      FE_MASTER: fe-1,fe-2,fe-3
+      FE_ROLE: ${FE3_ROLE:-follower}
+      FE_HEAP: ${FE_HEAP:-1024m}
+    ports:
+      - "${FE3_PORT:-9032}:9030"
+      - "${FE3_HTTP_PORT:-8032}:8030"
+    networks:
+      doris:
+        ipv4_address: ${SUBNET:-172.31.81}.42
+
+  be-1:
+    <<: *be
+    environment:
+      DORIS_ROLE: be
+      FE_MASTER: fe-1,fe-2,fe-3
+      BE_CONFIG_EXTRA: "mem_limit = ${BE_MEM_LIMIT:-25%}"
+    ports:
+      - "${BE_HTTP_PORT:-8040}:8040"
+    networks:
+      doris:
+        ipv4_address: ${SUBNET:-172.31.81}.50
+
+  be-2:
+    <<: *be
+    environment:
+      DORIS_ROLE: be
+      FE_MASTER: fe-1,fe-2,fe-3
+      BE_CONFIG_EXTRA: "mem_limit = ${BE_MEM_LIMIT:-25%}"
+    networks:
+      doris:
+        ipv4_address: ${SUBNET:-172.31.81}.51
+
+  be-3:
+    <<: *be
+    environment:
+      DORIS_ROLE: be
+      FE_MASTER: fe-1,fe-2,fe-3
+      BE_CONFIG_EXTRA: "mem_limit = ${BE_MEM_LIMIT:-25%}"
+    networks:
+      doris:
+        ipv4_address: ${SUBNET:-172.31.81}.52
+
+  # Turns healthy once every node above is alive, which is what
+  # `docker compose up --wait` blocks on; then idles inside the network with a
+  # mysql client and curl, so stream load redirects to BE addresses resolve.
+  client:
+    <<: *node
+    environment:
+      DORIS_ROLE: client
+      FE_MASTER: fe-1,fe-2,fe-3
+      EXPECT_FE: 3
+      EXPECT_BE: 3
+    depends_on:
+      fe-2:
+        condition: service_healthy
+      fe-3:
+        condition: service_healthy
+      be-1:
+        condition: service_healthy
+      be-2:
+        condition: service_healthy
+      be-3:
+        condition: service_healthy
+    networks:
+      doris:
+
+networks:
+  doris:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${SUBNET:-172.31.81}.0/24

@@ -19,8 +19,8 @@ package org.apache.doris.fs;
 
 import org.apache.doris.datasource.storage.StorageAdapter;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.OptionalLong;
@@ -39,20 +39,20 @@ public class FileSystemCacheTest {
 
         FileSystemCache.FileSystemCacheKey firstKey = key("hdfs://ns1");
         FileSystemCache.FileSystemLease firstLease = cache.getFileSystem(firstKey);
-        Assert.assertSame(first, firstLease.fileSystem());
+        Assertions.assertSame(first, firstLease.fileSystem());
 
         FileSystemCache.FileSystemLease secondLease = cache.getFileSystem(key("hdfs://ns2"));
         cache.cleanUp();
 
-        Assert.assertEquals(0, first.getCloseCount());
-        Assert.assertEquals(0, second.getCloseCount());
+        Assertions.assertEquals(0, first.getCloseCount());
+        Assertions.assertEquals(0, second.getCloseCount());
 
         firstLease.close();
-        Assert.assertEquals(1, first.getCloseCount());
-        Assert.assertEquals(0, second.getCloseCount());
+        Assertions.assertEquals(1, first.getCloseCount());
+        Assertions.assertEquals(0, second.getCloseCount());
 
         secondLease.close();
-        Assert.assertEquals(0, second.getCloseCount());
+        Assertions.assertEquals(0, second.getCloseCount());
     }
 
     @Test
@@ -61,11 +61,11 @@ public class FileSystemCacheTest {
         FileSystemCache cache = new FileSystemCache(0L, OptionalLong.empty(), key -> fileSystem);
 
         FileSystemCache.FileSystemLease lease = cache.getFileSystem(key("hdfs://ns1"));
-        Assert.assertSame(fileSystem, lease.fileSystem());
-        Assert.assertEquals(0, fileSystem.getCloseCount());
+        Assertions.assertSame(fileSystem, lease.fileSystem());
+        Assertions.assertEquals(0, fileSystem.getCloseCount());
 
         lease.close();
-        Assert.assertEquals(1, fileSystem.getCloseCount());
+        Assertions.assertEquals(1, fileSystem.getCloseCount());
     }
 
     @Test
@@ -78,7 +78,7 @@ public class FileSystemCacheTest {
         cache.cleanUp();
 
         closeConcurrently(lease);
-        Assert.assertEquals(1, fileSystem.getCloseCount());
+        Assertions.assertEquals(1, fileSystem.getCloseCount());
 
         evictingLease.close();
     }
@@ -90,7 +90,7 @@ public class FileSystemCacheTest {
 
         closeConcurrently(cache.getFileSystem(key("hdfs://ns1")));
 
-        Assert.assertEquals(1, fileSystem.getCloseCount());
+        Assertions.assertEquals(1, fileSystem.getCloseCount());
     }
 
     private static void closeConcurrently(FileSystemCache.FileSystemLease lease) throws InterruptedException {

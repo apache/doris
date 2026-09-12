@@ -89,6 +89,15 @@ suite("test_iceberg_struct_schema_evolution", "p0,external") {
     qt_struct_predicate_3 """SELECT id FROM ${table_name} WHERE element_at(a_struct, 'added') IS NULL ORDER BY id"""
     qt_struct_predicate_4 """SELECT id FROM ${table_name} WHERE element_at(a_struct, 'added') IS NOT NULL ORDER BY id"""
 
+    // A missing predicate child widens the physical scan back to the full struct. The projected
+    // sibling fields must keep their Iceberg field-id mapping instead of shifting by file ordinal.
+    qt_struct_projected_siblings_with_missing_predicate """
+        SELECT element_at(a_struct, 'renamed'), element_at(a_struct, 'keep')
+        FROM ${table_name}
+        WHERE element_at(a_struct, 'added') IS NULL
+        ORDER BY id
+    """
+
     // Test 7: Multiple struct fields in one query
     qt_struct_multi """SELECT element_at(a_struct, 'renamed'), element_at(a_struct, 'keep'), element_at(a_struct, 'drop_and_add'), element_at(a_struct, 'added') FROM ${table_name} ORDER BY id"""
 
@@ -160,8 +169,7 @@ suite("test_iceberg_struct_schema_evolution", "p0,external") {
     qt_case_struct_renamed """SELECT element_at(a_struct, 'renamed') FROM ${case_table_name} ORDER BY id"""
 
     // Test 3: Query struct field that was dropped and re-added with case change
-    // Note: Even though we use DROP_AND_ADD (uppercase) in SQL, the system normalizes
-    // field names to lowercase, so we query with 'drop_and_add' (lowercase)
+    // Iceberg metadata retains the external spelling, while runtime lookup still uses the normalized name.
     qt_case_struct_drop_and_add """SELECT element_at(a_struct, 'drop_and_add') FROM ${case_table_name} ORDER BY id"""
 
     // Test 4: Query struct field that was newly added
@@ -198,8 +206,7 @@ suite("test_iceberg_struct_schema_evolution", "p0,external") {
     qt_case_orc_struct_renamed """SELECT element_at(a_struct, 'renamed') FROM ${case_orc_table_name} ORDER BY id"""
 
     // Test 3: Query struct field that was dropped and re-added with case change
-    // Note: Even though we use DROP_AND_ADD (uppercase) in SQL, the system normalizes
-    // field names to lowercase, so we query with 'drop_and_add' (lowercase)
+    // Iceberg metadata retains the external spelling, while runtime lookup still uses the normalized name.
     qt_case_orc_struct_drop_and_add """SELECT element_at(a_struct, 'drop_and_add') FROM ${case_orc_table_name} ORDER BY id"""
 
     // Test 4: Query struct field that was newly added

@@ -112,7 +112,8 @@ struct yyyy_MM_dd_HH_mm_ssImpl {
 
 struct yyyy_MM_dd_HH_mm_ss_SSSSSSImpl {
     constexpr static size_t row_size = 26;
-    size_t static date_to_str(const DateV2Value<DateTimeV2ValueType>& date_value, char* buf) {
+    template <typename DateType>
+    size_t static date_to_str(const DateType& date_value, char* buf) {
         int i = 0;
         put_year(date_value.year(), buf, i);
         buf[i++] = '-';

@@ -441,6 +441,10 @@ struct TMasterOpRequest {
     1005: optional string delegated_credential_token
     1006: optional i64 delegated_credential_expires_at_millis
     1007: optional string delegated_credential_session_id
+    // Whether COM_STMT_EXECUTE requested CURSOR_TYPE_READ_ONLY.
+    1008: optional bool cursor_fetch_requested
+    // Capabilities negotiated with the original MySQL client.
+    1009: optional i32 mysql_capability
 }
 
 struct TColumnDefinition {
@@ -474,6 +478,8 @@ struct TMasterOpResult {
     11: optional i64 affectedRows;
     // Lets the forwarding FE wait for the final statistics of external write fragments.
     12: optional list<i64> auditStatisticsBackendIds;
+    // Confirms that the executing FE serialized raw MySQL packets with CLIENT_DEPRECATE_EOF.
+    13: optional bool clientDeprecatedEofApplied;
 }
 
 // Certificate-based authentication info forwarded from BE to FE
@@ -955,6 +961,7 @@ struct TMetadataTableRequestParams {
   // Reserved for downstream field `current_roles` to keep thrift field ids
   // wire-compatible across maintained branches. Do not reuse this id.
   15: optional set<string> reserved_field_15
+  16: optional PlanNodes.TLanceIndexMetadataParams lance_index_metadata_params
 }
 
 struct TSchemaTableRequestParams {
@@ -1622,6 +1629,7 @@ struct TShowProcessListResult {
 }
 
 struct TShowUserRequest {
+    1: optional Types.TUserIdentity current_user_ident // to filter rows by the requesting user's privileges
 }
 
 struct TShowUserResult {
@@ -1978,6 +1986,22 @@ struct TSyncCloudTabletStatsRequest {
     1: optional binary tablet_stats_pb
 }
 
+// Establishes a closed upper bound for a time-based incremental read. The master FE
+// captures its current TSO before the transaction watermark and waits for transactions
+// involving the requested tables when wait_for_transactions is true.
+struct TAcquireTimeBasedChangeReadFenceRequest {
+    1: required map<i64, list<i64>> db_to_table_ids
+    2: optional i64 end_timestamp_ms
+    3: required i64 timeout_ms
+    4: required bool wait_for_transactions
+}
+
+struct TAcquireTimeBasedChangeReadFenceResult {
+    1: required Status.TStatus status
+    2: optional i64 current_tso
+    3: optional i64 max_journal_id
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -2035,6 +2059,9 @@ service FrontendService {
     TInitExternalCtlMetaResult initExternalCtlMeta(1: TInitExternalCtlMetaRequest request)
 
     TFetchSchemaTableDataResult fetchSchemaTableData(1: TFetchSchemaTableDataRequest request)
+
+    TAcquireTimeBasedChangeReadFenceResult acquireTimeBasedChangeReadFence(
+        1: TAcquireTimeBasedChangeReadFenceRequest request)
 
     TMySqlLoadAcquireTokenResult acquireToken()
 

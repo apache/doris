@@ -25,16 +25,31 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
+import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
+import org.apache.doris.persist.DropInfo;
+import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.TableStreamCleanupInfo;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 
 public class TableStreamManagerCleanupTest extends TestWithFeService {
 
@@ -58,6 +73,201 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
         Env.getCurrentEnv().getTableStreamManager().cleanupStalePartitionOffsets();
 
         assertPartitionState(context.stream, keptPartitionId, removedPartitionId, true);
+    }
+
+    @Test
+    public void testCleanupRetainsOffsetForPartitionAddedAfterSnapshot() throws Exception {
+        StreamContext context = createStreamContext("cleanup_partition_race");
+        String debugPointName =
+                "TableStreamManager.cleanupStalePartitionOffsets.blockAfterPartitionSnapshot";
+        DebugPoint debugPoint = new DebugPoint();
+        debugPoint.executeLimit = Integer.MAX_VALUE;
+        debugPoint.params.put("value", String.valueOf(context.stream.getId()));
+        boolean debugPointsEnabled = Config.enable_debug_points;
+        Config.enable_debug_points = true;
+        DebugPointUtil.addDebugPoint(debugPointName, debugPoint);
+
+        MonitoredReentrantReadWriteLock baseTableLock = Deencapsulation.getField(context.baseTable, "rwLock");
+        AtomicReference<Thread> addPartitionThread = new AtomicReference<>();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        Future<?> cleanup = executor.submit(
+                () -> Env.getCurrentEnv().getTableStreamManager().cleanupStalePartitionOffsets());
+        Future<?> addPartition = null;
+        try {
+            try {
+                await(() -> debugPoint.executeNum.get() > 0);
+                addPartition = executor.submit(() -> {
+                    connectContext.setThreadLocalInfo();
+                    addPartitionThread.set(Thread.currentThread());
+                    alterTableSync("alter table test_stream_cleanup." + context.baseTable.getName()
+                            + " add partition p3 values less than (\"300\")");
+                    long partitionId = context.baseTable.getPartition("p3").getId();
+                    updatePartitionOffset(context.stream, partitionId, 33L, 333L);
+                    return null;
+                });
+                Future<?> addPartitionResult = addPartition;
+                await(() -> addPartitionResult.isDone()
+                        || addPartitionThread.get() != null
+                        && baseTableLock.hasQueuedThread(addPartitionThread.get()));
+            } finally {
+                DebugPointUtil.removeDebugPoint(debugPointName);
+                Config.enable_debug_points = debugPointsEnabled;
+            }
+
+            cleanup.get(10, TimeUnit.SECONDS);
+            addPartition.get(10, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+        }
+
+        long partitionId = context.baseTable.getPartition("p3").getId();
+        Assertions.assertTrue(context.stream.hasConsumedData(partitionId));
+    }
+
+    @Test
+    public void testCleanupJournalOrderMatchesLeaderState() throws Exception {
+        StreamContext context = createStreamContext("cleanup_journal_race");
+        long keptPartitionId = context.baseTable.getPartition("p1").getId();
+        long removedPartitionId = context.baseTable.getPartition("p2").getId();
+        setPartitionState(context.stream, keptPartitionId, removedPartitionId);
+        alterTableSync("alter table test_stream_cleanup." + context.baseTable.getName() + " drop partition p2");
+
+        List<Object> journalOrder = Collections.synchronizedList(new ArrayList<>());
+        CountDownLatch allowUpdate = new CountDownLatch(1);
+        CountDownLatch updateDone = new CountDownLatch(1);
+        OlapTableStreamUpdate streamUpdate = new OlapTableStreamUpdate(
+                Collections.emptyMap(), Collections.singletonMap(removedPartitionId, 44L));
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Future<?> update = executor.submit(() -> {
+            Assertions.assertTrue(allowUpdate.await(10, TimeUnit.SECONDS));
+            context.stream.writeLock();
+            try {
+                journalOrder.add(streamUpdate);
+                context.stream.unprotectedUpdateStreamUpdate(streamUpdate, 444L);
+            } finally {
+                context.stream.writeUnlock();
+                updateDone.countDown();
+            }
+            return null;
+        });
+
+        EditLog editLog = Env.getCurrentEnv().getEditLog();
+        EditLog spyEditLog = Mockito.spy(editLog);
+        Mockito.doAnswer(invocation -> {
+            TableStreamCleanupInfo cleanupInfo = invocation.getArgument(0);
+            allowUpdate.countDown();
+            if (!context.stream.isWriteLockHeldByCurrentThread()) {
+                Assertions.assertTrue(updateDone.await(10, TimeUnit.SECONDS));
+            }
+            journalOrder.add(cleanupInfo);
+            return Mockito.mock(EditLog.EditLogItem.class);
+        }).when(spyEditLog).logTableStreamCleanup(Mockito.any(TableStreamCleanupInfo.class));
+        Env.getCurrentEnv().setEditLog(spyEditLog);
+        try {
+            Env.getCurrentEnv().getTableStreamManager().cleanupStalePartitionOffsets();
+            update.get(10, TimeUnit.SECONDS);
+        } finally {
+            Env.getCurrentEnv().setEditLog(editLog);
+            executor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+        }
+
+        Map<Long, Long> leaderOffsets = new HashMap<>(
+                Deencapsulation.getField(context.stream, "partitionOffset"));
+        setPartitionState(context.stream, keptPartitionId, removedPartitionId);
+        for (Object journal : journalOrder) {
+            if (journal instanceof OlapTableStreamUpdate) {
+                updatePartitionOffset(context.stream, removedPartitionId, 44L, 444L);
+            } else {
+                Env.getCurrentEnv().getTableStreamManager()
+                        .replayTableStreamCleanup((TableStreamCleanupInfo) journal);
+            }
+        }
+
+        Map<Long, Long> replayedOffsets = Deencapsulation.getField(context.stream, "partitionOffset");
+        Assertions.assertEquals(leaderOffsets, replayedOffsets);
+    }
+
+    @Test
+    public void testDropStreamDuringCleanupReplaysDeterministically() throws Exception {
+        StreamContext context = createStreamContext("cleanup_drop_race");
+        long keptPartitionId = context.baseTable.getPartition("p1").getId();
+        long removedPartitionId = context.baseTable.getPartition("p2").getId();
+        setPartitionState(context.stream, keptPartitionId, removedPartitionId);
+        alterTableSync("alter table test_stream_cleanup." + context.baseTable.getName() + " drop partition p2");
+
+        String debugPointName =
+                "TableStreamManager.cleanupStalePartitionOffsets.blockAfterPartitionSnapshot";
+        DebugPoint debugPoint = new DebugPoint();
+        debugPoint.executeLimit = Integer.MAX_VALUE;
+        debugPoint.params.put("value", String.valueOf(context.stream.getId()));
+        boolean debugPointsEnabled = Config.enable_debug_points;
+        Config.enable_debug_points = true;
+        DebugPointUtil.addDebugPoint(debugPointName, debugPoint);
+
+        List<Object> journalOrder = Collections.synchronizedList(new ArrayList<>());
+        EditLog editLog = Env.getCurrentEnv().getEditLog();
+        EditLog spyEditLog = Mockito.spy(editLog);
+        Mockito.doAnswer(invocation -> {
+            journalOrder.add(invocation.getArgument(0));
+            return null;
+        }).when(spyEditLog).logDropTable(Mockito.any(DropInfo.class));
+        Mockito.doAnswer(invocation -> {
+            journalOrder.add(invocation.getArgument(0));
+            return Mockito.mock(EditLog.EditLogItem.class);
+        }).when(spyEditLog).logTableStreamCleanup(Mockito.any(TableStreamCleanupInfo.class));
+        Mockito.doAnswer(invocation -> {
+            journalOrder.add(invocation.getArgument(0));
+            return null;
+        }).when(spyEditLog).logRecoverTable(Mockito.any(RecoverInfo.class));
+        Env.getCurrentEnv().setEditLog(spyEditLog);
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Future<?> cleanup = executor.submit(
+                () -> Env.getCurrentEnv().getTableStreamManager().cleanupStalePartitionOffsets());
+        try {
+            try {
+                await(() -> debugPoint.executeNum.get() > 0);
+                Env.getCurrentInternalCatalog().dropTable(
+                        "test_stream_cleanup", context.stream.getName(), false, false, true,
+                        false, false, false);
+            } finally {
+                DebugPointUtil.removeDebugPoint(debugPointName);
+                Config.enable_debug_points = debugPointsEnabled;
+            }
+            cleanup.get(10, TimeUnit.SECONDS);
+            Env.getCurrentEnv().recoverTable(
+                    "test_stream_cleanup", context.stream.getName(), "", -1L);
+        } finally {
+            executor.shutdownNow();
+            try {
+                Assertions.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+            } finally {
+                Env.getCurrentEnv().setEditLog(editLog);
+            }
+        }
+
+        Map<Long, Long> leaderOffsets = new HashMap<>(
+                Deencapsulation.getField(context.stream, "partitionOffset"));
+        setPartitionState(context.stream, keptPartitionId, removedPartitionId);
+        Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream_cleanup");
+        for (Object journal : journalOrder) {
+            if (journal instanceof DropInfo) {
+                DropInfo dropInfo = (DropInfo) journal;
+                Env.getCurrentEnv().replayDropTable(
+                        db, dropInfo.getTableId(), dropInfo.isForceDrop(), dropInfo.getRecycleTime());
+            } else if (journal instanceof TableStreamCleanupInfo) {
+                Env.getCurrentEnv().getTableStreamManager()
+                        .replayTableStreamCleanup((TableStreamCleanupInfo) journal);
+            } else {
+                Env.getCurrentEnv().replayRecoverTable((RecoverInfo) journal);
+            }
+        }
+
+        Map<Long, Long> replayedOffsets = Deencapsulation.getField(context.stream, "partitionOffset");
+        Assertions.assertEquals(leaderOffsets, replayedOffsets);
+        Assertions.assertTrue(replayedOffsets.containsKey(removedPartitionId));
     }
 
     @Test
@@ -205,6 +415,25 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
         Assertions.assertEquals(!removedExpected, partitionOffset.containsKey(removedPartitionId));
         Assertions.assertEquals(!removedExpected, partitionConsumptionTime.containsKey(removedPartitionId));
         Assertions.assertEquals(!removedExpected, historicalPartitionTSO.containsKey(removedPartitionId));
+    }
+
+    private static void await(BooleanSupplier condition) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (!condition.getAsBoolean() && System.nanoTime() < deadline) {
+            Thread.sleep(10);
+        }
+        Assertions.assertTrue(condition.getAsBoolean());
+    }
+
+    private static void updatePartitionOffset(
+            OlapTableStream stream, long partitionId, long offset, long commitTimeMs) {
+        stream.writeLock();
+        try {
+            stream.unprotectedUpdateStreamUpdate(new OlapTableStreamUpdate(
+                    Collections.emptyMap(), Collections.singletonMap(partitionId, offset)), commitTimeMs);
+        } finally {
+            stream.writeUnlock();
+        }
     }
 
     private static class StreamContext {

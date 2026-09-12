@@ -85,7 +85,7 @@
 #include "storage/rowset/segment_creator.h"
 #include "storage/schema.h"
 #include "storage/segment/segment.h"
-#include "storage/segment/segment_writer.h"
+#include "storage/segment/vertical_segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_manager.h"
@@ -108,8 +108,8 @@ constexpr std::string_view kGoldenOutputDirEnv = "DORIS_SEGMENT_FLUSHER_GOLDEN_O
 // regenerating all golden files.
 constexpr int32_t kGoldenBeExecVersion = 10;
 constexpr int32_t kRowBinlogSystemColumnCount = 3;
-constexpr size_t kExpectedGoldenCaseCount = 81;
-constexpr size_t kExpectedGoldenSegmentCount = 164;
+constexpr size_t kExpectedGoldenCaseCount = 73;
+constexpr size_t kExpectedGoldenSegmentCount = 148;
 constexpr size_t kExternalIndexRows = 180;
 constexpr size_t kAnnDimensions = 4;
 constexpr std::array<std::string_view, 6> kGoldenProducerTests {
@@ -1375,6 +1375,115 @@ Result<Block> create_mow_history_block(const TabletSchemaSPtr& schema) {
     return block;
 }
 
+Result<Block> create_flexible_row_binlog_update_block(const TabletSchemaSPtr& schema) {
+    DORIS_CHECK_GE(schema->skip_bitmap_col_idx(), 0);
+    DORIS_CHECK(schema->has_sequence_col());
+
+    constexpr std::array<int, 9> keys {0, 0, 1, 2, 3, 3, 10, 11, 11};
+    constexpr std::array<int, 9> v1_values {7000, 0, 0, 7002, 0, 0, 0, 0, 0};
+    constexpr std::array<int64_t, 9> v2_values {0, 8000, 8001, 8002, 0, 0, 0, 0, 8011};
+    constexpr std::array<int, 9> sequence_values {6000, 0, 6001, 6002, 6003, 6004, 6010, 6011, 0};
+
+    Block block = schema->create_storage_block();
+    auto* skip_bitmap = assert_cast<ColumnBitmap*>(
+            block.get_by_position(schema->skip_bitmap_col_idx()).column->assert_mutable().get());
+    for (size_t row = 0; row < keys.size(); ++row) {
+        for (size_t column_index = 0; column_index < block.columns(); ++column_index) {
+            const auto& name = block.get_by_position(column_index).name;
+            if (name == "k1") {
+                RETURN_IF_ERROR_RESULT(
+                        append_text_value(&block, column_index, std::to_string(keys[row])));
+            } else if (name == "v1") {
+                RETURN_IF_ERROR_RESULT(
+                        append_text_value(&block, column_index, std::to_string(v1_values[row])));
+            } else if (name == "v2") {
+                RETURN_IF_ERROR_RESULT(
+                        append_text_value(&block, column_index, std::to_string(v2_values[row])));
+            } else if (name == SEQUENCE_COL) {
+                RETURN_IF_ERROR_RESULT(append_text_value(&block, column_index,
+                                                         std::to_string(sequence_values[row])));
+            } else if (name == DELETE_SIGN) {
+                const bool is_delete = row == 4 || row == 6 || row == 7;
+                RETURN_IF_ERROR_RESULT(
+                        append_text_value(&block, column_index, is_delete ? "1" : "0"));
+            } else if (name != SKIP_BITMAP_COL) {
+                block.get_by_position(column_index).column->assert_mutable()->insert_default();
+            }
+        }
+
+        BitmapValue skipped_columns;
+        const auto skip = [&](std::string_view name) {
+            const auto column_index = schema->field_index(std::string(name));
+            DORIS_CHECK_GE(column_index, 0);
+            skipped_columns.add(static_cast<uint64_t>(
+                    schema->column(static_cast<size_t>(column_index)).unique_id()));
+        };
+        if (row == 0 || row == 4 || row == 5 || row == 6 || row == 7) {
+            skip("v2");
+        }
+        if (row == 1 || row == 2 || row == 4 || row == 5 || row == 6 || row == 7 || row == 8) {
+            skip("v1");
+        }
+        if (row == 1 || row == 8) {
+            skip(SEQUENCE_COL);
+        }
+        if (row != 4 && row != 6 && row != 7) {
+            skip(DELETE_SIGN);
+        }
+        skip_bitmap->insert_value(std::move(skipped_columns));
+    }
+    return block;
+}
+
+struct FlexibleSequenceRow {
+    int key;
+    int v1;
+    int64_t v2;
+    int sequence;
+    bool is_delete;
+};
+
+Result<Block> create_flexible_sequence_block(const TabletSchemaSPtr& schema,
+                                             const std::vector<FlexibleSequenceRow>& rows) {
+    DORIS_CHECK_GE(schema->skip_bitmap_col_idx(), 0);
+    DORIS_CHECK(schema->has_sequence_col());
+
+    Block block = schema->create_storage_block();
+    auto* skip_bitmap = assert_cast<ColumnBitmap*>(
+            block.get_by_position(schema->skip_bitmap_col_idx()).column->assert_mutable().get());
+    const auto delete_sign_unique_id = schema->column(schema->delete_sign_idx()).unique_id();
+    for (const auto& row : rows) {
+        for (size_t column_index = 0; column_index < block.columns(); ++column_index) {
+            const auto& name = block.get_by_position(column_index).name;
+            if (name == "k1") {
+                RETURN_IF_ERROR_RESULT(
+                        append_text_value(&block, column_index, std::to_string(row.key)));
+            } else if (name == "v1") {
+                RETURN_IF_ERROR_RESULT(
+                        append_text_value(&block, column_index, std::to_string(row.v1)));
+            } else if (name == "v2") {
+                RETURN_IF_ERROR_RESULT(
+                        append_text_value(&block, column_index, std::to_string(row.v2)));
+            } else if (name == SEQUENCE_COL) {
+                RETURN_IF_ERROR_RESULT(
+                        append_text_value(&block, column_index, std::to_string(row.sequence)));
+            } else if (name == DELETE_SIGN) {
+                RETURN_IF_ERROR_RESULT(
+                        append_text_value(&block, column_index, row.is_delete ? "1" : "0"));
+            } else if (name != SKIP_BITMAP_COL) {
+                block.get_by_position(column_index).column->assert_mutable()->insert_default();
+            }
+        }
+
+        BitmapValue skipped_columns;
+        if (!row.is_delete) {
+            skipped_columns.add(static_cast<uint64_t>(delete_sign_unique_id));
+        }
+        skip_bitmap->insert_value(std::move(skipped_columns));
+    }
+    return block;
+}
+
 struct ExternalInvertedIndexSignature {
     std::string field;
     std::map<std::string, std::vector<int32_t>> postings;
@@ -2391,6 +2500,51 @@ Status verify_row_binlog_before_segment(const TabletSharedPtr& tablet, uint32_t 
     return Status::OK();
 }
 
+Status verify_flexible_row_binlog_segment(const TabletSharedPtr& tablet,
+                                          std::string_view case_name) {
+    auto block_result = read_row_binlog_segment(tablet, case_name, 0);
+    if (!block_result.has_value()) {
+        return block_result.error();
+    }
+    const auto& block = block_result.value();
+    if (block.rows() != 6) {
+        return Status::InternalError("{} has {} rows, expected 6", case_name, block.rows());
+    }
+
+    constexpr std::array<Int32, 6> keys {0, 1, 2, 3, 10, 11};
+    constexpr std::array<Int32, 6> after_v1 {7000, 3001, 7002, 0, 3010, 0};
+    constexpr std::array<Int64, 6> after_v2 {8000, 8001, 8002, 0, 4010, 8011};
+    constexpr std::array<Int64, 6> operations {ROW_BINLOG_UPDATE, ROW_BINLOG_UPDATE,
+                                               ROW_BINLOG_APPEND, ROW_BINLOG_APPEND,
+                                               ROW_BINLOG_DELETE, ROW_BINLOG_UPDATE};
+    constexpr std::array<Int64, 6> lsns {1001, 1002, 1003, 1005, 1006, 1008};
+    for (size_t row = 0; row < block.rows(); ++row) {
+        RETURN_IF_ERROR(
+                verify_segment_field(block, "k1", row, Field::create_field<TYPE_INT>(keys[row])));
+        RETURN_IF_ERROR(verify_segment_field(block, "v1", row,
+                                             Field::create_field<TYPE_INT>(after_v1[row])));
+        RETURN_IF_ERROR(verify_segment_field(
+                block, "v2", row,
+                row == 3 ? Field {} : Field::create_field<TYPE_BIGINT>(after_v2[row])));
+        RETURN_IF_ERROR(verify_segment_field(block, BINLOG_OP_COL, row,
+                                             Field::create_field<TYPE_BIGINT>(operations[row])));
+        RETURN_IF_ERROR(verify_segment_field(block, BINLOG_LSN_COL, row,
+                                             Field::create_field<TYPE_BIGINT>(lsns[row])));
+        if (row == 2 || row == 3) {
+            RETURN_IF_ERROR(verify_segment_field(block, "__BEFORE__v1__", row, Field {}));
+            RETURN_IF_ERROR(verify_segment_field(block, "__BEFORE__v2__", row, Field {}));
+        } else {
+            RETURN_IF_ERROR(verify_segment_field(
+                    block, "__BEFORE__v1__", row,
+                    Field::create_field<TYPE_INT>(static_cast<Int32>(3000 + keys[row]))));
+            RETURN_IF_ERROR(verify_segment_field(
+                    block, "__BEFORE__v2__", row,
+                    Field::create_field<TYPE_BIGINT>(static_cast<Int64>(4000 + keys[row]))));
+        }
+    }
+    return Status::OK();
+}
+
 Status compare_logical_segments(std::string_view case_name, uint32_t segment_id,
                                 const LogicalSegmentContents& current,
                                 const LogicalSegmentContents& golden) {
@@ -2544,7 +2698,6 @@ protected:
     }
 
     void SetUp() override {
-        _saved_enable_vertical_writer = config::enable_vertical_segment_writer;
         _saved_compression_threshold_kb = config::segment_compression_threshold_kb;
         _saved_omp_threads_limit = config::omp_threads_limit;
         _saved_omp_max_threads = omp_get_max_threads();
@@ -2561,7 +2714,6 @@ protected:
     }
 
     void TearDown() override {
-        config::enable_vertical_segment_writer = _saved_enable_vertical_writer;
         config::segment_compression_threshold_kb = _saved_compression_threshold_kb;
         config::omp_threads_limit = _saved_omp_threads_limit;
         omp_set_num_threads(_saved_omp_max_threads);
@@ -2571,7 +2723,7 @@ protected:
 
     Result<std::vector<SegmentFingerprint>> flush_blocks(
             std::string_view case_name, const TabletSchemaSPtr& schema, std::vector<Block> blocks,
-            bool enable_vertical_writer, int32_t compression_threshold_kb = 0,
+            bool use_flush_single_block, int32_t compression_threshold_kb = 0,
             DataWriteType write_type = DataWriteType::TYPE_DIRECT,
             bool enable_unique_key_merge_on_write = false,
             const std::function<void(RowsetWriterContext&)>& configure_context = {}) {
@@ -2605,7 +2757,6 @@ protected:
             configure_context(context);
         }
 
-        config::enable_vertical_segment_writer = enable_vertical_writer;
         config::segment_compression_threshold_kb = compression_threshold_kb;
         std::vector<uint32_t> expected_segment_ids(blocks.size());
         std::iota(expected_segment_ids.begin(), expected_segment_ids.end(), 0);
@@ -2621,7 +2772,7 @@ protected:
         std::vector<uint32_t> vertical_segment_ids;
         SyncPoint::CallbackGuard vertical_writer_guard;
         sync_point->set_call_back(
-                "SegmentFlusher::flush_vertical_segment_writer",
+                "SegmentFlusher::write_block_path",
                 [&vertical_segment_ids](auto&& args) {
                     auto* segment_id = try_any_cast<uint32_t*>(args[0]);
                     vertical_segment_ids.push_back(*segment_id);
@@ -2630,23 +2781,36 @@ protected:
 
         SegmentFileCollection segment_files;
         InvertedIndexFileCollection index_files;
-        SegmentFlusher flusher(context, segment_files, index_files);
-        for (size_t segment_id = 0; segment_id < blocks.size(); ++segment_id) {
-            RETURN_IF_ERROR_RESULT(flusher.flush_single_block(&blocks[segment_id],
-                                                              static_cast<int32_t>(segment_id)));
+        if (use_flush_single_block) {
+            SegmentFlusher flusher(context, segment_files, index_files);
+            for (size_t segment_id = 0; segment_id < blocks.size(); ++segment_id) {
+                RETURN_IF_ERROR_RESULT(flusher.flush_single_block(
+                        &blocks[segment_id], static_cast<int32_t>(segment_id)));
+            }
+            RETURN_IF_ERROR_RESULT(flusher.close());
+        } else {
+            // The whole-schema single-group shape now exists only on the
+            // add_block feed (push load, horizontal compaction merge output,
+            // schema change), so that is what produces these cases: one
+            // add_block + flush per block keeps one segment per block.
+            SegmentCreator creator(context, segment_files, index_files);
+            for (auto& block : blocks) {
+                RETURN_IF_ERROR_RESULT(creator.add_block(&block));
+                RETURN_IF_ERROR_RESULT(creator.flush());
+            }
+            RETURN_IF_ERROR_RESULT(creator.close());
         }
-        RETURN_IF_ERROR_RESULT(flusher.close());
 
         if (segment_collector->segment_ids != expected_segment_ids) {
             return ResultError(Status::InternalError("unexpected collected segment ids"));
         }
         const auto expected_vertical_segment_ids =
-                enable_vertical_writer ? expected_segment_ids : std::vector<uint32_t> {};
+                use_flush_single_block ? expected_segment_ids : std::vector<uint32_t> {};
         if (vertical_segment_ids != expected_vertical_segment_ids) {
             return ResultError(Status::InternalError(
                     "unexpected Segment writer path for {}: vertical={}, expected {} vertical "
                     "flushes, observed {}",
-                    case_name, enable_vertical_writer, expected_vertical_segment_ids.size(),
+                    case_name, use_flush_single_block, expected_vertical_segment_ids.size(),
                     vertical_segment_ids.size()));
         }
         std::vector<SegmentFingerprint> fingerprints;
@@ -2733,18 +2897,18 @@ protected:
 
     Result<std::vector<SegmentFingerprint>> flush_twice(
             std::string_view case_name, const TabletSchemaSPtr& schema, std::vector<Block> blocks,
-            bool enable_vertical_writer, int32_t compression_threshold_kb = 0,
+            bool use_flush_single_block, int32_t compression_threshold_kb = 0,
             DataWriteType write_type = DataWriteType::TYPE_DIRECT,
             bool enable_unique_key_merge_on_write = false,
             const std::function<void(RowsetWriterContext&)>& configure_context = {}) {
-        auto first = flush_blocks(case_name, schema, blocks, enable_vertical_writer,
+        auto first = flush_blocks(case_name, schema, blocks, use_flush_single_block,
                                   compression_threshold_kb, write_type,
                                   enable_unique_key_merge_on_write, configure_context);
         if (!first.has_value()) {
             return unexpected(first.error());
         }
         auto second = flush_blocks(fmt::format("{}_repeat", case_name), schema, std::move(blocks),
-                                   enable_vertical_writer, compression_threshold_kb, write_type,
+                                   use_flush_single_block, compression_threshold_kb, write_type,
                                    enable_unique_key_merge_on_write, configure_context);
         if (!second.has_value()) {
             return unexpected(second.error());
@@ -2809,7 +2973,6 @@ protected:
     }
 
 private:
-    bool _saved_enable_vertical_writer = false;
     int32_t _saved_compression_threshold_kb = 0;
     int32_t _saved_omp_threads_limit = -1;
     int _saved_omp_max_threads = 1;
@@ -2915,7 +3078,9 @@ protected:
 
     BinlogTabletPair create_binlog_tablets(int64_t tablet_id, bool enable_mow,
                                            bool include_before_columns = false,
-                                           bool with_sequence = false) {
+                                           bool with_sequence = false,
+                                           bool flexible_partial_update = false) {
+        DORIS_CHECK(!flexible_partial_update || enable_mow);
         auto request = testutil::create_tablet_request(
                 tablet_id, 270068390, 10001, 1,
                 enable_mow ? TKeysType::UNIQUE_KEYS : TKeysType::DUP_KEYS,
@@ -2943,6 +3108,13 @@ protected:
             request.tablet_schema.__set_sequence_col_idx(
                     static_cast<int32_t>(request.tablet_schema.columns.size()) - 1);
         }
+        if (flexible_partial_update) {
+            auto skip_bitmap_column = testutil::create_tablet_column(
+                    {SKIP_BITMAP_COL, TPrimitiveType::BITMAP, false, true, TAggregationType::NONE});
+            skip_bitmap_column.__set_visible(false);
+            skip_bitmap_column.__set_default_value(std::string(1, '\0'));
+            request.tablet_schema.columns.push_back(std::move(skip_bitmap_column));
+        }
         auto find_source_column = [&](std::string_view name) -> TColumn& {
             auto& columns = request.tablet_schema.columns;
             const auto it =
@@ -2951,6 +3123,9 @@ protected:
             DORIS_CHECK(it != columns.end());
             return *it;
         };
+        if (flexible_partial_update) {
+            find_source_column("v1").__set_default_value("0");
+        }
         find_source_column("v2").__set_is_allow_null(true);
         if (enable_mow) {
             find_source_column(DELETE_SIGN).__set_visible(false);
@@ -3021,6 +3196,16 @@ protected:
         EXPECT_TRUE(_engine->create_tablet(request, &profile).ok());
         auto source_tablet = _engine->tablet_manager()->get_tablet(tablet_id);
         EXPECT_NE(source_tablet, nullptr);
+        if (flexible_partial_update) {
+            // TTabletSchema has no skip-bitmap ordinal. Production flexible-update schemas are
+            // persisted as TabletSchemaPB with this field set, so make the test-created schema
+            // match that representation before writing any rowset.
+            TabletSchemaPB schema_pb;
+            source_tablet->tablet_schema()->to_schema_pb(&schema_pb);
+            schema_pb.set_skip_bitmap_col_idx(
+                    source_tablet->tablet_schema()->field_index(SKIP_BITMAP_COL));
+            source_tablet->tablet_meta()->mutable_tablet_schema()->init_from_pb(schema_pb);
+        }
         EXPECT_TRUE(_engine->create_tablet(binlog_request, &profile).ok());
         auto binlog_tablet = _engine->tablet_manager()->get_tablet(binlog_request.tablet_id);
         EXPECT_NE(binlog_tablet, nullptr);
@@ -3078,6 +3263,64 @@ protected:
         return flusher.close();
     }
 
+    Status flush_blocks_without_golden(
+            std::string_view case_name, const TabletSchemaSPtr& schema, std::vector<Block> blocks,
+            bool enable_unique_key_merge_on_write,
+            const std::function<void(RowsetWriterContext&)>& configure_context,
+            std::shared_ptr<TestSegmentCollector>* output_collector) const {
+        const auto directory = fmt::format("{}/{}", kTestDir, case_name);
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(directory));
+        auto file_writer_creator =
+                std::make_shared<LocalSegmentFileWriterCreator>(directory, schema);
+        auto segment_collector = std::make_shared<TestSegmentCollector>();
+        RowsetWriterContext context;
+        context.tablet_schema = schema;
+        context.tablet_path = directory;
+        context.tablet_id = 10001;
+        context.rowset_id.init(10002);
+        context.max_rows_per_segment = 1024;
+        context.write_type = DataWriteType::TYPE_DIRECT;
+        context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write;
+        context.file_writer_creator = file_writer_creator;
+        context.segment_collector = segment_collector;
+        configure_context(context);
+
+        auto* sync_point = SyncPoint::get_instance();
+        const bool sync_point_was_enabled = sync_point->get_enable();
+        sync_point->enable_processing();
+        Defer restore_sync_point {[sync_point, sync_point_was_enabled] {
+            if (!sync_point_was_enabled) {
+                sync_point->disable_processing();
+            }
+        }};
+        std::vector<uint32_t> vertical_segment_ids;
+        SyncPoint::CallbackGuard vertical_writer_guard;
+        sync_point->set_call_back(
+                "SegmentFlusher::write_block_path",
+                [&vertical_segment_ids](auto&& args) {
+                    vertical_segment_ids.push_back(*try_any_cast<uint32_t*>(args[0]));
+                },
+                &vertical_writer_guard);
+
+        SegmentFileCollection segment_files;
+        InvertedIndexFileCollection index_files;
+        SegmentFlusher flusher(context, segment_files, index_files);
+        for (size_t segment_id = 0; segment_id < blocks.size(); ++segment_id) {
+            RETURN_IF_ERROR(
+                    flusher.flush_single_block(&blocks[segment_id], cast_set<int32_t>(segment_id)));
+        }
+        RETURN_IF_ERROR(flusher.close());
+        // flush_single_block always feeds write_block, so every segment fires the sync point
+        if (vertical_segment_ids != segment_collector->segment_ids) {
+            return Status::InternalError(
+                    "unexpected Segment writer path for {}: expected {} write_block flushes, "
+                    "observed {}",
+                    case_name, segment_collector->segment_ids.size(), vertical_segment_ids.size());
+        }
+        *output_collector = std::move(segment_collector);
+        return Status::OK();
+    }
+
     void configure_partial_update_context(
             RowsetWriterContext& context, const TabletSharedPtr& tablet,
             const std::shared_ptr<PartialUpdateInfo>& partial_update_info,
@@ -3094,7 +3337,8 @@ protected:
             RowsetWriterContext& context, const TabletSharedPtr& source_tablet,
             const TabletSharedPtr& binlog_tablet,
             const std::shared_ptr<PartialUpdateInfo>& partial_update_info = nullptr,
-            const std::vector<RowsetSharedPtr>& history = {}, bool need_before = false) const {
+            const std::vector<RowsetSharedPtr>& history = {}, bool need_before = false,
+            int64_t rows_per_segment = 3) const {
         context.tablet_id = binlog_tablet->tablet_id();
         context.tablet = binlog_tablet;
         context.data_dir = binlog_tablet->data_dir();
@@ -3115,7 +3359,7 @@ protected:
         options.source.source_write_type = DataWriteType::TYPE_DIRECT;
         for (int64_t segment_id = 0; segment_id < 2; ++segment_id) {
             auto lsn_ids = std::make_shared<std::vector<int64_t>>();
-            for (int64_t row = 0; row < 3; ++row) {
+            for (int64_t row = 0; row < rows_per_segment; ++row) {
                 lsn_ids->push_back(1000 + segment_id * 100 + row);
             }
             context.insert_segment_allocated_lsns(segment_id, std::move(lsn_ids));
@@ -3136,10 +3380,9 @@ TEST_F(SegmentFlusherTransformFormatTest,
     // The chain wraps the AFTER values before any writer sees them, so both
     // writers have to persist them. Pin the writer instead of inheriting the
     // config default, which now sends binlog through the vertical one.
-    for (const bool enable_vertical_writer : {false, true}) {
-        config::enable_vertical_segment_writer = enable_vertical_writer;
-        const int64_t id_offset = enable_vertical_writer ? 100 : 0;
-        const std::string case_suffix = enable_vertical_writer ? "_vertical" : "";
+    {
+        const int64_t id_offset = 100;
+        const std::string case_suffix = "_vertical";
 
         auto full_update_tablets = create_complex_row_binlog_tablets(schemas, 22005 + id_offset);
         auto full_update_block_result = create_complex_row_binlog_block(schemas.source, 0);
@@ -3231,6 +3474,169 @@ TEST_F(SegmentFlusherTransformFormatTest,
     }
 }
 
+TEST_F(SegmentFlusherTransformFormatTest,
+       FlexiblePartialUpdateRowBinlogMaterializesFullBeforeAndAfterRows) {
+    const auto tablets = create_binlog_tablets(22008, true, true, true, true);
+    ASSERT_NE(tablets.source_tablet, nullptr);
+    ASSERT_NE(tablets.binlog_tablet, nullptr);
+
+    auto history_result =
+            write_mow_history(tablets.source_tablet, tablets.source_tablet->tablet_schema(), 31012);
+    ASSERT_TRUE(history_result.has_value()) << history_result.error();
+    std::vector<RowsetSharedPtr> history {history_result.value()};
+
+    auto partial_update_info = std::make_shared<PartialUpdateInfo>();
+    ASSERT_TRUE(partial_update_info
+                        ->init(tablets.source_tablet->tablet_id(), 1,
+                               *tablets.source_tablet->tablet_schema(),
+                               UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS,
+                               PartialUpdateNewRowPolicyPB::APPEND, {}, false, 0, 0, "UTC", "")
+                        .ok());
+    auto block_result =
+            create_flexible_row_binlog_update_block(tablets.source_tablet->tablet_schema());
+    ASSERT_TRUE(block_result.has_value()) << block_result.error();
+
+    constexpr std::string_view case_name = "mow_flexible_partial_row_binlog";
+    auto flush_status = flush_row_binlog_block(
+            case_name, tablets.binlog_tablet->tablet_schema(), std::move(block_result).value(),
+            [this, tablets, partial_update_info, history](RowsetWriterContext& context) {
+                configure_row_binlog_context(context, tablets.source_tablet, tablets.binlog_tablet,
+                                             partial_update_info, history, true, 9);
+            });
+    ASSERT_TRUE(flush_status.ok()) << flush_status;
+
+    const auto verify_status = verify_flexible_row_binlog_segment(tablets.binlog_tablet, case_name);
+    ASSERT_TRUE(verify_status.ok()) << verify_status;
+}
+
+TEST_F(SegmentFlusherTransformFormatTest,
+       FlexiblePartialUpdateRowBinlogKeepsSequenceLoserAlignedWithBaseRowId) {
+    const auto tablets = create_binlog_tablets(22009, true, false, true, true);
+    ASSERT_NE(tablets.source_tablet, nullptr);
+    ASSERT_NE(tablets.binlog_tablet, nullptr);
+
+    auto history_result =
+            write_mow_history(tablets.source_tablet, tablets.source_tablet->tablet_schema(), 31013);
+    ASSERT_TRUE(history_result.has_value()) << history_result.error();
+    std::vector<RowsetSharedPtr> history {history_result.value()};
+
+    auto partial_update_info = std::make_shared<PartialUpdateInfo>();
+    ASSERT_TRUE(partial_update_info
+                        ->init(tablets.source_tablet->tablet_id(), 1,
+                               *tablets.source_tablet->tablet_schema(),
+                               UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS,
+                               PartialUpdateNewRowPolicyPB::APPEND, {}, false, 0, 0, "UTC", "")
+                        .ok());
+
+    const std::vector<FlexibleSequenceRow> rows {
+            {.key = 0, .v1 = 9000, .v2 = 9900, .sequence = 4999, .is_delete = false},
+            {.key = 1, .v1 = 9001, .v2 = 9901, .sequence = 5000, .is_delete = true},
+            {.key = 2, .v1 = 9002, .v2 = 9902, .sequence = 6002, .is_delete = false},
+    };
+    auto base_block_result =
+            create_flexible_sequence_block(tablets.source_tablet->tablet_schema(), rows);
+    ASSERT_TRUE(base_block_result.has_value()) << base_block_result.error();
+    auto binlog_block_result =
+            create_flexible_sequence_block(tablets.source_tablet->tablet_schema(), rows);
+    ASSERT_TRUE(binlog_block_result.has_value()) << binlog_block_result.error();
+
+    auto mow_context = make_mow_context(tablets.source_tablet->tablet_id(), history);
+    constexpr std::string_view base_case_name = "mow_flexible_sequence_alignment_base";
+    std::shared_ptr<TestSegmentCollector> base_collector;
+    auto base_flush_status = flush_blocks_without_golden(
+            base_case_name, tablets.source_tablet->tablet_schema(),
+            {std::move(base_block_result).value()}, true,
+            [this, tablets, partial_update_info, history,
+             mow_context](RowsetWriterContext& context) {
+                configure_partial_update_context(context, tablets.source_tablet,
+                                                 partial_update_info, history);
+                context.mow_context = mow_context;
+            },
+            &base_collector);
+    ASSERT_TRUE(base_flush_status.ok()) << base_flush_status;
+    ASSERT_NE(base_collector, nullptr);
+    ASSERT_EQ(base_collector->segment_ids, (std::vector<uint32_t> {0}));
+    ASSERT_EQ(base_collector->segment_statistics.size(), 1);
+    ASSERT_EQ(base_collector->segment_statistics[0].row_num, 3);
+
+    RowsetId writing_rowset_id;
+    writing_rowset_id.init(10002);
+    EXPECT_TRUE(mow_context->delete_bitmap->contains(
+            {writing_rowset_id, 0, DeleteBitmap::TEMP_VERSION_COMMON}, 0));
+    EXPECT_TRUE(mow_context->delete_bitmap->contains(
+            {writing_rowset_id, 0, DeleteBitmap::TEMP_VERSION_COMMON}, 1));
+    EXPECT_FALSE(mow_context->delete_bitmap->contains(
+            {writing_rowset_id, 0, DeleteBitmap::TEMP_VERSION_COMMON}, 2));
+
+    RowsetWriterContext base_read_context;
+    base_read_context.tablet_schema = tablets.source_tablet->tablet_schema();
+    base_read_context.tablet_id = tablets.source_tablet->tablet_id();
+    base_read_context.rowset_id = writing_rowset_id;
+    auto base_segment =
+            read_logical_segment(fmt::format("{}/{}/segment_0.dat", kTestDir, base_case_name), 0,
+                                 tablets.source_tablet->tablet_schema(), base_read_context, true);
+    ASSERT_TRUE(base_segment.has_value()) << base_segment.error();
+    ASSERT_EQ(base_segment->block.rows(), 3);
+    EXPECT_TRUE(verify_segment_field(base_segment->block, "k1", 0,
+                                     Field::create_field<TYPE_INT>(Int32(0)))
+                        .ok());
+    EXPECT_TRUE(verify_segment_field(base_segment->block, "k1", 1,
+                                     Field::create_field<TYPE_INT>(Int32(1)))
+                        .ok());
+    EXPECT_TRUE(verify_segment_field(base_segment->block, "k1", 2,
+                                     Field::create_field<TYPE_INT>(Int32(2)))
+                        .ok());
+
+    constexpr std::string_view binlog_case_name = "mow_flexible_sequence_alignment_binlog";
+    std::shared_ptr<TestSegmentCollector> binlog_collector;
+    auto binlog_flush_status = flush_blocks_without_golden(
+            binlog_case_name, tablets.binlog_tablet->tablet_schema(),
+            {std::move(binlog_block_result).value()}, false,
+            [this, tablets, partial_update_info, history,
+             mow_context](RowsetWriterContext& context) {
+                configure_row_binlog_context(context, tablets.source_tablet, tablets.binlog_tablet,
+                                             partial_update_info, history, false, 3);
+                context.write_binlog_opt().write_binlog_config().source.mow_context = mow_context;
+            },
+            &binlog_collector);
+    ASSERT_TRUE(binlog_flush_status.ok()) << binlog_flush_status;
+    ASSERT_NE(binlog_collector, nullptr);
+    ASSERT_EQ(binlog_collector->segment_ids, (std::vector<uint32_t> {0}));
+    ASSERT_EQ(binlog_collector->segment_statistics.size(), 1);
+    ASSERT_EQ(binlog_collector->segment_statistics[0].row_num, 3);
+
+    auto binlog_segment = read_row_binlog_segment(tablets.binlog_tablet, binlog_case_name, 0);
+    ASSERT_TRUE(binlog_segment.has_value()) << binlog_segment.error();
+    ASSERT_EQ(binlog_segment->rows(), 3);
+    EXPECT_TRUE(
+            verify_segment_field(*binlog_segment, "k1", 0, Field::create_field<TYPE_INT>(Int32(0)))
+                    .ok());
+    EXPECT_TRUE(
+            verify_segment_field(*binlog_segment, "k1", 1, Field::create_field<TYPE_INT>(Int32(1)))
+                    .ok());
+    EXPECT_TRUE(
+            verify_segment_field(*binlog_segment, "k1", 2, Field::create_field<TYPE_INT>(Int32(2)))
+                    .ok());
+    EXPECT_TRUE(verify_segment_field(*binlog_segment, BINLOG_LSN_COL, 0,
+                                     Field::create_field<TYPE_BIGINT>(Int64(1000)))
+                        .ok());
+    EXPECT_TRUE(verify_segment_field(*binlog_segment, BINLOG_OP_COL, 0,
+                                     Field::create_field<TYPE_BIGINT>(Int64(ROW_BINLOG_UPDATE)))
+                        .ok());
+    EXPECT_TRUE(verify_segment_field(*binlog_segment, BINLOG_LSN_COL, 1,
+                                     Field::create_field<TYPE_BIGINT>(Int64(1001)))
+                        .ok());
+    EXPECT_TRUE(verify_segment_field(*binlog_segment, BINLOG_OP_COL, 1,
+                                     Field::create_field<TYPE_BIGINT>(Int64(ROW_BINLOG_DELETE)))
+                        .ok());
+    EXPECT_TRUE(verify_segment_field(*binlog_segment, BINLOG_LSN_COL, 2,
+                                     Field::create_field<TYPE_BIGINT>(Int64(1002)))
+                        .ok());
+    EXPECT_TRUE(verify_segment_field(*binlog_segment, BINLOG_OP_COL, 2,
+                                     Field::create_field<TYPE_BIGINT>(Int64(ROW_BINLOG_APPEND)))
+                        .ok());
+}
+
 TEST_F(SegmentFlusherFormatTest, VariantLogicalComparisonPreservesScalarTypes) {
     VariantMap boolean_object;
     boolean_object.try_emplace(
@@ -3281,7 +3687,7 @@ TEST_F(SegmentFlusherFormatTest, PhysicalMetadataOracleIgnoresOnlyPageOffsets) {
 
 TEST_F(SegmentFlusherFormatTest, WideKeyTableModelsKeepTheirSegmentBytes) {
     auto run_case = [this](std::string_view name, const WideKeySchemaOptions& options,
-                           bool enable_vertical_writer) -> testing::AssertionResult {
+                           bool use_flush_single_block) -> testing::AssertionResult {
         auto schema = create_wide_key_schema(options);
         std::vector<Block> blocks;
         for (int segment_id = 0; segment_id < 2; ++segment_id) {
@@ -3295,8 +3701,8 @@ TEST_F(SegmentFlusherFormatTest, WideKeyTableModelsKeepTheirSegmentBytes) {
                 fmt::format("{}_{}_{}_{}", name,
                             options.storage_format == TABLET_STORAGE_FORMAT_V2 ? "v2" : "v3",
                             options.nullable_keys ? "nullable" : "not_nullable",
-                            enable_vertical_writer ? "vertical" : "horizontal");
-        auto result = flush_twice(case_name, schema, std::move(blocks), enable_vertical_writer, 0,
+                            use_flush_single_block ? "vertical" : "horizontal");
+        auto result = flush_twice(case_name, schema, std::move(blocks), use_flush_single_block, 0,
                                   DataWriteType::TYPE_DIRECT, options.enable_mow);
         if (!result.has_value()) {
             return testing::AssertionFailure() << result.error();
@@ -3382,7 +3788,7 @@ TEST_F(SegmentFlusherFormatTest, AllSupportedScalarValueTypesKeepTheirSegmentByt
         TabletStorageFormatPB storage_format;
         bool nullable_values;
         bool with_bloom_filters;
-        bool enable_vertical_writer;
+        bool use_flush_single_block;
     };
     // Four pairwise cases cover storage format, nullability, writer implementation, and classic
     // Bloom filter generation across every scalar type that supports it.
@@ -3407,11 +3813,11 @@ TEST_F(SegmentFlusherFormatTest, AllSupportedScalarValueTypesKeepTheirSegmentByt
                             scalar_case.storage_format == TABLET_STORAGE_FORMAT_V2 ? "v2" : "v3",
                             scalar_case.nullable_values ? "nullable" : "not_nullable",
                             scalar_case.with_bloom_filters ? "with_bloom" : "without_bloom",
-                            scalar_case.enable_vertical_writer ? "vertical" : "horizontal");
-        auto first = flush_blocks(case_name, schema, blocks, scalar_case.enable_vertical_writer);
+                            scalar_case.use_flush_single_block ? "vertical" : "horizontal");
+        auto first = flush_blocks(case_name, schema, blocks, scalar_case.use_flush_single_block);
         ASSERT_TRUE(first.has_value()) << first.error();
         auto second = flush_blocks(case_name + "_repeat", schema, std::move(blocks),
-                                   scalar_case.enable_vertical_writer);
+                                   scalar_case.use_flush_single_block);
         ASSERT_TRUE(second.has_value()) << second.error();
         ASSERT_EQ(first.value(), second.value()) << case_name;
     }
@@ -3421,7 +3827,7 @@ TEST_F(SegmentFlusherFormatTest, EmbeddedAndExternalIndexesKeepTheirSegmentBytes
     struct EmbeddedIndexCase {
         TabletStorageFormatPB storage_format;
         bool nullable_values;
-        bool enable_vertical_writer;
+        bool use_flush_single_block;
     };
     constexpr std::array embedded_index_cases {
             EmbeddedIndexCase {TABLET_STORAGE_FORMAT_V2, false, false},
@@ -3442,11 +3848,11 @@ TEST_F(SegmentFlusherFormatTest, EmbeddedAndExternalIndexesKeepTheirSegmentBytes
                 fmt::format("embedded_bloom_{}_{}_{}",
                             index_case.storage_format == TABLET_STORAGE_FORMAT_V2 ? "v2" : "v3",
                             index_case.nullable_values ? "nullable" : "not_nullable",
-                            index_case.enable_vertical_writer ? "vertical" : "horizontal");
-        auto first = flush_blocks(case_name, schema, blocks, index_case.enable_vertical_writer);
+                            index_case.use_flush_single_block ? "vertical" : "horizontal");
+        auto first = flush_blocks(case_name, schema, blocks, index_case.use_flush_single_block);
         ASSERT_TRUE(first.has_value()) << first.error();
         auto second = flush_blocks(case_name + "_repeat", schema, std::move(blocks),
-                                   index_case.enable_vertical_writer);
+                                   index_case.use_flush_single_block);
         ASSERT_TRUE(second.has_value()) << second.error();
         ASSERT_EQ(first.value(), second.value()) << case_name;
     }
@@ -3459,7 +3865,7 @@ TEST_F(SegmentFlusherFormatTest, EmbeddedAndExternalIndexesKeepTheirSegmentBytes
         InvertedIndexStorageFormatPB storage_format;
         std::string_view storage_format_name;
         bool nullable_value;
-        bool enable_vertical_writer;
+        bool use_flush_single_block;
     };
     constexpr std::array external_index_cases {
             ExternalIndexCase {InvertedIndexStorageFormatPB::V1, "v1", false, false},
@@ -3481,9 +3887,9 @@ TEST_F(SegmentFlusherFormatTest, EmbeddedAndExternalIndexesKeepTheirSegmentBytes
         const auto case_name =
                 fmt::format("external_inverted_{}_{}_{}", index_case.storage_format_name,
                             index_case.nullable_value ? "nullable" : "not_nullable",
-                            index_case.enable_vertical_writer ? "vertical" : "horizontal");
+                            index_case.use_flush_single_block ? "vertical" : "horizontal");
         auto result = flush_twice(case_name, schema, std::move(blocks),
-                                  index_case.enable_vertical_writer);
+                                  index_case.use_flush_single_block);
         ASSERT_TRUE(result.has_value()) << result.error();
         for (const auto& segment : result.value()) {
             ASSERT_EQ(segment.auxiliary_files.size(), 1) << case_name;
@@ -3497,7 +3903,7 @@ TEST_F(SegmentFlusherFormatTest, EmbeddedAndExternalIndexesKeepTheirSegmentBytes
     for (const auto& [storage_format, storage_format_name] :
          std::array {kInvertedIndexFormats[1], kInvertedIndexFormats[2]}) {
         auto schema = create_ann_index_schema(storage_format);
-        for (const bool enable_vertical_writer : {false, true}) {
+        for (const bool use_flush_single_block : {false, true}) {
             std::vector<Block> blocks;
             for (int segment_id = 0; segment_id < 2; ++segment_id) {
                 auto block_result = create_ann_index_block(schema, segment_id);
@@ -3505,8 +3911,8 @@ TEST_F(SegmentFlusherFormatTest, EmbeddedAndExternalIndexesKeepTheirSegmentBytes
                 blocks.push_back(std::move(block_result).value());
             }
             const auto case_name = fmt::format("ann_{}_{}", storage_format_name,
-                                               enable_vertical_writer ? "vertical" : "horizontal");
-            auto result = flush_twice(case_name, schema, std::move(blocks), enable_vertical_writer);
+                                               use_flush_single_block ? "vertical" : "horizontal");
+            auto result = flush_twice(case_name, schema, std::move(blocks), use_flush_single_block);
             ASSERT_TRUE(result.has_value()) << result.error();
             for (const auto& segment : result.value()) {
                 ASSERT_EQ(segment.auxiliary_files.size(), 1) << case_name;
@@ -3522,20 +3928,23 @@ TEST_F(SegmentFlusherFormatTest, ComplexObjectAndVariantValuesKeepTheirSegmentBy
         TabletStorageFormatPB storage_format;
         bool nullable_values;
         bool with_variant_bloom_filter;
-        bool enable_vertical_writer;
+        bool use_flush_single_block;
+        // only flush_single_block honours segment_compression_threshold_kb
         bool compressed;
     };
     constexpr std::array complex_cases {
             ComplexCase {TABLET_STORAGE_FORMAT_V2, false, false, false, true},
-            ComplexCase {TABLET_STORAGE_FORMAT_V2, false, true, false, false},
+            ComplexCase {TABLET_STORAGE_FORMAT_V2, false, true, false, true},
             ComplexCase {TABLET_STORAGE_FORMAT_V2, true, false, true, true},
             ComplexCase {TABLET_STORAGE_FORMAT_V2, true, true, true, false},
             ComplexCase {TABLET_STORAGE_FORMAT_V3, false, false, true, false},
             ComplexCase {TABLET_STORAGE_FORMAT_V3, false, true, true, true},
-            ComplexCase {TABLET_STORAGE_FORMAT_V3, true, false, false, false},
+            ComplexCase {TABLET_STORAGE_FORMAT_V3, true, false, false, true},
             ComplexCase {TABLET_STORAGE_FORMAT_V3, true, true, false, true},
     };
     for (const auto& complex_case : complex_cases) {
+        ASSERT_TRUE(complex_case.use_flush_single_block || complex_case.compressed)
+                << "the add_block feed never disables compression";
         auto schema = create_complex_value_schema(complex_case.storage_format,
                                                   complex_case.nullable_values,
                                                   complex_case.with_variant_bloom_filter);
@@ -3554,13 +3963,13 @@ TEST_F(SegmentFlusherFormatTest, ComplexObjectAndVariantValuesKeepTheirSegmentBy
                             complex_case.nullable_values ? "nullable" : "not_nullable",
                             complex_case.with_variant_bloom_filter ? "with_variant_bloom"
                                                                    : "without_variant_bloom",
-                            complex_case.enable_vertical_writer ? "vertical" : "horizontal",
+                            complex_case.use_flush_single_block ? "vertical" : "horizontal",
                             complex_case.compressed ? "compressed" : "uncompressed");
-        auto first = flush_blocks(case_name, schema, blocks, complex_case.enable_vertical_writer,
+        auto first = flush_blocks(case_name, schema, blocks, complex_case.use_flush_single_block,
                                   compression_threshold_kb);
         ASSERT_TRUE(first.has_value()) << first.error();
         auto second = flush_blocks(case_name + "_repeat", schema, std::move(blocks),
-                                   complex_case.enable_vertical_writer, compression_threshold_kb);
+                                   complex_case.use_flush_single_block, compression_threshold_kb);
         ASSERT_TRUE(second.has_value()) << second.error();
         ASSERT_EQ(first.value(), second.value()) << case_name;
     }
@@ -3569,7 +3978,7 @@ TEST_F(SegmentFlusherFormatTest, ComplexObjectAndVariantValuesKeepTheirSegmentBy
 TEST_F(SegmentFlusherFormatTest, RowStoreAndSegmentCreatorPathsKeepTheirSegmentBytes) {
     auto run_plain_row_store_case = [this](std::string_view case_name,
                                            const TabletSchemaSPtr& schema, DataWriteType write_type,
-                                           bool enable_vertical_writer,
+                                           bool use_flush_single_block,
                                            bool enable_mow) -> testing::AssertionResult {
         std::vector<Block> blocks;
         for (int segment_id = 0; segment_id < 2; ++segment_id) {
@@ -3591,7 +4000,7 @@ TEST_F(SegmentFlusherFormatTest, RowStoreAndSegmentCreatorPathsKeepTheirSegmentB
             }
             blocks.push_back(std::move(block));
         }
-        auto result = flush_twice(case_name, schema, std::move(blocks), enable_vertical_writer, 0,
+        auto result = flush_twice(case_name, schema, std::move(blocks), use_flush_single_block, 0,
                                   write_type, enable_mow);
         if (!result.has_value()) {
             return testing::AssertionFailure() << result.error();
@@ -3601,7 +4010,7 @@ TEST_F(SegmentFlusherFormatTest, RowStoreAndSegmentCreatorPathsKeepTheirSegmentB
 
     struct RowStoreWriteCase {
         DataWriteType write_type;
-        bool enable_vertical_writer;
+        bool use_flush_single_block;
     };
     constexpr std::array write_cases {
             RowStoreWriteCase {DataWriteType::TYPE_DEFAULT, false},
@@ -3613,9 +4022,9 @@ TEST_F(SegmentFlusherFormatTest, RowStoreAndSegmentCreatorPathsKeepTheirSegmentB
     for (const auto& write_case : write_cases) {
         const auto case_name =
                 fmt::format("row_store_dup_{}_{}", static_cast<int>(write_case.write_type),
-                            write_case.enable_vertical_writer ? "vertical" : "horizontal");
+                            write_case.use_flush_single_block ? "vertical" : "horizontal");
         ASSERT_TRUE(run_plain_row_store_case(case_name, schema, write_case.write_type,
-                                             write_case.enable_vertical_writer, false));
+                                             write_case.use_flush_single_block, false));
     }
     auto mor_schema = create_row_store_schema(UNIQUE_KEYS, false);
     ASSERT_TRUE(run_plain_row_store_case("row_store_unique_mor_1_horizontal", mor_schema,
@@ -3636,7 +4045,7 @@ TEST_F(SegmentFlusherFormatTest, RowStoreAndSegmentCreatorPathsKeepTheirSegmentB
     for (const auto& write_case : write_cases) {
         const auto case_name =
                 fmt::format("variant_row_store_{}_{}", static_cast<int>(write_case.write_type),
-                            write_case.enable_vertical_writer ? "vertical" : "horizontal");
+                            write_case.use_flush_single_block ? "vertical" : "horizontal");
         std::vector<Block> blocks;
         for (int segment_id = 0; segment_id < 2; ++segment_id) {
             auto variant_block =
@@ -3654,7 +4063,7 @@ TEST_F(SegmentFlusherFormatTest, RowStoreAndSegmentCreatorPathsKeepTheirSegmentB
             blocks.push_back(std::move(block));
         }
         auto result = flush_twice(case_name, variant_row_store_schema, std::move(blocks),
-                                  write_case.enable_vertical_writer, 0, write_case.write_type);
+                                  write_case.use_flush_single_block, 0, write_case.write_type);
         ASSERT_TRUE(result.has_value()) << result.error();
     }
 
@@ -3668,11 +4077,10 @@ TEST_F(SegmentFlusherFormatTest, RowStoreAndSegmentCreatorPathsKeepTheirSegmentB
 }
 
 TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepTheirSegmentBytes) {
-    // Both writers replay flexible partial update. The vertical baselines were
-    // recorded from the legacy in-writer fill; the horizontal ones pin the path
-    // the transform chain newly opened (the legacy horizontal writer rejected
-    // flexible, so no legacy baseline can exist for it).
-    constexpr std::array kFlexiblePartialWriterModes {false, true};
+    // Partial update and binlog loads only flush through write_block, so that
+    // is the feed these cases pin. The vertical baselines were recorded from
+    // the legacy in-writer fill.
+    constexpr std::array kFlexiblePartialFlushModes {true};
     auto record = [](Result<std::vector<SegmentFingerprint>> result) {
         if (!result.has_value()) {
             return testing::AssertionFailure() << result.error();
@@ -3694,7 +4102,7 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
                                PartialUpdateNewRowPolicyPB::APPEND, fixed_update_columns, false, 0,
                                0, "UTC", "")
                         .ok());
-    for (const bool enable_vertical_writer : {false, true}) {
+    for (const bool use_flush_single_block : {true}) {
         std::vector<Block> blocks;
         for (int segment_id = 0; segment_id < 2; ++segment_id) {
             auto block_result = create_fixed_partial_update_block(
@@ -3703,9 +4111,9 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
             blocks.push_back(std::move(block_result).value());
         }
         const auto case_name =
-                fmt::format("fixed_partial_{}", enable_vertical_writer ? "vertical" : "horizontal");
+                fmt::format("fixed_partial_{}", use_flush_single_block ? "vertical" : "horizontal");
         ASSERT_TRUE(record(flush_twice(case_name, fixed_schema, std::move(blocks),
-                                       enable_vertical_writer, 0, DataWriteType::TYPE_DIRECT, true,
+                                       use_flush_single_block, 0, DataWriteType::TYPE_DIRECT, true,
                                        [this, fixed_tablet, fixed_partial_update,
                                         fixed_history](RowsetWriterContext& context) {
                                            configure_partial_update_context(context, fixed_tablet,
@@ -3725,7 +4133,7 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
                                UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS,
                                PartialUpdateNewRowPolicyPB::APPEND, {}, false, 0, 0, "UTC", "")
                         .ok());
-    for (const bool enable_vertical_writer : kFlexiblePartialWriterModes) {
+    for (const bool use_flush_single_block : kFlexiblePartialFlushModes) {
         std::vector<Block> blocks;
         for (int segment_id = 0; segment_id < 2; ++segment_id) {
             auto block_result = create_flexible_partial_update_block(flexible_schema, segment_id);
@@ -3733,9 +4141,9 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
             blocks.push_back(std::move(block_result).value());
         }
         const auto case_name = fmt::format("flexible_partial_{}",
-                                           enable_vertical_writer ? "vertical" : "horizontal");
+                                           use_flush_single_block ? "vertical" : "horizontal");
         ASSERT_TRUE(record(flush_twice(case_name, flexible_schema, std::move(blocks),
-                                       enable_vertical_writer, 0, DataWriteType::TYPE_DIRECT, true,
+                                       use_flush_single_block, 0, DataWriteType::TYPE_DIRECT, true,
                                        [this, flexible_tablet, flexible_partial_update,
                                         flexible_history](RowsetWriterContext& context) {
                                            configure_partial_update_context(
@@ -3761,7 +4169,7 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
         if (!status.ok()) {
             return testing::AssertionFailure() << status;
         }
-        for (const bool enable_vertical_writer : {false, true}) {
+        for (const bool use_flush_single_block : {true}) {
             std::vector<Block> blocks;
             for (int segment_id = 0; segment_id < 2; ++segment_id) {
                 auto block_result = create_fixed_partial_update_block(sequence_fixed_schema,
@@ -3772,9 +4180,9 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
                 blocks.push_back(std::move(block_result).value());
             }
             const auto case_name = fmt::format("{}_{}", sequence_case,
-                                               enable_vertical_writer ? "vertical" : "horizontal");
+                                               use_flush_single_block ? "vertical" : "horizontal");
             auto recorded = record(flush_twice(
-                    case_name, sequence_fixed_schema, std::move(blocks), enable_vertical_writer, 0,
+                    case_name, sequence_fixed_schema, std::move(blocks), use_flush_single_block, 0,
                     DataWriteType::TYPE_DIRECT, true,
                     [this, sequence_fixed_tablet, partial_update,
                      sequence_fixed_history](RowsetWriterContext& context) {
@@ -3807,7 +4215,7 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
                                UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS,
                                PartialUpdateNewRowPolicyPB::APPEND, {}, false, 0, 0, "UTC", "")
                         .ok());
-    for (const bool enable_vertical_writer : kFlexiblePartialWriterModes) {
+    for (const bool use_flush_single_block : kFlexiblePartialFlushModes) {
         std::vector<Block> blocks;
         for (int segment_id = 0; segment_id < 2; ++segment_id) {
             auto block_result =
@@ -3816,10 +4224,10 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
             blocks.push_back(std::move(block_result).value());
         }
         const auto case_name = fmt::format("flexible_partial_sequence_row_store_{}",
-                                           enable_vertical_writer ? "vertical" : "horizontal");
+                                           use_flush_single_block ? "vertical" : "horizontal");
         ASSERT_TRUE(record(
                 flush_twice(case_name, sequence_flexible_schema, std::move(blocks),
-                            enable_vertical_writer, 0, DataWriteType::TYPE_DIRECT, true,
+                            use_flush_single_block, 0, DataWriteType::TYPE_DIRECT, true,
                             [this, sequence_flexible_tablet, sequence_flexible_partial_update,
                              sequence_flexible_history](RowsetWriterContext& context) {
                                 configure_partial_update_context(context, sequence_flexible_tablet,
@@ -3849,7 +4257,7 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
                                PartialUpdateNewRowPolicyPB::APPEND, transform_fixed_update_columns,
                                false, 0, 0, "UTC", "")
                         .ok());
-    for (const bool enable_vertical_writer : {false, true}) {
+    for (const bool use_flush_single_block : {true}) {
         std::vector<Block> blocks;
         for (int segment_id = 0; segment_id < 2; ++segment_id) {
             auto block_result = create_fixed_partial_update_block(
@@ -3858,10 +4266,10 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
             blocks.push_back(std::move(block_result).value());
         }
         const auto case_name = fmt::format("fixed_partial_sequence_variant_row_store_{}",
-                                           enable_vertical_writer ? "vertical" : "horizontal");
+                                           use_flush_single_block ? "vertical" : "horizontal");
         ASSERT_TRUE(record(
                 flush_twice(case_name, transform_fixed_schema, std::move(blocks),
-                            enable_vertical_writer, 0, DataWriteType::TYPE_DIRECT, true,
+                            use_flush_single_block, 0, DataWriteType::TYPE_DIRECT, true,
                             [this, transform_fixed_tablet, transform_fixed_partial_update,
                              transform_fixed_history](RowsetWriterContext& context) {
                                 configure_partial_update_context(context, transform_fixed_tablet,
@@ -3875,24 +4283,8 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
     auto plain_binlog_tablet = plain_binlog_tablets.binlog_tablet;
     ASSERT_NE(plain_source_tablet, nullptr);
     ASSERT_NE(plain_binlog_tablet, nullptr);
-    std::vector<Block> plain_binlog_blocks;
-    for (int segment_id = 0; segment_id < 2; ++segment_id) {
-        auto block_result =
-                create_integer_tablet_block(plain_source_tablet->tablet_schema(), segment_id);
-        ASSERT_TRUE(block_result.has_value()) << block_result.error();
-        plain_binlog_blocks.push_back(std::move(block_result).value());
-    }
-    ASSERT_TRUE(record(flush_twice(
-            "plain_row_binlog_horizontal", plain_binlog_tablet->tablet_schema(),
-            std::move(plain_binlog_blocks), false, 0, DataWriteType::TYPE_DIRECT, false,
-            [this, plain_source_tablet, plain_binlog_tablet](RowsetWriterContext& context) {
-                configure_row_binlog_context(context, plain_source_tablet, plain_binlog_tablet);
-            })));
-
-    // The chain derives the binlog rows before any writer runs, so both writers
-    // can write them. The vertical one is the default now that the flusher no
-    // longer forces binlog onto the horizontal writer. These vertical baselines
-    // came out byte-identical to the horizontal ones recorded from the legacy
+    // The chain derives the binlog rows before any writer runs. These baselines
+    // came out byte-identical to the ones recorded from the legacy horizontal
     // writer, so they inherit that oracle instead of only pinning today.
     std::vector<Block> plain_binlog_blocks_vertical;
     for (int segment_id = 0; segment_id < 2; ++segment_id) {
@@ -3921,8 +4313,8 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
         plain_mow_binlog_blocks.push_back(std::move(block_result).value());
     }
     ASSERT_TRUE(record(flush_twice(
-            "plain_mow_row_binlog_horizontal", mow_binlog_tablet->tablet_schema(),
-            std::move(plain_mow_binlog_blocks), false, 0, DataWriteType::TYPE_DIRECT, false,
+            "plain_mow_row_binlog_vertical", mow_binlog_tablet->tablet_schema(),
+            std::move(plain_mow_binlog_blocks), true, 0, DataWriteType::TYPE_DIRECT, false,
             [this, mow_source_tablet, mow_binlog_tablet](RowsetWriterContext& context) {
                 configure_row_binlog_context(context, mow_source_tablet, mow_binlog_tablet);
             })));
@@ -3938,27 +4330,6 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
                                PartialUpdateNewRowPolicyPB::APPEND, {"k1", "v1"}, false, 0, 0,
                                "UTC", "")
                         .ok());
-    std::vector<Block> mow_binlog_blocks;
-    for (int segment_id = 0; segment_id < 2; ++segment_id) {
-        auto block_result = create_binlog_partial_update_block(mow_source_tablet->tablet_schema(),
-                                                               *binlog_partial_update, segment_id);
-        ASSERT_TRUE(block_result.has_value()) << block_result.error();
-        mow_binlog_blocks.push_back(std::move(block_result).value());
-    }
-    ASSERT_TRUE(record(flush_twice(
-            "mow_row_binlog_horizontal", mow_binlog_tablet->tablet_schema(),
-            std::move(mow_binlog_blocks), false, 0, DataWriteType::TYPE_DIRECT, false,
-            [this, mow_source_tablet, mow_binlog_tablet, binlog_partial_update,
-             binlog_history](RowsetWriterContext& context) {
-                configure_row_binlog_context(context, mow_source_tablet, mow_binlog_tablet,
-                                             binlog_partial_update, binlog_history);
-            })));
-    for (uint32_t segment_id = 0; segment_id < 2; ++segment_id) {
-        const auto status = verify_row_binlog_partial_update_segment(
-                mow_binlog_tablet, "mow_row_binlog_horizontal", segment_id);
-        ASSERT_TRUE(status.ok()) << status;
-    }
-
     std::vector<Block> mow_binlog_blocks_vertical;
     for (int segment_id = 0; segment_id < 2; ++segment_id) {
         auto block_result = create_binlog_partial_update_block(mow_source_tablet->tablet_schema(),
@@ -4032,8 +4403,8 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
                 },
                 &lookup_guard);
         ASSERT_TRUE(record(flush_twice(
-                "mow_sequence_row_binlog_horizontal", sequence_binlog_tablet->tablet_schema(),
-                std::move(sequence_binlog_blocks), false, 0, DataWriteType::TYPE_DIRECT, false,
+                "mow_sequence_row_binlog_vertical", sequence_binlog_tablet->tablet_schema(),
+                std::move(sequence_binlog_blocks), true, 0, DataWriteType::TYPE_DIRECT, false,
                 [this, sequence_source_tablet, sequence_binlog_tablet,
                  sequence_binlog_partial_update,
                  sequence_binlog_history](RowsetWriterContext& context) {
@@ -4055,7 +4426,7 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
     }
     for (uint32_t segment_id = 0; segment_id < 2; ++segment_id) {
         const auto status = verify_row_binlog_partial_update_segment(
-                sequence_binlog_tablet, "mow_sequence_row_binlog_horizontal", segment_id);
+                sequence_binlog_tablet, "mow_sequence_row_binlog_vertical", segment_id);
         ASSERT_TRUE(status.ok()) << status;
     }
 
@@ -4075,31 +4446,8 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
                                UniqueKeyUpdateModePB::UPSERT, PartialUpdateNewRowPolicyPB::APPEND,
                                {}, false, 0, 0, "UTC", "")
                         .ok());
-    std::vector<Block> before_binlog_blocks;
-    for (int segment_id = 0; segment_id < 2; ++segment_id) {
-        auto block_result =
-                create_integer_tablet_block(before_source_tablet->tablet_schema(), segment_id,
-                                            {.include_existing_key_delete = true});
-        ASSERT_TRUE(block_result.has_value()) << block_result.error();
-        before_binlog_blocks.push_back(std::move(block_result).value());
-    }
-    auto before_result = flush_twice(
-            "mow_row_binlog_before", before_binlog_tablet->tablet_schema(), before_binlog_blocks,
-            false, 0, DataWriteType::TYPE_DIRECT, false,
-            [this, before_source_tablet, before_binlog_tablet, before_upsert_info,
-             before_binlog_history](RowsetWriterContext& context) {
-                configure_row_binlog_context(context, before_source_tablet, before_binlog_tablet,
-                                             before_upsert_info, before_binlog_history, true);
-            });
-    ASSERT_TRUE(before_result.has_value()) << before_result.error();
-    for (uint32_t segment_id = 0; segment_id < 2; ++segment_id) {
-        const auto status = verify_row_binlog_before_segment(
-                before_binlog_tablet, segment_id, {.case_name = "mow_row_binlog_before"});
-        ASSERT_TRUE(status.ok()) << status;
-    }
-
     // The BEFORE columns are the one group the derive builds itself instead of
-    // handing through as COW pointers, so they get the vertical writer too.
+    // handing through as COW pointers.
     std::vector<Block> before_binlog_blocks_vertical;
     for (int segment_id = 0; segment_id < 2; ++segment_id) {
         auto block_result =
@@ -4131,8 +4479,8 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
         compacted_binlog_blocks.push_back(std::move(block_result).value());
     }
     ASSERT_TRUE(record(flush_twice(
-            "compacted_row_binlog_horizontal", plain_binlog_tablet->tablet_schema(),
-            std::move(compacted_binlog_blocks), false, 0, DataWriteType::TYPE_COMPACTION, false,
+            "compacted_row_binlog_vertical", plain_binlog_tablet->tablet_schema(),
+            std::move(compacted_binlog_blocks), true, 0, DataWriteType::TYPE_COMPACTION, false,
             [this, plain_source_tablet, plain_binlog_tablet](RowsetWriterContext& context) {
                 configure_row_binlog_context(context, plain_source_tablet, plain_binlog_tablet);
             })));

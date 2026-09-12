@@ -17,8 +17,12 @@
 
 #pragma once
 
+#include <cstddef>
 #include <string>
 #include <string_view>
+#include <tuple>
+#include <variant>
+#include <vector>
 
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
@@ -39,6 +43,8 @@ namespace doris::cloud {
  *    |Bytes 0      |Bytes 1-5    |Bytes 6-7    |
  *    |-------------|-------------|-------------|
  *    |version      |dummy        |sequence     |
+ * version is uint8_t restricted to 0-127; sequence is uint16_t (0-65535).
+ * Reserved dummy bytes can extend sequence if needed.
  */
 struct ValueBuf {
     // TODO(plat1ko): Support decompression
@@ -59,8 +65,34 @@ struct ValueBuf {
     std::vector<std::string> keys() const;
 
     std::vector<std::unique_ptr<RangeGetIterator>> iters;
-    int8_t ver {-1};
+    int16_t ver {-1};
 };
+
+inline constexpr size_t DEFAULT_BLOB_SPLIT_SIZE = 90 * 1000;
+// A 10 MB FDB transaction produces at most 500 KVs with 20 KB splits, within uint16_t.
+inline constexpr size_t MIN_BLOB_SPLIT_SIZE = 20 * 1000;
+
+/**
+ * Encode a split KV key.
+ * @param origin_key logical key
+ * @param version value encoding version; valid range is [0, 127]
+ * @param sequence zero-based split KV index; valid range is [0, 65535]
+ * @return encoded split KV key
+ */
+std::string encode_blob_key(std::string_view origin_key, uint8_t version, size_t sequence);
+
+/**
+ * Decode a split KV key.
+ * @param raw_key encoded split KV key
+ * @param origin_key optional logical key output
+ * @param version value encoding version output, must not be nullptr
+ * @param sequence zero-based split KV index output, must not be nullptr
+ * @param fields optional decoded origin-key fields; non-null enables validation
+ * @return true on success
+ */
+bool decode_blob_key(
+        std::string_view raw_key, std::string* origin_key, uint8_t* version, uint16_t* sequence,
+        std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>>* fields = nullptr);
 
 /**
  * Get a key, return key's value, value length may be bigger than 100k
@@ -78,22 +110,22 @@ TxnErrorCode blob_get(Transaction* txn, std::string_view key, ValueBuf* val, boo
  * @param txn fdb txn handler
  * @param key encode key
  * @param pb value to save
- * @param ver value version
- * @param split_size how many byte sized fragments are the value split into
+ * @param ver value version; valid range is [0, 127]
+ * @param split_size fragment size, clamped to MIN_BLOB_SPLIT_SIZE
  */
 void blob_put(Transaction* txn, std::string_view key, const google::protobuf::Message& pb,
-              uint8_t ver, size_t split_size = 90 * 1000);
+              uint8_t ver, size_t split_size = DEFAULT_BLOB_SPLIT_SIZE);
 
 /**
  * Put a KV, it's value may be bigger than 100k
  * @param txn fdb txn handler
  * @param key encode key
  * @param value value to save
- * @param ver value version
- * @param split_size how many byte sized fragments are the value split into
+ * @param ver value version; valid range is [0, 127]
+ * @param split_size fragment size, clamped to MIN_BLOB_SPLIT_SIZE
  */
 void blob_put(Transaction* txn, std::string_view key, std::string_view value, uint8_t ver,
-              size_t split_size = 90 * 1000);
+              size_t split_size = DEFAULT_BLOB_SPLIT_SIZE);
 
 // Iterator for blob key-value pairs.
 //
@@ -189,19 +221,20 @@ namespace versioned {
 
 // Put a blob message with a auto generated versionstamp.
 void blob_put(Transaction* txn, std::string_view key, const google::protobuf::Message& pb,
-              uint8_t ver = 0, size_t split_size = 90 * 1000);
+              uint8_t ver = 0, size_t split_size = DEFAULT_BLOB_SPLIT_SIZE);
 
 // Put a blob message with a auto generated versionstamp.
 void blob_put(Transaction* txn, std::string_view key, std::string_view value, uint8_t ver = 0,
-              size_t split_size = 90 * 1000);
+              size_t split_size = DEFAULT_BLOB_SPLIT_SIZE);
 
 // Put a blob message with a specified versionstamp.
 void blob_put(Transaction* txn, std::string_view key, Versionstamp v,
-              const google::protobuf::Message& pb, uint8_t ver = 0, size_t split_size = 90 * 1000);
+              const google::protobuf::Message& pb, uint8_t ver = 0,
+              size_t split_size = DEFAULT_BLOB_SPLIT_SIZE);
 
 // Put a blob message with a specified versionstamp.
 void blob_put(Transaction* txn, std::string_view key, Versionstamp v, std::string_view value,
-              uint8_t ver = 0, size_t split_size = 90 * 1000);
+              uint8_t ver = 0, size_t split_size = DEFAULT_BLOB_SPLIT_SIZE);
 
 } // namespace versioned
 

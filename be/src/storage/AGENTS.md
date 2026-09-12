@@ -32,7 +32,7 @@
 
 ## Segment Writing
 
-- [ ] MoW tables: `SegmentWriterOptions::enable_unique_key_merge_on_write` set to `true` on every path?
+- [ ] MoW tables: `VerticalSegmentWriterOptions::enable_unique_key_merge_on_write` set to `true` on every path?
 
 ## Rowset Segment Position and Physical ID
 

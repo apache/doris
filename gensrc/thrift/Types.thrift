@@ -102,7 +102,8 @@ enum TPrimitiveType {
   UINT64 = 41,  // only used in BE to represent offsets
   FIXED_LENGTH_OBJECT = 42 // only used in BE to represent fixed-length object
   VARBINARY = 43, // represent varbinary type
-  TIMESTAMPTZ = 44 //  timestamp with time zone
+  TIMESTAMPTZ = 44, // timestamp with time zone
+  TIMESTAMP_NS = 45 // signed nanoseconds since the Unix epoch
 }
 
 enum TTypeNodeType {
@@ -767,6 +768,9 @@ enum TMetadataType {
   PAIMON = 12,
   PARQUET = 13,
   STREAMS = 14,
+  // Also assigned on branch-4.1 for Lance physical index entries inspection.
+  // Keep the value aligned across maintained branches. Do not renumber.
+  LANCE_INDEX_ENTRIES = 15,
 }
 
 // deprecated

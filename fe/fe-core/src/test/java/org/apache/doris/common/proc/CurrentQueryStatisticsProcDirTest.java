@@ -17,8 +17,8 @@
 
 package org.apache.doris.common.proc;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 /**
  * Unit test for CurrentQueryStatisticsProcDir progress formatting.
@@ -29,61 +29,61 @@ public class CurrentQueryStatisticsProcDirTest {
     @Test
     public void testProgressNormal() {
         // 7 out of 20 tasks finished = 35.0%
-        Assert.assertEquals("35.0%", CurrentQueryStatisticsProcDir.formatProgress(20, 7));
+        Assertions.assertEquals("35.0%", CurrentQueryStatisticsProcDir.formatProgress(20, 7));
     }
 
     @Test
     public void testProgressAllFinished() {
         // 8 out of 8 = 100.0%
-        Assert.assertEquals("100.0%", CurrentQueryStatisticsProcDir.formatProgress(8, 8));
+        Assertions.assertEquals("100.0%", CurrentQueryStatisticsProcDir.formatProgress(8, 8));
     }
 
     @Test
     public void testProgressOneThird() {
         // 1 out of 3 = 33.3%
-        Assert.assertEquals("33.3%", CurrentQueryStatisticsProcDir.formatProgress(3, 1));
+        Assertions.assertEquals("33.3%", CurrentQueryStatisticsProcDir.formatProgress(3, 1));
     }
 
     @Test
     public void testProgressTwoThirds() {
         // 2 out of 3 = 66.7%
-        Assert.assertEquals("66.7%", CurrentQueryStatisticsProcDir.formatProgress(3, 2));
+        Assertions.assertEquals("66.7%", CurrentQueryStatisticsProcDir.formatProgress(3, 2));
     }
 
     @Test
     public void testProgressZeroPercent() {
         // 0 out of 5 = 0.0%
-        Assert.assertEquals("0.0%", CurrentQueryStatisticsProcDir.formatProgress(5, 0));
+        Assertions.assertEquals("0.0%", CurrentQueryStatisticsProcDir.formatProgress(5, 0));
     }
 
     @Test
     public void testProgressZeroTotal() {
         // total = 0, finished = 0 → "0.0%" (no division by zero)
-        Assert.assertEquals("0.0%", CurrentQueryStatisticsProcDir.formatProgress(0, 0));
+        Assertions.assertEquals("0.0%", CurrentQueryStatisticsProcDir.formatProgress(0, 0));
     }
 
     @Test
     public void testProgressFinishedExceedsTotal() {
         // Defensive: if finished > total, still returns a percentage (may exceed 100%)
-        Assert.assertEquals("200.0%", CurrentQueryStatisticsProcDir.formatProgress(5, 10));
+        Assertions.assertEquals("200.0%", CurrentQueryStatisticsProcDir.formatProgress(5, 10));
     }
 
     @Test
     public void testProgressNegativeTotal() {
         // total < 0 → returns "0.0%"
-        Assert.assertEquals("0.0%", CurrentQueryStatisticsProcDir.formatProgress(-1, 5));
+        Assertions.assertEquals("0.0%", CurrentQueryStatisticsProcDir.formatProgress(-1, 5));
     }
 
     @Test
     public void testProgressLargeValues() {
         // Verify no overflow with large numbers
-        Assert.assertEquals("50.0%",
+        Assertions.assertEquals("50.0%",
                 CurrentQueryStatisticsProcDir.formatProgress(Integer.MAX_VALUE, Integer.MAX_VALUE / 2));
     }
 
     @Test
     public void testProgressFractional() {
         // 1 out of 7 = 14.3% (14.2857... rounds to 14.3)
-        Assert.assertEquals("14.3%", CurrentQueryStatisticsProcDir.formatProgress(7, 1));
+        Assertions.assertEquals("14.3%", CurrentQueryStatisticsProcDir.formatProgress(7, 1));
     }
 }

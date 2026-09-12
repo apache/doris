@@ -305,7 +305,7 @@ void QueryContext::set_memory_sufficient(bool sufficient) {
     }
 }
 
-void QueryContext::cancel(Status new_status, int fragment_id) {
+void QueryContext::cancel(Status new_status) {
     if (!_exec_status.update(new_status)) {
         return;
     }
@@ -343,7 +343,21 @@ void QueryContext::cancel(Status new_status, int fragment_id) {
     }
 
     set_ready_to_execute(new_status);
-    cancel_all_pipeline_context(new_status, fragment_id);
+
+    // Copy the fragment contexts under the map lock, then cancel them after releasing it. Fragment
+    // cancellation may take task-level locks and must not run while holding the query map lock.
+    std::vector<std::weak_ptr<PipelineFragmentContext>> ctx_to_cancel;
+    {
+        std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
+        for (auto& entry : _fragment_id_to_pipeline_ctx) {
+            ctx_to_cancel.push_back(entry.second);
+        }
+    }
+    for (auto& f_context : ctx_to_cancel) {
+        if (auto pipeline_ctx = f_context.lock()) {
+            pipeline_ctx->cancel(new_status);
+        }
+    }
 }
 
 void QueryContext::set_load_error_url(std::string error_url) {
@@ -364,24 +378,6 @@ void QueryContext::set_first_error_msg(std::string error_msg) {
 std::string QueryContext::get_first_error_msg() {
     std::lock_guard<std::mutex> lock(_error_url_lock);
     return _first_error_msg;
-}
-
-void QueryContext::cancel_all_pipeline_context(const Status& reason, int fragment_id) {
-    std::vector<std::weak_ptr<PipelineFragmentContext>> ctx_to_cancel;
-    {
-        std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
-        for (auto& [f_id, f_context] : _fragment_id_to_pipeline_ctx) {
-            if (fragment_id == f_id) {
-                continue;
-            }
-            ctx_to_cancel.push_back(f_context);
-        }
-    }
-    for (auto& f_context : ctx_to_cancel) {
-        if (auto pipeline_ctx = f_context.lock()) {
-            pipeline_ctx->cancel(reason);
-        }
-    }
 }
 
 std::string QueryContext::print_all_pipeline_context() {

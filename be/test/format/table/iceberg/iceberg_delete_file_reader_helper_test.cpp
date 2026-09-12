@@ -214,11 +214,14 @@ IcebergDeleteFileReaderOptions delete_reader_options(RuntimeState* runtime_state
 } // namespace
 
 TEST(IcebergDeleteFileReaderHelperTest, BuildDeleteFileRange) {
-    auto range = build_iceberg_delete_file_range("s3://bucket/delete.parquet");
+    auto range = build_iceberg_delete_file_range("s3://bucket/delete.parquet", -1);
     EXPECT_EQ(range.path, "s3://bucket/delete.parquet");
     EXPECT_EQ(range.start_offset, 0);
     EXPECT_EQ(range.size, -1);
     EXPECT_EQ(range.file_size, -1);
+
+    auto range2 = build_iceberg_delete_file_range("s3://bucket/delete.parquet", 1024);
+    EXPECT_EQ(range2.file_size, 1024);
 }
 
 TEST(IcebergDeleteFileReaderHelperTest, IsDeletionVector) {
@@ -384,13 +387,22 @@ TEST(IcebergDeleteFileReaderHelperTest, DeletionVectorReaderValidatesOpenedFileR
     IcebergDeleteFileIOContext io_context(&state);
 
     {
-        TFileRangeDesc exact_range = build_iceberg_delete_file_range(dv_path);
+        TFileRangeDesc exact_range = build_iceberg_delete_file_range(dv_path, -1);
         exact_range.start_offset = 4;
         exact_range.size = dv_size - exact_range.start_offset;
         DeletionVectorReader exact_reader(&state, &profile, scan_params, exact_range,
                                           &io_context.io_ctx);
         const auto exact_status = exact_reader.open();
         EXPECT_TRUE(exact_status.ok()) << exact_status;
+
+        // Manifest-style range: exact file_size provided by the FE instead of -1.
+        TFileRangeDesc manifest_range = build_iceberg_delete_file_range(dv_path, dv_size);
+        manifest_range.start_offset = 4;
+        manifest_range.size = dv_size - manifest_range.start_offset;
+        DeletionVectorReader manifest_reader(&state, &profile, scan_params, manifest_range,
+                                             &io_context.io_ctx);
+        const auto manifest_status = manifest_reader.open();
+        EXPECT_TRUE(manifest_status.ok()) << manifest_status;
 
         TFileRangeDesc oversized_range = exact_range;
         oversized_range.size = MAX_ICEBERG_DELETION_VECTOR_BYTES;

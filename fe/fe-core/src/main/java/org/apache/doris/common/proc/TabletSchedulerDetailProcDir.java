@@ -39,7 +39,8 @@ public class TabletSchedulerDetailProcDir implements ProcDirInterface {
             .add("Priority").add("RealPriorityVal").add("SrcBe")
             .add("SrcPath").add("DestBe").add("DestPath").add("Timeout").add("Create").add("LstSched").add("LstVisit")
             .add("Finished").add("ReplicaSize").add("Rate").add("FailedSched").add("FailedRunning").add("VisibleVer")
-            .add("CmtVer").add("ErrMsg")
+            .add("CmtVer").add("ErrMsg").add("RowBinlogRepairReason").add("BaseTabletId")
+            .add("ExpectedLocations").add("ObservedLocations")
             .build();
 
     private String type;

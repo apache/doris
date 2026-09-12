@@ -1750,9 +1750,9 @@ void update_hdfs_resource(const TStorageResource& param, io::RemoteFileSystemSPt
 
     if (!existed_fs) {
         // No such FS instance on BE
-        auto res = io::HdfsFileSystem::create(
-                param.hdfs_storage_param, param.hdfs_storage_param.fs_name,
-                std::to_string(param.id), nullptr, std::move(root_path));
+        auto res = io::HdfsFileSystem::create(param.hdfs_storage_param,
+                                              param.hdfs_storage_param.fs_name,
+                                              std::to_string(param.id), std::move(root_path));
         if (!res.has_value()) {
             st = std::move(res).error();
         } else {

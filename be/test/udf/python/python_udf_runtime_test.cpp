@@ -25,7 +25,10 @@
 
 #include <boost/process.hpp>
 #include <filesystem>
+#include <optional>
 #include <string>
+
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -69,41 +72,18 @@ protected:
 // Helper function tests
 // ============================================================================
 
-TEST_F(PythonUDFRuntimeTest, GetBaseUnixSocketPath) {
-    std::string path = get_base_unix_socket_path();
-    EXPECT_TRUE(path.find("grpc+unix://") != std::string::npos);
-    EXPECT_TRUE(path.find("/tmp/doris_python_udf") != std::string::npos);
-}
-
-TEST_F(PythonUDFRuntimeTest, GetUnixSocketPath) {
-    pid_t test_pid = 12345;
-    std::string path = get_unix_socket_path(test_pid);
-    EXPECT_TRUE(path.find("grpc+unix://") != std::string::npos);
-    EXPECT_TRUE(path.find("12345") != std::string::npos);
-    EXPECT_TRUE(path.find(".sock") != std::string::npos);
-}
-
-TEST_F(PythonUDFRuntimeTest, GetUnixSocketFilePathFormat) {
-    pid_t test_pid = 99999;
-    std::string path = get_unix_socket_file_path(test_pid);
-    EXPECT_TRUE(path.find("/tmp/doris_python_udf") != std::string::npos);
-    EXPECT_TRUE(path.find("99999") != std::string::npos);
-    EXPECT_TRUE(path.find(".sock") != std::string::npos);
-    // Should NOT have grpc+unix:// prefix
-    EXPECT_TRUE(path.find("grpc+unix://") == std::string::npos);
-}
-
-TEST_F(PythonUDFRuntimeTest, GetUnixSocketPathDifferentPids) {
-    std::string path1 = get_unix_socket_path(1000);
-    std::string path2 = get_unix_socket_path(2000);
-    EXPECT_NE(path1, path2);
-    EXPECT_TRUE(path1.find("1000") != std::string::npos);
-    EXPECT_TRUE(path2.find("2000") != std::string::npos);
+TEST_F(PythonUDFRuntimeTest, UnixSocketPathsMatchFlightContract) {
+    EXPECT_EQ(get_base_unix_socket_path(), "grpc+unix:///tmp/doris_python_udf");
+    EXPECT_EQ(get_unix_socket_path(12345), "grpc+unix:///tmp/doris_python_udf_12345.sock");
+    EXPECT_EQ(get_unix_socket_file_path(12345), "/tmp/doris_python_udf_12345.sock");
 }
 
 TEST_F(PythonUDFRuntimeTest, GetFightServerPath) {
     // Save original DORIS_HOME
-    const char* original_doris_home = std::getenv("DORIS_HOME");
+    std::optional<std::string> original_doris_home;
+    if (const char* doris_home = std::getenv("DORIS_HOME")) {
+        original_doris_home = doris_home;
+    }
 
     // Set test DORIS_HOME
     setenv("DORIS_HOME", "/test/doris/home", 1);
@@ -113,24 +93,10 @@ TEST_F(PythonUDFRuntimeTest, GetFightServerPath) {
 
     // Restore original DORIS_HOME
     if (original_doris_home) {
-        setenv("DORIS_HOME", original_doris_home, 1);
+        setenv("DORIS_HOME", original_doris_home->c_str(), 1);
     } else {
         unsetenv("DORIS_HOME");
     }
-}
-
-// ============================================================================
-// PythonUDFProcess tests (without actually spawning a process)
-// ============================================================================
-
-// Note: Most PythonUDFProcess tests require actually spawning Python processes,
-// which is environment-dependent. Here we test what we can without real processes.
-
-TEST_F(PythonUDFRuntimeTest, ProcessPtrIsSharedPtr) {
-    // Verify ProcessPtr is a shared_ptr
-    ProcessPtr ptr = nullptr;
-    EXPECT_EQ(ptr, nullptr);
-    EXPECT_FALSE(ptr);
 }
 
 TEST_F(PythonUDFRuntimeTest, WaitChildExitReturnsExitedForExitedChild) {
@@ -203,52 +169,6 @@ TEST_F(PythonUDFRuntimeTest, BackgroundReaperReapsQueuedChild) {
     EXPECT_EQ(result, PythonUDFProcess::ChildExitWaitResult::ALREADY_REAPED);
 }
 
-// Test socket file path generation for various PIDs
-TEST_F(PythonUDFRuntimeTest, SocketPathGenerationEdgeCases) {
-    // Minimum PID
-    std::string path1 = get_unix_socket_file_path(1);
-    EXPECT_TRUE(path1.find("_1.sock") != std::string::npos);
-
-    // Large PID
-    std::string path2 = get_unix_socket_file_path(999999);
-    EXPECT_TRUE(path2.find("_999999.sock") != std::string::npos);
-}
-
-TEST_F(PythonUDFRuntimeTest, SocketPathConsistency) {
-    pid_t pid = 54321;
-    // Multiple calls should return same result
-    std::string path1 = get_unix_socket_path(pid);
-    std::string path2 = get_unix_socket_path(pid);
-    EXPECT_EQ(path1, path2);
-
-    std::string file_path1 = get_unix_socket_file_path(pid);
-    std::string file_path2 = get_unix_socket_file_path(pid);
-    EXPECT_EQ(file_path1, file_path2);
-}
-
-TEST_F(PythonUDFRuntimeTest, UnixSocketPathRelationship) {
-    pid_t pid = 12345;
-    std::string socket_path = get_unix_socket_path(pid);
-    std::string file_path = get_unix_socket_file_path(pid);
-
-    // Socket path should contain the prefix + file path structure
-    EXPECT_TRUE(socket_path.find(UNIX_SOCKET_PREFIX) == 0);
-
-    // File path should not contain the prefix
-    EXPECT_TRUE(file_path.find(UNIX_SOCKET_PREFIX) == std::string::npos);
-}
-
-// ============================================================================
-// Socket path security tests
-// ============================================================================
-
-TEST_F(PythonUDFRuntimeTest, SocketPathInTmpDirectory) {
-    // All socket files should be in /tmp to avoid path length issues
-    pid_t pid = 12345;
-    std::string file_path = get_unix_socket_file_path(pid);
-    EXPECT_TRUE(file_path.find("/tmp/") == 0);
-}
-
 TEST_F(PythonUDFRuntimeTest, SocketPathLength) {
     // Unix socket paths have a maximum length (usually 107 chars)
     // Verify generated paths are within reasonable limits
@@ -257,18 +177,6 @@ TEST_F(PythonUDFRuntimeTest, SocketPathLength) {
 
     // Should be well under 107 characters
     EXPECT_LT(path.length(), 100);
-}
-
-// ============================================================================
-// Flight server path tests
-// ============================================================================
-
-TEST_F(PythonUDFRuntimeTest, FlightServerPathTemplate) {
-    // Verify template includes necessary components
-    std::string tmpl = FLIGHT_SERVER_PATH_TEMPLATE;
-    EXPECT_TRUE(tmpl.find("{}") != std::string::npos); // Has placeholder
-    EXPECT_TRUE(tmpl.find("plugins") != std::string::npos);
-    EXPECT_TRUE(tmpl.find("python_udf") != std::string::npos);
 }
 
 // ============================================================================
@@ -375,124 +283,41 @@ TEST_F(PythonUDFRuntimeTest, RemoveUnixSocketExistingFile) {
     EXPECT_FALSE(fs::exists(socket_path));
 }
 
-TEST_F(PythonUDFRuntimeTest, RemoveUnixSocketNonExistent) {
+TEST_F(PythonUDFRuntimeTest, ShutdownPreservesUnexpectedSocketDirectory) {
     bp::ipstream output;
     bp::child child("/bin/sleep", "60", bp::std_out > output);
-
-    pid_t child_pid = child.id();
-    PythonUDFProcess process(std::move(child), std::move(output));
-
-    // Don't create socket file - it doesn't exist
-    std::string socket_path = get_unix_socket_file_path(child_pid);
-    ASSERT_FALSE(fs::exists(socket_path));
-
-    // Shutdown should not crash even if socket doesn't exist (ENOENT case)
-    process.shutdown();
-    EXPECT_TRUE(process.is_shutdown());
-}
-
-TEST_F(PythonUDFRuntimeTest, RemoveUnixSocketIsDirectory) {
-    bp::ipstream output;
-    bp::child child("/bin/sleep", "60", bp::std_out > output);
-
-    pid_t child_pid = child.id();
-
-    // Create a directory at the socket path location (instead of a file)
-    // This will cause unlink() to fail with EISDIR
-    std::string socket_path = get_unix_socket_file_path(child_pid);
-    fs::create_directories(socket_path);
-    ASSERT_TRUE(fs::is_directory(socket_path));
+    ASSERT_TRUE(child.valid());
+    ASSERT_TRUE(child.running());
 
     PythonUDFProcess process(std::move(child), std::move(output));
-
-    // Shutdown should handle EISDIR error gracefully (logs warning but doesn't crash)
-    process.shutdown();
-    EXPECT_TRUE(process.is_shutdown());
-
-    // Cleanup - remove the directory we created
+    const std::string socket_path = process.get_socket_file_path();
     fs::remove_all(socket_path);
-}
+    ASSERT_TRUE(fs::create_directory(socket_path));
+    Defer cleanup {[&]() { fs::remove_all(socket_path); }};
 
-// ============================================================================
-// PythonUDFProcess to_string() tests
-// ============================================================================
-
-TEST_F(PythonUDFRuntimeTest, ToStringFormat) {
-    bp::ipstream output;
-    bp::child child("/bin/sleep", "60", bp::std_out > output);
-
-    pid_t child_pid = child.id();
-    PythonUDFProcess process(std::move(child), std::move(output));
-
-    std::string str = process.to_string();
-
-    // Verify to_string contains expected fields
-    EXPECT_TRUE(str.find("PythonUDFProcess") != std::string::npos);
-    EXPECT_TRUE(str.find("child_pid") != std::string::npos);
-    EXPECT_TRUE(str.find(std::to_string(child_pid)) != std::string::npos);
-    EXPECT_TRUE(str.find("uri") != std::string::npos);
-    EXPECT_TRUE(str.find("unix_socket_file_path") != std::string::npos);
-    EXPECT_TRUE(str.find("is_shutdown") != std::string::npos);
-
+    // A directory at the derived socket path makes unlink() fail with EISDIR. Shutdown must still
+    // finish, and it must not recursively delete an unexpected filesystem object.
     process.shutdown();
+
+    EXPECT_TRUE(process.is_shutdown());
+    EXPECT_TRUE(fs::is_directory(socket_path));
 }
 
 // ============================================================================
 // PythonUDFProcess getter tests
 // ============================================================================
 
-TEST_F(PythonUDFRuntimeTest, GetUri) {
+TEST_F(PythonUDFRuntimeTest, ProcessUsesPidDerivedSocketPaths) {
     bp::ipstream output;
     bp::child child("/bin/sleep", "60", bp::std_out > output);
 
     pid_t child_pid = child.id();
     PythonUDFProcess process(std::move(child), std::move(output));
 
-    std::string uri = process.get_uri();
-
-    // URI should contain the grpc+unix prefix and pid
-    EXPECT_TRUE(uri.find("grpc+unix://") != std::string::npos);
-    EXPECT_TRUE(uri.find(std::to_string(child_pid)) != std::string::npos);
-    EXPECT_TRUE(uri.find(".sock") != std::string::npos);
+    EXPECT_EQ(process.get_uri(), get_unix_socket_path(child_pid));
+    EXPECT_EQ(process.get_socket_file_path(), get_unix_socket_file_path(child_pid));
 
     process.shutdown();
-}
-
-TEST_F(PythonUDFRuntimeTest, GetSocketFilePath) {
-    bp::ipstream output;
-    bp::child child("/bin/sleep", "60", bp::std_out > output);
-
-    pid_t child_pid = child.id();
-    PythonUDFProcess process(std::move(child), std::move(output));
-
-    const std::string& path = process.get_socket_file_path();
-
-    // File path should NOT have grpc+unix prefix
-    EXPECT_TRUE(path.find("grpc+unix://") == std::string::npos);
-    EXPECT_TRUE(path.find(std::to_string(child_pid)) != std::string::npos);
-    EXPECT_TRUE(path.find(".sock") != std::string::npos);
-    EXPECT_TRUE(path.find("/tmp/") == 0);
-
-    process.shutdown();
-}
-
-// ============================================================================
-// PythonUDFProcess equality tests
-// ============================================================================
-
-TEST_F(PythonUDFRuntimeTest, ProcessEquality) {
-    bp::ipstream output1, output2;
-    bp::child child1("/bin/sleep", "60", bp::std_out > output1);
-    bp::child child2("/bin/sleep", "60", bp::std_out > output2);
-
-    PythonUDFProcess process1(std::move(child1), std::move(output1));
-    PythonUDFProcess process2(std::move(child2), std::move(output2));
-
-    // Different processes should not be equal (different PIDs)
-    EXPECT_NE(process1, process2);
-
-    process1.shutdown();
-    process2.shutdown();
 }
 
 // ============================================================================

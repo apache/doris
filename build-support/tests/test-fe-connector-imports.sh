@@ -53,7 +53,7 @@ package org.apache.doris.fake;
 import static org.apache.doris.catalog.Type.INT;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.fs.remote.RemoteFileSystem;
-import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TFoo;
@@ -105,7 +105,7 @@ must_report() {
 must_report 'import static org.apache.doris.catalog.Type.INT;'   # hole 1 (static)
 must_report 'import org.apache.doris.persist.EditLog;'           # hole 2
 must_report 'import org.apache.doris.fs.remote.RemoteFileSystem;' # hole 2 (fs != filesystem)
-must_report 'import org.apache.doris.statistics.ColumnStatistic;' # hole 2
+must_report 'import org.apache.doris.statistics.model.ColumnStatistic;' # hole 2
 must_report 'import org.apache.doris.mysql.privilege.Auth;'      # hole 2
 must_report 'import org.apache.doris.service.FrontendOptions;'   # hole 2
 must_report 'ConnPathConn.java:2:import org.apache.doris.catalog.Type;'  # hole 4 (connector-namespaced)

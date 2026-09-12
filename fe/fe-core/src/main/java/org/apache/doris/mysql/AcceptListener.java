@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.mysql.ProxyProtocolHandler.ProtocolType;
 import org.apache.doris.mysql.ProxyProtocolHandler.ProxyProtocolResult;
+import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.ConnectScheduler;
@@ -63,7 +64,7 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
             }
             // connection has been established, so need to call context.cleanup()
             // if exception happens.
-            ConnectContext context = new ConnectContext(connection);
+            ConnectContext context = ConnectContext.forMysql(connection);
             if (context.getSessionVariable().getQueryTimeoutS() <= 0) {
                 LOG.warn("Connection query timeout is invalid: {}", context.getSessionVariable().getQueryTimeoutS());
             }
@@ -132,7 +133,7 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
             context.setUserInsertTimeout(
                     context.getEnv().getAuth().getInsertTimeout(context.getQualifiedUser()));
             ConnectProcessor processor = new MysqlConnectProcessor(context);
-            context.startAcceptQuery(processor);
+            MysqlProtocolAdapter.of(context).startAcceptQuery(context, processor);
         } catch (AfterConnectedException e) {
             // do not need to print log for this kind of exception.
             // just clean up the context;

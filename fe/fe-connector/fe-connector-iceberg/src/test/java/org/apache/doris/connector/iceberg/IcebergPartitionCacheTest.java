@@ -175,7 +175,7 @@ public class IcebergPartitionCacheTest {
     public void loaderExceptionPropagatesUnwrapped() {
         // listPartitions catches ValidationException (dropped partition source column) to degrade to an empty
         // list. Routing the scan through this cache must NOT wrap it, or the degradation would break. The
-        // MetaCacheEntry manual-miss-load path re-throws the loader's RuntimeException verbatim, and a failed
+        // MetaCache manual-miss-load path re-throws the loader's RuntimeException verbatim, and a failed
         // scan is not cached. MUTATION: wrapping the loader exception -> assertThrows(ValidationException) fails.
         IcebergPartitionCache c = new IcebergPartitionCache(100, 1000);
         Assertions.assertThrows(ValidationException.class, () -> c.getOrLoad(key("db", "t", 5L), () -> {

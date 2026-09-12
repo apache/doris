@@ -41,13 +41,12 @@
 #include "storage/index/snii/writer/spimi_term_buffer.h"
 #include "storage/index/snii_query_test_util.h"
 
-// T12 -- writer fused freqs statistics (single pass total + max), reused for the
-// has_prx position-count check, stats_.sum_total_term_freq, and the DictEntry
-// ttf_delta/max_freq. This suite guards:
+// T12 -- writer fused freqs statistics (single pass total), reused for the
+// has_prx position-count check and stats_.sum_total_term_freq. This suite guards:
 //   * the deterministic op-count: exactly ONE term-level freqs scan per term
 //     (was 3N docs-only / 4N with positions) via the term_freq_scans() seam;
-//   * value bit-identity: ttf_delta / max_freq / sum_total_term_freq read back
-//     equal to an independent reference, across windowed + slim(pod_ref/inline);
+//   * value bit-identity: sum_total_term_freq read back equals an independent
+//     reference across windowed + slim(pod_ref/inline) terms;
 //   * the fused pure helper on boundary inputs (empty/single/zeros/equal/u32max/
 //     large random) vs a naive reference;
 //   * the validate_term error paths preserved after dropping its internal
@@ -62,7 +61,7 @@ using snii_test::make_term;
 using snii_test::MemoryFile;
 using snii_test::PostingDoc;
 
-// One term whose postings are known up front, so the reference total/max can be
+// One term whose postings are known up front, so the reference total can be
 // recomputed in the test independently of the writer.
 struct KnownTerm {
     std::string term;
@@ -74,13 +73,6 @@ struct KnownTerm {
             sum += doc.positions.size();
         }
         return sum;
-    }
-    uint32_t ref_max() const {
-        uint32_t max = 0;
-        for (const PostingDoc& doc : docs) {
-            max = std::max<uint32_t>(max, static_cast<uint32_t>(doc.positions.size()));
-        }
-        return max;
     }
     uint32_t df() const { return static_cast<uint32_t>(docs.size()); }
 };
@@ -148,27 +140,15 @@ std::vector<KnownTerm> make_known_corpus() {
     return corpus;
 }
 
-const KnownTerm& find_term(const std::vector<KnownTerm>& corpus, std::string_view term) {
-    for (const KnownTerm& kt : corpus) {
-        if (std::string_view(kt.term) == term) {
-            return kt;
-        }
-    }
-    ADD_FAILURE() << "term not in corpus: " << term;
-    return corpus.front();
-}
-
 // Builds the corpus into `file` and opens a reader over it. The corpus is left
 // untouched so the caller can recompute references.
 Status build_corpus_reader(MemoryFile* file, reader::SniiSegmentReader* segment_reader,
                            reader::LogicalIndexReader* index_reader,
-                           const std::vector<KnownTerm>& corpus, format::IndexConfig config,
-                           bool write_freq = true) {
+                           const std::vector<KnownTerm>& corpus, format::IndexConfig config) {
     SniiIndexInput input;
     input.index_id = 7;
     input.index_suffix = "Body";
     input.config = config;
-    input.write_freq = write_freq;
     uint32_t max_docid = 0;
     input.terms.reserve(corpus.size());
     for (const KnownTerm& kt : corpus) {
@@ -225,14 +205,14 @@ TEST(SniiWriterTest, ProcessTermScansFreqsOncePerTerm) {
 }
 
 // -------------------------------------------------------------------------
-// Value bit-identity: ttf_delta / max_freq / sum_total_term_freq.
+// Value bit-identity: sum_total_term_freq.
 // -------------------------------------------------------------------------
 
-// FW-EQ-1 / FW-EQ-2: every term's read-back ttf_delta == sum(freqs) and
-// max_freq == max(freqs), and the index-level sum_total_term_freq == the sum of
-// every term's sum(freqs). The reference is computed independently from the known
-// corpus. Holds before AND after the fusion (guards the CSE did not change values).
-TEST(SniiWriterTest, FusedFreqStatsPreserveTtfMaxAndSum) {
+// FW-EQ-1: every term's df reads back, and the index-level sum_total_term_freq
+// == the sum of every term's sum(freqs). The reference is computed independently
+// from the known corpus. Holds before AND after the fusion (guards the CSE did
+// not change values).
+TEST(SniiWriterTest, FusedFreqTotalsPreserveSum) {
     const std::vector<KnownTerm> corpus = make_known_corpus();
     MemoryFile file;
     reader::SniiSegmentReader segment_reader;
@@ -244,8 +224,6 @@ TEST(SniiWriterTest, FusedFreqStatsPreserveTtfMaxAndSum) {
     for (const KnownTerm& kt : corpus) {
         const format::DictEntry entry = lookup_entry(index_reader, kt.term);
         EXPECT_EQ(entry.df, kt.df()) << kt.term;
-        EXPECT_EQ(entry.ttf_delta, kt.ref_sum()) << kt.term;
-        EXPECT_EQ(entry.max_freq, kt.ref_max()) << kt.term;
         expected_total += kt.ref_sum();
     }
     EXPECT_EQ(index_reader.stats().sum_total_term_freq, expected_total);
@@ -255,137 +233,40 @@ TEST(SniiWriterTest, FusedFreqStatsPreserveTtfMaxAndSum) {
 // correct on each encoding branch. Also guards that the windowed per-window MaxOf
 // / sum (NOT collapsed by this task) still produce a term whose term-level fused
 // values match the reference.
-TEST(SniiWriterTest, FusedFreqStatsCorrectAcrossWindowedAndSlimEncodings) {
-    const std::vector<KnownTerm> corpus = make_known_corpus();
-    MemoryFile file;
-    reader::SniiSegmentReader segment_reader;
-    reader::LogicalIndexReader index_reader;
-    assert_ok(build_corpus_reader(&file, &segment_reader, &index_reader, corpus,
-                                  format::IndexConfig::kDocsPositions));
-
-    const format::DictEntry wide = lookup_entry(index_reader, "wide");
-    EXPECT_EQ(wide.enc, format::DictEntryEnc::kWindowed);
-    EXPECT_EQ(wide.ttf_delta, find_term(corpus, "wide").ref_sum());
-    EXPECT_EQ(wide.max_freq, find_term(corpus, "wide").ref_max());
-    EXPECT_EQ(wide.max_freq, 3U); // sanity: cycling 1,2,3
-
-    const format::DictEntry slimref = lookup_entry(index_reader, "slimref");
-    EXPECT_EQ(slimref.enc, format::DictEntryEnc::kSlim);
-    EXPECT_EQ(slimref.kind, format::DictEntryKind::kPodRef);
-    EXPECT_EQ(slimref.ttf_delta, find_term(corpus, "slimref").ref_sum());
-    EXPECT_EQ(slimref.max_freq, find_term(corpus, "slimref").ref_max());
-
-    const format::DictEntry tiny = lookup_entry(index_reader, "tiny");
-    EXPECT_EQ(tiny.enc, format::DictEntryEnc::kSlim);
-    EXPECT_EQ(tiny.kind, format::DictEntryKind::kInline);
-    EXPECT_EQ(tiny.ttf_delta, find_term(corpus, "tiny").ref_sum());
-    EXPECT_EQ(tiny.max_freq, find_term(corpus, "tiny").ref_max());
-}
-
 // Frequency layout is an index-wide capability. Disabling it preserves ordinary
 // position payloads while omitting both posting-level freqs and per-entry term
 // frequency statistics across windowed and slim encodings.
-TEST(SniiWriterTest, WriteFreqOffPreservesOrdinaryPositions) {
-    const std::vector<KnownTerm> corpus = make_known_corpus();
-    MemoryFile file;
-    reader::SniiSegmentReader segment_reader;
-    reader::LogicalIndexReader index_reader;
-    assert_ok(build_corpus_reader(&file, &segment_reader, &index_reader, corpus,
-                                  format::IndexConfig::kDocsPositions,
-                                  /*write_freq=*/false));
-
-    bool found = false;
-    format::DictEntry wide;
-    uint64_t frq_base = 0;
-    uint64_t prx_base = 0;
-    assert_ok(index_reader.lookup("wide", &found, &wide, &frq_base, &prx_base));
-    ASSERT_TRUE(found);
-    ASSERT_EQ(wide.enc, format::DictEntryEnc::kWindowed);
-    EXPECT_EQ(wide.frq_docs_len, wide.frq_len);
-    EXPECT_GT(wide.prx_len, 0U);
-    EXPECT_FALSE(wide.term_stats_present);
-    EXPECT_EQ(wide.ttf_delta, 0U);
-    EXPECT_EQ(wide.max_freq, 0U);
-    EXPECT_EQ(wide.df, 600U);
-
-    reader::DecodedPosting decoded;
-    assert_ok(reader::read_windowed_posting(index_reader, wide, frq_base, prx_base,
-                                            /*want_positions=*/true,
-                                            /*want_freq=*/false, &decoded));
-    const KnownTerm& wide_term = find_term(corpus, "wide");
-    ASSERT_EQ(decoded.docids.size(), wide_term.docs.size());
-    ASSERT_EQ(decoded.positions.size(), wide_term.docs.size());
-    uint64_t decoded_position_count = 0;
-    for (size_t i = 0; i < wide_term.docs.size(); ++i) {
-        EXPECT_EQ(decoded.docids[i], wide_term.docs[i].docid);
-        EXPECT_EQ(decoded.positions[i], wide_term.docs[i].positions);
-        decoded_position_count += decoded.positions[i].size();
-    }
-    EXPECT_EQ(decoded_position_count, wide_term.ref_sum());
-    EXPECT_TRUE(decoded.freqs.empty());
-
-    const format::DictEntry tiny = lookup_entry(index_reader, "tiny");
-    ASSERT_EQ(tiny.enc, format::DictEntryEnc::kSlim);
-    ASSERT_EQ(tiny.kind, format::DictEntryKind::kInline);
-    EXPECT_EQ(tiny.frq_bytes.size(), tiny.inline_dd_disk_len);
-    EXPECT_FALSE(tiny.prx_bytes.empty());
-    EXPECT_FALSE(tiny.term_stats_present);
-    EXPECT_EQ(tiny.ttf_delta, 0U);
-    EXPECT_EQ(tiny.max_freq, 0U);
-
-    std::vector<uint32_t> tiny_docids;
-    assert_ok(query::internal::read_docid_posting(index_reader, tiny, 0, 0, &tiny_docids));
-    const KnownTerm& tiny_term = find_term(corpus, "tiny");
-    ASSERT_EQ(tiny_docids.size(), tiny_term.docs.size());
-
-    ByteSource tiny_prx_source(Slice(tiny.prx_bytes));
-    std::vector<std::vector<uint32_t>> tiny_positions;
-    assert_ok(format::read_prx_window(&tiny_prx_source, &tiny_positions));
-    EXPECT_TRUE(tiny_prx_source.eof());
-    ASSERT_EQ(tiny_positions.size(), tiny_term.docs.size());
-    for (size_t i = 0; i < tiny_term.docs.size(); ++i) {
-        EXPECT_EQ(tiny_docids[i], tiny_term.docs[i].docid);
-        EXPECT_EQ(tiny_positions[i], tiny_term.docs[i].positions);
-    }
-}
-
 // -------------------------------------------------------------------------
 // Pure helper boundaries (real production helper via the testing seam).
 // -------------------------------------------------------------------------
 
 // FW-PURE-*: fuse_freq_stats on degenerate/boundary inputs equals the hand
-// computed reference. max stays 0 for an all-zero input (a freq of 0 never lowers
-// the running max), and the u32 sum promotes into the u64 total.
+// computed reference; the u32 sum promotes into the u64 total.
 TEST(SniiWriterTest, FuseFreqStatsMatchesReferenceOnEdgeInputs) {
     {
         const FreqStats fs = testing::fuse_freq_stats_for_test({});
         EXPECT_EQ(fs.total_freq, 0U);
-        EXPECT_EQ(fs.max_freq, 0U);
     }
     {
         const FreqStats fs = testing::fuse_freq_stats_for_test({7});
         EXPECT_EQ(fs.total_freq, 7U);
-        EXPECT_EQ(fs.max_freq, 7U);
     }
     {
         const FreqStats fs = testing::fuse_freq_stats_for_test({0, 0, 0});
         EXPECT_EQ(fs.total_freq, 0U);
-        EXPECT_EQ(fs.max_freq, 0U);
     }
     {
         const FreqStats fs = testing::fuse_freq_stats_for_test({5, 5, 5, 5});
         EXPECT_EQ(fs.total_freq, 20U);
-        EXPECT_EQ(fs.max_freq, 5U);
     }
     {
         const FreqStats fs = testing::fuse_freq_stats_for_test({1, UINT32_MAX, 2});
         EXPECT_EQ(fs.total_freq, static_cast<uint64_t>(UINT32_MAX) + 3U);
-        EXPECT_EQ(fs.max_freq, UINT32_MAX);
     }
 }
 
 // FW-PURE-rand: a large fixed-seed random input agrees with an independent
-// std::accumulate (u64) / std::max_element reference.
+// std::accumulate (u64) reference.
 TEST(SniiWriterTest, FuseFreqStatsMatchesNaiveOnLargeRandomInput) {
     std::mt19937 rng(0xC0FFEEU);
     std::vector<uint32_t> freqs(4096);
@@ -395,7 +276,6 @@ TEST(SniiWriterTest, FuseFreqStatsMatchesNaiveOnLargeRandomInput) {
 
     const FreqStats fs = testing::fuse_freq_stats_for_test(freqs);
     EXPECT_EQ(fs.total_freq, std::accumulate(freqs.begin(), freqs.end(), uint64_t {0}));
-    EXPECT_EQ(fs.max_freq, *std::ranges::max_element(freqs));
 }
 
 // -------------------------------------------------------------------------
@@ -516,8 +396,7 @@ TEST(SniiWriterTest, ValidateTermUsesFusedTotalForPositionCount) {
         assert_ok(segment_reader.open_index(input.index_id, input.index_suffix, &index_reader));
 
         const format::DictEntry entry = lookup_entry(index_reader, "x");
-        EXPECT_EQ(entry.ttf_delta, 2U);
-        EXPECT_EQ(entry.max_freq, 2U);
+        EXPECT_EQ(entry.df, 1U);
     }
 }
 

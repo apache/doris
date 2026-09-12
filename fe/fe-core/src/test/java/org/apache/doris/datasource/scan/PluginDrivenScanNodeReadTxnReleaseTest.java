@@ -17,10 +17,19 @@
 
 package org.apache.doris.datasource.scan;
 
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.datasource.split.SplitAssignment;
+import org.apache.doris.qe.QeProcessorImpl;
+import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 import java.net.URL;
@@ -88,5 +97,58 @@ public class PluginDrivenScanNodeReadTxnReleaseTest {
         } finally {
             current.setContextClassLoader(outer);
         }
+    }
+
+    @Test
+    public void registrationReleasesTransactionBeforeClosingStatementScope() {
+        TUniqueId queryId = new TUniqueId(17L, 29L);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        ConnectorStatementScope statementScope = Mockito.mock(ConnectorStatementScope.class);
+        ConnectorScanPlanProvider provider = Mockito.mock(ConnectorScanPlanProvider.class);
+        Mockito.when(session.getQueryId()).thenReturn(DebugUtil.printId(queryId));
+        Mockito.when(session.getStatementScope()).thenReturn(statementScope);
+
+        PluginDrivenScanNode.QueryFinishCleanup cleanup =
+                PluginDrivenScanNode.registerQueryFinishCleanup(session);
+        cleanup.bind(provider);
+        Mockito.verifyNoInteractions(statementScope);
+        Mockito.verifyNoInteractions(provider);
+
+        QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+
+        InOrder cleanupOrder = Mockito.inOrder(provider, statementScope);
+        cleanupOrder.verify(provider).releaseReadTransaction(DebugUtil.printId(queryId));
+        cleanupOrder.verify(statementScope).closeAll();
+    }
+
+    @Test
+    public void earlyBatchSetupFailureStillClosesStatementScopeAtQueryFinish() throws Exception {
+        assertEarlyBatchSetupFailureClosesStatementScope(false, new TUniqueId(31L, 41L));
+        assertEarlyBatchSetupFailureClosesStatementScope(true, new TUniqueId(31L, 42L));
+    }
+
+    private static void assertEarlyBatchSetupFailureClosesStatementScope(
+            boolean streamingBatch, TUniqueId queryId) throws Exception {
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        ConnectorStatementScope statementScope = Mockito.mock(ConnectorStatementScope.class);
+        Mockito.when(session.getQueryId()).thenReturn(DebugUtil.printId(queryId));
+        Mockito.when(session.getStatementScope()).thenReturn(statementScope);
+
+        PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
+        SplitAssignment splitAssignment = Mockito.mock(SplitAssignment.class);
+        Deencapsulation.setField(node, "connectorSession", session);
+        Deencapsulation.setField(node, "splitAssignment", splitAssignment);
+        Deencapsulation.setField(node, "streamingBatch", streamingBatch);
+        UserException setupFailure = new UserException("early setup failure");
+        Mockito.doThrow(setupFailure).when(node).checkSysTableScanConstraints();
+
+        try {
+            node.startSplit(1);
+            Mockito.verify(splitAssignment).setException(setupFailure);
+            Mockito.verifyNoInteractions(statementScope);
+        } finally {
+            QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+        }
+        Mockito.verify(statementScope).closeAll();
     }
 }

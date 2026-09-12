@@ -62,10 +62,10 @@ import org.apache.commons.pool2.impl.GenericKeyedObjectPoolConfig;
 import org.apache.thrift.TException;
 import org.apache.thrift.TProcessor;
 import org.apache.thrift.transport.TSocket;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.List;
@@ -86,7 +86,7 @@ public class GenericPoolTest {
         }
     }
 
-    @BeforeClass
+    @BeforeAll
     public static void beforeClass() throws IOException {
         try {
             GenericKeyedObjectPoolConfig config = new GenericKeyedObjectPoolConfig();
@@ -110,7 +110,7 @@ public class GenericPoolTest {
         }
     }
 
-    @AfterClass
+    @AfterAll
     public static void afterClass() throws IOException {
         close();
     }
@@ -282,15 +282,15 @@ public class GenericPoolTest {
             flag = true;
             // pass
         } catch (Exception e) {
-            Assert.fail();
+            Assertions.fail();
         }
-        Assert.assertTrue(flag);
+        Assertions.assertTrue(flag);
 
         // fourth success, because we drop the object1
         backendService.returnObject(address, object1);
         object3 = null;
         object3 = backendService.borrowObject(address);
-        Assert.assertTrue(object3 != null);
+        Assertions.assertTrue(object3 != null);
 
         backendService.returnObject(address, object2);
         backendService.returnObject(address, object3);
@@ -304,15 +304,15 @@ public class GenericPoolTest {
 
         // Verify the high timeout is set
         TSocket socket = (TSocket) client.getOutputProtocol().getTransport();
-        Assert.assertTrue(socket.isOpen());
+        Assertions.assertTrue(socket.isOpen());
 
         // reopen should succeed and restore the provided timeout
         int savedConnectTimeout = Config.thrift_rpc_connect_timeout_ms;
         Config.thrift_rpc_connect_timeout_ms = 5000;
         try {
             boolean ok = backendService.reopen(client, 60000);
-            Assert.assertTrue(ok);
-            Assert.assertTrue(client.getOutputProtocol().getTransport().isOpen());
+            Assertions.assertTrue(ok);
+            Assertions.assertTrue(client.getOutputProtocol().getTransport().isOpen());
         } finally {
             Config.thrift_rpc_connect_timeout_ms = savedConnectTimeout;
         }
@@ -329,8 +329,8 @@ public class GenericPoolTest {
         Config.thrift_rpc_connect_timeout_ms = 5000;
         try {
             boolean ok = backendService.reopen(client);
-            Assert.assertTrue(ok);
-            Assert.assertTrue(client.getOutputProtocol().getTransport().isOpen());
+            Assertions.assertTrue(ok);
+            Assertions.assertTrue(client.getOutputProtocol().getTransport().isOpen());
         } finally {
             Config.thrift_rpc_connect_timeout_ms = savedConnectTimeout;
         }
@@ -348,11 +348,11 @@ public class GenericPoolTest {
 
         // reopenOrClear should succeed and NOT clear the pool
         boolean ok = backendService.reopenOrClear(address, client1, 60000);
-        Assert.assertTrue(ok);
+        Assertions.assertTrue(ok);
 
         // The other idle connection should still be available
         BackendService.Client client3 = backendService.borrowObject(address);
-        Assert.assertNotNull(client3);
+        Assertions.assertNotNull(client3);
 
         backendService.returnObject(address, client1);
         backendService.returnObject(address, client3);
@@ -377,7 +377,7 @@ public class GenericPoolTest {
             // For now just verify the API contract: reopenOrClear calls clearPool on the given address.
             boolean ok = backendService.reopenOrClear(address, client2, 60000);
             // reopen to the same running server should succeed
-            Assert.assertTrue(ok);
+            Assertions.assertTrue(ok);
         } finally {
             Config.thrift_rpc_connect_timeout_ms = savedConnectTimeout;
         }
@@ -395,8 +395,8 @@ public class GenericPoolTest {
         Config.thrift_rpc_connect_timeout_ms = 0;
         try {
             boolean ok = backendService.reopen(client, 60000);
-            Assert.assertTrue(ok);
-            Assert.assertTrue(client.getOutputProtocol().getTransport().isOpen());
+            Assertions.assertTrue(ok);
+            Assertions.assertTrue(client.getOutputProtocol().getTransport().isOpen());
         } finally {
             Config.thrift_rpc_connect_timeout_ms = savedConnectTimeout;
         }
@@ -415,7 +415,7 @@ public class GenericPoolTest {
         } catch (NullPointerException e) {
             flag = true;
         }
-        Assert.assertTrue(flag);
+        Assertions.assertTrue(flag);
         flag = false;
         // return twice
         object = backendService.borrowObject(address);
@@ -425,6 +425,6 @@ public class GenericPoolTest {
         } catch (java.lang.IllegalStateException e) {
             flag = true;
         }
-        Assert.assertTrue(flag);
+        Assertions.assertTrue(flag);
     }
 }

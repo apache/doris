@@ -28,7 +28,11 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
+import org.apache.doris.arrowflight.results.FlightSqlChannel;
+import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.authentication.Principal;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -59,21 +63,21 @@ import org.apache.doris.mysql.MysqlSslContext;
 import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
+import org.apache.doris.qe.protocol.ProtocolAdapter;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.BackendSelectionProfile;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
-import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
-import org.apache.doris.service.arrowflight.results.FlightSqlEndpointsLocation;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.Histogram;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.Histogram;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TResultSinkType;
@@ -85,17 +89,15 @@ import org.apache.doris.transaction.TransactionStatus;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import lombok.Getter;
-import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
 import org.xnio.StreamConnection;
 
-import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -114,10 +116,13 @@ import javax.annotation.Nullable;
 // We store session information here. Meanwhile ConnectScheduler all
 // connect with its connection id.
 // Use `volatile` to make the reference change atomic.
+//
+// What only the wire protocol knows about (the MySQL channel and capabilities, the Arrow Flight
+// result cache and endpoints) lives in the ProtocolAdapter the context is created with. The
+// protocol-specific getters below delegate to it and keep their signatures for their callers.
 public class ConnectContext {
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
 
-    private static final String SSL_PROTOCOL = "TLS";
     private static final int INITIAL_PREPARED_STMT_ID = Integer.MIN_VALUE;
 
     public enum ConnectType {
@@ -125,7 +130,7 @@ public class ConnectContext {
         ARROW_FLIGHT_SQL
     }
 
-    protected volatile ConnectType connectType;
+    private final ProtocolAdapter protocolAdapter;
     // set this id before analyze
     protected volatile long stmtId;
     protected volatile long forwardedStmtId;
@@ -147,21 +152,9 @@ public class ConnectContext {
     protected volatile int connectionId;
     // Timestamp when the connection is make
     protected volatile long loginTime;
-    // for arrow flight
-    protected volatile String peerIdentity;
-    private final Map<String, String> preparedQuerys = new HashMap<>();
-    private String runningQuery;
-    private final List<FlightSqlEndpointsLocation> flightSqlEndpointsLocations = Lists.newArrayList();
-    private boolean returnResultFromLocal = true;
-    // mysql net
-    protected volatile MysqlChannel mysqlChannel;
     // state
     protected volatile QueryState state;
     protected volatile long returnRows;
-    // the protocol capability which server say it can support
-    protected volatile MysqlCapability serverCapability;
-    // the protocol capability after server and client negotiate
-    protected volatile MysqlCapability capability;
     // Indicate if this client is killed.
     protected volatile boolean isKilled;
     // Db
@@ -197,6 +190,8 @@ public class ConnectContext {
     protected volatile MysqlCommand command;
     // Timestamp in millisecond last command starts at
     protected volatile long startTime;
+    // Timestamp with nanosecond precision when the current command starts.
+    protected volatile Instant startTimeInstant = Instant.now();
     // Cache thread info for this connection.
     protected volatile ThreadInfo threadInfo;
 
@@ -204,7 +199,6 @@ public class ConnectContext {
     // because catalog is singleton, hard to mock
     protected Env env;
     protected String defaultCatalog = InternalCatalog.INTERNAL_CATALOG_NAME;
-    protected boolean isSend;
 
     // record last used database of every catalog
     private final Map<String, String> lastDBOfCatalog = Maps.newConcurrentMap();
@@ -244,10 +238,6 @@ public class ConnectContext {
 
     private SessionContext sessionContext = SessionContext.empty();
 
-
-    // This context is used for SSL connection between server and mysql client.
-    private final MysqlSslContext mysqlSslContext = new MysqlSslContext(SSL_PROTOCOL);
-
     private StatsErrorEstimator statsErrorEstimator;
 
     private List<Map<String, String>> resultAttachedInfo = Lists.newArrayList();
@@ -261,8 +251,6 @@ public class ConnectContext {
     // remain available while the load planner is being rebuilt.
     private BackendSelection.SelectionHint loadBackendSelectionHint;
     private final BackendSelectionProfile backendSelectionProfile = new BackendSelectionProfile();
-
-    private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCOL;
 
     private Map<String, Set<String>> dbToTempTableNamesMap = new HashMap<>();
 
@@ -278,12 +266,6 @@ public class ConnectContext {
     // isProxy used for forward request from other FE and used in one thread
     // it's default thread-safe
     private boolean isProxy = false;
-
-    @Getter
-    @Setter
-    private ByteBuffer prepareExecuteBuffer;
-
-    private MysqlHandshakePacket mysqlHandshakePacket;
 
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
@@ -336,12 +318,16 @@ public class ConnectContext {
         this.sessionContext = sessionContext == null ? SessionContext.empty() : sessionContext;
     }
 
+    public ProtocolAdapter getProtocolAdapter() {
+        return protocolAdapter;
+    }
+
     public MysqlSslContext getMysqlSslContext() {
-        return mysqlSslContext;
+        return MysqlProtocolAdapter.of(this).getSslContext();
     }
 
     public TResultSinkType getResultSinkType() {
-        return resultSinkType;
+        return protocolAdapter.resultSinkType();
     }
 
     public void setOrUpdateInsertResult(long txnId, String label, String db, String tbl,
@@ -364,14 +350,6 @@ public class ConnectContext {
 
     public static void remove() {
         MoreFieldsThread.removeConnectContext();
-    }
-
-    public void setIsSend(boolean isSend) {
-        this.isSend = isSend;
-    }
-
-    public boolean isSend() {
-        return this.isSend;
     }
 
     public void addLastDBOfCatalog(String catalog, String db) {
@@ -399,9 +377,7 @@ public class ConnectContext {
         }
         resetSessionVariable();
         userVars = new HashMap<>();
-        preparedQuerys.clear();
         preparedStatementContextMap.clear();
-        runningQuery = null;
         queryId = null;
         lastQueryId = null;
         setTraceId(null);
@@ -441,7 +417,7 @@ public class ConnectContext {
     }
 
     public ConnectType getConnectType() {
-        return connectType;
+        return protocolAdapter.type();
     }
 
     public void init() {
@@ -458,8 +434,9 @@ public class ConnectContext {
         }
     }
 
+    /** An internal context: it speaks MySQL to a channel that discards everything. */
     public ConnectContext() {
-        this(null);
+        this(null, false);
     }
 
     public ConnectContext(StreamConnection connection) {
@@ -473,28 +450,39 @@ public class ConnectContext {
     }
 
     public ConnectContext(StreamConnection connection, boolean isProxy) {
-        connectType = ConnectType.MYSQL;
-        serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
         if (connection != null) {
-            mysqlChannel = new MysqlChannel(connection, this);
+            protocolAdapter = new MysqlProtocolAdapter(new MysqlChannel(connection, this));
         } else if (isProxy) {
-            mysqlChannel = new ProxyMysqlChannel();
+            protocolAdapter = new MysqlProtocolAdapter(new ProxyMysqlChannel());
             this.isProxy = isProxy;
         } else {
-            mysqlChannel = new DummyMysqlChannel();
+            protocolAdapter = new MysqlProtocolAdapter(new DummyMysqlChannel());
         }
         init();
     }
 
-    public ConnectContext cloneContext() {
-        ConnectContext context = new ConnectContext();
-        context.mysqlChannel = mysqlChannel;
-        context.setSessionVariable(VariableMgr.cloneSessionVariable(sessionVariable)); // deep copy
-        context.setEnv(env);
-        context.setDatabase(currentDb);
-        context.setCurrentUserIdentity(currentUserIdentity);
-        context.setConnectAttributes(connectAttributes);
-        return context;
+    public ConnectContext(ProtocolAdapter protocolAdapter) {
+        this.protocolAdapter = protocolAdapter;
+        init();
+    }
+
+    /** The context of a MySQL client connection. */
+    public static ConnectContext forMysql(StreamConnection connection) {
+        return new ConnectContext(connection);
+    }
+
+    /**
+     * The context the master builds to run a statement forwarded by another frontend. Its
+     * channel collects the MySQL packets of the result so they can be handed back to the
+     * frontend the client is connected to.
+     */
+    public static ConnectContext forMysqlProxy(String sessionId) {
+        return new ConnectContext(null, true, sessionId);
+    }
+
+    /** The context of an Arrow Flight SQL session, identified by its bearer token. */
+    public static ConnectContext forFlight(String peerIdentity) {
+        return new ConnectContext(new FlightProtocolAdapter(peerIdentity));
     }
 
     public Map<String, String> getConnectAttributes() {
@@ -507,6 +495,22 @@ public class ConnectContext {
             return;
         }
         this.connectAttributes = new HashMap<>(connectAttributes);
+    }
+
+    public boolean isCursorFetchRequested() {
+        return MysqlProtocolAdapter.of(this).isCursorFetchRequested();
+    }
+
+    public void setCursorFetchRequested(boolean cursorFetchRequested) {
+        MysqlProtocolAdapter.of(this).setCursorFetchRequested(cursorFetchRequested);
+    }
+
+    public ByteBuffer getPrepareExecuteBuffer() {
+        return MysqlProtocolAdapter.of(this).getPrepareExecuteBuffer();
+    }
+
+    public void setPrepareExecuteBuffer(ByteBuffer prepareExecuteBuffer) {
+        MysqlProtocolAdapter.of(this).setPrepareExecuteBuffer(prepareExecuteBuffer);
     }
 
     public boolean isTxnModel() {
@@ -688,6 +692,8 @@ public class ConnectContext {
                 return Literal.of(((StringLiteral) literalExpr).getValue());
             } else if (literalExpr instanceof NullLiteral) {
                 return Literal.of(null);
+            } else if (literalExpr instanceof TimeStampNsLiteral) {
+                return Literal.fromLegacyLiteral(literalExpr, literalExpr.getType());
             } else {
                 return Literal.of(literalExpr.getStringValue());
             }
@@ -783,8 +789,13 @@ public class ConnectContext {
         return startTime;
     }
 
+    public Instant getStartTimeInstant() {
+        return startTimeInstant;
+    }
+
     public void setStartTime() {
-        startTime = System.currentTimeMillis();
+        startTimeInstant = Instant.now();
+        startTime = startTimeInstant.toEpochMilli();
         returnRows = 0;
         queryBackendSelectionDecision = null;
         loadBackendSelectionDecision = null;
@@ -857,60 +868,66 @@ public class ConnectContext {
         this.loginTime = System.currentTimeMillis();
     }
 
+    // Arrow Flight SQL only.
     public void addPreparedQuery(String preparedStatementId, String preparedQuery) {
-        preparedQuerys.put(preparedStatementId, preparedQuery);
+        FlightProtocolAdapter.of(this).addPreparedQuery(preparedStatementId, preparedQuery);
     }
 
     public String getPreparedQuery(String preparedStatementId) {
-        return preparedQuerys.get(preparedStatementId);
+        return FlightProtocolAdapter.of(this).getPreparedQuery(preparedStatementId);
     }
 
     public void removePreparedQuery(String preparedStatementId) {
-        preparedQuerys.remove(preparedStatementId);
+        FlightProtocolAdapter.of(this).removePreparedQuery(preparedStatementId);
     }
 
     public void setRunningQuery(String runningQuery) {
-        this.runningQuery = runningQuery;
+        FlightProtocolAdapter.of(this).setRunningQuery(runningQuery);
     }
 
     public String getRunningQuery() {
-        return runningQuery;
+        return FlightProtocolAdapter.of(this).getRunningQuery();
     }
 
     public void addFlightSqlEndpointsLocation(FlightSqlEndpointsLocation flightSqlEndpointsLocation) {
-        this.flightSqlEndpointsLocations.add(flightSqlEndpointsLocation);
+        FlightProtocolAdapter.of(this).addEndpointsLocation(flightSqlEndpointsLocation);
     }
 
     public List<FlightSqlEndpointsLocation> getFlightSqlEndpointsLocations() {
-        return flightSqlEndpointsLocations;
+        return FlightProtocolAdapter.of(this).getEndpointsLocations();
     }
 
     public void clearFlightSqlEndpointsLocations() {
-        flightSqlEndpointsLocations.clear();
+        FlightProtocolAdapter.of(this).clearEndpointsLocations();
     }
 
     public void setReturnResultFromLocal(boolean returnResultFromLocal) {
-        this.returnResultFromLocal = returnResultFromLocal;
+        FlightProtocolAdapter.of(this).setReturnResultFromLocal(returnResultFromLocal);
     }
 
+    // A MySQL connection always sends its result from this frontend; only an Arrow Flight SQL
+    // session may leave a query's result on the backend for the client to pull.
     public boolean isReturnResultFromLocal() {
-        return returnResultFromLocal;
+        return !(protocolAdapter instanceof FlightProtocolAdapter)
+                || ((FlightProtocolAdapter) protocolAdapter).isReturnResultFromLocal();
     }
 
+    // The bearer token of an Arrow Flight SQL session, null for any other connection.
     public String getPeerIdentity() {
-        return peerIdentity;
+        return protocolAdapter instanceof FlightProtocolAdapter
+                ? ((FlightProtocolAdapter) protocolAdapter).getPeerIdentity() : null;
     }
 
     public FlightSqlChannel getFlightSqlChannel() {
-        throw new RuntimeException("getFlightSqlChannel not in flight sql connection");
+        return FlightProtocolAdapter.of(this).getChannel();
     }
 
     public MysqlChannel getMysqlChannel() {
-        return mysqlChannel;
+        return MysqlProtocolAdapter.of(this).getChannel();
     }
 
     public String getClientIP() {
-        return getMysqlChannel().getRemoteHostPortString();
+        return getRemoteHostPortString();
     }
 
     public QueryState getState() {
@@ -922,15 +939,15 @@ public class ConnectContext {
     }
 
     public MysqlCapability getCapability() {
-        return capability;
+        return MysqlProtocolAdapter.of(this).getCapability();
     }
 
     public void setCapability(MysqlCapability capability) {
-        this.capability = capability;
+        MysqlProtocolAdapter.of(this).setCapability(capability);
     }
 
     public MysqlCapability getServerCapability() {
-        return serverCapability;
+        return MysqlProtocolAdapter.of(this).getServerCapability();
     }
 
     public String getDefaultCatalog() {
@@ -997,49 +1014,44 @@ public class ConnectContext {
         statementContext = null;
         loadBackendSelectionDecision = null;
         loadBackendSelectionHint = null;
+        protocolAdapter.afterStatement(this);
     }
 
-    // Arrow Flight SQL only.
-    // Executors of already-planned queries whose results are produced on the BE and pulled later
-    // during the DoGet phase. Their coordinators must stay alive until the BE finishes scanning:
-    // an external-table scan in batch mode lazily fetches splits from the FE (a batch SplitSource
-    // held by the coordinator's scan nodes), so closing the coordinator at the end of
-    // GetFlightInfo would release the SplitSource too early and make the BE's fetchSplitBatch fail
-    // with "Split source X is released". These executors are finalized when the next query starts
-    // on this connection, or when the connection is torn down. See #62259.
-    private final List<StmtExecutor> flightSqlDeferredExecutors = new ArrayList<>();
-
+    // Arrow Flight SQL only: the executors of queries whose results the client pulls from the
+    // backend later, see FlightProtocolAdapter. A connection of any other protocol has none.
     public void addFlightSqlDeferredExecutor(StmtExecutor executor) {
-        synchronized (flightSqlDeferredExecutors) {
-            flightSqlDeferredExecutors.add(executor);
-        }
+        FlightProtocolAdapter.of(this).addDeferredExecutor(executor);
     }
 
     public void closeFlightSqlDeferredExecutors() {
-        List<StmtExecutor> toClose;
-        synchronized (flightSqlDeferredExecutors) {
-            if (flightSqlDeferredExecutors.isEmpty()) {
-                return;
-            }
-            toClose = new ArrayList<>(flightSqlDeferredExecutors);
-            flightSqlDeferredExecutors.clear();
+        if (protocolAdapter instanceof FlightProtocolAdapter) {
+            ((FlightProtocolAdapter) protocolAdapter).closeDeferredExecutors();
         }
-        for (StmtExecutor deferredExecutor : toClose) {
-            try {
-                deferredExecutor.finalizeArrowFlightQuery();
-            } catch (Throwable t) {
-                LOG.warn("failed to finalize deferred arrow flight executor", t);
-            }
+    }
+
+    // Returns -1 when the connection has nothing deferred or the bound is disabled.
+    public long getFlightSqlDeferredExecutorsIdleTimeoutS() {
+        return protocolAdapter instanceof FlightProtocolAdapter
+                ? ((FlightProtocolAdapter) protocolAdapter).getDeferredExecutorsIdleTimeoutS() : -1;
+    }
+
+    // Called by the timeout checker for a sleeping connection that is not past wait_timeout yet.
+    private void reapIdleFlightSqlDeferredExecutors(long idleMs) {
+        long timeoutS = getFlightSqlDeferredExecutorsIdleTimeoutS();
+        if (timeoutS < 0 || idleMs <= timeoutS * 1000L) {
+            return;
         }
+        LOG.warn("release deferred arrow flight query of idle connection, connectionId: {}, remote: {}, "
+                        + "idle: {}ms, idle timeout: {}s",
+                connectionId, getRemoteHostPortString(), idleMs, timeoutS);
+        closeFlightSqlDeferredExecutors();
     }
 
     /**
      * This method is idempotent.
      */
     protected void closeChannel() {
-        if (mysqlChannel != null) {
-            mysqlChannel.close();
-        }
+        protocolAdapter.closeConnection(this);
     }
 
     /**
@@ -1147,7 +1159,7 @@ public class ConnectContext {
         }
         this.queryId = queryId;
         if (connectScheduler != null && !Strings.isNullOrEmpty(traceId)) {
-            connectScheduler.getConnectPoolMgr().putTraceId2QueryId(traceId, queryId);
+            protocolAdapter.connectPool(connectScheduler).putTraceId2QueryId(traceId, queryId);
         }
     }
 
@@ -1242,14 +1254,8 @@ public class ConnectContext {
         return syntheticWriteColTargetTableId;
     }
 
-
-
-    public void setResultSinkType(TResultSinkType resultSinkType) {
-        this.resultSinkType = resultSinkType;
-    }
-
     public String getRemoteHostPortString() {
-        return getMysqlChannel().getRemoteHostPortString();
+        return protocolAdapter.remoteHostPortString(this);
     }
 
     // kill operation with no protect.
@@ -1305,6 +1311,8 @@ public class ConnectContext {
                 // Need kill this connection.
                 killFlag = true;
                 killConnection = true;
+            } else {
+                reapIdleFlightSqlDeferredExecutors(delta);
             }
         } else {
             String timeoutTag = "query";
@@ -1488,22 +1496,6 @@ public class ConnectContext {
             }
             return row;
         }
-    }
-
-    public void startAcceptQuery(ConnectProcessor connectProcessor) {
-        mysqlChannel.startAcceptQuery(this, connectProcessor);
-    }
-
-    public void suspendAcceptQuery() {
-        mysqlChannel.suspendAcceptQuery();
-    }
-
-    public void resumeAcceptQuery() {
-        mysqlChannel.resumeAcceptQuery();
-    }
-
-    public void stopAcceptQuery() throws IOException {
-        mysqlChannel.stopAcceptQuery();
     }
 
     public String getQueryIdentifier() {
@@ -1819,11 +1811,11 @@ public class ConnectContext {
     }
 
     public void setMysqlHandshakePacket(MysqlHandshakePacket mysqlHandshakePacket) {
-        this.mysqlHandshakePacket = mysqlHandshakePacket;
+        MysqlProtocolAdapter.of(this).setHandshakePacket(mysqlHandshakePacket);
     }
 
     public byte[] getAuthPluginData() {
-        return mysqlHandshakePacket == null ? null : mysqlHandshakePacket.getAuthPluginData();
+        return MysqlProtocolAdapter.of(this).getAuthPluginData();
     }
 
     @Override

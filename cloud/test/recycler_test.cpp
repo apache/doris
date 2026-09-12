@@ -817,8 +817,8 @@ static void create_delete_bitmaps(Transaction* txn, int64_t tablet_id, std::stri
                 std::string val {"test_data"};
                 txn->put(key, val);
             } else {
-                std::string val(1000, 'A');
-                cloud::blob_put(txn, key, val, 0, 300);
+                std::string val(MIN_BLOB_SPLIT_SIZE + 1, 'A');
+                cloud::blob_put(txn, key, val, 0, MIN_BLOB_SPLIT_SIZE);
             }
         }
     }
@@ -3686,6 +3686,78 @@ TEST(RecyclerTest, recycle_tablet_packed_file_ref_count) {
     ASSERT_FALSE(list_iter->has_next());
 }
 
+TEST(RecyclerTest, delete_bitmap_collect_shard_keys) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    constexpr std::string_view kResourceId = "delete_bitmap_shard_keys";
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id(std::string(kResourceId));
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix(std::string(kResourceId));
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    constexpr int64_t tablet_id = 50001;
+    const std::string rowset_id = "rowset_for_delete_bitmap";
+
+    // Build a delete bitmap storage stored in FDB whose serialized value is
+    // large enough to be split into multiple KVs (shards).
+    DeleteBitmapStoragePB storage;
+    storage.set_store_in_fdb(true);
+    auto* delete_bitmap = storage.mutable_delete_bitmap();
+    delete_bitmap->add_rowset_ids(rowset_id);
+    delete_bitmap->add_segment_ids(0);
+    delete_bitmap->add_versions(1);
+    // The serialized value exceeds the default blob split size (90KB), so it is
+    // stored as multiple shard KVs.
+    delete_bitmap->add_segment_delete_bitmaps(std::string(200 * 1000, 'x'));
+
+    std::string dbm_key = versioned::meta_delete_bitmap_key({instance_id, tablet_id, rowset_id});
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    cloud::blob_put(txn.get(), dbm_key, storage, 0);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    // Collect the actual shard keys to compare against.
+    std::vector<std::string> expected_keys;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::unique_ptr<RangeGetIterator> it;
+    std::string begin_key = dbm_key;
+    std::string end_key = dbm_key;
+    encode_int64(INT64_MAX, &end_key);
+    while (it == nullptr || it->more()) {
+        ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+        while (it->has_next()) {
+            auto [k, _] = it->next();
+            expected_keys.emplace_back(k.data(), k.size());
+        }
+        begin_key = it->next_begin_key();
+    }
+    ASSERT_GT(expected_keys.size(), 1);
+
+    // Collect shard keys and verify to_pb still works afterwards.
+    std::vector<std::string> keys;
+    InstanceRecycler::DeleteBitmapStorageType storage_type =
+            InstanceRecycler::DeleteBitmapStorageType::NOT_FOUND;
+    ASSERT_EQ(0, recycler.decrement_delete_bitmap_packed_file_ref_counts(tablet_id, rowset_id,
+                                                                         &storage_type, &keys));
+
+    // The value is split into several shard keys and all of them are returned.
+    EXPECT_EQ(keys, expected_keys);
+    EXPECT_GT(keys.size(), 1);
+    // to_pb succeeded after collecting keys: function returned 0 and resolved IN_FDB.
+    EXPECT_EQ(storage_type, InstanceRecycler::DeleteBitmapStorageType::IN_FDB);
+}
+
 TEST(RecyclerTest, recycle_indexes) {
     config::retention_seconds = 0;
     auto txn_kv = std::make_shared<MemTxnKv>();
@@ -6380,8 +6452,9 @@ TEST(CheckerTest, delete_bitmap_inverted_check_normal) {
                 // delete bitmaps may be spilitted into mulitiple KVs if too large
                 auto delete_bitmap_key =
                         meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
-                std::string delete_bitmap_val(1000, 'A');
-                cloud::blob_put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
+                std::string delete_bitmap_val(MIN_BLOB_SPLIT_SIZE + 1, 'A');
+                cloud::blob_put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0,
+                                MIN_BLOB_SPLIT_SIZE);
             }
         }
         if (is_last_tablet) {
@@ -6613,8 +6686,9 @@ TEST(CheckerTest, delete_bitmap_inverted_check_abnormal) {
                 // delete bitmaps may be spilitted into mulitiple KVs if too large
                 auto delete_bitmap_key =
                         meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
-                std::string delete_bitmap_val(1000, 'A');
-                cloud::blob_put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
+                std::string delete_bitmap_val(MIN_BLOB_SPLIT_SIZE + 1, 'A');
+                cloud::blob_put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0,
+                                MIN_BLOB_SPLIT_SIZE);
             }
         }
     }
@@ -9834,7 +9908,9 @@ void make_single_txn_related_kvs(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t i
     } else {
         recycle_txn_pb.set_creation_time(current_time);
     }
-    recycle_txn_pb.set_label("recycle_txn_key_info_label_" + std::to_string(i));
+    // Production writes RecycleTxnPB.label and TxnInfoPB.label from the same transaction label.
+    const std::string label = "txn_label_" + std::to_string(i);
+    recycle_txn_pb.set_label(label);
     if (!recycle_txn_pb.SerializeToString(&recycle_txn_info_val)) {
         LOG_WARNING("failed to serialize recycle txn info")
                 .tag("key", hex(recycle_txn_info_key))
@@ -9864,7 +9940,7 @@ void make_single_txn_related_kvs(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t i
     std::string info_val;
     TxnInfoPB txn_info_pb;
     txn_info_pb.add_sub_txn_ids(sub_txn_id);
-    txn_info_pb.set_label("txn_info_label_" + std::to_string(i));
+    txn_info_pb.set_label(label);
     if (!txn_info_pb.SerializeToString(&info_val)) {
         LOG_WARNING("failed to serialize txn info")
                 .tag("key", hex(info_key))
@@ -10090,20 +10166,24 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_failure_test) {
 
     auto txn_kv = mem_txn_kv;
     ASSERT_TRUE(txn_kv.get()) << "exit get MemTxnKv error" << std::endl;
-    make_multiple_txn_info_kvs(txn_kv, 20000, 15000);
-    check_multiple_txn_info_kvs(txn_kv, 20000);
+    make_multiple_txn_info_kvs(txn_kv, 40000, 30000);
+    check_multiple_txn_info_kvs(txn_kv, 40000);
 
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
     };
-    size_t recycle_txn_info_keys_cnt = 0;
-    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.check_recycle_txn_info_keys",
-                      [&](auto&& args) {
-                          auto* recycle_txn_info_keys =
-                                  try_any_cast<std::vector<std::string>*>(args[0]);
-                          recycle_txn_info_keys_cnt += recycle_txn_info_keys->size();
-                      });
+    size_t recycle_txn_keys_cnt = 0;
+    sp->set_call_back(
+            "InstanceRecycler::recycle_expired_txn_label.check_recycle_txn_keys_by_label",
+            [&](auto&& args) {
+                auto* recycle_txn_keys_by_label =
+                        try_any_cast<std::unordered_map<std::string, std::vector<std::string>>*>(
+                                args[0]);
+                for (const auto& entry : *recycle_txn_keys_by_label) {
+                    recycle_txn_keys_cnt += entry.second.size();
+                }
+            });
     sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.failure", [](auto&& args) {
         auto* ret = try_any_cast<int*>(args[0]);
         *ret = -1;
@@ -10121,7 +10201,7 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_failure_test) {
     std::cout << "recycle expired txn label cost="
               << std::chrono::duration_cast<std::chrono::milliseconds>(finish - start).count()
               << "ms" << std::endl;
-    check_multiple_txn_info_kvs(txn_kv, (20000 - recycle_txn_info_keys_cnt));
+    check_multiple_txn_info_kvs(txn_kv, (40000 - recycle_txn_keys_cnt));
 }
 TEST(RecyclerTest, concurrent_recycle_txn_label_conflict_test) {
     config::label_keep_max_second = 0;
@@ -10272,7 +10352,7 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_conflict_test) {
     std::cout << "Update label after count: " << update_label_after_count << std::endl;
     std::cout << "Transaction conflict count: " << txn_conflict_count << std::endl;
 
-    EXPECT_GT(txn_conflict_count, 0) << "txn_conflict sync point should be triggered";
+    EXPECT_EQ(txn_conflict_count, 0) << "txn conflicts should not occur within one label group";
 
     std::unique_ptr<Transaction> verify_txn;
     ASSERT_EQ(mem_txn_kv->create_txn(&verify_txn), TxnErrorCode::TXN_OK);
@@ -10300,7 +10380,7 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_conflict_test) {
     }
 }
 
-TEST(RecyclerTest, recycle_txn_label_deal_with_conflict_error_test) {
+TEST(RecyclerTest, recycle_txn_label_propagate_delete_error_test) {
     config::label_keep_max_second = 0;
     config::recycle_pool_parallelism = 20;
 
@@ -10446,10 +10526,203 @@ TEST(RecyclerTest, recycle_txn_label_deal_with_conflict_error_test) {
                               std::make_shared<TxnLazyCommitter>(mem_txn_kv));
     ASSERT_EQ(recycler.init(), 0);
 
-    // deal with conflict but error during recycle
+    // Propagate a recycle error without relying on an internal label conflict.
     ASSERT_EQ(recycler.recycle_expired_txn_label(), -1);
 
-    EXPECT_GT(txn_conflict_count, 0) << "txn_conflict sync point should be triggered";
+    EXPECT_EQ(txn_conflict_count, 0) << "txn conflicts should not occur within one label group";
+}
+
+TEST(RecyclerTest, recycle_txn_label_retry_after_conflict_test) {
+    config::label_keep_max_second = 0;
+
+    auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
+    ASSERT_NE(txn_kv.get(), nullptr);
+    ASSERT_EQ(txn_kv->init(), 0);
+    auto resource_mgr = std::make_shared<MockResourceManager>(txn_kv);
+    auto rate_limiter = std::make_shared<RateLimiter>();
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service =
+            std::make_unique<MetaServiceImpl>(txn_kv, resource_mgr, rate_limiter, snapshot);
+
+    constexpr int64_t db_id = 10001;
+    constexpr int64_t table_id = 20001;
+    const std::string cloud_unique_id = "recycle_txn_label_retry_after_conflict_test";
+    const std::string label = "recycle_txn_label_retry_after_conflict_test";
+
+    int64_t recycled_txn_id = -1;
+    {
+        brpc::Controller cntl;
+        BeginTxnRequest req;
+        BeginTxnResponse res;
+        req.set_cloud_unique_id(cloud_unique_id);
+        auto* txn_info = req.mutable_txn_info();
+        txn_info->set_db_id(db_id);
+        txn_info->set_label(label);
+        txn_info->add_table_ids(table_id);
+        txn_info->set_timeout_ms(36000);
+        meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.ShortDebugString();
+        ASSERT_TRUE(res.has_txn_id());
+        recycled_txn_id = res.txn_id();
+    }
+    {
+        brpc::Controller cntl;
+        AbortTxnRequest req;
+        AbortTxnResponse res;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_db_id(db_id);
+        req.set_txn_id(recycled_txn_id);
+        req.set_reason("test");
+        meta_service->abort_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.ShortDebugString();
+    }
+
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    std::atomic<int> before_commit_count {0};
+    std::atomic<int> txn_conflict_count {0};
+    std::atomic<int> external_begin_code {-1};
+    std::atomic<int64_t> new_txn_id {-1};
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.before_commit", [&](auto&&) {
+        if (before_commit_count.fetch_add(1) != 0) {
+            return;
+        }
+
+        brpc::Controller cntl;
+        BeginTxnRequest req;
+        BeginTxnResponse res;
+        req.set_cloud_unique_id(cloud_unique_id);
+        auto* txn_info = req.mutable_txn_info();
+        txn_info->set_db_id(db_id);
+        txn_info->set_label(label);
+        txn_info->add_table_ids(table_id);
+        txn_info->set_timeout_ms(36000);
+        meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                &res, nullptr);
+        external_begin_code.store(static_cast<int>(res.status().code()));
+        if (res.has_txn_id()) {
+            new_txn_id.store(res.txn_id());
+        }
+    });
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.txn_conflict",
+                      [&](auto&&) { txn_conflict_count.fetch_add(1); });
+    sp->enable_processing();
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(mock_instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    ASSERT_EQ(recycler.recycle_expired_txn_label(), 0);
+    EXPECT_EQ(external_begin_code.load(), static_cast<int>(MetaServiceCode::OK));
+    EXPECT_GT(new_txn_id.load(), 0);
+    EXPECT_EQ(txn_conflict_count.load(), 1);
+    EXPECT_EQ(before_commit_count.load(), 2);
+
+    std::unique_ptr<Transaction> verify_txn;
+    ASSERT_EQ(txn_kv->create_txn(&verify_txn), TxnErrorCode::TXN_OK);
+    const std::string recycle_key = recycle_txn_key({mock_instance, db_id, recycled_txn_id});
+    std::string recycle_value;
+    EXPECT_EQ(verify_txn->get(recycle_key, &recycle_value), TxnErrorCode::TXN_KEY_NOT_FOUND);
+
+    const std::string label_key = txn_label_key({mock_instance, db_id, label});
+    std::string label_value;
+    ASSERT_EQ(verify_txn->get(label_key, &label_value), TxnErrorCode::TXN_OK);
+    TxnLabelPB txn_label;
+    ASSERT_TRUE(
+            txn_label.ParseFromArray(label_value.data(), label_value.size() - VERSION_STAMP_LEN));
+    ASSERT_EQ(txn_label.txn_ids_size(), 1);
+    EXPECT_EQ(txn_label.txn_ids(0), new_txn_id.load());
+
+    std::string new_info_value;
+    ASSERT_EQ(verify_txn->get(txn_info_key({mock_instance, db_id, new_txn_id.load()}),
+                              &new_info_value),
+              TxnErrorCode::TXN_OK);
+    TxnInfoPB new_txn_info;
+    ASSERT_TRUE(new_txn_info.ParseFromString(new_info_value));
+    EXPECT_EQ(new_txn_info.label(), label);
+}
+
+TEST(RecyclerTest, recycle_txn_label_retry_exhausted_then_recover_test) {
+    const int old_max_retry_times = config::recycle_txn_delete_max_retry_times;
+    DORIS_CLOUD_DEFER {
+        config::recycle_txn_delete_max_retry_times = old_max_retry_times;
+    };
+    config::label_keep_max_second = 0;
+    config::recycle_txn_delete_max_retry_times = 2;
+
+    auto mem_txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(mem_txn_kv->init(), 0);
+    make_single_txn_related_kvs(mem_txn_kv, 0, 1);
+
+    const std::string recycle_key = recycle_txn_key({instance_id, 0, 1000000});
+    const std::string label_key = txn_label_key({instance_id, 0, "txn_label_0"});
+
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    std::atomic<int> external_write_count {0};
+    std::atomic<int> external_write_error_count {0};
+    std::atomic<int> txn_conflict_count {0};
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.before_commit", [&](auto&&) {
+        std::unique_ptr<Transaction> txn;
+        if (mem_txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
+            external_write_error_count.fetch_add(1);
+            return;
+        }
+        std::string label_value;
+        if (txn->get(label_key, &label_value) != TxnErrorCode::TXN_OK) {
+            external_write_error_count.fetch_add(1);
+            return;
+        }
+        txn->put(label_key, label_value);
+        if (txn->commit() != TxnErrorCode::TXN_OK) {
+            external_write_error_count.fetch_add(1);
+            return;
+        }
+        external_write_count.fetch_add(1);
+    });
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.txn_conflict",
+                      [&](auto&&) { txn_conflict_count.fetch_add(1); });
+    sp->enable_processing();
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    InstanceRecycler recycler(mem_txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(mem_txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    ASSERT_EQ(recycler.recycle_expired_txn_label(), -1);
+    EXPECT_EQ(external_write_error_count.load(), 0);
+    EXPECT_EQ(external_write_count.load(), 3);
+    EXPECT_EQ(txn_conflict_count.load(), 3);
+
+    {
+        std::unique_ptr<Transaction> verify_txn;
+        ASSERT_EQ(mem_txn_kv->create_txn(&verify_txn), TxnErrorCode::TXN_OK);
+        std::string recycle_value;
+        EXPECT_EQ(verify_txn->get(recycle_key, &recycle_value), TxnErrorCode::TXN_OK);
+    }
+
+    sp->clear_all_call_backs();
+    sp->disable_processing();
+    ASSERT_EQ(recycler.recycle_expired_txn_label(), 0);
+
+    std::unique_ptr<Transaction> verify_txn;
+    ASSERT_EQ(mem_txn_kv->create_txn(&verify_txn), TxnErrorCode::TXN_OK);
+    std::string value;
+    EXPECT_EQ(verify_txn->get(recycle_key, &value), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    EXPECT_EQ(verify_txn->get(label_key, &value), TxnErrorCode::TXN_KEY_NOT_FOUND);
 }
 
 TEST(RecyclerTest, recycle_restore_job_complete_state) {
@@ -11670,4 +11943,128 @@ TEST(RecyclerTest, RecycleInstanceFilterReadsConfigDynamically) {
     EXPECT_FALSE(filter_out_instance("instance1"));
     EXPECT_TRUE(filter_out_instance("instance2"));
 }
+
+TEST(RecyclerTest, delete_versioned_delete_bitmap_by_rowset) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    // Test 1: Empty input - should succeed
+    {
+        std::vector<std::vector<std::string>> empty_groups;
+        EXPECT_EQ(delete_versioned_delete_bitmap_by_rowset(txn_kv.get(), empty_groups), 0);
+    }
+
+    // Test 2: Single rowset with multiple shard keys - should commit atomically
+    {
+        std::vector<std::vector<std::string>> single_rowset_groups;
+        std::vector<std::string> rowset1_keys = {"key1_shard0", "key1_shard1", "key1_shard2"};
+        single_rowset_groups.push_back(rowset1_keys);
+
+        // Pre-populate keys
+        for (const auto& key : rowset1_keys) {
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+            txn->put(key, "value");
+            ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        }
+
+        // Delete via function
+        EXPECT_EQ(delete_versioned_delete_bitmap_by_rowset(txn_kv.get(), single_rowset_groups), 0);
+
+        // Verify all keys are deleted
+        for (const auto& key : rowset1_keys) {
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            EXPECT_EQ(txn->get(key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+        }
+    }
+
+    // Test 3: Multiple rowsets
+    {
+        std::vector<std::vector<std::string>> multi_rowset_groups;
+        std::vector<std::string> rowset1_keys = {"r1_shard0", "r1_shard1", "r1_shard2"};
+        multi_rowset_groups.push_back(rowset1_keys);
+        std::vector<std::string> rowset2_keys = {"r2_shard0", "r2_shard1", "r2_shard2",
+                                                 "r2_shard3"};
+        multi_rowset_groups.push_back(rowset2_keys);
+        std::vector<std::string> rowset3_keys = {"r3_shard0", "r3_shard1"};
+        multi_rowset_groups.push_back(rowset3_keys);
+
+        // Pre-populate all keys
+        for (const auto& group : multi_rowset_groups) {
+            for (const auto& key : group) {
+                std::unique_ptr<Transaction> txn;
+                ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+                txn->put(key, "value");
+                ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+            }
+        }
+
+        // Delete via function
+        EXPECT_EQ(delete_versioned_delete_bitmap_by_rowset(txn_kv.get(), multi_rowset_groups), 0);
+
+        // Verify all keys are deleted
+        for (const auto& group : multi_rowset_groups) {
+            for (const auto& key : group) {
+                std::unique_ptr<Transaction> txn;
+                ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+                std::string val;
+                EXPECT_EQ(txn->get(key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+            }
+        }
+    }
+
+    // Test 4: Batching with byte limit
+    {
+        config::max_txn_commit_byte = 800;
+        DORIS_CLOUD_DEFER {
+            config::max_txn_commit_byte = 10000000;
+        };
+
+        std::vector<std::vector<std::string>> large_groups;
+        for (int i = 0; i < 15; ++i) {
+            std::vector<std::string> rowset_keys;
+            for (int j = 0; j < 3; ++j) {
+                // Each key is ~30 bytes: "large_rowset_0000_shard_0000"
+                rowset_keys.push_back(fmt::format("large_rowset_{:04d}_shard_{:04d}", i, j));
+            }
+            large_groups.push_back(rowset_keys);
+        }
+
+        // Pre-populate - each group is ~90 bytes (3 keys * 30 bytes), so 800 limit allows ~8 groups per txn
+        for (const auto& group : large_groups) {
+            for (const auto& key : group) {
+                std::unique_ptr<Transaction> txn;
+                ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+                txn->put(key, "v");
+                ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+            }
+        }
+
+        // Track commits
+        std::atomic<int> commit_count {0};
+        auto sp = SyncPoint::get_instance();
+        DORIS_CLOUD_DEFER {
+            sp->clear_all_call_backs();
+        };
+        sp->set_call_back("delete_versioned_delete_bitmap_by_rowset::commit_result",
+                          [&](auto&&) { commit_count++; });
+        sp->enable_processing();
+
+        EXPECT_EQ(delete_versioned_delete_bitmap_by_rowset(txn_kv.get(), large_groups), 0);
+        EXPECT_GT(commit_count.load(), 1) << "Should batch into multiple transactions";
+
+        // Verify all deleted
+        for (const auto& group : large_groups) {
+            for (const auto& key : group) {
+                std::unique_ptr<Transaction> txn;
+                ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+                std::string val;
+                EXPECT_EQ(txn->get(key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+            }
+        }
+    }
+}
+
 } // namespace doris::cloud

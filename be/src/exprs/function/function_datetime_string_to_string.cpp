@@ -27,6 +27,8 @@ namespace doris {
 using FunctionDateFormatV2 = FunctionDateTimeStringToString<DateFormatImpl<TYPE_DATEV2>>;
 using FunctionDateTimeV2DateFormat =
         FunctionDateTimeStringToString<DateFormatImpl<TYPE_DATETIMEV2>>;
+using FunctionTimestampNsDateFormat =
+        FunctionDateTimeStringToString<DateFormatImpl<TYPE_TIMESTAMP_NS>>;
 // old version
 using FunctionFromUnixTimeOneArg = FunctionDateTimeStringToString<FromUnixTimeImpl<false, false>>;
 using FunctionFromUnixTimeTwoArg = FunctionDateTimeStringToString<FromUnixTimeImpl<true, false>>;
@@ -37,8 +39,11 @@ using FunctionFromUnixTimeNewDecimalOneArg =
         FunctionDateTimeStringToString<FromUnixTimeDecimalImpl<false>>;
 using FunctionFromUnixTimeNewDecimalTwoArg =
         FunctionDateTimeStringToString<FromUnixTimeDecimalImpl<true>>;
+using FunctionFromUnixTimeNewDecimalNanoTwoArg =
+        FunctionDateTimeStringToString<FromUnixTimeDecimalImpl<true, true>>;
 using FunctionTimeFormatDate = FunctionTimeFormat<TYPE_DATEV2>;
 using FunctionTimeFormatDateTime = FunctionTimeFormat<TYPE_DATETIMEV2>;
+using FunctionTimeFormatTimeStampNs = FunctionTimeFormat<TYPE_TIMESTAMP_NS>;
 using FunctionTimeFormatTime = FunctionTimeFormat<TYPE_TIMEV2>;
 
 void register_function_date_time_string_to_string(SimpleFunctionFactory& factory) {
@@ -49,9 +54,12 @@ void register_function_date_time_string_to_string(SimpleFunctionFactory& factory
     factory.register_function<FunctionFromUnixTimeNewTwoArg>();
     factory.register_function<FunctionFromUnixTimeNewDecimalOneArg>();
     factory.register_function<FunctionFromUnixTimeNewDecimalTwoArg>();
+    factory.register_function<FunctionFromUnixTimeNewDecimalNanoTwoArg>();
     factory.register_function<FunctionDateTimeV2DateFormat>();
+    factory.register_function<FunctionTimestampNsDateFormat>();
     factory.register_function<FunctionTimeFormatDate>();
     factory.register_function<FunctionTimeFormatDateTime>();
+    factory.register_function<FunctionTimeFormatTimeStampNs>();
     factory.register_function<FunctionTimeFormatTime>();
 }
 
