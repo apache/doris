@@ -32,6 +32,7 @@
 #include <string_view>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
@@ -41,12 +42,17 @@
 #include "storage/index/index_reader_helper.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/common/single_flight.h"
+#include "storage/index/inverted/gram/gram_family.h"
+#include "storage/index/inverted/gram/gram_query.h"
+#include "storage/index/inverted/gram/gram_scheme.h"
+#include "storage/index/inverted/gram/regex_gram_compiler.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/snii/format/null_bitmap.h"
 #include "storage/index/snii/query/boolean_query.h"
 #include "storage/index/snii/query/count_query.h"
 #include "storage/index/snii/query/docid_sink.h"
+#include "storage/index/snii/query/gram_boolean_query.h"
 #include "storage/index/snii/query/internal/plain_term_routing.h"
 #include "storage/index/snii/query/phrase_query.h"
 #include "storage/index/snii/query/prefix_query.h"
@@ -129,6 +135,8 @@ private:
 struct SniiQueryExecutionResult {
     std::shared_ptr<roaring::Roaring> bitmap;
     std::vector<::doris::snii::query::PhraseMatch> phrase_matches;
+    // Gram query nodes the cost gate widened rather than read, for the segment profile.
+    uint32_t gram_gate_gave_up = 0;
 };
 
 std::vector<std::string> to_terms(const InvertedIndexQueryInfo& query_info) {
@@ -154,6 +162,27 @@ bool uses_phrase_frequency_scoring(InvertedIndexQueryType query_type,
     return query_info.term_infos.size() > 1 &&
            (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY ||
             query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY);
+}
+
+// Query types whose answer is decided by terms the current analyzer produced. On a
+// gram-family index those terms are grams, and they only mean what the segment's own grams
+// mean when both were cut by the same scheme. MATCH_REGEXP belongs here even though its
+// pattern is raw: the scalar function matches that pattern against the terms the current
+// analyzer cuts each row into, while the index matches it against the persisted dictionary,
+// so the two answer the same question only when both were cut alike. A gram query compiles
+// against the segment's own scheme, so it is not affected.
+bool analyzes_query_terms(InvertedIndexQueryType query_type) {
+    switch (query_type) {
+    case InvertedIndexQueryType::MATCH_ANY_QUERY:
+    case InvertedIndexQueryType::MATCH_ALL_QUERY:
+    case InvertedIndexQueryType::MATCH_PHRASE_QUERY:
+    case InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY:
+    case InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY:
+    case InvertedIndexQueryType::MATCH_REGEXP_QUERY:
+        return true;
+    default:
+        return false;
+    }
 }
 
 Status score_plain_term_candidates(const IndexQueryContextPtr& context,
@@ -343,7 +372,7 @@ Status execute_snii_query(const ::doris::snii::reader::LogicalIndexReader& logic
                           const InvertedIndexQueryInfo& query_info, std::string_view search_str,
                           const std::vector<std::string>& terms, int32_t max_expansions,
                           bool collect_phrase_frequency, SniiQueryExecutionResult* result,
-                          ::doris::snii::query::QueryProfile* profile) {
+                          ::doris::snii::query::QueryProfile* profile, uint64_t rows_of_segment) {
     result->bitmap = std::make_shared<roaring::Roaring>();
     result->phrase_matches.clear();
     DORIS_CHECK(!collect_phrase_frequency || uses_phrase_frequency_scoring(query_type, query_info));
@@ -402,6 +431,33 @@ Status execute_snii_query(const ::doris::snii::reader::LogicalIndexReader& logic
                                                     max_expansions);
         emitted_to_sink = true;
         break;
+    case InvertedIndexQueryType::LIKE_GRAM_QUERY:
+    case InvertedIndexQueryType::REGEXP_GRAM_QUERY: {
+        // Compile against the same physical dictionary that supplies the postings. Current
+        // policies can differ from the scheme that was used when this segment was written.
+        const auto& scheme = logical_reader.gram_scheme();
+        if (!scheme.has_value()) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED, false>(
+                    "SNII index is not a gram-family index");
+        }
+        gram::RegexGramCompiler compiler(*scheme);
+        gram::GramQuery gram_query;
+        RETURN_IF_ERROR(query_type == InvertedIndexQueryType::LIKE_GRAM_QUERY
+                                ? compiler.compile_like(search_str, &gram_query)
+                                : compiler.compile_regexp(search_str, &gram_query));
+        if (gram_query.is_all()) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED, false>(
+                    "Pattern has no prunable grams");
+        }
+        ::doris::snii::query::LogicalIndexPostingSource gram_posting_source(logical_reader);
+        ::doris::snii::query::GramGateStats gate_stats;
+        status = ::doris::snii::query::gram_boolean_query(gram_posting_source, gram_query,
+                                                          cast_set<uint32_t>(rows_of_segment),
+                                                          result->bitmap.get(), &gate_stats);
+        result->gram_gate_gave_up = gate_stats.nodes_given_up;
+        emitted_to_sink = true;
+        break;
+    }
     case InvertedIndexQueryType::WILDCARD_QUERY:
         status = ::doris::snii::query::wildcard_query(logical_reader, search_str, &sink,
                                                       max_expansions);
@@ -450,6 +506,27 @@ Status SniiIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
     return Status::OK();
 }
 
+// The scheme the current analyzer cuts query terms with: the provider the caller resolved,
+// or, when none was handed down, the analyzer the index properties name -- the same fallback
+// _parse_query_terms takes. A policy that no longer exists is reported, not swallowed: the
+// analysis below would fail on it anyway.
+Status SniiIndexReader::_current_gram_scheme(
+        const InvertedIndexAnalyzerCtx* analyzer_ctx,
+        std::optional<segment_v2::gram::GramScheme>* out) const {
+    if (analyzer_ctx != nullptr && analyzer_ctx->analyzer_provider != nullptr) {
+        *out = analyzer_ctx->analyzer_provider->gram_scheme();
+        return Status::OK();
+    }
+    try {
+        *out = segment_v2::gram::resolve_gram_scheme(_index_meta.properties(),
+                                                     ExecEnv::GetInstance()->index_policy_mgr());
+    } catch (const Exception& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "SNII resolve analyzer failed: {}", e.what());
+    }
+    return Status::OK();
+}
+
 Status SniiIndexReader::_parse_query_terms(const IndexQueryContextPtr& context,
                                            std::string search_str,
                                            InvertedIndexQueryType query_type,
@@ -457,7 +534,7 @@ Status SniiIndexReader::_parse_query_terms(const IndexQueryContextPtr& context,
                                            InvertedIndexQueryInfo* query_info) {
     DCHECK(query_info != nullptr);
     if (query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY ||
-        query_type == InvertedIndexQueryType::WILDCARD_QUERY) {
+        query_type == InvertedIndexQueryType::WILDCARD_QUERY || is_gram_query(query_type)) {
         query_info->term_infos.emplace_back(search_str, 0);
         return Status::OK();
     }
@@ -624,11 +701,24 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
         parse_phrase_slop(&plain_analysis_str, &query_info);
     }
+    // An analyzed query (MATCH_*) on a gram-family index is exact only when the query is cut
+    // by the very scheme that cut the segment. The segment's scheme is persisted -- a density
+    // solved from its own rows, or the scheme of a policy that has since been recreated --
+    // while the analyzer here is the current one. Where they differ the scalar predicate and
+    // the index would disagree, so such a query is skipped once the segment is open, and it
+    // is never cached: the cache key does not tell the two schemes apart.
+    const bool analyzed_query = analyzes_query_terms(query_type) &&
+                                (analyzer_ctx == nullptr || analyzer_ctx->requires_analysis());
+    std::optional<segment_v2::gram::GramScheme> current_gram_scheme;
+    if (analyzed_query) {
+        RETURN_IF_ERROR(_current_gram_scheme(analyzer_ctx, &current_gram_scheme));
+    }
     // Result cache keys contain only (index file, column, query type, raw query bytes). Analysis
     // is determined by index properties and policies, which are immutable once referenced, so
     // sharing can be decided before opening the segment. Scoring queries depend on collection
     // statistics and use neither the result cache nor single-flight coalescing.
-    const bool allow_result_cache = !actual_similarity;
+    const bool allow_result_cache =
+            !actual_similarity && !(analyzed_query && current_gram_scheme.has_value());
     const InvertedIndexRawQuerySemantic raw_semantic {.raw_query_bytes = search_str,
                                                       .query_type = query_type,
                                                       .slop = query_info.slop,
@@ -651,6 +741,16 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     const ::doris::snii::reader::LogicalIndexReader* logical_reader = nullptr;
     RETURN_IF_ERROR(_get_logical_reader(context, &searcher_cache_handle, &uncached_reader,
                                         &logical_reader));
+    // Compare the two optionals, not just two schemes: a segment written by a legacy ngram
+    // tokenizer carries no scheme at all, and its dictionary holds that tokenizer's terms. Once
+    // the current analyzer cuts grams, looking those grams up in that dictionary answers a
+    // different question, so an absent persisted scheme is a mismatch like any other.
+    if (analyzed_query && current_gram_scheme.has_value() &&
+        current_gram_scheme != logical_reader->gram_scheme()) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                "gram index segment was cut with a different scheme than the current "
+                "analyzer; the predicate is evaluated without the index");
+    }
 
     InvertedIndexQueryInfo execution_query_info = query_info;
     RETURN_IF_ERROR(_parse_query_terms(context, plain_analysis_str, query_type, analyzer_ctx,
@@ -810,14 +910,19 @@ Status SniiIndexReader::_compute_query_bitmap(
                                   query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY);
     if (needs_prx_profile) {
         ::doris::snii::SniiPrxExecutionProfileScope execution_profile(*context->stats);
-        const Status execution_status = execute_snii_query(
-                *logical_reader, query_type, query_info, search_str, *terms, max_expansions,
-                phrase_matches != nullptr, &query_result, execution_profile.profile());
+        const Status execution_status =
+                execute_snii_query(*logical_reader, query_type, query_info, search_str, *terms,
+                                   max_expansions, phrase_matches != nullptr, &query_result,
+                                   execution_profile.profile(), _rows_of_segment);
         RETURN_IF_ERROR(execution_status);
     } else {
         RETURN_IF_ERROR(execute_snii_query(*logical_reader, query_type, query_info, search_str,
                                            *terms, max_expansions, phrase_matches != nullptr,
-                                           &query_result, nullptr));
+                                           &query_result, nullptr, _rows_of_segment));
+    }
+    if (query_result.gram_gate_gave_up != 0 && context->stats != nullptr) {
+        context->stats->gram_index_gate_gave_up +=
+                static_cast<int64_t>(query_result.gram_gate_gave_up);
     }
     *out = std::move(query_result.bitmap);
     if (phrase_matches != nullptr) {

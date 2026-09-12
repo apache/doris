@@ -25,6 +25,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.indexpolicy.IndexPolicyMgr;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
@@ -37,6 +38,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 public class InvertedIndexUtil {
@@ -253,7 +255,8 @@ public class InvertedIndexUtil {
                             + "or 'normalizer' for text normalization without tokenization.");
         }
 
-        checkAnalyzerName(analyzerName, colType);
+        checkAnalyzerName(analyzerName, colType, invertedIndexFileStorageFormat, supportPhrase);
+        applyGramFamilyIndexDefaults(analyzerName, properties);
         checkNormalizerName(normalizerName, colType);
 
         if (parser != null
@@ -344,7 +347,9 @@ public class InvertedIndexUtil {
                 INVERTED_INDEX_PARSER_KEY_ALIAS);
     }
 
-    private static void checkAnalyzerName(String analyzerName, PrimitiveType colType) throws AnalysisException {
+    private static void checkAnalyzerName(String analyzerName, PrimitiveType colType,
+            TInvertedIndexFileStorageFormat storageFormat, String supportPhrase)
+            throws AnalysisException {
         if (analyzerName == null || analyzerName.isEmpty()) {
             return;
         }
@@ -353,9 +358,67 @@ public class InvertedIndexUtil {
                     + " is not supported for column of type " + colType);
         }
         try {
-            Env.getCurrentEnv().getIndexPolicyMgr().validateAnalyzerExists(analyzerName);
+            IndexPolicyMgr indexPolicyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+            indexPolicyMgr.validateAnalyzerExists(analyzerName);
+            // Gram-family analyzer (an ngram tokenizer carrying mode, see
+            // IndexPolicyMgr#resolveGramTokenizerMode): BE builds sparse/dense gram postings for it
+            // only on SNII, and those postings carry no positions, so phrase queries are impossible.
+            Optional<String> gramMode = indexPolicyMgr.resolveGramTokenizerMode(analyzerName);
+            if (gramMode.isPresent()) {
+                if (colType.isArrayType()) {
+                    throw new AnalysisException("gram tokenizer (mode=" + gramMode.get()
+                            + ") analyzer '" + analyzerName + "' does not support ARRAY columns");
+                }
+                if (!colType.isCharFamily()) {
+                    throw new AnalysisException("gram tokenizer (mode=" + gramMode.get()
+                            + ") analyzer '" + analyzerName
+                            + "' is supported only on scalar CHAR, VARCHAR, or STRING columns");
+                }
+                if (storageFormat != TInvertedIndexFileStorageFormat.SNII) {
+                    throw new AnalysisException("gram tokenizer (mode=" + gramMode.get()
+                            + ") requires inverted_index_storage_format = SNII");
+                }
+                if ("true".equals(supportPhrase)) {
+                    throw new AnalysisException(
+                            "gram tokenizer index does not support phrase (support_phrase must be false)");
+                }
+            }
         } catch (DdlException e) {
             throw new AnalysisException("Invalid custom analyzer: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Constraints a gram-family analyzer (an ngram tokenizer carrying mode) enforces at the index
+     * property level:
+     * 1) an index-level char_filter (char_filter_type/pattern/replacement) conflicts with the
+     *    semantics of gram split boundaries (the character replacement happens after the tokenizer
+     *    has already split by the gram rule, which breaks reproducibility), so it is rejected;
+     * 2) when support_phrase is not given explicitly it defaults to "false", overriding the general
+     *    rule of the {@link Index} constructor that "an analyzer implies true" -- a gram index is
+     *    forced to docs-only on the BE side and has no positions for a phrase query to use.
+     *
+     * <p>The {@code properties} held by the caller ({@link #checkInvertedIndexProperties}) and the
+     * {@link IndexDefinition} field are the same mutable Map reference, so the defaults written
+     * here are seen when {@code IndexDefinition#translateToCatalogStyle} builds the {@link Index}.
+     */
+    private static void applyGramFamilyIndexDefaults(String analyzerName, Map<String, String> properties)
+            throws AnalysisException {
+        if (analyzerName == null || analyzerName.isEmpty()) {
+            return;
+        }
+        Optional<String> gramMode = Env.getCurrentEnv().getIndexPolicyMgr().resolveGramTokenizerMode(analyzerName);
+        if (!gramMode.isPresent()) {
+            return;
+        }
+        if (properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE) != null
+                || properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN) != null
+                || properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT) != null) {
+            throw new AnalysisException("char_filter cannot be used with gram tokenizer (mode="
+                    + gramMode.get() + ")");
+        }
+        if (properties.get(INVERTED_INDEX_SUPPORT_PHRASE_KEY) == null) {
+            properties.put(INVERTED_INDEX_SUPPORT_PHRASE_KEY, "false");
         }
     }
 

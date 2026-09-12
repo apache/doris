@@ -1324,6 +1324,58 @@ DEFINE_Int32(inverted_index_query_cache_shards, "256");
 // inverted index match bitmap cache size
 DEFINE_String(inverted_index_query_cache_limit, "10%");
 
+namespace {
+
+bool valid_gram_index_candidate_ratio(int32_t value) {
+    return value >= 0;
+}
+
+bool valid_gram_index_candidate_min_rows(int32_t value) {
+    return value >= 0;
+}
+
+bool valid_gram_index_min_literal_bytes(int32_t value) {
+    return value >= 1;
+}
+
+// A share of windows: (0, 1000]. 0 would ask for nothing and a negative value used to reach
+// the writer's checked cast and fail every gram-index load until the config was repaired.
+bool valid_gram_index_density_coverage_permille(int32_t value) {
+    return value >= 1 && value <= 1000;
+}
+
+bool valid_gram_index_density_sample_bytes(int64_t value) {
+    return value >= 0;
+}
+
+} // namespace
+
+// Whether LIKE/REGEXP tries to compile a constant pattern into a gram boolean query pushed down
+// to a gram-family inverted index (master switch).
+DEFINE_mBool(enable_gram_index_regexp, "true");
+
+// Cost gate for the gram boolean query: give up pruning above this share (in basis points) of a
+// segment's rows, and only on segments of at least this many rows. Giving up returns the segment's
+// whole docid range, so it can never drop a candidate row.
+DEFINE_mInt32(gram_index_max_candidate_ratio_bp, "15");
+DEFINE_Validator(gram_index_max_candidate_ratio_bp, valid_gram_index_candidate_ratio);
+DEFINE_mInt32(gram_index_candidate_ratio_min_rows, "65536");
+
+// On by default: a configured density is wrong on every column but the one it was chosen for,
+// and the solve costs one pass over a bounded sample.
+DEFINE_mBool(enable_gram_index_adaptive_density, "true");
+// 12 bytes at 95% of windows. Both are the promise rather than a tuning pair -- what a user
+// may reasonably change is how short a literal they expect to find, not the boundary rate.
+// A literal shorter than the scheme's max_gram cannot hold a whole gram, so the writer
+// raises the promise to max_gram where a tokenizer sets a longer one.
+DEFINE_mInt32(gram_index_min_literal_bytes, "12");
+DEFINE_mInt32(gram_index_density_coverage_permille, "950");
+DEFINE_mInt64(gram_index_density_sample_bytes, "4194304");
+DEFINE_Validator(gram_index_candidate_ratio_min_rows, valid_gram_index_candidate_min_rows);
+DEFINE_Validator(gram_index_min_literal_bytes, valid_gram_index_min_literal_bytes);
+DEFINE_Validator(gram_index_density_coverage_permille, valid_gram_index_density_coverage_permille);
+DEFINE_Validator(gram_index_density_sample_bytes, valid_gram_index_density_sample_bytes);
+
 // condition cache limit
 DEFINE_Int16(condition_cache_limit, "512");
 

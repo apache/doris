@@ -38,12 +38,92 @@
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/snii/query/gram_boolean_query.h"
 #include "storage/index/snii/snii_blob_staging_directory.h"
 #include "storage/index/snii/snii_doris_adapter.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/defer_op.h"
 
 namespace doris::segment_v2 {
+
+// Resolves the stop-gram df threshold for one index, in documents. Three conditions must
+// all hold, and every one of them is a correctness or safety condition rather than a
+// tuning choice:
+//
+//   - gram family only. Dropping a posting turns its term into one matching every
+//     document. LIKE/REGEXP survives that because its candidates are re-checked against
+//     the column; an ordinary full-text index has no such re-check and would return rows
+//     that do not match.
+//   - docs-only. Dropping the posting drops its positions with it, so any index that
+//     stores positions would lose phrase capability for that term. Gram indexes are
+//     written docs-only, so this is an assertion of that rather than a restriction.
+//     It carries a second guarantee worth stating: the compaction merge fast path
+//     requires positions (snii/compaction/eligibility.cpp validate_source_shape), so a
+//     segment that can hold dropped postings can never be a merge source. The merge
+//     therefore never has to reconstruct a posting list that was never written -- it
+//     rebuilds such an index from the raw column instead, which recomputes stop-gram
+//     against the merged segment's own size. Keep these two conditions opposed: making
+//     either side accept both shapes would let the merge silently emit a term with a
+//     real df and an empty posting list, which reads as "matches nothing".
+//   - above the row floor. A small segment's whole gram index is a few KB; there is
+//     nothing to save and the pruning it does deliver is worth keeping.
+//
+// There is no switch. Dropping is what lets a gram index meet its size budget of index
+// bytes <= 0.30 of the compressed column data: at density 0.25 the terms above the line are
+// under 1% of the vocabulary but hold ~85% of the posting entries, and dropping them takes
+// textbench from 1.097 to 0.218 index/data, httplogs from 0.865 to 0.071 and agentlogs from
+// 0.853 to 0.094, with recall unchanged and the rare-literal speedups intact. What it costs
+// is filtering for literals made entirely of grams above the line (0.15% of the segment);
+// the cost gate would have refused most of those anyway. A dropped posting comes back only
+// when the index is rebuilt (compaction, schema change), so a per-column opt-out, if one is
+// ever needed, belongs in the index properties where it is recorded with the schema -- not
+// in a BE-wide runtime flag that reaches only the segments written after it flips.
+//
+// NOT in the anonymous namespace: the UT pins this policy directly.
+uint32_t snii_effective_stop_gram_df_threshold(const doris::snii::writer::SniiIndexInput& input) {
+    if (!input.gram_scheme.has_value() || doris::snii::format::has_positions(input.config)) {
+        return 0;
+    }
+    // A segment with fewer rows than the digest's divisor has no meaningful notion of a
+    // "common" term: its floor would have to be clamped up to 1, at which point dropping
+    // postings for df of 4 in a 500-row segment is pure loss. The reader agrees by the same
+    // arithmetic -- its digest ceiling lands at 0 there and its gate falls back rather than
+    // deriving a budget -- so both sides stand down together.
+    if (input.doc_count < doris::snii::format::kHighDfDigestDivisor) {
+        return 0;
+    }
+    // The threshold is derived, not configured: it is the same line the query side's cost gate
+    // draws from the high-df digest -- the digest's floor times the budget multiple, which
+    // lands at 0.15% of the segment. Writing and reading agree by construction, and what the
+    // writer drops is what a reader would have refused to read.
+    //
+    // This line is chosen for size, and the cost is known and accepted. Measured across the
+    // four corpora, it drops 88.6% of all posting entries and takes index/data from 1.097 to
+    // 0.218 on log text; a tenth-of-the-documents line (tau = 0.10, the value the FREE line of
+    // work uses) drops 14.7% and lands at 0.924, which does not meet the size target the index
+    // is held to.
+    //
+    // What it costs is every query whose RAREST gram sits above the line. Two groups do:
+    //
+    //   - all of CJK, back when it was indexed one term per code point: the terms a query is
+    //     made of are ordinary characters sitting in a few percent of the rows. Measured on
+    //     weibo, every pattern tried lost its filtering entirely: a four-character literal
+    //     proposed 500,000 candidates for its 18 matching rows and eliminated none, against
+    //     148 candidates and 499,852 rows eliminated on the same corpus indexed without
+    //     stop-gram. It is one of the reasons non-ASCII text is no longer indexed at all
+    //     (see gram_extractor.cpp).
+    //   - ASCII patterns in the middle of the selectivity range. `/history/images/` matches
+    //     0.73% of httplogs and goes the same way: 70,976 candidates become 3,000,000, with
+    //     nothing eliminated.
+    //
+    // What survives is the needle: a pattern whose grams sit orders of magnitude below the
+    // line keeps every bit of its pruning, and those are the queries with the large wins --
+    // 13 rows out of 3,000,000 still runs 121x faster than a scan on a cold segment. The line
+    // therefore keeps the extremes and gives up the middle, which measured 1.2x-2.4x.
+    const uint64_t floor =
+            static_cast<uint64_t>(input.doc_count) / doris::snii::format::kHighDfDigestDivisor;
+    return static_cast<uint32_t>(floor * doris::snii::query::kCandidateBudgetCeilingMultiple);
+}
 
 // Shared write-parameter resolution for one SNII index flush; `input->config`
 // must already be set. BOTH the build path (add_snii_index) and the T2.2
@@ -71,6 +151,7 @@ void snii_resolve_index_write_params(bool is_direct_load, bool has_norms,
         input->target_dict_block_bytes =
                 static_cast<uint32_t>(config::snii_target_dict_block_bytes);
     }
+    input->stop_gram_df_threshold = snii_effective_stop_gram_df_threshold(*input);
 }
 
 IndexFileWriter::IndexFileWriter(io::FileSystemSPtr fs, std::string index_path_prefix,
@@ -269,6 +350,7 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
     input.doc_count = doc_count;
     input.null_docids = std::move(null_docids);
     input.encoded_norms = std::move(options.encoded_norms);
+    input.gram_scheme = options.gram_scheme;
     input.term_source = term_buffer;
     input.mem_reporter = mem_reporter;
     snii_resolve_index_write_params(options.is_direct_load, !input.encoded_norms.empty(), &input);

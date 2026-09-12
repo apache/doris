@@ -17,13 +17,47 @@
 
 #include "storage/index/inverted/tokenizer/ngram/ngram_tokenizer_factory.h"
 
+#include <map>
+
 #include "common/exception.h"
 
 namespace doris::segment_v2::inverted_index {
 
 std::unordered_map<std::string, CharMatcherPtr> NGramTokenizerFactory::MATCHERS;
 
+Status NGramTokenizerFactory::parse_gram_scheme(const Settings& settings,
+                                                std::optional<gram::GramScheme>* out) {
+    out->reset();
+    // The presence of "mode" (sparse|dense|auto) switches to the gram family, which is mutually
+    // exclusive with the legacy ngram sliding window; parsing, validation and defaults of the
+    // gram scheme are all delegated to GramScheme::from_properties, and this function only
+    // forwards the tokenizer properties. Absent min/max_gram come from GramScheme's own member
+    // initializers (3/16) and are deliberately not duplicated here -- two sets of defaults would
+    // drift sooner or later, and there can be only one source of truth.
+    if (settings.get_string("mode").empty()) {
+        return Status::OK();
+    }
+    std::map<std::string, std::string> props;
+    for (const auto& [k, v] : settings.sorted_entries()) {
+        props.emplace(k, v);
+    }
+    gram::GramScheme scheme;
+    RETURN_IF_ERROR(gram::GramScheme::from_properties(props, &scheme));
+    *out = scheme;
+    return Status::OK();
+}
+
 void NGramTokenizerFactory::initialize(const Settings& settings) {
+    std::optional<gram::GramScheme> scheme;
+    Status st = parse_gram_scheme(settings, &scheme);
+    if (!st.ok()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "ngram tokenizer: {}", st.to_string());
+    }
+    if (scheme.has_value()) {
+        _gram_scheme = scheme;
+        return; // skip the legacy max-min>1 validation and token_chars parsing
+    }
+
     _min_gram = settings.get_int("min_gram", NGramTokenizer::DEFAULT_MIN_NGRAM_SIZE);
     _max_gram = settings.get_int("max_gram", NGramTokenizer::DEFAULT_MAX_NGRAM_SIZE);
     int32_t ngram_diff = _max_gram - _min_gram;
