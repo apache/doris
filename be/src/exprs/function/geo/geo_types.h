@@ -70,6 +70,8 @@ public:
 
     virtual bool touches(const GeoShape* rhs) const { return false; }
 
+    virtual bool within(const GeoShape* rhs) const { return rhs->contains(this); }
+
     virtual std::string GeometryType() const = 0;
 
     virtual double Length() const { return 0.0; }
