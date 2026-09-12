@@ -578,7 +578,16 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
 
     @Override
     public void getStreamTableTypes(final CallContext context, final ServerStreamListener listener) {
-        throw CallStatus.UNIMPLEMENTED.withDescription("getStreamTableTypes unimplemented").toRuntimeException();
+        streamMetadata(context, listener, connectContext -> {
+            try (VectorSchemaRoot vectorSchemaRoot = VectorSchemaRoot.create(
+                    Schemas.GET_TABLE_TYPES_SCHEMA, rootAllocator)) {
+                listener.start(vectorSchemaRoot);
+                vectorSchemaRoot.allocateNew();
+                FlightSqlSchemaHelper.getTableTypes(vectorSchemaRoot);
+                listener.putNext();
+                listener.completed();
+            }
+        });
     }
 
     @Override
@@ -653,7 +662,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         void send(ConnectContext connectContext) throws Exception;
     }
 
-    // Answers a metadata request (catalogs, schemas, tables) from the session's context, as one
+    // Answers a metadata request (catalogs, schemas, tables, table types) from the session's context, as one
     // command of that session.
     private void streamMetadata(final CallContext context, final ServerStreamListener listener,
             MetadataStream stream) {
