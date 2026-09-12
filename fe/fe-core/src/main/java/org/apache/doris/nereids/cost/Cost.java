@@ -87,9 +87,9 @@ public class Cost {
         return new Cost(costWeight, cpuCost, 0, 0);
     }
 
-    /** Add another cost without recomputing the weighted value. */
-    public Cost add(Cost other) {
-        return new Cost(cost + other.cost,
+    /** Add another cost and compute the weighted value from the summed components. */
+    public Cost add(Cost other, CostWeight costWeight) {
+        return new Cost(costWeight,
                 cpuCost + other.cpuCost,
                 memoryCost + other.memoryCost,
                 networkCost + other.networkCost);
