@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstdint>
 #include <utility>
 
 #include "common/compiler_util.h"
@@ -87,6 +88,39 @@ static std::unique_ptr<GeoShape> decode_geo_shape(StringRef value, const DataTyp
     return status == GEO_PARSE_OK ? std::move(shape) : nullptr;
 }
 
+static bool has_unsupported_spatial_wkb_metadata(StringRef value) {
+    if (value.size < 5) {
+        return false;
+    }
+
+    const auto byte_order = static_cast<uint8_t>(value.data[0]);
+    if (byte_order != 0 && byte_order != 1) {
+        return false;
+    }
+
+    const auto byte_at = [&value](size_t offset) {
+        return static_cast<uint8_t>(value.data[offset]);
+    };
+    const uint32_t type = byte_order == 1 ? static_cast<uint32_t>(byte_at(1)) |
+                                                    (static_cast<uint32_t>(byte_at(2)) << 8) |
+                                                    (static_cast<uint32_t>(byte_at(3)) << 16) |
+                                                    (static_cast<uint32_t>(byte_at(4)) << 24)
+                                          : (static_cast<uint32_t>(byte_at(1)) << 24) |
+                                                    (static_cast<uint32_t>(byte_at(2)) << 16) |
+                                                    (static_cast<uint32_t>(byte_at(3)) << 8) |
+                                                    static_cast<uint32_t>(byte_at(4));
+
+    constexpr uint32_t ewkb_z_flag = 0x80000000;
+    constexpr uint32_t ewkb_m_flag = 0x40000000;
+    constexpr uint32_t ewkb_srid_flag = 0x20000000;
+    constexpr uint32_t ewkb_metadata_flags = ewkb_z_flag | ewkb_m_flag | ewkb_srid_flag;
+    if ((type & ewkb_metadata_flags) != 0) {
+        return true;
+    }
+
+    return type >= 1000 && type < 4000;
+}
+
 Status validate_spatial_wkb_inputs(const Block& block, const ColumnNumbers& arguments) {
     for (const auto argument : arguments) {
         const auto& column = block.get_by_position(argument).column;
@@ -98,8 +132,15 @@ Status validate_spatial_wkb_inputs(const Block& block, const ColumnNumbers& argu
             if (column->is_null_at(row)) {
                 continue;
             }
+            const auto value = column->get_data_at(row);
+            if (has_unsupported_spatial_wkb_metadata(value)) {
+                return Status::NotSupported(
+                        "WKB dimensions or embedded SRID are not supported for spatial inputs at "
+                        "row {}",
+                        row);
+            }
             GeoParseStatus parse_status;
-            if (decode_geo_shape(column->get_data_at(row), type, &parse_status) == nullptr) {
+            if (decode_geo_shape(value, type, &parse_status) == nullptr) {
                 return Status::InvalidArgument("Invalid WKB in spatial input at row {}: {}", row,
                                                to_string(parse_status));
             }
