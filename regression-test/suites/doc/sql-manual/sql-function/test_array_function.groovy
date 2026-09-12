@@ -400,17 +400,17 @@ suite("test_array_function_doc", "p0") {
     
     test {
         sql """ SELECT ARRAY_UNION(array_struct, array_struct) from ${tableName}; """
-        exception "array_union does not support types: ARRAY<STRUCT<id:INT,name:TEXT>>"
+        exception "array_union does not support element type STRUCT<id:INT,name:TEXT>"
     }
 
     test {
         sql """ SELECT ARRAY_UNION(array_array, array_array) from ${tableName}; """
-        exception "array_union does not support types: ARRAY<ARRAY<INT>>"
+        exception "array_union does not support element type ARRAY<INT>"
     }
 
     test {
         sql """ SELECT ARRAY_UNION(array_map, array_map) from ${tableName}; """
-        exception "array_union does not support types: ARRAY<MAP<TEXT,INT>>"
+        exception "array_union does not support element type MAP<TEXT,INT>"
     }
     
     qt_sql """ SELECT array_sort(ARRAY_UNION(NULL, array_boolean)) from ${tableName}; """

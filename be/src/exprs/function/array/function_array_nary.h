@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/exception.h"
 #include "core/column/column_array.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_number.h"
@@ -37,22 +38,34 @@ public:
     size_t get_number_of_arguments() const override { return 0; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(arguments.size() >= 2)
-                << "function: " << get_name() << ", arguments should large equals than 2";
-        CHECK(arguments[0]->get_primitive_type() == TYPE_ARRAY)
-                << "0-th element is " << arguments[0]->get_name() << ",not array type";
-        auto nested_type = remove_nullable(
-                assert_cast<const DataTypeArray&>(*(arguments[0])).get_nested_type());
+        if (arguments.size() < 2) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Function {} requires at least two arguments", get_name());
+        }
+        const auto* left_array_type =
+                check_and_get_data_type<DataTypeArray>(remove_nullable(arguments[0]).get());
+        if (!left_array_type) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Argument 0 for function {} must be an array, but got {}",
+                                   get_name(), arguments[0]->get_name());
+        }
+        auto nested_type = remove_nullable(left_array_type->get_nested_type());
         for (size_t i = 1; i < arguments.size(); ++i) {
-            CHECK(arguments[i]->get_primitive_type() == TYPE_ARRAY)
-                    << i << "-th element is " << arguments[i]->get_name() << ", not array type";
-            auto right_nested_type = remove_nullable(
-                    assert_cast<const DataTypeArray&>(*(remove_nullable(arguments[i])))
-                            .get_nested_type());
+            const auto* right_array_type =
+                    check_and_get_data_type<DataTypeArray>(remove_nullable(arguments[i]).get());
+            if (!right_array_type) {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "Argument {} for function {} must be an array, but got {}",
+                                       i, get_name(), arguments[i]->get_name());
+            }
+            auto right_nested_type = remove_nullable(right_array_type->get_nested_type());
             // do check array nested data type, now we just support same nested data type
-            CHECK(nested_type->equals_ignore_precision(*right_nested_type))
-                    << "data type " << arguments[i]->get_name() << " not equal with "
-                    << arguments[0]->get_name();
+            if (!nested_type->equals_ignore_precision(*right_nested_type)) {
+                throw doris::Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "Function {} requires identical array element types, but got {} and {}",
+                        get_name(), arguments[0]->get_name(), arguments[i]->get_name());
+            }
         }
         DataTypePtr res_data_type = Impl::get_return_type(arguments);
         return res_data_type;
@@ -67,11 +80,15 @@ public:
             const auto& [col, is_const] =
                     unpack_if_const(block.get_by_position(arguments[i]).column);
             col_const[i] = is_const;
-            extract_column_array_info(*col, datas[i]);
+            if (!extract_column_array_info(*col, datas[i])) {
+                return Status::InvalidArgument(
+                        "Argument {} for function {} must be an array column, but got {}", i,
+                        get_name(), col->get_name());
+            }
         }
         if (Status st = Impl::execute(res_ptr, datas, col_const, 0, input_rows_count); !st.ok()) {
-            return Status::RuntimeError(
-                    fmt::format("function {} execute failed {} ", get_name(), st.to_string()));
+            st.prepend(fmt::format("function {} execute failed: ", get_name()));
+            return st;
         }
         block.replace_by_position(result, std::move(res_ptr));
         return Status::OK();

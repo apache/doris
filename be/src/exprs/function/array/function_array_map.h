@@ -171,7 +171,8 @@ public:
             res_ptr = assemble_column_array(dst);
             return Status::OK();
         }
-        return Status::RuntimeError("Unexpected columns");
+        return Status::InvalidArgument("Unsupported array element type {}",
+                                       datas[0].nested_type->get_name());
     }
 
 private:

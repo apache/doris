@@ -61,10 +61,17 @@ public class ArrayCompact extends ScalarFunction
      */
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = ((ArrayType) getArgument(0).getDataType()).getItemType();
-        if (argType.isMapType() || argType.isStructType()) {
+        DataType dataType = getArgument(0).getDataType();
+        if (dataType.isNullType()) {
+            return;
+        }
+        if (!dataType.isArrayType()) {
+            throw new AnalysisException("array_compact requires an ARRAY argument, but got " + dataType.toSql());
+        }
+        DataType itemType = ((ArrayType) dataType).getItemType();
+        if (itemType.isMapType() || itemType.isStructType()) {
             throw new AnalysisException("array_compact does not support type "
-            + argType.toString() + ", expression is " + toSql());
+                    + itemType.toString() + ", expression is " + toSql());
         }
     }
 

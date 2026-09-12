@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "common/exception.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -28,6 +29,7 @@
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/function.h"
+#include "exprs/function/function_helpers.h"
 #include "exprs/function/simple_function_factory.h"
 
 namespace doris {
@@ -43,10 +45,17 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DataTypePtr arg = arguments[0];
-        while (arg->get_primitive_type() == TYPE_ARRAY) {
-            arg = remove_nullable(assert_cast<const DataTypeArray*>(arg.get())->get_nested_type());
+        DataTypePtr arg = remove_nullable(arguments[0]);
+        const auto* array_type = check_and_get_data_type<DataTypeArray>(arg.get());
+        if (!array_type) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Argument for function {} must be an array, but got {}",
+                                   get_name(), arguments[0]->get_name());
         }
+        do {
+            arg = remove_nullable(array_type->get_nested_type());
+            array_type = check_and_get_data_type<DataTypeArray>(arg.get());
+        } while (array_type);
         return std::make_shared<DataTypeArray>(make_nullable(arg));
     }
 
@@ -54,36 +63,61 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         auto src_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto* src_column_array_ptr =
-                assert_cast<const ColumnArray*>(remove_nullable(src_column).get());
+        const auto* src_column_array_ptr =
+                check_and_get_column<ColumnArray>(remove_nullable(src_column).get());
+        if (!src_column_array_ptr) {
+            return Status::InvalidArgument("Argument for function {} must be an array, but got {}",
+                                           get_name(), src_column->get_name());
+        }
         const ColumnArray* nested_src_column_array_ptr = src_column_array_ptr;
 
-        DataTypePtr src_data_type = block.get_by_position(arguments[0]).type;
-        auto* src_data_type_array =
-                assert_cast<const DataTypeArray*>(remove_nullable(src_data_type).get());
+        DataTypePtr src_data_type = remove_nullable(block.get_by_position(arguments[0]).type);
+        const auto* src_data_type_array =
+                check_and_get_data_type<DataTypeArray>(src_data_type.get());
+        if (!src_data_type_array) {
+            return Status::InvalidArgument(
+                    "Argument type for function {} must be an array, but got {}", get_name(),
+                    src_data_type->get_name());
+        }
 
         auto result_column_offsets = src_column_array_ptr->get_offsets_column().clone();
         auto* offsets = assert_cast<ColumnArray::ColumnOffsets*>(result_column_offsets.get())
                                 ->get_data()
                                 .data();
 
-        while (src_data_type_array->get_nested_type()->get_primitive_type() == TYPE_ARRAY) {
-            nested_src_column_array_ptr = assert_cast<const ColumnArray*>(
+        while (true) {
+            const auto* nested_data_type_array = check_and_get_data_type<DataTypeArray>(
+                    remove_nullable(src_data_type_array->get_nested_type()).get());
+            if (!nested_data_type_array) {
+                break;
+            }
+            nested_src_column_array_ptr = check_and_get_column<ColumnArray>(
                     remove_nullable(src_column_array_ptr->get_data_ptr()).get());
+            if (!nested_src_column_array_ptr) {
+                return Status::InvalidArgument(
+                        "Nested argument column for function {} must be an array, but got {}",
+                        get_name(), src_column_array_ptr->get_data().get_name());
+            }
 
             for (size_t i = 0; i < input_rows_count; ++i) {
-                offsets[i] = nested_src_column_array_ptr->get_offsets()[offsets[i] - 1];
+                if (offsets[i] != 0) {
+                    offsets[i] = nested_src_column_array_ptr->get_offsets()[offsets[i] - 1];
+                }
             }
             src_column_array_ptr = nested_src_column_array_ptr;
-            src_data_type_array = assert_cast<const DataTypeArray*>(
-                    remove_nullable(src_data_type_array->get_nested_type()).get());
+            src_data_type_array = nested_data_type_array;
         }
 
-        block.replace_by_position(
-                result, ColumnArray::create(assert_cast<const ColumnNullable&>(
-                                                    nested_src_column_array_ptr->get_data())
-                                                    .clone(),
-                                            std::move(result_column_offsets)));
+        const auto* nested_nullable_column =
+                check_and_get_column<ColumnNullable>(&nested_src_column_array_ptr->get_data());
+        if (!nested_nullable_column) {
+            return Status::InvalidArgument(
+                    "Nested argument column for function {} must be nullable, but got {}",
+                    get_name(), nested_src_column_array_ptr->get_data().get_name());
+        }
+
+        block.replace_by_position(result, ColumnArray::create(nested_nullable_column->clone(),
+                                                              std::move(result_column_offsets)));
         return Status::OK();
     }
 };
