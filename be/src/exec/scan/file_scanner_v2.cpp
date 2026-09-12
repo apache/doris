@@ -145,8 +145,19 @@ bool is_supported_jni_table_format(const TFileRangeDesc& range) {
         }
         const auto& params = range.table_format_params.paimon_params;
         if (params.__isset.reader_type) {
-            return params.reader_type == TPaimonReaderType::PAIMON_JNI &&
-                   params.__isset.paimon_split;
+            if (params.reader_type == TPaimonReaderType::PAIMON_JNI) {
+                return params.__isset.paimon_split;
+            }
+            if (params.reader_type == TPaimonReaderType::PAIMON_RUST) {
+                // The rust leaf reader inside PaimonHybridReader consumes the logical DataSplit
+                // directly. It needs the schema-json pipeline fields; a missing one fails fast
+                // in PaimonRustTableReader::prepare_split with a precise error.
+                return params.__isset.paimon_split && params.__isset.paimon_table_schema_json &&
+                       !params.paimon_table_schema_json.empty();
+            }
+            // V2 cannot pass a logical DataSplit through a raw native child without silently
+            // dropping its multi-file semantics, so PAIMON_CPP must remain on the V1 fallback.
+            return false;
         }
         if (params.__isset.paimon_split) {
             // Before reader_type was added, an encoded split unambiguously selected the Java

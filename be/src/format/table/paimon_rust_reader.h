@@ -1,0 +1,124 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <cstddef>
+#include <map>
+#include <memory>
+#include <optional>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+#include "cctz/time_zone.h"
+#include "common/status.h"
+#include "exprs/vexpr_fwd.h"
+#include "format/generic_reader.h"
+
+namespace doris {
+class RuntimeProfile;
+class RuntimeState;
+class SlotDescriptor;
+} // namespace doris
+
+namespace doris {
+
+class Block;
+
+// Reads Paimon data on BE by calling into the paimon-rust C bindings
+// (libpaimon_c) through the schema-json read pipeline:
+//
+//   paimon_table_from_schema_json(table_path, schema_json, db, table, branch, storage_options)
+//     -> read_builder -> projection -> filter
+//     -> plan_from_split_bytes(FE split) -> read -> arrow record batch stream
+//
+// FE ships the resolved paimon TableSchema JSON on TPaimonFileDesc so BE does
+// not need to reach the catalog / re-load schema files. The FE-planned split
+// bytes are deserialized directly into a one-split plan via
+// `paimon_plan_from_split_bytes` (wire form is identical to the one paimon-cpp
+// consumes), so each scanner reads exactly the split assigned to it rather
+// than re-planning the whole table.
+class PaimonRustReader : public GenericReader {
+    ENABLE_FACTORY_CREATOR(PaimonRustReader);
+
+public:
+    PaimonRustReader(const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
+                     RuntimeProfile* profile, const TFileRangeDesc& range,
+                     const TFileScanRangeParams* range_params);
+    ~PaimonRustReader() override;
+
+    Status init_reader();
+    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
+                       std::unordered_set<std::string>* missing_cols) override;
+    Status close() override;
+
+    // Stores the FE push-down conjuncts. They are converted to a paimon-rust
+    // filter predicate (via PaimonRustPredicateConverter) inside init_reader,
+    // after the table is opened, because the paimon_predicate_* functions need
+    // the live table handle to resolve fields from the schema.
+    void set_push_down_conjuncts(const VExprContextSPtrs& conjuncts) {
+        _push_down_conjuncts = conjuncts;
+    }
+
+private:
+    // Opaque holder for the paimon-rust C handles (defined in the .cpp so that
+    // paimon_rust/paimon.h does not leak into other translation units).
+    struct PaimonHandles;
+
+    Status _init_paimon_reader();
+    // Open the table via paimon_table_from_schema_json and build the scan plan
+    // + arrow reader.
+    Status _open_table_and_build_reader();
+    std::optional<std::string> _resolve_table_path() const;
+    std::optional<std::string> _resolve_db_name() const;
+    std::optional<std::string> _resolve_table_name() const;
+    std::optional<std::string> _resolve_table_schema_json() const;
+    // Non-default branch name (unset means main branch, matching upstream
+    // paimon commit 742da63: null-if-DEFAULT_MAIN_BRANCH).
+    std::optional<std::string> _resolve_branch() const;
+    // Base64-decode the FE-planned split into the raw serialized DataSplit bytes.
+    // Kept even though the community API cannot deserialize them yet, so we
+    // fail fast on missing / malformed splits without any filesystem IO.
+    Status _decode_split_bytes(std::string* out) const;
+    std::vector<std::string> _build_read_columns() const;
+    std::map<std::string, std::string> _build_options() const;
+    // Builds a paimon-rust filter from _push_down_conjuncts and applies it to the
+    // read builder. Conjuncts that cannot be represented are dropped silently
+    // (the engine still re-applies the full conjunct list), but an actual failure
+    // of the paimon_read_builder_with_filter C call is surfaced as an error.
+    Status _apply_predicate();
+
+    const std::vector<SlotDescriptor*>& _file_slot_descs;
+    RuntimeState* _state = nullptr;
+    [[maybe_unused]] RuntimeProfile* _profile = nullptr;
+    const TFileRangeDesc& _range;
+    const TFileScanRangeParams* _range_params = nullptr;
+
+    VExprContextSPtrs _push_down_conjuncts;
+    std::unique_ptr<PaimonHandles> _handles;
+
+    std::unordered_map<std::string, uint32_t> _col_name_to_block_idx;
+    int64_t _remaining_table_level_row_count = -1;
+    bool _reader_eof = false;
+    cctz::time_zone _ctzz;
+};
+
+} // namespace doris

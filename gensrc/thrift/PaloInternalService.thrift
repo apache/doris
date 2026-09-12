@@ -508,6 +508,10 @@ struct TQueryOptions {
 
   227: optional i64 file_presigned_url_ttl_seconds = 3600;
 
+  // Use paimon-rust to read Paimon splits on BE. Higher priority than
+  // enable_paimon_cpp_reader.
+  228: optional bool enable_paimon_rust_reader = false;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
