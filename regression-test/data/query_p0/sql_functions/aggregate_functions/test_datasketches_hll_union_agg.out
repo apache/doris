@@ -5,12 +5,33 @@
 -- !aliases --
 17	17	17
 
+-- !explicit_lg_max_k --
+18	17	17	17
+
+-- !default_typed_state_merge --
+17
+
+-- !typed_state_merge --
+17
+
+-- !typed_state_union --
+17
+
+-- !alias_typed_state_merge --
+17	17
+
 -- !group_by --
 1	7
 2	10
 
 -- !distinct --
 17	17
+
+-- !distinct_two_arguments_with_rollup --
+\N	17	17	2
+1	7	7	1
+2	10	10	1
+5	7	7	1
 
 -- !basic_union_varchar --
 17
@@ -26,3 +47,6 @@
 
 -- !empty_input --
 0
+
+-- !persisted_state --
+1	18
