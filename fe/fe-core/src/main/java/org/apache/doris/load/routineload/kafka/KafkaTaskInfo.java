@@ -121,6 +121,11 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
             tRoutineLoadTask.setFormat(TFileFormatType.FORMAT_JSON);
         } else {
             tRoutineLoadTask.setFormat(TFileFormatType.FORMAT_CSV_PLAIN);
+            if (isMultiTable) {
+                tRoutineLoadTask.setEnclose(routineLoadJob.getEnclose());
+                tRoutineLoadTask.setEscape(routineLoadJob.getEscape());
+                tRoutineLoadTask.setEmptyFieldAsNull(routineLoadJob.getEmptyFieldAsNull());
+            }
         }
         tRoutineLoadTask.setMemtableOnSinkNode(routineLoadJob.isMemtableOnSinkNode());
         tRoutineLoadTask.setQualifiedUser(routineLoadJob.getUserIdentity().getQualifiedUser());
