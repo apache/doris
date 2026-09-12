@@ -16,6 +16,8 @@
 // under the License.
 
 suite("hash_shuffle_key_prune") {
+    // Keep this suite focused on shuffle-key pruning rather than
+    // single-BE bucketed-aggregation fusion.
     multi_sql """
         drop table if exists t1;
         create table t1(a int, b int, c int, d int, e int, f int, g int, h int, i int, j int) properties("replication_num"="1");
@@ -61,6 +63,8 @@ suite("hash_shuffle_key_prune") {
         set detail_shape_nodes='PhysicalDistribute';
         set runtime_filter_mode=OFF;
         set global enable_auto_analyze=false;
+        set be_number_for_test=1;
+        set enable_bucketed_hash_agg=false;
         set parallel_pipeline_task_num=4;
     """
     sql """
@@ -193,4 +197,64 @@ suite("hash_shuffle_key_prune") {
 
     // Not optimize
     explainAndOrderResult "distinct_agg_func_with_a_hash_distribute_no_optimize", "select d,e,f, count(distinct a,b,c) from t2 group by d,e,f order by d,e,f;"
+
+    // A window requests HASH[customer_sk] from the aggregate below it. This models the
+    // TPC-DS Q4/Q11 path where a join-derived customer key is a subset of the aggregate
+    // group-by keys. Unknown non-NULL hot-value statistics alone must not reject the
+    // parent key, while a known NULL bucket above the safety threshold must fall back
+    // to the full aggregate key.
+    sql "set agg_shuffle_use_parent_key=true"
+    sql "set be_number_for_test=3"
+    sql "set parallel_pipeline_task_num=8"
+    sql "DROP TABLE IF EXISTS agg_parent_shuffle_safety"
+    sql """
+        CREATE TABLE agg_parent_shuffle_safety (
+            id BIGINT,
+            customer_sk BIGINT,
+            detail_key BIGINT
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 3
+        PROPERTIES('replication_num' = '1');
+    """
+    sql """
+        INSERT INTO agg_parent_shuffle_safety VALUES
+            (1, 1, 10),
+            (2, 2, 20),
+            (3, NULL, 30);
+    """
+    def setCustomerKeyStats = { long nullCount ->
+        sql """
+            ALTER TABLE agg_parent_shuffle_safety MODIFY COLUMN customer_sk SET STATS (
+                'row_count'='2870000000', 'ndv'='10000000', 'num_nulls'='${nullCount}',
+                'min_value'='1', 'max_value'='10000000', 'avg_size'='8', 'max_size'='8');
+        """
+    }
+    setCustomerKeyStats(67_000_000)
+    sql """
+        ALTER TABLE agg_parent_shuffle_safety MODIFY COLUMN detail_key SET STATS (
+            'row_count'='2870000000', 'ndv'='10000000', 'num_nulls'='0',
+            'min_value'='1', 'max_value'='10000000', 'avg_size'='8', 'max_size'='8',
+            'hot_values'='');
+    """
+    String parentShuffleSafetyQuery = """
+        SELECT customer_sk, detail_key, cnt,
+               SUM(cnt) OVER (PARTITION BY customer_sk)
+        FROM (
+            SELECT customer_sk, detail_key, COUNT(*) AS cnt
+            FROM agg_parent_shuffle_safety
+            GROUP BY customer_sk, detail_key
+        ) grouped
+    """
+
+    explain {
+        sql "shape plan ${parentShuffleSafetyQuery}"
+        contains("Hash Columns:[customer_sk]")
+        notContains("Hash Columns:[customer_sk, detail_key]")
+    }
+
+    setCustomerKeyStats(287_000_000)
+    explain {
+        sql "shape plan ${parentShuffleSafetyQuery}"
+        contains("Hash Columns:[customer_sk, detail_key]")
+    }
 }
