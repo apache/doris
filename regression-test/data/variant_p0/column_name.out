@@ -2,8 +2,8 @@
 -- !sql --
 中文	unicode
 
--- !sql --
-
+-- !empty_key_empty_string --
+3	false	0
 
 -- !sql --
 \N
@@ -32,20 +32,20 @@ UPPER CASE	lower case
 -- !sql --
 1	{"tag_key1":123456}
 
--- !sql --
-\N
-\N
-\N
-\N
-
-
-1234566
-16
-8888888
-UPPER CASE
-dkdkdkdkdkd
-ooaoaaaaaaa
-xmxxmmmmmm
+-- !empty_key_order --
+1	\N	true
+4	\N	true
+5	\N	true
+7	\N	true
+3		false
+7		false
+7	1234566	false
+7	16	false
+7	8888888	false
+7	UPPER CASE	false
+7	dkdkdkdkdkd	false
+7	ooaoaaaaaaa	false
+7	xmxxmmmmmm	false
 
 -- !sql_cnt_1 --
 0

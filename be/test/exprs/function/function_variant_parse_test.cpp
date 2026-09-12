@@ -28,7 +28,6 @@
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
-#include "core/column/column_variant.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
@@ -83,13 +82,9 @@ struct ExecutionResult {
 
 ExecutionResult execute_parse(std::string_view function_name, ColumnPtr input,
                               const DataTypePtr& input_type, size_t rows,
-                              DataTypePtr result_type = nullptr, bool use_variant_v2 = true) {
+                              DataTypePtr result_type = nullptr) {
     if (result_type == nullptr) {
-        if (use_variant_v2) {
-            result_type = std::make_shared<DataTypeVariantV2>();
-        } else {
-            result_type = std::make_shared<DataTypeVariant>();
-        }
+        result_type = std::make_shared<DataTypeVariantV2>();
         if (function_name == "try_parse_to_variant" || input_type->is_nullable()) {
             result_type = make_nullable(result_type);
         }
@@ -112,12 +107,6 @@ ExecutionResult execute_parse(std::string_view function_name, ColumnPtr input,
     return {.status = std::move(status),
             .output = block.get_by_position(1).column,
             .return_type = function->get_return_type()};
-}
-
-ExecutionResult execute_parse(std::string_view function_name, ColumnPtr input,
-                              const DataTypePtr& input_type, size_t rows, bool use_variant_v2) {
-    return execute_parse(function_name, std::move(input), input_type, rows, nullptr,
-                         use_variant_v2);
 }
 
 const IColumn& physical_column(const ColumnPtr& output, size_t* row) {
@@ -163,47 +152,46 @@ std::string nested_array_json(uint32_t depth) {
 
 TEST(FunctionVariantParseTest, ExecutionTypeSelectsPhysicalColumn) {
     const DataTypePtr string_type = std::make_shared<DataTypeString>();
-    ExecutionResult legacy =
-            execute_parse("parse_to_variant", make_strings({R"({"a":1})"}), string_type, 1, false);
-    ASSERT_TRUE(legacy.status.ok()) << legacy.status.to_string();
-    EXPECT_NE(check_and_get_column_with_const<ColumnVariant>(*legacy.output), nullptr);
+    ExecutionResult variant =
+            execute_parse("parse_to_variant", make_strings({R"({"a":1})"}), string_type, 1);
+    ASSERT_TRUE(variant.status.ok()) << variant.status.to_string();
+    EXPECT_NE(check_and_get_column_with_const<ColumnVariantV2>(*variant.output), nullptr);
 
-    ExecutionResult v2 =
-            execute_parse("parse_to_variant", make_strings({R"({"a":1})"}), string_type, 1, true);
+    ExecutionResult v2 = execute_parse("parse_to_variant", make_strings({R"({"a":1})"}),
+                                       string_type, 1, std::make_shared<DataTypeVariant>());
     ASSERT_TRUE(v2.status.ok()) << v2.status.to_string();
     EXPECT_NE(check_and_get_column_with_const<ColumnVariantV2>(*v2.output), nullptr);
 }
 
-TEST(FunctionVariantParseTest, LegacyPathPreservesSqlNullAndErrorToNull) {
+TEST(FunctionVariantParseTest, PreservesSqlNullAndErrorToNull) {
     const DataTypePtr nullable_string_type = make_nullable(std::make_shared<DataTypeString>());
     ExecutionResult nullable =
             execute_parse("parse_to_variant",
                           make_nullable_strings({std::nullopt, std::string(R"({"value":1})")}),
-                          nullable_string_type, 2, false);
+                          nullable_string_type, 2);
     ASSERT_TRUE(nullable.status.ok()) << nullable.status.to_string();
     EXPECT_TRUE(is_sql_null_at(nullable.output, 0));
     const auto& nullable_output = assert_cast<const ColumnNullable&>(*nullable.output);
-    EXPECT_NE(check_and_get_column<ColumnVariant>(&nullable_output.get_nested_column()), nullptr);
+    EXPECT_NE(check_and_get_column<ColumnVariantV2>(&nullable_output.get_nested_column()), nullptr);
 
     const DataTypePtr string_type = std::make_shared<DataTypeString>();
     const std::string invalid_utf8(1, static_cast<char>(0xFF));
     ScopedValue strict(config::variant_throw_exeception_on_invalid_json, true);
     ExecutionResult failure = execute_parse(
             "parse_to_variant", make_strings({R"({"before":1})", invalid_utf8, R"({"after":2})"}),
-            string_type, 3, false);
+            string_type, 3);
     EXPECT_FALSE(failure.status.ok());
     EXPECT_FALSE(static_cast<bool>(failure.output));
 
-    ExecutionResult recoverable =
-            execute_parse("try_parse_to_variant",
-                          make_strings({R"({"before":1})", invalid_utf8, R"({"after":2})"}),
-                          string_type, 3, false);
+    ExecutionResult recoverable = execute_parse(
+            "try_parse_to_variant",
+            make_strings({R"({"before":1})", invalid_utf8, R"({"after":2})"}), string_type, 3);
     ASSERT_TRUE(recoverable.status.ok()) << recoverable.status.to_string();
     EXPECT_FALSE(is_sql_null_at(recoverable.output, 0));
     EXPECT_TRUE(is_sql_null_at(recoverable.output, 1));
     EXPECT_FALSE(is_sql_null_at(recoverable.output, 2));
     const auto& recoverable_output = assert_cast<const ColumnNullable&>(*recoverable.output);
-    EXPECT_NE(check_and_get_column<ColumnVariant>(&recoverable_output.get_nested_column()),
+    EXPECT_NE(check_and_get_column<ColumnVariantV2>(&recoverable_output.get_nested_column()),
               nullptr);
 }
 
@@ -223,17 +211,6 @@ TEST(FunctionVariantParseTest, FunctionsAreRegistered) {
 
 TEST(FunctionVariantParseTest, ConfiguredVariantReturnTypeBuildsAndExecutes) {
     const DataTypePtr string_type = std::make_shared<DataTypeString>();
-    const DataTypePtr legacy_doc_mode_variant = std::make_shared<DataTypeVariant>(0, true);
-    ExecutionResult legacy_doc_mode =
-            execute_parse("parse_to_variant", make_strings({R"({"a":1})"}), string_type, 1,
-                          legacy_doc_mode_variant);
-    ASSERT_TRUE(legacy_doc_mode.status.ok()) << legacy_doc_mode.status.to_string();
-    const auto& legacy_doc_mode_column = assert_cast<const ColumnVariant&>(*legacy_doc_mode.output);
-    EXPECT_TRUE(legacy_doc_mode_column.enable_doc_mode());
-    EXPECT_EQ(legacy_doc_mode_column.get_subcolumns().size(), 1);
-    ASSERT_EQ(legacy_doc_mode_column.serialized_doc_value_column_offsets().size(), 1);
-    EXPECT_EQ(legacy_doc_mode_column.serialized_doc_value_column_offsets().back(), 1);
-
     const DataTypePtr max_subcolumns_variant = std::make_shared<DataTypeVariantV2>(2048, false);
     ExecutionResult result = execute_parse("parse_to_variant", make_strings({R"({"a":1})"}),
                                            string_type, 1, max_subcolumns_variant);

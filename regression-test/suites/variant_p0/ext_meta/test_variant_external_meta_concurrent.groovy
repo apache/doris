@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_variant_external_meta_concurrent", "nonConcurrent") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def set_be_config = { key, value ->
         String backend_id;
         def backendId_to_backendIP = [:]
@@ -24,8 +24,8 @@ suite("test_variant_external_meta_concurrent", "nonConcurrent") {
         getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
         backend_id = backendId_to_backendIP.keySet()[0]
-        def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), 
-                                                backendId_to_backendHttpPort.get(backend_id), 
+        def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id),
+                                                backendId_to_backendHttpPort.get(backend_id),
                                                 key, value)
         logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
     }
@@ -41,7 +41,7 @@ suite("test_variant_external_meta_concurrent", "nonConcurrent") {
         DISTRIBUTED BY HASH(k) BUCKETS 4
         properties("replication_num" = "1", "disable_auto_compaction" = "true", "storage_format" = "V3");
     """
-    
+
     // Insert data with many subcolumns to stress test external meta loading
     for (int i = 0; i < 20; i++) {
         def fields = []
@@ -51,11 +51,11 @@ suite("test_variant_external_meta_concurrent", "nonConcurrent") {
         def json = "{" + fields.join(", ") + "}"
         sql """insert into test_concurrent_read values (${i}, ${variantV2Function}('${json}'))"""
     }
-    
+
     // Run concurrent queries that will trigger external meta loading
     def threads = []
     def results = [].asSynchronized()
-    
+
     for (int t = 0; t < 5; t++) {
         def threadId = t
         threads.add(Thread.start {
@@ -63,7 +63,7 @@ suite("test_variant_external_meta_concurrent", "nonConcurrent") {
                 // Each thread queries different fields
                 def fieldIdx = threadId * 10
                 def result = sql """
-                    select count(*) from test_concurrent_read 
+                    select count(*) from test_concurrent_read
                     where cast(v['field_${fieldIdx}'] as int) is not null
                 """
                 results.add([threadId: threadId, success: true, result: result])
@@ -73,16 +73,16 @@ suite("test_variant_external_meta_concurrent", "nonConcurrent") {
             }
         })
     }
-    
+
     threads.each { it.join() }
-    
+
     // Verify all threads succeeded
     def failures = results.findAll { !it.success }
     if (!failures.isEmpty()) {
         logger.error("Concurrent read test failed: ${failures}")
         throw new Exception("Concurrent read test had failures: ${failures}")
     }
-    
+
     qt_concurrent_1 "select count(*) from test_concurrent_read"
     qt_concurrent_2 "select count(distinct k) from test_concurrent_read"
 
@@ -99,15 +99,15 @@ suite("test_variant_external_meta_concurrent", "nonConcurrent") {
             DISTRIBUTED BY HASH(k) BUCKETS 1
             properties("replication_num" = "1", "disable_auto_compaction" = "true", "storage_format" = "V3");
         """
-        
+
         sql """insert into ${tableName} values (1, ${variantV2Function}('{"table_${tableIdx}": ${tableIdx}}'))"""
         sql """insert into ${tableName} values (2, ${variantV2Function}('{"table_${tableIdx}": ${tableIdx * 10}}'))"""
     }
-    
+
     // Query all tables concurrently
     threads = []
     results = [].asSynchronized()
-    
+
     for (int t = 0; t < 5; t++) {
         def tableIdx = t
         def tableName = "test_multi_table_${tableIdx}"
@@ -123,9 +123,9 @@ suite("test_variant_external_meta_concurrent", "nonConcurrent") {
             }
         })
     }
-    
+
     threads.each { it.join() }
-    
+
     failures = results.findAll { !it.success }
     if (!failures.isEmpty()) {
         throw new Exception("Multi-table concurrent test had failures: ${failures}")
@@ -142,15 +142,15 @@ suite("test_variant_external_meta_concurrent", "nonConcurrent") {
         DISTRIBUTED BY HASH(k) BUCKETS 4
         properties("replication_num" = "1", "disable_auto_compaction" = "true", "storage_format" = "V3");
     """
-    
+
     // Initial data
     for (int i = 0; i < 10; i++) {
         sql """insert into test_concurrent_write_read values (${i}, ${variantV2Function}('{"initial": ${i}}'))"""
     }
-    
+
     threads = []
     results = [].asSynchronized()
-    
+
     // Start reader threads
     for (int t = 0; t < 3; t++) {
         def threadId = t
@@ -166,7 +166,7 @@ suite("test_variant_external_meta_concurrent", "nonConcurrent") {
             }
         })
     }
-    
+
     // Start writer threads
     for (int t = 0; t < 2; t++) {
         def threadId = t
@@ -183,14 +183,14 @@ suite("test_variant_external_meta_concurrent", "nonConcurrent") {
             }
         })
     }
-    
+
     threads.each { it.join() }
-    
+
     failures = results.findAll { !it.success }
     if (!failures.isEmpty()) {
         throw new Exception("Concurrent write-read test had failures: ${failures}")
     }
-    
+
     qt_write_read_1 "select count(*) from test_concurrent_write_read"
     qt_write_read_2 "select count(*) from test_concurrent_write_read where cast(v['initial'] as int) is not null"
     qt_write_read_3 "select count(*) from test_concurrent_write_read where cast(v['writer'] as int) is not null"
@@ -206,16 +206,16 @@ suite("test_variant_external_meta_concurrent", "nonConcurrent") {
         DISTRIBUTED BY HASH(k) BUCKETS 2
         properties("replication_num" = "1", "disable_auto_compaction" = "true", "storage_format" = "V3");
     """
-    
+
     // Insert multiple small segments
     for (int i = 0; i < 15; i++) {
         sql """insert into test_compaction_stress values (${i}, ${variantV2Function}('{"segment": ${i}, "value": ${i * 100}}'))"""
     }
-    
+
     // Trigger compaction while querying
     threads = []
     results = [].asSynchronized()
-    
+
     // Query thread
     threads.add(Thread.start {
         try {
@@ -228,10 +228,10 @@ suite("test_variant_external_meta_concurrent", "nonConcurrent") {
             results.add([type: 'query', success: false, error: e.message])
         }
     })
-    
+
     // Give query thread a head start
     Thread.sleep(100)
-    
+
     // Compaction thread
     threads.add(Thread.start {
         try {
@@ -241,14 +241,14 @@ suite("test_variant_external_meta_concurrent", "nonConcurrent") {
             results.add([type: 'compaction', success: false, error: e.message])
         }
     })
-    
+
     threads.each { it.join() }
-    
+
     failures = results.findAll { !it.success }
     if (!failures.isEmpty()) {
         throw new Exception("Compaction stress test had failures: ${failures}")
     }
-    
+
     qt_stress_1 "select count(*) from test_compaction_stress"
     qt_stress_2 "select k, v['segment'] from test_compaction_stress order by k limit 5"
 
@@ -263,35 +263,35 @@ suite("test_variant_external_meta_concurrent", "nonConcurrent") {
         DISTRIBUTED BY HASH(k) BUCKETS 1
         properties("replication_num" = "1", "disable_auto_compaction" = "true", "storage_format" = "V3");
     """
-    
+
     // Insert data with many subcolumns
     def fields = []
     for (int i = 0; i < 100; i++) {
         fields.add("\"cache_field_${i}\": ${i}")
     }
     def json = "{" + fields.join(", ") + "}"
-    
+
     for (int i = 0; i < 5; i++) {
         sql """insert into test_cache_behavior values (${i}, ${variantV2Function}('${json}'))"""
     }
-    
+
     // First query - should load external meta
     def startTime = System.currentTimeMillis()
-    sql """select k, v['cache_field_0'], v['cache_field_50'], v['cache_field_99'] 
+    sql """select k, v['cache_field_0'], v['cache_field_50'], v['cache_field_99']
            from test_cache_behavior order by k"""
     def firstQueryTime = System.currentTimeMillis() - startTime
-    
+
     // Subsequent queries - should use cached meta (should be faster)
     startTime = System.currentTimeMillis()
     for (int i = 0; i < 5; i++) {
-        sql """select k, v['cache_field_0'], v['cache_field_50'], v['cache_field_99'] 
+        sql """select k, v['cache_field_0'], v['cache_field_50'], v['cache_field_99']
                from test_cache_behavior order by k"""
     }
     def cachedQueriesTime = System.currentTimeMillis() - startTime
     def avgCachedTime = cachedQueriesTime / 5
-    
+
     logger.info("First query time: ${firstQueryTime}ms, Avg cached query time: ${avgCachedTime}ms")
-    
+
     qt_cache_1 "select count(*) from test_cache_behavior"
 
     // Cleanup
@@ -302,6 +302,6 @@ suite("test_variant_external_meta_concurrent", "nonConcurrent") {
     sql "DROP TABLE IF EXISTS test_concurrent_write_read"
     sql "DROP TABLE IF EXISTS test_compaction_stress"
     sql "DROP TABLE IF EXISTS test_cache_behavior"
-    
+
 }
 

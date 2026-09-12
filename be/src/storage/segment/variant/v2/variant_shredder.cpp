@@ -28,7 +28,6 @@
 #include "core/assert_cast.h"
 #include "core/column/column_map.h"
 #include "core/column/column_string.h"
-#include "core/column/column_variant.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "exec/common/hash_table/phmap_fwd_decl.h"
@@ -276,15 +275,9 @@ struct VariantShredder::Impl {
                     storage_type = DataTypeFactory::instance().create_data_type(info.column);
                 }
             }
-            if (builder->non_null_rows() == 0) {
-                if (!is_typed_path || options.typed_paths_to_sparse) {
-                    continue;
-                }
-                RETURN_IF_ERROR(builder->convert_to(storage_type));
-            } else {
-                RETURN_IF_ERROR(builder->convert_to(
-                        normalize_variant_path_integer_widths(builder->type())));
-            }
+            DORIS_CHECK_GT(builder->non_null_rows(), 0);
+            RETURN_IF_ERROR(
+                    builder->convert_to(normalize_variant_path_integer_widths(builder->type())));
             if (builder->non_null_rows() != 0 &&
                 variant_path_type_contains_nothing(builder->type()) &&
                 (storage_type == nullptr || variant_path_type_contains_nothing(storage_type))) {
@@ -514,7 +507,7 @@ struct VariantShredder::Impl {
         sparse_maps.reserve(options.sparse_bucket_count);
         result->binary_buckets.reserve(options.sparse_bucket_count);
         for (uint32_t bucket = 0; bucket < options.sparse_bucket_count; ++bucket) {
-            MutableColumnPtr map = ColumnVariant::create_binary_column_fn();
+            MutableColumnPtr map = variant_util::create_variant_binary_column();
             sparse_maps.push_back(assert_cast<ColumnMap*>(map.get()));
             sparse_owners.emplace_back(std::move(map));
         }
@@ -570,7 +563,7 @@ struct VariantShredder::Impl {
         owners.reserve(options.doc_bucket_count);
         maps.reserve(options.doc_bucket_count);
         for (uint32_t bucket = 0; bucket < options.doc_bucket_count; ++bucket) {
-            MutableColumnPtr map = ColumnVariant::create_binary_column_fn();
+            MutableColumnPtr map = variant_util::create_variant_binary_column();
             maps.push_back(assert_cast<ColumnMap*>(map.get()));
             owners.emplace_back(std::move(map));
         }

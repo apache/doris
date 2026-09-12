@@ -16,7 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_escaped_chars", "p0"){
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def tableName = "variant_escape_chars"
 
     sql """ DROP TABLE IF EXISTS variant_escape_chars """
@@ -24,7 +24,7 @@ suite("regression_test_variant_escaped_chars", "p0"){
     sql """
         CREATE TABLE IF NOT EXISTS variant_escape_chars (
             `id` INT,
-            `description` VARIANT 
+            `description` VARIANT
         ) ENGINE=OLAP
         DUPLICATE KEY(`id`)
         COMMENT 'This is a test table with escape characters in description'

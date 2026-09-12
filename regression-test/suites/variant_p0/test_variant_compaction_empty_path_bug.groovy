@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_variant_compaction_empty_path_bug", "nonConcurrent") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def tableName = "test_variant_empty_path_compaction"
 
     try {
@@ -120,7 +120,7 @@ suite("test_variant_compaction_empty_path_bug", "nonConcurrent") {
             qt_col_a_after "SELECT k, v['a'] FROM ${tableName} WHERE v['a'] IS NOT NULL ORDER BY k"
             qt_col_d_after "SELECT k, v['d'] FROM ${tableName} WHERE v['d'] IS NOT NULL ORDER BY k"
 
-            // Test empty key access if supported
+            // Empty object keys remain addressable after compaction.
             qt_empty_key "SELECT k, v[''] FROM ${tableName} WHERE v[''] IS NOT NULL ORDER BY k"
 
         } catch (Exception e) {

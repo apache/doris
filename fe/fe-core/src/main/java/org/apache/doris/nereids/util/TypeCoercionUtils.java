@@ -1243,7 +1243,7 @@ public class TypeCoercionUtils {
         } else if (right instanceof NullType) {
             return Optional.of(left);
         } else if (left instanceof VariantType && right instanceof VariantType) {
-            return findCommonVariantType((VariantType) left, (VariantType) right);
+            return findCommonVariantType();
         } else if (left instanceof VariantType) {
             return Optional.of(replaceSpecifiedType(replaceDecimalV3WithTarget(replaceSpecifiedType(
                             replaceDateLikeWithMaxPrecision(replaceSpecifiedType(
@@ -1316,8 +1316,11 @@ public class TypeCoercionUtils {
         return Optional.empty();
     }
 
-    private static Optional<DataType> findCommonVariantType(VariantType left, VariantType right) {
-        return left.equals(right) ? Optional.of(left) : Optional.empty();
+    private static Optional<DataType> findCommonVariantType() {
+        // Variant properties control the storage layout, but all Variant values use the same
+        // runtime representation. Use the property-neutral compute type so that the common type
+        // does not depend on which input happens to be visited first.
+        return Optional.of(VariantType.INSTANCE);
     }
 
     private static Optional<DataType> findWiderPrimitiveTypeForTwo(
@@ -2649,7 +2652,7 @@ public class TypeCoercionUtils {
         }
 
         if (t1 instanceof VariantType && t2 instanceof VariantType) {
-            return findCommonVariantType((VariantType) t1, (VariantType) t2);
+            return findCommonVariantType();
         }
 
         // objectType only support compare with itself, so return empty here.

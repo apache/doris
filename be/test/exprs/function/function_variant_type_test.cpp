@@ -126,7 +126,7 @@ TEST(FunctionVariantTypeTest, VariantV2OuterNullRemainsSqlNull) {
     expect_values(result, {std::nullopt, "bool"});
 }
 
-TEST(FunctionVariantTypeTest, LegacyOuterNullRemainsSqlNull) {
+TEST(FunctionVariantTypeTest, PublicVariantAliasOuterNullRemainsSqlNull) {
     const auto variant_type = std::make_shared<DataTypeVariant>();
     MutableColumnPtr source = variant_type->create_column();
     source->insert_default();
@@ -143,17 +143,14 @@ TEST(FunctionVariantTypeTest, LegacyOuterNullRemainsSqlNull) {
     EXPECT_TRUE(output.is_null_at(0));
 }
 
-TEST(FunctionVariantTypeTest, LegacyInternalNullIsSqlNull) {
+TEST(FunctionVariantTypeTest, PublicVariantAliasDefaultIsObject) {
     const auto variant_type = std::make_shared<DataTypeVariant>();
     MutableColumnPtr source = variant_type->create_column();
     source->insert_default();
 
     const ExecutionResult result = execute_variant_type(std::move(source), variant_type);
 
-    ASSERT_TRUE(result.status.ok()) << result.status;
-    const auto& output = assert_cast<const ColumnNullable&>(*result.output);
-    ASSERT_EQ(output.size(), 1);
-    EXPECT_TRUE(output.is_null_at(0));
+    expect_values(result, {"object"});
 }
 
 } // namespace doris

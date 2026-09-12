@@ -542,6 +542,13 @@ Status assemble_hierarchical_row(StorageMapKind storage_map_kind, bool has_root,
                                         pending, emitter));
     }
     if (!emitter->emitted) {
+        if (reads_whole_variant && has_root && storage_map_kind == StorageMapKind::NONE &&
+            materialized_slots.empty()) {
+            // Flat-leaf compaction reads only the persisted root sidecar. An empty sidecar on a
+            // non-null physical row is an inner Variant null placeholder, not an outer SQL NULL.
+            row->add_null();
+            return Status::OK();
+        }
         if (reads_whole_variant &&
             (storage_map_kind != StorageMapKind::NONE || !materialized_slots.empty())) {
             // In hierarchical root storage, an outer-non-null row with no emitted paths is the
@@ -615,7 +622,7 @@ DorisVector<MaterializedSlot> build_materialized_slots(const VariantAssemblerOpt
     for (size_t source_index = 0; source_index < options.materialized_paths.size();
          ++source_index) {
         const auto& source = options.materialized_paths[source_index];
-        // Legacy ColumnVariant segments may materialize a scalar/array root at the empty path.
+        // Older segments may materialize a scalar/array root at the empty path.
         // The ordered row merge retains it when it is the only value and drops it when descendants
         // from another physical stream form the visible object.
         DORIS_CHECK(source.type != nullptr);

@@ -16,7 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_add_drop_column", "variant_type"){
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def table_name = "variant_add_drop_column"
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """
