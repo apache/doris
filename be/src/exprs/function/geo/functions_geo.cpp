@@ -40,6 +40,7 @@
 #include "exprs/function/geo/geo_common.h"
 #include "exprs/function/geo/geo_types.h"
 #include "exprs/function/simple_function_factory.h"
+#include "exprs/function/string_hex_util.h"
 
 namespace doris {
 
@@ -119,6 +120,20 @@ static bool has_unsupported_spatial_wkb_metadata(StringRef value) {
     }
 
     return type >= 1000 && type < 4000;
+}
+
+static bool decode_wkb_hex(StringRef value, std::string* wkb) {
+    const char* data = value.data;
+    size_t size = value.size;
+    if (size >= 2 && ((data[0] == '0' && data[1] == 'x') || (data[0] == '\\' && data[1] == 'x'))) {
+        data += 2;
+        size -= 2;
+    }
+    if (size == 0 || (size & 1) != 0) {
+        return false;
+    }
+    wkb->resize(size / 2);
+    return string_hex::hex_decode(data, size, wkb->data()) == size / 2;
 }
 
 Status validate_spatial_wkb_inputs(const Block& block, const ColumnNumbers& arguments) {
@@ -754,18 +769,16 @@ template <typename Impl>
 struct StGeoFromWkb {
     static constexpr auto NAME = Impl::NAME;
     static const size_t NUM_ARGS = 1;
-    using Type = DataTypeString;
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 1);
-        auto return_type = block.get_data_type(result);
         auto& geo = block.get_by_position(arguments[0]).column;
 
         const auto size = geo->size();
-        auto res = ColumnString::create();
+        auto res = ColumnSpatial::create(TYPE_GEOMETRY);
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
         GeoParseStatus status;
-        std::string buf;
+        std::string wkb;
         for (int row = 0; row < size; ++row) {
             auto value = geo->get_data_at(row);
             std::unique_ptr<GeoShape> shape = GeoShape::from_wkb(value.data, value.size, status);
@@ -774,13 +787,35 @@ struct StGeoFromWkb {
                 res->insert_default();
                 continue;
             }
-            buf.clear();
-            shape->encode_to(&buf);
-            res->insert_data(buf.data(), buf.size());
+            if (!decode_wkb_hex(value, &wkb)) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            res->insert_data(wkb.data(), wkb.size());
         }
         block.replace_by_position(result,
                                   ColumnNullable::create(std::move(res), std::move(null_map)));
         return Status::OK();
+    }
+};
+
+template <typename Impl>
+class SpatialWkbConstructorFunction : public IFunction {
+public:
+    static constexpr auto name = Impl::NAME;
+    static FunctionPtr create() { return std::make_shared<SpatialWkbConstructorFunction<Impl>>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return Impl::NUM_ARGS; }
+    bool is_variadic() const override { return false; }
+
+    DataTypePtr get_return_type_impl(const DataTypes&) const override {
+        return make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY));
+    }
+
+    Status execute_impl(FunctionContext*, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t) const override {
+        return Impl::execute(block, arguments, result);
     }
 };
 
@@ -999,8 +1034,8 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StGeoFromText<StPolyFromText>>>();
     factory.register_function<GeoFunction<StAreaSquareMeters>>();
     factory.register_function<GeoFunction<StAreaSquareKm>>();
-    factory.register_function<GeoFunction<StGeoFromWkb<StGeometryFromWKB>>>();
-    factory.register_function<GeoFunction<StGeoFromWkb<StGeomFromWKB>>>();
+    factory.register_function<SpatialWkbConstructorFunction<StGeoFromWkb<StGeometryFromWKB>>>();
+    factory.register_function<SpatialWkbConstructorFunction<StGeoFromWkb<StGeomFromWKB>>>();
     factory.register_function<GeoFunction<StAsBinary>>();
     factory.register_function<GeoFunction<StLength>>();
     factory.register_function<GeoFunction<StGeometryType>>();
