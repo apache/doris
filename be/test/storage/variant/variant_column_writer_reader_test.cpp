@@ -43,6 +43,7 @@
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "core/string_buffer.hpp"
 #include "core/value/jsonb_value.h"
+#include "core/value/uuid_value.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_parquet_encoding.h"
 #include "gtest/gtest.h"
@@ -282,6 +283,30 @@ TEST(VariantPathBuilderTest, PromotesValuesAndMaterializesMissingRows) {
             EXPECT_DOUBLE_EQ(data[row], *expected[row]);
         }
     }
+}
+
+TEST(VariantPathBuilderTest, PreservesNativeUuidThroughMaterialization) {
+    const std::array<uint8_t, 16> bytes {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                                         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+    VariantBatchBuilder value_builder;
+    auto row = value_builder.begin_row();
+    row.add_uuid(bytes);
+    row.finish();
+    auto values = value_builder.finish_batch();
+    segment_v2::VariantPathBuilder builder(PathInData("u"));
+    ASSERT_TRUE(builder.append(values.value_at(0), 0).ok());
+    ASSERT_TRUE(builder.append(values.value_at(0), 2).ok());
+    ASSERT_TRUE(builder.complete_rows(4).ok());
+    EXPECT_EQ(remove_nullable(builder.type())->get_primitive_type(), TYPE_UUID);
+    EXPECT_EQ(builder.stable_scalar_append_count(), 1);
+    ColumnPtr materialized;
+    ASSERT_TRUE(builder.materialize(&materialized).ok());
+    const auto& nullable = assert_cast<const ColumnNullable&>(*materialized);
+    const auto& uuids = assert_cast<const ColumnUUID&>(nullable.get_nested_column());
+    EXPECT_EQ(UUIDValue::to_big_endian(uuids.get_element(0)), bytes);
+    EXPECT_TRUE(nullable.is_null_at(1));
+    EXPECT_EQ(UUIDValue::to_big_endian(uuids.get_element(2)), bytes);
+    EXPECT_TRUE(nullable.is_null_at(3));
 }
 
 TEST(VariantPathBuilderTest, UsesBigintForEncodedIntegersWithoutPromotion) {

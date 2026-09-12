@@ -681,6 +681,7 @@ template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DECIMAL256>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_BOOL>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_IPV4>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_IPV6>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_UUID>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_FLOAT>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DOUBLE>;
 

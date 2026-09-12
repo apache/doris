@@ -52,11 +52,13 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_time.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_uuid.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/value/decimalv2_value.h"
 #include "core/value/ipv4_value.h"
 #include "core/value/ipv6_value.h"
 #include "core/value/timestamptz_value.h"
+#include "core/value/uuid_value.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_canonical.h"
 #include "core/value/variant/variant_parquet_encoding.h"
@@ -2791,6 +2793,43 @@ TEST(ColumnVariantV2Test, MixedEncodedTypedInsertAndGatherPreserveCanonicalRows)
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity) -- exhaustive E/T adapter matrix.
+TEST(ColumnVariantV2Test, TypedUuidMatchesNativeEncodingAndNulls) {
+    const std::array<uint8_t, 16> bytes {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                                         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+    auto values = ColumnUUID::create();
+    values->insert_value(UUIDValue::from_big_endian(bytes.data()));
+    values->insert_default();
+    auto nulls = ColumnUInt8::create();
+    nulls->insert_value(0);
+    nulls->insert_value(1);
+    auto typed = ColumnVariantV2::create_typed(
+            ColumnNullable::create(std::move(values), std::move(nulls)),
+            std::make_shared<DataTypeUUID>());
+    VariantBatchBuilder builder;
+    auto uuid_row = builder.begin_row();
+    uuid_row.add_uuid(bytes);
+    uuid_row.finish();
+    auto null_row = builder.begin_row();
+    null_row.add_null();
+    null_row.finish();
+    auto native = builder.finish_batch();
+    auto encoded = ColumnVariantV2::create();
+    insert_encoded_field(*encoded, VariantField::from_ref(native.value_at(0)));
+    insert_encoded_field(*encoded, VariantField::from_ref(native.value_at(1)));
+    for (size_t row = 0; row < 2; ++row) {
+        SipHash typed_hash;
+        SipHash encoded_hash;
+        typed->update_hash_with_value(row, typed_hash);
+        encoded->update_hash_with_value(row, encoded_hash);
+        EXPECT_EQ(typed_hash.get64(), encoded_hash.get64());
+        EXPECT_EQ(typed->serialize_size_at(row), encoded->serialize_size_at(row));
+    }
+    ensure_typed_fields_match_direct_encoding(*typed);
+    EXPECT_EQ(typed->get_value_ref(0).primitive_id(), VariantPrimitiveId::UUID);
+    EXPECT_EQ(typed->get_value_ref(0).get_uuid(), bytes);
+    EXPECT_EQ(typed->get_value_ref(1).primitive_id(), VariantPrimitiveId::NULL_VALUE);
+}
+
 TEST(ColumnVariantV2Test, TypedCanonicalHashCrcAndArenaMatchEncoded) {
     constexpr std::array<int32_t, 3> VALUES {42, 0, -7};
     constexpr std::array<uint8_t, 3> NULLS {0, 1, 0};

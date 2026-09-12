@@ -722,6 +722,9 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             case STRING:
                 preparedStatement.setString(parameterIndex, column.getStringWithOffset(rowIdx));
                 break;
+            case UUID:
+                preparedStatement.setObject(parameterIndex, column.getUuid(rowIdx));
+                break;
             case BINARY:
             case VARBINARY:
                 preparedStatement.setBytes(parameterIndex, column.getBytesVarbinary(rowIdx));
@@ -777,6 +780,9 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             case VARCHAR:
             case STRING:
                 preparedStatement.setNull(parameterIndex, Types.VARCHAR);
+                break;
+            case UUID:
+                preparedStatement.setNull(parameterIndex, Types.OTHER);
                 break;
             case BINARY:
             case VARBINARY:
@@ -844,6 +850,5 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         return hexString.toString();
     }
 }
-
 
 

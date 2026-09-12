@@ -111,6 +111,9 @@ std::shared_ptr<ColumnPredicate> create_bloom_filter_predicate(
     case TYPE_IPV6: {
         return BloomFilterColumnPredicate<TYPE_IPV6>::create_shared(cid, col_name, filter_olap);
     }
+    case TYPE_UUID: {
+        return BloomFilterColumnPredicate<TYPE_UUID>::create_shared(cid, col_name, filter_olap);
+    }
     default:
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         fmt::format("Cannot use bloom filter for type: {}",

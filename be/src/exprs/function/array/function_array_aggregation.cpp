@@ -167,9 +167,10 @@ struct ArrayAggregateImpl {
         const auto& offsets = array.get_offsets();
         if constexpr (operation == AggregateOperation::MAX ||
                       operation == AggregateOperation::MIN) {
-            // min/max can only be applied on ip type
+            // These fixed-width non-numeric types support min/max only.
             if (execute_type<TYPE_IPV4>(res, type, data, offsets) ||
-                execute_type<TYPE_IPV6>(res, type, data, offsets)) {
+                execute_type<TYPE_IPV6>(res, type, data, offsets) ||
+                execute_type<TYPE_UUID>(res, type, data, offsets)) {
                 block.replace_by_position(result, std::move(res));
                 return Status::OK();
             }

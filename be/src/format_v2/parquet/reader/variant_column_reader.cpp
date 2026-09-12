@@ -205,6 +205,16 @@ void append_typed_scalar(const ParquetColumnSchema& schema, const IColumn& colum
                 variant_timestamp_micros(value, row, "Parquet Variant TIMESTAMP"), true);
         return;
     }
+    case TYPE_UUID: {
+        auto value = assert_cast<const ColumnUUID&>(column).get_data()[row];
+        std::array<uint8_t, 16> bytes {};
+        for (size_t i = bytes.size(); i > 0; --i) {
+            bytes[i - 1] = static_cast<uint8_t>(value);
+            value >>= 8;
+        }
+        builder.add_uuid(bytes);
+        return;
+    }
     case TYPE_VARBINARY: {
         const StringRef value = column.get_data_at(row);
         if (!schema.type_descriptor.is_uuid) {

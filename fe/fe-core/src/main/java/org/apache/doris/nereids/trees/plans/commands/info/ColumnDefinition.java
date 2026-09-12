@@ -211,6 +211,10 @@ public class ColumnDefinition {
         return onUpdateDefaultValue.isPresent();
     }
 
+    public boolean hasUuidDefaultValue() {
+        return defaultValue.map(DefaultValue::isUuidFunction).orElse(false);
+    }
+
     /**
      * Returns the column's default value as the catalog-level string (the same value the translated
      * {@link org.apache.doris.catalog.Column#getDefaultValue()} carries), or {@code null} when the column

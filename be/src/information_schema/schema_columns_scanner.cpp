@@ -167,6 +167,8 @@ std::string SchemaColumnsScanner::_to_mysql_data_type_string(TColumnDesc& desc) 
         return "ipv4";
     case TPrimitiveType::IPV6:
         return "ipv6";
+    case TPrimitiveType::UUID:
+        return "uuid";
     case TPrimitiveType::VARIANT:
         return "variant";
     default:
@@ -297,6 +299,8 @@ std::string SchemaColumnsScanner::_type_to_string(TColumnDesc& desc) {
         return "ipv4";
     case TPrimitiveType::IPV6:
         return "ipv6";
+    case TPrimitiveType::UUID:
+        return "uuid";
     case TPrimitiveType::VARIANT:
         return "variant";
     default:

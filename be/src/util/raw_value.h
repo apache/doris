@@ -112,6 +112,7 @@ inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const PrimitiveT
     case TYPE_IPV4:
         return HashUtil::zlib_crc_hash(v, 4, seed);
     case TYPE_IPV6:
+    case TYPE_UUID:
         return HashUtil::zlib_crc_hash(v, 16, seed);
     default:
         DCHECK(false) << "invalid type: " << type;

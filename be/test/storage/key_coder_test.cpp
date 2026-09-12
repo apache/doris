@@ -629,6 +629,13 @@ TEST_F(KeyCoderTest, full_encode_field_as_key_preserves_compute_layer_ordering) 
              ip6(0xFFFFFFFFFFFFFFFFULL,
                  0xFFFFFFFFFFFFFFFEULL)}, // ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffe
             "IPV6");
+
+    // -------- UUID (uint128_t, canonical unsigned order) --------
+    check_full_encode_preserves_order<TYPE_UUID, uint128_t>(
+            FieldType::OLAP_FIELD_TYPE_UUID,
+            {ip6(0, 0), ip6(0, 1), ip6(0, 0xFFFFFFFFFFFFFFFFULL), ip6(1, 0),
+             ip6(0x8000000000000000ULL, 0), ip6(0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL)},
+            "UUID");
 }
 
 TEST_F(KeyCoderTest, test_char) {

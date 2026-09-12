@@ -34,6 +34,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_time.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_uuid.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 
@@ -1106,6 +1107,46 @@ TEST(DataTypeSerDeParquetTest, NonNullableDictionaryConversionFailureRemainsAnEr
     EXPECT_FALSE(
             type.get_serde()->read_column_from_parquet(*column, source, context, 1, state).ok());
     EXPECT_EQ(column->size(), 0);
+}
+
+TEST(DataTypeSerDeParquetTest, UuidPlainAndDictionaryPreserveBigEndianBits) {
+    const std::vector<uint8_t> bytes {0,    0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                                      0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+    DataTypeUUID type;
+    auto serde = type.get_serde();
+    ParquetDecodeContext context;
+    context.physical_type = ParquetPhysicalType::FIXED_LEN_BYTE_ARRAY;
+    context.type_length = 16;
+    context.logical_uuid = true;
+    for (bool dictionary : {false, true}) {
+        TestParquetDecodeSource source;
+        source.set_fixed_bytes(bytes, 16);
+        source.set_dictionary(bytes, 16, {0, 0});
+        context.encoding =
+                dictionary ? ParquetValueEncoding::DICTIONARY : ParquetValueEncoding::PLAIN;
+        ParquetMaterializationState state;
+        auto column = type.create_column();
+        ASSERT_TRUE(serde->read_column_from_parquet(*column, source, context, 1, state).ok());
+        EXPECT_EQ(type.to_string(*column, 0), "00112233-4455-6677-8899-aabbccddeeff");
+        if (dictionary) {
+            ASSERT_TRUE(serde->read_column_from_parquet(*column, source, context, 1, state).ok());
+            EXPECT_EQ(source.dictionary_decode_calls(), 1);
+            EXPECT_EQ(type.to_string(*column, 1), type.to_string(*column, 0));
+            source.set_dictionary(std::vector<uint8_t>(16, 0xff), 16, {0});
+            ASSERT_TRUE(serde->read_column_from_parquet(*column, source, context, 1, state).ok());
+            EXPECT_EQ(source.dictionary_decode_calls(), 2);
+            EXPECT_EQ(type.to_string(*column, 2), "ffffffff-ffff-ffff-ffff-ffffffffffff");
+        }
+    }
+    TestParquetDecodeSource bad;
+    bad.set_fixed_bytes(std::vector<uint8_t>(15), 15);
+    ParquetMaterializationState state;
+    auto column = type.create_column();
+    context.encoding = ParquetValueEncoding::PLAIN;
+    EXPECT_FALSE(serde->read_column_from_parquet(*column, bad, context, 1, state).ok());
+    EXPECT_EQ(column->size(), 0);
+    context.type_length = 15;
+    EXPECT_FALSE(serde->read_column_from_parquet(*column, bad, context, 1, state).ok());
 }
 
 } // namespace

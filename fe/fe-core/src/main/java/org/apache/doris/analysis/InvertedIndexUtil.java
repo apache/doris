@@ -103,7 +103,7 @@ public class InvertedIndexUtil {
      */
     public static boolean isSupportSniiNumericIdxType(PrimitiveType colType) {
         return colType.isNumericType() || colType.isDateLikeType() || colType.isTimeStampTzType()
-                || colType.isIPType() || colType == PrimitiveType.BOOLEAN;
+                || colType.isIPType() || colType.isUuidType() || colType == PrimitiveType.BOOLEAN;
     }
 
     public static void checkInvertedIndexParser(String indexColName, PrimitiveType colType,

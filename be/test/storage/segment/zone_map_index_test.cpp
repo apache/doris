@@ -35,6 +35,7 @@
 #include "core/uint24.h"
 #include "core/value/decimalv2_value.h"
 #include "core/value/timestamptz_value.h"
+#include "core/value/uuid_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/cast/cast_to_string.h"
@@ -637,6 +638,46 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
 
     EXPECT_EQ(true, zone_maps[2].has_null());
     EXPECT_EQ(false, zone_maps[2].has_not_null());
+}
+
+TEST_F(ColumnZoneMapTest, UuidPage) {
+    TabletColumn field;
+    field.set_name("uuid");
+    field.set_unique_id(0);
+    field.set_type(FieldType::OLAP_FIELD_TYPE_UUID);
+    field.set_length(16);
+    field.set_index_length(16);
+    field.set_is_key(true);
+    field.set_is_nullable(true);
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_UUID, true);
+
+    std::unique_ptr<ZoneMapIndexWriter> writer;
+    ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, &field, writer).ok());
+
+    uint128_t values[3];
+    ASSERT_TRUE(UUIDValue::from_string(values[0], "00112233-4455-6677-8899-aabbccddeeff"));
+    ASSERT_TRUE(UUIDValue::from_string(values[1], "00000000-0000-0000-0000-000000000001"));
+    ASSERT_TRUE(UUIDValue::from_string(values[2], "ffffffff-ffff-ffff-ffff-ffffffffffff"));
+    writer->add_values(values, 3);
+    writer->add_nulls(1);
+    ASSERT_TRUE(writer->flush().ok());
+
+    std::string filename = kTestDir + "/UuidPage";
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(filename, &file_writer).ok());
+    ColumnIndexMetaPB index_meta;
+    ASSERT_TRUE(writer->finish(file_writer.get(), &index_meta).ok());
+    ASSERT_TRUE(file_writer->close().ok());
+
+    const auto& segment_zone_map = index_meta.zone_map_index().segment_zone_map();
+    EXPECT_EQ("00000000-0000-0000-0000-000000000001", segment_zone_map.min());
+    EXPECT_EQ("ffffffff-ffff-ffff-ffff-ffffffffffff", segment_zone_map.max());
+    EXPECT_TRUE(segment_zone_map.has_null());
+
+    ZoneMap decoded;
+    ASSERT_TRUE(ZoneMap::from_proto(segment_zone_map, data_type, decoded).ok());
+    EXPECT_EQ(values[1], decoded.min_value.get<TYPE_UUID>());
+    EXPECT_EQ(values[2], decoded.max_value.get<TYPE_UUID>());
 }
 
 // Test for string

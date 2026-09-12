@@ -30,6 +30,8 @@ struct CastToString {
     static inline std::string from_int128(int128_t value);
     static inline std::string from_uint128(uint128_t value);
     static inline std::string from_uint128(UInt128 value);
+    static std::string from_uuid(UUIDValueType value);
+    static void push_uuid(UUIDValueType value, BufferWritable& bw);
 
     template <class SRC>
     static inline std::string from_number(const SRC& from);
@@ -166,6 +168,8 @@ constexpr size_t CastToString::string_length<TYPE_IPV4> = sizeof("255.255 .255.2
 template <>
 constexpr size_t CastToString::string_length<TYPE_IPV6> =
         sizeof("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff") - 1;
+template <>
+constexpr size_t CastToString::string_length<TYPE_UUID> = 36;
 
 // BOOLEAN
 template <>

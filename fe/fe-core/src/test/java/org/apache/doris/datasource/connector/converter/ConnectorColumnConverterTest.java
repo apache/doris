@@ -66,6 +66,14 @@ class ConnectorColumnConverterTest {
     }
 
     @Test
+    void testUuidTypeRoundtrip() {
+        ConnectorType connectorType = ConnectorColumnConverter.toConnectorType(Type.UUID);
+
+        Assertions.assertEquals("UUID", connectorType.getTypeName());
+        Assertions.assertEquals(Type.UUID, ConnectorColumnConverter.convertType(connectorType));
+    }
+
+    @Test
     void testArrayTypeRoundtrip() {
         ArrayType arrayInt = ArrayType.create(ScalarType.INT, true);
         ConnectorType ct = ConnectorColumnConverter.toConnectorType(arrayInt);

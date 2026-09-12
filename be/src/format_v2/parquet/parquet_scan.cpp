@@ -1546,6 +1546,7 @@ bool get_typed_dictionary_raw_values(PrimitiveType primitive_type, const IColumn
         GET_TYPED_DICTIONARY_VALUES(TYPE_DECIMAL256);
         GET_TYPED_DICTIONARY_VALUES(TYPE_IPV4);
         GET_TYPED_DICTIONARY_VALUES(TYPE_IPV6);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_UUID);
 #undef GET_TYPED_DICTIONARY_VALUES
     default:
         return false;

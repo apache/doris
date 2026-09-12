@@ -92,7 +92,8 @@ private:
                       std::is_same_v<ColumnType, ColumnHLL> ||
                       std::is_same_v<ColumnType, ColumnQuantileState> ||
                       std::is_same_v<ColumnType, ColumnIPv4> ||
-                      std::is_same_v<ColumnType, ColumnIPv6>) {
+                      std::is_same_v<ColumnType, ColumnIPv6> ||
+                      std::is_same_v<ColumnType, ColumnUUID>) {
             // result_column and all then_column is not nullable.
             // can't simd when type is string.
             if (data_type()->is_nullable()) {
@@ -146,6 +147,7 @@ private:
             CASE_TYPE(TYPE_TIMESTAMP_NS, ColumnTimeStampNs)
             CASE_TYPE(TYPE_TIMESTAMPTZ, ColumnTimeStampTz)
             CASE_TYPE(TYPE_IPV6, ColumnIPv6)
+            CASE_TYPE(TYPE_UUID, ColumnUUID)
             CASE_TYPE(TYPE_IPV4, ColumnIPv4)
             CASE_TYPE(TYPE_ARRAY, ColumnArray)
             CASE_TYPE(TYPE_MAP, ColumnMap)
