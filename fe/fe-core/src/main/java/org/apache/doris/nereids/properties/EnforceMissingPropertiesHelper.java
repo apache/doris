@@ -171,12 +171,7 @@ public class EnforceMissingPropertiesHelper {
                     Lists.newArrayList(oldOutputProperty));
             enforcer.setCost(enforcerCost);
         }
-        curTotalCost = CostCalculator.addChildCost(
-                connectContext,
-                enforcer.getPlan(),
-                enforcerCost,
-                curTotalCost,
-                0);
+        curTotalCost = enforcerCost.add(curTotalCost, connectContext.getStatementContext().getCostWeight());
         if (enforcer.updateLowestCostTable(newOutputProperty,
                 Lists.newArrayList(oldOutputProperty), curTotalCost)) {
             enforcer.putOutputPropertiesMap(newOutputProperty, newOutputProperty);

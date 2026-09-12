@@ -22,6 +22,7 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
+import org.apache.doris.nereids.cost.CostWeight;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
@@ -1036,14 +1037,11 @@ public class Memo {
             List<Pair<Long, List<Integer>>> childrenId = new ArrayList<>();
             permute(children, 0, childrenId, new ArrayList<>());
             Cost cost = CostCalculator.calculateCost(connectContext, groupExpression, inputProperties);
+            CostWeight costWeight = connectContext.getStatementContext().getCostWeight();
             for (Pair<Long, List<Integer>> c : childrenId) {
                 Cost totalCost = cost;
                 for (int i = 0; i < children.size(); i++) {
-                    totalCost = CostCalculator.addChildCost(connectContext,
-                            groupExpression.getPlan(),
-                            totalCost,
-                            children.get(i).get(c.second.get(i)).second,
-                            i);
+                    totalCost = totalCost.add(children.get(i).get(c.second.get(i)).second, costWeight);
                 }
                 if (res.isEmpty()) {
                     Preconditions.checkArgument(

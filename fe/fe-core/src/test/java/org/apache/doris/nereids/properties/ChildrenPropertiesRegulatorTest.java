@@ -92,9 +92,6 @@ public class ChildrenPropertiesRegulatorTest {
         try (MockedStatic<CostCalculator> mockedCostCalculator = Mockito.mockStatic(CostCalculator.class)) {
             mockedCostCalculator.when(() -> CostCalculator.calculateCost(Mockito.any(), Mockito.any(),
                     Mockito.anyList())).thenReturn(Cost.zero());
-            mockedCostCalculator.when(() -> CostCalculator.addChildCost(Mockito.any(), Mockito.any(), Mockito.any(),
-                    Mockito.any(), Mockito.anyInt())).thenReturn(Cost.zero());
-
             // project, cannot merge
             Plan mockedChild = Mockito.mock(childClazz);
             Mockito.when(mockedChild.withGroupExpression(Mockito.any())).thenReturn(mockedChild);
@@ -181,9 +178,6 @@ public class ChildrenPropertiesRegulatorTest {
         try (MockedStatic<CostCalculator> mockedCostCalculator = Mockito.mockStatic(CostCalculator.class)) {
             mockedCostCalculator.when(() -> CostCalculator.calculateCost(Mockito.any(), Mockito.any(),
                     Mockito.anyList())).thenReturn(Cost.zero());
-            mockedCostCalculator.when(() -> CostCalculator.addChildCost(Mockito.any(), Mockito.any(), Mockito.any(),
-                    Mockito.any(), Mockito.anyInt())).thenReturn(Cost.zero());
-
             // project, cannot merge
             Plan mockedChild = Mockito.mock(childClazz);
             Mockito.when(mockedChild.withGroupExpression(Mockito.any())).thenReturn(mockedChild);
