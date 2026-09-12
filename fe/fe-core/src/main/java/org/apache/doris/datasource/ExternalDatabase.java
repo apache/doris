@@ -57,6 +57,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 /**
@@ -81,13 +82,15 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @SerializedName(value = "initialized")
     protected boolean initialized = false;
     // table name lower case -> table name
-    private Map<String, String> lowerCaseToTableName = Maps.newConcurrentMap();
+    private volatile Map<String, String> lowerCaseToTableName = Maps.newConcurrentMap();
     @SerializedName(value = "lastUpdateTime")
     protected long lastUpdateTime;
     protected final InitDatabaseLog.Type dbLogType;
     protected ExternalCatalog extCatalog;
 
     private MetaCache<T> metaCache;
+    private AtomicReference<TableMetadataLoadEpoch> metadataLoadEpoch =
+            new AtomicReference<>(new TableMetadataLoadEpoch(0, Long.MIN_VALUE));
 
     private volatile boolean isInitializing = false;
 
@@ -121,11 +124,20 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             LOG.debug("resetToUninitialized db name {}, id {}, isInitializing: {}, initialized: {}",
                     this.name, this.id, isInitializing, initialized, new Exception());
         }
-        synchronized (this) {
-            this.initialized = false;
-            this.lowerCaseToTableName = Maps.newConcurrentMap();
-            if (metaCache != null) {
-                metaCache.invalidateAll();
+        MetaCache<T> cacheToInvalidate = null;
+        try {
+            synchronized (this) {
+                metadataLoadEpoch.updateAndGet(epoch -> epoch.next(epoch.catalogEpoch));
+                this.initialized = false;
+                this.lowerCaseToTableName = Maps.newConcurrentMap();
+                cacheToInvalidate = metaCache;
+                if (cacheToInvalidate != null) {
+                    cacheToInvalidate.invalidateNames();
+                }
+            }
+        } finally {
+            if (cacheToInvalidate != null) {
+                cacheToInvalidate.invalidateObjects();
             }
         }
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(extCatalog.getId(), getFullName());
@@ -170,28 +182,30 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                     OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
                     Math.max(Config.max_meta_object_cache_num, 1),
                     ignored -> listTableNames(),
+                    this::updateLowerCaseToTableName,
+                    (remoteName, localName) -> lowerCaseToTableName.put(remoteName.toLowerCase(), remoteName),
+                    localName -> lowerCaseToTableName.remove(localName.toLowerCase()),
                     localTableName -> Optional.ofNullable(
                             buildTableForInit(null, localTableName,
                                     Util.genIdByName(extCatalog.getName(), name, localTableName),
                                     extCatalog,
-                                    this, true)), null);
+                                    this, true)), null,
+                    this::acquireTableMetadataLoadEpoch,
+                    this::isTableMetadataLoadEpochCurrent);
         }
     }
 
     private List<Pair<String, String>> listTableNames() {
         List<Pair<String, String>> tableNames;
-        lowerCaseToTableName.clear();
         if (name.equals(InfoSchemaDb.DATABASE_NAME)) {
             tableNames = ExternalInfoSchemaDatabase.listTableNames().stream()
                     .map(tableName -> {
-                        lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
                         return Pair.of(tableName, tableName);
                     })
                     .collect(Collectors.toList());
         } else if (name.equals(MysqlDb.DATABASE_NAME)) {
             tableNames = ExternalMysqlDatabase.listTableNames().stream()
                     .map(tableName -> {
-                        lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
                         return Pair.of(tableName, tableName);
                     })
                     .collect(Collectors.toList());
@@ -218,7 +232,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                     // Mode 2: preserve original remote case for display
                     localTableName = tableName;
                 }
-                lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
                 return Pair.of(tableName, localTableName);
             }).collect(Collectors.toList());
         }
@@ -255,6 +268,12 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             }
         }
         return tableNames;
+    }
+
+    private void updateLowerCaseToTableName(List<Pair<String, String>> names) {
+        Map<String, String> updated = Maps.newConcurrentMap();
+        names.forEach(pair -> updated.put(pair.key().toLowerCase(), pair.key()));
+        lowerCaseToTableName = updated;
     }
 
     public T buildTableForInit(String remoteTableName, String localTableName, long tblId,
@@ -430,13 +449,15 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     @Override
     public boolean isTableExist(String tableName) {
+        makeSureInitialized();
+        if (!isInitialized()) {
+            throw new IllegalStateException("Failed to initialize external database " + getFullName());
+        }
         String remoteTblName = tableName;
         if (this.isTableNamesCaseInsensitive()) {
             remoteTblName = lowerCaseToTableName.get(tableName.toLowerCase());
             if (remoteTblName == null) {
-                // Here we need to execute listTableNames() once to fill in lowerCaseToTableName
-                // to prevent lowerCaseToTableName from being empty in some cases
-                listTableNames();
+                metaCache.refreshNames();
                 remoteTblName = lowerCaseToTableName.get(tableName.toLowerCase());
                 if (remoteTblName == null) {
                     return false;
@@ -510,25 +531,21 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
         if (this.isTableNamesCaseInsensitive()) {
             finalName = lowerCaseToTableName.get(tableName.toLowerCase());
+            if (finalName == null && !isReplay) {
+                metaCache.refreshNames();
+                finalName = lowerCaseToTableName.get(tableName.toLowerCase());
+            }
             if (finalName == null) {
-                if (isReplay) {
-                    if (LOG.isDebugEnabled()) {
+                if (LOG.isDebugEnabled()) {
+                    if (isReplay) {
                         LOG.debug("failed to get final table name from: {}.{}.{}, is replay = true",
                                 getCatalog().getName(), getFullName(), tableName);
-                    }
-                    return null;
-                }
-                // Here we need to execute listTableNames() once to fill in lowerCaseToTableName
-                // to prevent lowerCaseToTableName from being empty in some cases
-                listTableNames();
-                finalName = lowerCaseToTableName.get(tableName.toLowerCase());
-                if (finalName == null) {
-                    if (LOG.isDebugEnabled()) {
+                    } else {
                         LOG.debug("failed to get final table name from: {}.{}.{}",
                                 getCatalog().getName(), getFullName(), tableName);
                     }
-                    return null;
                 }
+                return null;
             }
         }
         if (LOG.isDebugEnabled()) {
@@ -560,6 +577,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public void gsonPostProcess() throws IOException {
         this.initialized = false;
+        metadataLoadEpoch = new AtomicReference<>(new TableMetadataLoadEpoch(0, Long.MIN_VALUE));
         rwLock = new MonitoredReentrantReadWriteLock(true);
     }
 
@@ -579,7 +597,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         if (isInitialized()) {
             metaCache.invalidate(dorisTable.getName(),
                     Util.genIdByName(extCatalog.getName(), name, dorisTable.getName()));
-            lowerCaseToTableName.remove(dorisTable.getName().toLowerCase());
         }
 
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(dorisTable);
@@ -593,6 +610,29 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     // Only used for sync hive metastore event
     @Override
     public boolean registerTable(TableIf tableIf) {
+        return registerTable(tableIf, acquireTableMetadataLoadEpoch());
+    }
+
+    protected long acquireTableMetadataLoadEpoch() {
+        long catalogEpoch = extCatalog.acquireMetadataLoadEpoch();
+        while (true) {
+            TableMetadataLoadEpoch epoch = metadataLoadEpoch.get();
+            if (epoch.catalogEpoch == catalogEpoch) {
+                return epoch.value;
+            }
+            TableMetadataLoadEpoch updated = epoch.next(catalogEpoch);
+            if (metadataLoadEpoch.compareAndSet(epoch, updated)) {
+                return updated.value;
+            }
+        }
+    }
+
+    private boolean isTableMetadataLoadEpochCurrent(long epoch) {
+        TableMetadataLoadEpoch current = metadataLoadEpoch.get();
+        return current.value == epoch && extCatalog.isMetadataLoadEpochCurrent(current.catalogEpoch);
+    }
+
+    protected boolean registerTable(TableIf tableIf, long metadataLoadEpoch) {
         makeSureInitialized();
         String tableName = tableIf.getName();
         if (LOG.isDebugEnabled()) {
@@ -600,9 +640,10 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
         if (isInitialized()) {
             String localName = extCatalog.fromRemoteTableName(this.remoteName, tableName);
-            metaCache.updateCache(tableName, localName, (T) tableIf,
-                    Util.genIdByName(extCatalog.getName(), name, localName));
-            lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
+            if (!metaCache.updateCache(tableName, localName, (T) tableIf,
+                    Util.genIdByName(extCatalog.getName(), name, localName), metadataLoadEpoch)) {
+                return false;
+            }
         }
         setLastUpdateTime(System.currentTimeMillis());
         return true;
@@ -638,6 +679,20 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     public void addTableForTest(T tbl) {
         buildMetaCache();
         metaCache.addObjForTest(tbl.getId(), tbl.getName(), tbl);
+    }
+
+    private static class TableMetadataLoadEpoch {
+        private final long value;
+        private final long catalogEpoch;
+
+        private TableMetadataLoadEpoch(long value, long catalogEpoch) {
+            this.value = value;
+            this.catalogEpoch = catalogEpoch;
+        }
+
+        private TableMetadataLoadEpoch next(long catalogEpoch) {
+            return new TableMetadataLoadEpoch(value + 1, catalogEpoch);
+        }
     }
 
     public void resetMetaCacheNames() {

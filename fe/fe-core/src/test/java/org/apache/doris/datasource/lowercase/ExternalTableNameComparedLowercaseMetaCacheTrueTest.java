@@ -22,6 +22,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
@@ -99,6 +101,30 @@ public class ExternalTableNameComparedLowercaseMetaCacheTrueTest extends TestWit
         Assertions.assertEquals("TABLE1", tblName);
         String tblName2 = env.getCatalogMgr().getCatalog("test1").getDbNullable("db1").getTableNullable("table2").getName();
         Assertions.assertEquals("TABLE2", tblName2);
+    }
+
+    @Test
+    public void testColdCaseInsensitiveTableExistenceProbe() {
+        Assertions.assertTrue(env.getCatalogMgr().getCatalog("test1")
+                .getDbNullable("db1").isTableExist("table1"));
+    }
+
+    @Test
+    public void testWarmCaseInsensitiveMissRefreshesRemoteNames() {
+        ExternalDatabase database = (ExternalDatabase) env.getCatalogMgr().getCatalog("test1").getDbNullable("db1");
+        database.getTableNamesWithLock();
+        ExternalTableNameComparedLowercaseProvider.MOCKED_META.get("db1").put(
+                "MiXeD_New_Table", Lists.newArrayList(new Column("k1", PrimitiveType.INT)));
+        try {
+            Assertions.assertNotNull(database.getTableNullable("mixed_new_table"));
+            ExternalTableNameComparedLowercaseProvider.MOCKED_META.get("db1").put(
+                    "MiXeD_Exist_Table", Lists.newArrayList(new Column("k1", PrimitiveType.INT)));
+            Assertions.assertTrue(database.isTableExist("MIXED_EXIST_TABLE"));
+        } finally {
+            ExternalTableNameComparedLowercaseProvider.MOCKED_META.get("db1").remove("MiXeD_New_Table");
+            ExternalTableNameComparedLowercaseProvider.MOCKED_META.get("db1").remove("MiXeD_Exist_Table");
+            ((ExternalCatalog) env.getCatalogMgr().getCatalog("test1")).onRefreshCache(false);
+        }
     }
 
     @Test

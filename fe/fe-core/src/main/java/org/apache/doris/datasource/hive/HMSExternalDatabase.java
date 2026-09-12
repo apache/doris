@@ -48,7 +48,17 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
 
     @Override
     public boolean registerTable(TableIf tableIf) {
-        super.registerTable(tableIf);
+        return registerHmsTable(tableIf, acquireTableMetadataLoadEpoch());
+    }
+
+    public boolean registerTableFromEvent(TableIf tableIf, long metadataLoadEpoch) {
+        return registerHmsTable(tableIf, metadataLoadEpoch);
+    }
+
+    private boolean registerHmsTable(TableIf tableIf, long metadataLoadEpoch) {
+        if (!super.registerTable(tableIf, metadataLoadEpoch)) {
+            return false;
+        }
         HMSExternalTable table = getTableNullable(tableIf.getName());
         if (table != null) {
             table.setUpdateTime(tableIf.getUpdateTime());
