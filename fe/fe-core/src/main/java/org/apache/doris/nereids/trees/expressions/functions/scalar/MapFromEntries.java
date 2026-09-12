@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
+import org.apache.doris.nereids.trees.expressions.functions.ChildDerivedSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -42,7 +43,8 @@ import java.util.List;
 
 /** Construct a Map from an Array of two-field Struct entries. */
 public class MapFromEntries extends ScalarFunction
-        implements UnaryExpression, ComputePrecision, CustomSignature, PropagateNullable, PreferPushDownProject {
+        implements UnaryExpression, ComputePrecision, CustomSignature, PropagateNullable, PreferPushDownProject,
+        ChildDerivedSignature {
 
     public MapFromEntries(Expression entries) {
         super("map_from_entries", entries);
@@ -103,6 +105,11 @@ public class MapFromEntries extends ScalarFunction
     @Override
     public FunctionSignature computePrecision(FunctionSignature signature) {
         return signature;
+    }
+
+    @Override
+    public FunctionSignature deriveSignatureFromChildren(FunctionSignature signature) {
+        return customSignature();
     }
 
     @Override

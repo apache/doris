@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.functions.ChildDerivedSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
@@ -41,7 +42,8 @@ import java.util.Set;
 /**
  * ScalarFunction 'named_struct'.
  */
-public class CreateNamedStruct extends ScalarFunction implements CustomSignature, ComputePrecision, AlwaysNotNullable {
+public class CreateNamedStruct extends ScalarFunction
+        implements CustomSignature, ComputePrecision, AlwaysNotNullable, ChildDerivedSignature {
 
     public static final FunctionSignature SIGNATURE = FunctionSignature.ret(StructType.SYSTEM_DEFAULT).args();
 
@@ -104,18 +106,27 @@ public class CreateNamedStruct extends ScalarFunction implements CustomSignature
         if (arity() == 0) {
             return SIGNATURE;
         } else {
-            ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
-            for (int i = 0; i < arity(); i = i + 2) {
-                StringLikeLiteral nameLiteral = (StringLikeLiteral) child(i);
-                // A named struct has the same value-nullability contract as struct(...); keeping
-                // the field nullable here would reject safe casts into required target fields.
-                structFields.add(new StructField(nameLiteral.getStringValue(),
-                        children.get(i + 1).getDataType(),
-                        StructLiteral.computeFieldNullable(children.get(i + 1)), ""));
-            }
-            return FunctionSignature.ret(new StructType(structFields.build()))
+            return FunctionSignature.ret(computeStructType())
                     .args(children.stream().map(ExpressionTrait::getDataType).toArray(DataType[]::new));
         }
+    }
+
+    @Override
+    public FunctionSignature deriveSignatureFromChildren(FunctionSignature signature) {
+        return customSignature();
+    }
+
+    private StructType computeStructType() {
+        ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
+        for (int i = 0; i < arity(); i = i + 2) {
+            StringLikeLiteral nameLiteral = (StringLikeLiteral) child(i);
+            // A named struct has the same value-nullability contract as struct(...); keeping
+            // the field nullable here would reject safe casts into required target fields.
+            structFields.add(new StructField(nameLiteral.getStringValue(),
+                    children.get(i + 1).getDataType(),
+                    StructLiteral.computeFieldNullable(children.get(i + 1)), ""));
+        }
+        return new StructType(structFields.build());
     }
 
     @Override

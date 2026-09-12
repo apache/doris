@@ -117,6 +117,17 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
                 .get();
     }
 
+    /**
+     * Refresh argument and return metadata that is derived directly from the current children after reusing a
+     * previously resolved signature. The default is intentionally identity: overload selection, coercion, and
+     * value-dependent precision decisions remain frozen across equivalent rewrites. An override must only rebuild
+     * metadata that the function definition derives from its children; it must not search overloads or rerun generic
+     * signature computation.
+     */
+    default FunctionSignature refreshDerivedSignature(FunctionSignature signature) {
+        return signature;
+    }
+
     /** use processor to process computeSignature */
     static boolean processComplexType(DataType signatureType, DataType realType,
             BiFunction<DataType, DataType, Boolean> processor) {

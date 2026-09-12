@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.ChildDerivedSignature;
 import org.apache.doris.nereids.trees.expressions.functions.NullOrIdenticalSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
@@ -53,7 +54,7 @@ import java.util.List;
  * to_json convert type to json
  */
 public class ToJson extends ScalarFunction
-        implements UnaryExpression, NullOrIdenticalSignature, PropagateNullable {
+        implements UnaryExpression, NullOrIdenticalSignature, PropagateNullable, ChildDerivedSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(JsonType.INSTANCE).args(NullType.INSTANCE),
@@ -110,6 +111,15 @@ public class ToJson extends ScalarFunction
         } else {
             return SIGNATURES;
         }
+    }
+
+    @Override
+    public FunctionSignature deriveSignatureFromChildren(FunctionSignature signature) {
+        DataType firstChildType = child(0).getDataType();
+        if (firstChildType.isStructType() || firstChildType.isArrayType() || firstChildType.isMapType()) {
+            return getSignatures().get(0);
+        }
+        return signature;
     }
 
     @Override
