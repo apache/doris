@@ -37,10 +37,12 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Set;
@@ -53,7 +55,8 @@ import java.util.Set;
  * 1. the build column value range covers part of that of probe column, OR
  * 2. the build column ndv is less than that of probe column, OR
  * 3. the build column's ColumnStats.selectivity < 1, OR
- * 4. the build column is reduced by another RF, which satisfies above criterions.
+ * 4. the build column is reduced by another RF, which satisfies above criterions, OR
+ * 5. the RF can eliminate whole scan ranges.
  *
  * TODO: item 2 is not used since the estimation is not accurate now.
  */
@@ -152,14 +155,21 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         } else {
             List<ExprId> exprIds = rfContext.getTargetExprIdByFilterJoin(join);
             if (exprIds != null && !exprIds.isEmpty()) {
-                boolean isEffective = false;
+                boolean hasEffectiveRowFilter = false;
                 for (Expression expr : join.getEqualToConjuncts()) {
                     if (isEffectiveRuntimeFilter((EqualTo) expr, join)) {
-                        isEffective = true;
+                        hasEffectiveRowFilter = true;
+                        break;
                     }
                 }
-                if (!isEffective) {
-                    exprIds.stream().forEach(exprId -> rfContext.removeFilters(exprId, join));
+                if (!hasEffectiveRowFilter) {
+                    // Scan-range pruning is target-specific. Keep only the filters whose own target
+                    // can prune partitions or buckets instead of retaining every filter from the join.
+                    for (RuntimeFilter filter : ImmutableList.copyOf(join.getRuntimeFilters())) {
+                        if (!filter.canPruneScanRanges()) {
+                            rfContext.removeFilter(filter, filter.getTargetSlot().getExprId());
+                        }
+                    }
                 }
             }
         }
@@ -306,4 +316,5 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         double buildNdvInProbeRange = buildColumnStat.ndvIntersection(probeColumnStat);
         return probeColumnStat.ndv > buildNdvInProbeRange * (1 + ColumnStatistic.STATS_ERROR);
     }
+
 }

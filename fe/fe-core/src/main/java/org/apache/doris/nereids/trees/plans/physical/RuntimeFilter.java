@@ -218,6 +218,11 @@ public class RuntimeFilter {
         return !partitionMonotonicity.isEmpty();
     }
 
+    /** Whether this filter can eliminate complete scan ranges independently of row-level selectivity. */
+    public boolean canPruneScanRanges() {
+        return canPruneBuckets() || canPrunePartitions();
+    }
+
     public Map<Long, TTargetExprMonotonicity> getPartitionMonotonicity() {
         return partitionMonotonicity;
     }
