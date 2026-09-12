@@ -412,9 +412,7 @@ arrow::Status VParquetTransformer::_open_file_writer() {
     if (_iceberg_schema != nullptr) {
         bool has_spatial_column = false;
         for (const auto& column : _iceberg_schema->columns()) {
-            const auto type_id = column.field_type()->type_id();
-            has_spatial_column = has_spatial_column || type_id == iceberg::TypeID::GEOMETRY ||
-                                 type_id == iceberg::TypeID::GEOGRAPHY;
+            has_spatial_column = has_spatial_column || contains_spatial_type(column.field_type());
         }
         if (has_spatial_column) {
             ARROW_ASSIGN_OR_RAISE(auto parquet_schema,

@@ -249,6 +249,36 @@ TEST_F(VParquetTransformerTest, RejectsInvalidIcebergSpatialWkb) {
     EXPECT_FALSE(transformer.write(block).ok());
 }
 
+TEST_F(VParquetTransformerTest, RejectsNestedIcebergSpatialColumns) {
+    auto geometry_type = std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY, "EPSG:3857");
+    auto array_type = std::make_shared<DataTypeArray>(geometry_type);
+    VExprContextSPtrs output_exprs = MockSlotRef::create_mock_contexts(DataTypes {array_type});
+
+    const std::string schema_json = R"JSON({
+        "type": "struct",
+        "fields": [
+            {"id": 1, "name": "shapes", "required": false,
+             "type": {"type": "list", "element-id": 2, "element": "geometry(EPSG:3857)",
+                      "element-required": false}}
+        ]
+    })JSON";
+    const auto schema = iceberg::SchemaParser::from_json(schema_json);
+
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+    RuntimeState state;
+    state.set_timezone("UTC");
+    ParquetFileOptions options {.compression_type = TParquetCompressionType::UNCOMPRESSED,
+                                .parquet_version = TParquetVersion::PARQUET_1_0,
+                                .parquet_disable_dictionary = false,
+                                .enable_int96_timestamps = false};
+    VParquetTransformer transformer(&state, file_writer.get(), output_exprs, {"shapes"}, false,
+                                    options, &schema_json, schema.get());
+    const Status status = transformer.open();
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(std::string(status.msg()).find("Nested Iceberg spatial columns"), std::string::npos);
+}
+
 TEST_F(VParquetTransformerTest, WritesNestedIcebergVariant) {
     auto variant_type = std::make_shared<DataTypeVariantV2>();
     auto array_type = std::make_shared<DataTypeArray>(variant_type);
