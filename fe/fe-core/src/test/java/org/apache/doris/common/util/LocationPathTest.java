@@ -62,7 +62,7 @@ public class LocationPathTest {
         props.put("obs.secret_key", "secret_key");
         props.put("fs.defaultFS", "hdfs://namenode:8020");
         props.put("azure.endpoint", "https://mystorageaccount.blob.core.windows.net");
-        props.put("azure.access_key", "access_key");
+        props.put("azure.access_key", "mystorageaccount");
         props.put("azure.secret_key", "secret_key");
         props.put("broker.name", "mybroker");
 
@@ -283,19 +283,70 @@ public class LocationPathTest {
 
     @Test
     public void testOnelakeStorageLocationConvert() {
+        // OneLake uses its own OAuth2 binding, not an unrelated Blob SharedKey identity.
+        Map<StorageTypeId, StorageAdapter> oneLakeAdapters = StorageAdapter.ofAll(Map.of(
+                "fs.azure.support", "true",
+                "iceberg.catalog.type", "rest",
+                "azure.auth_type", "OAuth2",
+                "azure.oauth2_account_host", "onelake.dfs.fabric.microsoft.com",
+                "azure.oauth2_client_id", "client-id",
+                "azure.oauth2_client_secret", "client-secret",
+                "azure.oauth2_server_uri", "https://login.microsoftonline.com/tenant/oauth2/token"))
+                .stream().collect(Collectors.toMap(StorageAdapter::getType, Function.identity()));
+        Assertions.assertTrue(oneLakeAdapters.containsKey(StorageTypeId.AZURE),
+                "The OneLake OAuth2 fixture must select an Azure storage binding");
         String location = "abfss://1a2b3c4d-1234-5678-abcd-9876543210ef@onelake.dfs.fabric.microsoft.com/myworkspace/lakehouse/default/Files/data/test.parquet";
-        LocationPath locationPath = LocationPath.ofAdapters(location, STORAGE_PROPERTIES_MAP);
+        LocationPath locationPath = LocationPath.ofAdapters(location, oneLakeAdapters);
         Assertions.assertEquals(TFileType.FILE_HDFS, locationPath.getTFileTypeForBE());
         Assertions.assertEquals(FileSystemType.HDFS, locationPath.getFileSystemType());
+        StorageAdapter oneLakeAdapter = locationPath.getStorageAdapter();
+        Assertions.assertEquals("OAuth", oneLakeAdapter.getBackendConfigProperties(
+                oneLakeAdapter.resolveBackendProperties(locationPath.getNormalizedLocation()))
+                .get("fs.azure.account.auth.type.onelake.dfs.fabric.microsoft.com"));
         location = "abfs://1a2b3c4d-1234-5678-abcd-9876543210ef@onelake.dfs.fabric.microsoft.com/myworkspace/lakehouse/default/Files/data/test.parquet";
-        locationPath = LocationPath.ofAdapters(location, STORAGE_PROPERTIES_MAP);
+        locationPath = LocationPath.ofAdapters(location, oneLakeAdapters);
         Assertions.assertEquals(TFileType.FILE_HDFS, locationPath.getTFileTypeForBE());
         Assertions.assertEquals(FileSystemType.HDFS, locationPath.getFileSystemType());
         location = "abfss://mycontainer@mystorageaccount.dfs.core.windows.net/data/2025/11/11/";
         locationPath = LocationPath.ofAdapters(location, STORAGE_PROPERTIES_MAP);
+        // Native Azure keeps the account authority and object path; converting to s3:// would
+        // discard the account host needed by the BE Azure client.
+        Assertions.assertEquals(location, locationPath.getNormalizedLocation());
         Assertions.assertEquals(TFileType.FILE_S3, locationPath.getTFileTypeForBE());
-        Assertions.assertEquals(FileSystemType.S3, locationPath.getFileSystemType());
+        Assertions.assertEquals(FileSystemType.AZURE, locationPath.getFileSystemType());
 
+    }
+
+    @Test
+    public void testAzureLocationRejectsAnUnrelatedAccountBinding() {
+        String location = "abfss://container@anotheraccount.dfs.core.windows.net/path/file.parquet";
+        Assertions.assertThrows(StoragePropertiesException.class,
+                () -> LocationPath.ofAdapters(location, STORAGE_PROPERTIES_MAP));
+        String oneLake = "abfss://workspace@onelake.dfs.fabric.microsoft.com/lakehouse/Files/file.parquet";
+        Assertions.assertThrows(StoragePropertiesException.class,
+                () -> LocationPath.ofAdapters(oneLake, STORAGE_PROPERTIES_MAP));
+    }
+
+    @Test
+    public void testAzureNativeLocationKeepsAuthorityAndUsesS3ReaderFamily() {
+        Map<String, String> azure = new HashMap<>();
+        azure.put("provider", "azure");
+        azure.put("azure.auth_type", "SAS");
+        azure.put("AZURE_ENDPOINT", "account.blob.core.windows.net");
+        azure.put("AZURE_ACCOUNT_NAME", "account");
+        azure.put("azure.sas_token", "sv=2024-01-01&sig=temporary");
+        azure.put("azure.sas_expiry_ms", "4102444800000");
+        StorageAdapter adapter = StorageAdapter.of(azure);
+        Map<StorageTypeId, StorageAdapter> adapters = new HashMap<>();
+        adapters.put(StorageTypeId.AZURE, adapter);
+
+        String location = "abfss://container@account.dfs.core.windows.net/path/file.parquet";
+        LocationPath path = LocationPath.ofAdapters(location, adapters);
+
+        Assertions.assertEquals(location, path.getNormalizedLocation());
+        Assertions.assertEquals(TFileType.FILE_S3, path.getTFileTypeForBE());
+        Assertions.assertEquals(FileSystemType.AZURE, path.getFileSystemType());
+        Assertions.assertEquals("SAS", adapter.getBackendConfigProperties().get("AZURE_AUTH_TYPE"));
     }
 
     @Test

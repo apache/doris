@@ -20,6 +20,7 @@ package org.apache.doris.filesystem.azure;
 import org.apache.doris.filesystem.UploadPartResult;
 import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.filesystem.spi.RequestBody;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 
 import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobContainerClient;
@@ -35,7 +36,10 @@ import org.mockito.Mockito;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
@@ -122,18 +126,93 @@ class AzureObjStorageExtensionTest {
     }
 
     @Test
-    void getPresignedUrl_fallsBackToAwsSecretKey() throws Exception {
+    void getPresignedUrl_rejectsAwsSecretKeyAsAzureAccountKey() {
         Map<String, String> props = new HashMap<>();
         props.put("AZURE_ACCOUNT_NAME", "myaccount");
-        // No AZURE_ACCOUNT_KEY, but AWS_SECRET_KEY is present (S3-compat config)
+        // No AZURE_ACCOUNT_KEY, but AWS_SECRET_KEY is present from a sibling S3 binding.
         props.put("AWS_SECRET_KEY", "dGVzdA==");
 
-        TestableAzureObjStorage storage = new TestableAzureObjStorage(props, null);
-        storage.stubbedSasUrl = "https://sas-with-fallback-key";
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new TestableAzureObjStorage(props, null));
+    }
 
-        String result = storage.getPresignedUrl(
-                "wasb://mycontainer@myaccount.blob.core.windows.net/blob");
-        Assertions.assertEquals("https://sas-with-fallback-key", result);
+    @Test
+    void buildClient_acceptsProviderSasInput() throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put("azure.auth_type", "SAS");
+        props.put("AZURE_ENDPOINT", "account.blob.core.windows.net");
+        props.put("AZURE_ACCOUNT_NAME", "account");
+        props.put("azure.sas_token", "?sv=2024-01-01&sig=temporary");
+        props.put("azure.sas_expiry_ms", "4102444800000");
+
+        AzureObjStorage storage = new AzureObjStorage(props);
+
+        Assertions.assertNotNull(storage.buildClient());
+    }
+
+    @Test
+    void buildClient_acceptsSharedKeyCredential() throws Exception {
+        AzureObjStorage storage = new AzureObjStorage(Map.of(
+                "AZURE_ACCOUNT_NAME", "account",
+                "AZURE_ACCOUNT_KEY", "dGVzdA=="));
+
+        Assertions.assertNotNull(storage.buildClient());
+    }
+
+    @Test
+    void buildClient_acceptsCanonicalSharedKeyAuthType() throws Exception {
+        AzureObjStorage storage = new AzureObjStorage(Map.of(
+                "AZURE_AUTH_TYPE", "SHARED_KEY",
+                "AZURE_ACCOUNT_NAME", "account",
+                "AZURE_ACCOUNT_KEY", "dGVzdA=="));
+
+        BlobServiceClient client = storage.buildClient();
+
+        Assertions.assertEquals("https://account.blob.core.windows.net", client.getAccountUrl());
+    }
+
+    @Test
+    void getClient_rechecksExpiryBeforeReturningCachedSasClient() throws Exception {
+        Clock clock = Mockito.mock(Clock.class);
+        Mockito.when(clock.instant()).thenReturn(Instant.parse("2026-01-01T00:00:00Z"));
+        AzureObjStorage storage = new AzureObjStorage(AzureFileSystemProperties.of(Map.of(
+                "azure.account_name", "account",
+                "azure.sas_token", "se=2026-01-02T00:00:00Z&sig=temporary")), clock);
+
+        BlobServiceClient client = storage.getClient();
+        Assertions.assertNotNull(client);
+        Assertions.assertSame(client, storage.getClient());
+
+        Mockito.when(clock.instant()).thenReturn(Instant.parse("2026-01-02T00:00:00Z"));
+        Assertions.assertThrows(StoragePropertiesException.class, storage::getClient);
+    }
+
+    @Test
+    void buildClient_rejectsSasExpiredSinceBinding() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.account_name", "account",
+                "azure.sas_token", "sig=temporary",
+                "azure.sas_expiry_ms", "1"));
+        AzureObjStorage storage = new AzureObjStorage(properties,
+                Clock.fixed(Instant.ofEpochMilli(1), ZoneOffset.UTC));
+
+        Assertions.assertThrows(StoragePropertiesException.class, storage::buildClient);
+        Assertions.assertThrows(StoragePropertiesException.class, storage::getClient);
+    }
+
+    @Test
+    void buildClient_acceptsExplicitOAuth2Credential() throws Exception {
+        AzureObjStorage storage = new AzureObjStorage(Map.of(
+                "azure.auth_type", "OAUTH2",
+                "azure.endpoint", "account.blob.core.windows.net",
+                "azure.oauth2_account_host", "account.dfs.core.windows.net",
+                "azure.oauth2_client_id", "client-id",
+                "azure.oauth2_client_secret", "client-secret",
+                "azure.oauth2_server_uri", "https://login.microsoftonline.com/tenant/oauth2/token"));
+
+        BlobServiceClient client = storage.buildClient();
+
+        Assertions.assertEquals("https://account.blob.core.windows.net", client.getAccountUrl());
     }
 
     // ------------------------------------------------------------------

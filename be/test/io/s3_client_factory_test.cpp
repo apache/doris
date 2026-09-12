@@ -24,12 +24,14 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -547,6 +549,395 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfCredentialValidation) {
         ASSERT_TRUE(
                 S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
     }
+}
+
+TEST_F(S3ClientFactoryTest, ConvertNativeAzureSasProperties) {
+    const auto expiry = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count() +
+                        3600000;
+    std::map<std::string, std::string> properties {
+            {"provider", "azure"},
+            {"AZURE_AUTH_TYPE", "SAS"},
+            {"AZURE_ENDPOINT", "account.dfs.core.windows.net"},
+            {"AZURE_ACCOUNT_NAME", "account"},
+            {"AZURE_CONTAINER", "container"},
+            {"AZURE_SAS_TOKEN", "sv=2024-01-01&sr=c&sig=temporary"},
+            {"AZURE_SAS_EXPIRY_MS", std::to_string(expiry)},
+    };
+    S3URI azure_uri("abfss://container@account.dfs.core.windows.net/path/file.parquet");
+    ASSERT_TRUE(azure_uri.parse().ok());
+
+    S3Conf s3_conf;
+    ASSERT_TRUE(
+            S3ClientFactory::convert_properties_to_s3_conf(properties, azure_uri, &s3_conf).ok());
+    EXPECT_EQ(s3_conf.client_conf.provider, ObjStorageProvider::AZURE);
+    EXPECT_EQ(s3_conf.client_conf.endpoint, "https://account.blob.core.windows.net");
+    EXPECT_EQ(s3_conf.client_conf.azure_credentials.account_name, "account");
+    EXPECT_TRUE(s3_conf.client_conf.ak.empty());
+    EXPECT_TRUE(s3_conf.client_conf.sk.empty());
+    EXPECT_EQ(s3_conf.client_conf.bucket, "container");
+    EXPECT_EQ(s3_conf.bucket, "container");
+    EXPECT_TRUE(s3_conf.client_conf.token.empty());
+    EXPECT_TRUE(s3_conf.client_conf.region.empty());
+    EXPECT_EQ(s3_conf.client_conf.azure_credentials.sas_token, "sv=2024-01-01&sr=c&sig=temporary");
+    EXPECT_EQ(s3_conf.client_conf.azure_credentials.type, AzureCredentialType::SAS);
+    EXPECT_EQ(s3_conf.client_conf.azure_credentials.sas_expiration_time_ms, expiry);
+}
+
+TEST_F(S3ClientFactoryTest, ConvertsNativeAzureOAuth2Properties) {
+    std::map<std::string, std::string> properties {
+            {"provider", "azure"},
+            {"AZURE_AUTH_TYPE", "OAUTH2"},
+            {"AZURE_ENDPOINT", "account.blob.core.windows.net"},
+            {"AZURE_ACCOUNT_NAME", "account"},
+            {"AZURE_CONTAINER", "container"},
+            {"AZURE_CLIENT_ID", "client-id"},
+            {"AZURE_CLIENT_SECRET", "client-secret"},
+            {"AZURE_TENANT_ID", "tenant-id"},
+            {"AZURE_OAUTH_SERVER_URI", "https://login.microsoftonline.com/tenant/oauth2/token"},
+    };
+    S3URI azure_uri("abfss://container@account.dfs.core.windows.net/path/file.parquet");
+    ASSERT_TRUE(azure_uri.parse().ok());
+
+    S3Conf s3_conf;
+    ASSERT_TRUE(
+            S3ClientFactory::convert_properties_to_s3_conf(properties, azure_uri, &s3_conf).ok());
+    EXPECT_EQ(s3_conf.client_conf.azure_credentials.type, AzureCredentialType::OAUTH2);
+    EXPECT_EQ(s3_conf.client_conf.azure_credentials.oauth_client_id, "client-id");
+    EXPECT_EQ(s3_conf.client_conf.azure_credentials.oauth_client_secret, "client-secret");
+    EXPECT_EQ(s3_conf.client_conf.azure_credentials.oauth_tenant_id, "tenant-id");
+    EXPECT_EQ(s3_conf.client_conf.azure_credentials.oauth_server_uri,
+              "https://login.microsoftonline.com/tenant/oauth2/token");
+}
+
+TEST_F(S3ClientFactoryTest, RejectsAzureSasAliasInference) {
+    std::map<std::string, std::string> properties {
+            {"provider", "azure"},
+            {"AWS_TOKEN", "sv=2024-01-01&sig=temporary"},
+    };
+    S3URI azure_uri("abfss://container@account.dfs.core.windows.net/path/file.parquet");
+    ASSERT_TRUE(azure_uri.parse().ok());
+
+    S3Conf s3_conf;
+    ASSERT_FALSE(
+            S3ClientFactory::convert_properties_to_s3_conf(properties, azure_uri, &s3_conf).ok());
+}
+
+TEST_F(S3ClientFactoryTest, NonAzurePropertiesKeepLegacyCredentialContract) {
+    std::map<std::string, std::string> properties {
+            {"AWS_ENDPOINT", "s3.us-west-2.amazonaws.com"},
+            {"AWS_REGION", "us-west-2"},
+            {"AWS_ACCESS_KEY", "ak"},
+            {"AWS_SECRET_KEY", "sk"},
+            // Azure-only expiry metadata must not change an ordinary S3 binding.
+            {"AZURE_SAS_EXPIRY_MS", "not-a-number"},
+    };
+    S3URI s3_uri("s3://test-bucket/path/file");
+    ASSERT_TRUE(s3_uri.parse().ok());
+
+    S3Conf s3_conf;
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
+    EXPECT_EQ(s3_conf.client_conf.provider, ObjStorageProvider::AWS);
+    EXPECT_EQ(s3_conf.client_conf.ak, "ak");
+    EXPECT_EQ(s3_conf.client_conf.sk, "sk");
+    EXPECT_TRUE(s3_conf.client_conf.azure_credentials.sas_token.empty());
+}
+
+namespace {
+
+std::map<std::string, std::string> native_azure_shared_key_properties() {
+    return {{"provider", "azure"},
+            {"AZURE_AUTH_TYPE", "SHARED_KEY"},
+            {"AZURE_ENDPOINT", "https://account.blob.core.windows.net"},
+            {"AZURE_ACCOUNT_NAME", "account"},
+            {"AZURE_ACCOUNT_KEY", "c2hhcmVkLWtleQ=="}};
+}
+
+} // namespace
+
+TEST_F(S3ClientFactoryTest, ConvertsNativeAzureSharedKeyWithoutAwsFields) {
+    auto properties = native_azure_shared_key_properties();
+    S3URI uri("abfss://container@account.dfs.core.windows.net/path/file");
+    ASSERT_TRUE(uri.parse().ok());
+    S3Conf conf;
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, uri, &conf).ok());
+    EXPECT_EQ(conf.client_conf.azure_credentials.type, AzureCredentialType::SHARED_KEY);
+    EXPECT_EQ(conf.client_conf.azure_credentials.account_name, "account");
+    EXPECT_EQ(conf.client_conf.azure_credentials.account_key, "c2hhcmVkLWtleQ==");
+    EXPECT_EQ(conf.bucket, "container");
+    EXPECT_EQ(conf.client_conf.bucket, "container");
+    EXPECT_TRUE(conf.client_conf.ak.empty());
+    EXPECT_TRUE(conf.client_conf.sk.empty());
+    EXPECT_TRUE(conf.client_conf.token.empty());
+    EXPECT_TRUE(conf.client_conf.region.empty());
+#ifdef USE_AZURE
+    auto client = S3ClientFactory::instance().create(conf.client_conf);
+    ASSERT_TRUE(client.has_value()) << client.error();
+#endif
+}
+
+TEST_F(S3ClientFactoryTest, LegacyAzureSharedKeyRetainsCustomEndpointAndS3Uri) {
+    std::map<std::string, std::string> properties {
+            {"provider", "azure"},
+            {"AWS_ENDPOINT", "https://custom.example.com:8443/base%2Fpath"},
+            {"AWS_ACCESS_KEY", "original-account"},
+            {"AWS_SECRET_KEY", "c2hhcmVkLWtleQ=="},
+            {"AWS_REGION", "legacy-region"},
+            {"AWS_TOKEN", ""}};
+    S3URI uri("s3://container/path%20with+encoding");
+    ASSERT_TRUE(uri.parse().ok());
+    S3Conf conf;
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, uri, &conf).ok());
+    EXPECT_EQ(conf.client_conf.azure_credentials.account_name, "original-account");
+    EXPECT_EQ(conf.client_conf.azure_credentials.account_key, "c2hhcmVkLWtleQ==");
+    EXPECT_EQ(conf.client_conf.endpoint, properties.at("AWS_ENDPOINT"));
+    EXPECT_EQ(uri.get_key(), "path%20with+encoding");
+    EXPECT_EQ(conf.bucket, "container");
+    EXPECT_TRUE(conf.client_conf.ak.empty());
+    EXPECT_TRUE(conf.client_conf.sk.empty());
+    EXPECT_TRUE(conf.client_conf.region.empty());
+}
+
+TEST_F(S3ClientFactoryTest, RequiresExplicitAzureProviderAndAuthentication) {
+    S3URI uri("abfss://container@account.dfs.core.windows.net/path/file");
+    ASSERT_TRUE(uri.parse().ok());
+    for (const auto* missing : {"provider", "AZURE_AUTH_TYPE", "AZURE_ENDPOINT",
+                                "AZURE_ACCOUNT_NAME", "AZURE_ACCOUNT_KEY"}) {
+        auto properties = native_azure_shared_key_properties();
+        properties.erase(missing);
+        S3Conf conf;
+        EXPECT_FALSE(S3ClientFactory::convert_properties_to_s3_conf(properties, uri, &conf).ok())
+                << missing;
+    }
+    for (const auto* type : {"", "SharedKey", "OAuth", "MANAGED_IDENTITY", "secret-as-type"}) {
+        auto properties = native_azure_shared_key_properties();
+        properties["AZURE_AUTH_TYPE"] = type;
+        S3Conf conf;
+        auto status = S3ClientFactory::convert_properties_to_s3_conf(properties, uri, &conf);
+        EXPECT_FALSE(status.ok());
+        EXPECT_EQ(status.to_string().find("secret-as-type"), std::string::npos);
+    }
+    auto properties = native_azure_shared_key_properties();
+    properties["provider"] = "s3";
+    S3Conf conf;
+    EXPECT_FALSE(S3ClientFactory::convert_properties_to_s3_conf(properties, uri, &conf).ok());
+}
+
+TEST_F(S3ClientFactoryTest, RejectsNativeAzureLocationConflicts) {
+    auto properties = native_azure_shared_key_properties();
+    properties.erase("AZURE_ACCOUNT_KEY");
+    properties["AZURE_AUTH_TYPE"] = "SAS";
+    properties["AZURE_SAS_TOKEN"] = "sig=temporary";
+    for (const auto* location :
+         {"s3://container/path/file", "abfss://container@other.dfs.core.windows.net/path/file",
+          "abfss://container@account.dfs.core.chinacloudapi.cn/path/file",
+          "http://account.blob.core.windows.net/container/path/file",
+          "https://unrelated.example.com/container/path/file"}) {
+        S3URI uri(location);
+        ASSERT_TRUE(uri.parse().ok());
+        S3Conf conf;
+        EXPECT_FALSE(S3ClientFactory::convert_properties_to_s3_conf(properties, uri, &conf).ok())
+                << location;
+    }
+    S3URI uri("abfss://container@account.dfs.core.windows.net/path/file");
+    ASSERT_TRUE(uri.parse().ok());
+    for (const auto& [key, value] : std::map<std::string, std::string> {
+                 {"AZURE_ACCOUNT_NAME", "another-account"},
+                 {"AZURE_CONTAINER", "another-container"},
+                 {"AZURE_ENDPOINT", "https://account.blob.core.windows.net?sig=do-not-log"}}) {
+        auto conflicting = properties;
+        conflicting[key] = value;
+        S3Conf conf;
+        auto status = S3ClientFactory::convert_properties_to_s3_conf(conflicting, uri, &conf);
+        EXPECT_FALSE(status.ok());
+        EXPECT_EQ(status.to_string().find("do-not-log"), std::string::npos);
+    }
+}
+
+TEST_F(S3ClientFactoryTest, AllowsAbfsUriWithCustomAzureTransportEndpoint) {
+    auto properties = native_azure_shared_key_properties();
+    properties["AZURE_ENDPOINT"] = "https://proxy.example.test:8443/base";
+    S3URI uri("abfss://container@account.dfs.core.windows.net/path/file");
+    ASSERT_TRUE(uri.parse().ok());
+
+    S3Conf conf;
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, uri, &conf).ok());
+    EXPECT_TRUE(S3ClientFactory::validate_azure_uri(uri, conf.client_conf).ok());
+}
+
+TEST_F(S3ClientFactoryTest, PreservesSchemedAzureEndpointsWithoutDnsSuffix) {
+    for (const auto* endpoint : {"https://proxy", "http://localhost"}) {
+        auto properties = native_azure_shared_key_properties();
+        properties["AZURE_ENDPOINT"] = endpoint;
+        S3URI uri("abfss://container@account.dfs.core.windows.net/path/file");
+        ASSERT_TRUE(uri.parse().ok());
+
+        S3Conf conf;
+        ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, uri, &conf).ok())
+                << endpoint;
+        EXPECT_EQ(conf.client_conf.endpoint, endpoint);
+    }
+}
+
+TEST_F(S3ClientFactoryTest, PreservesCustomEndpointsContainingDfsLabels) {
+    for (const auto* endpoint :
+         {"https://proxy.dfs.internal", "http://proxy.dfs.internal:10000/base",
+          "https://account.dfs.core.windows.net.proxy.test:8443"}) {
+        auto properties = native_azure_shared_key_properties();
+        properties["AZURE_ENDPOINT"] = endpoint;
+        S3URI uri("abfss://container@account.dfs.core.windows.net/path/file");
+        ASSERT_TRUE(uri.parse().ok());
+        S3Conf conf;
+        ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, uri, &conf).ok())
+                << endpoint;
+        EXPECT_EQ(conf.client_conf.endpoint, endpoint);
+    }
+}
+
+TEST_F(S3ClientFactoryTest, NormalizesOfficialDfsEndpointsWithExplicitPorts) {
+    for (const auto* suffix : {"core.windows.net", "core.chinacloudapi.cn",
+                               "core.usgovcloudapi.net", "core.cloudapi.de"}) {
+        auto properties = native_azure_shared_key_properties();
+        properties["AZURE_ENDPOINT"] =
+                fmt::format("https://account.dfs.{}:8443/base%2Fpath", suffix);
+        S3URI uri(fmt::format("https://account.dfs.{}:8443/container/path/file", suffix));
+        ASSERT_TRUE(uri.parse().ok());
+        S3Conf conf;
+        auto status = S3ClientFactory::convert_properties_to_s3_conf(properties, uri, &conf);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(conf.client_conf.endpoint,
+                  fmt::format("https://account.blob.{}:8443/base%2Fpath", suffix));
+    }
+}
+
+TEST_F(S3ClientFactoryTest, NativeAzureRejectsMixedAndAliasedCredentials) {
+    S3URI uri("abfss://container@account.dfs.core.windows.net/path/file");
+    ASSERT_TRUE(uri.parse().ok());
+    for (const auto& [key, value] :
+         std::map<std::string, std::string> {{"AZURE_SAS_TOKEN", "sig=do-not-log"},
+                                             {"AZURE_CLIENT_SECRET", "do-not-log"},
+                                             {"AWS_SECRET_KEY", "do-not-log"},
+                                             {"azure.account_key", "do-not-log"}}) {
+        auto properties = native_azure_shared_key_properties();
+        properties[key] = value;
+        S3Conf conf;
+        auto status = S3ClientFactory::convert_properties_to_s3_conf(properties, uri, &conf);
+        EXPECT_FALSE(status.ok()) << key;
+        EXPECT_EQ(status.to_string().find("do-not-log"), std::string::npos);
+    }
+    auto properties = native_azure_shared_key_properties();
+    properties["AZURE_AUTH_TYPE"] = "OAUTH2";
+    properties.erase("AZURE_ACCOUNT_KEY");
+    properties["AZURE_CLIENT_ID"] = "client";
+    properties["AZURE_OAUTH_SERVER_URI"] = "https://login.microsoftonline.com/tenant/oauth2/token";
+    S3Conf conf;
+    EXPECT_FALSE(S3ClientFactory::convert_properties_to_s3_conf(properties, uri, &conf).ok());
+}
+
+TEST_F(S3ClientFactoryTest, AzureClientIdentityExcludesAwsCredentialsAndSigningSettings) {
+    S3ClientConf first;
+    first.endpoint = "https://account.blob.core.windows.net";
+    first.bucket = "container";
+    first.provider = ObjStorageProvider::AZURE;
+    first.azure_credentials.account_name = "account";
+    first.azure_credentials.account_key = "key";
+    auto second = first;
+    second.ak = "unrelated-aws-access-key";
+    second.sk = "unrelated-aws-secret-key";
+    second.token = "unrelated-aws-token";
+    second.region = "unrelated-aws-region";
+    second.role_arn = "unrelated-aws-role";
+    second.use_virtual_addressing = false;
+    second.need_override_endpoint = false;
+    EXPECT_EQ(first, second);
+    EXPECT_EQ(first.get_hash(), second.get_hash());
+    second.azure_credentials.account_key = "rotated-key";
+    EXPECT_NE(first, second);
+    EXPECT_NE(first.get_hash(), second.get_hash());
+    EXPECT_EQ(second.to_string().find("rotated-key"), std::string::npos);
+    first.azure_credentials = {};
+    first.azure_credentials.type = AzureCredentialType::SAS;
+    first.azure_credentials.account_name = "account";
+    first.azure_credentials.sas_token = "sig=first";
+    second = first;
+    second.azure_credentials.sas_token = "sig=second";
+    EXPECT_NE(first, second);
+    EXPECT_NE(first.get_hash(), second.get_hash());
+    EXPECT_EQ(second.to_string().find("sig=second"), std::string::npos);
+    first.azure_credentials = {};
+    first.azure_credentials.type = AzureCredentialType::OAUTH2;
+    first.azure_credentials.account_name = "account";
+    first.azure_credentials.oauth_client_id = "client";
+    first.azure_credentials.oauth_client_secret = "first-secret";
+    first.azure_credentials.oauth_tenant_id = "tenant";
+    first.azure_credentials.oauth_server_uri =
+            "https://login.microsoftonline.com/tenant/oauth2/token";
+    second = first;
+    second.azure_credentials.oauth_client_secret = "second-secret";
+    EXPECT_NE(first, second);
+    EXPECT_NE(first.get_hash(), second.get_hash());
+    EXPECT_EQ(second.to_string().find("second-secret"), std::string::npos);
+}
+
+TEST_F(S3ClientFactoryTest, NativeAzureRejectsExpiredSasBeforeClientCreation) {
+    S3ClientConf conf;
+    conf.provider = ObjStorageProvider::AZURE;
+    conf.endpoint = "https://account.blob.core.windows.net";
+    conf.bucket = "container";
+    conf.azure_credentials.type = AzureCredentialType::SAS;
+    conf.azure_credentials.account_name = "account";
+    conf.azure_credentials.sas_token = "sig=do-not-log";
+    conf.azure_credentials.sas_expiration_time_ms = 1;
+    int creates = 0;
+    S3ClientFactory::instance().set_client_creator_for_test(
+            [&](const S3ClientConf&) -> std::shared_ptr<io::ObjStorageClient> {
+                ++creates;
+                return {};
+            });
+    auto result = S3ClientFactory::instance().create(conf);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(creates, 0);
+    EXPECT_NE(result.error().to_string().find("expired"), std::string::npos);
+    EXPECT_EQ(result.error().to_string().find("do-not-log"), std::string::npos);
+#ifdef USE_AZURE
+    conf.azure_credentials.sas_expiration_time_ms = 0;
+    conf.azure_credentials.sas_token = "se=2000-01-01T00:00:00Z&sig=do-not-log";
+    result = S3ClientFactory::instance().create(conf);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(creates, 0);
+    EXPECT_NE(result.error().to_string().find("expired"), std::string::npos);
+    EXPECT_EQ(result.error().to_string().find("do-not-log"), std::string::npos);
+#endif
+}
+
+TEST_F(S3ClientFactoryTest, ObjClientHolderResetReplacesAzureCredentialGroup) {
+    S3ClientConf conf;
+    conf.endpoint = "https://account.blob.core.windows.net";
+    conf.bucket = "container";
+    conf.provider = ObjStorageProvider::AZURE;
+    conf.azure_credentials.account_name = "account";
+    conf.azure_credentials.account_key = "key";
+    int create_count = 0;
+    S3ClientFactory::instance().set_client_creator_for_test(
+            [&](const S3ClientConf&) -> std::shared_ptr<io::ObjStorageClient> {
+                ++create_count;
+                return std::make_shared<io::S3ObjStorageClient>(
+                        std::shared_ptr<Aws::S3::S3Client> {});
+            });
+    io::ObjClientHolder holder(conf);
+    ASSERT_TRUE(holder.init().ok());
+    auto first_client = holder.get();
+    conf.azure_credentials = {};
+    conf.azure_credentials.type = AzureCredentialType::SAS;
+    conf.azure_credentials.account_name = "account";
+    conf.azure_credentials.sas_token = "sig=temporary";
+    ASSERT_TRUE(holder.reset(conf).ok());
+    EXPECT_EQ(create_count, 2);
+    EXPECT_NE(holder.get(), first_client);
+    EXPECT_EQ(holder.s3_client_conf().azure_credentials, conf.azure_credentials);
+    EXPECT_TRUE(holder.s3_client_conf().azure_credentials.account_key.empty());
+    EXPECT_TRUE(holder.s3_client_conf().sk.empty());
 }
 
 TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV2ProviderTypeWithoutRoleArn) {

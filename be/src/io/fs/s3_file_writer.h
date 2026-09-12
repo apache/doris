@@ -51,7 +51,7 @@ class ObjClientHolder;
 class S3FileWriter final : public FileWriter {
 public:
     S3FileWriter(std::shared_ptr<ObjClientHolder> client, std::string bucket, std::string key,
-                 const FileWriterOptions* opts);
+                 const FileWriterOptions* opts, std::string display_path = {});
     ~S3FileWriter() override;
 
     Status appendv(const Slice* data, size_t data_cnt) override;

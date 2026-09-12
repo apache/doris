@@ -55,16 +55,21 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.azure.adlsv2.ADLSFileIO;
 import org.apache.iceberg.catalog.BaseViewSessionCatalog;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.SessionCatalog;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.hive.HiveHadoopUtil;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.ResolvingFileIO;
 import org.apache.iceberg.io.SupportsStorageCredentials;
+import org.apache.iceberg.rest.HTTPClient;
 import org.apache.iceberg.rest.RESTCatalog;
 import org.apache.iceberg.rest.RESTSessionCatalog;
+import org.apache.iceberg.rest.RESTUtil;
 import org.apache.iceberg.util.ThreadPools;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -1159,9 +1164,35 @@ public class IcebergConnector implements Connector {
     /** Builds and initializes a bare Iceberg {@link RESTSessionCatalog} (fresh REST client + OAuth2 token fetch). */
     private RESTSessionCatalog newRestSessionCatalog(String catalogName, Map<String, String> props,
             Configuration conf) {
-        RESTSessionCatalog sessionCatalog = new RESTSessionCatalog();
-        CatalogUtil.configureHadoopConf(sessionCatalog, conf);
-        sessionCatalog.initialize(catalogName, props);
+        IcebergRestFileIOProperties fileIOProperties = new IcebergRestFileIOProperties(storage(), props);
+        // The SDK's Hadoop FileIO retains its Configuration by reference. Initialization and
+        // a 401 rebuild must never update the configuration of a previously published table.
+        Configuration restConf = new Configuration(conf);
+        RESTSessionCatalog sessionCatalog = new RESTSessionCatalog(options -> {
+            // initialize invokes this builder again with defaults/client/overrides merged,
+            // before constructing FileIO. A server-selected Hadoop/custom FileIO needs the
+            // original static Hadoop view, even if the client initially selected ResolvingFileIO.
+            if (requiresHadoopStorageView(options.get(CatalogProperties.FILE_IO_IMPL))) {
+                Configuration selectedConf = IcebergCatalogFactory.buildHadoopConfiguration(
+                        props, buildStorageHadoopConfig(false));
+                selectedConf.forEach(entry -> restConf.set(entry.getKey(), entry.getValue()));
+            }
+            return new IcebergRestFileIOClient(
+                    HTTPClient.builder(options).uri(options.get(CatalogProperties.URI))
+                            .withHeaders(RESTUtil.configHeaders(options)).build(), fileIOProperties::adaptGet,
+                    fileIOProperties::adapt);
+        }, null) {
+            @Override
+            public Table loadTable(SessionContext session, TableIdentifier identifier) {
+                return fileIOProperties.withTableLoad(() -> {
+                    Table table = super.loadTable(session, identifier);
+                    fileIOProperties.configureTableFileIO(table.io());
+                    return table;
+                });
+            }
+        };
+        CatalogUtil.configureHadoopConf(sessionCatalog, restConf);
+        sessionCatalog.initialize(catalogName, fileIOProperties.catalogProperties());
         return sessionCatalog;
     }
 
@@ -1353,10 +1384,25 @@ public class IcebergConnector implements Connector {
      * HA + auth keys (C2; the defaults-free fe-filesystem HDFS map). Empty for a catalog with no typed storage.
      */
     private Map<String, String> buildStorageHadoopConfig() {
+        boolean defaultRestFileIO = IcebergCatalogProperties.TYPE_REST.equals(catalogProps.getFlavor())
+                && !requiresHadoopStorageView(properties.get(CatalogProperties.FILE_IO_IMPL));
+        return buildStorageHadoopConfig(defaultRestFileIO);
+    }
+
+    private static boolean requiresHadoopStorageView(String ioImpl) {
+        return ioImpl != null && !ResolvingFileIO.class.getName().equals(ioImpl)
+                && !ADLSFileIO.class.getName().equals(ioImpl);
+    }
+
+    private Map<String, String> buildStorageHadoopConfig(boolean defaultRestFileIO) {
         Map<String, String> merged = new HashMap<>();
         for (StorageProperties sp : IcebergCatalogFactory.selectEffectiveStorages(
                 storage().getStorageProperties())) {
-            sp.toHadoopProperties().ifPresent(h -> merged.putAll(h.toHadoopConfigurationMap()));
+            // REST selects the current FileIO credentials after load-table. Do not touch an
+            // obsolete SAS just to build an unused ABFS configuration before that response.
+            // Explicit Hadoop/custom FileIO and non-REST catalogs retain their original view.
+            (defaultRestFileIO ? sp.toIcebergHadoopProperties() : sp.toHadoopProperties())
+                    .ifPresent(h -> merged.putAll(h.toHadoopConfigurationMap()));
         }
         return merged;
     }

@@ -19,6 +19,7 @@ package org.apache.doris.filesystem.azure;
 
 import org.apache.doris.filesystem.DorisOutputFile;
 import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.spi.RemoteObject;
@@ -28,6 +29,9 @@ import org.apache.doris.filesystem.spi.RequestBody;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 
@@ -100,6 +104,111 @@ class AzureFileSystemTest {
         Mockito.verify(mockStorage).deleteObject("wasbs://c@a.host/foo/a.csv");
         Mockito.verify(mockStorage).deleteObject("wasbs://c@a.host/foo/b.csv");
         Mockito.verify(mockStorage, Mockito.never()).deleteObject("wasbs://c@a.host/foo");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "https://account.blob.core.windows.net/container/",
+            "http://account.blob.core.windows.net/container/",
+            "abfss://container@account.dfs.core.windows.net/",
+            "wasbs://container@account.blob.core.windows.net/",
+            "s3://container/"
+    })
+    void listAndRecursiveDelete_preserveContainerAndRawKeysAcrossPages(String root) throws IOException {
+        String prefix = root + "dir/";
+        List<String> keys = List.of("dir/a%2Fb +中文.parquet", "dir/100%.parquet");
+        Mockito.when(mockStorage.listObjects(prefix, null)).thenReturn(new RemoteObjects(
+                List.of(new RemoteObject(keys.get(0), "", null, 1L, 0L)), true, "next"));
+        Mockito.when(mockStorage.listObjects(prefix, "next")).thenReturn(new RemoteObjects(
+                List.of(new RemoteObject(keys.get(1), "", null, 2L, 0L)), false, null));
+
+        List<FileEntry> files = fs.listFiles(Location.of(prefix));
+        Assertions.assertEquals(2, files.size());
+        for (int i = 0; i < keys.size(); i++) {
+            AzureUri uri = AzureUri.parse(files.get(i).location().uri());
+            Assertions.assertEquals("container", uri.container());
+            Assertions.assertEquals(keys.get(i), uri.key());
+            Assertions.assertTrue(files.get(i).location().uri().startsWith(root));
+        }
+
+        fs.delete(Location.of(prefix), true);
+
+        ArgumentCaptor<String> deleted = ArgumentCaptor.forClass(String.class);
+        Mockito.verify(mockStorage, Mockito.times(2)).deleteObject(deleted.capture());
+        Assertions.assertEquals(files.stream().map(file -> file.location().uri()).toList(), deleted.getAllValues());
+    }
+
+    @Test
+    void httpsGlobListing_preservesEncodedPrefixAndReturnedKeys() throws IOException {
+        String root = "https://account.blob.core.windows.net/container/";
+        String prefix = root + "dir%252Fdata/";
+        String key = "dir%2Fdata/a%2Fb +中文.parquet";
+        Mockito.when(mockStorage.listObjects(prefix, null)).thenReturn(new RemoteObjects(
+                List.of(new RemoteObject(key, "", null, 1L, 0L)), false, null));
+
+        for (List<FileEntry> files : List.of(
+                fs.listFiles(Location.of(prefix + "*.parquet")),
+                fs.globListWithLimit(Location.of(prefix + "*.parquet"), null, 0, 0).getFiles())) {
+            Assertions.assertEquals(1, files.size());
+            AzureUri uri = AzureUri.parse(files.get(0).location().uri());
+            Assertions.assertEquals("container", uri.container());
+            Assertions.assertEquals(key, uri.key());
+        }
+    }
+
+    @Test
+    void httpsSingleLevelGlobDecodesEncodedBasenameBeforeMatching() throws IOException {
+        String prefix = "https://account.blob.core.windows.net/container/dir%20/";
+        String key = "dir /file name.parquet";
+        Mockito.when(mockStorage.listObjects(prefix, null)).thenReturn(new RemoteObjects(
+                List.of(new RemoteObject(key, "", null, 1L, 0L)), false, null));
+
+        List<FileEntry> files = fs.listFiles(Location.of(prefix + "file%20*.parquet"));
+
+        Assertions.assertEquals(1, files.size());
+        Assertions.assertEquals(key, AzureUri.parse(files.get(0).location().uri()).key());
+        Mockito.verify(mockStorage).listObjects(prefix, null);
+    }
+
+    @Test
+    void httpsDirectoryOperations_appendSlashBeforeQueryAndFragment() throws IOException {
+        String root = "https://account.blob.core.windows.net/container/";
+        String prefix = root + "dir%252Fdata/";
+        String key = "dir%2Fdata/a%2Fb.parquet";
+        Mockito.when(mockStorage.listObjects(prefix, null)).thenReturn(new RemoteObjects(
+                List.of(new RemoteObject(key, "", null, 1L, 0L)), false, null));
+        Location location = Location.of(root + "dir%252Fdata?ignored=query#fragment");
+
+        try (FileIterator it = fs.list(location)) {
+            Assertions.assertTrue(it.hasNext());
+            Assertions.assertEquals(key, AzureUri.parse(it.next().location().uri()).key());
+            Assertions.assertFalse(it.hasNext());
+        }
+        fs.delete(location, true);
+
+        Mockito.verify(mockStorage, Mockito.times(2)).listObjects(prefix, null);
+        Mockito.verify(mockStorage).deleteObject(prefix + "a%252Fb.parquet");
+        Mockito.verifyNoMoreInteractions(mockStorage);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "https://account.blob.core.windows.net/container",
+            "https://account.blob.core.windows.net/container/",
+            "abfss://container@account.dfs.core.windows.net",
+            "abfss://container@account.dfs.core.windows.net/"
+    })
+    void containerRoot_usesAnEmptyObjectPrefix(String location) throws IOException {
+        String prefix = location.endsWith("/") ? location : location + "/";
+        Mockito.when(mockStorage.listObjects(prefix, null)).thenReturn(new RemoteObjects(
+                List.of(new RemoteObject("file.parquet", "", null, 1L, 0L)), false, null));
+
+        Assertions.assertEquals(prefix + "file.parquet", fs.listFiles(Location.of(location)).get(0).location().uri());
+        fs.delete(Location.of(location), true);
+
+        Mockito.verify(mockStorage, Mockito.times(2)).listObjects(prefix, null);
+        Mockito.verify(mockStorage).deleteObject(prefix + "file.parquet");
+        Mockito.verifyNoMoreInteractions(mockStorage);
     }
 
     @Test
@@ -526,6 +635,50 @@ class AzureFileSystemTest {
                 "marker entry must be skipped by AzureFileIterator");
         Assertions.assertEquals("wasbs://c@a.host/dir/a.csv", entries.get(0).location().uri());
         Assertions.assertEquals("wasbs://c@a.host/dir/b.csv", entries.get(1).location().uri());
+    }
+
+    @Test
+    void list_continuesPastMarkerOnlyAndEmptyPagesUntilRealEof() throws IOException {
+        String prefix = "abfss://container@account.dfs.core.windows.net/dir/";
+        Mockito.when(mockStorage.listObjects(prefix, null)).thenReturn(new RemoteObjects(
+                List.of(new RemoteObject("dir/", "", null, 0L, 0L)), true, "empty-page"));
+        Mockito.when(mockStorage.listObjects(prefix, "empty-page"))
+                .thenReturn(new RemoteObjects(List.of(), true, "file-page"));
+        Mockito.when(mockStorage.listObjects(prefix, "file-page")).thenReturn(new RemoteObjects(
+                List.of(new RemoteObject("dir/file.parquet", "", null, 1L, 0L)), true, "last-page"));
+        Mockito.when(mockStorage.listObjects(prefix, "last-page")).thenReturn(new RemoteObjects(
+                List.of(new RemoteObject("dir/marker/", "", null, 0L, 0L)), false, null));
+
+        try (FileIterator it = fs.list(Location.of(prefix))) {
+            Assertions.assertTrue(it.hasNext());
+            Assertions.assertTrue(it.hasNext());
+            Assertions.assertEquals(prefix + "file.parquet", it.next().location().uri());
+            Assertions.assertFalse(it.hasNext());
+            Assertions.assertFalse(it.hasNext());
+            Assertions.assertThrows(java.util.NoSuchElementException.class, it::next);
+        }
+        Mockito.verify(mockStorage).listObjects(prefix, null);
+        Mockito.verify(mockStorage).listObjects(prefix, "empty-page");
+        Mockito.verify(mockStorage).listObjects(prefix, "file-page");
+        Mockito.verify(mockStorage).listObjects(prefix, "last-page");
+        Mockito.verifyNoMoreInteractions(mockStorage);
+    }
+
+    @Test
+    void directoryChecks_doNotTreatAMarkerOnlyFirstPageAsEmpty() throws IOException {
+        String directory = "https://account.blob.core.windows.net/container/dir";
+        Mockito.when(mockStorage.headObject(directory)).thenThrow(new FileNotFoundException());
+        Mockito.when(mockStorage.listObjects(directory + "/", null)).thenReturn(new RemoteObjects(
+                List.of(new RemoteObject("dir/", "", null, 0L, 0L)), true, "next"));
+        Mockito.when(mockStorage.listObjects(directory + "/", "next")).thenReturn(new RemoteObjects(
+                List.of(new RemoteObject("dir/file.parquet", "", null, 1L, 0L)), false, null));
+
+        Assertions.assertTrue(fs.exists(Location.of(directory)));
+        IOException error = Assertions.assertThrows(IOException.class, () -> fs.delete(Location.of(directory), false));
+
+        Assertions.assertTrue(error.getMessage().contains("Directory not empty"));
+        Mockito.verify(mockStorage, Mockito.never()).deleteObject(ArgumentMatchers.anyString());
+        Mockito.verify(mockStorage, Mockito.times(2)).listObjects(directory + "/", "next");
     }
 
     // ---------------------------------------------------------------------

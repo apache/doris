@@ -23,6 +23,7 @@ import org.apache.doris.datasource.storage.StorageTypeId;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -61,10 +62,17 @@ public class CredentialUtils {
         Map<String, String> filtered = new HashMap<>();
         rawVendedCredentials.entrySet().stream()
                 .filter(entry -> entry.getKey() != null && entry.getValue() != null)
-                .filter(entry -> CLOUD_STORAGE_PREFIXES.stream().anyMatch(prefix -> entry.getKey().startsWith(prefix)))
+                .filter(entry -> isSupportedCloudStorageKey(entry.getKey()))
                 .forEach(entry -> filtered.put(entry.getKey(), entry.getValue()));
 
         return filtered;
+    }
+
+    private static boolean isSupportedCloudStorageKey(String key) {
+        String lowerKey = key.toLowerCase(Locale.ROOT);
+        return CLOUD_STORAGE_PREFIXES.stream()
+                .anyMatch(prefix -> lowerKey.startsWith(prefix.toLowerCase(Locale.ROOT)))
+                || "provider".equals(lowerKey);
     }
 
     /**

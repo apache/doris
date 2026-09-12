@@ -49,6 +49,7 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -75,6 +76,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     private static final int SESSION_EXPIRE_SECONDS = 3600;
 
     private final AzureFileSystemProperties properties;
+    private final Clock clock;
     private volatile BlobServiceClient client;
 
     public AzureObjStorage(Map<String, String> properties) {
@@ -82,11 +84,17 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     }
 
     public AzureObjStorage(AzureFileSystemProperties properties) {
+        this(properties, Clock.systemUTC());
+    }
+
+    AzureObjStorage(AzureFileSystemProperties properties, Clock clock) {
         this.properties = properties;
+        this.clock = clock;
     }
 
     @Override
     public BlobServiceClient getClient() throws IOException {
+        properties.validateSasExpiry(clock);
         if (client == null) {
             synchronized (this) {
                 if (client == null) {
@@ -98,24 +106,30 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     }
 
     protected BlobServiceClient buildClient() throws IOException {
+        properties.validateSasExpiry(clock);
         String endpoint = requireProperty(
                 properties.getEndpoint(), AzureFileSystemProperties.ENDPOINT, "Azure endpoint");
         BlobServiceClientBuilder builder = new BlobServiceClientBuilder().endpoint(endpoint);
 
-        if (properties.isSharedKeyAuth()) {
-            String accountName = requireProperty(
-                    properties.getAccountName(), AzureFileSystemProperties.ACCOUNT_NAME, "Azure account name");
-            String accountKey = requireProperty(
-                    properties.getAccountKey(), AzureFileSystemProperties.ACCOUNT_KEY, "Azure account key");
-            builder.credential(new StorageSharedKeyCredential(accountName, accountKey));
-        } else {
-            String tenantId = properties.resolveTenantId()
-                    .orElseThrow(() -> new IOException("Azure tenant id is required for OAuth2 native SDK access"));
-            builder.credential(new ClientSecretCredentialBuilder()
-                    .tenantId(tenantId)
-                    .clientId(properties.getClientId())
-                    .clientSecret(properties.getClientSecret())
-                    .build());
+        switch (properties.authType()) {
+            case SHARED_KEY:
+                builder.credential(new StorageSharedKeyCredential(
+                        properties.getAccountName(), properties.getAccountKey()));
+                break;
+            case SAS:
+                builder.sasToken(properties.getSasToken());
+                break;
+            case OAUTH2:
+                String tenantId = properties.resolveTenantId()
+                        .orElseThrow(() -> new IOException("Azure tenant id is required for OAuth2 native SDK access"));
+                builder.credential(new ClientSecretCredentialBuilder()
+                        .tenantId(tenantId)
+                        .clientId(properties.getClientId())
+                        .clientSecret(properties.getClientSecret())
+                        .build());
+                break;
+            default:
+                throw new IllegalStateException("Unhandled Azure auth type: " + properties.authType());
         }
         return builder.buildClient();
     }

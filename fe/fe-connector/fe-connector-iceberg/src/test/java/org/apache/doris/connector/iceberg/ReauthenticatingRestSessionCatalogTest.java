@@ -28,6 +28,8 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.lang.reflect.Proxy;
 import java.util.Collections;
@@ -51,6 +53,7 @@ public class ReauthenticatingRestSessionCatalogTest {
         private final String label;
         private final RuntimeException failure;
         private final AtomicInteger listCalls = new AtomicInteger();
+        private final AtomicInteger registerCalls = new AtomicInteger();
         private volatile Table loadedTable;
         private volatile Catalog.TableBuilder tableBuilder;
         private volatile CountDownLatch loadStarted;
@@ -106,6 +109,15 @@ public class ReauthenticatingRestSessionCatalogTest {
         }
 
         @Override
+        public Table registerTable(SessionContext context, TableIdentifier ident, String metadataFileLocation) {
+            registerCalls.incrementAndGet();
+            if (failure != null) {
+                throw failure;
+            }
+            return loadedTable;
+        }
+
+        @Override
         public void close() {
             closed = true;
         }
@@ -151,6 +163,51 @@ public class ReauthenticatingRestSessionCatalogTest {
         List<Namespace> namespaces = catalog.listNamespaces(SessionContext.createEmpty(), NS);
 
         Assertions.assertEquals(Collections.singletonList(Namespace.of("fresh")), namespaces);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testSuccessfulRegisterWithLocalWrapped401IsNeverRetried(boolean wrappedMarker) {
+        IcebergPostSuccessFileIOInitializationException marker = new IcebergPostSuccessFileIOInitializationException(
+                IcebergPostSuccessFileIOInitializationException.Operation.REGISTER,
+                new IllegalArgumentException("local FileIO binding failed", notAuthorized()));
+        RuntimeException failure = wrappedMarker ? new RuntimeException("outer catalog failure", marker) : marker;
+        FakeRestSessionCatalog completed = new FakeRestSessionCatalog("completed", failure);
+        FakeRestSessionCatalog replacement = new FakeRestSessionCatalog("must-not-be-used", notAuthorized());
+        AtomicInteger rebuilds = new AtomicInteger();
+        ReauthenticatingRestSessionCatalog catalog = new ReauthenticatingRestSessionCatalog(completed, () -> {
+            rebuilds.incrementAndGet();
+            return replacement;
+        });
+
+        Assertions.assertSame(failure, Assertions.assertThrows(RuntimeException.class,
+                () -> catalog.registerTable(SessionContext.createEmpty(), TableIdentifier.of("db", "table"),
+                        "abfs://container@account.dfs.core.windows.net/table/metadata.json")));
+        Assertions.assertEquals(1, completed.registerCalls.get());
+        Assertions.assertEquals(0, replacement.registerCalls.get());
+        Assertions.assertEquals(0, rebuilds.get());
+        Assertions.assertSame(completed, catalog.currentDelegate());
+        Assertions.assertFalse(completed.closed);
+    }
+
+    @Test
+    public void testRejectedRegisterStillRecoversOnceAndPreservesSecond401() {
+        FakeRestSessionCatalog rejected = new FakeRestSessionCatalog("rejected", notAuthorized());
+        NotAuthorizedException secondFailure = notAuthorized();
+        FakeRestSessionCatalog replacement = new FakeRestSessionCatalog("replacement", secondFailure);
+        AtomicInteger rebuilds = new AtomicInteger();
+        ReauthenticatingRestSessionCatalog catalog = new ReauthenticatingRestSessionCatalog(rejected, () -> {
+            rebuilds.incrementAndGet();
+            return replacement;
+        });
+
+        Assertions.assertSame(secondFailure, Assertions.assertThrows(NotAuthorizedException.class,
+                () -> catalog.registerTable(SessionContext.createEmpty(), TableIdentifier.of("db", "table"),
+                        "abfs://container@account.dfs.core.windows.net/table/metadata.json")));
+        Assertions.assertEquals(1, rejected.registerCalls.get());
+        Assertions.assertEquals(1, replacement.registerCalls.get());
+        Assertions.assertEquals(1, rebuilds.get());
+        Assertions.assertTrue(rejected.closed);
     }
 
     @Test

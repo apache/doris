@@ -50,10 +50,62 @@ class AzureFileSystemProviderTest {
     }
 
     @Test
+    void supports_recognizesProviderOwnedSasToken() {
+        Map<String, String> props = new HashMap<>();
+        props.put("azure.sas_token", "sv=2024-01-01&sig=temporary");
+        Assertions.assertTrue(provider.supports(props));
+        Assertions.assertTrue(provider.supportsGuess(props));
+    }
+
+    @Test
+    void supports_doesNotRouteByTheBackendSasField() {
+        Map<String, String> props = Map.of("AZURE_SAS_TOKEN", "sig=wire-only");
+
+        Assertions.assertFalse(provider.supports(props));
+        Assertions.assertFalse(provider.supportsGuess(props));
+        Assertions.assertTrue(provider.sensitivePropertyKeys().contains("AZURE_SAS_TOKEN"));
+    }
+
+    @Test
     void supports_returnsFalseForUnknownEndpointSuffix() {
         Map<String, String> props = new HashMap<>();
         props.put("AZURE_ENDPOINT", "https://myaccount.s3.amazonaws.com");
         Assertions.assertFalse(provider.supports(props));
+    }
+
+    @Test
+    void supportsExplicit_requiresRawAzureSupportFlag() {
+        Assertions.assertTrue(provider.supportsExplicit(Map.of("fs.azure.support", "true")));
+        Assertions.assertFalse(provider.supportsExplicit(Map.of("fs.azure.support", "false")));
+        Assertions.assertFalse(provider.supportsExplicit(Map.of("provider", "azure")));
+        Assertions.assertFalse(provider.supportsExplicit(Map.of("_STORAGE_TYPE_", "AZURE")));
+        Assertions.assertFalse(provider.supportsExplicit(Map.of("AZURE_ACCOUNT_NAME", "account")));
+        Assertions.assertFalse(provider.supportsExplicit(Map.of("fs.s3.support", "true")));
+    }
+
+    @Test
+    void supportsGuess_doesNotTreatConvertedStorageMarkerAsExplicitInput() {
+        Assertions.assertFalse(provider.supportsGuess(Map.of("_STORAGE_TYPE_", "AZURE")));
+        Assertions.assertTrue(provider.supportsGuess(Map.of("provider", "azure")));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"https://ACCOUNT.DFS.CORE.WINDOWS.NET",
+            "https://account.dfs.core.chinacloudapi.cn", "https://ACCOUNT.BLOB.CORE.USGOVCLOUDAPI.NET"})
+    void supportsGuess_recognizesDfsAndCaseInsensitiveAzureHosts(String endpoint) {
+        Assertions.assertTrue(provider.supportsGuess(Map.of("azure.endpoint", endpoint)));
+        Assertions.assertTrue(provider.supports(Map.of("azure.endpoint", endpoint)));
+        Assertions.assertTrue(provider.supports(Map.of("AZURE_ENDPOINT", endpoint)));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"https://foo.blob.core.windows.net.proxy.test",
+            "https://foo.dfs.core.windows.net.proxy.test", "https://proxy.test/blob.core.windows.net",
+            "https://proxy.test?endpoint=account.blob.core.windows.net"})
+    void supports_matchesOnlyTheActualHostSuffix(String endpoint) {
+        Assertions.assertFalse(provider.supports(Map.of("azure.endpoint", endpoint)));
+        Assertions.assertFalse(provider.supports(Map.of("AZURE_ENDPOINT", endpoint)));
+        Assertions.assertFalse(provider.supportsGuess(Map.of("azure.endpoint", endpoint)));
     }
 
     // F21 — provider must recognise all four Azure sovereign-cloud blob host suffixes.

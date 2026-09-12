@@ -357,6 +357,9 @@ struct TIcebergFileDesc {
     // Only for format_version >= 3, the sequence number which last updated this file.
     11: optional i64 last_updated_sequence_number;
     12: optional string serialized_split;
+    // Fixed credential expiry for this metadata task's FileIO, in Unix milliseconds.
+    // Credentials remain inside serialized_split; absent for materialized or refreshable tasks.
+    13: optional i64 file_io_expiry_ms;
 }
 
 struct TPaimonDeletionFileDesc {

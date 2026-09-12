@@ -23,6 +23,7 @@ import org.apache.doris.connector.spi.ConnectorStatementScopes;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 
 import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
@@ -71,8 +72,45 @@ final class IcebergStatementScope {
     static final String REWRITABLE_DELETE_SUPPLY_NAMESPACE = "iceberg.rewritable-delete-supply";
     static final String WRITE_SCHEMA_NAMESPACE = "iceberg.write-schema";
     static final String ACTIVE_WRITE_SCHEMA_NAMESPACE = "iceberg.active-write-schema";
+    static final String READ_STORAGE_NAMESPACE = "iceberg.read-storage";
 
     private IcebergStatementScope() {}
+
+    /** Read credentials belong to a statement's frozen table/FileIO generation, never its mutable write table. */
+    static IcebergScanPlanProvider.ReadStorageAccess readStorageAccess(ConnectorSession session,
+            String dbName, String tableName, Table table,
+            Supplier<IcebergScanPlanProvider.ReadStorageAccess> loader) {
+        Map<ReadStorageGeneration, IcebergScanPlanProvider.ReadStorageAccess> generations =
+                ConnectorStatementScopes.resolveInStatement(session, READ_STORAGE_NAMESPACE,
+                        dbName, tableName, ConcurrentHashMap::new);
+        return generations.computeIfAbsent(new ReadStorageGeneration(table), ignored -> loader.get());
+    }
+
+    private static final class ReadStorageGeneration {
+        private final Object metadata;
+        private final Object fileIO;
+
+        private ReadStorageGeneration(Table table) {
+            metadata = table instanceof HasTableOperations
+                    ? ((HasTableOperations) table).operations().current() : table;
+            // A fresh FileIO may carry different authorization even when the metadata object is unchanged.
+            fileIO = table instanceof HasTableOperations ? table.io() : table;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (!(other instanceof ReadStorageGeneration)) {
+                return false;
+            }
+            ReadStorageGeneration that = (ReadStorageGeneration) other;
+            return metadata == that.metadata && fileIO == that.fileIO;
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * System.identityHashCode(metadata) + System.identityHashCode(fileIO);
+        }
+    }
 
     /**
      * Loads and freezes the iceberg {@link Table} for {@code db.tbl} once per statement. The frozen operations

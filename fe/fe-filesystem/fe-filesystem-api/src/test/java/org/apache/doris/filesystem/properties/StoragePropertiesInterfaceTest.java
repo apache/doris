@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.Map;
+import java.util.Optional;
 
 class StoragePropertiesInterfaceTest {
 
@@ -32,6 +33,82 @@ class StoragePropertiesInterfaceTest {
         FileSystemProperties properties = new TestProperties();
 
         Assertions.assertTrue(properties instanceof StorageProperties);
+    }
+
+    @Test
+    void normalBindingsAreNotSyntheticByDefault() {
+        StorageProperties properties = new TestProperties();
+
+        Assertions.assertFalse(properties.isSyntheticDefault());
+    }
+
+    @Test
+    void syntheticOriginIsVisibleThroughStorageProperties() {
+        StorageProperties properties = new TestProperties() {
+            @Override
+            public boolean isSyntheticDefault() {
+                return true;
+            }
+        };
+
+        Assertions.assertTrue(properties.isSyntheticDefault());
+    }
+
+    @Test
+    void accessValidationDefaultsToNoOp() {
+        StorageProperties properties = new TestProperties();
+
+        Assertions.assertDoesNotThrow(properties::validateForAccess);
+    }
+
+    @Test
+    void fileIOPropertiesDefaultDoesNotChangeOtherProvidersSelectionOrCredentials() {
+        StorageProperties properties = new TestProperties();
+
+        Map<String, String> output = properties.toIcebergFileIOProperties();
+
+        Assertions.assertEquals(Collections.emptyMap(), output);
+        Assertions.assertThrows(UnsupportedOperationException.class, () -> output.put("io-impl", "other"));
+    }
+
+    @Test
+    void fileIOConnectionPropertiesDefaultIsEmptyAndImmutable() {
+        StorageProperties properties = new TestProperties();
+
+        Map<String, String> output = properties.toIcebergFileIOConnectionProperties();
+
+        Assertions.assertEquals(Collections.emptyMap(), output);
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> output.put("adls.connection-string.account", "https://example.org"));
+    }
+
+    @Test
+    void defaultIcebergHadoopViewPreservesOtherProvidersConfigurationAndIdentity() {
+        HadoopStorageProperties hadoop = () -> Map.of("fs.defaultFS", "hdfs://namenode:8020");
+        StorageProperties properties = new TestProperties() {
+            @Override
+            public Optional<HadoopStorageProperties> toHadoopProperties() {
+                return Optional.of(hadoop);
+            }
+        };
+
+        Assertions.assertSame(hadoop, properties.toIcebergHadoopProperties().orElseThrow());
+        Assertions.assertEquals(Map.of("fs.defaultFS", "hdfs://namenode:8020"),
+                properties.toIcebergHadoopProperties().orElseThrow().toHadoopConfigurationMap());
+        Assertions.assertTrue(new TestProperties().toIcebergHadoopProperties().isEmpty());
+    }
+
+    @Test
+    void bindingValidationDoesNotPerformAccessValidation() {
+        StorageProperties properties = new TestProperties() {
+            @Override
+            public void validateForAccess() {
+                throw new IllegalArgumentException("Test credential is expired");
+            }
+        };
+
+        Assertions.assertDoesNotThrow(properties::validate);
+        Assertions.assertThrows(IllegalArgumentException.class, properties::validateForAccess);
     }
 
     private static class TestProperties implements FileSystemProperties {

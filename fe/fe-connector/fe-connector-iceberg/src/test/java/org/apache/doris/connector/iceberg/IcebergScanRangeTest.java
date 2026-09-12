@@ -19,6 +19,7 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
@@ -41,6 +42,19 @@ import java.util.Optional;
  * produces today so a later task that breaks the FILE_SCAN contract fails loudly.
  */
 public class IcebergScanRangeTest {
+
+    @Test
+    public void providerReaderIsExplicitAndDoesNotCarryCredentials() {
+        String path = "abfss://container@account.dfs.core.windows.net/file.parquet";
+        for (TFileType reader : Arrays.asList(TFileType.FILE_S3, TFileType.FILE_HDFS)) {
+            IcebergScanRange range = new IcebergScanRange.Builder().path(path)
+                    .backendFileType(reader.name()).build();
+            Assertions.assertEquals(Optional.of(reader.name()), range.getBackendFileType());
+            Assertions.assertEquals(Optional.of(path), range.getPath());
+            Assertions.assertTrue(range.getProperties().isEmpty());
+        }
+        Assertions.assertTrue(new IcebergScanRange.Builder().path(path).build().getBackendFileType().isEmpty());
+    }
 
     @Test
     public void builderProducesFileScanRangeWithFileFields() {

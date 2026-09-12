@@ -49,9 +49,9 @@ import java.util.function.UnaryOperator;
 public interface ConnectorStorageContext {
 
     /**
-     * The context for a catalog whose storage the engine does not manage. Every method keeps its interface
-     * default, so a connector reaching a service that is not there gets the same benign answer it would get
-     * from a context that simply did not override it.
+     * The context for a catalog whose storage the engine does not manage. Methods retain their interface
+     * defaults. In particular, resolved data access is unavailable: a URI scheme alone cannot establish
+     * a storage identity or its credentials.
      */
     ConnectorStorageContext NOOP = new ConnectorStorageContext() {
     };
@@ -60,7 +60,8 @@ public interface ConnectorStorageContext {
      * Normalizes raw per-table vended cloud-storage credentials (the token map a REST catalog
      * returns, e.g. {@code fs.oss.accessKeyId} / {@code s3.access-key}) into the BE-facing storage
      * property map ({@code AWS_ACCESS_KEY} / {@code AWS_SECRET_KEY} / {@code AWS_TOKEN} /
-     * {@code AWS_ENDPOINT} / {@code AWS_REGION}). The connector extracts the raw token from the live
+     * {@code AWS_ENDPOINT} / {@code AWS_REGION}; Azure uses its provider-owned
+     * {@code AZURE_*} equivalents). The connector extracts the raw token from the live
      * table (paimon SDK only); the engine performs the same {@code StorageProperties} normalization
      * it uses for static catalog credentials (the connector cannot import fe-core).
      *
@@ -140,6 +141,26 @@ public interface ConnectorStorageContext {
     }
 
     /**
+     * Captures one request's storage bindings and resolves each location to its matching provider,
+     * normalized URI, reader and backend credential view together. Vended authentication replaces the
+     * matching static authentication group before credentials are accessed; unrelated bindings are not
+     * flattened into the result. The returned resolver must not be cached across requests or credential
+     * generations. A write creates it after acquiring the write-authorized table, not from a read token.
+     * Its provider snapshot permits binding-presence checks without resolving a metadata root as a data URI.
+     *
+     * <p>The engine implements binding and routing. Contexts without that service fail explicitly rather
+     * than inventing an authenticated data path from a URI scheme. Existing normalization-only hooks
+     * remain available to connectors that do not consume this resolved-access contract.
+     *
+     * @param rawVendedCredentials raw request credentials; null/empty selects static bindings
+     * @return a resolver with a provider snapshot, whose access values contain only the selected binding's properties
+     */
+    default ConnectorStorageAccessResolver newStorageAccessResolver(
+            Map<String, String> rawVendedCredentials) {
+        throw new UnsupportedOperationException("Storage access resolution is unavailable for this catalog");
+    }
+
+    /**
      * Resolves the BE-facing file type (a {@code TFileType} enum name, e.g. {@code "FILE_S3"}) for a raw
      * storage URI a connector emits (e.g. an iceberg write output path). A write-side analogue of
      * {@link #normalizeStorageUri(String, Map)}: a connector that hands an output location to a BE table
@@ -203,7 +224,8 @@ public interface ConnectorStorageContext {
     /**
      * Returns the catalog's static storage credentials/config normalized to BE-canonical scan
      * properties: object-store creds as {@code AWS_ACCESS_KEY} / {@code AWS_SECRET_KEY} /
-     * {@code AWS_TOKEN} / {@code AWS_ENDPOINT} / {@code AWS_REGION}, and HDFS config as the resolved
+     * {@code AWS_TOKEN} / {@code AWS_ENDPOINT} / {@code AWS_REGION} (Azure uses provider-owned
+     * {@code AZURE_*} keys), and HDFS config as the resolved
      * {@code hadoop.*} / {@code dfs.*} keys (user overrides plus the legacy-derived defaults). The
      * engine runs the same {@code CredentialUtils.getBackendPropertiesFromStorageMap} that legacy /
      * iceberg / hive use over the catalog's parsed {@code StorageProperties} map — the single source of
@@ -269,6 +291,28 @@ public interface ConnectorStorageContext {
      */
     default List<StorageProperties> getStorageProperties() {
         return Collections.emptyList();
+    }
+
+    /**
+     * Captures one request's effective typed storage bindings. Provider-owned vended authentication
+     * replaces the matching static authentication group before it is accessed; unrelated storage
+     * bindings remain available. This uses the same binding contract as
+     * {@link #newStorageAccessResolver(Map)}, without selecting a data URI or emitting backend credentials.
+     * A connector can consume the selected provider's {@link StorageProperties#toIcebergFileIOProperties()}
+     * directly, without translating a backend credential map back into a FileIO dialect.
+     *
+     * <p>The returned list is immutable and request-local, not a cache across credential generations.
+     * Access-time credential checks still belong to the properties' consumer-facing views. The default
+     * supports static bindings only and explicitly rejects vended credentials rather than ignoring them.
+     *
+     * @param rawVendedCredentials raw request credentials; null/empty selects static bindings
+     * @return the effective typed storage bindings for this request
+     */
+    default List<StorageProperties> resolveStorageProperties(Map<String, String> rawVendedCredentials) {
+        if (rawVendedCredentials == null || rawVendedCredentials.isEmpty()) {
+            return List.copyOf(getStorageProperties());
+        }
+        throw new UnsupportedOperationException("Vended storage binding is unavailable for this catalog");
     }
 
     /**

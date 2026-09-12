@@ -17,9 +17,15 @@
 
 package org.apache.doris.filesystem.hdfs;
 
+import org.apache.doris.filesystem.hdfs.properties.HdfsProperties;
+import org.apache.doris.filesystem.properties.StorageProperties;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -74,5 +80,56 @@ class HdfsFileSystemProviderTest {
     void schemeMatchIsCaseInsensitive() {
         Assertions.assertTrue(provider.supports(props("fs.defaultFS", "HDFS://ns")));
         Assertions.assertTrue(provider.supports(props("fs.defaultFS", "ViewFS://cluster")));
+    }
+
+    @Test
+    void defaultBindingKeepsTypedPropertiesAndConfiguration() {
+        Map<String, String> raw = Map.of("azure.account_name", "account", "azure.account_key", "key");
+        HdfsProperties normal = provider.bind(raw);
+        HdfsProperties fallback = provider.bindDefault(raw);
+        StorageProperties storage = fallback;
+
+        Assertions.assertFalse(normal.isSyntheticDefault());
+        Assertions.assertTrue(storage.isSyntheticDefault());
+        Assertions.assertEquals(HdfsProperties.class, fallback.getClass());
+        Assertions.assertEquals(raw, fallback.rawProperties());
+        Assertions.assertEquals(normal.matchedProperties(), fallback.matchedProperties());
+        Assertions.assertEquals(normal.toBackendProperties().get().toMap(),
+                fallback.toBackendProperties().get().toMap());
+        Assertions.assertEquals(normal.toHadoopProperties().get().toHadoopConfigurationMap(),
+                fallback.toHadoopProperties().get().toHadoopConfigurationMap());
+        Assertions.assertEquals(normal.fsCacheFingerprint(), fallback.fsCacheFingerprint());
+    }
+
+    @Test
+    void normalBindingsNeverInferSyntheticOriginFromMissingHints() {
+        Assertions.assertFalse(provider.bind(Map.of()).isSyntheticDefault());
+        Assertions.assertFalse(provider.bind(Map.of("fs.hdfs.support", "true")).isSyntheticDefault());
+        HdfsProperties hdfsUri = provider.bind(Map.of("uri", "hdfs://namenode/warehouse"));
+        Assertions.assertFalse(hdfsUri.isSyntheticDefault());
+        Assertions.assertEquals("hdfs://namenode", hdfsUri.getBackendConfigProperties().get("fs.defaultFS"));
+    }
+
+    @Test
+    void recognizesAndLoadsActualHadoopResources(@TempDir Path tmp) throws Exception {
+        Path xml = tmp.resolve("storage-site.xml");
+        Files.writeString(xml, "<configuration><property>"
+                + "<name>fs.s3a.connection.ssl.enabled</name><value>false</value>"
+                + "</property></configuration>");
+        Map<String, String> raw = Map.of("hadoop.config.resources", xml.toString());
+
+        Assertions.assertTrue(provider.supportsGuess(raw));
+        HdfsProperties properties = provider.bind(raw);
+
+        Assertions.assertFalse(properties.isSyntheticDefault());
+        Assertions.assertEquals("false", properties.getBackendConfigProperties().get("fs.s3a.connection.ssl.enabled"));
+        Assertions.assertEquals("false",
+                properties.toHadoopConfigurationMap().get("fs.s3a.connection.ssl.enabled"));
+    }
+
+    @Test
+    void retainsLegacyResourceGuessHintWithoutLoadingFilesDuringGuess() {
+        Assertions.assertTrue(provider.supportsGuess(Map.of("hdfs.config.resources", "legacy-site.xml")));
+        Assertions.assertTrue(provider.supportsGuess(Map.of("hadoop.config.resources", "missing-site.xml")));
     }
 }

@@ -46,6 +46,15 @@ public interface ConnectorScanRange extends Serializable {
         return Optional.empty();
     }
 
+    /**
+     * Reader selected by the storage binding that supplied this range's URI and scan-node
+     * credentials, expressed as a BE file-type enum name. Empty preserves legacy scheme routing
+     * for connectors that do not resolve storage access through the engine.
+     */
+    default Optional<String> getBackendFileType() {
+        return Optional.empty();
+    }
+
     /** Returns the byte offset to start reading from. */
     default long getStart() {
         return 0;

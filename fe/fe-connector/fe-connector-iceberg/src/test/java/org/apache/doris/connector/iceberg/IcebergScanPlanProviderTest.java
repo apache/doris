@@ -19,9 +19,11 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorStorageAccess;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
@@ -38,6 +40,7 @@ import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
@@ -45,12 +48,15 @@ import org.apache.doris.thrift.schema.external.TFieldPtr;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.Metrics;
@@ -63,6 +69,7 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileIO;
@@ -114,6 +121,9 @@ public class IcebergScanPlanProviderTest {
     private static final Schema PART_SCHEMA = new Schema(
             Types.NestedField.required(1, "id", Types.IntegerType.get()),
             Types.NestedField.required(2, "p", Types.IntegerType.get()));
+
+    private static final String AZURE_DATA_LOCATION =
+            "abfss://container@account.dfs.core.windows.net/db/t1/data";
 
     // --- in-memory iceberg table helpers (offline; DataFile metadata only, no real data files) ---
 
@@ -1483,13 +1493,7 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
-    public void getScanNodePropertiesForSysHandleStillEmitsLocationCreds() {
-        // T07 gap-fill: both existing sys getScanNodeProperties tests run context==null, so the location.*
-        // credential blocks (which sit OUTSIDE the two if(!systemTable) skips, D-065) never execute -> cred
-        // SURVIVAL for a sys handle is never positively asserted. BE still needs creds to read the metadata
-        // files (legacy IcebergScanNode.getLocationProperties has no isSystemTable branch). MUTATION: folding
-        // the location.* blocks inside if(!systemTable) (a plausible "tidy-up") strips creds from sys
-        // metadata scans -> BE 403 -> every existing test stays green, this one -> red.
+    public void getScanNodePropertiesForSysHandleDoesNotExportNativeStorageCredentials() {
         Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
         RecordingConnectorContext context = new RecordingConnectorContext();
         Map<String, String> beStatic = new HashMap<>();
@@ -1507,12 +1511,98 @@ public class IcebergScanPlanProviderTest {
                 null, IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1L, null, -1L),
                 metaColumns, Optional.empty());
 
-        Assertions.assertEquals("ak", props.get("location.AWS_ACCESS_KEY"),
-                "a sys handle must still emit location.* creds (BE reads the metadata files; legacy parity)");
-        Assertions.assertEquals("sk", props.get("location.AWS_SECRET_KEY"));
+        Assertions.assertTrue(locationProperties(props).isEmpty(),
+                "JNI metadata uses its FileIO, not native object-store parameters");
         Assertions.assertFalse(props.containsKey("iceberg.schema_evolution"), "sys still skips the dict");
         Assertions.assertFalse(props.containsKey("path_partition_keys"), "sys still skips path_partition_keys");
         Assertions.assertEquals("jni", props.get("file_format_type"));
+    }
+
+    @Test
+    public void getScanNodePropertiesForSysHandleLeavesVendedAzureSasInFileIo() {
+        FakeIcebergTable table = fakeTable("t1");
+        table.setIo(new PropsOnlyFileIO(Collections.singletonMap(
+                "adls.sas-token.account.dfs.core.windows.net", "sv=2024-01-01&sig=temporary")));
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        context.vendedBeProps = new HashMap<>();
+        context.vendedBeProps.put("provider", "azure");
+        context.vendedBeProps.put("AZURE_AUTH_TYPE", "SAS");
+        context.vendedBeProps.put("AZURE_ENDPOINT", "https://account.blob.core.windows.net");
+        context.vendedBeProps.put("AZURE_ACCOUNT_NAME", "account");
+        context.vendedBeProps.put("AZURE_SAS_TOKEN", "sv=2024-01-01&sig=temporary");
+        context.vendedBeProps.put("AZURE_SAS_EXPIRY_MS", "4102444800000");
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(restVendedFlagOn()), opsReturning(table), context);
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, IcebergTableHandle.forSystemTable("db1", "t1", "all_manifests", -1L, null, -1L),
+                Collections.emptyList(), Optional.empty());
+
+        Assertions.assertTrue(locationProperties(props).isEmpty());
+        Assertions.assertEquals("sv=2024-01-01&sig=temporary",
+                table.io().properties().get("adls.sas-token.account.dfs.core.windows.net"));
+        Assertions.assertEquals(0, context.vendStorageCredentialsCount);
+        Assertions.assertEquals(0, context.newStorageAccessResolverCount,
+                "JNI metadata must not resolve a native data binding");
+    }
+
+    @Test
+    public void jniNodePropertiesDoNotFlattenMultipleAzureFileIoCredentialScopes() {
+        FakeIcebergTable table = fakeTable("t1");
+        Map<String, String> firstConfig = Collections.singletonMap(
+                "adls.sas-token.account.dfs.core.windows.net", "sv=test&sig=first-scope");
+        Map<String, String> secondConfig = Collections.singletonMap(
+                "adls.sas-token.account.dfs.core.windows.net", "sv=test&sig=second-scope");
+        List<StorageCredential> credentials = Arrays.asList(
+                StorageCredential.create(AZURE_DATA_LOCATION + "/first", firstConfig),
+                StorageCredential.create(AZURE_DATA_LOCATION + "/second", secondConfig));
+        FileIO fileIO = new VendedFileIO(Collections.emptyMap(), credentials);
+        table.setIo(fileIO);
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        context.vendedBeProps = azureReadProperties();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(restVendedFlagOn()), opsReturning(table), context);
+
+        for (String suffix : Arrays.asList("files", "all_manifests")) {
+            Map<String, String> properties = provider.getScanNodeProperties(null,
+                    IcebergTableHandle.forSystemTable("db1", "t1", suffix, -1L, null, -1L),
+                    Collections.emptyList(), Optional.empty());
+            Assertions.assertEquals("jni", properties.get("file_format_type"));
+            Assertions.assertTrue(locationProperties(properties).isEmpty());
+        }
+        Assertions.assertEquals(secondConfig, IcebergScanPlanProvider.extractVendedToken(table, true));
+        Assertions.assertSame(fileIO, table.io());
+        Assertions.assertEquals(credentials, ((SupportsStorageCredentials) table.io()).credentials());
+        Assertions.assertEquals(0, context.newStorageAccessResolverCount);
+        Assertions.assertEquals(0, context.vendStorageCredentialsCount);
+    }
+
+    @Test
+    public void jniNodePropertiesPreserveActualHadoopFileIoConfiguration() {
+        FakeIcebergTable table = fakeTable("t1");
+        Configuration configuration = new Configuration(false);
+        Map<String, String> hadoop = Map.of(
+                "fs.defaultFS", "hdfs://metadata-namenode:8020",
+                "hadoop.username", "metadata-reader",
+                "hadoop.security.authentication", "kerberos",
+                "hadoop.kerberos.principal", "metadata-reader@EXAMPLE.COM",
+                "hadoop.kerberos.keytab", "/test/metadata-reader.keytab",
+                "hadoop.security.auth_to_local", "RULE:[1:$1] DEFAULT",
+                "fs.azure.account.oauth2.client.secret.onelake.dfs.fabric.microsoft.com", "test-onelake-secret");
+        hadoop.forEach(configuration::set);
+        table.setIo(new HadoopFileIO(configuration));
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        context.storageProperties = List.of(fakeBackendStorage(azureReadProperties()));
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table), context);
+
+        Map<String, String> properties = provider.getScanNodeProperties(null,
+                IcebergTableHandle.forSystemTable("db1", "t1", "all_manifests", -1L, null, -1L),
+                Collections.emptyList(), Optional.empty());
+
+        Assertions.assertEquals(hadoop, locationProperties(properties));
+        Assertions.assertEquals(0, context.vendStorageCredentialsCount);
+        Assertions.assertEquals(0, context.newStorageAccessResolverCount);
     }
 
     @Test
@@ -2425,6 +2515,7 @@ public class IcebergScanPlanProviderTest {
         private final String timeZone;
         private final Map<String, String> sessionProperties;
         private ConnectorStatementScope statementScope = ConnectorStatementScope.NONE;
+        private ConnectorTransaction transaction;
 
         FakeScanSession(String timeZone, Map<String, String> sessionProperties) {
             this.timeZone = timeZone;
@@ -2435,6 +2526,16 @@ public class IcebergScanPlanProviderTest {
         FakeScanSession withScope(ConnectorStatementScope scope) {
             this.statementScope = scope;
             return this;
+        }
+
+        FakeScanSession withTransaction(ConnectorTransaction transaction) {
+            this.transaction = transaction;
+            return this;
+        }
+
+        @Override
+        public Optional<ConnectorTransaction> getCurrentTransaction() {
+            return Optional.ofNullable(transaction);
         }
 
         @Override
@@ -3276,11 +3377,108 @@ public class IcebergScanPlanProviderTest {
 
     // --- T09: vended credentials (extractVendedToken + static/vended location.* + URI threading) ---
 
+    private static Map<String, String> azureReadProperties() {
+        return ImmutableMap.<String, String>builder()
+                .put("provider", "azure")
+                .put("AZURE_AUTH_TYPE", "SAS")
+                .put("AZURE_ACCOUNT_NAME", "account")
+                .put("AZURE_ENDPOINT", "https://account.blob.core.windows.net")
+                .put("AZURE_SAS_TOKEN", "sv=test&sig=fresh-test-token")
+                .put("AZURE_SAS_EXPIRY_MS", "4102444800000")
+                .build();
+    }
+
+    private static ConnectorStorageAccess azureAccess(String uri, Map<String, String> properties) {
+        return new ConnectorStorageAccess("AZURE", uri, BackendStorageKind.NATIVE,
+                TFileType.FILE_S3.name(), properties);
+    }
+
+    private static Map<String, String> azureRawCredentials() {
+        return Collections.singletonMap("adls.sas-token.account.dfs.core.windows.net", "sv=test&sig=fresh-test-token");
+    }
+
+    private static Table withAzureReadCredentials(Table real) {
+        return new BaseTable(new IcebergAuthenticatedTableOperations(((HasTableOperations) real).operations(),
+                new PropsOnlyFileIO(real.io(), azureRawCredentials())), real.name());
+    }
+
+    private static Table azureReadTable() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned(), ImmutableMap.of(
+                TableProperties.FORMAT_VERSION, "2", TableProperties.WRITE_DATA_LOCATION, AZURE_DATA_LOCATION));
+        table.newAppend().appendFile(dataFile(table.spec(), AZURE_DATA_LOCATION + "/f+//http://x.parquet",
+                1024, null, null)).commit();
+        table.newRowDelta().addDeletes(positionDeleteFile(
+                AZURE_DATA_LOCATION + "/pos.parquet", FileFormat.PARQUET, null, null)).commit();
+        return withAzureReadCredentials(table);
+    }
+
+    private static Map<String, String> locationProperties(Map<String, String> properties) {
+        Map<String, String> result = new HashMap<>();
+        properties.forEach((key, value) -> {
+            if (key.startsWith(ScanNodePropertyKeys.LOCATION_PREFIX)) {
+                result.put(key.substring(ScanNodePropertyKeys.LOCATION_PREFIX.length()), value);
+            }
+        });
+        return result;
+    }
+
+    @Test
+    public void azureNodePropertiesRevalidateExpiryOnCachedReadAccess() {
+        Table table = azureReadTable();
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        context.storageAccessProviderNames = Collections.singleton("AZURE");
+        AtomicBoolean expired = new AtomicBoolean();
+        context.storageAccessResolver = uri -> {
+            if (expired.get()) {
+                throw new IllegalArgumentException("Azure SAS credential is expired");
+            }
+            return azureAccess(uri, azureReadProperties());
+        };
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(restVendedFlagOn()), opsReturning(table), context);
+        ConnectorSession session = new FakeScanSession("UTC", Collections.emptyMap())
+                .withScope(new TestStatementScope());
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1");
+        provider.getScanNodeProperties(session, handle, Collections.emptyList(), Optional.empty());
+        expired.set(true);
+        IllegalArgumentException failure = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> provider.getScanNodeProperties(session, handle, Collections.emptyList(), Optional.empty()));
+        Assertions.assertEquals("Azure SAS credential is expired", failure.getMessage());
+        Assertions.assertEquals(1, context.newStorageAccessResolverCount);
+    }
+
+    @Test
+    public void azureDeleteFileCannotBorrowAnotherBinding() {
+        Table table = azureReadTable();
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        context.storageAccessProviderNames = Collections.singleton("AZURE");
+        context.storageAccessResolver = uri -> uri.endsWith("/pos.parquet")
+                ? new ConnectorStorageAccess("S3", uri, BackendStorageKind.S3_COMPATIBLE, "FILE_S3",
+                        Collections.singletonMap("AWS_SECRET_KEY", "unrelated-test-secret"))
+                : azureAccess(uri, azureReadProperties());
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(restVendedFlagOn()), opsReturning(table), context);
+        ConnectorSession session = new FakeScanSession("UTC", Collections.emptyMap())
+                .withScope(new TestStatementScope());
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1");
+        Map<String, String> published = locationProperties(provider.getScanNodeProperties(
+                session, handle, Collections.emptyList(), Optional.empty()));
+        RuntimeException failure = Assertions.assertThrows(RuntimeException.class,
+                () -> provider.planScan(session,
+                        ConnectorScanRequest.builder(handle, Collections.emptyList()).build()));
+        Assertions.assertTrue(failure.getMessage().contains("fixed storage access"));
+        Assertions.assertFalse(failure.getMessage().contains("unrelated-test-secret"));
+        Assertions.assertEquals(azureReadProperties(), published);
+        Assertions.assertEquals(1, context.newStorageAccessResolverCount);
+    }
+
     @Test
     public void extractVendedTokenMergesIoPropsAndStorageCredentials() {
         FakeIcebergTable table = fakeTable("t1");
         Map<String, String> ioProps = new HashMap<>();
         ioProps.put("s3.endpoint", "ep");
+        ioProps.put("s3.access-key-id", "old-ak");
+        ioProps.put("s3.secret-access-key", "retained-test-secret");
         StorageCredential cred =
                 StorageCredential.create("s3://b", Collections.singletonMap("s3.access-key-id", "ak"));
         table.setIo(new VendedFileIO(ioProps, Collections.singletonList(cred)));
@@ -3292,6 +3490,9 @@ public class IcebergScanPlanProviderTest {
         // s3.access-key-id absent -> red.
         Assertions.assertEquals("ep", token.get("s3.endpoint"));
         Assertions.assertEquals("ak", token.get("s3.access-key-id"));
+        Assertions.assertEquals("retained-test-secret", token.get("s3.secret-access-key"));
+        Assertions.assertEquals(token, IcebergScanPlanProvider.extractNativeStorageCredentials(table, true).properties(),
+                "Azure authentication-group replacement must not change the non-Azure per-key merge");
     }
 
     @Test
@@ -3529,7 +3730,7 @@ public class IcebergScanPlanProviderTest {
         // Drive a scan over three data files and assert the connector entered newStorageUriNormalizer exactly
         // once while still normalizing all three paths. MUTATION: reverting to a per-file
         // context.normalizeStorageUri (re-deriving the config per file) leaves newNormalizerCount == 0 (the
-        // once-per-scan seam is never used) -> red; dropping a path's normalize -> normalizeCount != 3 -> red.
+        // once-per-scan seam is never used) -> red. Non-Azure scans do not probe the metadata location.
         Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
         table.newAppend()
                 .appendFile(dataFile(table.spec(), "oss://b/db/t1/f1.parquet", 1024, null, null))
@@ -3546,7 +3747,9 @@ public class IcebergScanPlanProviderTest {
 
         Assertions.assertEquals(3, ranges.size());
         Assertions.assertEquals(1, context.newNormalizerCount);
-        Assertions.assertEquals(3, context.normalizeCount);
+        Assertions.assertEquals(3, context.normalizeCount, "only the three data paths are normalized");
+        Assertions.assertEquals(0, context.storageAccessResolveCount);
+        Assertions.assertEquals(1, context.newStorageAccessResolverCount);
     }
 
     @Test
@@ -4191,8 +4394,14 @@ public class IcebergScanPlanProviderTest {
     /** A fake FileIO carrying only its own properties (no server-vended StorageCredentials). */
     private static final class PropsOnlyFileIO implements FileIO {
         private final Map<String, String> props;
+        private final FileIO delegate;
 
         PropsOnlyFileIO(Map<String, String> props) {
+            this(null, props);
+        }
+
+        PropsOnlyFileIO(FileIO delegate, Map<String, String> props) {
+            this.delegate = delegate;
             this.props = props;
         }
 
@@ -4203,17 +4412,26 @@ public class IcebergScanPlanProviderTest {
 
         @Override
         public InputFile newInputFile(String path) {
-            throw new UnsupportedOperationException();
+            if (delegate == null) {
+                throw new UnsupportedOperationException();
+            }
+            return delegate.newInputFile(path);
         }
 
         @Override
         public OutputFile newOutputFile(String path) {
-            throw new UnsupportedOperationException();
+            if (delegate == null) {
+                throw new UnsupportedOperationException();
+            }
+            return delegate.newOutputFile(path);
         }
 
         @Override
         public void deleteFile(String path) {
-            throw new UnsupportedOperationException();
+            if (delegate == null) {
+                throw new UnsupportedOperationException();
+            }
+            delegate.deleteFile(path);
         }
     }
 

@@ -59,8 +59,12 @@ IcebergSysTableJniReader::IcebergSysTableJniReader(
                                   JniDataBridge::get_jni_type_with_different_string(desc->type()));
                       }
                       std::map<std::string, std::string> params;
-                      params["serialized_split"] =
-                              range.table_format_params.iceberg_params.serialized_split;
+                      const auto& iceberg_params = range.table_format_params.iceberg_params;
+                      params["serialized_split"] = iceberg_params.serialized_split;
+                      if (iceberg_params.__isset.file_io_expiry_ms) {
+                          params["file_io_expiry_ms"] =
+                                  std::to_string(iceberg_params.file_io_expiry_ms);
+                      }
                       params["required_fields"] = join(required_fields, ",");
                       params["required_types"] = join(required_types, "#");
                       params["time_zone"] = state->timezone();

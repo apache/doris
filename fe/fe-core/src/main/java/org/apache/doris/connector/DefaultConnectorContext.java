@@ -30,6 +30,8 @@ import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorHttpSecurityHook;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStorageAccess;
+import org.apache.doris.connector.spi.ConnectorStorageAccessResolver;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -40,11 +42,15 @@ import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.properties.BackendStorageKind;
+import org.apache.doris.filesystem.properties.BackendStorageProperties;
+import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.SpiSwitchingFileSystem;
 import org.apache.doris.kerberos.ExecutionAuthenticator;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
+import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageBackendType;
@@ -61,9 +67,11 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -96,8 +104,8 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
     // (FIX-URI-NORMALIZE). Invoked at scan time only (catalog fully initialized). Empty for ctors
     // that do not wire it — those callers (non-plugin catalogs) never invoke normalizeStorageUri.
     private final Supplier<Map<StorageTypeId, StorageAdapter>> storagePropertiesSupplier;
-    // Supplies the catalog's effective raw storage map (persisted props + derived defaults, empty when the
-    // connector supplies vended credentials) for direct fe-filesystem binding in getStorageProperties()
+    // Supplies the catalog's effective raw storage map (persisted props + derived defaults)
+    // for direct fe-filesystem binding in getStorageProperties() and request-local resolution
     // (design S2): no fe-core StorageProperties parse on the connector storage path. Empty for ctors that do
     // not wire it (non-plugin / 2-3-4-arg) — those yield an empty storage list, correct parity.
     private final Supplier<Map<String, String>> rawStoragePropsSupplier;
@@ -219,55 +227,66 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
 
     @Override
     public Map<String, String> vendStorageCredentials(Map<String, String> rawVendedCredentials) {
-        // Map the per-table vended token to the BE-facing AWS_* properties. Fail-soft (empty) on any
-        // error, matching the legacy provider, so a malformed token degrades gracefully rather than
-        // killing the scan. The outer try also covers getBackendPropertiesFromStorageMap so the
-        // fail-soft boundary is byte-identical to the pre-refactor method; buildVendedStorageMap shares
-        // the typed-map build with normalizeStorageUri (single source of truth — no drift).
-        try {
-            Map<StorageTypeId, StorageAdapter> map = buildVendedStorageMap(rawVendedCredentials);
-            return map == null ? Collections.emptyMap()
-                    : CredentialUtils.getBackendPropertiesFromStorageMap(map);
-        } catch (Exception e) {
-            LOG.warn("Failed to normalize vended credentials", e);
-            return Collections.emptyMap();
-        }
+        return withVendedStorageMap(rawVendedCredentials,
+                CredentialUtils::getBackendPropertiesFromStorageMap, Collections.emptyMap());
     }
 
     /**
-     * Builds the vended {@link StorageAdapter} typed map from a raw per-table token: filter to
-     * cloud-storage props, run {@link StorageAdapter#ofAll} (normalizes arbitrary token key
-     * shapes + derives region/endpoint), then index by {@link StorageTypeId}. Mirrors the
-     * legacy vended-credentials normalization tail exactly, so the BE-credential overlay
-     * ({@link #vendStorageCredentials}) and the URI normalization ({@link #normalizeStorageUri(String,
-     * Map)}) derive the SAME credentials from the SAME token — no drift. Returns {@code null} when the
-     * token is null/empty, yields no cloud-storage props, or normalization throws — replicating the
-     * legacy "return null → fall back to the base/static map" contract.
+     * Shares provider binding between backend credentials, URI normalization and reader selection.
+     * Returns null only when no usable vended properties exist and callers should use the static map.
      */
     private Map<StorageTypeId, StorageAdapter> buildVendedStorageMap(
             Map<String, String> rawVendedCredentials) {
+        return withVendedStorageMap(rawVendedCredentials, Function.identity(), null);
+    }
+
+    /**
+     * Provider-owned vended credentials and their use stay outside the legacy fail-soft boundary. In
+     * particular, a SAS can bind successfully for replay/URI normalization and expire before its backend
+     * map is emitted: that access-time failure must not become an empty credential overlay. Providers
+     * without a vended dialect retain their existing filtered-property binding and failure behavior.
+     */
+    private <T> T withVendedStorageMap(Map<String, String> rawVendedCredentials,
+            Function<Map<StorageTypeId, StorageAdapter>, T> useBindings, T noBindings) {
         if (rawVendedCredentials == null || rawVendedCredentials.isEmpty()) {
-            return null;
+            return noBindings;
+        }
+        return withVendedStorageMap(rawVendedCredentials, rawStoragePropsSupplier.get(), useBindings, noBindings);
+    }
+
+    private <T> T withVendedStorageMap(Map<String, String> rawVendedCredentials,
+            Map<String, String> rawCatalogProperties,
+            Function<Map<StorageTypeId, StorageAdapter>, T> useBindings, T noBindings) {
+        if (rawVendedCredentials == null || rawVendedCredentials.isEmpty()) {
+            return noBindings;
+        }
+        Optional<List<StorageAdapter>> providerBindings = StorageAdapter.ofVended(
+                rawVendedCredentials, rawCatalogProperties);
+        if (providerBindings.isPresent()) {
+            return useBindings.apply(indexStorageBindings(providerBindings.get()));
         }
         try {
             Map<String, String> filtered = CredentialUtils.filterCloudStorageProperties(rawVendedCredentials);
             if (filtered.isEmpty()) {
-                return null;
+                return noBindings;
             }
-            List<StorageAdapter> vended = StorageAdapter.ofAll(filtered);
-            return vended.stream()
-                    .collect(Collectors.toMap(StorageAdapter::getType, Function.identity()));
+            return useBindings.apply(indexStorageBindings(StorageAdapter.ofAll(filtered)));
         } catch (Exception e) {
             LOG.warn("Failed to normalize vended credentials", e);
-            return null;
+            return noBindings;
         }
+    }
+
+    private static Map<StorageTypeId, StorageAdapter> indexStorageBindings(List<StorageAdapter> bindings) {
+        return bindings.stream().collect(Collectors.toMap(StorageAdapter::getType, Function.identity()));
     }
 
     @Override
     public Map<String, String> getBackendStorageProperties() {
         // Mirror legacy PaimonScanNode.getLocationProperties(): translate the catalog's parsed
-        // storage-adapter map into BE-canonical scan keys (AWS_* for object stores, hadoop/dfs for
-        // HDFS) via the SAME CredentialUtils.getBackendPropertiesFromStorageMap legacy/iceberg/hive use
+        // storage-adapter map into BE-canonical scan keys (AWS_* for generic object stores, AZURE_*
+        // for Azure, hadoop/dfs for HDFS) via the SAME
+        // CredentialUtils.getBackendPropertiesFromStorageMap legacy/iceberg/hive use
         // — single source of truth, no drift. The map is already validated at catalog creation, so this
         // does not throw; an empty map (non-plugin ctor / local-FS warehouse) yields an empty result
         // (no overlay) — correct parity, unlike normalizeStorageUri which must fail-loud on a bad path.
@@ -337,14 +356,20 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         // storage as typed fe-filesystem StorageProperties (from which it derives its Hadoop/HiveConf config
         // and BE creds without importing fe-core), sourcing the raw map straight from the catalog's raw
         // storage supplier -- no fe-core StorageProperties.createAll round-trip via getOrigProps(). The raw
-        // supplier already merges the catalog's derived storage defaults (warehouse -> fs.defaultFS) and
-        // honors the vended gate (empty for a REST/vended catalog). An empty map (non-plugin ctor /
-        // REST-vended / credential-less warehouse) yields an empty list -- no static storage, correct parity.
+        // supplier already merges the catalog's derived storage defaults (warehouse -> fs.defaultFS).
+        // Per-request vended replacement belongs to the request-local resolution hooks, not this view.
+        // An empty map (non-plugin ctor / credential-less warehouse) yields an empty storage list.
         Map<String, String> rawCatalogProps = rawStoragePropsSupplier.get();
         if (rawCatalogProps == null || rawCatalogProps.isEmpty()) {
             return Collections.emptyList();
         }
         return FileSystemFactory.bindAllStorageProperties(rawCatalogProps);
+    }
+
+    @Override
+    public List<StorageProperties> resolveStorageProperties(Map<String, String> rawVendedCredentials) {
+        return snapshotStorageBindings(rawVendedCredentials).values().stream()
+                .map(StorageAdapter::getSpiProperties).collect(Collectors.toUnmodifiableList());
     }
 
     @Override
@@ -433,7 +458,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
     @Override
     public UnaryOperator<String> newStorageUriNormalizer(Map<String, String> rawVendedCredentials) {
         // PERF: the vended token is scan-invariant, so derive the effective storage map (the expensive
-        // buildVendedStorageMap = StorageProperties.createAll + hadoop config build) ONCE per scan and reuse
+        // provider binding / legacy raw-property conversion) ONCE per scan and reuse
         // it for every per-file normalize, instead of rebuilding it per data/delete file. Each application is
         // byte-identical to normalizeStorageUri(rawUri, token): the SAME empty-uri short-circuit, the SAME
         // vended-replaces-static precedence, the SAME fail-loud LocationPath. The derivation is done LAZILY on
@@ -459,6 +484,66 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
                 return LocationPath.ofAdapters(rawUri, effective).toStorageLocation().toString();
             }
         };
+    }
+
+    private Map<StorageTypeId, StorageAdapter> snapshotStorageBindings(Map<String, String> rawVendedCredentials) {
+        Map<String, String> rawCatalog = new HashMap<>(rawStoragePropsSupplier.get());
+        Map<String, String> rawVended = rawVendedCredentials == null
+                ? Collections.emptyMap() : new HashMap<>(rawVendedCredentials);
+        // Bind the new credential generation before consulting any static backend view. In
+        // particular, an expired static SAS must not prevent a valid fresh SAS from replacing it.
+        Map<StorageTypeId, StorageAdapter> vended = withVendedStorageMap(
+                rawVended, rawCatalog, Function.identity(), Collections.emptyMap());
+        Map<StorageTypeId, StorageAdapter> bindings;
+        if (rawCatalog.isEmpty()) {
+            // Lightweight contexts may expose only pre-bound adapters. Production plugin catalogs
+            // expose raw properties, so their request uses one catalog generation below.
+            bindings = new LinkedHashMap<>(storagePropertiesSupplier.get());
+        } else {
+            bindings = new LinkedHashMap<>(indexStorageBindings(StorageAdapter.ofAllExcept(rawCatalog,
+                    vended.values().stream().filter(StorageAdapter::isExplicitlyConfigured)
+                            .map(binding -> binding.getSpiProperties().providerName()).collect(Collectors.toSet()))));
+        }
+        vended.forEach((type, binding) -> {
+            // Legacy dialect binding can prepend a synthetic HDFS default. It must not erase a
+            // real catalog HDFS identity when a separate object-store credential is refreshed.
+            if (binding.isExplicitlyConfigured() || !bindings.containsKey(type)) {
+                bindings.put(type, binding);
+            }
+        });
+        return Collections.unmodifiableMap(bindings);
+    }
+
+    @Override
+    public ConnectorStorageAccessResolver newStorageAccessResolver(
+            Map<String, String> rawVendedCredentials) {
+        Map<StorageTypeId, StorageAdapter> snapshot = snapshotStorageBindings(rawVendedCredentials);
+        // Construction completes before publication. Every application only reads immutable bindings,
+        // so properties planning and a streaming scan pump may share this request-local resolver.
+        return new ConnectorStorageAccessResolver(snapshot.values().stream()
+                .map(binding -> binding.getSpiProperties().providerName()).collect(Collectors.toSet()), rawUri -> {
+            LocationPath location = LocationPath.ofAdapters(rawUri, snapshot);
+            String normalized = location.getNormalizedLocation();
+            StorageAdapter adapter = location.getStorageAdapter();
+            if (adapter == null) {
+                // LocationPath intentionally skips storage binding for local files.
+                if (location.getTFileTypeForBE() != TFileType.FILE_LOCAL) {
+                    throw new IllegalStateException("Storage access requires a provider binding");
+                }
+                return new ConnectorStorageAccess("LOCAL", normalized, BackendStorageKind.LOCAL,
+                        TFileType.FILE_LOCAL.name(), Collections.emptyMap());
+            }
+            BackendStorageProperties view = adapter.resolveBackendProperties(normalized);
+            return new ConnectorStorageAccess(adapter.getSpiProperties().providerName(), normalized,
+                    view.backendKind(), adapter.getBackendFileType(view.backendKind()).name(),
+                    adapter.getBackendConfigProperties(view));
+        }, (rawLocation, rawPrefix) -> {
+            StorageAdapter adapter = LocationPath.ofAdapters(rawLocation, snapshot).getStorageAdapter();
+            if (adapter == null) {
+                throw new IllegalStateException("Storage prefix matching requires a provider binding");
+            }
+            return adapter.getSpiProperties().matchesLocationPrefix(rawLocation, rawPrefix);
+        });
     }
 
     @Override

@@ -24,16 +24,24 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <memory>
+#include <string>
+#include <utility>
 
 #include "cpp/obj-client/obj_storage_client.h"
+#include "io/file_factory.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
+#include "util/s3_uri.h"
 #include "util/s3_util.h"
 
 #ifdef USE_AZURE
 #include <aws/core/utils/HashingUtils.h>
 
+#include <azure/core/http/transport.hpp>
 #include <azure/storage/blobs.hpp>
 #include <azure/storage/blobs/blob_client.hpp>
 #include <azure/storage/blobs/blob_container_client.hpp>
@@ -82,10 +90,322 @@ TEST(AzureObjStorageClientMultipartHelperTest, create_upload_is_provider_free) {
 using namespace Azure::Storage::Blobs;
 
 TEST(AzureAuthFactoryTest, AllowsEmptySharedKeyCredentials) {
-    auto result = AzureAuthFactory::create("https://account.blob.core.windows.net/container",
-                                           {.account_name = "", .account_key = ""}, {});
+    auto result =
+            AzureAuthFactory::create("https://account.blob.core.windows.net/container", {}, {});
 
     EXPECT_TRUE(result);
+}
+
+TEST(AzureAuthFactoryTest, BuildsSasClientWithoutSharedKey) {
+    const auto expiry = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count() +
+                        3600000;
+    AzureCredentialOptions credentials;
+    credentials.type = AzureCredentialType::SAS;
+    credentials.sas_token = "?sv=2024-01-01&sr=c&sig=temporary";
+    credentials.sas_expiration_time_ms = expiry;
+    auto result = AzureAuthFactory::create("https://account.blob.core.windows.net/container",
+                                           credentials, {});
+
+    ASSERT_TRUE(result);
+    EXPECT_NE(result.container_client->GetUrl().find("sv=2024-01-01"), std::string::npos);
+    EXPECT_NE(result.container_client->GetUrl().find("sig=temporary"), std::string::npos);
+    EXPECT_EQ(result.shared_key_credential, nullptr);
+}
+
+TEST(AzureAuthFactoryTest, RejectsExpiredOrMalformedSas) {
+    AzureCredentialOptions credentials;
+    credentials.type = AzureCredentialType::SAS;
+    credentials.sas_token = "sv=2024-01-01&sig=expired";
+    credentials.sas_expiration_time_ms = 1;
+    auto expired = AzureAuthFactory::create("https://account.blob.core.windows.net/container",
+                                            credentials, {});
+    EXPECT_FALSE(expired);
+    EXPECT_NE(expired.error.find("expired"), std::string::npos);
+
+    credentials.sas_token.clear();
+    credentials.sas_expiration_time_ms = 0;
+    auto empty = AzureAuthFactory::create("https://account.blob.core.windows.net/container",
+                                          credentials, {});
+    EXPECT_FALSE(empty);
+    EXPECT_NE(empty.error.find("non-empty"), std::string::npos);
+
+    credentials.sas_token = "sv=1\nsig=bad";
+    auto newline = AzureAuthFactory::create("https://account.blob.core.windows.net/container",
+                                            credentials, {});
+    EXPECT_FALSE(newline);
+    EXPECT_NE(newline.error.find("line break"), std::string::npos);
+
+    credentials.sas_token = "sv=2024-01-01&se=2000-01-01T00%3A00%3A00Z&sig=expired";
+    auto expired_in_token = AzureAuthFactory::create(
+            "https://account.blob.core.windows.net/container", credentials, {});
+    EXPECT_FALSE(expired_in_token);
+    EXPECT_NE(expired_in_token.error.find("expired"), std::string::npos);
+}
+
+TEST(AzureAuthFactoryTest, BuildsOAuth2ClientSecretCredential) {
+    AzureCredentialOptions credentials;
+    credentials.type = AzureCredentialType::OAUTH2;
+    credentials.oauth_client_id = "client-id";
+    credentials.oauth_client_secret = "client-secret";
+    credentials.oauth_tenant_id = "tenant-id";
+    credentials.oauth_server_uri = "https://login.microsoftonline.com/tenant/oauth2/token";
+    auto result = AzureAuthFactory::create("https://account.blob.core.windows.net/container",
+                                           credentials, {});
+    EXPECT_TRUE(result) << result.error;
+    EXPECT_NE(result.container_client, nullptr);
+}
+
+TEST(AzureAuthFactoryTest, DerivesOAuth2TenantFromServerUri) {
+    AzureCredentialOptions credentials;
+    credentials.type = AzureCredentialType::OAUTH2;
+    credentials.oauth_client_id = "client-id";
+    credentials.oauth_client_secret = "client-secret";
+    credentials.oauth_server_uri = "https://login.microsoftonline.com/tenant/oauth2/token";
+    auto result = AzureAuthFactory::create("https://account.blob.core.windows.net/container",
+                                           credentials, {});
+    EXPECT_TRUE(result) << result.error;
+}
+
+TEST(AzureAuthFactoryTest, RejectsIncompleteOAuth2Credential) {
+    AzureCredentialOptions credentials;
+    credentials.type = AzureCredentialType::OAUTH2;
+    credentials.oauth_client_id = "client-id";
+    credentials.oauth_server_uri = "https://login.microsoftonline.com/tenant/oauth2/token";
+    auto result = AzureAuthFactory::create("https://account.blob.core.windows.net/container",
+                                           credentials, {});
+    EXPECT_FALSE(result);
+    EXPECT_NE(result.error.find("client id"), std::string::npos);
+}
+
+TEST(AzureAuthFactoryTest, RejectsConflictingAuthenticationGroups) {
+    AzureCredentialOptions shared_key;
+    shared_key.account_name = "account";
+    shared_key.account_key = "key";
+    shared_key.sas_token = "sig=secret";
+    EXPECT_FALSE(AzureAuthFactory::create("https://account.blob.core.windows.net/container",
+                                          shared_key, {}));
+    AzureCredentialOptions oauth;
+    oauth.type = AzureCredentialType::OAUTH2;
+    oauth.sas_token = "sig=secret";
+    oauth.oauth_client_id = "client-id";
+    oauth.oauth_client_secret = "client-secret";
+    oauth.oauth_server_uri = "https://login.microsoftonline.com/tenant/oauth2/token";
+    auto result =
+            AzureAuthFactory::create("https://account.blob.core.windows.net/container", oauth, {});
+    EXPECT_FALSE(result);
+    EXPECT_EQ(result.error.find("sig=secret"), std::string::npos);
+    EXPECT_EQ(result.error.find("client-secret"), std::string::npos);
+}
+
+TEST(AzureAuthFactoryTest, RejectsDuplicateOrMissingSasSignatureAndExpiryFields) {
+    for (const auto* token : {"sv=1", "sig=", "sig=one&sig=two",
+                              "se=2100-01-01T00:00:00Z&se=2099-01-01T00:00:00Z&sig=secret"}) {
+        AzureCredentialOptions credentials;
+        credentials.type = AzureCredentialType::SAS;
+        credentials.sas_token = token;
+        auto result = AzureAuthFactory::create("https://account.blob.core.windows.net/container",
+                                               credentials, {});
+        EXPECT_FALSE(result);
+        EXPECT_EQ(result.error.find("sig=secret"), std::string::npos);
+    }
+}
+
+namespace {
+
+// This transport exercises the real Azure SDK request/response and Doris
+// native reader stack without credentials, DNS or a live storage account.
+class AzureRangeTransport final : public Azure::Core::Http::HttpTransport {
+public:
+    explicit AzureRangeTransport(std::string expected_key)
+            : _expected_key(std::move(expected_key)) {}
+
+    std::unique_ptr<Azure::Core::Http::RawResponse> Send(Azure::Core::Http::Request& request,
+                                                         const Azure::Core::Context&) override {
+        using namespace Azure::Core::Http;
+        const bool head = request.GetMethod() == HttpMethod::Head;
+        const auto headers = request.GetHeaders();
+        if (head) {
+            ++heads;
+        } else {
+            EXPECT_EQ(request.GetMethod(), HttpMethod::Get);
+            ++ranges;
+            EXPECT_EQ(headers.at(headers.contains("x-ms-range") ? "x-ms-range" : "range"),
+                      "bytes=7-10");
+        }
+        EXPECT_EQ(request.GetUrl().GetQueryParameters().at("sig"), "a%2Bb%3D");
+        EXPECT_EQ(headers.find("Authorization"), headers.end());
+        EXPECT_EQ(headers.find("authorization"), headers.end());
+        const auto decoded = Azure::Core::Url::Decode(request.GetUrl().GetPath());
+        EXPECT_TRUE(decoded.ends_with("container/" + _expected_key));
+        auto response = std::make_unique<RawResponse>(
+                1, 1, head ? HttpStatusCode::Ok : HttpStatusCode::PartialContent, "OK");
+        response->SetHeader("Content-Length", head ? "16" : "4");
+        response->SetHeader("Content-Type", "application/octet-stream");
+        response->SetHeader("Accept-Ranges", "bytes");
+        response->SetHeader("ETag", "\"etag\"");
+        response->SetHeader("Last-Modified", "Wed, 01 Jan 2025 00:00:00 GMT");
+        response->SetHeader("x-ms-creation-time", "Wed, 01 Jan 2025 00:00:00 GMT");
+        response->SetHeader("x-ms-blob-type", "BlockBlob");
+        response->SetHeader("x-ms-server-encrypted", "true");
+        response->SetHeader("x-ms-lease-status", "unlocked");
+        response->SetHeader("x-ms-lease-state", "available");
+        // HEAD has no response bytes, but the SDK transport policy still consumes a body stream.
+        response->SetBodyStream(std::make_unique<Azure::Core::IO::MemoryBodyStream>(
+                reinterpret_cast<const uint8_t*>("data"), head ? 0 : 4));
+        if (!head) {
+            response->SetHeader("Content-Range", "bytes 7-10/16");
+        }
+        return response;
+    }
+
+    int heads = 0;
+    int ranges = 0;
+
+private:
+    std::string _expected_key;
+};
+
+// Both SDK pipelines must use the configured transport. In production this is the CurlTransport
+// carrying the custom CA/proxy settings. This fake also exercises the real GetToken request.
+class AzureOAuthTransport final : public Azure::Core::Http::HttpTransport {
+public:
+    std::unique_ptr<Azure::Core::Http::RawResponse> Send(Azure::Core::Http::Request& request,
+                                                         const Azure::Core::Context&) override {
+        using namespace Azure::Core::Http;
+        auto response = std::make_unique<RawResponse>(1, 1, HttpStatusCode::Ok, "OK");
+        if (request.GetUrl().GetHost() == "127.0.0.1") {
+            ++token_requests;
+            EXPECT_EQ(request.GetMethod(), HttpMethod::Post);
+            EXPECT_EQ(request.GetUrl().GetPath(), "tenant/oauth2/v2.0/token");
+            static constexpr char body[] =
+                    R"({"access_token":"test-access-token","expires_in":3600,"token_type":"Bearer"})";
+            response->SetHeader("Content-Type", "application/json");
+            response->SetHeader("Content-Length", std::to_string(sizeof(body) - 1));
+            response->SetBodyStream(std::make_unique<Azure::Core::IO::MemoryBodyStream>(
+                    reinterpret_cast<const uint8_t*>(body), sizeof(body) - 1));
+        } else {
+            ++blob_requests;
+            EXPECT_EQ(request.GetUrl().GetHost(), "account.blob.core.windows.net");
+            EXPECT_EQ(request.GetMethod(), HttpMethod::Head);
+            EXPECT_EQ(request.GetHeaders().at("Authorization"), "Bearer test-access-token");
+            response->SetHeader("Content-Length", "16");
+            response->SetHeader("ETag", "\"etag\"");
+            response->SetHeader("Last-Modified", "Wed, 01 Jan 2025 00:00:00 GMT");
+            response->SetHeader("x-ms-creation-time", "Wed, 01 Jan 2025 00:00:00 GMT");
+            response->SetHeader("x-ms-blob-type", "BlockBlob");
+            response->SetHeader("x-ms-server-encrypted", "true");
+            response->SetBodyStream(std::make_unique<Azure::Core::IO::MemoryBodyStream>(
+                    reinterpret_cast<const uint8_t*>(""), 0));
+        }
+        return response;
+    }
+
+    int token_requests = 0;
+    int blob_requests = 0;
+};
+
+void assert_reader_range_contents(io::FileReader& reader) {
+    EXPECT_EQ(reader.size(), 16);
+    std::array<char, 4> buffer {};
+    size_t bytes_read = 0;
+    ASSERT_TRUE(reader.read_at(7, Slice(buffer.data(), buffer.size()), &bytes_read).ok());
+    EXPECT_EQ(bytes_read, 4);
+    EXPECT_EQ(std::string(buffer.data(), bytes_read), "data");
+}
+
+void assert_native_azure_client_conf(const S3ClientConf& received, const S3ClientConf& expected) {
+    EXPECT_EQ(received, expected);
+    EXPECT_EQ(received.provider, ObjStorageProvider::AZURE);
+}
+
+void assert_native_sas_reader_range(const std::string& location, const std::string& expected_key) {
+    auto transport = std::make_shared<AzureRangeTransport>(expected_key);
+    Azure::Storage::Blobs::BlobClientOptions options;
+    options.Transport.Transport = transport;
+    options.Retry.MaxRetries = 0;
+    io::FileSystemProperties properties {
+            .system_type = TFileType::FILE_S3,
+            .properties = {{"provider", "azure"},
+                           {"AZURE_AUTH_TYPE", "SAS"},
+                           {"AZURE_ACCOUNT_NAME", "account"},
+                           {"AZURE_ENDPOINT", "https://account.blob.core.windows.net"},
+                           {"AZURE_SAS_TOKEN", "sv=2024-01-01&sr=c&sig=a%2Bb%3D"}},
+            .hdfs_params = {},
+            .broker_addresses = {}};
+    S3URI uri(location);
+    ASSERT_TRUE(uri.parse().ok());
+    EXPECT_EQ(uri.get_key(), expected_key);
+    S3Conf conf;
+    ASSERT_TRUE(
+            S3ClientFactory::convert_properties_to_s3_conf(properties.properties, uri, &conf).ok());
+    auto built = AzureAuthFactory::create(conf.client_conf.endpoint + "/" + conf.bucket,
+                                          conf.client_conf.azure_credentials, std::move(options));
+    ASSERT_TRUE(built) << built.error;
+    auto native_client = std::make_shared<io::AzureObjStorageClient>(built.container_client,
+                                                                     ObjStorageEndpointInfo {});
+    S3ClientFactory::instance().set_client_creator_for_test(
+            [native_client,
+             conf](const S3ClientConf& received) -> std::shared_ptr<io::ObjStorageClient> {
+                assert_native_azure_client_conf(received, conf.client_conf);
+                return native_client;
+            });
+    auto result = FileFactory::create_file_reader(properties, {.path = location, .fs_name = {}}, {},
+                                                  nullptr);
+    S3ClientFactory::instance().clear_client_creator_for_test();
+    ASSERT_TRUE(result.has_value()) << result.error();
+    auto reader = std::move(result).value();
+    ASSERT_NO_FATAL_FAILURE(assert_reader_range_contents(*reader));
+    EXPECT_EQ(transport->heads, 1);
+    EXPECT_EQ(transport->ranges, 1);
+    EXPECT_TRUE(reader->close().ok());
+}
+
+} // namespace
+
+TEST(AzureAuthFactoryTest, OAuth2TokenRequestsInheritTheBlobTransport) {
+    auto transport = std::make_shared<AzureOAuthTransport>();
+    Azure::Storage::Blobs::BlobClientOptions options;
+    options.Transport.Transport = transport;
+    options.Retry.MaxRetries = 0;
+    AzureCredentialOptions credentials;
+    credentials.type = AzureCredentialType::OAUTH2;
+    credentials.oauth_client_id = "client-id";
+    credentials.oauth_client_secret = "client-secret";
+    // A loopback authority prevents an external token request even if transport propagation
+    // regresses. The context deadline bounds that failure; the passing test uses no sockets.
+    credentials.oauth_server_uri = "https://127.0.0.1:1/tenant/oauth2/token";
+    auto built = AzureAuthFactory::create("https://account.blob.core.windows.net/container",
+                                          credentials, std::move(options));
+    ASSERT_TRUE(built) << built.error;
+    const auto context = Azure::Core::Context().WithDeadline(std::chrono::system_clock::now() +
+                                                             std::chrono::seconds(2));
+    const auto blob = built.container_client->GetBlobClient("file.parquet");
+
+    ASSERT_NO_THROW(EXPECT_EQ(blob.GetProperties({}, context).Value.BlobSize, 16));
+    EXPECT_EQ(transport->token_requests, 1);
+    EXPECT_EQ(transport->blob_requests, 1);
+}
+
+TEST(AzureAuthFactoryTest, NativeAdlsSasReaderPreservesLiteralNamesInHeadAndRangeRead) {
+    const std::string key = "path/p=a%2Fb/with%20space/a+%2520/http://example//100%file";
+    for (const auto* prefix : {"abfs://container@account.dfs.core.windows.net/",
+                               "abfss://container@account.dfs.core.windows.net/",
+                               "wasb://container@account.blob.core.windows.net/",
+                               "wasbs://container@account.blob.core.windows.net/"}) {
+        SCOPED_TRACE(prefix);
+        // ADLSLocation passes this raw name to the Java SDK. The C++ SDK must
+        // address that same object, not turn the literal %2F into a directory.
+        assert_native_sas_reader_range(std::string(prefix) + key, key);
+    }
+}
+
+TEST(AzureAuthFactoryTest, NativeHttpSasReaderDecodesUrlNamesOnceInHeadAndRangeRead) {
+    assert_native_sas_reader_range(
+            "https://account.blob.core.windows.net/container/path/p=a%2Fb/with%20space/"
+            "a+%2520/http://example//file",
+            "path/p=a/b/with space/a+%20/http://example//file");
 }
 
 TEST(AzureObjStorageClientTlsHelperTest, detects_tls_ca_error) {
@@ -121,28 +441,24 @@ protected:
     static std::shared_ptr<ObjStorageClient> obj_storage_client;
 
     static void SetUpTestSuite() {
-        if (!std::getenv("AZURE_ACCOUNT_NAME") || !std::getenv("AZURE_ACCOUNT_KEY") ||
-            !std::getenv("AZURE_CONTAINER_NAME")) {
+        const auto* account_name = std::getenv("AZURE_ACCOUNT_NAME");
+        const auto* account_key = std::getenv("AZURE_ACCOUNT_KEY");
+        const auto* container_name = std::getenv("AZURE_CONTAINER_NAME");
+        if (!account_name || !account_key || !container_name) {
             return;
         }
-
-        std::string accountName = std::getenv("AZURE_ACCOUNT_NAME");
-        std::string accountKey = std::getenv("AZURE_ACCOUNT_KEY");
-        std::string containerName = std::getenv("AZURE_CONTAINER_NAME");
 
         // Initialize Azure SDK
         [[maybe_unused]] auto& s3ClientFactory = S3ClientFactory::instance();
 
-        auto client_result = S3ClientFactory::instance().create(
-                {.endpoint = fmt::format("https://{}.blob.core.windows.net", accountName),
-                 .region = "dummy-region",
-                 .ak = accountName,
-                 .sk = accountKey,
-                 .token = "",
-                 .bucket = containerName,
-                 .provider = ObjStorageProvider::AZURE,
-                 .role_arn = "",
-                 .external_id = ""});
+        S3ClientConf conf;
+        conf.endpoint = fmt::format("https://{}.blob.core.windows.net", account_name);
+        conf.region = "dummy-region";
+        conf.azure_credentials.account_name = account_name;
+        conf.azure_credentials.account_key = account_key;
+        conf.bucket = container_name;
+        conf.provider = ObjStorageProvider::AZURE;
+        auto client_result = S3ClientFactory::instance().create(conf);
         ASSERT_TRUE(client_result.has_value()) << client_result.error();
         AzureObjStorageClientTest::obj_storage_client = std::move(client_result).value();
     }

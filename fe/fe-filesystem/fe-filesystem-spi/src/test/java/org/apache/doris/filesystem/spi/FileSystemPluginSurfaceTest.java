@@ -17,6 +17,9 @@
 
 package org.apache.doris.filesystem.spi;
 
+import org.apache.doris.filesystem.properties.FileSystemProperties;
+import org.apache.doris.filesystem.properties.StorageProperties;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -28,6 +31,7 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Properties;
 import java.util.TreeSet;
 
 /**
@@ -65,9 +69,23 @@ public class FileSystemPluginSurfaceTest {
 
     private static final String BASELINE_RESOURCE = "/filesystem-plugin-surface.txt";
 
+    @Test
+    public void filesystemApiMajorTracksTheRecordedSurfaceChange() throws IOException {
+        Properties version = new Properties();
+        try (InputStream in = FileSystemProvider.class.getResourceAsStream(
+                "/META-INF/doris/filesystem-plugin-api-version.properties")) {
+            Assertions.assertNotNull(in, "missing filesystem plugin API version resource");
+            version.load(in);
+        }
+        // Provider-owned Iceberg FileIO properties extend the shared storage API.
+        Assertions.assertEquals("7.0", version.getProperty("api.version"));
+    }
+
     /** The types a filesystem plugin implements or calls. Everything reachable on them is the contract. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
             FileSystemProvider.class,
+            FileSystemProperties.class,
+            StorageProperties.class,
             ObjFileSystem.class,
             ObjStorage.class,
             org.apache.doris.extension.spi.Plugin.class,
