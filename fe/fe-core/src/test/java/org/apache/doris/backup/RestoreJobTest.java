@@ -33,7 +33,10 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.constraint.ConstraintManager;
+import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
@@ -45,6 +48,7 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.jupiter.api.AfterEach;
@@ -165,7 +169,7 @@ public class RestoreJobTest {
             List<BackupMeta> metas = inv.getArgument(1);
             metas.add(backupMeta);
             return Status.OK;
-        }).when(repo).getSnapshotMetaFile(Mockito.eq(label), Mockito.anyList(), Mockito.eq(-1));
+        }).when(repo).getSnapshotMetaFile(Mockito.eq(label), Mockito.anyList(), Mockito.anyInt());
 
         mockedMarkedCountDownLatch = Mockito.mockConstruction(MarkedCountDownLatch.class,
                 Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
@@ -273,6 +277,172 @@ public class RestoreJobTest {
         // 3. delete files
         in.close();
         Files.delete(path);
+    }
+
+    @Test
+    public void testRestoreMappingRejectsMixedFrontendVersionsWhenTargetExists() {
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("k1"), List.of("k1"));
+        TableProperty tableProperty = new TableProperty(Maps.newHashMap());
+        tableProperty.addDistributionMappingConstraint(mapping);
+        expectedRestoreTbl.setTableProperty(tableProperty);
+        Assert.assertTrue(db.registerTable(expectedRestoreTbl));
+        ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
+        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+        Mockito.when(constraintManager.getDistributionMappingConstraints(expectedRestoreTbl))
+                .thenReturn(ImmutableList.of(mapping));
+        Mockito.doThrow(new org.apache.doris.nereids.exceptions.AnalysisException("mixed versions"))
+                .when(constraintManager).validateDistributionMappingFeatureCompatibility();
+        Deencapsulation.setField(job, "repo", repo);
+
+        Deencapsulation.invoke(job, "checkAndPrepareMeta");
+
+        Assert.assertFalse(job.getStatus().ok());
+        Assert.assertTrue(job.getStatus().getErrMsg().contains("Cannot restore table"));
+        Assert.assertEquals(OlapTable.OlapTableState.NORMAL, expectedRestoreTbl.getState());
+        Mockito.verify(constraintManager).validateDistributionMappingFeatureCompatibility();
+        Mockito.verify(constraintManager, Mockito.never())
+                .validateDistributionMappingConstraints(expectedRestoreTbl);
+    }
+
+    @Test
+    public void testNonAtomicRestoreRejectsExistingTableWithDistributionMapping() {
+        OlapTable localTable = expectedRestoreTbl.selectiveCopy(null, IndexExtState.VISIBLE, true);
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("k1"), List.of("k1"));
+        TableProperty tableProperty = new TableProperty(Maps.newHashMap());
+        tableProperty.addDistributionMappingConstraint(mapping);
+        localTable.setTableProperty(tableProperty);
+        Assert.assertTrue(db.registerTable(localTable));
+
+        ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
+        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+        Mockito.when(constraintManager.getDistributionMappingConstraints(expectedRestoreTbl))
+                .thenReturn(ImmutableList.of());
+        Mockito.when(constraintManager.getDistributionMappingConstraints(localTable))
+                .thenReturn(ImmutableList.of(mapping));
+        Deencapsulation.setField(job, "repo", repo);
+
+        Deencapsulation.invoke(job, "checkAndPrepareMeta");
+
+        Assert.assertFalse(job.getStatus().ok());
+        Assert.assertTrue(job.getStatus().getErrMsg().contains(
+                "Cannot restore into existing table " + localTable.getName()));
+        Assert.assertEquals(OlapTable.OlapTableState.NORMAL, localTable.getState());
+    }
+
+    @Test
+    public void testNonAtomicRestoreRejectsMatchingDistributionMappingsOnExistingTable() {
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("k1"), List.of("k1"));
+        TableProperty backupTableProperty = new TableProperty(Maps.newHashMap());
+        backupTableProperty.addDistributionMappingConstraint(mapping);
+        expectedRestoreTbl.setTableProperty(backupTableProperty);
+        OlapTable localTable = expectedRestoreTbl.selectiveCopy(null, IndexExtState.VISIBLE, true);
+        Assert.assertTrue(db.registerTable(localTable));
+
+        ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
+        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+        Mockito.when(constraintManager.getDistributionMappingConstraints(expectedRestoreTbl))
+                .thenReturn(ImmutableList.of(mapping));
+        Mockito.when(constraintManager.getDistributionMappingConstraints(localTable))
+                .thenReturn(ImmutableList.of(mapping));
+        Deencapsulation.setField(job, "repo", repo);
+
+        Deencapsulation.invoke(job, "checkAndPrepareMeta");
+
+        Assert.assertFalse(job.getStatus().ok());
+        Assert.assertTrue(job.getStatus().getErrMsg().contains(
+                "Cannot restore into existing table " + localTable.getName()));
+        Assert.assertEquals(OlapTable.OlapTableState.NORMAL, localTable.getState());
+        Mockito.verify(constraintManager).validateDistributionMappingFeatureCompatibility();
+        Mockito.verify(constraintManager).validateDistributionMappingConstraints(expectedRestoreTbl);
+    }
+
+    @Test
+    public void testAtomicRestoreRejectsDistributionMappingBeforeStaging() {
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("k1"), List.of("k1"));
+        TableProperty tableProperty = new TableProperty(Maps.newHashMap());
+        tableProperty.addDistributionMappingConstraint(mapping);
+        expectedRestoreTbl.setTableProperty(tableProperty);
+        ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
+        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+        Mockito.when(constraintManager.getDistributionMappingConstraints(expectedRestoreTbl))
+                .thenReturn(ImmutableList.of(mapping));
+        Deencapsulation.setField(job, "backupMeta", backupMeta);
+        Deencapsulation.setField(job, "isAtomicRestore", true);
+
+        boolean valid = Deencapsulation.invoke(job, "validateDistributionMappingConstraintsForRestore");
+
+        Assert.assertFalse(valid);
+        Assert.assertTrue(job.getStatus().getErrMsg().contains(
+                "Cannot atomically restore table " + expectedRestoreTbl.getName()));
+        Assert.assertFalse(expectedRestoreTbl.isInAtomicRestore());
+        Mockito.verify(constraintManager, Mockito.never())
+                .validateDistributionMappingFeatureCompatibility();
+        Mockito.verify(constraintManager, Mockito.never())
+                .validateDistributionMappingConstraints(expectedRestoreTbl);
+    }
+
+    @Test
+    public void testRestoreMappingRejectsIncompatibleSchema() {
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("k1"), List.of("k1"));
+        TableProperty tableProperty = new TableProperty(Maps.newHashMap());
+        tableProperty.addDistributionMappingConstraint(mapping);
+        expectedRestoreTbl.setTableProperty(tableProperty);
+        Assert.assertTrue(db.registerTable(expectedRestoreTbl));
+        ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
+        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+        Mockito.when(constraintManager.getDistributionMappingConstraints(expectedRestoreTbl))
+                .thenReturn(ImmutableList.of(mapping));
+        Mockito.doThrow(new org.apache.doris.nereids.exceptions.AnalysisException("incompatible schema"))
+                .when(constraintManager).validateDistributionMappingConstraints(expectedRestoreTbl);
+        Deencapsulation.setField(job, "repo", repo);
+
+        Deencapsulation.invoke(job, "checkAndPrepareMeta");
+
+        Assert.assertFalse(job.getStatus().ok());
+        Assert.assertTrue(job.getStatus().getErrMsg().contains("Cannot restore table"));
+        Assert.assertEquals(OlapTable.OlapTableState.NORMAL, expectedRestoreTbl.getState());
+        Mockito.verify(constraintManager).validateDistributionMappingFeatureCompatibility();
+        Mockito.verify(constraintManager).validateDistributionMappingConstraints(expectedRestoreTbl);
+    }
+
+    @Test
+    public void testRestoreMappingValidatesEveryBackupTable() {
+        DistributionMappingConstraint firstMapping = new DistributionMappingConstraint(
+                "first_mapping", "mapping_id", List.of("k1"), List.of("k1"));
+        DistributionMappingConstraint secondMapping = new DistributionMappingConstraint(
+                "second_mapping", "mapping_id", List.of("k1"), List.of("k1"));
+        OlapTable secondRestoreTable = Mockito.mock(OlapTable.class);
+        Mockito.when(secondRestoreTable.getName()).thenReturn("second_restore_table");
+        Mockito.when(secondRestoreTable.getId()).thenReturn(60000L);
+
+        jobInfo.backupOlapTableObjects = Maps.newLinkedHashMap();
+        jobInfo.backupOlapTableObjects.put(expectedRestoreTbl.getName(), new BackupOlapTableInfo());
+        jobInfo.backupOlapTableObjects.put(secondRestoreTable.getName(), new BackupOlapTableInfo());
+        backupMeta = new BackupMeta(
+                Lists.newArrayList(expectedRestoreTbl, secondRestoreTable), Lists.newArrayList());
+        Deencapsulation.setField(job, "backupMeta", backupMeta);
+
+        ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
+        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+        Mockito.when(constraintManager.getDistributionMappingConstraints(expectedRestoreTbl))
+                .thenReturn(ImmutableList.of(firstMapping));
+        Mockito.when(constraintManager.getDistributionMappingConstraints(secondRestoreTable))
+                .thenReturn(ImmutableList.of(secondMapping));
+        Mockito.doThrow(new org.apache.doris.nereids.exceptions.AnalysisException("incompatible schema"))
+                .when(constraintManager).validateDistributionMappingConstraints(secondRestoreTable);
+
+        boolean valid = Deencapsulation.invoke(job, "validateDistributionMappingConstraintsForRestore");
+
+        Assert.assertFalse(valid);
+        Assert.assertTrue(job.getStatus().getErrMsg().contains("second_restore_table"));
+        Mockito.verify(constraintManager).validateDistributionMappingFeatureCompatibility();
+        Mockito.verify(constraintManager).validateDistributionMappingConstraints(expectedRestoreTbl);
+        Mockito.verify(constraintManager).validateDistributionMappingConstraints(secondRestoreTable);
     }
 
     @Test

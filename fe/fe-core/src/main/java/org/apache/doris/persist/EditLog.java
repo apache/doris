@@ -1004,7 +1004,10 @@ public class EditLog {
                 case OperationType.OP_MODIFY_REPLICATION_NUM: {
                     ModifyTablePropertyOperationLog log = (ModifyTablePropertyOperationLog) journal.getData();
                     env.replayModifyTableProperty(opCode, log);
-                    env.getBinlogManager().addModifyTableProperty(log, logId);
+                    // Mapping constraints only reuse this legacy envelope for old-FE readability.
+                    if (!log.hasDistributionMappingConstraintMutation()) {
+                        env.getBinlogManager().addModifyTableProperty(log, logId);
+                    }
                     break;
                 }
                 case OperationType.OP_TABLE_STREAM_CLEANUP: {

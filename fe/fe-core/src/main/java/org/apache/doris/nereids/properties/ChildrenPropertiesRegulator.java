@@ -119,6 +119,14 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             return ImmutableList.of();
         }
         PhysicalProperties requiredChildProperty = requiredProperties.get(0);
+        DistributionSpec requiredChildDistribution = requiredChildProperty.getDistributionSpec();
+        if (requiredChildDistribution instanceof DistributionSpecHash
+                && ((DistributionSpecHash) requiredChildDistribution).getShuffleType()
+                        == ShuffleType.COLOCATE_MAPPING_REQUIRE) {
+            return originChildrenProperties.get(0).satisfy(requiredChildProperty)
+                    ? ImmutableList.of(originChildrenProperties)
+                    : ImmutableList.of();
+        }
         if (!agg.getAggregateParam().canBeBanned) {
             return visit(agg, context);
         }
@@ -426,6 +434,32 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
 
         // broadcast do not need regular
         if (rightDistributionSpec instanceof DistributionSpecReplicated) {
+            return ImmutableList.of(originChildrenProperties);
+        }
+
+        DistributionSpec leftRequiredSpec = requiredProperties.get(0).getDistributionSpec();
+        DistributionSpec rightRequiredSpec = requiredProperties.get(1).getDistributionSpec();
+        boolean leftRequiresColocateMapping = leftRequiredSpec instanceof DistributionSpecHash
+                && ((DistributionSpecHash) leftRequiredSpec).getShuffleType()
+                        == ShuffleType.COLOCATE_MAPPING_REQUIRE;
+        boolean rightRequiresColocateMapping = rightRequiredSpec instanceof DistributionSpecHash
+                && ((DistributionSpecHash) rightRequiredSpec).getShuffleType()
+                        == ShuffleType.COLOCATE_MAPPING_REQUIRE;
+        Preconditions.checkState(leftRequiresColocateMapping == rightRequiresColocateMapping,
+                "colocate mapping join requires matching child properties");
+        if (leftRequiresColocateMapping) {
+            Optional<NaturalDistributionMappingSpec> leftMappingSpec =
+                    originChildrenProperties.get(0).getNaturalDistributionMappingSpec();
+            Optional<NaturalDistributionMappingSpec> rightMappingSpec =
+                    originChildrenProperties.get(1).getNaturalDistributionMappingSpec();
+            if (!originChildrenProperties.get(0).satisfy(requiredProperties.get(0))
+                    || !originChildrenProperties.get(1).satisfy(requiredProperties.get(1))
+                    || !leftMappingSpec.isPresent()
+                    || !rightMappingSpec.isPresent()
+                    || !JoinUtils.couldColocateJoinByMapping(
+                            leftMappingSpec.get(), rightMappingSpec.get(), hashJoin.getHashJoinConjuncts())) {
+                return ImmutableList.of();
+            }
             return ImmutableList.of(originChildrenProperties);
         }
 

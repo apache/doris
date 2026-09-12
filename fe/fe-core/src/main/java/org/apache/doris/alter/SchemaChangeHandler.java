@@ -543,6 +543,17 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
+    private String findConstraintWithColumn(OlapTable table, String columnName) {
+        String mappingConstraint = Env.getCurrentEnv().getConstraintManager()
+                .findDistributionMappingConstraintWithColumn(table, columnName);
+        if (mappingConstraint != null) {
+            return mappingConstraint;
+        }
+        return Env.getCurrentEnv().getConstraintManager()
+                .findConstraintWithColumn(TableNameInfoUtils.fromCatalogDb(
+                        table.getDatabase().getCatalog(), table.getDatabase(), table), columnName);
+    }
+
     private void processDropColumn(DropColumnOp dropColumnOp, Table externalTable, List<Column> newSchema)
             throws DdlException {
         String dropColName = dropColumnOp.getColName();
@@ -594,11 +605,14 @@ public class SchemaChangeHandler extends AlterHandler {
             throws DdlException {
 
         String dropColName = dropColumnOp.getColName();
+        String targetIndexName = dropColumnOp.getRollupName();
 
-        String constraintName = Env.getCurrentEnv().getConstraintManager()
-                .findConstraintWithColumn(TableNameInfoUtils.fromCatalogDb(
-                        olapTable.getDatabase().getCatalog(),
-                        olapTable.getDatabase(), olapTable), dropColName);
+        String constraintName = targetIndexName == null
+                ? findConstraintWithColumn(olapTable, dropColName)
+                : Env.getCurrentEnv().getConstraintManager()
+                        .findConstraintWithColumn(TableNameInfoUtils.fromCatalogDb(
+                                olapTable.getDatabase().getCatalog(), olapTable.getDatabase(), olapTable),
+                                dropColName);
         if (constraintName != null) {
             throw new DdlException(String.format(
                     "Cannot drop column '%s' because it is used by constraint '%s'. "
@@ -606,7 +620,6 @@ public class SchemaChangeHandler extends AlterHandler {
                     dropColName, constraintName));
         }
 
-        String targetIndexName = dropColumnOp.getRollupName();
         checkIndexExists(olapTable, targetIndexName);
 
         String baseIndexName = olapTable.getName();
@@ -975,6 +988,16 @@ public class SchemaChangeHandler extends AlterHandler {
         }
         ColumnPosition columnPos = modifyColumnOp.getColPos();
         String targetIndexName = modifyColumnOp.getRollupName();
+        if (targetIndexName == null) {
+            String mappingConstraint = Env.getCurrentEnv().getConstraintManager()
+                    .findDistributionMappingConstraintWithColumn(olapTable, modColumn.getName());
+            if (mappingConstraint != null) {
+                throw new DdlException(String.format(
+                        "Cannot modify column '%s' because it is used by constraint '%s'. "
+                                + "Drop the constraint first.",
+                        modColumn.getName(), mappingConstraint));
+            }
+        }
         checkIndexExists(olapTable, targetIndexName);
 
         String baseIndexName = olapTable.getName();
