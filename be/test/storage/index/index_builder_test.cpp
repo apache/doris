@@ -21,6 +21,7 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <set>
 
 #include "common/config.h"
 #include "storage/index/index_file_reader.h"
@@ -534,6 +535,129 @@ protected:
         EXPECT_FALSE(index_exists);
     }
 
+    // Builds a k2 index over a rowset whose schema owns a k1 index that was never
+    // written, and returns the index ids present in the output rowset's index
+    // file. `leave_empty_index_file` picks between the two shapes a source
+    // segment with no index content can have on disk: a zero-byte file (read as
+    // INVERTED_INDEX_BYPASS) or no file at all (INVERTED_INDEX_FILE_NOT_FOUND).
+    //
+    // The rowset is written BEFORE the schema gains k1, so k1 has no content
+    // anywhere and nothing can be lost by either shape. That is not an artifact
+    // of the test: a zero-byte index file is only ever produced when no logical
+    // index opened a directory, and every non-VARIANT index opens its directory
+    // eagerly in IndexColumnWriter::create(). A zero-byte file therefore cannot
+    // be a former home of some other index's data.
+    std::set<int64_t> build_k2_index_over_unwritten_k1(int64_t tablet_id, int64_t rowset_id,
+                                                       bool leave_empty_index_file) {
+        auto tablet_path = _absolute_dir + "/" + std::to_string(tablet_id);
+        _tablet->_tablet_path = tablet_path;
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(tablet_path).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->create_directory(tablet_path).ok());
+
+        RowsetSharedPtr rowset;
+        RowsetWriterContext writer_context;
+        writer_context.rowset_id.init(rowset_id);
+        writer_context.tablet_id = rowset_id;
+        writer_context.tablet_schema_hash = 567997577;
+        writer_context.partition_id = 10;
+        writer_context.rowset_type = BETA_ROWSET;
+        writer_context.tablet_path = _absolute_dir + "/" + std::to_string(rowset_id);
+        writer_context.rowset_state = VISIBLE;
+        writer_context.tablet_schema = _tablet_schema;
+        writer_context.version.first = 10;
+        writer_context.version.second = 10;
+        EXPECT_TRUE(
+                io::global_local_filesystem()->create_directory(writer_context.tablet_path).ok());
+
+        auto res = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
+        EXPECT_TRUE(res.has_value()) << res.error();
+        auto rowset_writer = std::move(res).value();
+        {
+            Block block = _tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
+            for (int i = 0; i < 1000; ++i) {
+                int32_t k1 = i * 10;
+                columns[0]->insert_data((const char*)&k1, sizeof(k1));
+                int32_t k2 = i % 100;
+                columns[1]->insert_data((const char*)&k2, sizeof(k2));
+            }
+            block.set_columns(std::move(columns));
+            EXPECT_TRUE(rowset_writer->add_block(&block).ok());
+            EXPECT_TRUE(rowset_writer->flush().ok());
+            EXPECT_TRUE(rowset_writer->build(rowset).ok());
+            EXPECT_TRUE(_tablet->add_rowset(rowset).ok());
+        }
+
+        // The schema gains k1 only now, so the rowset owns an index whose content
+        // was never written -- the same state an all-NULL VARIANT column leaves.
+        TabletIndex k1_index;
+        k1_index._index_id = 1;
+        k1_index._index_name = "k1_index";
+        k1_index._index_type = IndexType::INVERTED;
+        k1_index._col_unique_ids.push_back(1);
+        _tablet_schema->append_index(std::move(k1_index));
+
+        auto segment_path = rowset->segment_path(0);
+        EXPECT_TRUE(segment_path.has_value()) << segment_path.error();
+        const std::string source_prefix {
+                segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(
+                        segment_path.value())};
+        const auto source_index_path =
+                segment_v2::InvertedIndexDescriptor::get_index_file_path_v2(source_prefix);
+        bool exists = true;
+        EXPECT_TRUE(io::global_local_filesystem()->exists(source_index_path, &exists).ok());
+        EXPECT_FALSE(exists) << "an index-less rowset must not have written an index file";
+        if (leave_empty_index_file) {
+            io::FileWriterPtr empty;
+            EXPECT_TRUE(io::global_local_filesystem()->create_file(source_index_path, &empty).ok());
+            EXPECT_TRUE(empty->close().ok());
+        }
+        {
+            auto reader = std::make_unique<segment_v2::IndexFileReader>(
+                    io::global_local_filesystem(), source_prefix, InvertedIndexStorageFormatPB::V2);
+            auto st = reader->init();
+            EXPECT_TRUE(leave_empty_index_file ? st.is<ErrorCode::INVERTED_INDEX_BYPASS>()
+                                               : st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>())
+                    << st;
+        }
+
+        TOlapTableIndex k2_index;
+        k2_index.index_id = 2;
+        k2_index.columns.emplace_back("k2");
+        k2_index.index_name = "k2_index";
+        k2_index.index_type = TIndexType::INVERTED;
+        _alter_indexes.clear();
+        _alter_indexes.push_back(k2_index);
+
+        IndexBuilder builder(ExecEnv::GetInstance()->storage_engine().to_local(), _tablet, _columns,
+                             _alter_indexes, false);
+        EXPECT_TRUE(builder.init().ok());
+        auto status = builder.do_build_inverted_index();
+        EXPECT_TRUE(status.ok()) << status.to_string();
+
+        std::set<int64_t> output_index_ids;
+        EXPECT_EQ(builder._output_rowsets.size(), 1);
+        if (builder._output_rowsets.empty()) {
+            return output_index_ids;
+        }
+        auto output_segment_path = builder._output_rowsets[0]->segment_path(0);
+        EXPECT_TRUE(output_segment_path.has_value()) << output_segment_path.error();
+        auto reader = std::make_unique<segment_v2::IndexFileReader>(
+                io::global_local_filesystem(),
+                std::string {segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(
+                        output_segment_path.value())},
+                InvertedIndexStorageFormatPB::V2);
+        EXPECT_TRUE(reader->init().ok());
+        auto dirs = reader->get_all_directories();
+        EXPECT_TRUE(dirs.has_value());
+        if (dirs.has_value()) {
+            for (const auto& [key, _] : dirs.value()) {
+                output_index_ids.insert(key.first);
+            }
+        }
+        return output_index_ids;
+    }
+
     StorageEngine* _engine_ref = nullptr;
     TabletSharedPtr _tablet;
     TabletMetaSharedPtr _tablet_meta;
@@ -706,7 +830,9 @@ TEST_F(IndexBuilderTest, DropInvertedIndexTest) {
             new_dat_file_count++;
         }
     }
-    // The index should have been removed
+    // The index should have been removed. Dropping the last index leaves a schema
+    // that owns no index file at all, so the output rowset must carry none --
+    // nothing would ever link, copy, upload or remove it.
     EXPECT_EQ(old_idx_file_count, 1) << "Tablet path should have 1 .idx file before drop";
     EXPECT_EQ(old_dat_file_count, 1) << "Tablet path should have 1 .dat file before drop";
     EXPECT_EQ(new_idx_file_count, 0) << "Tablet path should have no .idx file after drop";
@@ -1023,6 +1149,26 @@ TEST_F(IndexBuilderTest, BuildInvertedIndexAfterWritingDataTest) {
     //auto tablet_schema = _tablet->tablet_schema();
     //EXPECT_TRUE(tablet_schema->has_inverted_index_with_index_id(1));
     //EXPECT_TRUE(tablet_schema->has_inverted_index_with_index_id(2));
+}
+
+// A schema can own an inverted index whose index file holds nothing: an all-NULL
+// VARIANT column extracts no subcolumn, so no logical index directory is ever
+// opened and the file is closed with nothing in it. ALTER on such a rowset must
+// read that exactly like a rowset written before any index existed -- there is
+// nothing to carry over, and every requested index is built from the raw columns.
+TEST_F(IndexBuilderTest, BuildIndexOverEmptyIndexFileTest) {
+    // Without tolerating the empty index file this fails the whole ALTER with
+    // [E-6004]inverted index file ... is empty.
+    EXPECT_EQ(build_k2_index_over_unwritten_k1(14695, 15695, true), (std::set<int64_t> {2}));
+}
+
+// The same rowset with NO index file at all. This path has tolerated
+// INVERTED_INDEX_FILE_NOT_FOUND for years, and it produces exactly the same
+// output: the requested index is built, and an index the source never held is
+// not invented. Pinning both together is the point -- an empty index file is
+// being read the way a missing one already was, not given new semantics.
+TEST_F(IndexBuilderTest, BuildIndexOverMissingIndexFileTest) {
+    EXPECT_EQ(build_k2_index_over_unwritten_k1(14696, 15696, false), (std::set<int64_t> {2}));
 }
 
 TEST_F(IndexBuilderTest, BuildAnnIndexAfterWritingDataTest) {
