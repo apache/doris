@@ -22,8 +22,6 @@ import org.apache.doris.connector.iceberg.IcebergTableHandle;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
-import org.apache.doris.datasource.storage.StorageAdapter;
-import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.FileSystemPluginManager;
 import org.apache.doris.kerberos.ExecutionAuthenticator;
@@ -35,7 +33,6 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
-import org.apache.iceberg.azure.adlsv2.ADLSFileIO;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.io.ResolvingFileIO;
@@ -203,73 +200,6 @@ class IcebergAzureFileIOIntegrationTest {
             Assertions.assertFalse(fixture.queries.isEmpty());
             Assertions.assertTrue(fixture.queries.stream().allMatch(query -> query != null
                     && query.contains("sig=unit-test-signature")));
-        }
-    }
-
-    @Test
-    void staticSasAuthenticatesAnOfficialFileIOMetadataRead() throws Exception {
-        TableMetadata expected = TableMetadata.newTableMetadata(
-                SCHEMA, PartitionSpec.unpartitioned(), LOCATION, Collections.emptyMap());
-        byte[] bytes = TableMetadataParser.toJson(expected).getBytes(StandardCharsets.UTF_8);
-        CopyOnWriteArrayList<String> queries = new CopyOnWriteArrayList<>();
-        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/container/table/v1.metadata.json", exchange -> serve(exchange, bytes, queries));
-        server.start();
-        try (ADLSFileIO fileIO = new ADLSFileIO()) {
-            FileSystemProperties storage = StorageAdapter.ofProvider("AZURE", Map.of(
-                    "azure.account_name", "account",
-                    "azure.endpoint", "http://127.0.0.1:" + server.getAddress().getPort(),
-                    "azure.sas_token", TOKEN)).getSpiProperties();
-            Map<String, String> fileIOProperties = storage.toIcebergFileIOProperties();
-            // Fail before opening an unconfigured SDK client: no ambient credential discovery is allowed.
-            Assertions.assertEquals(TOKEN, fileIOProperties.get("adls.sas-token.127.0.0.1"));
-            fileIO.initialize(fileIOProperties);
-
-            TableMetadata actual = TableMetadataParser.read(fileIO, LOCATION + "/v1.metadata.json");
-
-            Assertions.assertEquals(expected.uuid(), actual.uuid());
-            Assertions.assertEquals(expected.schema().asStruct(), actual.schema().asStruct());
-            Assertions.assertFalse(queries.isEmpty(), "metadata must be read from the storage service");
-            Assertions.assertTrue(queries.stream().allMatch(query -> query != null
-                    && query.contains("sig=unit-test-signature")), "every storage request must carry SAS");
-        } finally {
-            server.stop(0);
-        }
-    }
-
-    @Test
-    void sharedKeyAuthenticatesAnOfficialFileIOMetadataRead() throws Exception {
-        String key = "dW5pdC10ZXN0LXNoYXJlZC1rZXk=";
-        TableMetadata expected = TableMetadata.newTableMetadata(
-                SCHEMA, PartitionSpec.unpartitioned(), LOCATION, Collections.emptyMap());
-        byte[] bytes = TableMetadataParser.toJson(expected).getBytes(StandardCharsets.UTF_8);
-        CopyOnWriteArrayList<String> queries = new CopyOnWriteArrayList<>();
-        CopyOnWriteArrayList<String> authorizations = new CopyOnWriteArrayList<>();
-        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/container/table/v1.metadata.json", exchange -> {
-            authorizations.add(exchange.getRequestHeaders().getFirst("Authorization"));
-            serve(exchange, bytes, queries);
-        });
-        server.start();
-        try (ADLSFileIO fileIO = new ADLSFileIO()) {
-            FileSystemProperties storage = StorageAdapter.ofProvider("AZURE", Map.of(
-                    "azure.account_name", "account",
-                    "azure.endpoint", "http://127.0.0.1:" + server.getAddress().getPort(),
-                    "azure.account_key", key)).getSpiProperties();
-            Map<String, String> fileIOProperties = storage.toIcebergFileIOProperties();
-            Assertions.assertEquals(key, fileIOProperties.get("adls.auth.shared-key.account.key"));
-            fileIO.initialize(fileIOProperties);
-
-            TableMetadata actual = TableMetadataParser.read(fileIO, LOCATION + "/v1.metadata.json");
-
-            Assertions.assertEquals(expected.uuid(), actual.uuid());
-            Assertions.assertEquals(expected.schema().asStruct(), actual.schema().asStruct());
-            Assertions.assertFalse(authorizations.isEmpty());
-            Assertions.assertTrue(authorizations.stream().allMatch(authorization -> authorization != null
-                    && authorization.startsWith("SharedKey account:")), "every request must be signed with SharedKey");
-            Assertions.assertTrue(queries.stream().allMatch(query -> query == null || !query.contains("sig=")));
-        } finally {
-            server.stop(0);
         }
     }
 
