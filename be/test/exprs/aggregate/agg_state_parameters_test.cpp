@@ -88,6 +88,12 @@ public:
         });
     }
 
+    void check_direct_mismatch(const Arguments& first, const Arguments& second) {
+        auto* destination = create(first);
+        auto* source = create(second);
+        expect_incompatible([&] { _function->merge(destination, source, _arena); });
+    }
+
     void check_merge_result(const Arguments& initial, const Arguments& incoming, bool serialized) {
         auto* destination = create();
         auto* source = create();
@@ -100,13 +106,7 @@ public:
             add(source, incoming);
             add(expected, incoming);
         }
-        if (serialized) {
-            auto column = serialize(source);
-            EXPECT_NO_THROW(
-                    _function->deserialize_and_merge_from_column(destination, *column, _arena));
-        } else {
-            EXPECT_NO_THROW(_function->merge(destination, source, _arena));
-        }
+        EXPECT_NO_THROW(merge(destination, source, serialized));
         EXPECT_TRUE(ColumnHelper::column_equal(result(destination), result(expected)));
     }
 
@@ -129,22 +129,27 @@ public:
         EXPECT_TRUE(ColumnHelper::column_equal(result(destination), result(create(second))));
     }
 
-    void check_mismatch_and_reset(const Arguments& first, const Arguments& second) {
-        check_mismatch(first, second);
-        auto* reset_state = create(first);
-        _function->reset(reset_state);
-        auto* configured = create(second);
-        auto serialized = serialize(reset_state);
-        EXPECT_NO_THROW(
-                _function->deserialize_and_merge_from_column(configured, *serialized, _arena));
-        EXPECT_TRUE(ColumnHelper::column_equal(result(configured), result(create(second))));
-        EXPECT_NO_THROW(_function->merge(reset_state, create(second), _arena));
-        EXPECT_TRUE(ColumnHelper::column_equal(result(reset_state), result(create(second))));
+    void check_noncontributing(const Arguments& empty, const Arguments& populated,
+                               bool decode_empty, bool reverse, bool serialized) {
+        auto* empty_state = create(empty);
+        if (decode_empty) {
+            auto column = serialize(empty_state);
+            empty_state = create();
+            _function->deserialize_and_merge_from_column(empty_state, *column, _arena);
+        }
+        auto* destination = reverse ? create(populated) : empty_state;
+        auto* source = reverse ? empty_state : create(populated);
+        EXPECT_NO_THROW(merge(destination, source, serialized));
+        auto* expected = create(populated);
+        // A skipped configuration must not poison subsequent contributing merges.
+        EXPECT_NO_THROW(_function->merge(destination, create(populated), _arena));
+        add(expected, populated);
+        EXPECT_TRUE(ColumnHelper::column_equal(result(destination), result(expected)));
     }
 
     void check_configured_empty_payload(const Arguments& arguments) {
         // TopN with zero capacity keeps counters in memory but serializes no counters.
-        // A decoded state must preserve configuration without changing compatible counters.
+        // A decoded empty state must not change compatible counters.
         auto serialized = serialize(create(arguments));
         auto* configured_empty = create();
         _function->deserialize_and_merge_from_column(configured_empty, *serialized, _arena);
@@ -188,6 +193,15 @@ public:
     }
 
 private:
+    void merge(AggregateDataPtr destination, AggregateDataPtr source, bool serialized) {
+        if (serialized) {
+            auto column = serialize(source);
+            _function->deserialize_and_merge_from_column(destination, *column, _arena);
+        } else {
+            _function->merge(destination, source, _arena);
+        }
+    }
+
     AggregateDataPtr create() {
         auto* place = reinterpret_cast<AggregateDataPtr>(_arena.alloc(_function->size_of_data()));
         _function->create(place);
@@ -267,6 +281,30 @@ void check_compatible_states(const std::string& name, const Arguments& first,
         }
     }
 }
+
+void check_ignored_parameters(const std::string& name, const Arguments& empty,
+                              const Arguments& populated, bool decode_empty = false) {
+    SCOPED_TRACE(name);
+    DataTypes types;
+    for (const auto& arg : empty) {
+        types.push_back(arg.type);
+    }
+    auto function = AggregateFunctionSimpleFactory::instance().get(
+            name, types, nullptr, false, BeExecVersionManager::get_newest_version());
+    ASSERT_NE(function, nullptr);
+    function->set_version(BeExecVersionManager::get_newest_version());
+    StateParameterChecks checks(function);
+    for (bool reverse : {false, true}) {
+        for (bool serialized : {false, true}) {
+            SCOPED_TRACE(reverse);
+            SCOPED_TRACE(serialized);
+            checks.check_noncontributing(empty, populated, decode_empty, reverse, serialized);
+        }
+    }
+    if (!decode_empty) {
+        checks.check_empty_and_reset(empty, populated);
+    }
+}
 } // namespace
 
 TEST(AggregateStateParametersTest, TopN) {
@@ -317,10 +355,10 @@ TEST(AggregateStateParametersTest, TopNZeroCapacityParameters) {
                 name, types, nullptr, false, BeExecVersionManager::get_newest_version());
         ASSERT_NE(function, nullptr);
         StateParameterChecks checks(function);
-        // A zero capacity serializes no retained elements but still establishes N/capacity.
-        checks.check_mismatch(zero_capacity, positive_capacity);
-        checks.check_mismatch(positive_capacity, zero_capacity);
-        checks.check_mismatch_and_reset(zero_capacity, positive_capacity);
+        // Only the serialized zero-capacity state is empty; in-memory counters contribute.
+        checks.check_direct_mismatch(zero_capacity, positive_capacity);
+        checks.check_direct_mismatch(positive_capacity, zero_capacity);
+        check_ignored_parameters(name, zero_capacity, positive_capacity, true);
         checks.check_merge_result({}, zero_capacity, false);
         checks.check_merge_result(zero_capacity, {}, false);
         checks.check_merge_result(zero_capacity, {}, true);
@@ -339,7 +377,7 @@ TEST(AggregateStateParametersTest, Percentiles) {
          {"percentile_array", "percentile_array_v2", "percentile_approx_array"}) {
         check_parameters(name, {value, quantiles({0.25})}, {value, quantiles({0.75})});
         check_parameters(name, {value, quantiles({0.25})}, {value, quantiles({0.25, 0.75})});
-        check_parameters(name, {value, quantiles({})}, {value, quantiles({0.25})});
+        check_ignored_parameters(name, {value, quantiles({})}, {value, quantiles({0.25})});
     }
     check_parameters("percentile_approx",
                      {value, argument<DataTypeFloat64>(0.5), argument<DataTypeFloat64>(2048)},
@@ -354,26 +392,35 @@ TEST(AggregateStateParametersTest, Percentiles) {
                       argument<DataTypeFloat64>(4096)});
 }
 
-TEST(AggregateStateParametersTest, PercentileConfiguredEmptyParameters) {
+TEST(AggregateStateParametersTest, PercentileEmptyParametersAreIgnored) {
     const auto nan = argument<DataTypeFloat64>(std::numeric_limits<double>::quiet_NaN());
     const auto value = argument<DataTypeFloat64>(7);
     for (const auto& name : {"percentile_v2", "percentile_approx", "percentile_reservoir"}) {
         for (double level : {0.0, 0.25, 1.0}) {
             const auto quantile = argument<DataTypeFloat64>(level);
             for (const auto& sample : {nan, value}) {
-                check_parameters(name, {nan, quantile}, {sample, argument<DataTypeFloat64>(0.75)});
+                check_ignored_parameters(name, {nan, quantile},
+                                         {sample, argument<DataTypeFloat64>(0.75)});
             }
             check_compatible_states(name, {nan, quantile}, {value, quantile});
         }
     }
     for (const auto& name : {"percentile_array_v2", "percentile_approx_array"}) {
-        check_parameters(name, {nan, quantiles({0.25})}, {value, quantiles({0.75})});
-        check_parameters(name, {nan, quantiles({0.25})}, {nan, quantiles({0.75})});
+        check_ignored_parameters(name, {nan, quantiles({0.25})}, {value, quantiles({0.75})});
+        check_ignored_parameters(name, {nan, quantiles({0.25})}, {nan, quantiles({0.75})});
         check_compatible_states(name, {nan, quantiles({0.25})}, {value, quantiles({0.25})});
     }
-    check_parameters("percentile_approx_weighted",
-                     {value, argument<DataTypeFloat64>(0), argument<DataTypeFloat64>(0.25)},
-                     {value, argument<DataTypeFloat64>(1), argument<DataTypeFloat64>(0.75)});
+    check_ignored_parameters(
+            "percentile_approx_weighted",
+            {value, argument<DataTypeFloat64>(0), argument<DataTypeFloat64>(0.25)},
+            {value, argument<DataTypeFloat64>(1), argument<DataTypeFloat64>(0.75)});
+    check_ignored_parameters(
+            "percentile_approx",
+            {nan, argument<DataTypeFloat64>(0.25), argument<DataTypeFloat64>(2048)},
+            {value, argument<DataTypeFloat64>(0.75), argument<DataTypeFloat64>(4096)});
+    check_ignored_parameters("percentile_approx_array",
+                             {nan, quantiles({0.25}), argument<DataTypeFloat64>(2048)},
+                             {value, quantiles({0.25, 0.75}), argument<DataTypeFloat64>(4096)});
     check_compatible_states("percentile_approx_weighted",
                             {value, argument<DataTypeFloat64>(0), argument<DataTypeFloat64>(0.25)},
                             {value, argument<DataTypeFloat64>(1), argument<DataTypeFloat64>(0.25)});
@@ -396,8 +443,10 @@ TEST(AggregateStateParametersTest, CollectAndConcat) {
 TEST(AggregateStateParametersTest, CollectZeroAndNegativeLimits) {
     for (const auto& name : {"collect_list", "collect_set"}) {
         for (const auto& value : {argument<DataTypeInt32>(7), argument<DataTypeString>("a")}) {
-            for (int limit : {std::numeric_limits<Int32>::min(), -2, -1, 0,
-                              std::numeric_limits<Int32>::max()}) {
+            check_ignored_parameters(name, {value, argument<DataTypeInt32>(0)},
+                                     {value, argument<DataTypeInt32>(1)});
+            for (int limit :
+                 {std::numeric_limits<Int32>::min(), -2, -1, std::numeric_limits<Int32>::max()}) {
                 check_parameters(name, {value, argument<DataTypeInt32>(limit)},
                                  {value, argument<DataTypeInt32>(1)});
             }
@@ -405,7 +454,9 @@ TEST(AggregateStateParametersTest, CollectZeroAndNegativeLimits) {
                              {value, argument<DataTypeInt32>(-2)});
         }
     }
-    for (int limit : {-2, -1, 0}) {
+    check_ignored_parameters("collect_list", {quantiles({0.5}), argument<DataTypeInt32>(0)},
+                             {quantiles({0.5}), argument<DataTypeInt32>(1)});
+    for (int limit : {-2, -1}) {
         check_parameters("collect_list", {quantiles({0.5}), argument<DataTypeInt32>(limit)},
                          {quantiles({0.5}), argument<DataTypeInt32>(1)});
     }
@@ -503,8 +554,10 @@ TEST(AggregateStateParametersTest, SequenceEventlessParameters) {
     for (const auto& name : {"sequence_match", "sequence_count"}) {
         SCOPED_TRACE(name);
         Arguments eventless {argument<DataTypeString>("(?1)"), timestamp, no, no};
-        check_parameters(name, eventless, {argument<DataTypeString>("(?2)"), timestamp, yes, no});
-        check_parameters(name, eventless, {argument<DataTypeString>("(?2)"), timestamp, no, no});
+        check_ignored_parameters(name, eventless,
+                                 {argument<DataTypeString>("(?2)"), timestamp, yes, no});
+        check_ignored_parameters(name, eventless,
+                                 {argument<DataTypeString>("(?2)"), timestamp, no, no});
         DataTypes types;
         for (const auto& arg : eventless) {
             types.push_back(arg.type);
@@ -536,12 +589,18 @@ TEST(AggregateStateParametersTest, WindowFunnelEventlessParameters) {
         Arguments eventless {argument<DataTypeInt64>(0), argument<DataTypeString>("default"),
                              timestamp, no, no};
         for (const auto& event : {yes, no}) {
-            check_parameters(name, eventless,
-                             {argument<DataTypeInt64>(3), argument<DataTypeString>("default"),
-                              timestamp, event, no});
-            check_parameters(name, eventless,
-                             {argument<DataTypeInt64>(0), argument<DataTypeString>("fixed"),
-                              timestamp, event, no});
+            // V1 retains all-false rows: they can break a chain in fixed mode.
+            auto check = [&](const Arguments& incoming) {
+                if (std::string(name) == "window_funnel_v1") {
+                    check_parameters(name, eventless, incoming);
+                } else {
+                    check_ignored_parameters(name, eventless, incoming);
+                }
+            };
+            check({argument<DataTypeInt64>(3), argument<DataTypeString>("default"), timestamp,
+                   event, no});
+            check({argument<DataTypeInt64>(0), argument<DataTypeString>("fixed"), timestamp, event,
+                   no});
         }
         DataTypes types;
         for (const auto& arg : eventless) {
@@ -562,8 +621,7 @@ TEST(AggregateStateParametersTest, WindowFunnelEventlessParameters) {
             }
         }
     }
-    // Even arguments that equal the fresh-state sentinels establish configuration.
-    check_parameters(
+    check_ignored_parameters(
             "window_funnel_v2",
             {argument<DataTypeInt64>(-1), argument<DataTypeString>("invalid"), timestamp, no, no},
             {argument<DataTypeInt64>(0), argument<DataTypeString>("default"), timestamp, no, no});

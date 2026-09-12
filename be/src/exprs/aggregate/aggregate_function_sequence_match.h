@@ -118,19 +118,16 @@ public:
     }
 
     void merge(const AggregateFunctionSequenceMatchData& other) {
-        // All-false event rows still establish a pattern that must match during merge.
-        if (!other.init_flag) {
+        if (other.events_list.empty()) {
             return;
         }
 
-        if (!init_flag) {
+        if (events_list.empty()) {
+            reset();
             init(other.pattern, other.arg_count);
         } else if (UNLIKELY(pattern != other.pattern || arg_count != other.arg_count)) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "sequence aggregate states have incompatible patterns or event counts");
-        }
-        if (other.events_list.empty()) {
-            return;
         }
 
         events_list.insert(std::end(events_list), std::begin(other.events_list),

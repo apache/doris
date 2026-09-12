@@ -45,11 +45,10 @@ struct QuantileReservoirSampler {
     }
 
     void merge(const QuantileReservoirSampler& rhs) {
-        // NaN samples do not erase the quantile established by a non-null input row.
-        if (rhs.level == INIT_QUANTILE) {
+        if (rhs.data.empty()) {
             return;
         }
-        if (level == INIT_QUANTILE) {
+        if (data.empty()) {
             level = rhs.level;
         } else if (UNLIKELY(level != rhs.level)) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
@@ -59,7 +58,7 @@ struct QuantileReservoirSampler {
     }
 
     void reset() {
-        level = INIT_QUANTILE;
+        level = 0.0;
         data.clear();
     }
 
@@ -80,9 +79,7 @@ struct QuantileReservoirSampler {
     }
 
 private:
-    // Valid quantiles include zero, so use an out-of-range value for fresh/reset states.
-    static constexpr double INIT_QUANTILE = -1.0;
-    double level = INIT_QUANTILE;
+    double level = 0.0;
     ReservoirSampler data;
 };
 

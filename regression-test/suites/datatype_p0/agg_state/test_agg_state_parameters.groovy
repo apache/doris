@@ -59,29 +59,31 @@ suite("test_agg_state_parameters") {
     }
 
     // Each pair has the same AggState type but incompatible configuration values.
+    def ignoredCases = [
+        ["percentile_approx_weighted", "7, 0, 0.25", "7, 1, 0.75"],
+        ["percentile_array", "7, cast([] as array<double>)", "7, [0.25]"],
+        ["topn_weighted", "1, 1, 1, 0", "1, 1, 1, 2"],
+        ["topn_array", "1, 1, 0", "1, 1, 2"],
+        ["topn", "'a', 1, 0", "'a', 1, 2"]
+    ]
     def cases = [
         ["topn", "'a', 1", "'a', 3"],
         ["topn", "'a', 3, 2", "'a', 3, 5"],
         ["topn", "'a', 1, 6", "'a', 3, 2"],
-        ["topn", "'a', 1, 0", "'a', 1, 2"],
         ["topn_array", "1, 1", "1, 3"],
         ["topn_array", "1, 3, 2", "1, 3, 5"],
         ["topn_array", "'a', 1, 6", "'a', 3, 2"],
-        ["topn_array", "1, 1, 0", "1, 1, 2"],
         ["topn_weighted", "1, 1, 1", "1, 1, 3"],
         ["topn_weighted", "1, 1, 3, 2", "1, 1, 3, 5"],
-        ["topn_weighted", "1, 1, 1, 0", "1, 1, 1, 2"],
         ["histogram", "7, 1", "7, 3"],
         ["percentile", "7, 0.25", "7, 0.75"],
         ["percentile_array", "7, [0.25]", "7, [0.75]"],
         ["percentile_array", "7, [0.25]", "7, [0.25, 0.75]"],
-        ["percentile_array", "7, cast([] as array<double>)", "7, [0.25]"],
         ["percentile_approx", "7, 0.25", "7, 0.75"],
         ["percentile_approx", "7, 0.5, 2048", "7, 0.5, 4096"],
         ["percentile_approx_array", "7, [0.25]", "7, [0.75]"],
         ["percentile_approx_array", "7, [0.25], 2048", "7, [0.25], 4096"],
         ["percentile_approx_weighted", "7, 1, 0.25", "7, 1, 0.75"],
-        ["percentile_approx_weighted", "7, 0, 0.25", "7, 1, 0.75"],
         ["percentile_approx_weighted", "7, 1, 0.5, 2048", "7, 1, 0.5, 4096"],
         ["percentile_reservoir", "7, 0.25", "7, 0.75"],
         ["collect_list", "7, 1", "7, 3"],
@@ -103,29 +105,29 @@ suite("test_agg_state_parameters") {
         ["sequence_count", "'(?1)', non_nullable(cast('2024-01-01' as datetime)), true, false",
                            "'(?2)', non_nullable(cast('2024-01-01' as datetime)), true, false"]
     ]
-    // A non-null input establishes configuration even if no sample is retained.
+    // States without contributing samples ignore their parameter values.
     // Keep AggState argument nullability identical across both sides of the UNION.
     for (def quantile : ["0.0", "0.25", "1.0"]) {
         for (def sample : ["'NaN'", "7"]) {
-            cases.add(["percentile_reservoir", "non_nullable(cast('NaN' as double)), ${quantile}",
+            ignoredCases.add(["percentile_reservoir", "non_nullable(cast('NaN' as double)), ${quantile}",
                        "non_nullable(cast(${sample} as double)), 0.75"])
         }
     }
     for (def function : ["collect_list", "collect_set"]) {
         for (def value : ["7", "'a'"]) {
             for (def limit : [-2, -1, 0]) {
-                cases.add([function, "${value}, ${limit}", "${value}, 1"])
+                (limit == 0 ? ignoredCases : cases).add([function, "${value}, ${limit}", "${value}, 1"])
             }
             cases.add([function, "${value}, -1", "${value}, -2"])
         }
     }
     for (def limit : [-2, -1, 0]) {
-        cases.add(["collect_list", "[7], ${limit}", "[7], 1"])
+        (limit == 0 ? ignoredCases : cases).add(["collect_list", "[7], ${limit}", "[7], 1"])
     }
-    // All-false event rows retain their pattern, including when both states have no events.
+    // Sequence and V2 funnel states discard all-false event rows.
     for (def function : ["sequence_match", "sequence_count"]) {
         for (def event : ["true", "false"]) {
-            cases.add([function,
+            ignoredCases.add([function,
                        "'(?1)', non_nullable(cast('2024-01-01' as datetime)), false, false",
                        "'(?2)', non_nullable(cast('2024-01-01' as datetime)), ${event}, false"])
         }
@@ -136,11 +138,12 @@ suite("test_agg_state_parameters") {
                              "3, cast('default' as string), non_nullable(cast('2024-01-01' as datetime)), true, false"])
         cases.add([function, "1, cast('default' as string), non_nullable(cast('2024-01-01' as datetime)), true, false",
                              "1, cast('fixed' as string), non_nullable(cast('2024-01-01' as datetime)), true, false"])
-        // V2 stores no events for an all-false row, but its configuration still participates.
+        // V1 keeps these rows because they can interrupt a fixed-mode chain.
+        def eventlessCases = function == "window_funnel_v1" ? cases : ignoredCases
         for (def event : ["true", "false"]) {
-            cases.add([function, "0, cast('default' as string), non_nullable(cast('2024-01-01' as datetime)), false, false",
+            eventlessCases.add([function, "0, cast('default' as string), non_nullable(cast('2024-01-01' as datetime)), false, false",
                                  "3, cast('default' as string), non_nullable(cast('2024-01-01' as datetime)), ${event}, false"])
-            cases.add([function, "0, cast('default' as string), non_nullable(cast('2024-01-01' as datetime)), false, false",
+            eventlessCases.add([function, "0, cast('default' as string), non_nullable(cast('2024-01-01' as datetime)), false, false",
                                  "0, cast('fixed' as string), non_nullable(cast('2024-01-01' as datetime)), ${event}, false"])
         }
     }
@@ -161,6 +164,35 @@ suite("test_agg_state_parameters") {
                     exception "aggregate states have incompatible"
                 }
             }
+        }
+    }
+
+    ignoredCases.add(["percentile_approx", "non_nullable(cast('NaN' as double)), 0.25",
+                      "cast(7 as double), 0.75"])
+    ignoredCases.add(["percentile_approx_array", "non_nullable(cast('NaN' as double)), [0.25]",
+                      "cast(7 as double), [0.25, 0.75]"])
+    ignoredCases.add(["percentile_approx_array", "cast(7 as double), cast([] as array<double>)",
+                      "cast(7 as double), [0.75]"])
+    ignoredCases.add(["percentile_approx", "non_nullable(cast('NaN' as double)), 0.25, 2048",
+                      "cast(7 as double), 0.75, 4096"])
+    ignoredCases.add(["percentile_approx_array", "non_nullable(cast('NaN' as double)), [0.25], 2048",
+                      "cast(7 as double), [0.75], 4096"])
+    int emptyCase = 0
+    for (def entry : ignoredCases) {
+        def function = entry[0]
+        for (def args : [[entry[1], entry[2]], [entry[2], entry[1]]]) {
+            for (def suffix : ["merge", "union"]) {
+                def merged = """
+                    SELECT ${function}_${suffix}(s) AS s FROM (
+                        SELECT ${function}_state(${args[0]}) AS s
+                        UNION ALL
+                        SELECT ${function}_state(${args[1]}) AS s
+                    ) states
+                """
+                def query = suffix == "union" ? "SELECT ${function}_merge(s) FROM (${merged}) merged" : merged
+                "order_qt_empty_${emptyCase}_${function}_${suffix}"(query)
+            }
+            emptyCase++
         }
     }
 

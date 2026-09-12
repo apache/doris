@@ -133,7 +133,6 @@ void check_legacy_eventless_configuration(int64_t window, WindowFunnelMode mode)
     VectorBufferReader reader(buffer.get_data_at(0));
     WindowFunnelStateV2<TYPE_DATETIMEV2> state;
     state.read(reader);
-    EXPECT_EQ(state.initialized, window != -1 || mode != WindowFunnelMode::INVALID);
     EXPECT_EQ(state.window, window);
     EXPECT_EQ(state.window_funnel_mode, mode);
     EXPECT_EQ(state.event_count, 2);
@@ -141,9 +140,22 @@ void check_legacy_eventless_configuration(int64_t window, WindowFunnelMode mode)
 
     WindowFunnelStateV2<TYPE_DATETIMEV2> destination;
     destination.merge(state);
-    EXPECT_EQ(destination.initialized, state.initialized);
-    EXPECT_EQ(destination.window, window);
-    EXPECT_EQ(destination.window_funnel_mode, mode);
+    EXPECT_EQ(destination.window, WindowFunnelStateV2<TYPE_DATETIMEV2>::WINDOW_UNSET);
+    EXPECT_EQ(destination.window_funnel_mode, WindowFunnelMode::INVALID);
+
+    DateV2Value<DateTimeV2ValueType> time;
+    time.unchecked_set_time(2024, 1, 1, 0, 0, 0, 0);
+    WindowFunnelStateV2<TYPE_DATETIMEV2> populated(2);
+    populated.window = 10;
+    populated.window_funnel_mode = WindowFunnelMode::DEFAULT;
+    populated.events_list.push_back({time.to_date_int_val(), 1});
+    EXPECT_NO_THROW(state.merge(populated));
+    EXPECT_EQ(state.window, populated.window);
+    EXPECT_EQ(state.window_funnel_mode, populated.window_funnel_mode);
+    EXPECT_EQ(state.get(), 1);
+    state.reset();
+    EXPECT_NO_THROW(populated.merge(state));
+    EXPECT_EQ(populated.get(), 1);
 }
 
 void check_configured_eventless_encoding(bool reset) {
@@ -156,7 +168,7 @@ void check_configured_eventless_encoding(bool reset) {
     const IColumn* columns[] = {nullptr, nullptr, timestamp.get(), event.get()};
 
     WindowFunnelStateV2<TYPE_DATETIMEV2> state(1);
-    // These values collide with fresh-state sentinels, so the serialized tag is necessary.
+    // Empty payloads use the original boolean sorted field without an initialization tag.
     state.add(columns, 0, -1, WindowFunnelMode::INVALID);
     if (reset) {
         state.reset();
@@ -176,7 +188,7 @@ void check_configured_eventless_encoding(bool reset) {
     read_var_int(value, legacy_reader);
     EXPECT_EQ(value, static_cast<Int64>(WindowFunnelMode::INVALID));
     read_var_int(value, legacy_reader);
-    EXPECT_TRUE(value != 0); // Legacy readers decode the sorted flag this way.
+    EXPECT_EQ(value, 1);
     read_var_int(value, legacy_reader);
     EXPECT_EQ(value, 0);
     read_var_int(value, legacy_reader);
@@ -185,7 +197,6 @@ void check_configured_eventless_encoding(bool reset) {
     VectorBufferReader reader(buffer.get_data_at(0));
     WindowFunnelStateV2<TYPE_DATETIMEV2> restored;
     restored.read(reader);
-    EXPECT_EQ(restored.initialized, !reset);
     EXPECT_TRUE(restored.events_list.empty());
     EXPECT_TRUE(restored.sorted);
     read_var_int(value, reader);
@@ -193,7 +204,7 @@ void check_configured_eventless_encoding(bool reset) {
 }
 } // namespace
 
-TEST(VWindowFunnelV2SerializationTest, LegacyEventlessConfiguration) {
+TEST(VWindowFunnelV2SerializationTest, IgnoreEventlessConfiguration) {
     for (int64_t window : {-1, 0, 3}) {
         for (auto mode : {WindowFunnelMode::INVALID, WindowFunnelMode::DEFAULT}) {
             check_legacy_eventless_configuration(window, mode);
@@ -201,7 +212,7 @@ TEST(VWindowFunnelV2SerializationTest, LegacyEventlessConfiguration) {
     }
 }
 
-TEST(VWindowFunnelV2SerializationTest, ConfiguredEventlessEncodingKeepsLegacyLayout) {
+TEST(VWindowFunnelV2SerializationTest, EventlessEncodingUsesBooleanSortedFlag) {
     check_configured_eventless_encoding(false);
     check_configured_eventless_encoding(true);
 }

@@ -82,28 +82,19 @@ struct AggregateFunctionTopNData {
     }
 
     void merge(const AggregateFunctionTopNData& rhs) {
-        if (!rhs.top_num) {
+        if (!rhs.top_num || rhs.counter_map.empty()) {
             return;
         }
 
-        if (!top_num) {
-            top_num = rhs.top_num;
-            capacity = rhs.capacity;
-        } else if (UNLIKELY(top_num != rhs.top_num || capacity != rhs.capacity)) {
+        if (counter_map.empty()) {
+            *this = rhs;
+            return;
+        }
+        if (UNLIKELY(top_num != rhs.top_num || capacity != rhs.capacity)) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "topn aggregate states have incompatible parameters: "
                             "({}, {}) vs ({}, {}) (N, capacity)",
                             top_num, capacity, rhs.top_num, rhs.capacity);
-        }
-
-        // Empty payloads still carry configuration. Check it above, then avoid treating
-        // an empty zero-capacity map as full and adding UINT64_MAX to real counters.
-        if (rhs.counter_map.empty()) {
-            return;
-        }
-        if (counter_map.empty()) {
-            counter_map = rhs.counter_map;
-            return;
         }
 
         bool lhs_full = (counter_map.size() >= capacity);

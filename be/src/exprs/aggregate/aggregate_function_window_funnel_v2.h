@@ -124,7 +124,6 @@ struct WindowFunnelStateV2 {
     int event_count = 0;
     int64_t window = WINDOW_UNSET;
     WindowFunnelMode window_funnel_mode = WindowFunnelMode::INVALID;
-    bool initialized = false;
     bool sorted = true;
     std::vector<TimestampEvent> events_list;
 
@@ -134,7 +133,6 @@ struct WindowFunnelStateV2 {
     void reset() {
         window = WINDOW_UNSET;
         window_funnel_mode = WindowFunnelMode::INVALID;
-        initialized = false;
         events_list.clear();
         sorted = true;
     }
@@ -142,7 +140,6 @@ struct WindowFunnelStateV2 {
     void add(const IColumn** arg_columns, ssize_t row_num, int64_t win, WindowFunnelMode mode) {
         window = win;
         window_funnel_mode = mode;
-        initialized = true;
 
         auto timestamp = assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
                                      TypeCheckOnRelease::DISABLE>(*arg_columns[2])
@@ -184,38 +181,27 @@ struct WindowFunnelStateV2 {
     }
 
     void merge(const WindowFunnelStateV2<T>& other) {
-        if (!other.initialized) {
-            return;
-        }
-        // All-false input establishes configuration without retaining any events.
-        if (!initialized) {
-            window = other.window;
-            window_funnel_mode = other.window_funnel_mode;
-            event_count = other.event_count;
-            initialized = true;
-        } else if (UNLIKELY(window != other.window ||
-                            window_funnel_mode != other.window_funnel_mode)) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "window_funnel aggregate states have incompatible window or mode");
-        }
-
         if (other.events_list.empty()) {
             return;
         }
         if (events_list.empty()) {
-            events_list = other.events_list;
-            sorted = other.sorted;
-        } else {
-            const auto prefix_size = events_list.size();
-            events_list.insert(std::end(events_list), std::begin(other.events_list),
-                               std::end(other.events_list));
-            // Both stable_sort and inplace_merge preserve relative order of equal elements.
-            // Since same-row events have the same timestamp (and thus compare equal in
-            // the primary sort key), they remain consecutive after merge — preserving
-            // the validity of continuation flags.
-            merge_events_list(events_list, prefix_size, sorted, other.sorted);
-            sorted = true;
+            *this = other;
+            return;
         }
+        if (UNLIKELY(window != other.window || window_funnel_mode != other.window_funnel_mode)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "window_funnel aggregate states have incompatible window or mode");
+        }
+
+        const auto prefix_size = events_list.size();
+        events_list.insert(std::end(events_list), std::begin(other.events_list),
+                           std::end(other.events_list));
+        // Both stable_sort and inplace_merge preserve relative order of equal elements.
+        // Since same-row events have the same timestamp (and thus compare equal in
+        // the primary sort key), they remain consecutive after merge — preserving
+        // the validity of continuation flags.
+        merge_events_list(events_list, prefix_size, sorted, other.sorted);
+        sorted = true;
     }
 
     void write(BufferWritable& out) const {
@@ -223,10 +209,7 @@ struct WindowFunnelStateV2 {
         write_var_int(window, out);
         write_var_int(static_cast<std::underlying_type_t<WindowFunnelMode>>(window_funnel_mode),
                       out);
-        // Tag configured eventless states in the existing sorted field. Legacy readers
-        // interpret every nonzero value as sorted, so the layout remains compatible.
-        const auto sorted_flag = static_cast<Int64>(sorted);
-        write_var_int(initialized && events_list.empty() ? 2 : sorted_flag, out);
+        write_var_int(sorted ? 1 : 0, out);
         write_var_int(cast_set<Int64>(events_list.size()), out);
         for (const auto& evt : events_list) {
             // Use fixed-size binary write for timestamp (8 bytes) and event_idx (1 byte).
@@ -248,13 +231,9 @@ struct WindowFunnelStateV2 {
 
         read_var_int(tmp, in);
         sorted = (tmp != 0);
-        // Legacy states use 0/1 and retain their configuration even without events.
-        initialized = tmp == 2 || window != WINDOW_UNSET ||
-                      window_funnel_mode != WindowFunnelMode::INVALID;
 
         Int64 size = 0;
         read_var_int(size, in);
-        initialized |= size != 0;
         events_list.clear();
         events_list.resize(size);
         for (Int64 i = 0; i < size; ++i) {

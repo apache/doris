@@ -465,10 +465,12 @@ public:
         auto& data = this->data(place);
         const auto& rhs_data = this->data(rhs);
         if constexpr (HasLimit) {
-            if (!rhs_data.is_initialized()) {
+            if (rhs_data.size() == 0) {
                 return;
             }
-            if (data.is_initialized()) {
+            if (data.size() == 0) {
+                data.max_size = rhs_data.max_size;
+            } else {
                 if (UNLIKELY(data.max_size != rhs_data.max_size)) {
                     throw Exception(ErrorCode::INVALID_ARGUMENT,
                                     "{} aggregate states have incompatible limits: {} vs {}",
