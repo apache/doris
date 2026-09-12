@@ -28,6 +28,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/decoded_column_view.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_utils.h"
@@ -35,6 +36,90 @@
 
 namespace doris {
 namespace {
+
+size_t trim_right_spaces(const char* value, size_t length) {
+    while (length > 0 && value[length - 1] == ' ') {
+        --length;
+    }
+    return length;
+}
+
+Status append_orc_string_ref(const ::orc::Type& file_type, const char* data, int64_t length,
+                             std::vector<StringRef>& binary_values) {
+    if (length < 0) {
+        return Status::Corruption("Invalid negative ORC string length {}", length);
+    }
+    auto value_length = static_cast<size_t>(length);
+    if (file_type.getKind() == ::orc::TypeKind::CHAR) {
+        value_length = trim_right_spaces(data, value_length);
+    }
+    binary_values.emplace_back(value_length == 0 ? "" : data, value_length);
+    return Status::OK();
+}
+
+Status decode_string_orc_values(const DataTypeSerDe& serde, IColumn& column,
+                                const OrcDecodedColumnView& orc_view) {
+    DORIS_CHECK(orc_view.file_type != nullptr);
+    if (const auto* encoded_batch =
+                dynamic_cast<const ::orc::EncodedStringVectorBatch*>(orc_view.batch);
+        encoded_batch != nullptr && encoded_batch->isEncoded) {
+        if (encoded_batch->dictionary == nullptr) {
+            return Status::InternalError("Encoded ORC string batch has no dictionary");
+        }
+        auto view = orc_serde_utils::make_orc_decoded_view(orc_view, DecodedValueKind::BINARY);
+        NullMap null_map;
+        orc_serde_utils::fill_orc_decoded_null_map(*orc_view.batch, orc_view.rows,
+                                                   orc_view.selected_rows, &null_map);
+        view.null_map = null_map.empty() ? nullptr : null_map.data();
+        const auto output_rows =
+                orc_serde_utils::orc_decode_row_count(orc_view.rows, orc_view.selected_rows);
+        std::vector<StringRef> binary_values;
+        binary_values.reserve(output_rows);
+        for (size_t row = 0; row < output_rows; ++row) {
+            const auto source_row = orc_serde_utils::orc_source_row_at(row, orc_view.selected_rows);
+            if (orc_serde_utils::orc_row_is_null(*orc_view.batch, source_row)) {
+                binary_values.emplace_back("", 0);
+                continue;
+            }
+            char* data = nullptr;
+            int64_t length = 0;
+            encoded_batch->dictionary->getValueByIndex(encoded_batch->index[source_row], data,
+                                                       length);
+            RETURN_IF_ERROR(
+                    append_orc_string_ref(*orc_view.file_type, data, length, binary_values));
+        }
+        view.binary_values = &binary_values;
+        RETURN_IF_ERROR(orc_serde_utils::read_decoded_values(serde, column, &view));
+        return Status::OK();
+    }
+
+    const auto* orc_batch = dynamic_cast<const ::orc::StringVectorBatch*>(orc_view.batch);
+    if (orc_batch == nullptr) {
+        return Status::InternalError("Unexpected ORC string batch type {}",
+                                     orc_view.batch->toString());
+    }
+    auto view = orc_serde_utils::make_orc_decoded_view(orc_view, DecodedValueKind::BINARY);
+    NullMap null_map;
+    orc_serde_utils::fill_orc_decoded_null_map(*orc_view.batch, orc_view.rows,
+                                               orc_view.selected_rows, &null_map);
+    view.null_map = null_map.empty() ? nullptr : null_map.data();
+    const auto output_rows =
+            orc_serde_utils::orc_decode_row_count(orc_view.rows, orc_view.selected_rows);
+    std::vector<StringRef> binary_values;
+    binary_values.reserve(output_rows);
+    for (size_t row = 0; row < output_rows; ++row) {
+        const auto source_row = orc_serde_utils::orc_source_row_at(row, orc_view.selected_rows);
+        if (orc_serde_utils::orc_row_is_null(*orc_view.batch, source_row)) {
+            binary_values.emplace_back("", 0);
+            continue;
+        }
+        RETURN_IF_ERROR(append_orc_string_ref(*orc_view.file_type, orc_batch->data[source_row],
+                                              orc_batch->length[source_row], binary_values));
+    }
+    view.binary_values = &binary_values;
+    RETURN_IF_ERROR(orc_serde_utils::read_decoded_values(serde, column, &view));
+    return Status::OK();
+}
 
 template <typename ColumnType>
 Status read_string_decoded_values(IColumn& column, const DecodedColumnView& view) {
@@ -770,6 +855,20 @@ Status DataTypeStringSerDeBase<ColumnType>::from_olap_string(const std::string& 
     size_t len = strnlen(str.data(), str.size());
     field = Field::create_field<TYPE_STRING>(std::string(str.data(), len));
     return Status::OK();
+}
+
+template <typename ColumnType>
+Status DataTypeStringSerDeBase<ColumnType>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    const auto kind = view.file_type->getKind();
+    DORIS_CHECK(kind == ::orc::TypeKind::STRING || kind == ::orc::TypeKind::BINARY ||
+                kind == ::orc::TypeKind::VARCHAR || kind == ::orc::TypeKind::CHAR);
+    if (orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+    return decode_string_orc_values(*this, column, view);
 }
 
 template class DataTypeStringSerDeBase<ColumnString>;
