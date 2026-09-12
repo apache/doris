@@ -496,7 +496,7 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
                                       count_agg_cache_delete_bitmap_action);
 #ifdef ENABLE_INJECTION_POINT
 
-    InjectionPointAction* injection_point_action = _pool.add(new InjectionPointAction);
+    InjectionPointAction* injection_point_action = _pool.add(new InjectionPointAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/injection_point/{op}",
                                       injection_point_action);
 #endif

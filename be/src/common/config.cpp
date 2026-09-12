@@ -617,7 +617,7 @@ DEFINE_String(tls_certificate_path, "");
 // Path of TLS private key
 DEFINE_String(tls_private_key_path, "");
 // Password for encrypted TLS private key
-DEFINE_String(tls_private_key_password, "");
+DEFINE_String_Sensitive(tls_private_key_password, "");
 // TLS peer verification mode
 DEFINE_String(tls_verify_mode, "verify_peer");
 // Path of TLS CA certificate
@@ -1913,8 +1913,8 @@ DEFINE_mInt32(file_handles_deplenish_frequency_times, "3");
 
 // clang-format off
 #ifdef BE_TEST
-DEFINE_String(test_s3_ak, "ak");
-DEFINE_String(test_s3_sk, "sk");
+DEFINE_String_Sensitive(test_s3_ak, "ak");
+DEFINE_String_Sensitive(test_s3_sk, "sk");
 DEFINE_String(test_s3_endpoint, "endpoint");
 DEFINE_String(test_s3_region, "region");
 DEFINE_String(test_s3_bucket, "bucket");
@@ -2480,6 +2480,30 @@ std::mutex* get_mutable_string_config_lock() {
     return &mutable_string_config_lock;
 }
 
+bool is_sensitive_config(const std::string& field) {
+    if (Register::_s_field_map == nullptr) {
+        return false;
+    }
+    auto it = Register::_s_field_map->find(field);
+    return it != Register::_s_field_map->end() && it->second.sensitive;
+}
+
+std::string mask_config_value(const std::string& field, const std::string& value) {
+    if (value.empty() || !is_sensitive_config(field)) {
+        return value;
+    }
+    return SENSITIVE_CONF_MASK;
+}
+
+std::string get_config_value(const std::string& field) {
+    std::lock_guard<std::mutex> lock(mutable_string_config_lock);
+    if (full_conf_map == nullptr) {
+        return "";
+    }
+    auto it = full_conf_map->find(field);
+    return it == full_conf_map->end() ? "" : it->second;
+}
+
 std::vector<std::vector<std::string>> get_config_info() {
     std::vector<std::vector<std::string>> configs;
     std::lock_guard<std::mutex> lock(mutable_string_config_lock);
@@ -2498,9 +2522,7 @@ std::vector<std::vector<std::string>> get_config_info() {
         if (it.first == "sys_log_dir" && config_val == "") {
             config_val = fmt::format("{}/log", std::getenv("DORIS_HOME"));
         }
-        if (it.first == "tls_private_key_password") {
-            config_val = "******";
-        }
+        config_val = mask_config_value(it.first, config_val);
 
         _config.emplace_back(field_it->second.type);
         if (0 == strcmp(field_it->second.type, "bool")) {
