@@ -18,21 +18,15 @@
 package org.apache.doris.nereids.pattern.generator;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
-import javax.annotation.processing.ProcessingEnvironment;
-import javax.tools.StandardLocation;
 
 /** PlanTypeMappingGenerator */
 public class PlanTypeMappingGenerator {
@@ -46,36 +40,19 @@ public class PlanTypeMappingGenerator {
         return analyzer;
     }
 
-    /** generate */
-    public void generate(ProcessingEnvironment processingEnv) throws IOException {
+    /** generate the source of GeneratedPlanRelations. */
+    public String generateCode() {
         Set<String> superPlans = findSuperPlan();
         Map<String, Set<String>> childrenNameMap = analyzer.getChildrenNameMap();
         Map<String, Set<String>> parentNameMap = analyzer.getParentNameMap();
-        String code = generateCode(childrenNameMap, parentNameMap, superPlans);
-        generateFile(processingEnv, code);
-    }
-
-    private void generateFile(ProcessingEnvironment processingEnv, String code) throws IOException {
-        File generatePatternFile = new File(processingEnv.getFiler()
-                .getResource(StandardLocation.SOURCE_OUTPUT, "org.apache.doris.nereids.pattern",
-                        "GeneratedPlanRelations.java").toUri());
-        if (generatePatternFile.exists()) {
-            generatePatternFile.delete();
-        }
-        if (!generatePatternFile.getParentFile().exists()) {
-            generatePatternFile.getParentFile().mkdirs();
-        }
-
-        // bypass create file for processingEnv.getFiler(), compile GeneratePatterns in next compile term
-        try (BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(generatePatternFile))) {
-            bufferedWriter.write(code);
-        }
+        return renderCode(childrenNameMap, parentNameMap, superPlans);
     }
 
     private Set<String> findSuperPlan() {
         Map<String, Set<String>> parentNameMap = analyzer.getParentNameMap();
         Map<String, Set<String>> childrenNameMap = analyzer.getChildrenNameMap();
-        Set<String> superPlans = Sets.newLinkedHashSet();
+        // sorted, so that the generated code does not depend on the file discovery order
+        Set<String> superPlans = new TreeSet<>();
         for (Entry<String, Set<String>> entry : childrenNameMap.entrySet()) {
             String parentName = entry.getKey();
             Set<String> childrenNames = entry.getValue();
@@ -94,7 +71,7 @@ public class PlanTypeMappingGenerator {
         return superPlans;
     }
 
-    private String generateCode(Map<String, Set<String>> childrenNameMap,
+    private String renderCode(Map<String, Set<String>> childrenNameMap,
             Map<String, Set<String>> parentNameMap, Set<String> superPlans) {
         String generateCode
                 = "// Licensed to the Apache Software Foundation (ASF) under one\n"

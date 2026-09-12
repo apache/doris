@@ -134,6 +134,67 @@ under the License.
                 </dependency>
             </dependencies>
         </profile>
+        <!--
+          Fast incremental compilation, for the local edit / compile loop: `mvn -Pfast-fe ...`.
+
+          maven-compiler-plugin is all-or-nothing by default, so one edited file recompiles all ~4500
+          sources of fe-core. In its `useIncrementalCompilation=false` mode it only compiles the
+          sources which are newer than their class files, but that mode alone is unsafe: it never
+          recompiles the classes which use the changed one. IncrementalSourceMarker closes that gap by
+          touching the changed sources and every source which mentions a type they declare, so javac
+          is handed exactly the safe set.
+
+          The set is a conservative superset based on identifier matching: a source is recompiled
+          whenever it mentions a type declared by a changed source, so nothing can be left referring to
+          a type which moved or disappeared underneath it. Only a coupling which is not spelled out in
+          the source at all (reflection, ServiceLoader, resource lookups) is invisible to it, so keep
+          the default build for a release and in CI, and use this profile for the local edit loop.
+        -->
+        <profile>
+            <id>fast-fe</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>mark-incremental-sources</id>
+                                <phase>process-sources</phase>
+                                <goals>
+                                    <goal>exec</goal>
+                                </goals>
+                                <configuration>
+                                    <executable>${java.home}/bin/java</executable>
+                                    <classpathScope>runtime</classpathScope>
+                                    <arguments>
+                                        <argument>-cp</argument>
+                                        <classpath/>
+                                        <argument>org.apache.doris.buildtools.IncrementalSourceMarker</argument>
+                                        <argument>--sources=${project.basedir}/src/main/java,${project.build.directory}/generated-sources</argument>
+                                        <argument>--touch-root=${project.basedir}/src/main/java</argument>
+                                        <argument>--cache=${project.build.directory}/incremental-sources-cache.bin</argument>
+                                        <argument>--classes=${project.build.directory}/classes</argument>
+                                    </arguments>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>default-compile</id>
+                                <configuration>
+                                    <useIncrementalCompilation>false</useIncrementalCompilation>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
     </profiles>
     <dependencies>
         <!-- Must stay the FIRST dependency: it carries the DORIS-PATCH copy of
@@ -1045,7 +1106,20 @@ under the License.
                     <skip>true</skip>
                 </configuration>
             </plugin>
-            <!-- annotation processor -->
+            <!--
+              Build tools (pattern code generation and the fast incremental compilation support).
+
+              GeneratedPlanPatterns / GeneratedMemoPatterns / GeneratedPlanRelations / GeneratedExpressionRelations
+              describe the nereids operator hierarchy and back the pattern matching code. They used to be produced by
+              an annotation processor, which rewrote them on every build: the fresh timestamps made the whole module
+              look stale, so every `mvn compile` recompiled all of fe-core even when nothing had changed.
+
+              They are now produced by a plain program (PatternCodeGenerator) which
+                - caches the parsed ast of the unchanged sources and re-parses only the modified ones,
+                - rewrites an output file only when its content really changed,
+              so the generated sources keep a stable timestamp and no longer invalidate the incremental
+              compilation of the module.
+            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -1053,9 +1127,9 @@ under the License.
                     <release>17</release>
                 </configuration>
                 <executions>
-                    <!-- first: compile annotation and annotation processor -->
+                    <!-- first: compile the build tools, they are excluded from the default compilation -->
                     <execution>
-                        <id>compile-describable-processor</id>
+                        <id>compile-build-tools</id>
                         <phase>generate-sources</phase>
                         <goals>
                             <goal>compile</goal>
@@ -1063,34 +1137,13 @@ under the License.
                         <configuration>
                             <proc>none</proc>
                             <includes>
-                                <include>org/apache/doris/nereids/pattern/generator/PatternDescribable.java</include>
-                                <include>org/apache/doris/nereids/pattern/generator/PatternDescribableProcessor.java</include>
+                                <include>org/apache/doris/buildtools/**</include>
+                                <include>org/apache/doris/nereids/pattern/generator/**</include>
                             </includes>
                         </configuration>
                     </execution>
 
-                    <!-- second: generate patterns -->
-                    <execution>
-                        <id>generate-patterns</id>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>compile</goal>
-                        </goals>
-                        <configuration>
-                            <proc>only</proc>
-                            <compilerArgs>
-                                <arg>-Apath=${basedir}/src/main/java/org/apache/doris/nereids</arg>
-                            </compilerArgs>
-                            <includes>
-                                <include>org/apache/doris/nereids/pattern/generator/PatternDescribableProcessPoint.java</include>
-                            </includes>
-                            <annotationProcessors>
-                                <annotationProcessor>org.apache.doris.nereids.pattern.generator.PatternDescribableProcessor</annotationProcessor>
-                            </annotationProcessors>
-                        </configuration>
-                    </execution>
-
-                    <!-- third: default compile -->
+                    <!-- second: default compile -->
                     <execution>
                         <id>default-compile</id>
                         <phase>compile</phase>
@@ -1099,6 +1152,7 @@ under the License.
                         </goals>
                         <configuration>
                             <excludes>
+                                <exclude>org/apache/doris/buildtools/**</exclude>
                                 <exclude>org/apache/doris/nereids/pattern/generator/**</exclude>
                             </excludes>
                         </configuration>
@@ -1180,6 +1234,30 @@ under the License.
                             <executable>${project.basedir}/../../build-support/check-fe-core-metadata-funnel.sh</executable>
                             <arguments>
                                 <argument>${project.basedir}</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <!--
+                      Generate the nereids pattern sources. Bound to process-sources, i.e. after the
+                      compile-build-tools execution of the compiler plugin, and before the compile
+                      phase which consumes the generated sources.
+                    -->
+                    <execution>
+                        <id>generate-patterns</id>
+                        <phase>process-sources</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>${java.home}/bin/java</executable>
+                            <classpathScope>runtime</classpathScope>
+                            <arguments>
+                                <argument>-cp</argument>
+                                <classpath/>
+                                <argument>org.apache.doris.nereids.pattern.generator.PatternCodeGenerator</argument>
+                                <argument>--path=${basedir}/src/main/java/org/apache/doris/nereids</argument>
+                                <argument>--output=${project.build.directory}/generated-sources/annotations</argument>
+                                <argument>--cache=${project.build.directory}/pattern-generator-cache.bin</argument>
                             </arguments>
                         </configuration>
                     </execution>
