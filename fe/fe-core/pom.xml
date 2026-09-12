@@ -173,11 +173,17 @@ under the License.
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-foundation</artifactId>
         </dependency>
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>fe-kerberos</artifactId>
-            <version>${project.version}</version>
-        </dependency>
+        <!-- fe-kerberos is deliberately NOT a dependency of the FE kernel. Its 15 classes split into
+             an 8-class Hadoop half (UserGroupInformation logins, AuthenticationConfig(Configuration),
+             HadoopAuthenticator and friends) and a Hadoop-free remainder, and fe-core only ever needed
+             the one interface the module's own javadoc calls a migration bridge: ExecutionAuthenticator,
+             now taken straight from fe-foundation (org.apache.doris.foundation.security). Depending on
+             fe-kerberos put its Hadoop half in fe/lib as classes that can never link there, and left a
+             compiles-green/fails-at-runtime path open for any future caller that picked an overload
+             whose signature happens to mention no Hadoop type. The four connector plugins that use the
+             Hadoop half (hive/hudi/iceberg/paimon) declare fe-kerberos themselves and are unaffected.
+             FeCoreHasNoHadoopClassesTest is the guard: it scans fe-core's own bytecode and fails if
+             org/apache/hadoop/ or those class names come back. -->
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-common</artifactId>
@@ -709,7 +715,10 @@ under the License.
             <groupId>com.google.flatbuffers</groupId>
             <artifactId>flatbuffers-java</artifactId>
         </dependency>
-        <!-- Runtime-only: the FE half of the Hive-UDF-compat shipping contract, and the mirror of
+        <!-- Runtime-only, and load-bearing for two unrelated reasons. Both have to hold before
+             this jar can be narrowed or dropped.
+
+             (1) The FE half of the Hive-UDF-compat shipping contract, and the mirror of
              be-java-extensions/java-udf, which bundles the same base classes so BE can execute such
              UDFs. CreateFunctionCommand validates a user JAVA_UDF jar by loading its symbol class in
              a throwaway URLClassLoader parented to the FE app classloader; deriving a class resolves
@@ -719,7 +728,25 @@ under the License.
              This is a UDF-engine dependency, not a catalog one. It is declared here because it was
              previously satisfied only by accident, as a passenger inside the hive-catalog-shade
              uber-jar; no compile-time reference reveals it, so removing that jar compiled green and
-             broke CREATE FUNCTION for every hive-derived UDF at runtime. -->
+             broke CREATE FUNCTION for every hive-derived UDF at runtime.
+
+             (2) It is also the only provider of org.apache.hadoop.hive.ql.* for four connector
+             plugins. Not one of them bundles a single hive-exec class, so every such reference they
+             carry resolves to this jar through their classloader - parent-first today via
+             ConnectorPluginManager.CONNECTOR_PARENT_FIRST_PREFIXES, plain child-first fallback if
+             that prefix ever goes away, since dropping it changes the delegation order but not the
+             reachability. Measured over the built plugin zips (referenced minus self-carried, cut
+             against this artifact's class list): paimon 15 - paimon-hive's PaimonStorageHandler
+             implements ql.metadata.HiveStorageHandler, HiveCatalog.createView calls
+             ql.metadata.Table.getEmptyTable, HiveUtils uses ql.io.sarg.ConvertAstToSearchArg; hudi
+             32 - hudi-hadoop-mr's HoodieParquetInputFormatBase EXTENDS
+             ql.io.parquet.MapredParquetInputFormat, plus HoodieCombineHiveInputFormat and the ORC
+             branch of HoodieInputFormatUtils, which MORIncrementalRelation imports; hive and
+             iceberg 3 each - the bundled Aliyun DLF metastore client calls
+             ql.session.SessionState.get(). Swapping this for the 10-class
+             be-java-extensions/hive-udf-shade compiles green and breaks those paths at runtime, the
+             same shape of failure as the hive-catalog-shade removal in (1). Making the plugins
+             self-sufficient is the prerequisite for shrinking this, not a follow-up to it. -->
         <dependency>
             <groupId>org.apache.hive</groupId>
             <artifactId>hive-exec</artifactId>
@@ -741,6 +768,20 @@ under the License.
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-aws</artifactId>
+        </dependency>
+
+        <!-- Compiled against directly, but reaching fe-core only as a hadoop transitive:
+             metrics-core (com.codahale.metrics) via hadoop-auth, carrying the whole metric layer -
+             MetricRepo, the MetricVisitors, HistogramMetric, CloudMetrics, SqlBlockRule. Declared
+             here so that it is not a passenger of a dependency that says nothing about it, and so
+             that dropping hadoop from the kernel does not silently take it along. It is already on
+             this classpath at this version; no jar is added to fe/lib.
+             The other such passenger, bcprov-jdk18on (org.bouncycastle.util) via hadoop-common, is
+             gone instead of declared: its single use was TableScanParams calling Strings.toLowerCase
+             on a SQL keyword, which java.lang.String does with an explicit Locale. -->
+        <dependency>
+            <groupId>io.dropwizard.metrics</groupId>
+            <artifactId>metrics-core</artifactId>
         </dependency>
 
         <!-- Required at runtime by hadoop-aws: its S3 I/O paths use

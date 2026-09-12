@@ -34,7 +34,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.Util;
@@ -49,7 +48,7 @@ import org.apache.doris.datasource.metacache.NameCacheValue;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
-import org.apache.doris.kerberos.ExecutionAuthenticator;
+import org.apache.doris.foundation.security.ExecutionAuthenticator;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -79,7 +78,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -172,7 +170,6 @@ public abstract class ExternalCatalog
     protected FeMetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> databases;
     protected transient IdNameIndex dbIdNameIndex = new IdNameIndex("external database");
     protected ExecutionAuthenticator executionAuthenticator;
-    protected ThreadPoolExecutor threadPoolWithPreAuth;
 
     private volatile boolean isInitializing = false;
 
@@ -187,13 +184,15 @@ public abstract class ExternalCatalog
     }
 
     /**
-     * Initializes the PreExecutionAuthenticator instance.
-     * This method ensures that the authenticator is created only once in a thread-safe manner.
-     * If additional authentication logic is required, it should be extended and implemented in subclasses.
+     * Initializes this catalog's {@link ExecutionAuthenticator}, once, in a thread-safe manner.
+     * The kernel's own answer is always the passthrough {@link ExecutionAuthenticator#DIRECT}: no
+     * fe-core path runs inside a Kerberos context, and the interface comes from fe-foundation so that
+     * fe-core needs no Hadoop-bearing module on its classpath to say so. A subclass that does have an
+     * authentication context overrides this and supplies its own.
      */
     protected synchronized void initPreExecutionAuthenticator() {
         if (executionAuthenticator == null) {
-            executionAuthenticator = new ExecutionAuthenticator(){};
+            executionAuthenticator = ExecutionAuthenticator.DIRECT;
         }
     }
 
@@ -932,9 +931,6 @@ public abstract class ExternalCatalog
     }
 
     protected void closeResources() {
-        if (threadPoolWithPreAuth != null) {
-            ThreadPoolManager.shutdownExecutorService(threadPoolWithPreAuth);
-        }
         if (null != executionAuthenticator) {
             executionAuthenticator = null;
         }
@@ -1662,10 +1658,6 @@ public abstract class ExternalCatalog
 
     public TransactionManager getTransactionManager() {
         return transactionManager;
-    }
-
-    public ThreadPoolExecutor getThreadPoolWithPreAuth() {
-        return threadPoolWithPreAuth;
     }
 
     /**

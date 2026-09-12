@@ -104,6 +104,13 @@ import java.util.stream.Stream;
  */
 public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
 
+    /**
+     * How the JVM reports a class whose initializer has already failed, on every attempt after the
+     * first. The class was found - it is the initializer that is broken - so this is not a missing
+     * dependency, and the name it carries is not where the message starts.
+     */
+    private static final String ALREADY_FAILED_TO_INITIALIZE = "Could not initialize class ";
+
     private final ConcurrentMap<String, PluginHandle<F>> handlesByName = new ConcurrentHashMap<>();
     private final Object lifecycleLock = new Object();
 
@@ -267,11 +274,18 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
             Class<?> discoveredClass;
             try {
                 discoveredClass = classLoader.loadClass(factoryClassName);
-            } catch (ReflectiveOperationException e) {
+            } catch (ReflectiveOperationException | LinkageError e) {
+                // LinkageError included: defining the factory class resolves its supertypes, so a
+                // dependency the plugin neither bundles nor inherits from its parent surfaces here as
+                // NoClassDefFoundError - an Error, not a ReflectiveOperationException. Left uncaught it
+                // escapes loadAll entirely and takes FE startup down, because one plugin's missing
+                // dependency is not something the FE can be stopped by. Same reasoning as factory.name()
+                // and factory.description() below, which already catch it.
                 throw new PluginLoadException(
                         normalizedDir,
                         LoadFailure.STAGE_INSTANTIATE,
-                        "Failed to instantiate factory class '" + factoryClassName + "' in " + normalizedDir,
+                        "Failed to instantiate factory class '" + factoryClassName + "' in " + normalizedDir
+                                + missingClassAdvice(e),
                         e);
             }
 
@@ -293,11 +307,15 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                 @SuppressWarnings("unchecked")
                 Class<? extends F> factoryClass = (Class<? extends F>) discoveredClass.asSubclass(factoryType);
                 factory = factoryClass.getDeclaredConstructor().newInstance();
-            } catch (ReflectiveOperationException e) {
+            } catch (ReflectiveOperationException | LinkageError e) {
+                // newInstance() is where the factory class is first initialized, so a static initializer
+                // that reaches a missing dependency arrives as ExceptionInInitializerError - again an
+                // Error, and again one plugin's problem rather than the FE's.
                 throw new PluginLoadException(
                         normalizedDir,
                         LoadFailure.STAGE_INSTANTIATE,
-                        "Failed to instantiate factory class '" + factoryClassName + "' in " + normalizedDir,
+                        "Failed to instantiate factory class '" + factoryClassName + "' in " + normalizedDir
+                                + missingClassAdvice(e),
                         e);
             }
         } catch (PluginLoadException e) {
@@ -521,6 +539,48 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                     null);
         }
         return classNames.get(0);
+    }
+
+    /**
+     * Turns a load failure caused by an absent class into an actionable sentence, or "" for any other
+     * failure. A plugin misses a class either because it does not bundle it or because it expected to
+     * inherit it from the layer its classloader delegates to, and the message must not leave the reader
+     * guessing which - a shared library bundle that was never installed looks exactly like a broken
+     * plugin jar otherwise.
+     */
+    // Package-private so that the JVM messages it has to tell apart can be asserted directly: no
+    // plugin makes the loader initialize one class twice, so the second-attempt wording below is not
+    // reachable from loadAll.
+    static String missingClassAdvice(Throwable failure) {
+        String missing = missingClassName(failure);
+        if (missing == null) {
+            return "";
+        }
+        return ". The class " + missing + " is in neither this plugin's own jars nor its parent"
+                + " classloader; if it is meant to come from a shared library bundle, check that the"
+                + " bundle is installed under the FE shared library root";
+    }
+
+    /** The absent class named by a NoClassDefFoundError / ClassNotFoundException anywhere in the chain. */
+    private static String missingClassName(Throwable failure) {
+        for (Throwable t = failure; t != null; t = t.getCause() == t ? null : t.getCause()) {
+            if (!(t instanceof NoClassDefFoundError) && !(t instanceof ClassNotFoundException)) {
+                continue;
+            }
+            String message = t.getMessage();
+            if (message == null) {
+                continue;
+            }
+            message = message.trim();
+            if (message.isEmpty() || message.startsWith(ALREADY_FAILED_TO_INITIALIZE)) {
+                // Keep walking: what really went missing, if anything did, is further down the chain.
+                continue;
+            }
+            // NoClassDefFoundError's message is sometimes "a/B (wrong name: c/D)" or carries a
+            // trailing explanation; the class name is the first token either way.
+            return message.split("\\s+", 2)[0];
+        }
+        return null;
     }
 
     private static void closeClassLoader(ClassLoader classLoader) {

@@ -138,6 +138,25 @@ under the License.
             <version>${hadoop.version}</version>
             <scope>provided</scope>
         </dependency>
+        <!-- Runtime-only: hadoop-aws supplies org.apache.hadoop.fs.s3a.S3AFileSystem, the
+             org.apache.hadoop.fs.FileSystem implementation every JNI scanner reaches for once a
+             lakehouse table lives on S3 - Paimon's HadoopFileIO resolves it through
+             Configuration.getClass("fs.s3a.impl"), and Hudi/Avro take the same route. It used to
+             arrive transitively via fe-common -> hadoop-aws; once fe-common was made Hadoop-free
+             (hadoop-common/hadoop-aws dropped from fe-common/pom.xml) it was evicted from this
+             shared preload classpath, and every paimon-on-S3 query failed with
+             "ClassNotFoundException: Class org.apache.hadoop.fs.s3a.S3AFileSystem not found".
+             Restore it here (the shared parent of all JNI scanners), mirroring the
+             commons-lang / jna / fastutil-core restorations above. Note hadoop-common stays
+             provided (it comes from lib/hadoop_hdfs): FileSystem and S3AFileSystem must resolve in
+             the SAME loader or FileSystem.createFileSystem's cast fails, and both lib/hadoop_hdfs
+             and this jar are on the BE's system classpath, so they do. Version and the AWS-SDK
+             exclusions come from fe/pom.xml's dependencyManagement. -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-aws</artifactId>
+            <scope>runtime</scope>
+        </dependency>
         <dependency>
             <groupId>org.antlr</groupId>
             <artifactId>antlr4-runtime</artifactId>
@@ -272,6 +291,94 @@ under the License.
                             <descriptors>
                             <descriptor>src/main/resources/package-deps.xml</descriptor>
                             </descriptors>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>verify-preload-classpath-contract</id>
+                        <!-- Same phase as the assembly above and declared after it, so it inspects
+                             the jar that execution just wrote (one phase runs its plugins in POM
+                             order). -->
+                        <phase>package</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <!-- This jar is the BE's shared JNI classpath: bin/start_be.sh puts
+                                     it on the system classpath and every JniScannerClassLoader
+                                     delegates to it parent first. The libraries asserted below have
+                                     no source reference in this module; they are declared only so
+                                     the scanners can resolve them at runtime, which makes them
+                                     invisible to any "unused dependency" cleanup and easy to lose
+                                     by slimming an upstream module. That has already happened three
+                                     times, each time by a dependency leaving fe-common and taking
+                                     one of these with it: odps took commons-lang, trino took jna,
+                                     hadoop took hadoop-aws. None of it failed the build, and no
+                                     pipeline but External Regression noticed, because only it reads
+                                     a lakehouse table. So assert the contract here, where the build
+                                     can name what went missing.
+                                     Deliberately a jar entry check and not <available classname>:
+                                     loading S3AFileSystem would need its superclass FileSystem,
+                                     which is correctly absent here (hadoop-common is provided, and
+                                     comes from lib/hadoop_hdfs at runtime). -->
+                                <property name="preload.jar"
+                                          value="${project.build.directory}/${project.build.finalName}-jar-with-dependencies.jar"/>
+                                <fail message="${preload.jar} was not produced, so the preload classpath contract cannot be checked.">
+                                    <condition>
+                                        <not>
+                                            <available file="${preload.jar}"/>
+                                        </not>
+                                    </condition>
+                                </fail>
+                                <fail message="preload-extensions-jar-with-dependencies.jar no longer contains org/apache/hadoop/fs/s3a/S3AFileSystem.class (hadoop-aws): Paimon's HadoopFileIO, and the Hudi and Avro readers, reach it through Configuration.getClass(&quot;fs.s3a.impl&quot;) for every table on s3a://. Restore whatever carries it (runtime scope is enough) instead of deleting this assertion. Nothing in this module references it from source, so the build stays green and the BE only fails at query time, in External Regression.">
+                                    <condition>
+                                        <resourcecount when="equal" count="0">
+                                            <zipfileset src="${preload.jar}" includes="org/apache/hadoop/fs/s3a/S3AFileSystem.class"/>
+                                        </resourcecount>
+                                    </condition>
+                                </fail>
+                                <fail message="preload-extensions-jar-with-dependencies.jar no longer contains org/apache/commons/lang/StringUtils.class (commons-lang): the Hive-using scanners (paimon-hive-connector, hudi, HiveConf) call it at runtime. Restore whatever carries it (runtime scope is enough) instead of deleting this assertion. Nothing in this module references it from source, so the build stays green and the BE only fails at query time, in External Regression.">
+                                    <condition>
+                                        <resourcecount when="equal" count="0">
+                                            <zipfileset src="${preload.jar}" includes="org/apache/commons/lang/StringUtils.class"/>
+                                        </resourcecount>
+                                    </condition>
+                                </fail>
+                                <fail message="preload-extensions-jar-with-dependencies.jar no longer contains com/sun/jna/Native.class (jna): the trino-connector scanner's oshi calls Native.load(String, Class), which needs jna 5.x ahead of the older copy in lib/hadoop_hdfs. Restore whatever carries it (runtime scope is enough) instead of deleting this assertion. Nothing in this module references it from source, so the build stays green and the BE only fails at query time, in External Regression.">
+                                    <condition>
+                                        <resourcecount when="equal" count="0">
+                                            <zipfileset src="${preload.jar}" includes="com/sun/jna/Native.class"/>
+                                        </resourcecount>
+                                    </condition>
+                                </fail>
+                                <fail message="preload-extensions-jar-with-dependencies.jar no longer contains com/sun/jna/platform/linux/Udev.class (jna-platform): oshi initializes it on Linux, and it has to come from the same jna as Native above. Restore whatever carries it (runtime scope is enough) instead of deleting this assertion. Nothing in this module references it from source, so the build stays green and the BE only fails at query time, in External Regression.">
+                                    <condition>
+                                        <resourcecount when="equal" count="0">
+                                            <zipfileset src="${preload.jar}" includes="com/sun/jna/platform/linux/Udev.class"/>
+                                        </resourcecount>
+                                    </condition>
+                                </fail>
+                                <fail message="preload-extensions-jar-with-dependencies.jar no longer contains it/unimi/dsi/fastutil/longs/AbstractLong2LongMap.class (fastutil-core): fe-foundation's ConcurrentLong2LongHashMap extends it, and BE's ScannerLoader eagerly loads every org.apache.doris class at startup, so a missing superclass stops the BE from starting. Restore whatever carries it (runtime scope is enough) instead of deleting this assertion. Nothing in this module references it from source, so the build stays green and the BE only fails at query time, in External Regression.">
+                                    <condition>
+                                        <resourcecount when="equal" count="0">
+                                            <zipfileset src="${preload.jar}" includes="it/unimi/dsi/fastutil/longs/AbstractLong2LongMap.class"/>
+                                        </resourcecount>
+                                    </condition>
+                                </fail>
+                                <fail message="preload-extensions-jar-with-dependencies.jar no longer contains org/apache/doris/common/jni/JniScanner.class (java-common): it is the base class every JNI scanner extends, so without it no scanner can load. java-common must stay a dependency of this module and must not be excluded from the assembly.">
+                                    <condition>
+                                        <resourcecount when="equal" count="0">
+                                            <zipfileset src="${preload.jar}" includes="org/apache/doris/common/jni/JniScanner.class"/>
+                                        </resourcecount>
+                                    </condition>
+                                </fail>
+                            </target>
                         </configuration>
                     </execution>
                 </executions>

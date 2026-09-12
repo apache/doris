@@ -104,20 +104,12 @@ under the License.
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
         </dependency>
+        <!-- commons-codec: used directly by Hll (org.apache.commons.codec.binary.StringUtils).
+             Previously satisfied only transitively via hadoop-common (now removed); declared
+             explicitly here. -->
         <dependency>
-            <groupId>org.apache.hadoop</groupId>
-            <artifactId>hadoop-common</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>commons-collections</groupId>
-                    <artifactId>commons-collections</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.commons</groupId>
-                    <artifactId>commons-compress</artifactId>
-                </exclusion>
-            </exclusions>
-            <scope>provided</scope>
+            <groupId>commons-codec</groupId>
+            <artifactId>commons-codec</artifactId>
         </dependency>
         <!-- jackson: used directly by JsonUtil / SnapshotSplit. Previously satisfied only transitively
              via io.trino:trino-main (now removed); declared explicitly here. fe-common re-exports it to
@@ -125,10 +117,6 @@ under the License.
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.hadoop</groupId>
-            <artifactId>hadoop-aws</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
