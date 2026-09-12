@@ -959,12 +959,11 @@ Status KinesisDataConsumer::group_consume(
                 _shard_iterators[shard_id] = next_iterator;
 
                 if (record_count == 0) {
-                    // No records in this batch - shard has caught up with latest data
-                    // Remove from active set for this round (similar to Kafka PARTITION_EOF)
-                    // but keep iterator and progress for next task execution
-                    LOG(INFO) << "Shard has no new data: " << shard_id
+                    // An empty response does not mean that this shard has reached the tip.
+                    // Keep it active and follow the returned iterator in the next round.
+                    LOG(INFO) << "Shard has no records in this response: " << shard_id
                               << " (MillisBehindLatest=" << millis_behind << ")";
-                    it = _consuming_shard_ids.erase(it);
+                    ++it;
                 } else {
                     ++it;
                 }
