@@ -37,7 +37,15 @@ suite("test_trino_hive_other", "p0,external") {
         qt_q39 """ select k2, k5 from table_with_vertical_line where dt in ('2022-11-25', '2022-11-24') order by k2 desc limit 10;"""
         qt_q40 """ select dt, dt, k2, k5, dt from table_with_vertical_line where dt in ('2022-11-25') or dt in ('2022-11-25') order by k2 desc limit 10;"""
         qt_q41 """ select dt, dt, k2, k5, dt from table_with_vertical_line where dt in ('2022-11-25') and dt in ('2022-11-24') order by k2 desc limit 10;"""
-        qt_q42 """ select dt, dt, k2, k5, dt from table_with_vertical_line where dt in ('2022-11-25') or dt in ('2022-11-24') order by k2 desc limit 10;"""
+        // The datetime range is redundant with the string predicate, so q42 keeps its generated result.
+        // An incorrect VARCHAR range pushdown loses the 2022-11-24 rows and makes this query fail.
+        qt_q42 """
+            select dt, dt, k2, k5, dt from table_with_vertical_line
+            where (dt in ('2022-11-25') or dt in ('2022-11-24'))
+                and cast(dt as datetime) >= timestamp('2022-11-24 00:00:00')
+                and cast(dt as datetime) < timestamp('2022-11-26 00:00:00')
+            order by k2 desc limit 10;
+        """
 
         qt_q43 """ select dt, k1, * from table_with_x01 order by dt desc, k1 desc limit 10;"""
         qt_q44 """ select dt, k2 from table_with_x01 order by k2 desc limit 10;"""

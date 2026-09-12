@@ -36,11 +36,8 @@ import io.trino.Session;
 import io.trino.spi.connector.CatalogHandle;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
-import io.trino.spi.connector.Constraint;
-import io.trino.spi.connector.ConstraintApplicationResult;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.expression.Variable;
-import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.transaction.IsolationLevel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -252,18 +249,12 @@ public class TrinoConnectorDorisMetadata implements ConnectorMetadata {
     }
 
     /**
-     * The trino-connector bridge accepts CAST-bearing predicates ({@code true}, the SPI default, stated here
-     * rather than inherited).
-     *
-     * <p>This is a conscious acceptance of the risk the SPI documents, not a claim of safety: the residual
-     * predicate becomes a trino {@code Constraint} and is handed to the embedded trino connector's own
-     * {@code applyFilter}, which may turn it into source-side filtering with that system's coercion rules. It
-     * stays {@code true} because the bridge cannot tell which embedded connector will do so, and dropping all
-     * CAST-bearing conjuncts would silently de-optimize every trino catalog.</p>
+     * CAST nodes are erased at the Doris connector-expression boundary, so the bridge cannot prove that a
+     * domain over the raw Trino column preserves the casted Doris comparison. Keep those predicates local.
      */
     @Override
     public boolean supportsCastPredicatePushdown(ConnectorSession session) {
-        return true;
+        return false;
     }
 
     @Override
@@ -271,47 +262,9 @@ public class TrinoConnectorDorisMetadata implements ConnectorMetadata {
             ConnectorSession session,
             ConnectorTableHandle handle,
             ConnectorFilterConstraint constraint) {
-        TrinoTableHandle dorisHandle = (TrinoTableHandle) handle;
-        ConnectorExpression expression = constraint.getExpression();
-
-        TrinoPredicateConverter converter = new TrinoPredicateConverter(
-                dorisHandle.getColumnHandleMap(),
-                dorisHandle.getColumnMetadataMap());
-        TupleDomain<ColumnHandle> tupleDomain = converter.convert(expression);
-        if (tupleDomain.isAll()) {
-            return Optional.empty();
-        }
-
-        io.trino.spi.connector.ConnectorSession connSession =
-                trinoSession.toConnectorSession(trinoCatalogHandle);
-        io.trino.spi.connector.ConnectorTransactionHandle txn =
-                trinoConnector.beginTransaction(IsolationLevel.READ_UNCOMMITTED, true, true);
-        try {
-            io.trino.spi.connector.ConnectorMetadata metadata =
-                    trinoConnector.getMetadata(connSession, txn);
-
-            Optional<ConstraintApplicationResult<io.trino.spi.connector.ConnectorTableHandle>> trinoResult =
-                    metadata.applyFilter(connSession, dorisHandle.getTrinoTableHandle(),
-                            new Constraint(tupleDomain));
-            if (!trinoResult.isPresent()) {
-                return Optional.empty();
-            }
-
-            TrinoTableHandle newHandle = new TrinoTableHandle(
-                    dorisHandle.getDbName(),
-                    dorisHandle.getTableName(),
-                    trinoResult.get().getHandle(),
-                    dorisHandle.getColumnHandleMap(),
-                    dorisHandle.getColumnMetadataMap());
-
-            // Trino tracks the remaining filter as a TupleDomain, not as a Doris ConnectorExpression.
-            // Returning the original expression keeps BE-side re-evaluation, matching the legacy
-            // fe-core scan-node behavior. A future enhancement could try to map the remaining
-            // TupleDomain back to a ConnectorExpression and clear fully-pushed conjuncts.
-            return Optional.of(new FilterApplicationResult<>(newHandle, expression, false));
-        } finally {
-            releaseQuietly(txn);
-        }
+        // PluginDrivenScanNode applies metadata filters before it can strip CAST-bearing conjuncts.
+        // Defer Trino filtering to planScan, whose residual filter has already passed that capability gate.
+        return Optional.empty();
     }
 
     @Override
