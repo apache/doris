@@ -57,6 +57,34 @@ class SimplifyArithmeticRuleTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
+    void testPreserveDivisionDenominatorBoundaries() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(SimplifyArithmeticRule.INSTANCE, FoldConstantRule.INSTANCE)
+        ));
+
+        Assertions.assertAll(
+                // A nested denominator is an evaluation boundary: its operands cannot be
+                // inverted or moved into the numerator of the enclosing division.
+                () -> assertRewriteAfterSimplify("IA / (IB / IC)", "IA / (IB / IC)"),
+                () -> assertRewriteAfterSimplify("IA / (IB * IC)", "IA / (IB * IC)"),
+
+                // Left-associated division does not introduce a nested denominator boundary.
+                () -> assertRewriteAfterSimplify("(IA / IB) / IC", "(IA / IB) / IC"),
+
+                // Preserve zero and null behavior for nullable integer operands.
+                () -> assertRewriteAfterSimplify("1 / (1 / IA)", "1 / (1 / IA)"),
+                () -> assertRewriteAfterSimplify("IA / (IB / 0)", "IA / (IB / 0)"),
+                () -> assertRewriteAfterSimplify("IA / (IB * 0)", "IA / (IB * 0)"),
+
+                // Floating-point arithmetic has the same evaluation-order boundary.
+                () -> assertRewriteAfterSimplify("DA / (DB / DC)", "DA / (DB / DC)"),
+                () -> assertRewriteAfterSimplify("DA / (DB * DC)", "DA / (DB * DC)"),
+
+                // Decimal arithmetic is intentionally unsupported by this rule and remains unchanged.
+                () -> assertRewriteAfterSimplify("MA / (MB / MC)", "MA / (MB / MC)"));
+    }
+
+    @Test
     void testSimplifyArithmeticRuleOnly() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 bottomUp(SimplifyArithmeticRule.INSTANCE)
@@ -71,10 +99,14 @@ class SimplifyArithmeticRuleTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterSimplify("IA - 2 - ((-IB - 1) - (3 + (IC + 4)))", "(((IA + IB) + IC) - ((((2 + 0) - 1) - 3) - 4))");
 
         // multiply and divide
-        assertRewriteAfterSimplify("2 / IA / ((1 / IB) / (3 * IC))", "(((((2 / 1) * 3) / IA) * IB) * IC)");
-        assertRewriteAfterSimplify("IA / 2 / ((IB * 1) / (3 / (IC / 4)))", "(((IA / IB) / IC) / (((2 * 1) / 3) / 4))");
-        assertRewriteAfterSimplify("IA / 2 / ((IB / 1) / (3 / (IC * 4)))", "(((IA / IB) / IC) / (((2 / 1) / 3) * 4))");
-        assertRewriteAfterSimplify("IA / 2 / ((IB / 1) / (3 * (IC * 4)))", "(((IA / IB) * IC) / (((2 / 1) / 3) / 4))");
+        assertRewriteAfterSimplify("2 / IA / ((1 / IB) / (3 * IC))",
+                "((2 / IA) / ((1 / IB) / (IC * 3)))");
+        assertRewriteAfterSimplify("IA / 2 / ((IB * 1) / (3 / (IC / 4)))",
+                "((IA / ((IB / (3 / (IC / 4))) * 1)) / 2)");
+        assertRewriteAfterSimplify("IA / 2 / ((IB / 1) / (3 / (IC * 4)))",
+                "((IA / ((IB / (3 / (IC * 4))) / 1)) / 2)");
+        assertRewriteAfterSimplify("IA / 2 / ((IB / 1) / (3 * (IC * 4)))",
+                "((IA / ((IB / (IC * (3 * 4))) / 1)) / 2)");
 
         // hybrid
         // root is subtract
@@ -88,7 +120,8 @@ class SimplifyArithmeticRuleTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterSimplify("-IA / 2 * ((-IB - 1) * (3 / (IC + 4)))", "((((0 - IA) * ((0 - 1) - IB)) / (IC + 4)) / (2 / 3))");
         // root is divide
         assertRewriteAfterSimplify("(-IA / 2) / ((-IB - 1) - (3 + (IC + 4)))", "(((0 - IA) / (((((0 - 1) - 3) - 4) - IB) - IC)) / 2)");
-        assertRewriteAfterSimplify("(-IA / 2) / ((-IB - 1) / (3 + (IC * 4)))", "((((0 - IA) / ((0 - 1) - IB)) * ((IC * 4) + 3)) / 2)");
+        assertRewriteAfterSimplify("(-IA / 2) / ((-IB - 1) / (3 + (IC * 4)))",
+                "(((0 - IA) / (((0 - 1) - IB) / ((IC * 4) + 3))) / 2)");
 
         // unsupported decimal
         assertRewriteAfterSimplify("-2 - MA - ((1 - IB) - (3 + IC))", "((-2 - MA) - ((1 - IB) - (3 + IC)))");
