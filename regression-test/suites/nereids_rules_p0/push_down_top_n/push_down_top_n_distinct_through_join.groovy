@@ -67,4 +67,61 @@ suite("push_down_top_n_distinct_through_join") {
     qt_push_down_topn_through_join_data """
         select distinct * from (select t1.id from table_join t1 cross join table_join t2) t order by id limit 10;
     """
+
+    sql "DROP TABLE IF EXISTS topn_distinct_left"
+    sql "DROP TABLE IF EXISTS topn_distinct_right"
+    sql """
+        CREATE TABLE topn_distinct_left (
+            k INT NOT NULL,
+            id INT NOT NULL
+        ) DUPLICATE KEY(k, id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num" = "1")
+    """
+    sql """
+        CREATE TABLE topn_distinct_right (
+            id INT NOT NULL,
+            s INT NOT NULL
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO topn_distinct_left VALUES
+            (0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (0, 6), (0, 7), (0, 8)
+    """
+    sql """
+        INSERT INTO topn_distinct_right VALUES
+            (1, 10), (2, 20), (3, 30), (4, 40), (5, 50), (6, 60), (7, 70), (8, 80)
+    """
+
+    test {
+        sql """
+            SELECT DISTINCT l.id, l.k, r.s
+            FROM topn_distinct_left l LEFT JOIN topn_distinct_right r ON l.id = r.id
+            ORDER BY l.k ASC, r.s ASC
+            LIMIT 1
+        """
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            assertEquals("[[1, 0, 10]]", result.toString())
+        }
+    }
+
+    test {
+        sql """
+            SELECT DISTINCT l.id, l.k, r.s
+            FROM topn_distinct_left l LEFT JOIN topn_distinct_right r ON l.id = r.id
+            ORDER BY l.k ASC, r.s DESC
+            LIMIT 2 OFFSET 1
+        """
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            assertEquals("[[7, 0, 70], [6, 0, 60]]", result.toString())
+        }
+    }
 }
