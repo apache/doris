@@ -460,6 +460,17 @@ static bool contains_expr_node_type(const VExprSPtr& expr, TExprNodeType::type n
     });
 }
 
+// Find MATCH recursively; ones nested in AND / OR / NOT count too.
+static bool is_match_expr(const VExprSPtr& expr) {
+    DORIS_CHECK(expr != nullptr);
+    if (expr->node_type() == TExprNodeType::MATCH_PRED ||
+        expr->node_type() == TExprNodeType::SEARCH_EXPR || expr->can_push_down_to_index()) {
+        return true;
+    }
+    return std::ranges::any_of(expr->children(),
+                               [](const auto& child) { return is_match_expr(child); });
+}
+
 static Status validate_residual_scan_conjuncts(RuntimeState* state,
                                                TPushAggOp::type push_down_agg_type,
                                                const VExprContextSPtrs& conjuncts) {
@@ -635,6 +646,21 @@ bool OlapScanLocalState::_is_binlog_merge_scan() const {
     return scan_type == TBinlogScanType::MIN_DELTA || scan_type == TBinlogScanType::DETAIL;
 }
 
+// Give each segment a scanner of its own for queries like:
+//   SELECT k1 FROM t ORDER BY l2_distance_approximate(embedding, [1.0, 2.0]) LIMIT 2
+//   SELECT k1 FROM t WHERE msg MATCH_PHRASE 'error timeout'
+bool OlapScanLocalState::_use_scan_parallelism_by_per_segment() {
+    // TODO: Use optimize_index_scan_parallelism for ann range search in the future.
+    // Currently, ann topn is enough
+    if (state()->query_options().__isset.optimize_index_scan_parallelism &&
+        state()->query_options().optimize_index_scan_parallelism && _ann_topn_runtime != nullptr) {
+        return true;
+    }
+    return config::is_cloud_mode() &&
+           std::ranges::any_of(_common_expr_ctxs_push_down,
+                               [](const auto& ctx) { return is_match_expr(ctx->root()); });
+}
+
 Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
         _eos = true;
@@ -764,15 +790,7 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
                 std::max<int64_t>(1024, state()->parallel_scan_min_rows_per_scanner());
         scanner_builder.set_max_scanners_count(max_scanners_count);
         scanner_builder.set_min_rows_per_scanner(min_rows_per_scanner);
-        // If the session variable is set, force one scanner per segment.
-        if (state()->query_options().__isset.optimize_index_scan_parallelism &&
-            state()->query_options().optimize_index_scan_parallelism) {
-            // TODO: Use optimize_index_scan_parallelism for ann range search in the future.
-            // Currently, ann topn is enough
-            if (_ann_topn_runtime != nullptr) {
-                scanner_builder.set_scan_parallelism_by_per_segment(true);
-            }
-        }
+        scanner_builder.set_scan_parallelism_by_per_segment(_use_scan_parallelism_by_per_segment());
 
         RETURN_IF_ERROR(scanner_builder.build_scanners(*scanners));
         for (auto& scanner : *scanners) {
