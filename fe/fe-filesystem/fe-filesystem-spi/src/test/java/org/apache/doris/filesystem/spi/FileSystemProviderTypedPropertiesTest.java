@@ -46,6 +46,16 @@ class FileSystemProviderTypedPropertiesTest {
         Assertions.assertSame(properties, ((TestFileSystem) fileSystem).properties);
     }
 
+    @Test
+    void defaultBindingRetainsTypedProviderCompatibility() throws IOException {
+        TypedProvider provider = new TypedProvider();
+        TestProperties properties = provider.bindDefault(Map.of("test.key", "default-value"));
+
+        Assertions.assertEquals("default-value", properties.value);
+        Assertions.assertFalse(properties.isSyntheticDefault());
+        Assertions.assertSame(properties, ((TestFileSystem) provider.createUntyped(properties)).properties);
+    }
+
     private static class TypedProvider implements FileSystemProvider<TestProperties> {
         @Override
         public boolean supports(Map<String, String> properties) {
