@@ -31,27 +31,36 @@ Token* IKTokenizer::next(Token* token) {
         return nullptr;
     }
 
-    std::string& token_text = tokens_text_[buffer_index_++];
+    TokenData& token_data = tokens_[buffer_index_++];
     // full-width to half-width, and lowercase
     // TODO(ryan19929): do regularizeString in fillBuffer.
-    CharacterUtil::regularizeString(token_text, this->lowercase);
-    size_t size = std::min(token_text.size(), static_cast<size_t>(LUCENE_MAX_WORD_LEN));
-    token->setNoCopy(token_text.data(), 0, static_cast<int32_t>(size));
+    CharacterUtil::regularizeString(token_data.text, this->lowercase);
+    size_t size = std::min(token_data.text.size(), static_cast<size_t>(LUCENE_MAX_WORD_LEN));
+    set(token, std::string_view(token_data.text.data(), size));
+    token->setStartOffset(token_data.start_offset);
+    token->setEndOffset(token_data.end_offset);
     return token;
+}
+
+void IKTokenizer::reset() {
+    inverted_index::DorisTokenizer::reset();
+    reset(_in.get());
 }
 
 void IKTokenizer::reset(lucene::util::Reader* reader) {
     this->input = reader;
     this->buffer_index_ = 0;
     this->data_length_ = 0;
-    this->tokens_text_.clear();
+    this->tokens_.clear();
 
     try {
         buffer_.reserve(input->size());
         ik_segmenter_->reset(reader);
         Lexeme lexeme;
         while (ik_segmenter_->next(lexeme)) {
-            tokens_text_.emplace_back(lexeme.getText());
+            tokens_.push_back({lexeme.getText(),
+                               static_cast<int32_t>(lexeme.getByteBeginPosition()),
+                               static_cast<int32_t>(lexeme.getByteEndPosition())});
         }
     } catch (const CLuceneError&) {
         throw;
@@ -60,7 +69,7 @@ void IKTokenizer::reset(lucene::util::Reader* reader) {
         _CLTHROWT(CL_ERR_Runtime,
                   ("Uncaught exception in IKTokenizer: " + std::string(e.what())).c_str());
     }
-    data_length_ = static_cast<int32_t>(tokens_text_.size());
+    data_length_ = static_cast<int32_t>(tokens_.size());
 }
 
 } // namespace doris::segment_v2

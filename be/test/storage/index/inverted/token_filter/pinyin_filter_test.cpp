@@ -24,6 +24,7 @@
 
 #include "CLucene.h"
 #include "storage/index/inverted/token_filter/pinyin_filter_factory.h"
+#include "storage/index/inverted/tokenizer/ik/ik_tokenizer_factory.h"
 #include "storage/index/inverted/tokenizer/keyword/keyword_tokenizer_factory.h"
 #include "storage/index/inverted/tokenizer/standard/standard_tokenizer_factory.h"
 
@@ -48,6 +49,11 @@ public:
             tokenizer = factory.create();
         } else if (tokenizer_type == "keyword") {
             KeywordTokenizerFactory factory;
+            Settings settings;
+            factory.initialize(settings);
+            tokenizer = factory.create();
+        } else if (tokenizer_type == "ik_smart" || tokenizer_type == "ik_max_word") {
+            IKTokenizerFactory factory(tokenizer_type == "ik_smart");
             Settings settings;
             factory.initialize(settings);
             tokenizer = factory.create();
@@ -125,6 +131,26 @@ TEST_F(PinyinFilterTest, TestTokenFilter_KeywordAnalyzer_FirstLetter) {
 
     std::vector<std::string> expected = {"ldh"};
     assertTokens(tokens, expected, "KeywordTokenizer + FirstLetter");
+}
+
+TEST_F(PinyinFilterTest, TestTokenFilter_IKTokenizers) {
+    std::unordered_map<std::string, std::string> filter_config;
+    filter_config["keep_none_chinese"] = "false";
+    filter_config["keep_first_letter"] = "true";
+    filter_config["keep_full_pinyin"] = "false";
+    filter_config["keep_separate_first_letter"] = "false";
+    filter_config["keep_original"] = "true";
+    filter_config["keep_joined_full_pinyin"] = "true";
+
+    auto smart_tokens = tokenizeWithFilter("我来到北京清华大学", "ik_smart", filter_config);
+    EXPECT_NE(std::ranges::find(smart_tokens, "清华大学"), smart_tokens.end());
+    EXPECT_NE(std::ranges::find(smart_tokens, "qinghuadaxue"), smart_tokens.end());
+
+    auto max_word_tokens = tokenizeWithFilter("我来到北京清华大学", "ik_max_word", filter_config);
+    EXPECT_NE(std::ranges::find(max_word_tokens, "清华"), max_word_tokens.end());
+    EXPECT_NE(std::ranges::find(max_word_tokens, "qinghua"), max_word_tokens.end());
+    EXPECT_NE(std::ranges::find(max_word_tokens, "大学"), max_word_tokens.end());
+    EXPECT_NE(std::ranges::find(max_word_tokens, "daxue"), max_word_tokens.end());
 }
 
 TEST_F(PinyinFilterTest, TestTokenFilter_StandardAnalyzer_FullPinyin) {

@@ -262,6 +262,12 @@ public class PolicyValidatorTests {
                 policyMgr.getPolicyByName("new_ngram").getProperties().get("max_ngram_diff"));
     }
 
+    @Test
+    public void testIkTokenizersAreBuiltIn() {
+        Assertions.assertTrue(IndexPolicy.BUILTIN_TOKENIZERS.contains("ik_smart"));
+        Assertions.assertTrue(IndexPolicy.BUILTIN_TOKENIZERS.contains("ik_max_word"));
+    }
+
     // StandardTokenizerValidator Tests
     @Test
     public void testStandardTokenizerValidator_ValidProperties() throws Exception {

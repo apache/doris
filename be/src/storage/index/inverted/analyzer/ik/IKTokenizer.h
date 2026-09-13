@@ -24,25 +24,33 @@
 #include "CLucene/analysis/AnalysisHeader.h"
 #include "storage/index/inverted/analyzer/ik/cfg/Configuration.h"
 #include "storage/index/inverted/analyzer/ik/core/IKSegmenter.h"
+#include "storage/index/inverted/tokenizer/tokenizer.h"
 
 using namespace lucene::analysis;
 
 namespace doris::segment_v2 {
 
-class IKTokenizer : public Tokenizer {
+class IKTokenizer : public inverted_index::DorisTokenizer {
 public:
     IKTokenizer();
     IKTokenizer(std::shared_ptr<Configuration> config, bool lowercase, bool ownReader);
     ~IKTokenizer() override = default;
 
     Token* next(Token* token) override;
+    void reset() override;
     void reset(lucene::util::Reader* reader) override;
 
 private:
+    struct TokenData {
+        std::string text;
+        int32_t start_offset;
+        int32_t end_offset;
+    };
+
     int32_t buffer_index_ {0};
     int32_t data_length_ {0};
     std::string buffer_;
-    std::vector<std::string> tokens_text_;
+    std::vector<TokenData> tokens_;
     std::shared_ptr<Configuration> config_;
     std::unique_ptr<IKSegmenter> ik_segmenter_;
 };
