@@ -23,16 +23,93 @@ import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
 import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.StorageKind;
+import org.apache.doris.filesystem.properties.StorageProperties;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 class AzureFileSystemPropertiesTest {
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"SharedKey", "SHARED_KEY"})
+    void bind_preservesSharedKeyWithUnusedLegacyOAuth2Fields(String authType) {
+        Map<String, String> input = new HashMap<>(Map.of(
+                "azure.account_name", "account",
+                "azure.account_key", "shared-key",
+                "azure.oauth2_account_host", "not a valid Azure host",
+                "azure.oauth2_client_id", "legacy-client",
+                "azure.oauth2_client_secret", "legacy-secret",
+                "azure.oauth2_client_tenant_id", "legacy-tenant",
+                "azure.oauth2_server_uri", "not a valid token endpoint"));
+        if (authType != null) {
+            input.put("azure.auth_type", authType);
+        }
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(input);
+
+        Assertions.assertEquals(AzureAuthType.SHARED_KEY, properties.authType());
+        Assertions.assertEquals("not a valid Azure host", properties.getOauthAccountHost());
+        Assertions.assertEquals("legacy-client", properties.getClientId());
+        Assertions.assertEquals("legacy-secret", properties.getClientSecret());
+        Assertions.assertEquals("https://account.blob.core.windows.net", properties.getEndpoint());
+        Assertions.assertEquals(Map.of(
+                "provider", "azure",
+                "AZURE_AUTH_TYPE", "SHARED_KEY",
+                "AZURE_ACCOUNT_NAME", "account",
+                "AZURE_ENDPOINT", "https://account.blob.core.windows.net",
+                "AZURE_ACCOUNT_KEY", "shared-key"), properties.toMap());
+        Map<String, String> hadoop = properties.toHadoopConfigurationMap();
+        Assertions.assertEquals("shared-key", hadoop.get("fs.azure.account.key.account.blob.core.windows.net"));
+        Assertions.assertFalse(hadoop.keySet().stream().anyMatch(key -> key.contains("oauth")));
+        Assertions.assertFalse(hadoop.values().stream().anyMatch(value -> value.contains("legacy-")));
+        Assertions.assertFalse(properties.toString().contains("legacy-secret"));
+    }
+
+    @Test
+    void validateAndNormalizeUri_preservesCloudAndOriginalObjectPath() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.auth_type", "SAS", "azure.sas_token", "sig=temporary",
+                "azure.endpoint", "https://account.dfs.core.chinacloudapi.cn", "container", "container"));
+        String path = "abfss://container@account.dfs.core.chinacloudapi.cn//dir/http://example/a+b%252Ffile";
+
+        Assertions.assertEquals(path, properties.validateAndNormalizeUri(path));
+        Assertions.assertEquals("https://account.blob.core.chinacloudapi.cn/container/dir/file",
+                properties.validateAndNormalizeUri("https://account.blob.core.chinacloudapi.cn/container/dir/file"));
+        StoragePropertiesException mismatch = Assertions.assertThrows(StoragePropertiesException.class,
+                () -> properties.validateAndNormalizeUri(
+                        "abfss://container@account.dfs.core.windows.net/dir/file"));
+        Assertions.assertEquals("Azure URI account host does not match the binding", mismatch.getMessage());
+        // Only legacy SharedKey access supports S3-style locations without an account authority.
+        Assertions.assertThrows(StoragePropertiesException.class,
+                () -> properties.validateAndNormalizeUri("s3://container/dir/file"));
+    }
+
+    @Test
+    void validateAndNormalizeUri_doesNotIncludeSasInErrors() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.account_name", "account", "azure.account_key", "key"));
+        StoragePropertiesException error = Assertions.assertThrows(StoragePropertiesException.class,
+                () -> properties.validateAndNormalizeUri(
+                        "https://account.blob.core.windows.net/container/%GG?sig=secret-signature"));
+
+        Assertions.assertEquals("Invalid Azure URI", error.getMessage());
+        Assertions.assertEquals("Invalid percent encoding in Azure object path", error.getCause().getMessage());
+        Assertions.assertNull(error.getCause().getCause());
+    }
 
     @Test
     void bind_usesFeCoreAzureAliasOrder() {
@@ -46,6 +123,100 @@ class AzureFileSystemPropertiesTest {
         Assertions.assertEquals("https://account.blob.core.windows.net", properties.getEndpoint());
         Assertions.assertEquals("azure-account", properties.getAccountName());
         Assertions.assertEquals("azure-key", properties.getAccountKey());
+    }
+
+    @Test
+    void sharedKey_doesNotUseS3SecretWhenProviderMarkerIsPresent() {
+        Assertions.assertThrows(IllegalArgumentException.class, () -> AzureFileSystemProperties.of(Map.of(
+                "provider", "azure", "azure.auth_type", "SharedKey", "azure.account_name", "account",
+                "s3.endpoint", "https://s3.example.test", "s3.access_key", "s3-account",
+                "s3.secret_key", "s3-secret")));
+    }
+
+    @Test
+    void sas_prefersAzureEndpointAliasOverSiblingS3Endpoint() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "provider", "azure", "azure.auth_type", "SAS", "azure.account_name", "account",
+                "azure.sas_token", "sig=temporary", "AZURE_ENDPOINT", "https://proxy.example.test",
+                "s3.endpoint", "https://s3.example.test"));
+
+        Assertions.assertEquals("https://proxy.example.test", properties.getEndpoint());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "https://other.blob.core.windows.net",
+            "https://account.blob.core.chinacloudapi.cn"
+    })
+    void oauth2_rejectsAccountHostAndEndpointConflictsAtBinding(String endpoint) {
+        StoragePropertiesException error = Assertions.assertThrows(StoragePropertiesException.class,
+                () -> AzureFileSystemProperties.of(oauth2Properties(endpoint)));
+
+        Assertions.assertEquals("Azure OAuth2 account host does not match the storage endpoint", error.getMessage());
+        Assertions.assertNull(error.getCause());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"https://login.example.test/tenant/custom/token",
+            "ftp://login.example.test/tenant/oauth2/token",
+            "http://login.example.test/tenant/oauth2/token",
+            "https://private-material@login.example.test/tenant/oauth2/token",
+            "https://login.example.test/tenant/oauth2/token?sig=private-material",
+            "https://login.example.test/tenant/oauth2/token#private-material"})
+    void oauth2_rejectsUnsupportedTokenEndpointsWithoutEchoingCredentials(String tokenEndpoint) {
+        Map<String, String> input = oauth2Properties("https://account.blob.core.windows.net");
+        input.put("azure.oauth2_server_uri", tokenEndpoint);
+        StoragePropertiesException error = Assertions.assertThrows(StoragePropertiesException.class,
+                () -> AzureFileSystemProperties.of(input));
+        Assertions.assertNull(error.getCause());
+        Assertions.assertFalse(error.getMessage().contains("private-material"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"https://login.microsoftonline.com/tenant/oauth2/token",
+            "https://login.microsoftonline.us/tenant/oauth2/v2.0/token"})
+    void oauth2_acceptsSupportedEntraTokenEndpoints(String tokenEndpoint) {
+        Map<String, String> input = oauth2Properties("https://account.blob.core.windows.net");
+        input.put("azure.oauth2_server_uri", tokenEndpoint);
+        Assertions.assertEquals(tokenEndpoint,
+                AzureFileSystemProperties.of(input).toMap().get("AZURE_OAUTH_SERVER_URI"));
+    }
+
+    private static Map<String, String> oauth2Properties(String endpoint) {
+        return new HashMap<>(Map.of(
+                "azure.auth_type", "OAuth2", "azure.endpoint", endpoint,
+                "azure.oauth2_account_host", "account.dfs.core.windows.net",
+                "azure.oauth2_client_id", "client-id", "azure.oauth2_client_secret", "client-secret",
+                "azure.oauth2_server_uri", "https://login.microsoftonline.com/tenant/oauth2/token"));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "AZURE_AUTH_TYPE, SAS",
+            "AZURE_SAS_TOKEN, sig=wire-only",
+            "AZURE_SAS_EXPIRY_MS, 1",
+            "AZURE_OAUTH_SERVER_URI, https://login.microsoftonline.com/wire-tenant/oauth2/token",
+            "AZURE_OAUTH_ACCOUNT_HOST, wire-account.dfs.core.windows.net"
+    })
+    void bind_doesNotAcceptNewBackendFieldsAsInputAliases(String key, String value) {
+        Map<String, String> input = new HashMap<>(Map.of(
+                "azure.account_name", "account", "azure.account_key", "catalog-key"));
+        input.put(key, value);
+
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(input);
+
+        Assertions.assertEquals(input, properties.rawProperties());
+        Assertions.assertEquals(Map.of("azure.account_name", "account", "azure.account_key", "catalog-key"),
+                properties.matchedProperties());
+        Assertions.assertEquals(AzureAuthType.SHARED_KEY, properties.authType());
+        Assertions.assertEquals("", properties.getSasToken());
+        Assertions.assertEquals("", properties.getSasExpiryMs());
+        Assertions.assertEquals("", properties.getOauthServerUri());
+        Assertions.assertEquals("", properties.getOauthAccountHost());
+        Assertions.assertEquals(Map.of(
+                "provider", "azure", "AZURE_AUTH_TYPE", "SHARED_KEY",
+                "AZURE_ACCOUNT_NAME", "account", "AZURE_ACCOUNT_KEY", "catalog-key",
+                "AZURE_ENDPOINT", "https://account.blob.core.windows.net"), properties.toMap());
     }
 
     @Test
@@ -73,6 +244,7 @@ class AzureFileSystemPropertiesTest {
         Assertions.assertTrue(keys.contains("azure.secret_key"), keys.toString());
         Assertions.assertTrue(keys.contains("AZURE_ACCOUNT_KEY"), keys.toString());
         Assertions.assertTrue(keys.contains("AZURE_CLIENT_SECRET"), keys.toString());
+        Assertions.assertTrue(keys.contains("AZURE_SAS_TOKEN"), keys.toString());
         Assertions.assertFalse(keys.contains("AZURE_ACCOUNT_NAME"), keys.toString());
         Assertions.assertFalse(keys.contains("azure.access_key"), keys.toString());
     }
@@ -84,6 +256,50 @@ class AzureFileSystemPropertiesTest {
                 "azure.account_key", "key"));
 
         Assertions.assertEquals("https://myaccount.blob.core.windows.net", properties.getEndpoint());
+        Assertions.assertEquals(AzureAuthType.SHARED_KEY, properties.authType());
+        Assertions.assertEquals("SharedKey", properties.getAzureAuthType());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"core.windows.net", "core.chinacloudapi.cn", "core.usgovcloudapi.net", "core.cloudapi.de"})
+    void bind_convertsDfsEndpointToBlobEndpointForNativeClient(String suffix) {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.endpoint", "account.dfs." + suffix,
+                "azure.account_name", "account",
+                "azure.account_key", "key"));
+
+        Assertions.assertEquals("https://account.blob." + suffix, properties.getEndpoint());
+        Assertions.assertEquals("key", properties.toHadoopConfigurationMap()
+                .get("fs.azure.account.key.account.blob." + suffix));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "http://account.dfs.core.windows.net:10000/proxy%2Fpath, http://account.blob.core.windows.net:10000/proxy%2Fpath",
+            "http://127.0.0.1:10000/account, http://127.0.0.1:10000/account",
+            "https://storage.example.test:8443, https://storage.example.test:8443"
+    })
+    void bind_preservesExplicitEndpointTransport(String input, String expected) {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.endpoint", input,
+                "azure.account_name", "account",
+                "azure.account_key", "key"));
+
+        Assertions.assertEquals(expected, properties.getEndpoint());
+        Assertions.assertEquals(expected, properties.toMap().get("AZURE_ENDPOINT"));
+    }
+
+    @Test
+    void bind_usesEndpointAccountAndCloudSuffixForSas() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.endpoint", "account.dfs.core.usgovcloudapi.net",
+                "azure.sas_token", "sig=temporary"));
+
+        Assertions.assertEquals("account", properties.toMap().get("AZURE_ACCOUNT_NAME"));
+        Assertions.assertEquals("https://account.blob.core.usgovcloudapi.net",
+                properties.toMap().get("AZURE_ENDPOINT"));
+        Assertions.assertEquals("sig=temporary", properties.toHadoopConfigurationMap()
+                .get("fs.azure.sas.fixed.token.account.dfs.core.usgovcloudapi.net"));
     }
 
     @Test
@@ -100,6 +316,117 @@ class AzureFileSystemPropertiesTest {
     }
 
     @Test
+    void bind_preservesHistoricalUppercaseAzureEndpointAlias() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "AZURE_ENDPOINT", "https://proxy.example.test:8443",
+                "AZURE_ACCOUNT_NAME", "account",
+                "AZURE_ACCOUNT_KEY", "key"));
+
+        Assertions.assertEquals("https://proxy.example.test:8443", properties.getEndpoint());
+        Assertions.assertEquals("https://proxy.example.test:8443",
+                properties.toMap().get("AZURE_ENDPOINT"));
+    }
+
+    @Test
+    void bind_preservesCustomDfsLabelEndpointForAbfsLocations() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "provider", "azure", "azure.endpoint", "https://proxy.dfs.internal",
+                "azure.account_name", "account", "azure.account_key", "key"));
+
+        Assertions.assertDoesNotThrow(() -> properties.validateAndNormalizeUri(
+                "abfss://container@account.dfs.core.windows.net/dir/file.parquet"));
+    }
+
+    @Test
+    void bind_preservesLegacyAccountAliasFallbackWithoutProviderMarker() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "AZURE_ACCOUNT_NAME", "account", "s3.secret_key", "legacy-key"));
+
+        Assertions.assertEquals("account", properties.getAccountName());
+        Assertions.assertEquals("legacy-key", properties.getAccountKey());
+    }
+
+    @Test
+    void bind_doesNotUseLegacyS3SecretWhenS3ProviderIsExplicit() {
+        Assertions.assertThrows(IllegalArgumentException.class, () -> AzureFileSystemProperties.of(Map.of(
+                "AZURE_ACCOUNT_NAME", "account", "s3.secret_key", "s3-secret",
+                "fs.s3.support", "true")));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"SharedKey", "sharedkey", "SHARED_KEY", "shared_key", " SHARED_KEY "})
+    void bind_normalizesSharedKeyAuthType(String authType) {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.auth_type", authType,
+                "azure.account_name", "account",
+                "azure.account_key", "key"));
+
+        Assertions.assertEquals(AzureAuthType.SHARED_KEY, properties.authType());
+        Assertions.assertEquals("SharedKey", properties.getAzureAuthType());
+        Assertions.assertEquals("SHARED_KEY", properties.toMap().get("AZURE_AUTH_TYPE"));
+        Assertions.assertEquals("key", properties.toHadoopConfigurationMap()
+                .get("fs.azure.account.key.account.blob.core.windows.net"));
+    }
+
+    @Test
+    void bind_infersSasWhenAuthTypeIsAbsent() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.account_name", "account",
+                "azure.sas_token", "?sig=temporary"));
+
+        Assertions.assertEquals(AzureAuthType.SAS, properties.authType());
+        Assertions.assertEquals("SAS", properties.getAzureAuthType());
+        Assertions.assertEquals("sig=temporary", properties.toHadoopConfigurationMap()
+                .get("fs.azure.sas.fixed.token.account.dfs.core.windows.net"));
+    }
+
+    @Test
+    void bind_rejectsUnknownExplicitAuthTypeWithoutSasFallback() {
+        StoragePropertiesException exception = Assertions.assertThrows(StoragePropertiesException.class,
+                () -> AzureFileSystemProperties.of(Map.of(
+                        "azure.auth_type", "unknown",
+                        "azure.sas_token", "sig=temporary")));
+
+        Assertions.assertTrue(exception.getMessage().contains("Unsupported Azure auth_type"));
+    }
+
+    @Test
+    void bind_rejectsExplicitSharedKeyWithSasToken() {
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> AzureFileSystemProperties.of(Map.of(
+                        "azure.auth_type", "SHARED_KEY",
+                        "azure.account_name", "account",
+                        "azure.account_key", "key",
+                        "azure.sas_token", "sig=temporary")));
+
+        Assertions.assertTrue(exception.getMessage().contains("sas_token must not be set"));
+    }
+
+    @Test
+    void bind_rejectsExplicitSasWithoutTokenInsteadOfUsingSharedKey() {
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> AzureFileSystemProperties.of(Map.of(
+                        "azure.auth_type", "SAS",
+                        "azure.account_name", "account",
+                        "azure.account_key", "key")));
+
+        Assertions.assertTrue(exception.getMessage().contains("When auth_type is SAS, sas_token is required"));
+    }
+
+    @Test
+    void bind_rejectsIncompleteOAuth2InsteadOfUsingSharedKeyOrSas() {
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> AzureFileSystemProperties.of(Map.of(
+                        "azure.auth_type", "OAUTH2",
+                        "azure.account_name", "account",
+                        "azure.account_key", "key",
+                        "azure.sas_token", "sig=temporary",
+                        "azure.oauth2_client_id", "client-id")));
+
+        Assertions.assertTrue(exception.getMessage().contains("When auth_type is OAuth2"));
+    }
+
+    @Test
     void toBackendProperties_matchesFeCoreAzureSharedKeyMap() {
         AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
                 "azure.endpoint", "account.blob.core.windows.net",
@@ -110,50 +437,159 @@ class AzureFileSystemPropertiesTest {
         BackendStorageProperties backend = properties.toBackendProperties().orElseThrow();
         Map<String, String> backendMap = backend.toMap();
 
-        Assertions.assertEquals(BackendStorageKind.S3_COMPATIBLE, backend.backendKind());
-        Assertions.assertEquals("https://account.blob.core.windows.net", backendMap.get("AWS_ENDPOINT"));
-        Assertions.assertEquals("dummy_region", backendMap.get("AWS_REGION"));
-        Assertions.assertEquals("account", backendMap.get("AWS_ACCESS_KEY"));
-        Assertions.assertEquals("key", backendMap.get("AWS_SECRET_KEY"));
-        Assertions.assertEquals("true", backendMap.get("AWS_NEED_OVERRIDE_ENDPOINT"));
-        Assertions.assertEquals("azure", backendMap.get("provider"));
-        Assertions.assertEquals("true", backendMap.get("use_path_style"));
-        Assertions.assertFalse(backendMap.keySet().stream().anyMatch(keyName -> keyName.startsWith("AZURE_")));
-        // The hadoop Configuration dump is the OAuth2 arm ONLY: SharedKey must stay the exact
-        // 7-key S3-style map, so a regression that applies the dump unconditionally shows up here.
-        Assertions.assertEquals(7, backendMap.size(), backendMap.toString());
+        Assertions.assertEquals(BackendStorageKind.NATIVE, backend.backendKind());
+        Assertions.assertEquals(Map.of(
+                "provider", "azure",
+                "AZURE_AUTH_TYPE", "SHARED_KEY",
+                "AZURE_ENDPOINT", "https://account.blob.core.windows.net",
+                "AZURE_ACCOUNT_NAME", "account",
+                "AZURE_ACCOUNT_KEY", "key"), backendMap);
+    }
+
+    @Test
+    void toBackendProperties_emitsNativeSasCredentialsAndExpiry() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.auth_type", "SAS",
+                "AZURE_ENDPOINT", "account.blob.core.windows.net",
+                "AZURE_ACCOUNT_NAME", "account",
+                "AZURE_CONTAINER", "container",
+                "azure.sas_token", "?sv=2024-01-01&sig=temporary",
+                "azure.sas_expiry_ms", "4102444800000"));
+
+        Map<String, String> backendMap = properties.toBackendProperties().orElseThrow().toMap();
+
+        Assertions.assertEquals(Map.of(
+                "provider", "azure",
+                "AZURE_AUTH_TYPE", "SAS",
+                "AZURE_ENDPOINT", "https://account.blob.core.windows.net",
+                "AZURE_ACCOUNT_NAME", "account",
+                "AZURE_SAS_TOKEN", "sv=2024-01-01&sig=temporary",
+                "AZURE_SAS_EXPIRY_MS", "4102444800000"), backendMap);
+    }
+
+    @Test
+    void bind_normalizesSasTokenAndReadsTokenExpiry() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.auth_type", "SAS",
+                "azure.account_name", "account",
+                "azure.sas_token", "?sv=2024-01-01&se=2100-01-01T00:00:00Z&sig=temporary"));
+
+        Assertions.assertEquals("sv=2024-01-01&se=2100-01-01T00:00:00Z&sig=temporary",
+                properties.getSasToken());
+        Assertions.assertEquals(properties.getSasToken(), properties.toMap().get("AZURE_SAS_TOKEN"));
+        Assertions.assertEquals("4102444800000", properties.getSasExpiryMs());
+        Assertions.assertEquals("4102444800000", properties.toMap().get("AZURE_SAS_EXPIRY_MS"));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"4102444800000, 4102444800000", "4133980800000, 4102531200000"})
+    void toMap_emitsEarlierExplicitOrTokenExpiry(String explicitExpiry, String expectedExpiry) {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.sas_token", "se=2100-01-02T00%3A00%3A00Z&sig=a+b%2Fc",
+                "azure.sas_expiry_ms", explicitExpiry));
+
+        Assertions.assertEquals(expectedExpiry, properties.getSasExpiryMs());
+        Assertions.assertEquals(expectedExpiry, properties.toMap().get("AZURE_SAS_EXPIRY_MS"));
+        Assertions.assertEquals("se=2100-01-02T00%3A00%3A00Z&sig=a+b%2Fc",
+                properties.toMap().get("AZURE_SAS_TOKEN"));
+    }
+
+    @Test
+    void toMap_doesNotInventUnknownSasExpiry() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.sas_token", "si=stored-access-policy&sig=temporary"));
+
+        Assertions.assertEquals("", properties.getSasExpiryMs());
+        Assertions.assertDoesNotThrow(properties::validateForAccess);
+        Assertions.assertFalse(properties.toMap().containsKey("AZURE_SAS_EXPIRY_MS"));
+    }
+
+    @Test
+    void bind_defersExpiredSasUntilCredentialOutput() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.auth_type", "SAS",
+                "AZURE_ENDPOINT", "account.blob.core.windows.net",
+                "azure.sas_token", "sv=2024-01-01&sig=expired",
+                "azure.sas_expiry_ms", "1"));
+
+        StorageProperties bound = properties;
+        Assertions.assertDoesNotThrow(bound::validate);
+        StoragePropertiesException accessException = Assertions.assertThrows(StoragePropertiesException.class,
+                bound::validateForAccess);
+        Assertions.assertEquals("Azure SAS credential is expired", accessException.getMessage());
+        Assertions.assertNull(accessException.getCause());
+
+        StoragePropertiesException exception = Assertions.assertThrows(StoragePropertiesException.class,
+                () -> properties.toMap());
+
+        Assertions.assertTrue(exception.getMessage().contains("expired"), exception.getMessage());
+        Assertions.assertThrows(StoragePropertiesException.class, properties::toHadoopConfigurationMap);
+    }
+
+    @Test
+    void validateForAccess_acceptsUnexpiredSas() {
+        StorageProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.sas_token", "sig=temporary",
+                "azure.sas_expiry_ms", "4102444800000"));
+
+        Assertions.assertDoesNotThrow(properties::validateForAccess);
+    }
+
+    @Test
+    void validateSasExpiry_acceptsInjectedClockBeforeExpiry() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.auth_type", "SAS",
+                "azure.sas_token", "sv=2024-01-01&se=2026-01-02T00:00:00Z&sig=x"));
+
+        properties.validateSasExpiry(Clock.fixed(
+                Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC));
+        Assertions.assertThrows(StoragePropertiesException.class,
+                () -> properties.validateSasExpiry(Clock.fixed(
+                        Instant.parse("2026-01-02T00:00:00Z"), ZoneOffset.UTC)));
+    }
+
+    @Test
+    void bind_rejectsConflictingExplicitCredentialMaterials() {
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> AzureFileSystemProperties.of(Map.of(
+                        "azure.auth_type", "OAuth2",
+                        "azure.oauth2_account_host", "account.dfs.core.windows.net",
+                        "azure.oauth2_client_id", "client-id",
+                        "azure.oauth2_client_secret", "client-secret",
+                        "azure.oauth2_server_uri", "https://login.microsoftonline.com/tenant/oauth2/token",
+                        "azure.sas_token", "sig=temporary")));
+
+        Assertions.assertTrue(exception.getMessage().contains("sas_token must not be set"), exception.getMessage());
     }
 
     /**
-     * Pins the OAuth2 backend map that moved here from fe-core {@code StorageAdapter} (which built a
-     * hadoop {@code Configuration} and dumped it). BE's live consumer is Microsoft Fabric OneLake:
-     * {@code abfs[s]://...dfs.fabric.microsoft.com} routes to {@code FILE_HDFS} and every entry is
-     * fed into BE's JNI hadoop builder, so dropping the hadoop-resolved keys silently changes what
-     * the ABFS connector is configured with.
+     * The full Hadoop configuration belongs only to the URI-selected OneLake backend view.
      */
     @Test
-    void toBackendProperties_oauth2DumpsHadoopResolvedConfig() {
+    void resolveBackendProperties_oneLakeDumpsHadoopResolvedConfig() {
         AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
-                "azure.endpoint", "account.blob.core.windows.net",
                 "azure.auth_type", "OAuth2",
-                "azure.oauth2_account_host", "myaccount.dfs.core.windows.net",
+                "azure.oauth2_account_host", "onelake.dfs.fabric.microsoft.com",
                 "azure.oauth2_client_id", "client-id",
                 "azure.oauth2_client_secret", "client-secret",
                 "azure.oauth2_server_uri", "https://login.microsoftonline.com/tenant/oauth2/token"));
 
-        Map<String, String> backendMap = properties.toBackendProperties().orElseThrow().toMap();
+        BackendStorageProperties backend = properties.resolveBackendProperties(
+                "abfss://workspace@onelake.dfs.fabric.microsoft.com/lakehouse/Tables/file").orElseThrow();
+        Map<String, String> backendMap = backend.toMap();
+        Assertions.assertEquals(BackendStorageKind.HDFS, backend.backendKind());
 
         // 1. The OAuth config the ABFS connector actually authenticates with.
         Assertions.assertEquals("OAuth",
-                backendMap.get("fs.azure.account.auth.type.myaccount.dfs.core.windows.net"));
+                backendMap.get("fs.azure.account.auth.type.onelake.dfs.fabric.microsoft.com"));
         Assertions.assertEquals("org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider",
-                backendMap.get("fs.azure.account.oauth.provider.type.myaccount.dfs.core.windows.net"));
+                backendMap.get("fs.azure.account.oauth.provider.type.onelake.dfs.fabric.microsoft.com"));
         Assertions.assertEquals("client-id",
-                backendMap.get("fs.azure.account.oauth2.client.id.myaccount.dfs.core.windows.net"));
+                backendMap.get("fs.azure.account.oauth2.client.id.onelake.dfs.fabric.microsoft.com"));
         Assertions.assertEquals("client-secret",
-                backendMap.get("fs.azure.account.oauth2.client.secret.myaccount.dfs.core.windows.net"));
+                backendMap.get("fs.azure.account.oauth2.client.secret.onelake.dfs.fabric.microsoft.com"));
         Assertions.assertEquals("https://login.microsoftonline.com/tenant/oauth2/token",
-                backendMap.get("fs.azure.account.oauth2.client.endpoint.myaccount.dfs.core.windows.net"));
+                backendMap.get("fs.azure.account.oauth2.client.endpoint.onelake.dfs.fabric.microsoft.com"));
 
         // 2. hadoop core-default.xml is merged in. This is the whole reason the module compiles
         //    against hadoop-common: a plain key-value map would carry the OAuth keys above but none
@@ -163,17 +599,56 @@ class AzureFileSystemPropertiesTest {
         Assertions.assertTrue(backendMap.size() > 100,
                 "expected a resolved hadoop config, got " + backendMap.size() + " keys");
 
-        // 3. Never S3-style: OAuth2 has no AK/SK the BE S3 adapter could consume.
-        Assertions.assertFalse(backendMap.containsKey("AWS_ACCESS_KEY"), backendMap.toString());
-        Assertions.assertFalse(backendMap.containsKey("provider"), backendMap.toString());
+        // 3. The selected Hadoop view never carries native Azure authentication fields.
+        Assertions.assertFalse(backendMap.containsKey("provider"));
+        Assertions.assertFalse(backendMap.keySet().stream().anyMatch(key -> key.startsWith("AZURE_")));
     }
 
     @Test
-    void toBackendProperties_oauth2PassesUserFsKeysThroughAndNormalizesCacheFlags() {
+    void toHadoopConfigurationMap_preservesOneLakeOAuth2Host() {
         AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
-                "azure.endpoint", "account.blob.core.windows.net",
                 "azure.auth_type", "OAuth2",
-                "azure.oauth2_account_host", "myaccount.dfs.core.windows.net",
+                "azure.oauth2_account_host", "onelake.dfs.fabric.microsoft.com",
+                "azure.oauth2_client_id", "client-id",
+                "azure.oauth2_client_secret", "client-secret",
+                "azure.oauth2_server_uri", "https://login.microsoftonline.com/tenant/oauth2/token"));
+
+        Map<String, String> hadoop = properties.toHadoopConfigurationMap();
+        Assertions.assertEquals("OAuth", hadoop.get("fs.azure.account.auth.type.onelake.dfs.fabric.microsoft.com"));
+        Assertions.assertEquals("client-id",
+                hadoop.get("fs.azure.account.oauth2.client.id.onelake.dfs.fabric.microsoft.com"));
+        Assertions.assertEquals("client-secret",
+                hadoop.get("fs.azure.account.oauth2.client.secret.onelake.dfs.fabric.microsoft.com"));
+        Assertions.assertEquals("OAuth",
+                properties.resolveBackendProperties("abfss://workspace@onelake.dfs.fabric.microsoft.com/file")
+                        .orElseThrow().toMap().get("fs.azure.account.auth.type.onelake.dfs.fabric.microsoft.com"));
+        Assertions.assertFalse(properties.toMap().keySet().stream().anyMatch(key -> key.startsWith("fs.")));
+        Assertions.assertFalse(hadoop.keySet().stream().anyMatch(key -> key.contains(".blob.fabric.microsoft.com")));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"OAuth2", "OAUTH2", "oauth2"})
+    void bind_preservesLegacyOAuth2ClientAliases(String authType) {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.auth_type", authType,
+                "azure.oauth2_account_host", "account.dfs.core.windows.net",
+                "AZURE_CLIENT_ID", "client-id",
+                "AZURE_CLIENT_SECRET", "client-secret",
+                "azure.oauth2_server_uri", "https://login.microsoftonline.com/tenant/oauth2/token"));
+
+        Assertions.assertTrue(properties.isOauth2Auth());
+        Assertions.assertEquals(AzureAuthType.OAUTH2, properties.authType());
+        Assertions.assertEquals("OAuth2", properties.getAzureAuthType());
+        Assertions.assertEquals("account.dfs.core.windows.net", properties.getOauthAccountHost());
+        Assertions.assertEquals("https://login.microsoftonline.com/tenant/oauth2/token",
+                properties.getOauthServerUri());
+    }
+
+    @Test
+    void resolveBackendProperties_oneLakePassesUserFsKeysThroughAndNormalizesCacheFlags() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.auth_type", "OAuth2",
+                "azure.oauth2_account_host", "onelake.dfs.fabric.microsoft.com",
                 "azure.oauth2_client_id", "client-id",
                 "azure.oauth2_client_secret", "client-secret",
                 "azure.oauth2_server_uri", "https://login.microsoftonline.com/tenant/oauth2/token",
@@ -182,7 +657,8 @@ class AzureFileSystemPropertiesTest {
                 // explicit cache flag in a spelling only BooleanUtils understands
                 "fs.abfss.impl.disable.cache", "no"));
 
-        Map<String, String> backendMap = properties.toBackendProperties().orElseThrow().toMap();
+        Map<String, String> backendMap = properties.resolveBackendProperties(
+                "abfss://workspace@onelake.dfs.fabric.microsoft.com/file").orElseThrow().toMap();
 
         Assertions.assertEquals("8", backendMap.get("fs.azure.readaheadqueue.depth"));
         // Explicit user value wins, but normalized to true/false — "no" must not reach BE verbatim.

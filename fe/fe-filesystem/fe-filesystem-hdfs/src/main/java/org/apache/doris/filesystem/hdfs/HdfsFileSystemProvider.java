@@ -73,10 +73,19 @@ public class HdfsFileSystemProvider implements FileSystemProvider<HdfsProperties
 
     @Override
     public HdfsProperties bind(Map<String, String> properties) {
+        return bind(properties, false);
+    }
+
+    @Override
+    public HdfsProperties bindDefault(Map<String, String> properties) {
+        return bind(properties, true);
+    }
+
+    private HdfsProperties bind(Map<String, String> properties, boolean syntheticDefault) {
         // Resolve raw user properties through the migrated HdfsProperties so that typed auth
         // params (hdfs.authentication.*) are translated to Hadoop keys, xml resources are
         // loaded, and defaults are injected — instead of passing raw keys straight through.
-        HdfsProperties hdfsProperties = new HdfsProperties(properties);
+        HdfsProperties hdfsProperties = new HdfsProperties(properties, syntheticDefault);
         hdfsProperties.initNormalizeAndCheckProps();
         return hdfsProperties;
     }
@@ -89,7 +98,7 @@ public class HdfsFileSystemProvider implements FileSystemProvider<HdfsProperties
     private static final Set<String> GUESS_HINT_KEYS = Set.of("hdfs.authentication.type",
             "hadoop.security.authentication", "hadoop.username", "fs.defaultFS",
             "hdfs.authentication.kerberos.principal", "hadoop.kerberos.principal",
-            "dfs.nameservices", "hdfs.config.resources");
+            "dfs.nameservices", "hdfs.config.resources", "hadoop.config.resources");
 
     @Override
     public boolean supportsExplicit(Map<String, String> properties) {

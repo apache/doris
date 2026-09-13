@@ -120,6 +120,14 @@ under the License.
             <artifactId>mockito-inline</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Compare URI semantics with the actual Iceberg parser in tests only.
+             The Azure provider neither depends on nor bundles Iceberg at runtime. -->
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-azure</artifactId>
+            <version>${iceberg.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

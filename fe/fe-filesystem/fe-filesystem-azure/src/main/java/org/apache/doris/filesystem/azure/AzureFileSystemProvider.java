@@ -23,9 +23,8 @@ import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -33,9 +32,8 @@ import java.util.Set;
  *
  * <p>Registered via META-INF/services/org.apache.doris.filesystem.spi.FileSystemProvider.
  *
- * <p>Identified by the presence of {@code AZURE_ACCOUNT_NAME}, {@code azure.account_name},
- * or an endpoint that contains a known Azure Blob Storage host suffix from one of the
- * sovereign clouds.
+ * <p>Identified by the presence of Azure provider-owned account/SAS properties, or an endpoint
+ * whose host matches a known Azure Blob/DFS suffix from one of the sovereign clouds.
  */
 public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSystemProperties> {
 
@@ -44,20 +42,11 @@ public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSyst
     private static final String PROVIDER_KEY = "provider";
     private static final String[] ACCOUNT_NAME_KEYS = {
             AzureFileSystemProperties.ACCOUNT_NAME, "azure.access_key", "AZURE_ACCOUNT_NAME"};
+    private static final String[] SAS_TOKEN_KEYS = {
+            AzureFileSystemProperties.SAS_TOKEN, "azure.sas-token"};
     private static final String[] ENDPOINT_KEYS = {
             AzureFileSystemProperties.ENDPOINT, "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT",
             "AZURE_ENDPOINT"};
-
-    /**
-     * Recognised Azure Blob Storage host suffixes across sovereign clouds.
-     * Includes Azure Public, Azure China, Azure US Government, and the deprecated
-     * Azure Germany cloud (still spec'd for completeness).
-     */
-    private static final List<String> AZURE_BLOB_HOST_SUFFIXES = Arrays.asList(
-            "blob.core.windows.net",
-            "blob.core.chinacloudapi.cn",
-            "blob.core.usgovcloudapi.net",
-            "blob.core.cloudapi.de");
 
     @Override
     public boolean supports(Map<String, String> properties) {
@@ -67,21 +56,32 @@ public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSyst
         if (firstPresent(properties, ACCOUNT_NAME_KEYS) != null) {
             return true;
         }
+        if (firstPresent(properties, SAS_TOKEN_KEYS) != null) {
+            return true;
+        }
         String endpoint = firstPresent(properties, ENDPOINT_KEYS);
-        if (endpoint == null) {
-            return false;
-        }
-        for (String suffix : AZURE_BLOB_HOST_SUFFIXES) {
-            if (endpoint.contains(suffix)) {
-                return true;
-            }
-        }
-        return false;
+        return endpoint != null && AzureBlobEndpointSignals.isAzureBlobEndpoint(endpoint, properties);
     }
 
     @Override
     public AzureFileSystemProperties bind(Map<String, String> properties) {
         return AzureFileSystemProperties.of(properties);
+    }
+
+    @Override
+    public Optional<AzureFileSystemProperties> bindVended(
+            Map<String, String> credentials, Map<String, String> catalogProperties) {
+        Optional<AzureVendedSas> sas = AzureVendedSas.parse(credentials);
+        // A vended credential may be bound after the catalog has already selected this provider.
+        // Also retain catalog defaults recognized only by the raw compatibility hook, such as a
+        // historical AZURE_ENDPOINT standard host, without widening the routing guess contract.
+        Map<String, String> connectionDefaults = supportsExplicit(catalogProperties)
+                || supportsGuess(catalogProperties) || supports(catalogProperties) ? catalogProperties : Map.of();
+        if (sas.isPresent()) {
+            return Optional.of(AzureFileSystemProperties.withVendedSas(sas.get(), credentials, connectionDefaults));
+        }
+        return AzureFileIOSharedKey.parse(credentials)
+                .map(sharedKey -> AzureFileSystemProperties.withFileIOSharedKey(sharedKey, connectionDefaults));
     }
 
     @Override
@@ -109,7 +109,9 @@ public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSyst
         // (endpoint alias list, host extraction, dot-anchored endsWith, probe-injected live
         // suffix list) is shared with the S3-compatible fallback providers via
         // AzureBlobEndpointSignals so their mutual exclusion can never drift from this claim.
-        if ("azure".equalsIgnoreCase(properties.get(PROVIDER_KEY))) {
+        if ("azure".equalsIgnoreCase(properties.get(PROVIDER_KEY))
+                || firstPresent(properties, ACCOUNT_NAME_KEYS) != null
+                || firstPresent(properties, SAS_TOKEN_KEYS) != null) {
             return true;
         }
         return AzureBlobEndpointSignals.guessIsAzureBlobEndpoint(properties);
@@ -127,7 +129,12 @@ public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSyst
 
     @Override
     public Set<String> sensitivePropertyKeys() {
-        return ConnectorPropertiesUtils.getSensitiveKeys(AzureFileSystemProperties.class);
+        Set<String> keys = ConnectorPropertiesUtils.getSensitiveKeys(AzureFileSystemProperties.class);
+        // Wire secrets must stay masked independently of which spellings the input binder accepts.
+        keys.addAll(Set.of(AzureFileSystemProperties.BACKEND_ACCOUNT_KEY,
+                AzureFileSystemProperties.BACKEND_CLIENT_SECRET, AzureFileSystemProperties.BACKEND_SAS_TOKEN,
+                "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"));
+        return keys;
     }
 
     private boolean isExplicitAzure(Map<String, String> properties) {
