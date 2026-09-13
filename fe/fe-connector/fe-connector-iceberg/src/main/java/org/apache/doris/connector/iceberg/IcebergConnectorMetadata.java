@@ -465,8 +465,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     /**
      * Returns the schema AS OF {@code snapshot.getSchemaId()} (the pinned schema version, for time-travel reads
      * under schema evolution), or the LATEST schema when there is no pinned schema id (null snapshot or
-     * {@code schemaId < 0}). Mirrors legacy {@code IcebergUtils.getSchema}: {@code table.schemas().get(schemaId)}
-     * when the id is set and a current snapshot exists, else {@code table.schema()}. Shares
+     * {@code schemaId < 0}). Resolves {@code table.schemas().get(schemaId)} even before the first append,
+     * since schema-only changes do not create data snapshots. Shares
      * {@link #buildTableSchema} with the latest path so the two cannot drift.
      */
     @Override
@@ -484,25 +484,19 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             return getTableSchema(session, handle);
         }
         Table table = loadTable(session, iceHandle);
-        Schema schema;
-        if (table.currentSnapshot() == null) {
-            // Empty table: legacy getSchema falls back to the latest schema (NEWEST_SCHEMA_ID path).
-            schema = table.schema();
-        } else {
-            schema = table.schemas().get((int) snapshot.getSchemaId());
-            if (schema == null) {
-                // Defensive: a pinned id absent from table.schemas() (legacy would NPE) -> latest.
-                // INVARIANT: this SLOT-schema fallback MUST stay identical to the DICT-schema fallback in
-                // IcebergScanPlanProvider.pinnedSchema (same getSchemaId() lookup + same silent -> table.schema()).
-                // If the two diverge, the field-id dict names and the BE scan-slot names resolve DIFFERENT
-                // schemas -> BE children.at() std::out_of_range-SIGABRT on a schema-evolved time-travel read
-                // (reverify #65185 L16). Do not harden ONE side to throw without the other.
-                schema = table.schema();
-            }
-        }
+        Schema schema = resolvePinnedSchema(table, snapshot);
         String specId = snapshot.getProperties().get(PARTITION_SPEC_ID_PROPERTY);
         PartitionSpec spec = specId == null ? table.spec() : table.specs().get(Integer.parseInt(specId));
         return buildTableSchema(iceHandle.getTableName(), table, schema, spec, true);
+    }
+
+    private static Schema resolvePinnedSchema(Table table, ConnectorMvccSnapshot snapshot) {
+        // An empty table can evolve its schema while a cached snapshot-less pin remains unchanged.
+        // Slots and handles must honor that schema ID both before and after the first append.
+        Schema schema = table.schemas().get((int) snapshot.getSchemaId());
+        // Keep the missing-ID fallback aligned with IcebergScanPlanProvider.pinnedSchema so the
+        // reader's field-ID dictionary and FE slots cannot resolve different schema generations.
+        return schema == null ? table.schema() : schema;
     }
 
     /**
@@ -768,10 +762,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             return getColumnHandles(session, handle);
         }
         Table table = loadTable(session, iceHandle);
-        Schema schema = table.currentSnapshot() == null
-                ? table.schema() : table.schemas().get((int) snapshot.getSchemaId());
-        // Keep the handle-schema fallback identical to getTableSchema so slots and handles cannot diverge.
-        return buildColumnHandles(schema == null ? table.schema() : schema, true);
+        return buildColumnHandles(resolvePinnedSchema(table, snapshot), true);
     }
 
     @Override

@@ -194,6 +194,66 @@ public class IcebergConnectorMetadataMvccTest {
     }
 
     @Test
+    public void emptyTableCacheHitKeepsSchemaAndHandlesThroughFirstAppend() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        PartitionSpec spec = PartitionSpec.builderFor(PARTITIONED_SCHEMA).day("ts").build();
+        Table table = catalog.createTable(TableIdentifier.of("db1", "t1"), PARTITIONED_SCHEMA, spec);
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = table;
+        IcebergLatestSnapshotCache cache = new IcebergLatestSnapshotCache(100, 1000);
+        IcebergCatalogProperties properties = IcebergCatalogProperties.of(Collections.emptyMap());
+        IcebergConnectorMetadata firstQuery = new IcebergConnectorMetadata(
+                ops, properties, new RecordingConnectorContext(), cache);
+        ConnectorMvccSnapshot first = firstQuery.beginQuerySnapshot(null, handle()).get();
+        Assertions.assertEquals(-1L, first.getSnapshotId());
+        Assertions.assertTrue(first.getSchemaId() >= 0);
+        table.updateSchema().renameColumn("ts", "renamed_ts").commit();
+        Assertions.assertNull(table.currentSnapshot());
+
+        // Keep only the latest-pin cache warm; each query reloads live metadata as vended catalogs do.
+        for (int stage = 0; stage < 2; stage++) {
+            IcebergConnectorMetadata nextQuery = new IcebergConnectorMetadata(
+                    ops, properties, new RecordingConnectorContext(), cache);
+            ConnectorMvccSnapshot cached = nextQuery.beginQuerySnapshot(null, handle()).get();
+            Assertions.assertEquals(first.getSnapshotId(), cached.getSnapshotId());
+            Assertions.assertEquals(first.getSchemaId(), cached.getSchemaId());
+            ConnectorTableSchema schema = nextQuery.getTableSchema(null, handle(), cached);
+            Assertions.assertAll(
+                    () -> Assertions.assertTrue(columnNames(schema).contains("ts")),
+                    () -> Assertions.assertFalse(columnNames(schema).contains("renamed_ts")),
+                    () -> Assertions.assertEquals("ts",
+                            schema.getProperties().get(ConnectorTableSchema.PARTITION_COLUMNS_KEY)),
+                    () -> Assertions.assertEquals("PARTITION BY LIST (DAY(`ts`)) ()",
+                            schema.getProperties().get(ConnectorTableSchema.SHOW_PARTITION_CLAUSE_KEY)),
+                    () -> Assertions.assertTrue(nextQuery.getColumnHandles(null, handle(), cached).containsKey("ts")),
+                    () -> Assertions.assertFalse(nextQuery.getColumnHandles(null, handle(), cached)
+                            .containsKey("renamed_ts")));
+            if (stage == 0) {
+                table.newAppend().appendFile(DataFiles.builder(spec)
+                        .withPath("s3://bucket/db1/t1/first.parquet").withFileSizeInBytes(100).withRecordCount(1)
+                        .withPartitionPath("ts_day=1970-04-11").withFormat(FileFormat.PARQUET).build()).commit();
+            }
+        }
+    }
+
+    @Test
+    public void emptyTableMissingPinnedSchemaFallsBackForSchemaAndHandles() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Table table = catalog.createTable(
+                TableIdentifier.of("db1", "t1"), SCHEMA_V0, PartitionSpec.unpartitioned());
+        IcebergConnectorMetadata metadata = metadataFor(table, new RecordingIcebergCatalogOps());
+        ConnectorMvccSnapshot missing = ConnectorMvccSnapshot.builder().snapshotId(-1).schemaId(999).build();
+        Assertions.assertEquals(columnNames(metadata.getTableSchema(null, handle())),
+                columnNames(metadata.getTableSchema(null, handle(), missing)));
+        Assertions.assertEquals(metadata.getColumnHandles(null, handle()).keySet(),
+                metadata.getColumnHandles(null, handle(), missing).keySet());
+    }
+
+    @Test
     public void beginQuerySnapshotDisabledCacheLoadsEveryCall() {
         Fixture f = fixture();
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
