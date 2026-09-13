@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis.invertedindex;
 
+import org.apache.doris.analysis.InvertedIndexProperties;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
@@ -53,7 +54,30 @@ public final class AnalyzerIdentityBuilder {
         if (Strings.isNullOrEmpty(parser) || parserNone.equalsIgnoreCase(parser)) {
             return defaultAnalyzerKey;
         }
+        String legacyIkIdentity = resolveLegacyIkIdentity(properties, parser);
+        if (legacyIkIdentity != null) {
+            return legacyIkIdentity;
+        }
         return parser;
+    }
+
+    private static String resolveLegacyIkIdentity(Map<String, String> properties, String parser) {
+        if (!InvertedIndexProperties.INVERTED_INDEX_PARSER_IK.equalsIgnoreCase(parser)
+                || !Strings.isNullOrEmpty(properties.get(
+                        InvertedIndexProperties.INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE))) {
+            return null;
+        }
+
+        String mode = properties.get(InvertedIndexProperties.INVERTED_INDEX_PARSER_MODE_KEY);
+        if (Strings.isNullOrEmpty(mode)) {
+            mode = InvertedIndexProperties.INVERTED_INDEX_PARSER_SMART;
+        }
+        String tokenizer = normalizeBuiltinComponentName(mode, IndexPolicyTypeEnum.TOKENIZER);
+        if (!"ik_smart".equals(tokenizer) && !"ik_max_word".equals(tokenizer)) {
+            return null;
+        }
+        return buildIdentityFromPolicyProperties(
+                IndexPolicyTypeEnum.ANALYZER, Map.of(IndexPolicy.PROP_TOKENIZER, tokenizer));
     }
 
     /**
