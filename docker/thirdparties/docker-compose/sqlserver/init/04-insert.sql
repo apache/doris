@@ -135,5 +135,17 @@ Insert into dbo.test_date_filter values
 
 -- Alias typed columns, see #67793
 Insert into dbo.test_alias_type values
-(1, 'plain', 'alias', 'alias nvarchar', 1, 9223372036854775807, 255, 1, 12345.67, 123.4567, 1.5, '2023-01-17', '2023-01-17 10:30:45.123', '16:49:05.1234567'),
-(2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+(1, 'plain', 'alias', 'alias varchar max', 'alias nvarchar', 'alias nvarchar max', 'Doris', 'Doris', 'alias text', 'alias ntext',
+ 1, 255, 32767, 1, 9223372036854775807, 123.123, 1.5, 12345.67, 1234567890123456789012345678.0123456789, 123.4567, 214748.3647,
+ '2023-01-17', '16:49:05.1234567', '2023-01-17 16:49:05', '2023-01-17 10:30:45.123', '2023-01-17 16:49:05.1234567', '2023-01-17 16:49:05',
+ 'FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF', 'sysname value'),
+(2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+ NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+ NULL, NULL, NULL, NULL, NULL, NULL,
+ NULL, NULL);
+
+Insert into dbo.test_alias_identity (val) values ('first'), ('second');
+
+Insert into dbo.test_alias_unsupported values
+(1, 'plain', 0x01, 0x0102, 0x03, '2023-01-17 16:49:05 +08:00', 1, '<a/>', geometry::STGeomFromText('POINT (1 2)', 0), hierarchyid::GetRoot()),
+(2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);

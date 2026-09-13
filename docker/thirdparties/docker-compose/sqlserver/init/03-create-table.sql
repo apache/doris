@@ -287,34 +287,92 @@ CREATE TABLE dbo.test_date_filter (
 
 -- User-defined alias types (CREATE TYPE ... FROM base_type). DatabaseMetaData.getColumns()
 -- reports such columns with TYPE_NAME set to the alias name, see #67793.
--- They must exist before the table below is created, hence the batch separator.
+-- They must exist before the tables below are created, hence the batch separator.
 CREATE TYPE dbo.doris_alias_varchar FROM varchar(50) NOT NULL;
+CREATE TYPE dbo.doris_alias_varcharmax FROM varchar(max) NULL;
 CREATE TYPE dbo.doris_alias_nvarchar FROM nvarchar(20) NULL;
+CREATE TYPE dbo.doris_alias_nvarcharmax FROM nvarchar(max) NULL;
+CREATE TYPE dbo.doris_alias_char FROM char(10) NULL;
+CREATE TYPE dbo.doris_alias_nchar FROM nchar(10) NULL;
+CREATE TYPE dbo.doris_alias_text FROM text NULL;
+CREATE TYPE dbo.doris_alias_ntext FROM ntext NULL;
+CREATE TYPE dbo.doris_alias_bit FROM bit NULL;
+CREATE TYPE dbo.doris_alias_tinyint FROM tinyint NULL;
+CREATE TYPE dbo.doris_alias_smallint FROM smallint NULL;
 CREATE TYPE dbo.doris_alias_int FROM int NULL;
 CREATE TYPE dbo.doris_alias_bigint FROM bigint NULL;
-CREATE TYPE dbo.doris_alias_tinyint FROM tinyint NULL;
-CREATE TYPE dbo.doris_alias_bit FROM bit NULL;
-CREATE TYPE dbo.doris_alias_decimal FROM decimal(10, 2) NULL;
-CREATE TYPE dbo.doris_alias_money FROM money NULL;
+CREATE TYPE dbo.doris_alias_real FROM real NULL;
 CREATE TYPE dbo.doris_alias_float FROM float NULL;
+CREATE TYPE dbo.doris_alias_decimal FROM decimal(10, 2) NULL;
+CREATE TYPE dbo.doris_alias_numeric FROM numeric(38, 10) NULL;
+CREATE TYPE dbo.doris_alias_money FROM money NULL;
+CREATE TYPE dbo.doris_alias_smallmoney FROM smallmoney NULL;
 CREATE TYPE dbo.doris_alias_date FROM date NULL;
-CREATE TYPE dbo.doris_alias_datetime2 FROM datetime2(3) NULL;
 CREATE TYPE dbo.doris_alias_time FROM time NULL;
+CREATE TYPE dbo.doris_alias_datetime FROM datetime NULL;
+CREATE TYPE dbo.doris_alias_datetime2 FROM datetime2(3) NULL;
+CREATE TYPE dbo.doris_alias_datetime2_default FROM datetime2 NULL;
+CREATE TYPE dbo.doris_alias_smalldatetime FROM smalldatetime NULL;
+CREATE TYPE dbo.doris_alias_guid FROM uniqueidentifier NULL;
+CREATE TYPE dbo.doris_alias_identity FROM int NOT NULL;
+-- Aliases over types that the JDBC catalog can not resolve by type code. They must stay UNSUPPORTED.
+CREATE TYPE dbo.doris_alias_binary FROM binary(20) NULL;
+CREATE TYPE dbo.doris_alias_varbinary FROM varbinary(20) NULL;
+CREATE TYPE dbo.doris_alias_image FROM image NULL;
+CREATE TYPE dbo.doris_alias_datetimeoffset FROM datetimeoffset NULL;
+CREATE TYPE dbo.doris_alias_variant FROM sql_variant NULL;
 GO
 
+-- Every supported base type family behind an alias, plus sysname (a built-in alias over nvarchar(128)).
 CREATE TABLE dbo.test_alias_type (
     id int PRIMARY KEY NOT NULL,
     plain_col varchar(50) NULL,
     alias_varchar_col dbo.doris_alias_varchar NULL,
+    alias_varcharmax_col dbo.doris_alias_varcharmax NULL,
     alias_nvarchar_col dbo.doris_alias_nvarchar NULL,
+    alias_nvarcharmax_col dbo.doris_alias_nvarcharmax NULL,
+    alias_char_col dbo.doris_alias_char NULL,
+    alias_nchar_col dbo.doris_alias_nchar NULL,
+    alias_text_col dbo.doris_alias_text NULL,
+    alias_ntext_col dbo.doris_alias_ntext NULL,
+    alias_bit_col dbo.doris_alias_bit NULL,
+    alias_tinyint_col dbo.doris_alias_tinyint NULL,
+    alias_smallint_col dbo.doris_alias_smallint NULL,
     alias_int_col dbo.doris_alias_int NULL,
     alias_bigint_col dbo.doris_alias_bigint NULL,
-    alias_tinyint_col dbo.doris_alias_tinyint NULL,
-    alias_bit_col dbo.doris_alias_bit NULL,
-    alias_decimal_col dbo.doris_alias_decimal NULL,
-    alias_money_col dbo.doris_alias_money NULL,
+    alias_real_col dbo.doris_alias_real NULL,
     alias_float_col dbo.doris_alias_float NULL,
+    alias_decimal_col dbo.doris_alias_decimal NULL,
+    alias_numeric_col dbo.doris_alias_numeric NULL,
+    alias_money_col dbo.doris_alias_money NULL,
+    alias_smallmoney_col dbo.doris_alias_smallmoney NULL,
     alias_date_col dbo.doris_alias_date NULL,
+    alias_time_col dbo.doris_alias_time NULL,
+    alias_datetime_col dbo.doris_alias_datetime NULL,
     alias_datetime2_col dbo.doris_alias_datetime2 NULL,
-    alias_time_col dbo.doris_alias_time NULL
+    alias_datetime2_default_col dbo.doris_alias_datetime2_default NULL,
+    alias_smalldatetime_col dbo.doris_alias_smalldatetime NULL,
+    alias_guid_col dbo.doris_alias_guid NULL,
+    sysname_col sysname NULL
+);
+
+-- IDENTITY on an alias typed column: the driver reports the plain alias name as TYPE_NAME.
+CREATE TABLE dbo.test_alias_identity (
+    id dbo.doris_alias_identity IDENTITY(1,1) PRIMARY KEY,
+    val dbo.doris_alias_varchar NULL
+);
+
+-- Negative cases: aliases over binary types, datetimeoffset and sql_variant, and the xml / CLR system
+-- types. All of them must be reported as UNSUPPORTED while the other columns stay readable.
+CREATE TABLE dbo.test_alias_unsupported (
+    id int PRIMARY KEY NOT NULL,
+    plain_col varchar(50) NULL,
+    alias_binary_col dbo.doris_alias_binary NULL,
+    alias_varbinary_col dbo.doris_alias_varbinary NULL,
+    alias_image_col dbo.doris_alias_image NULL,
+    alias_datetimeoffset_col dbo.doris_alias_datetimeoffset NULL,
+    alias_variant_col dbo.doris_alias_variant NULL,
+    xml_col xml NULL,
+    geometry_col geometry NULL,
+    hierarchyid_col hierarchyid NULL
 );
