@@ -250,7 +250,7 @@ public class CloudSystemInfoService extends SystemInfoService {
     public void removeVirtualClusterInfoFromMapsNoLock(String clusterId, String clusterName) {
         LOG.info("remove virtual cluster info from maps, clusterId={}, clusterName={}", clusterId, clusterName);
         clusterIdToBackend.remove(clusterId);
-        clusterNameToId.remove(clusterName);
+        clusterNameToId.remove(clusterName, clusterId);
     }
 
     public void renameVirtualClusterInfoFromMapsNoLock(String clusterId, String oldClusterName, String newClusterName) {
@@ -637,17 +637,9 @@ public class CloudSystemInfoService extends SystemInfoService {
             if (be.isEmpty()) {
                 LOG.info("del clusterId {} and clusterName {} due to be nodes eq 0", clusterId, clusterName);
                 MetricRepo.unregisterCloudMetrics(clusterId, clusterName, toDel);
-                boolean succ = clusterNameToId.remove(clusterName, clusterId);
 
                 // remove from computeGroupIdToComputeGroup
                 removeComputeGroup(clusterId, clusterName);
-
-                if (!succ) {
-                    LOG.warn("impossible, somewhere err, clusterNameToId {}, "
-                            + "want remove cluster name {}, cluster id {}",
-                            clusterNameToId, clusterName, clusterId);
-                }
-                clusterIdToBackend.remove(clusterId);
             }
             LOG.info("update (del) cloud cluster map, clusterName={} clusterId={} backendNum={} current backend={}",
                     clusterName, clusterId, be.size(), b);
