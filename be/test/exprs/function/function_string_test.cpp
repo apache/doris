@@ -94,9 +94,15 @@ TEST(function_string_test, parse_data_size_nullable) {
                                                       {{{Null()}, Null()}, {{Null()}, Null()}});
 
     const InputTypeSet not_null_types = {Notnull {PrimitiveType::TYPE_STRING}};
-    check_function_all_arg_comb<DataTypeInt128>(
-            "parse_data_size", not_null_types,
-            {{{std::string("1MB")}, LARGEINT(1048576)}, {{std::string("0B")}, LARGEINT(0)}});
+    const DataSet not_null_data = {{{std::string("1MB")}, LARGEINT(1048576)},
+                                   {{std::string("0B")}, LARGEINT(0)}};
+    ASSERT_TRUE(
+            check_function<DataTypeInt128>("parse_data_size", not_null_types, not_null_data).ok());
+    const InputTypeSet const_not_null_types = {ConstedNotnull {PrimitiveType::TYPE_STRING}};
+    for (const auto& row : not_null_data) {
+        ASSERT_TRUE(check_function<DataTypeInt128>("parse_data_size", const_not_null_types, {row})
+                            .ok());
+    }
 }
 
 TEST(function_string_test, function_auto_partition_name_case_insensitive_test) {
