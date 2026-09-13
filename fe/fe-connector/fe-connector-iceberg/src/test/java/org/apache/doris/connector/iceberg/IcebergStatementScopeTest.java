@@ -19,8 +19,13 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorStorageAccess;
+import org.apache.doris.connector.spi.ConnectorStorageAccessResolver;
+import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 
+import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -36,6 +41,11 @@ import java.lang.reflect.Modifier;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
@@ -58,6 +68,73 @@ public class IcebergStatementScopeTest {
         catalog.initialize("test", Collections.emptyMap());
         catalog.createNamespace(Namespace.of("db1"));
         return catalog.createTable(TableIdentifier.of("db1", name), SCHEMA);
+    }
+
+    private static IcebergScanPlanProvider.ReadStorageAccess readAccess() {
+        String location = "abfss://container@account.dfs.core.windows.net/data";
+        ConnectorStorageAccess access = new ConnectorStorageAccess("AZURE", location,
+                BackendStorageKind.NATIVE, "FILE_S3", Collections.singletonMap("provider", "azure"));
+        return new IcebergScanPlanProvider.ReadStorageAccess(
+                access, location, new ConnectorStorageAccessResolver(Collections.singleton("AZURE"), ignored -> access),
+                new IcebergScanPlanProvider.NativeStorageCredentials(Collections.emptyMap(), null));
+    }
+
+    @Test
+    public void readStorageResolverIsSharedAcrossThreadsInOneStatement() throws Exception {
+        ScopeSession session = new ScopeSession(7L, "q1", new TestStatementScope());
+        Table table = table("t");
+        AtomicInteger loads = new AtomicInteger();
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Supplier<IcebergScanPlanProvider.ReadStorageAccess> loader = () -> {
+                loads.incrementAndGet();
+                return readAccess();
+            };
+            Future<IcebergScanPlanProvider.ReadStorageAccess> first = executor.submit(() -> {
+                Assertions.assertTrue(start.await(10, TimeUnit.SECONDS));
+                return IcebergStatementScope.readStorageAccess(session, "db1", "t", table, loader);
+            });
+            Future<IcebergScanPlanProvider.ReadStorageAccess> second = executor.submit(() -> {
+                Assertions.assertTrue(start.await(10, TimeUnit.SECONDS));
+                return IcebergStatementScope.readStorageAccess(session, "db1", "t", table, loader);
+            });
+            start.countDown();
+            Assertions.assertSame(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS));
+            Assertions.assertEquals(1, loads.get());
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void readStorageSeparatesFileIoAndStatementGenerations() {
+        TestStatementScope scope = new TestStatementScope();
+        ScopeSession session = new ScopeSession(7L, "q1", scope);
+        Table table = mutableTable("t");
+        Table anotherIo = new BaseTable(new IcebergAuthenticatedTableOperations(
+                ((HasTableOperations) table).operations(), mutableTable("other_io").io()), table.name());
+        IcebergScanPlanProvider.ReadStorageAccess first =
+                IcebergStatementScope.readStorageAccess(session, "db1", "t", table,
+                        IcebergStatementScopeTest::readAccess);
+        Assertions.assertSame(first, IcebergStatementScope.readStorageAccess(session, "db1", "t", table,
+                IcebergStatementScopeTest::readAccess));
+        Assertions.assertNotSame(first, IcebergStatementScope.readStorageAccess(session, "db1", "t", anotherIo,
+                IcebergStatementScopeTest::readAccess));
+        Assertions.assertNotSame(first, IcebergStatementScope.readStorageAccess(
+                new ScopeSession(7L, "q2", scope), "db1", "t", table, IcebergStatementScopeTest::readAccess));
+        Assertions.assertNotSame(first, IcebergStatementScope.readStorageAccess(
+                new ScopeSession(8L, "q1", scope), "db1", "t", table, IcebergStatementScopeTest::readAccess));
+        table.updateSchema().addColumn("later", Types.StringType.get()).commit();
+        Assertions.assertNotSame(first, IcebergStatementScope.readStorageAccess(session, "db1", "t", table,
+                IcebergStatementScopeTest::readAccess));
+        ScopeSession unscoped = new ScopeSession(7L, "q1", ConnectorStatementScope.NONE);
+        Assertions.assertNotSame(
+                IcebergStatementScope.readStorageAccess(unscoped, "db1", "t", table,
+                        IcebergStatementScopeTest::readAccess),
+                IcebergStatementScope.readStorageAccess(unscoped, "db1", "t", table,
+                        IcebergStatementScopeTest::readAccess));
     }
 
     @Test
