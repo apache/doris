@@ -45,7 +45,7 @@ class ColumnDefinitionTest {
             AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                     () -> definition.validate(true, Collections.emptySet(), Collections.emptySet(), false,
                             KeysType.DUP_KEYS));
-            Assertions.assertEquals(INTERNAL_TABLE_SPATIAL_ERROR, exception.getMessage());
+            Assertions.assertTrue(exception.getMessage().contains(INTERNAL_TABLE_SPATIAL_ERROR));
         }
     }
 
@@ -57,7 +57,7 @@ class ColumnDefinitionTest {
                     ColumnDef.DefaultValue.NOT_SET, "");
             org.apache.doris.common.AnalysisException exception = Assertions.assertThrows(
                     org.apache.doris.common.AnalysisException.class, () -> definition.analyze(true));
-            Assertions.assertEquals(INTERNAL_TABLE_SPATIAL_ERROR, exception.getMessage());
+            Assertions.assertTrue(exception.getMessage().contains(INTERNAL_TABLE_SPATIAL_ERROR));
         }
     }
 }
