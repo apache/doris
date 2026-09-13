@@ -80,7 +80,7 @@ Token* PinyinFilter::next(Token* token) {
         current_token_text_ = std::string(token->termBuffer<char>(), token->termLength<char>());
         current_start_offset_ = token->startOffset();
         current_end_offset_ = token->endOffset();
-        auto source_byte_offsets = get_source_byte_offsets(current_token_text_);
+        auto source_byte_offsets = get_source_byte_offsets();
         current_source_byte_offsets_.assign(source_byte_offsets.begin(), source_byte_offsets.end());
 
         done_ = false;

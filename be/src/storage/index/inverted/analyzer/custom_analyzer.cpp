@@ -70,12 +70,17 @@ ReaderPtr CustomAnalyzer::init_reader(ReaderPtr reader) {
 }
 
 TokenStreamComponentsPtr CustomAnalyzer::create_components() {
-    auto tk = _tokenizer->create();
-    TokenStreamPtr ts = tk;
-    for (const auto& filter : _token_filters) {
-        ts = filter->create(ts);
+    try {
+        auto tk = _tokenizer->create();
+        TokenStreamPtr ts = tk;
+        for (const auto& filter : _token_filters) {
+            ts = filter->create(ts);
+        }
+        return std::make_shared<TokenStreamComponents>(tk, ts);
+    } catch (const CLuceneError& e) {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "Failed to create custom analyzer components: {}", e.what());
     }
-    return std::make_shared<TokenStreamComponents>(tk, ts);
 }
 
 CustomAnalyzerPtr CustomAnalyzer::build_custom_analyzer(

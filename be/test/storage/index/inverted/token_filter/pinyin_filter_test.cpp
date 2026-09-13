@@ -25,6 +25,7 @@
 
 #include "CLucene.h"
 #include "storage/index/inverted/token_filter/pinyin_filter_factory.h"
+#include "storage/index/inverted/token_filter/word_delimiter_filter_factory.h"
 #include "storage/index/inverted/tokenizer/ik/ik_tokenizer_factory.h"
 #include "storage/index/inverted/tokenizer/keyword/keyword_tokenizer_factory.h"
 #include "storage/index/inverted/tokenizer/standard/standard_tokenizer_factory.h"
@@ -215,6 +216,56 @@ TEST_F(PinyinFilterTest, TestIKOffsetsPreserveFullwidthSourceBytes) {
     EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), "de");
     EXPECT_EQ(token.startOffset(), 9);
     EXPECT_EQ(token.endOffset(), 15);
+    EXPECT_EQ(filter->next(&token), nullptr);
+}
+
+TEST_F(PinyinFilterTest, TestIKSourceOffsetsAreOptIn) {
+    auto tokenizer = createTokenizer("ik_smart", "ＬＩＵＤＥ");
+    Token token;
+    ASSERT_NE(tokenizer->next(&token), nullptr);
+    EXPECT_TRUE(tokenizer->get_source_byte_offsets().empty());
+
+    tokenizer = createTokenizer("ik_smart", "ＬＩＵＤＥ");
+    PinyinFilterFactory filter_factory;
+    Settings settings;
+    settings.set("ignore_pinyin_offset", "false");
+    filter_factory.initialize(settings);
+    auto filter = filter_factory.create(tokenizer);
+    EXPECT_NE(filter, nullptr);
+    ASSERT_NE(tokenizer->next(&token), nullptr);
+    auto offsets = tokenizer->get_source_byte_offsets();
+    ASSERT_EQ(offsets.size(), 6);
+    EXPECT_EQ(std::vector<int32_t>(offsets.begin(), offsets.end()),
+              (std::vector<int32_t> {0, 3, 6, 9, 12, 15}));
+}
+
+TEST_F(PinyinFilterTest, TestWordDelimiterPreservesIKSourceOffsets) {
+    auto tokenizer = createTokenizer("ik_smart", "ＬＩＵＤＥ１２３");
+
+    WordDelimiterFilterFactory delimiter_factory;
+    delimiter_factory.initialize({});
+    auto delimiter = delimiter_factory.create(tokenizer);
+
+    Settings pinyin_settings;
+    pinyin_settings.set("keep_first_letter", "false");
+    pinyin_settings.set("keep_full_pinyin", "false");
+    pinyin_settings.set("keep_original", "false");
+    pinyin_settings.set("keep_none_chinese", "true");
+    pinyin_settings.set("none_chinese_pinyin_tokenize", "true");
+    pinyin_settings.set("ignore_pinyin_offset", "false");
+    PinyinFilterFactory pinyin_factory;
+    pinyin_factory.initialize(pinyin_settings);
+    auto filter = pinyin_factory.create(delimiter);
+
+    const std::vector<std::tuple<std::string, int32_t, int32_t>> expected = {
+            {"liu", 0, 9}, {"de", 9, 15}, {"123", 15, 24}};
+    Token token;
+    for (const auto& [term, start, end] : expected) {
+        ASSERT_NE(filter->next(&token), nullptr);
+        EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), term);
+        EXPECT_EQ(token.startOffset(), start);
+        EXPECT_EQ(token.endOffset(), end);
+    }
     EXPECT_EQ(filter->next(&token), nullptr);
 }
 

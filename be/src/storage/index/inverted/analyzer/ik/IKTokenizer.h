@@ -39,14 +39,16 @@ public:
     Token* next(Token* token) override;
     void reset() override;
     void reset(lucene::util::Reader* reader) override;
-    std::span<const int32_t> get_source_byte_offsets(std::string_view term) const override;
+    std::span<const int32_t> get_source_byte_offsets() const override;
+    void set_source_byte_offsets_enabled(bool enabled) override {
+        source_byte_offsets_enabled_ = enabled;
+    }
 
 private:
     struct TokenData {
         std::string text;
         int32_t start_offset;
         int32_t end_offset;
-        std::vector<int32_t> source_byte_offsets;
     };
 
     int32_t buffer_index_ {0};
@@ -56,6 +58,8 @@ private:
     std::shared_ptr<Configuration> config_;
     std::unique_ptr<IKSegmenter> ik_segmenter_;
     TokenData* current_token_ {nullptr};
+    std::vector<int32_t> current_source_byte_offsets_;
+    bool source_byte_offsets_enabled_ {false};
 };
 
 } // namespace doris::segment_v2

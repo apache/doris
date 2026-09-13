@@ -61,10 +61,11 @@ public:
     int32_t get_position_increment(Token* t) { return t->getPositionIncrement(); }
     void set_position_increment(Token* t, int32_t pos) { t->setPositionIncrement(pos); }
 
-    // Return the original relative byte boundaries when token normalization changed them.
-    virtual std::span<const int32_t> get_source_byte_offsets(std::string_view term) const {
-        return {};
-    }
+    // Return the original relative byte boundaries for each rune in the current token.
+    virtual std::span<const int32_t> get_source_byte_offsets() const { return {}; }
+
+    // Enable source-boundary tracking only for streams with a downstream consumer.
+    virtual void set_source_byte_offsets_enabled(bool enabled) {}
 };
 
 class TokenStreamWrapper : public TokenStream {
