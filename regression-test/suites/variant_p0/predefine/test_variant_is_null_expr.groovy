@@ -17,6 +17,7 @@
 
 
 suite("test_variant_is_null_expr", "p0, nonConcurrent") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     // define a sql table
     def testTable = "test_variant_is_null_expr"
 
@@ -43,7 +44,7 @@ suite("test_variant_is_null_expr", "p0, nonConcurrent") {
       """
 
     sql """
-        INSERT INTO ${testTable} VALUES (1, '{"int1" : 1, "string1" : "aa"}'), (2, '{"int2" : 2, "string2" : "bb"}'), (3, '{"int3" : 3, "string3" : "cc"}');
+        INSERT INTO ${testTable} VALUES (1, ${variantV2Function}('{"int1" : 1, "string1" : "aa"}')), (2, ${variantV2Function}('{"int2" : 2, "string2" : "bb"}')), (3, ${variantV2Function}('{"int3" : 3, "string3" : "cc"}'));
     """
 
 

@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.common.util.TokenMasker;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
@@ -97,7 +98,7 @@ public class MetaService extends RestBaseController {
                 LOG.warn("reject meta request with invalid token. client: {}, {}, request from: {}, "
                                 + "expected: {}, actual: {}",
                         clientHost, clientPort, request.getRemoteAddr(),
-                        maskToken(clusterToken), maskToken(requestToken));
+                        TokenMasker.maskPrefix(clusterToken), TokenMasker.maskPrefix(requestToken));
                 throw unauthorized(clientHost, clientPort, request);
             }
         }
@@ -106,27 +107,6 @@ public class MetaService extends RestBaseController {
     private UnauthorizedException unauthorized(String clientHost, String clientPort, HttpServletRequest request) {
         return new UnauthorizedException("invalid client host: " + clientHost + ":" + clientPort
                 + ", request from " + request.getRemoteAddr());
-    }
-
-    // Minimum token length required before we reveal a masked prefix in logs. Shorter tokens would
-    // leak too large a fraction of the secret, so they are hidden entirely with only a length hint.
-    private static final int MIN_TOKEN_LEN_FOR_PREFIX = 8;
-    private static final int TOKEN_PREFIX_LEN = 3;
-
-    /**
-     * Masks a token for logging: reveals only a short leading prefix (e.g. "abc***") so that a
-     * token mismatch is diagnosable during rotation, while never logging the full secret. Empty
-     * tokens and tokens too short to safely show a prefix are hidden.
-     */
-    private static String maskToken(String token) {
-        if (Strings.isNullOrEmpty(token)) {
-            return "<empty>";
-        }
-        if (token.length() < MIN_TOKEN_LEN_FOR_PREFIX) {
-            // Too short to reveal any prefix without leaking a large fraction of the secret.
-            return "<hidden, token length " + token.length() + " < " + MIN_TOKEN_LEN_FOR_PREFIX + ">";
-        }
-        return token.substring(0, TOKEN_PREFIX_LEN) + "***";
     }
 
     @RequestMapping(path = "/image", method = RequestMethod.GET)

@@ -60,6 +60,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -68,8 +69,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 1. remove STREAM_CHANGE_TYPE_VIRTUAL_COLUMN & STREAM_SEQ_VIRTUAL_COLUMN from olap table stream scan output
- * with alias projection
+ * 1. remove STREAM_CHANGE_TYPE_VIRTUAL_COLUMN / STREAM_SEQ_VIRTUAL_COLUMN / STREAM_LSN_VIRTUAL_COLUMN
+ * from olap table stream scan output with alias projection
  * 2. add delete sign column if unique base table
  */
 public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
@@ -90,6 +91,12 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
                         new VarcharLiteral("UPDATE_BEFORE")),
                 new WhenClause(new EqualTo(opSlot, new BigIntLiteral(BinlogUtils.ROW_BINLOG_UPDATE_AFTER)),
                         new VarcharLiteral("UPDATE_AFTER"))), new VarcharLiteral("UNKNOWN"));
+    }
+
+    private static boolean isStreamVirtualSlot(Slot slot, Column virtualColumn) {
+        return slot instanceof SlotReference
+                && ((SlotReference) slot).getOriginalColumn().isPresent()
+                && ((SlotReference) slot).getOriginalColumn().get().equals(virtualColumn);
     }
 
     private Plan normalize(LogicalOlapTableStreamScan scan, CascadesContext cascadesContext) {
@@ -151,8 +158,8 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
      *
      * <p>{@code isIncremental} distinguishes the two callers:
      * <ul>
-     *   <li>true  — normal stream consumption: map the binlog op/timestamp columns into the stream
-     *               virtual columns STREAM_CHANGE_TYPE_COL / STREAM_SEQ_COL.</li>
+     *   <li>true  — normal stream consumption: map the binlog op/timestamp/lsn columns into the
+     *               stream virtual columns STREAM_CHANGE_TYPE_COL / STREAM_SEQ_COL / STREAM_LSN_COL.</li>
      *   <li>false — snapshot rebuild: only keep DELETE &amp; UPDATE_BEFORE rows so they can be added
      *               back to reconstruct the "before" image at the snapshot point.</li>
      * </ul>
@@ -163,12 +170,15 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
                                                BaseTableStream.StreamScanType streamScanType, List<Slot> originSlots,
                                                List<Slot> notVirtualSlots, boolean isIncremental) {
         // remap scan from binlog
+        Map<Long, Long> visibleVersions = scan.getTable().hasCloudReadStates()
+                ? scan.getTable().getCloudVisibleVersions(selectedPartitionIds)
+                : Collections.emptyMap();
         RowBinlogTableWrapper table =
-                new RowBinlogTableWrapper(baseTable, offsetMap);
+                new RowBinlogTableWrapper(baseTable, offsetMap, visibleVersions);
         Map<String, String> scanParams = new HashMap<>();
         scanParams.put(OlapScanNode.OLAP_INCREMENT_TYPE, streamScanType.toString());
         LogicalOlapScan newScan = new LogicalOlapScan(cascadesContext.getStatementContext().getNextRelationId(),
-                table, scan.qualified(), selectedPartitionIds, scan.getSelectedTabletIds(),
+                table, scan.qualified(), selectedPartitionIds, ImmutableList.of(),
                 new ArrayList<>(), scan.getTableSample(), ImmutableList.of(),
                 Optional.of(new TableScanParams(TableScanParams.INCREMENTAL_READ, scanParams, Lists.newArrayList())));
         Plan plan = newScan;
@@ -176,9 +186,12 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
         // project stream virtual slot from binlog
         Slot opSlot = null;
         Slot seqSlot = null;
+        Slot lsnSlot = null;
         for (int i = 0; i < binlogOutputSlots.size(); i++) {
             if (binlogOutputSlots.get(i).getName().equals(Column.BINLOG_TSO_COL)) {
                 seqSlot = binlogOutputSlots.get(i);
+            } else if (binlogOutputSlots.get(i).getName().equals(Column.BINLOG_LSN_COL)) {
+                lsnSlot = binlogOutputSlots.get(i);
             } else if (binlogOutputSlots.get(i).getName().equals(Column.BINLOG_OPERATION_COL)) {
                 opSlot = binlogOutputSlots.get(i);
             }
@@ -193,17 +206,15 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
         if (isIncremental) {
             // replace stream virtual column with alias slot reference
             for (Slot slot : originSlots) {
-                if (slot instanceof SlotReference
-                        && ((SlotReference) slot).getOriginalColumn().isPresent()
-                        && ((SlotReference) slot).getOriginalColumn().get()
-                        .equals(Column.STREAM_CHANGE_TYPE_VIRTUAL_COLUMN)) {
+                if (isStreamVirtualSlot(slot, Column.STREAM_CHANGE_TYPE_VIRTUAL_COLUMN)) {
                     project.add(new Alias(StatementScopeIdGenerator.newExprId(), buildChangeTypeExpr(opSlot),
                             Column.STREAM_CHANGE_TYPE_COL));
-                } else if (slot instanceof SlotReference
-                        && ((SlotReference) slot).getOriginalColumn().isPresent()
-                        && ((SlotReference) slot).getOriginalColumn().get()
-                        .equals(Column.STREAM_SEQ_VIRTUAL_COLUMN)) {
+                } else if (isStreamVirtualSlot(slot, Column.STREAM_SEQ_VIRTUAL_COLUMN)) {
+                    Preconditions.checkArgument(seqSlot != null, "Commit tso column not found in binlog output");
                     project.add(new Alias(StatementScopeIdGenerator.newExprId(), seqSlot, Column.STREAM_SEQ_COL));
+                } else if (isStreamVirtualSlot(slot, Column.STREAM_LSN_VIRTUAL_COLUMN)) {
+                    Preconditions.checkArgument(lsnSlot != null, "Row lsn column not found in binlog output");
+                    project.add(new Alias(StatementScopeIdGenerator.newExprId(), lsnSlot, Column.STREAM_LSN_COL));
                 }
             }
         } else {
@@ -255,8 +266,11 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
             // dup key table can just rebuild from base table
             Map<Long, Pair<Long, Long>> partitionOffsetMap =
                     streamWrapper.getHistoryPartitionOffsets(selectedPartitionIds);
+            Map<Long, Long> visibleVersions = streamWrapper.hasCloudReadStates()
+                    ? streamWrapper.getCloudVisibleVersions(selectedPartitionIds)
+                    : Collections.emptyMap();
             OlapTableWrapper table =
-                    new OlapTableWrapper(baseTable, partitionOffsetMap);
+                    new OlapTableWrapper(baseTable, partitionOffsetMap, visibleVersions);
             return projectToOriginSlots(makeOlapScanOnBaseTable(scan, cascadesContext, table, selectedPartitionIds),
                     originSlots);
         }
@@ -278,8 +292,11 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
             // for row commit tso <= consumption tso we scan from base table
             Map<Long, Pair<Long, Long>> partitionOffsetMap =
                     streamWrapper.getHistoryPartitionOffsets(rebuildPartitionIds);
+            Map<Long, Long> visibleVersions = streamWrapper.hasCloudReadStates()
+                    ? streamWrapper.getCloudVisibleVersions(rebuildPartitionIds)
+                    : Collections.emptyMap();
             OlapTableWrapper table =
-                    new OlapTableWrapper(baseTable, partitionOffsetMap);
+                    new OlapTableWrapper(baseTable, partitionOffsetMap, visibleVersions);
             Plan basePartPlan = makeOlapScanOnBaseTable(scan, cascadesContext, table, rebuildPartitionIds);
             // we rebuild by add back updated & deleted rows from binlog
             Plan binlogPartPlan = makeIncrementalScanFromBinlog(cascadesContext, scan, rebuildPartitionIds,
@@ -292,6 +309,10 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
 
     private Plan makeOlapScanOnBaseTable(LogicalOlapTableStreamScan scan, CascadesContext cascadesContext,
                                          OlapTable baseTable, List<Long> partitionIds) {
+        if (scan.getTable().hasCloudReadStates() && !(baseTable instanceof OlapTableWrapper)) {
+            baseTable = new OlapTableWrapper(baseTable, Collections.emptyMap(),
+                    scan.getTable().getCloudVisibleVersions(partitionIds));
+        }
         LogicalOlapScan baseScan = new LogicalOlapScan(cascadesContext.getStatementContext().getNextRelationId(),
                 baseTable, scan.qualified(), partitionIds, scan.getSelectedTabletIds(),
                 new ArrayList<>(), scan.getTableSample(), ImmutableList.of());
@@ -323,12 +344,12 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
      * <p>Selected partitions are split into:
      * <ul>
      *   <li>historical partitions — never consumed history data; scanned from the base table and all
-     *       rows are treated as APPEND (change type = "APPEND", seq = commit tso);</li>
+     *       rows are treated as APPEND (change type = "APPEND", seq = commit tso, lsn = row lsn);</li>
      *   <li>incremental partitions — read row-level changes from binlog via
      *       {@link #makeIncrementalScanFromBinlog}.</li>
      * </ul>
-     * The two plans are unioned. {@code notVirtualSlots} are the origin output slots excluding the
-     * two stream virtual columns (STREAM_CHANGE_TYPE / STREAM_SEQ), which are filled separately.
+     * The two plans are unioned. {@code notVirtualSlots} are the origin output slots excluding
+     * stream virtual columns (STREAM_CHANGE_TYPE / STREAM_SEQ / STREAM_LSN), which are filled separately.
      */
     private Plan makeTableStreamScan(LogicalOlapTableStreamScan scan, CascadesContext cascadesContext) {
         OlapTableStreamWrapper streamWrapper = scan.getTable();
@@ -339,16 +360,11 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
         Plan historyPlan = null;
         Plan incrementalPlan = null;
         List<Slot> originSlots = scan.getOutput();
-        // notVirtualSlots = originSlots - (STREAM_CHANGE_TYPE_VIRTUAL_COLUMN + STREAM_SEQ_VIRTUAL_COLUMN)
+        // notVirtualSlots = originSlots - stream virtual columns
         List<Slot> notVirtualSlots = originSlots.stream()
-                .filter(slot -> !(slot instanceof SlotReference
-                        && ((SlotReference) slot).getOriginalColumn().isPresent()
-                        && ((SlotReference) slot).getOriginalColumn().get()
-                        .equals(Column.STREAM_CHANGE_TYPE_VIRTUAL_COLUMN)))
-                .filter(slot -> !(slot instanceof SlotReference
-                        && ((SlotReference) slot).getOriginalColumn().isPresent()
-                        && ((SlotReference) slot).getOriginalColumn().get()
-                        .equals(Column.STREAM_SEQ_VIRTUAL_COLUMN)))
+                .filter(slot -> !isStreamVirtualSlot(slot, Column.STREAM_CHANGE_TYPE_VIRTUAL_COLUMN))
+                .filter(slot -> !isStreamVirtualSlot(slot, Column.STREAM_SEQ_VIRTUAL_COLUMN))
+                .filter(slot -> !isStreamVirtualSlot(slot, Column.STREAM_LSN_VIRTUAL_COLUMN))
                 .collect(ImmutableList.toImmutableList());
 
         // history plan
@@ -357,29 +373,32 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
             Plan plan = makeOlapScanOnBaseTable(scan, cascadesContext, baseTable, historicalPartitionIds);
             List<Slot> baseOutputSlots = plan.getOutput();
             Slot tsoSlot = null;
+            Slot lsnSlot = null;
             for (Slot slot : baseOutputSlots) {
                 if (slot.getName().equals(Column.COMMIT_TSO_COL)) {
                     tsoSlot = slot;
+                } else if (slot.getName().equals(Column.ROW_LSN_COL)) {
+                    lsnSlot = slot;
                 }
-                if (tsoSlot != null) {
+                if (tsoSlot != null && lsnSlot != null) {
                     break;
                 }
             }
             Preconditions.checkArgument(tsoSlot != null, "Commit tso column not found in base table output");
+            if (baseTable.hasRowLsnColumn()) {
+                Preconditions.checkArgument(lsnSlot != null, "Row lsn column not found in base table output");
+            }
             List<NamedExpression> project = mapOriginOutputFromChild(notVirtualSlots, baseOutputSlots, false);
             for (Slot slot : originSlots) {
-                if (slot instanceof SlotReference
-                        && ((SlotReference) slot).getOriginalColumn().isPresent()
-                        && ((SlotReference) slot).getOriginalColumn().get()
-                        .equals(Column.STREAM_CHANGE_TYPE_VIRTUAL_COLUMN)) {
+                if (isStreamVirtualSlot(slot, Column.STREAM_CHANGE_TYPE_VIRTUAL_COLUMN)) {
                     project.add(new Alias(StatementScopeIdGenerator.newExprId(), new VarcharLiteral("APPEND"),
                             Column.STREAM_CHANGE_TYPE_COL));
                 }
-                if (slot instanceof SlotReference
-                        && ((SlotReference) slot).getOriginalColumn().isPresent()
-                        && ((SlotReference) slot).getOriginalColumn().get()
-                        .equals(Column.STREAM_SEQ_VIRTUAL_COLUMN)) {
+                if (isStreamVirtualSlot(slot, Column.STREAM_SEQ_VIRTUAL_COLUMN)) {
                     project.add(new Alias(StatementScopeIdGenerator.newExprId(), tsoSlot, Column.STREAM_SEQ_COL));
+                }
+                if (isStreamVirtualSlot(slot, Column.STREAM_LSN_VIRTUAL_COLUMN)) {
+                    project.add(new Alias(StatementScopeIdGenerator.newExprId(), lsnSlot, Column.STREAM_LSN_COL));
                 }
             }
             historyPlan = new LogicalProject<>(project, plan);

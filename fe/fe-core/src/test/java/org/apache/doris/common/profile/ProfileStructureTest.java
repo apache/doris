@@ -24,8 +24,8 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
@@ -43,11 +43,11 @@ public class ProfileStructureTest {
         String result = profile.toString();
 
         // Verify the structure of the output
-        Assert.assertTrue("Should contain DetailProfile", result.contains("DetailProfile"));
-        Assert.assertTrue("Should contain Fragments section", result.contains("  Fragments:"));
-        Assert.assertTrue("Should contain Fragment 0", result.contains("    Fragment 0:"));
-        Assert.assertTrue("Should contain Fragment 1", result.contains("    Fragment 1:"));
-        Assert.assertTrue("Should contain LoadChannels section", result.contains("  LoadChannels:"));
+        Assertions.assertTrue(result.contains("DetailProfile"), "Should contain DetailProfile");
+        Assertions.assertTrue(result.contains("  Fragments:"), "Should contain Fragments section");
+        Assertions.assertTrue(result.contains("    Fragment 0:"), "Should contain Fragment 0");
+        Assertions.assertTrue(result.contains("    Fragment 1:"), "Should contain Fragment 1");
+        Assertions.assertTrue(result.contains("  LoadChannels:"), "Should contain LoadChannels section");
     }
 
     @Test
@@ -59,10 +59,10 @@ public class ProfileStructureTest {
         profile.prettyPrint(sb, "  ");
         String result = sb.toString();
 
-        Assert.assertTrue("Should contain proper indentation", result.contains("    Fragments:"));
-        Assert.assertTrue("Should contain Fragment 0 with indentation", result.contains("      Fragment 0:"));
-        Assert.assertTrue("Should contain Fragment 1 with indentation", result.contains("      Fragment 1:"));
-        Assert.assertTrue("Should contain LoadChannels with indentation", result.contains("    LoadChannels:"));
+        Assertions.assertTrue(result.contains("    Fragments:"), "Should contain proper indentation");
+        Assertions.assertTrue(result.contains("      Fragment 0:"), "Should contain Fragment 0 with indentation");
+        Assertions.assertTrue(result.contains("      Fragment 1:"), "Should contain Fragment 1 with indentation");
+        Assertions.assertTrue(result.contains("    LoadChannels:"), "Should contain LoadChannels with indentation");
     }
 
     @Test
@@ -107,25 +107,23 @@ public class ProfileStructureTest {
         RuntimeProfile result = profile.getPipelineAggregatedProfile(Maps.newHashMap());
 
         // Verify root structure
-        Assert.assertEquals("Fragments", result.getName());
+        Assertions.assertEquals("Fragments", result.getName());
         List<Pair<RuntimeProfile, Boolean>> fragments = result.getChildList();
-        Assert.assertEquals(1, fragments.size());
+        Assertions.assertEquals(1, fragments.size());
 
         // Verify Fragment structure
         RuntimeProfile fragment0 = fragments.get(0).first;
-        Assert.assertEquals("Fragment 0", fragment0.getName());
+        Assertions.assertEquals("Fragment 0", fragment0.getName());
 
         // Verify Pipeline structure
         List<Pair<RuntimeProfile, Boolean>> pipelines = fragment0.getChildList();
-        Assert.assertEquals(2, pipelines.size());
+        Assertions.assertEquals(2, pipelines.size());
 
         // Verify pipeline names and instance counts
         RuntimeProfile pipeline0 = pipelines.get(0).first;
         RuntimeProfile pipeline1 = pipelines.get(1).first;
 
-        Assert.assertTrue("Pipeline 0 should contain instance count",
-                pipeline0.getName().contains("Pipeline 0(instance_num=4)"));
-        Assert.assertTrue("Pipeline 1 should contain instance count",
-                pipeline1.getName().contains("Pipeline 1(instance_num=4)"));
+        Assertions.assertTrue(pipeline0.getName().contains("Pipeline 0(instance_num=4)"), "Pipeline 0 should contain instance count");
+        Assertions.assertTrue(pipeline1.getName().contains("Pipeline 1(instance_num=4)"), "Pipeline 1 should contain instance count");
     }
 }

@@ -196,4 +196,10 @@ public final class GcsFileSystemProperties extends AbstractDelegatingS3Propertie
     public String getForceParsingByStandardUrl() {
         return forceParsingByStandardUrl;
     }
+
+    @Override
+    public Set<String> legacyCacheSchemes() {
+        return Set.of("gs");
+    }
+
 }

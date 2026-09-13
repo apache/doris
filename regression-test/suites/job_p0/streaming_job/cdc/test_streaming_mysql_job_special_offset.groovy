@@ -130,14 +130,18 @@ suite("test_streaming_mysql_job_special_offset", "p0,external,mysql,external_doc
         // Verify data after CREATE with specific offset
         qt_select_after_create """ SELECT * FROM ${currentDb}.${table1} ORDER BY id """
 
-        // Wait for current task to complete (commit offset successfully) before PAUSE,
-        // otherwise PAUSE may race with a running task and cause commit offset failure.
+        // Wait for the CREATE task to commit before changing its offset.
         Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
             def cnt = sql """select SucceedTaskCount from jobs("type"="insert") where Name='${jobName}' and ExecuteType='STREAMING'"""
-            return cnt.size() == 1 && (cnt.get(0).get(0) as int) >= 2
+            return cnt.size() == 1 && (cnt.get(0).get(0) as int) >= 1
         })
 
         // Step 2: Get a new binlog position (different from CREATE), insert data, ALTER to it
+        sql "PAUSE JOB where jobname = '${jobName}'"
+        Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until({
+            def jobStatus = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
+            return jobStatus[0][0] == "PAUSED"
+        })
         def alterBinlogFile = ""
         def alterBinlogPos = ""
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
@@ -148,11 +152,6 @@ suite("test_streaming_mysql_job_special_offset", "p0,external,mysql,external_doc
             sql """INSERT INTO ${mysqlDb}.${table1} VALUES (20, 'alter1')"""
             sql """INSERT INTO ${mysqlDb}.${table1} VALUES (21, 'alter2')"""
         }
-        sql "PAUSE JOB where jobname = '${jobName}'"
-        Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until({
-            def jobStatus = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
-            return jobStatus[0][0] == "PAUSED"
-        })
         def alterOffsetJson = """{"file":"${alterBinlogFile}","pos":"${alterBinlogPos}"}"""
         log.info("ALTER to new offset: ${alterOffsetJson}")
         sql """ALTER JOB ${jobName}

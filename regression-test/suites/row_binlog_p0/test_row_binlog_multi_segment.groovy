@@ -16,10 +16,6 @@
 // under the License.
 
 suite("test_row_binlog_multi_segment", "nonConcurrent") {
-    if (isCloudMode()) {
-        return
-    }
-
     sql "DROP TABLE IF EXISTS test_mow_multi_segment_with_binlog FORCE"
 
     sql """

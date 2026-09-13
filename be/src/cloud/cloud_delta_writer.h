@@ -31,6 +31,9 @@ class CloudDeltaWriter final : public BaseDeltaWriter {
 public:
     CloudDeltaWriter(CloudStorageEngine& engine, const WriteRequest& req, RuntimeProfile* profile,
                      const UniqueId& load_id);
+    CloudDeltaWriter(CloudStorageEngine& engine, const WriteRequest& group_build_req,
+                     const WriteRequest& sub_data_req, const WriteRequest& sub_row_binlog_req,
+                     RuntimeProfile* profile, const UniqueId& load_id);
     ~CloudDeltaWriter() override;
 
     Status write(const Block* block, const TabletAddRowsPayload& rows,
@@ -45,8 +48,6 @@ public:
     Status build_rowset() override;
 
     void update_tablet_stats();
-
-    const RowsetMetaSharedPtr& rowset_meta();
 
     bool is_init() const { return _is_init; }
 
@@ -65,7 +66,6 @@ private:
     Status _commit_empty_rowset();
 
     bthread::Mutex _mtx;
-    CloudStorageEngine& _engine;
     std::shared_ptr<ResourceContext> _resource_ctx;
 };
 

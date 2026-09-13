@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "format_v2/file_reader.h"
+#include "runtime/runtime_profile.h"
 
 namespace doris::format::native {
 

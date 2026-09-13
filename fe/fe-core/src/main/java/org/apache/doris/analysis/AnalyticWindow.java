@@ -35,6 +35,8 @@ import java.util.Objects;
  * Both left and right boundaries are always non-null after analyze().
  */
 public class AnalyticWindow {
+    private static final BigDecimal MAX_ROWS_OFFSET_VALUE = BigDecimal.valueOf(Long.MAX_VALUE);
+
     public enum Type {
         ROWS("ROWS"),
         RANGE("RANGE");
@@ -139,7 +141,9 @@ public class AnalyticWindow {
             TAnalyticWindowBoundary result = new TAnalyticWindowBoundary(type.toThrift());
 
             if (type.isOffset() && windowType == Type.ROWS) {
-                result.setRowsOffsetValue(offsetValue.longValue());
+                Preconditions.checkState(offsetValue.compareTo(MAX_ROWS_OFFSET_VALUE) <= 0,
+                        "ROWS window offset must not exceed " + Long.MAX_VALUE);
+                result.setRowsOffsetValue(offsetValue.longValueExact());
             }
 
             // TODO: range windows need range_offset_predicate

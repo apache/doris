@@ -25,6 +25,7 @@
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_nullable.h"
+#include "exec/common/hash_table/hash_map_util.h"
 #include "exec/common/template_helpers.hpp"
 #include "exec/operator/hashjoin_probe_operator.h"
 #include "exec/operator/operator.h"
@@ -56,6 +57,7 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _task_idx = info.task_idx;
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     _shared_state->join_op_variants = p._join_op_variants;
+    custom_profile()->add_info_string("InstanceID", print_id(state->fragment_instance_id()));
 
     _build_expr_ctxs.resize(p._build_expr_ctxs.size());
     for (size_t i = 0; i < _build_expr_ctxs.size(); i++) {
@@ -111,8 +113,9 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
 
     _runtime_filter_producer_helper = std::make_shared<RuntimeFilterProducerHelper>(
             _should_build_hash_table, p._is_broadcast_join);
-    RETURN_IF_ERROR(_runtime_filter_producer_helper->init(
-            state, _build_expr_ctxs, p._runtime_filter_descs, p._child->row_desc()));
+    RETURN_IF_ERROR(
+            _runtime_filter_producer_helper->init(state, _build_expr_ctxs, p._runtime_filter_descs,
+                                                  p._child->operator_row_desc_after_projection()));
     return Status::OK();
 }
 
@@ -397,106 +400,113 @@ Status HashJoinBuildSinkLocalState::build_asof_index(Block& block) {
     // Initialize reverse mapping (all build rows, including NULL ASOF values)
     _shared_state->asof_build_row_to_bucket.resize(build_rows + 1, 0);
 
-    // Dispatch on ASOF column type to create typed AsofIndexGroups with inline values.
+    auto build_typed_groups = [&](const auto& col_data, auto key_getter) {
+        using IntType = std::remove_cvref_t<decltype(key_getter(col_data[0]))>;
+        auto& groups =
+                _shared_state->asof_index_groups.emplace<std::vector<AsofIndexGroup<IntType>>>();
+
+        std::visit(
+                Overload {
+                        [&](std::monostate&) {},
+                        [&](auto&& hash_table_ctx) {
+                            auto* hash_table = hash_table_ctx.hash_table.get();
+                            DORIS_CHECK(hash_table);
+                            const auto* build_keys = hash_table->get_build_keys();
+                            using KeyType = std::remove_const_t<
+                                    std::remove_pointer_t<decltype(build_keys)>>;
+                            uint32_t next_group_id = 0;
+
+                            // Group rows by equality key within each hash bucket,
+                            // then sort each group by ASOF value only (pure integer compare).
+                            // This avoids the previous approach of sorting by (build_key, asof_value)
+                            // which required memcmp per comparison.
+                            //
+                            // For each bucket: walk the chain, find-or-create a group for
+                            // each distinct build_key, insert rows into the group with their
+                            // inline ASOF value. After all buckets are processed, sort each group.
+
+                            // Map from build_key -> group_id, reused across buckets.
+                            // Within a single hash bucket, the number of distinct keys is
+                            // typically very small (hash collisions are rare), so a flat
+                            // scan is efficient.
+                            struct KeyGroupEntry {
+                                KeyType key;
+                                uint32_t group_id;
+                            };
+                            std::vector<KeyGroupEntry> bucket_key_groups;
+
+                            {
+                                SCOPED_TIMER(_asof_index_group_timer);
+                                for (uint32_t bucket = 0; bucket <= bucket_size; ++bucket) {
+                                    uint32_t row_idx = first_array[bucket];
+                                    if (row_idx == 0) {
+                                        continue;
+                                    }
+
+                                    // For each row in this bucket's chain, find-or-create its group
+                                    bucket_key_groups.clear();
+                                    while (row_idx != 0) {
+                                        DCHECK(row_idx <= build_rows);
+                                        const auto& key = build_keys[row_idx];
+
+                                        // Linear scan to find existing group for this key.
+                                        // Bucket chains are short (avg ~1-2 distinct keys per bucket),
+                                        // so this is faster than a hash map.
+                                        uint32_t group_id = UINT32_MAX;
+                                        for (const auto& entry : bucket_key_groups) {
+                                            if (entry.key == key) {
+                                                group_id = entry.group_id;
+                                                break;
+                                            }
+                                        }
+                                        if (group_id == UINT32_MAX) {
+                                            group_id = next_group_id++;
+                                            DCHECK(group_id == groups.size());
+                                            groups.emplace_back();
+                                            bucket_key_groups.push_back({key, group_id});
+                                        }
+
+                                        _shared_state->asof_build_row_to_bucket[row_idx] = group_id;
+                                        if (!(nullable_col && nullable_col->is_null_at(row_idx))) {
+                                            groups[group_id].add_row(key_getter(col_data[row_idx]),
+                                                                     row_idx);
+                                        }
+                                        row_idx = next_array[row_idx];
+                                    }
+                                }
+                            }
+
+                            // Sort each group by ASOF value only (pure integer comparison).
+                            {
+                                SCOPED_TIMER(_asof_index_sort_timer);
+                                for (auto& group : groups) {
+                                    group.sort_and_finalize();
+                                }
+                            }
+                        }},
+                _shared_state->hash_table_variant_vector.front()->method_variant);
+    };
+
+    // Dispatch on the build column once. Homogeneous joins retain their compact physical key;
+    // mixed TIMESTAMP_NS/DATETIMEV2 joins use the exact common civil key.
     // Sub-group by actual key equality within each hash bucket (hash collisions),
     // extract integer representation of ASOF values, then sort by inline values.
     asof_column_dispatch(build_col_nested.get(), [&](const auto* typed_col) {
         using ColType = std::remove_const_t<std::remove_pointer_t<decltype(typed_col)>>;
-
         if constexpr (std::is_same_v<ColType, IColumn>) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "Unsupported ASOF column type for inline optimization");
         } else {
-            using IntType = typename ColType::value_type::underlying_value;
             const auto& col_data = typed_col->get_data();
-
-            auto& groups = _shared_state->asof_index_groups
-                                   .emplace<std::vector<AsofIndexGroup<IntType>>>();
-
-            std::visit(
-                    Overload {
-                            [&](std::monostate&) {},
-                            [&](auto&& hash_table_ctx) {
-                                auto* hash_table = hash_table_ctx.hash_table.get();
-                                DORIS_CHECK(hash_table);
-                                const auto* build_keys = hash_table->get_build_keys();
-                                using KeyType = std::remove_const_t<
-                                        std::remove_pointer_t<decltype(build_keys)>>;
-                                uint32_t next_group_id = 0;
-
-                                // Group rows by equality key within each hash bucket,
-                                // then sort each group by ASOF value only (pure integer compare).
-                                // This avoids the previous approach of sorting by (build_key, asof_value)
-                                // which required memcmp per comparison.
-                                //
-                                // For each bucket: walk the chain, find-or-create a group for
-                                // each distinct build_key, insert rows into the group with their
-                                // inline ASOF value. After all buckets are processed, sort each group.
-
-                                // Map from build_key -> group_id, reused across buckets.
-                                // Within a single hash bucket, the number of distinct keys is
-                                // typically very small (hash collisions are rare), so a flat
-                                // scan is efficient.
-                                struct KeyGroupEntry {
-                                    KeyType key;
-                                    uint32_t group_id;
-                                };
-                                std::vector<KeyGroupEntry> bucket_key_groups;
-
-                                {
-                                    SCOPED_TIMER(_asof_index_group_timer);
-                                    for (uint32_t bucket = 0; bucket <= bucket_size; ++bucket) {
-                                        uint32_t row_idx = first_array[bucket];
-                                        if (row_idx == 0) {
-                                            continue;
-                                        }
-
-                                        // For each row in this bucket's chain, find-or-create its group
-                                        bucket_key_groups.clear();
-                                        while (row_idx != 0) {
-                                            DCHECK(row_idx <= build_rows);
-                                            const auto& key = build_keys[row_idx];
-
-                                            // Linear scan to find existing group for this key.
-                                            // Bucket chains are short (avg ~1-2 distinct keys per bucket),
-                                            // so this is faster than a hash map.
-                                            uint32_t group_id = UINT32_MAX;
-                                            for (const auto& entry : bucket_key_groups) {
-                                                if (entry.key == key) {
-                                                    group_id = entry.group_id;
-                                                    break;
-                                                }
-                                            }
-                                            if (group_id == UINT32_MAX) {
-                                                group_id = next_group_id++;
-                                                DCHECK(group_id == groups.size());
-                                                groups.emplace_back();
-                                                bucket_key_groups.push_back({key, group_id});
-                                            }
-
-                                            _shared_state->asof_build_row_to_bucket[row_idx] =
-                                                    group_id;
-                                            if (!(nullable_col &&
-                                                  nullable_col->is_null_at(row_idx))) {
-                                                groups[group_id].add_row(
-                                                        col_data[row_idx].to_date_int_val(),
-                                                        row_idx);
-                                            }
-
-                                            row_idx = next_array[row_idx];
-                                        }
-                                    }
-                                }
-
-                                // Sort each group by ASOF value only (pure integer comparison).
-                                {
-                                    SCOPED_TIMER(_asof_index_sort_timer);
-                                    for (auto& group : groups) {
-                                        group.sort_and_finalize();
-                                    }
-                                }
-                            }},
-                    _shared_state->hash_table_variant_vector.front()->method_variant);
+            if (p._asof_mixed_timestamp_ns_datetimev2) {
+                DORIS_CHECK((std::is_same_v<ColType, ColumnDateTimeV2> ||
+                             std::is_same_v<ColType, ColumnTimeStampNs>));
+                build_typed_groups(
+                        col_data, [](const auto& value) { return asof_mixed_datetime_key(value); });
+            } else {
+                build_typed_groups(col_data,
+                                   [](const auto& value) { return value.to_date_int_val(); });
+            }
         }
     });
 
@@ -781,7 +791,15 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
         DORIS_CHECK(full_conjunct->root());
         DORIS_CHECK(full_conjunct->root()->get_num_children() == 2);
         _asof_opcode = full_conjunct->root()->op();
+        const PrimitiveType probe_type =
+                remove_nullable(full_conjunct->root()->get_child(0)->data_type())
+                        ->get_primitive_type();
         auto right_child_expr = full_conjunct->root()->get_child(1);
+        const PrimitiveType build_type =
+                remove_nullable(right_child_expr->data_type())->get_primitive_type();
+        _asof_mixed_timestamp_ns_datetimev2 =
+                (probe_type == TYPE_TIMESTAMP_NS && build_type == TYPE_DATETIMEV2) ||
+                (probe_type == TYPE_DATETIMEV2 && build_type == TYPE_TIMESTAMP_NS);
         _asof_build_side_expr = std::make_shared<VExprContext>(right_child_expr);
     }
 
@@ -811,13 +829,16 @@ Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
             }
         }
     };
-    init_keep_column_flags(row_desc().tuple_descriptors(), _should_keep_column_flags);
-    RETURN_IF_ERROR(VExpr::prepare(_build_expr_ctxs, state, _child->row_desc()));
+    init_keep_column_flags(_child->operator_row_desc_after_projection().tuple_descriptors(),
+                           _should_keep_column_flags);
+    RETURN_IF_ERROR(
+            VExpr::prepare(_build_expr_ctxs, state, _child->operator_row_desc_after_projection()));
     // Prepare ASOF build-side expression against build child's row_desc directly.
     // match_condition is bound on input tuples, so child(1) references build child's slots.
     if (is_asof_join(_join_op)) {
         DORIS_CHECK(_asof_build_side_expr);
-        RETURN_IF_ERROR(_asof_build_side_expr->prepare(state, _child->row_desc()));
+        RETURN_IF_ERROR(_asof_build_side_expr->prepare(
+                state, _child->operator_row_desc_after_projection()));
         RETURN_IF_ERROR(_asof_build_side_expr->open(state));
     }
     return VExpr::open(_build_expr_ctxs, state);
@@ -833,8 +854,8 @@ Status HashJoinBuildSinkOperatorX::sink_impl(RuntimeState* state, Block* in_bloc
         // data from probe side.
 
         if (local_state._build_side_mutable_block.empty()) {
-            auto tmp_build_block =
-                    VectorizedUtils::create_empty_columnswithtypename(_child->row_desc());
+            auto tmp_build_block = VectorizedUtils::create_empty_columnswithtypename(
+                    _child->operator_row_desc_after_projection());
             tmp_build_block = *(tmp_build_block.create_same_struct_block(1, false));
             local_state._build_col_ids.resize(_build_expr_ctxs.size());
             RETURN_IF_ERROR(local_state._do_evaluate(tmp_build_block, local_state._build_expr_ctxs,

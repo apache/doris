@@ -16,6 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_view", "var_view") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def load_json_data = {table_name, file_name ->
         // load the json data
         streamLoad {
@@ -77,7 +78,7 @@ suite("regression_test_variant_view", "var_view") {
     qt_sql "select * from v3"
 
     sql "drop view if exists v4"
-    sql """insert into github_events_view values (1, '{"ratio" : 1.1, "repo" : {"name" : "apache/doris", "id" : 12345}}')"""
+    sql """insert into github_events_view values (1, ${variantV2Function}('{"ratio" : 1.1, "repo" : {"name" : "apache/doris", "id" : 12345}}'))"""
     sql """create view v4 as SELECT cast(v["repo"]["name"] as string) repo_name,  cast(v["repo"]["id"] as int) as id from github_events_view where v['ratio'] > 0.7"""
     qt_sql """select * from v4"""
 }

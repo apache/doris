@@ -45,6 +45,13 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
+        <!-- For @ConnectorProperty + ConnectorPropertiesUtils (typed-holder binding; D-004). -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-foundation</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- Thrift types for building TTableDescriptor (provided by parent classloader at runtime) -->
         <dependency>
             <groupId>${project.groupId}</groupId>

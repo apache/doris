@@ -102,7 +102,7 @@ public class PartitionCompensator {
                     rewrittenPlanUsePartitionNameSet.add(olapScan.getTable().getPartition(id).getName()));
         }
         Map<MTMVRelatedTableIf, Map<String, Set<String>>> mtmvRelatedTableIfMapMap
-                = materializationContext.calculatePartitionMappings();
+                = materializationContext.calculatePartitionMappings(queryUsedBaseTablePartitionMap);
         boolean allCompensateIsNull = true;
 
         Map<BaseTableInfo, Set<String>> mvPartitionNeedRemoveNameMap = new HashMap<>();
@@ -218,13 +218,6 @@ public class PartitionCompensator {
             baseTablePartitionNeedUnionNameMap = Pair.of(relatedPartitionTable, baseTableNeedUnionPartitionNameSet);
         }
         return Pair.of(mvPartitionNeedRemoveNameMap, baseTablePartitionNeedUnionNameMap);
-    }
-
-    public static boolean needUnionRewrite(
-            Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> invalidPartitions,
-            CascadesContext cascadesContext) {
-        return invalidPartitions != null
-                && (!invalidPartitions.key().values().isEmpty() || !invalidPartitions.value().values().isEmpty());
     }
 
     /**

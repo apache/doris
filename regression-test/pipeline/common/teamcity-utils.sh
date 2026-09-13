@@ -159,6 +159,51 @@ get_queue_build_of_pr() {
 }
 # get_queue_build_of_pr "$1" "$2"
 
+get_active_builds_of_revision() {
+    # Return active build IDs for the same PR, pipeline, and revision.
+    # Return 0 when a duplicate exists, 1 when none exists, and 2 when lookup fails.
+    local PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$1}"
+    local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$2}"
+    local COMMIT_ID_FROM_TRIGGER="${COMMIT_ID_FROM_TRIGGER:-$3}"
+    if [[ -z "${PULL_REQUEST_NUM}" ||
+        -z "${COMMENT_TRIGGER_TYPE}" ||
+        -z "${COMMIT_ID_FROM_TRIGGER}" ]]; then
+        echo "Usage: get_active_builds_of_revision PULL_REQUEST_NUM COMMENT_TRIGGER_TYPE COMMIT_ID_FROM_TRIGGER" >&2
+        return 2
+    fi
+
+    local queue_build_ids
+    local running_build_ids
+    if ! queue_build_ids=$(get_queue_build_of_pr "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"); then
+        echo "WARNING: failed to get queued builds for duplicate check" >&2
+        return 2
+    fi
+    if ! running_build_ids=$(get_running_build_of_pr "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"); then
+        echo "WARNING: failed to get running builds for duplicate check" >&2
+        return 2
+    fi
+
+    local build_id
+    local build_revision
+    local duplicate_build_ids=()
+    for build_id in ${queue_build_ids} ${running_build_ids}; do
+        if ! build_revision=$(get_commit_id_of_build "${build_id}"); then
+            echo "WARNING: failed to get revision of active build ${build_id}" >&2
+            return 2
+        fi
+        if [[ "${build_revision}" == "${COMMIT_ID_FROM_TRIGGER}" ]]; then
+            duplicate_build_ids+=("${build_id}")
+        fi
+    done
+
+    if [[ ${#duplicate_build_ids[@]} -gt 0 ]]; then
+        printf '%s\n' "${duplicate_build_ids[@]}"
+        return 0
+    fi
+    return 1
+}
+# get_active_builds_of_revision "$1" "$2" "$3"
+
 cancel_running_build() {
     local PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$1}"
     local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$2}"
@@ -300,6 +345,21 @@ trigger_or_skip_build() {
     fi
 
     if [[ "${FILE_CHANGED:-"true"}" == "true" ]]; then
+        local duplicate_build_ids
+        local duplicate_lookup_status=0
+        duplicate_build_ids=$(
+            get_active_builds_of_revision \
+                "${PULL_REQUEST_NUM}" \
+                "${COMMENT_TRIGGER_TYPE}" \
+                "${COMMIT_ID_FROM_TRIGGER}"
+        ) || duplicate_lookup_status=$?
+        if [[ ${duplicate_lookup_status} -eq 0 ]]; then
+            echo "INFO: active build(s) ${duplicate_build_ids//$'\n'/,} already exist for PR ${PULL_REQUEST_NUM}, pipeline ${COMMENT_TRIGGER_TYPE}, revision ${COMMIT_ID_FROM_TRIGGER}; skip duplicate trigger"
+            return 0
+        elif [[ ${duplicate_lookup_status} -ne 1 ]]; then
+            echo "WARNING: duplicate lookup failed for PR ${PULL_REQUEST_NUM}, pipeline ${COMMENT_TRIGGER_TYPE}; continue with the existing trigger flow"
+        fi
+
         cancel_running_build "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"
         cancel_queue_build "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"
         trigger_build "${PULL_REQUEST_NUM}" "${COMMIT_ID_FROM_TRIGGER}" "${COMMENT_TRIGGER_TYPE}" "${COMMENT_REPEAT_TIMES}"

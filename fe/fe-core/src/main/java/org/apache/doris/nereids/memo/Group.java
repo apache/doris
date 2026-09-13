@@ -34,7 +34,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.util.TreeStringUtils;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;

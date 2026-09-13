@@ -24,7 +24,8 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 void collect_multi_segment_top_k(const WeightPtr& weight, const QueryExecutionContext& context,
                                  const std::string& binding_key, size_t k,
                                  const std::shared_ptr<roaring::Roaring>& roaring,
-                                 const CollectionSimilarityPtr& similarity, bool use_wand) {
+                                 const CollectionSimilarityPtr& similarity, bool use_wand,
+                                 const std::shared_ptr<const roaring::Roaring>& delete_bitmap) {
     TopKCollector final_collector(k);
 
     for_each_index_segment(
@@ -32,8 +33,13 @@ void collect_multi_segment_top_k(const WeightPtr& weight, const QueryExecutionCo
                 float initial_threshold = final_collector.threshold();
 
                 TopKCollector seg_collector(k);
-                auto callback = [&seg_collector](uint32_t doc_id, float score) -> float {
-                    return seg_collector.collect(doc_id, score);
+                float threshold = initial_threshold;
+                auto callback = [&](uint32_t doc_id, float score) -> float {
+                    if (delete_bitmap != nullptr && delete_bitmap->contains(doc_id + seg_base)) {
+                        return threshold;
+                    }
+                    threshold = seg_collector.collect(doc_id, score);
+                    return threshold;
                 };
 
                 if (use_wand) {

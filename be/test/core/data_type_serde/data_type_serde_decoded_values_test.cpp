@@ -830,7 +830,7 @@ TEST(DataTypeSerDeDecodedValuesTest, ReadDateTimeV2Millis) {
                            "1970-01-01 00:00:00.001000", "1970-01-01 00:00:01.234000"});
 }
 
-TEST(DataTypeSerDeDecodedValuesTest, ReadDateTimeV2Nanos) {
+TEST(DataTypeSerDeDecodedValuesTest, ReadTimeStampNss) {
     auto type = std::make_shared<DataTypeDateTimeV2>(6);
     std::vector<int64_t> values = {-1000, 0, 1000, 1234567890};
     auto view = make_fixed_view(DecodedValueKind::INT64, values);

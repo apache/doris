@@ -79,11 +79,30 @@ suite("test_catalogs_tvf", "p0,external") {
 
     sql """ drop catalog if exists catalog_tvf_test_dlf """ 
 
-    sql """ 
+    // DLF 1.0 as an HMS thrift metastore was removed on this branch (the vendored ProxyMetaStoreClient
+    // generation was found broken and deleted rather than fixed), so "hive.metastore.type" = "dlf" and
+    // "dlf.proxy.mode" are now rejected at CREATE CATALOG. They are COMMENTED OUT rather than deleted:
+    // restore them when DLF is supported again.
+    // Everything this suite actually asserts still holds without them -- the catalog stays "type"="hms"
+    // (which is what the .out has always expected), and the dlf.* credential properties below are kept on
+    // purpose: catalogs() masks by KEY NAME, independently of the catalog type, and that masking was
+    // deliberately kept alive past the feature's removal. So test_10~24 (incl. the *XXX masking and the
+    // GRANT/REVOKE visibility filtering) keep their coverage and the .out is unchanged.
+    logger.info("DLF 1.0 metastore support has been removed; 'hive.metastore.type=dlf' and 'dlf.proxy.mode' "
+            + "are commented out here and will be restored when DLF is supported again. The dlf.* credential "
+            + "properties stay, so the catalogs() masking/permission coverage below is unaffected.")
+    // The two removed properties, kept verbatim for restoration (do not delete):
+    //     "hive.metastore.type" = "dlf",
+    //     "dlf.proxy.mode" = "DLF_ONLY",
+    // Removing "hive.metastore.type" turned this back into a plain thrift hms catalog, and such a
+    // catalog must name its metastore -- an hms catalog with no address can only ever fail on first
+    // use, so CREATE CATALOG refuses it. The address below is never dialled: this suite reads the
+    // catalog's properties through catalogs() and never queries it. Drop this line again together
+    // with restoring the two properties above.
+    sql """
         CREATE CATALOG catalog_tvf_test_dlf PROPERTIES (
         "type"="hms",
-        "hive.metastore.type" = "dlf",
-        "dlf.proxy.mode" = "DLF_ONLY",
+        "hive.metastore.uris" = "thrift://127.0.0.1:7004",
         "dlf.endpoint" = "dlf-vpc.cn-beijing.aliyuncs.com",
         "dlf.region" = "cn-beijing",
         "dlf.uid" = "123456789",

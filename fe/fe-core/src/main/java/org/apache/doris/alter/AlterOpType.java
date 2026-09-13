@@ -41,7 +41,6 @@ public enum AlterOpType {
     MODIFY_DISTRIBUTION,
     MODIFY_TABLE_COMMENT,
     MODIFY_COLUMN_COMMENT,
-    MODIFY_ENGINE,
     ALTER_BRANCH,
     ALTER_TAG,
     // partition evolution of iceberg table

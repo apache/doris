@@ -38,14 +38,44 @@ CloudTabletsChannel::~CloudTabletsChannel() = default;
 
 std::unique_ptr<BaseDeltaWriter> CloudTabletsChannel::create_delta_writer(
         const WriteRequest& request) {
-    return std::make_unique<CloudDeltaWriter>(_engine, request, _profile, _load_id);
+    DCHECK(request.write_req_type == WriteRequestType::DATA);
+    DCHECK(request.table_schema_param != nullptr);
+
+    if (request.binlog_tablet_id <= 0) {
+        return std::make_unique<CloudDeltaWriter>(_engine, request, _profile, _load_id);
+    }
+
+    int64_t row_binlog_index_id = 0;
+    for (const auto* index_schema : request.table_schema_param->indexes()) {
+        if (index_schema->index_id == request.index_id) {
+            row_binlog_index_id = index_schema->row_binlog_id;
+            break;
+        }
+    }
+    DCHECK(row_binlog_index_id > 0);
+
+    const auto* row_binlog_index_schema =
+            request.table_schema_param->row_binlog_index_schema(row_binlog_index_id);
+    DCHECK(row_binlog_index_schema != nullptr);
+
+    WriteRequest group_build_req = request;
+    group_build_req.write_req_type = WriteRequestType::GROUP;
+
+    WriteRequest sub_data_req = request;
+    sub_data_req.write_req_type = WriteRequestType::DATA;
+
+    WriteRequest sub_row_binlog_req = request;
+    sub_row_binlog_req.write_req_type = WriteRequestType::ROW_BINLOG;
+    sub_row_binlog_req.tablet_id = request.binlog_tablet_id;
+    sub_row_binlog_req.index_id = row_binlog_index_schema->index_id;
+    sub_row_binlog_req.schema_hash = row_binlog_index_schema->schema_hash;
+
+    return std::make_unique<CloudDeltaWriter>(_engine, group_build_req, sub_data_req,
+                                              sub_row_binlog_req, _profile, _load_id);
 }
 
 Status CloudTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                                       PTabletWriterAddBlockResult* response) {
-    if (_schema != nullptr && _schema->row_binlog_index_schema() != nullptr) {
-        return Status::NotSupported("cloud mode does not support binlog<row> now");
-    }
     // FIXME(plat1ko): Too many duplicate code with `TabletsChannel`
     SCOPED_TIMER(_add_batch_timer);
     int64_t cur_seq = 0;
@@ -293,7 +323,7 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
         it++;
     }
 
-    tablet_vec->Reserve(static_cast<int>(writers_to_commit.size()));
+    tablet_vec->Reserve(static_cast<int>(writers_to_commit.size() * 2));
     for (auto* writer : writers_to_commit) {
         PTabletInfo* tablet_info = tablet_vec->Add();
         tablet_info->set_tablet_id(writer->tablet_id());
@@ -301,6 +331,13 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
         tablet_info->set_schema_hash(0);
         tablet_info->set_received_rows(writer->total_received_rows());
         tablet_info->set_num_rows_filtered(writer->num_rows_filtered());
+        if (writer->binlog_tablet_id() > 0) {
+            PTabletInfo* binlog_tablet_info = tablet_vec->Add();
+            binlog_tablet_info->set_tablet_id(writer->binlog_tablet_id());
+            binlog_tablet_info->set_schema_hash(0);
+            binlog_tablet_info->set_received_rows(writer->total_received_rows());
+            binlog_tablet_info->set_num_rows_filtered(writer->num_rows_filtered());
+        }
         // These stats may be larger than the actual value if the txn is aborted
         writer->update_tablet_stats();
     }

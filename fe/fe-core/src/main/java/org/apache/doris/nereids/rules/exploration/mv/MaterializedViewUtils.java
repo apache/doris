@@ -530,9 +530,9 @@ public class MaterializedViewUtils {
      * the function would be considered as deterministic function and will not return
      * in the result expression result
      */
-    public static List<Expression> extractNondeterministicFunction(Plan plan) {
+    public static List<Expression> extractMvNondeterministicFunction(Plan plan) {
         List<Expression> nondeterministicFunctions = new ArrayList<>();
-        plan.accept(NondeterministicFunctionCollector.INSTANCE, nondeterministicFunctions);
+        plan.accept(NondeterministicFunctionCollector.MV_INSTANCE, nondeterministicFunctions);
         return nondeterministicFunctions;
     }
 
@@ -628,8 +628,15 @@ public class MaterializedViewUtils {
 
         @Override
         public Boolean visitLogicalRelation(LogicalRelation relation, Void context) {
-            if (relation instanceof LogicalFileScan && ((LogicalFileScan) relation).getTableSample().isPresent()) {
-                return true;
+            if (relation instanceof LogicalFileScan) {
+                LogicalFileScan fileScan = (LogicalFileScan) relation;
+                // Relation scan operators can select data different from the MV refresh input.
+                // Treat them as query operators until rewrite can prove equivalent semantics.
+                if (fileScan.getTableSample().isPresent()
+                        || fileScan.getScanParams().isPresent()
+                        || fileScan.getTableSnapshot().isPresent()) {
+                    return true;
+                }
             }
             if (relation instanceof LogicalOlapScan) {
                 LogicalOlapScan logicalOlapScan = (LogicalOlapScan) relation;

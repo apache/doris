@@ -62,6 +62,15 @@ public:
     Status execute_on_raw_fixed_values(const uint8_t* values, size_t num_values, size_t value_width,
                                        const DataTypePtr& data_type, int column_id,
                                        uint8_t* matches) const override;
+    bool can_execute_on_raw_binary_values(const DataTypePtr& data_type,
+                                          int column_id) const override;
+    Status execute_on_raw_binary_values(const StringRef* values, size_t num_values,
+                                        const DataTypePtr& data_type, int column_id,
+                                        uint8_t* matches) const override;
+    bool can_execute_on_null_map(const DataTypePtr& data_type, int column_id) const override;
+    Status execute_on_null_map(const uint8_t* null_map, size_t num_values,
+                               const DataTypePtr& data_type, int column_id,
+                               uint8_t* matches) const override;
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
     ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override;
     bool can_evaluate_zonemap_filter() const override;
@@ -101,8 +110,7 @@ public:
 
     Status evaluate_ann_range_search(
             const segment_v2::AnnRangeSearchRuntime& runtime,
-            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
-            const std::vector<ColumnId>& idx_to_cid,
+            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
             size_t rows_of_segment, roaring::Roaring& row_bitmap,
             segment_v2::AnnIndexStats& ann_index_stats, bool enable_result_cache,

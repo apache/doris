@@ -59,6 +59,24 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx_weighted(
     return nullptr;
 }
 
+AggregateFunctionPtr create_aggregate_function_percentile_approx_array(
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr) {
+    const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
+    if (argument_type->get_primitive_type() != PrimitiveType::TYPE_DOUBLE) {
+        return nullptr;
+    }
+    if (argument_types.size() == 2) {
+        return creator_without_type::create<AggregateFunctionPercentileApproxArray<false>>(
+                argument_types, result_is_nullable, attr);
+    }
+    if (argument_types.size() == 3) {
+        return creator_without_type::create<AggregateFunctionPercentileApproxArray<true>>(
+                argument_types, result_is_nullable, attr);
+    }
+    return nullptr;
+}
+
 void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& factory) {
     using creator = creator_with_type_list<TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT,
                                            TYPE_LARGEINT, TYPE_FLOAT, TYPE_DOUBLE>;
@@ -85,6 +103,8 @@ void register_aggregate_function_percentile_old(AggregateFunctionSimpleFactory& 
 void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("percentile_approx",
                                    create_aggregate_function_percentile_approx);
+    factory.register_function_both("percentile_approx_array",
+                                   create_aggregate_function_percentile_approx_array);
     factory.register_function_both("percentile_approx_weighted",
                                    create_aggregate_function_percentile_approx_weighted);
 

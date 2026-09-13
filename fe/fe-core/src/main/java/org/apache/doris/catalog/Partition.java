@@ -258,6 +258,10 @@ public class Partition extends MetaObject {
     }
 
     public List<MaterializedIndex> getMaterializedIndices(IndexExtState extState) {
+        return getMaterializedIndices(extState, false);
+    }
+
+    public List<MaterializedIndex> getMaterializedIndices(IndexExtState extState, boolean includeRowBinlog) {
         List<MaterializedIndex> indices = Lists.newArrayList();
         switch (extState) {
             case ALL:
@@ -274,6 +278,9 @@ public class Partition extends MetaObject {
                 break;
             default:
                 break;
+        }
+        if (!includeRowBinlog) {
+            indices.removeIf(MaterializedIndex::isRowBinlog);
         }
         return indices;
     }
@@ -297,7 +304,7 @@ public class Partition extends MetaObject {
         } else {
             updateMetaChecksum(digest, (byte) 17, -1L);
         }
-        List<MaterializedIndex> indexes = getMaterializedIndices(IndexExtState.VISIBLE);
+        List<MaterializedIndex> indexes = getMaterializedIndices(IndexExtState.VISIBLE, true);
         indexes.sort(Comparator.comparingLong(MaterializedIndex::getId));
         for (MaterializedIndex index : indexes) {
             updateMetaChecksum(digest, (byte) 1, index.getId());
@@ -364,7 +371,7 @@ public class Partition extends MetaObject {
     // this is local data size
     public long getDataSize(boolean singleReplica) {
         long dataSize = 0;
-        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE)) {
+        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE, true)) {
             dataSize += mIndex.getDataSize(singleReplica, false);
         }
         return dataSize;
@@ -372,7 +379,7 @@ public class Partition extends MetaObject {
 
     public long getRemoteDataSize() {
         long remoteDataSize = 0;
-        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE)) {
+        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE, true)) {
             remoteDataSize += mIndex.getRemoteDataSize();
         }
         return remoteDataSize;
@@ -380,7 +387,7 @@ public class Partition extends MetaObject {
 
     public long getBinlogDataSize() {
         long binlogDataSize = 0;
-        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE)) {
+        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE, true)) {
             binlogDataSize += mIndex.getBinlogSize();
         }
         return binlogDataSize;
@@ -388,7 +395,7 @@ public class Partition extends MetaObject {
 
     public long getReplicaCount() {
         long replicaCount = 0;
-        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE)) {
+        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE, true)) {
             replicaCount += mIndex.getReplicaCount();
         }
         return replicaCount;
@@ -396,7 +403,7 @@ public class Partition extends MetaObject {
 
     public long getAllReplicaCount() {
         long replicaCount = 0;
-        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.ALL)) {
+        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.ALL, true)) {
             replicaCount += mIndex.getReplicaCount();
         }
         return replicaCount;
@@ -508,7 +515,7 @@ public class Partition extends MetaObject {
 
     public long getDataSizeExcludeEmptyReplica(boolean singleReplica) {
         long dataSize = 0;
-        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE)) {
+        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE, true)) {
             dataSize += mIndex.getDataSize(singleReplica, true);
         }
         return dataSize + getRemoteDataSize();

@@ -112,6 +112,63 @@ class HdfsPropertiesTest {
     }
 
     @Test
+    void xmlResourcesRejectParentDirectoryTraversal(@TempDir Path tmp) {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("fs.defaultFS", "hdfs://ns");
+        raw.put("hadoop.config.resources", "../outside.xml");
+        raw.put("_HADOOP_CONFIG_DIR_", tmp.toString() + "/");
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class, () -> resolve(raw));
+
+        Assertions.assertTrue(exception.getMessage().contains("parent-directory references"),
+                exception.getMessage());
+    }
+
+    @Test
+    void fsCacheFingerprintTracksXmlResourceContent(@TempDir Path tmp) throws Exception {
+        // Only the file *path* is a bound alias, so a fingerprint taken over matchedProperties()
+        // alone would survive an edit of the file — and the patched FileSystem would keep handing
+        // out the client built from the old contents.
+        Path site = tmp.resolve("hdfs-site.xml");
+        Map<String, String> raw = new HashMap<>();
+        raw.put("fs.defaultFS", "hdfs://ns");
+        raw.put("hadoop.config.resources", site.toString());
+
+        Files.write(site, config("dfs.client.failover.proxy.provider.ns", "provider.A"));
+        String before = fingerprint(raw);
+        Assertions.assertEquals(before, fingerprint(raw), "fingerprint must be a pure function");
+
+        Files.write(site, config("dfs.client.failover.proxy.provider.ns", "provider.B"));
+        Assertions.assertNotEquals(before, fingerprint(raw));
+    }
+
+    @Test
+    void fsCacheFingerprintTracksRawHadoopOverrides() {
+        // extractUserOverriddenHdfsConfig() copies these into the derived map, and every connector
+        // overlays them onto its Configuration again; neither is a bound alias.
+        Map<String, String> hostA = new HashMap<>();
+        hostA.put("fs.defaultFS", "hdfs://ns");
+        hostA.put("dfs.namenode.rpc-address.ns.nn1", "hostA:8020");
+
+        Map<String, String> hostB = new HashMap<>(hostA);
+        hostB.put("dfs.namenode.rpc-address.ns.nn1", "hostB:8020");
+
+        Assertions.assertNotEquals(fingerprint(hostA), fingerprint(hostB));
+    }
+
+    private static byte[] config(String name, String value) {
+        return ("<?xml version=\"1.0\"?><configuration><property><name>" + name
+                + "</name><value>" + value + "</value></property></configuration>").getBytes();
+    }
+
+    private String fingerprint(Map<String, String> raw) {
+        HdfsProperties props = new HdfsProperties(new HashMap<>(raw));
+        props.initNormalizeAndCheckProps();
+        return props.fsCacheFingerprint();
+    }
+
+    @Test
     void translationIsIdempotentOnAlreadyResolvedMap() {
         Map<String, String> raw = new HashMap<>();
         raw.put("fs.defaultFS", "hdfs://ns");

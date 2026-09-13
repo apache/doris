@@ -33,6 +33,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "load/stream_load/new_load_stream_mgr.h"
 #include "load/stream_load/stream_load_executor.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 
 namespace doris {

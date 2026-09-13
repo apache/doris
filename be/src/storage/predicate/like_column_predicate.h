@@ -55,6 +55,7 @@ public:
         pattern = other.pattern;
         _state = other._state;
         _opposite = other._opposite;
+        THROW_IF_ERROR(_state->search_state.clone(_like_state));
     }
     LikeColumnPredicate(const LikeColumnPredicate& other) = delete;
     std::shared_ptr<ColumnPredicate> clone(uint32_t col_id) const override {
@@ -67,7 +68,7 @@ public:
         return fmt::to_string(debug_string_buffer);
     }
 
-    PredicateType type() const override { return PredicateType::EQ; }
+    PredicateType type() const override { return PredicateType::LIKE; }
     void evaluate_vec(const IColumn& column, uint16_t size, bool* flags) const override;
 
     void evaluate_and_vec(const IColumn& column, uint16_t size, bool* flags) const override;

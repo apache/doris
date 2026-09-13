@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.connector.api.ConnectorValidationContext;
+import org.apache.doris.connector.spi.ConnectorValidationContext;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.proto.InternalService.PJdbcTestConnectionRequest;
 import org.apache.doris.proto.InternalService.PJdbcTestConnectionResult;

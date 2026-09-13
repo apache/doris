@@ -17,12 +17,16 @@
 
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
 
+#include <algorithm>
+#include <string_view>
+
 #include "common/status.h"
 #include "runtime/exec_env.h"
 #include "storage/index/inverted/analysis_factory_mgr.h"
 #include "storage/index/inverted/token_stream.h"
 
 namespace doris::segment_v2::inverted_index {
+namespace {} // namespace
 
 CustomAnalyzer::CustomAnalyzer(Builder* builder) {
     _tokenizer = builder->_tokenizer;
@@ -74,7 +78,8 @@ TokenStreamComponentsPtr CustomAnalyzer::create_components() {
     return std::make_shared<TokenStreamComponents>(tk, ts);
 }
 
-CustomAnalyzerPtr CustomAnalyzer::build_custom_analyzer(const CustomAnalyzerConfigPtr& config) {
+CustomAnalyzerPtr CustomAnalyzer::build_custom_analyzer(
+        const ImmutableCustomAnalyzerConfigPtr& config) {
     if (config == nullptr) {
         throw Exception(ErrorCode::ILLEGAL_STATE, "Null configuration detected.");
     }
@@ -90,6 +95,10 @@ CustomAnalyzerPtr CustomAnalyzer::build_custom_analyzer(const CustomAnalyzerConf
     return builder.build();
 }
 
+CustomAnalyzerProvider::CustomAnalyzerProvider(
+        ImmutableCustomAnalyzerConfigPtr config,
+        std::map<std::string, std::string> /*outer_char_filter_map*/)
+        : _config(std::move(config)), _analyzer(CustomAnalyzer::build_custom_analyzer(_config)) {}
 void CustomAnalyzer::Builder::with_tokenizer(const std::string& name, const Settings& params) {
     _tokenizer = AnalysisFactoryMgr::instance().create<TokenizerFactory>(name, params);
 }

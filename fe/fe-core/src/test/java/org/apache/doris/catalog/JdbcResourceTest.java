@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
@@ -29,10 +30,9 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -44,7 +44,7 @@ public class JdbcResourceTest {
 
     private Map<String, String> jdbcProperties;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         FeConstants.runningUnitTest = true;
         jdbcProperties = Maps.newHashMap();
@@ -81,11 +81,11 @@ public class JdbcResourceTest {
 
             // Verify the default properties were applied during the replay
             Map<String, String> properties = jdbcResource.getCopiedProperties();
-            Assert.assertEquals("1", properties.get("connection_pool_min_size"));
-            Assert.assertEquals("30", properties.get("connection_pool_max_size"));
-            Assert.assertEquals("1800000", properties.get("connection_pool_max_life_time"));
-            Assert.assertEquals("5000", properties.get("connection_pool_max_wait_time"));
-            Assert.assertEquals("false", properties.get("connection_pool_keep_alive"));
+            Assertions.assertEquals("1", properties.get("connection_pool_min_size"));
+            Assertions.assertEquals("30", properties.get("connection_pool_max_size"));
+            Assertions.assertEquals("1800000", properties.get("connection_pool_max_life_time"));
+            Assertions.assertEquals("5000", properties.get("connection_pool_max_wait_time"));
+            Assertions.assertEquals("false", properties.get("connection_pool_keep_alive"));
         }
     }
 
@@ -100,16 +100,16 @@ public class JdbcResourceTest {
         // Retrieve the replayed resource
         Resource replayedResource = resourceMgr.getResource("jdbc_resource_pg_14");
 
-        Assert.assertNotNull(replayedResource);
-        Assert.assertTrue(replayedResource instanceof JdbcResource);
+        Assertions.assertNotNull(replayedResource);
+        Assertions.assertTrue(replayedResource instanceof JdbcResource);
 
         // Verify the default properties were applied during the replay
         Map<String, String> properties = replayedResource.getCopiedProperties();
-        Assert.assertEquals("1", properties.get("connection_pool_min_size"));
-        Assert.assertEquals("30", properties.get("connection_pool_max_size"));
-        Assert.assertEquals("1800000", properties.get("connection_pool_max_life_time"));
-        Assert.assertEquals("5000", properties.get("connection_pool_max_wait_time"));
-        Assert.assertEquals("false", properties.get("connection_pool_keep_alive"));
+        Assertions.assertEquals("1", properties.get("connection_pool_min_size"));
+        Assertions.assertEquals("30", properties.get("connection_pool_max_size"));
+        Assertions.assertEquals("1800000", properties.get("connection_pool_max_life_time"));
+        Assertions.assertEquals("5000", properties.get("connection_pool_max_wait_time"));
+        Assertions.assertEquals("false", properties.get("connection_pool_keep_alive"));
     }
 
     @Test
@@ -130,16 +130,16 @@ public class JdbcResourceTest {
         // Retrieve the replayed resource
         Resource replayedResource = resourceMgr.getResource("jdbc_resource_pg_14");
 
-        Assert.assertNotNull(replayedResource);
-        Assert.assertTrue(replayedResource instanceof JdbcResource);
+        Assertions.assertNotNull(replayedResource);
+        Assertions.assertTrue(replayedResource instanceof JdbcResource);
 
         // Verify the modified properties were applied during the replay
         Map<String, String> properties = replayedResource.getCopiedProperties();
-        Assert.assertEquals("2", properties.get("connection_pool_min_size"));
-        Assert.assertEquals("20", properties.get("connection_pool_max_size"));
-        Assert.assertEquals("3600000", properties.get("connection_pool_max_life_time"));
-        Assert.assertEquals("10000", properties.get("connection_pool_max_wait_time"));
-        Assert.assertEquals("true", properties.get("connection_pool_keep_alive"));
+        Assertions.assertEquals("2", properties.get("connection_pool_min_size"));
+        Assertions.assertEquals("20", properties.get("connection_pool_max_size"));
+        Assertions.assertEquals("3600000", properties.get("connection_pool_max_life_time"));
+        Assertions.assertEquals("10000", properties.get("connection_pool_max_wait_time"));
+        Assertions.assertEquals("true", properties.get("connection_pool_keep_alive"));
     }
 
     @Test
@@ -155,11 +155,11 @@ public class JdbcResourceTest {
         newProperties.put(JdbcResource.CONNECTION_POOL_MIN_SIZE, "2");
         replayedResource.modifyProperties(newProperties);
         Map<String, String> properties = replayedResource.getCopiedProperties();
-        Assert.assertEquals("2", properties.get("connection_pool_min_size"));
+        Assertions.assertEquals("2", properties.get("connection_pool_min_size"));
         resourceMgr.replayCreateResource(replayedResource);
         Resource replayedResource2 = resourceMgr.getResource("jdbc_resource_pg_14");
         Map<String, String> properties2 = replayedResource2.getCopiedProperties();
-        Assert.assertEquals("2", properties2.get("connection_pool_min_size"));
+        Assertions.assertEquals("2", properties2.get("connection_pool_min_size"));
     }
 
     @Test
@@ -168,8 +168,8 @@ public class JdbcResourceTest {
         String resultUrl = JdbcResource.handleJdbcUrl(inputUrl);
 
         // Check if the result URL contains the necessary delimiters for MySQL
-        Assert.assertTrue(resultUrl.contains("?"));
-        Assert.assertTrue(resultUrl.contains("&"));
+        Assertions.assertTrue(resultUrl.contains("?"));
+        Assertions.assertTrue(resultUrl.contains("&"));
     }
 
     @Test
@@ -178,11 +178,11 @@ public class JdbcResourceTest {
         String resultUrl = JdbcResource.handleJdbcUrl(inputUrl);
 
         // Ensure that the result URL for SQL Server doesn't have '?' or '&'
-        Assert.assertFalse(resultUrl.contains("?"));
-        Assert.assertFalse(resultUrl.contains("&"));
+        Assertions.assertFalse(resultUrl.contains("?"));
+        Assertions.assertFalse(resultUrl.contains("&"));
 
         // Ensure the result URL still contains ';'
-        Assert.assertTrue(resultUrl.contains(";"));
+        Assertions.assertTrue(resultUrl.contains(";"));
     }
 
     @Test
@@ -192,11 +192,11 @@ public class JdbcResourceTest {
         String resultUrl = JdbcResource.handleJdbcUrl(inputUrl);
 
         // Ensure that the result URL for SQL Server doesn't have '?' or '&'
-        Assert.assertFalse(resultUrl.contains("?"));
-        Assert.assertFalse(resultUrl.contains("&"));
+        Assertions.assertFalse(resultUrl.contains("?"));
+        Assertions.assertFalse(resultUrl.contains("&"));
 
         // Ensure the result URL still contains ';'
-        Assert.assertTrue(resultUrl.contains(";"));
+        Assertions.assertTrue(resultUrl.contains(";"));
     }
 
     @Test
@@ -204,19 +204,19 @@ public class JdbcResourceTest {
         String fileUrl = "file://path/to/driver.jar";
         Assertions.assertDoesNotThrow(() -> {
             String result = JdbcResource.getFullDriverUrl(fileUrl);
-            Assert.assertEquals(fileUrl, result);
+            Assertions.assertEquals(fileUrl, result);
         });
 
         String httpUrl = "http://example.com/driver.jar";
         Assertions.assertDoesNotThrow(() -> {
             String result = JdbcResource.getFullDriverUrl(httpUrl);
-            Assert.assertEquals(httpUrl, result);
+            Assertions.assertEquals(httpUrl, result);
         });
 
         String httpsUrl = "https://example.com/driver.jar";
         Assertions.assertDoesNotThrow(() -> {
             String result = JdbcResource.getFullDriverUrl(httpsUrl);
-            Assert.assertEquals(httpsUrl, result);
+            Assertions.assertEquals(httpsUrl, result);
         });
 
         String jarFile = "driver.jar";
@@ -228,23 +228,188 @@ public class JdbcResourceTest {
     @Test
     public void testInvalidDriverUrls() {
         String invalidUrl1 = "/mnt/path/to/driver.jar";
-        Assert.assertThrows(IllegalArgumentException.class, () -> {
+        Assertions.assertThrows(IllegalArgumentException.class, () -> {
             JdbcResource.getFullDriverUrl(invalidUrl1);
         });
 
         String invalidUrl2 = "ftp://example.com/driver.jar";
-        Assert.assertThrows(IllegalArgumentException.class, () -> {
+        Assertions.assertThrows(IllegalArgumentException.class, () -> {
             JdbcResource.getFullDriverUrl(invalidUrl2);
         });
 
         String invalidUrl3 = "";
-        Assert.assertThrows(IllegalArgumentException.class, () -> {
+        Assertions.assertThrows(IllegalArgumentException.class, () -> {
             JdbcResource.getFullDriverUrl(invalidUrl3);
         });
 
         String invalidUrl4 = "example.com/driver";
-        Assert.assertThrows(IllegalArgumentException.class, () -> {
+        Assertions.assertThrows(IllegalArgumentException.class, () -> {
             JdbcResource.getFullDriverUrl(invalidUrl4);
         });
+    }
+
+    @Test
+    public void testSecurePathRejectsPrefixConfusion() {
+        String saved = Config.jdbc_driver_secure_path;
+        try {
+            Config.jdbc_driver_secure_path = "file:///opt/doris/jdbc_drivers";
+            // A directory that merely shares a string prefix must NOT be allowed.
+            Assertions.assertThrows(IllegalArgumentException.class, () ->
+                    JdbcResource.getFullDriverUrl("file:///opt/doris/jdbc_drivers-evil/x.jar"));
+        } finally {
+            Config.jdbc_driver_secure_path = saved;
+        }
+    }
+
+    @Test
+    public void testSecurePathRejectsPathTraversal() {
+        String saved = Config.jdbc_driver_secure_path;
+        try {
+            Config.jdbc_driver_secure_path = "file:///opt/doris/jdbc_drivers";
+            Assertions.assertThrows(IllegalArgumentException.class, () ->
+                    JdbcResource.getFullDriverUrl("file:///opt/doris/jdbc_drivers/../../etc/x.jar"));
+        } finally {
+            Config.jdbc_driver_secure_path = saved;
+        }
+    }
+
+    @Test
+    public void testSecurePathAllowsPathUnderAllowedDir() {
+        String saved = Config.jdbc_driver_secure_path;
+        try {
+            Config.jdbc_driver_secure_path = "file:///opt/doris/jdbc_drivers";
+            String url = "file:///opt/doris/jdbc_drivers/sub/x.jar";
+            Assertions.assertDoesNotThrow(() -> Assertions.assertEquals(url, JdbcResource.getFullDriverUrl(url)));
+        } finally {
+            Config.jdbc_driver_secure_path = saved;
+        }
+    }
+
+    @Test
+    public void testSecurePathRejectsHostConfusion() {
+        String saved = Config.jdbc_driver_secure_path;
+        try {
+            Config.jdbc_driver_secure_path = "http://good.com/";
+            Assertions.assertThrows(IllegalArgumentException.class, () ->
+                    JdbcResource.getFullDriverUrl("http://good.com.evil.com/x.jar"));
+        } finally {
+            Config.jdbc_driver_secure_path = saved;
+        }
+    }
+
+    @Test
+    public void testSecurePathAllowsRemoteUnderAllowedHost() {
+        String saved = Config.jdbc_driver_secure_path;
+        try {
+            Config.jdbc_driver_secure_path = "http://good.com/drivers";
+            String url = "http://good.com/drivers/x.jar";
+            Assertions.assertDoesNotThrow(() -> Assertions.assertEquals(url, JdbcResource.getFullDriverUrl(url)));
+        } finally {
+            Config.jdbc_driver_secure_path = saved;
+        }
+    }
+
+    @Test
+    public void testSecurePathWildcardAllowsAll() {
+        String saved = Config.jdbc_driver_secure_path;
+        try {
+            Config.jdbc_driver_secure_path = "*";
+            String url = "file:///any/where/x.jar";
+            Assertions.assertDoesNotThrow(() -> Assertions.assertEquals(url, JdbcResource.getFullDriverUrl(url)));
+        } finally {
+            Config.jdbc_driver_secure_path = saved;
+        }
+    }
+
+    @Test
+    public void testSecurePathRejectsEncodedTraversal() {
+        String saved = Config.jdbc_driver_secure_path;
+        try {
+            Config.jdbc_driver_secure_path = "file:///opt/doris/jdbc_drivers";
+            // %2e%2e decodes to "..", which must be resolved the same way the classloader resolves it.
+            Assertions.assertThrows(IllegalArgumentException.class, () ->
+                    JdbcResource.getFullDriverUrl("file:///opt/doris/jdbc_drivers/%2e%2e/%2e%2e/etc/x.jar"));
+        } finally {
+            Config.jdbc_driver_secure_path = saved;
+        }
+    }
+
+    @Test
+    public void testSecurePathRejectsRemoteQueryMismatch() {
+        String saved = Config.jdbc_driver_secure_path;
+        try {
+            Config.jdbc_driver_secure_path = "http://good.com/drivers";
+            // A query-bearing URL must not be authorized by a query-less allowed prefix.
+            Assertions.assertThrows(IllegalArgumentException.class, () ->
+                    JdbcResource.getFullDriverUrl("http://good.com/drivers/x.jar?id=evil"));
+        } finally {
+            Config.jdbc_driver_secure_path = saved;
+        }
+    }
+
+    @Test
+    public void testSecurePathRejectsRemoteUserInfoMismatch() {
+        String saved = Config.jdbc_driver_secure_path;
+        try {
+            Config.jdbc_driver_secure_path = "http://good.com/drivers";
+            Assertions.assertThrows(IllegalArgumentException.class, () ->
+                    JdbcResource.getFullDriverUrl("http://user@good.com/drivers/x.jar"));
+        } finally {
+            Config.jdbc_driver_secure_path = saved;
+        }
+    }
+
+    @Test
+    public void testSchemelessLegacyCharsAccepted() {
+        // The shared resolver is on the lazy load path of pre-existing catalogs, so it applies no new
+        // restriction: a bare name using historically valid characters (e.g. '+') must keep resolving,
+        // so an unmodified historical catalog is not broken after upgrade. The stricter bare-name
+        // grammar applies only when a catalog is created or altered (enforced in the JDBC connector).
+        String savedDir = Config.jdbc_drivers_dir;
+        try {
+            Config.jdbc_drivers_dir = "/opt/doris/jdbc_drivers";
+            Assertions.assertEquals("file:///opt/doris/jdbc_drivers/legacy+patched.jar",
+                    JdbcResource.getFullDriverUrl("legacy+patched.jar"));
+        } finally {
+            Config.jdbc_drivers_dir = savedDir;
+        }
+    }
+
+    @Test
+    public void testSecurePathRejectsFileAuthority() {
+        String saved = Config.jdbc_driver_secure_path;
+        try {
+            Config.jdbc_driver_secure_path = "file:///opt/doris/jdbc_drivers";
+            // A non-local authority makes consumers fetch a remote object though the path matches.
+            Assertions.assertThrows(IllegalArgumentException.class, () ->
+                    JdbcResource.getFullDriverUrl("file://attacker.example/opt/doris/jdbc_drivers/evil.jar"));
+        } finally {
+            Config.jdbc_driver_secure_path = saved;
+        }
+    }
+
+    @Test
+    public void testSecurePathRejectsFileQuery() {
+        String saved = Config.jdbc_driver_secure_path;
+        try {
+            Config.jdbc_driver_secure_path = "file:///opt/doris/jdbc_drivers";
+            Assertions.assertThrows(IllegalArgumentException.class, () ->
+                    JdbcResource.getFullDriverUrl("file:///opt/doris/jdbc_drivers/x.jar?evil"));
+        } finally {
+            Config.jdbc_driver_secure_path = saved;
+        }
+    }
+
+    @Test
+    public void testEmptySecurePathAllowsAll() {
+        String saved = Config.jdbc_driver_secure_path;
+        try {
+            // Empty means allow-all, same as "*" (backward-compatible contract).
+            Config.jdbc_driver_secure_path = "";
+            String url = "file:///opt/doris/jdbc_drivers/x.jar";
+            Assertions.assertDoesNotThrow(() -> Assertions.assertEquals(url, JdbcResource.getFullDriverUrl(url)));
+        } finally {
+            Config.jdbc_driver_secure_path = saved;
+        }
     }
 }

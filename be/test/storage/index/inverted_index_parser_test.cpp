@@ -263,29 +263,28 @@ TEST_F(InvertedIndexParserTest, TestGetAnalyzerNameFromProperties) {
     EXPECT_EQ(get_analyzer_name_from_properties(properties), "another_analyzer");
 }
 
-TEST_F(InvertedIndexParserTest, TestInvertedIndexAnalyzerCtxShouldTokenize) {
+TEST_F(InvertedIndexParserTest, TestInvertedIndexAnalyzerCtxRequiresAnalysis) {
     InvertedIndexAnalyzerCtx ctx;
 
-    // New design: should_tokenize() only depends on parser_type
-    // PARSER_NONE means no tokenization (keyword index)
+    // PARSER_NONE without a custom analyzer uses raw string matching.
     ctx.parser_type = InvertedIndexParserType::PARSER_NONE;
     ctx.analyzer_name.clear();
-    EXPECT_FALSE(ctx.should_tokenize());
+    EXPECT_FALSE(ctx.requires_analysis());
 
     // Any parser other than NONE means tokenization
     ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
-    EXPECT_TRUE(ctx.should_tokenize());
+    EXPECT_TRUE(ctx.requires_analysis());
 
     ctx.parser_type = InvertedIndexParserType::PARSER_CHINESE;
-    EXPECT_TRUE(ctx.should_tokenize());
+    EXPECT_TRUE(ctx.requires_analysis());
 
     ctx.parser_type = InvertedIndexParserType::PARSER_STANDARD;
-    EXPECT_TRUE(ctx.should_tokenize());
+    EXPECT_TRUE(ctx.requires_analysis());
 
-    // Even with custom_analyzer name, PARSER_NONE means no tokenization
+    // A custom analyzer must execute even when its legacy parser type is NONE.
     ctx.parser_type = InvertedIndexParserType::PARSER_NONE;
     ctx.analyzer_name = "custom_analyzer";
-    EXPECT_FALSE(ctx.should_tokenize());
+    EXPECT_TRUE(ctx.requires_analysis());
 }
 
 // Test constants
@@ -369,13 +368,12 @@ TEST_F(InvertedIndexParserTest, NormalizeAnalyzerKey_AlreadyLowercase) {
 
 // ============================================================================
 // build_analyzer_key_from_properties Tests
-// New design: returns actual parser/analyzer name, empty means no properties
+// New design: returns the physical analyzer key; raw indexes use "none".
 // ============================================================================
 
 TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_EmptyProperties) {
     std::map<std::string, std::string> properties;
-    // Empty properties = empty key (no explicit configuration)
-    EXPECT_EQ(build_analyzer_key_from_properties(properties), "");
+    EXPECT_EQ(build_analyzer_key_from_properties(properties), "none");
 }
 
 TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_CustomAnalyzer) {
@@ -388,6 +386,12 @@ TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_CustomAnalyzerUpp
     std::map<std::string, std::string> properties;
     properties[INVERTED_INDEX_ANALYZER_NAME_KEY] = "MY_CUSTOM";
     EXPECT_EQ(build_analyzer_key_from_properties(properties), "my_custom");
+}
+
+TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_Normalizer) {
+    std::map<std::string, std::string> properties;
+    properties[INVERTED_INDEX_NORMALIZER_NAME_KEY] = "MY_NORMALIZER";
+    EXPECT_EQ(build_analyzer_key_from_properties(properties), "my_normalizer");
 }
 
 TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_ParserKey) {
@@ -418,64 +422,104 @@ TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_CustomOverridesPa
     EXPECT_EQ(build_analyzer_key_from_properties(properties), "my_custom");
 }
 
+TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_NormalizerOverridesParser) {
+    std::map<std::string, std::string> properties;
+    properties[INVERTED_INDEX_NORMALIZER_NAME_KEY] = "MY_NORMALIZER";
+    properties[INVERTED_INDEX_PARSER_KEY] = "chinese";
+
+    EXPECT_EQ(build_analyzer_key_from_properties(properties), "my_normalizer");
+}
+
+TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_AnalyzerOverridesNormalizer) {
+    std::map<std::string, std::string> properties;
+    properties[INVERTED_INDEX_ANALYZER_NAME_KEY] = "MY_ANALYZER";
+    properties[INVERTED_INDEX_NORMALIZER_NAME_KEY] = "MY_NORMALIZER";
+    properties[INVERTED_INDEX_PARSER_KEY] = "chinese";
+
+    EXPECT_EQ(build_analyzer_key_from_properties(properties), "my_analyzer");
+}
+
 // ============================================================================
 // AnalyzerConfigParser Tests
 // ============================================================================
 
 TEST_F(InvertedIndexParserTest, AnalyzerConfigParser_EmptyInput) {
     auto config = AnalyzerConfigParser::parse("", "");
-    // New design: empty input gives empty analyzer_key (means "user did not specify")
+    // Empty selection keeps the legacy default analyzer execution semantics.
     EXPECT_EQ(config.analyzer_key, "");
-    EXPECT_EQ(config.parser_type, InvertedIndexParserType::PARSER_NONE);
-    EXPECT_TRUE(config.custom_analyzer.empty());
-    EXPECT_FALSE(config.is_custom());
+    EXPECT_EQ(config.parser_type, InvertedIndexParserType::PARSER_UNKNOWN);
+    EXPECT_TRUE(config.provider_name.empty());
+    EXPECT_FALSE(config.uses_provider());
 }
 
 TEST_F(InvertedIndexParserTest, AnalyzerConfigParser_OnlyAnalyzerCustom) {
     auto config = AnalyzerConfigParser::parse("my_custom_analyzer", "");
-    EXPECT_EQ(config.custom_analyzer, "my_custom_analyzer");
+    EXPECT_EQ(config.provider_name, "my_custom_analyzer");
     EXPECT_EQ(config.analyzer_key, "my_custom_analyzer");
     EXPECT_EQ(config.parser_type, InvertedIndexParserType::PARSER_NONE);
-    EXPECT_TRUE(config.is_custom());
+    EXPECT_TRUE(config.uses_provider());
 }
 
 TEST_F(InvertedIndexParserTest, AnalyzerConfigParser_OnlyAnalyzerBuiltin) {
     auto config = AnalyzerConfigParser::parse("chinese", "");
-    EXPECT_TRUE(config.custom_analyzer.empty());
+    EXPECT_TRUE(config.provider_name.empty());
     EXPECT_EQ(config.analyzer_key, "chinese");
     EXPECT_EQ(config.parser_type, InvertedIndexParserType::PARSER_CHINESE);
-    EXPECT_FALSE(config.is_custom());
+    EXPECT_FALSE(config.uses_provider());
 }
 
 TEST_F(InvertedIndexParserTest, AnalyzerConfigParser_OnlyParserTypeStr) {
     auto config = AnalyzerConfigParser::parse("", "standard");
-    EXPECT_TRUE(config.custom_analyzer.empty());
-    EXPECT_EQ(config.analyzer_key, "standard");
+    EXPECT_TRUE(config.provider_name.empty());
+    EXPECT_TRUE(config.analyzer_key.empty());
     EXPECT_EQ(config.parser_type, InvertedIndexParserType::PARSER_STANDARD);
-    EXPECT_FALSE(config.is_custom());
+    EXPECT_FALSE(config.uses_provider());
+
+    config = AnalyzerConfigParser::parse("", "none");
+    EXPECT_TRUE(config.provider_name.empty());
+    EXPECT_TRUE(config.analyzer_key.empty());
+    EXPECT_EQ(config.parser_type, InvertedIndexParserType::PARSER_NONE);
+    EXPECT_FALSE(config.uses_provider());
 }
 
 TEST_F(InvertedIndexParserTest, AnalyzerConfigParser_BothAnalyzerAndParser) {
-    // parser_type_str takes precedence for determining parser_type
+    // A non-empty analyzer name takes precedence over the parser fallback.
     auto config = AnalyzerConfigParser::parse("ik", "chinese");
-    EXPECT_TRUE(config.custom_analyzer.empty());
-    EXPECT_EQ(config.parser_type, InvertedIndexParserType::PARSER_CHINESE);
-    EXPECT_EQ(config.analyzer_key, "ik"); // analyzer_name used for key
+    EXPECT_TRUE(config.provider_name.empty());
+    EXPECT_EQ(config.parser_type, InvertedIndexParserType::PARSER_IK);
+    EXPECT_EQ(config.analyzer_key, "ik");
+}
+
+TEST_F(InvertedIndexParserTest, AnalyzerConfigParser_AnalyzerNameOverridesParserFallback) {
+    auto config = AnalyzerConfigParser::parse("none", "english");
+    EXPECT_TRUE(config.provider_name.empty());
+    EXPECT_EQ(config.parser_type, InvertedIndexParserType::PARSER_NONE);
+    EXPECT_EQ(config.analyzer_key, "none");
+
+    config = AnalyzerConfigParser::parse("ik", "chinese");
+    EXPECT_TRUE(config.provider_name.empty());
+    EXPECT_EQ(config.parser_type, InvertedIndexParserType::PARSER_IK);
+    EXPECT_EQ(config.analyzer_key, "ik");
+
+    config = AnalyzerConfigParser::parse("customer_analyzer", "english");
+    EXPECT_EQ(config.provider_name, "customer_analyzer");
+    EXPECT_EQ(config.parser_type, InvertedIndexParserType::PARSER_NONE);
+    EXPECT_EQ(config.analyzer_key, "customer_analyzer");
 }
 
 TEST_F(InvertedIndexParserTest, AnalyzerConfigParser_CaseInsensitive) {
     auto config = AnalyzerConfigParser::parse("CHINESE", "");
-    EXPECT_TRUE(config.custom_analyzer.empty());
+    EXPECT_TRUE(config.provider_name.empty());
     EXPECT_EQ(config.analyzer_key, "chinese");
     EXPECT_EQ(config.parser_type, InvertedIndexParserType::PARSER_CHINESE);
 }
 
 TEST_F(InvertedIndexParserTest, AnalyzerConfigParser_UnknownAnalyzerAsCustom) {
     auto config = AnalyzerConfigParser::parse("unknown_xyz", "");
-    EXPECT_EQ(config.custom_analyzer, "unknown_xyz");
+    EXPECT_EQ(config.provider_name, "unknown_xyz");
     EXPECT_EQ(config.analyzer_key, "unknown_xyz");
     EXPECT_EQ(config.parser_type, InvertedIndexParserType::PARSER_NONE);
-    EXPECT_TRUE(config.is_custom());
+    EXPECT_TRUE(config.uses_provider());
 }
 
 TEST_F(InvertedIndexParserTest, AnalyzerConfigParser_AllBuiltinTypes) {
@@ -494,8 +538,8 @@ TEST_F(InvertedIndexParserTest, AnalyzerConfigParser_AllBuiltinTypes) {
     for (const auto& [name, expected_type] : builtin_types) {
         auto config = AnalyzerConfigParser::parse(name, "");
         EXPECT_EQ(config.parser_type, expected_type) << "Failed for: " << name;
-        EXPECT_TRUE(config.custom_analyzer.empty()) << "Failed for: " << name;
-        EXPECT_FALSE(config.is_custom()) << "Failed for: " << name;
+        EXPECT_TRUE(config.provider_name.empty()) << "Failed for: " << name;
+        EXPECT_FALSE(config.uses_provider()) << "Failed for: " << name;
     }
 }
 

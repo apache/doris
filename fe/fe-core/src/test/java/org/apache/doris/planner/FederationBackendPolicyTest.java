@@ -21,9 +21,9 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.datasource.FederationBackendPolicy;
-import org.apache.doris.datasource.FileSplit;
-import org.apache.doris.datasource.NodeSelectionStrategy;
+import org.apache.doris.datasource.scan.FederationBackendPolicy;
+import org.apache.doris.datasource.scan.NodeSelectionStrategy;
+import org.apache.doris.datasource.split.FileSplit;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
@@ -32,12 +32,10 @@ import org.apache.doris.system.SystemInfoService;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Multimap;
-import org.apache.hadoop.fs.Path;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -57,14 +55,14 @@ public class FederationBackendPolicyTest {
     private Env env = Mockito.mock(Env.class);
     private MockedStatic<Env> mockedEnvStatic;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         mockedEnvStatic = Mockito.mockStatic(Env.class);
         mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
         Mockito.when(env.getEditLog()).thenReturn(Mockito.mock(org.apache.doris.persist.EditLog.class));
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         mockedEnvStatic.close();
     }
@@ -155,17 +153,17 @@ public class FederationBackendPolicyTest {
             for (Split split : assignedSplits) {
                 FileSplit fileSplit = (FileSplit) split;
                 ++totalSplitNum;
-                if (fileSplit.getPath().getPath().equals(new Path("hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00000-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"))) {
-                    Assert.assertEquals("172.30.0.100", backend.getHost());
+                if (fileSplit.getPath().getNormalizedLocation().equals("hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00000-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc")) {
+                    Assertions.assertEquals("172.30.0.100", backend.getHost());
                     checkedLocalSplit.add(true);
-                } else if (fileSplit.getPath().getPath().equals(new Path("hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00003-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc"))) {
-                    Assert.assertEquals("172.30.0.106", backend.getHost());
+                } else if (fileSplit.getPath().getNormalizedLocation().equals("hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00003-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc")) {
+                    Assertions.assertEquals("172.30.0.106", backend.getHost());
                     checkedLocalSplit.add(true);
                 }
             }
         }
-        Assert.assertEquals(2, checkedLocalSplit.size());
-        Assert.assertEquals(8, totalSplitNum);
+        Assertions.assertEquals(2, checkedLocalSplit.size());
+        Assertions.assertEquals(8, totalSplitNum);
 
         int maxAssignedSplitNum = Integer.MIN_VALUE;
         int minAssignedSplitNum = Integer.MAX_VALUE;
@@ -184,7 +182,7 @@ public class FederationBackendPolicyTest {
             }
             System.out.printf("%s -> %d splits, %d bytes\n", backend, assignedSplits.size(), scanBytes);
         }
-        Assert.assertTrue(Math.abs(maxAssignedSplitNum - minAssignedSplitNum) <= Config.split_assigner_max_split_num_variance);
+        Assertions.assertTrue(Math.abs(maxAssignedSplitNum - minAssignedSplitNum) <= Config.split_assigner_max_split_num_variance);
 
     }
 
@@ -240,7 +238,7 @@ public class FederationBackendPolicyTest {
             }
             System.out.printf("%s -> %d splits, %d bytes\n", backend, assignedSplits.size(), scanBytes);
         }
-        Assert.assertTrue(Math.abs(maxAssignedSplitNum - minAssignedSplitNum) <= Config.split_assigner_max_split_num_variance);
+        Assertions.assertTrue(Math.abs(maxAssignedSplitNum - minAssignedSplitNum) <= Config.split_assigner_max_split_num_variance);
 
     }
 
@@ -357,15 +355,15 @@ public class FederationBackendPolicyTest {
                     ++totalSplitNum;
                     if (fileSplit.getHosts() != null && fileSplit.getHosts().length > 0) {
                         for (String host : fileSplit.getHosts()) {
-                            Assert.assertTrue(totalLocalHosts.contains(host));
+                            Assertions.assertTrue(totalLocalHosts.contains(host));
                         }
                     }
                 }
                 System.out.printf("%s -> %d splits, %d bytes\n", backend, assignedSplits.size(), scanBytes);
             }
-            Assert.assertEquals(totalSplits.size(), totalSplitNum);
+            Assertions.assertEquals(totalSplits.size(), totalSplitNum);
 
-            Assert.assertTrue(Math.abs(maxAssignedSplitNum - minAssignedSplitNum) <= Config.split_assigner_max_split_num_variance);
+            Assertions.assertTrue(Math.abs(maxAssignedSplitNum - minAssignedSplitNum) <= Config.split_assigner_max_split_num_variance);
         }
     }
 
@@ -471,15 +469,15 @@ public class FederationBackendPolicyTest {
                     ++totalSplitNum;
                     if (fileSplit.getHosts() != null && fileSplit.getHosts().length > 0) {
                         for (String host : fileSplit.getHosts()) {
-                            Assert.assertTrue(totalLocalHosts.contains(host));
+                            Assertions.assertTrue(totalLocalHosts.contains(host));
                         }
                     }
                 }
                 System.out.printf("%s -> %d splits, %d bytes\n", backend, assignedSplits.size(), scanBytes);
             }
-            Assert.assertEquals(totalSplits.size(), totalSplitNum);
+            Assertions.assertEquals(totalSplits.size(), totalSplitNum);
 
-            Assert.assertTrue(Math.abs(maxAssignedSplitNum - minAssignedSplitNum) <= Config.split_assigner_max_split_num_variance);
+            Assertions.assertTrue(Math.abs(maxAssignedSplitNum - minAssignedSplitNum) <= Config.split_assigner_max_split_num_variance);
         }
     }
 
@@ -663,13 +661,29 @@ public class FederationBackendPolicyTest {
         fileSplit.setSelfSplitWeight(1000L);
 
         fileSplit.setTargetSplitSize(10L);
-        Assert.assertEquals(100L, fileSplit.getSplitWeight().getRawValue(), 100L);
+        Assertions.assertEquals(100L, fileSplit.getSplitWeight().getRawValue(), 100L);
 
         fileSplit.setTargetSplitSize(10000000L);
-        Assert.assertEquals(1L, fileSplit.getSplitWeight().getRawValue());
+        Assertions.assertEquals(1L, fileSplit.getSplitWeight().getRawValue());
 
         fileSplit.setTargetSplitSize(2000L);
-        Assert.assertEquals(50, fileSplit.getSplitWeight().getRawValue());
+        Assertions.assertEquals(50, fileSplit.getSplitWeight().getRawValue());
+    }
+
+    // Regression for the NPE in testGenerateRandomly: FileSplit is Lombok @Data, whose generated
+    // equals()/hashCode() invoke getSelfSplitWeight(). A split that never sets a size-based weight
+    // leaves selfSplitWeight null, so the getter must surface the "-1 = not provided" sentinel
+    // instead of unboxing null (which threw NPE during the multimap comparison).
+    @Test
+    public void testFileSplitEqualsHashCodeWithUnsetWeight() {
+        LocationPath path = LocationPath.of("s1");
+        // Two distinct instances that share the same LocationPath are field-equal, so equals()
+        // proceeds past the identity short-circuit and exercises getSelfSplitWeight().
+        FileSplit a = new FileSplit(path, 0, 1000, 1000, 0, null, Collections.emptyList());
+        FileSplit b = new FileSplit(path, 0, 1000, 1000, 0, null, Collections.emptyList());
+        Assertions.assertEquals(-1L, a.getSelfSplitWeight());
+        Assertions.assertEquals(a, b);
+        Assertions.assertEquals(a.hashCode(), b.hashCode());
     }
 
     @Test
@@ -706,9 +720,9 @@ public class FederationBackendPolicyTest {
         Map<Backend, List<Split>> backendListMap = mergeAssignment(assignment);
         backendListMap.forEach((k, v) -> {
             if (k.getId() == 1) {
-                Assert.assertEquals(800000, v.stream().mapToLong(Split::getLength).sum());
+                Assertions.assertEquals(800000, v.stream().mapToLong(Split::getLength).sum());
             } else if (k.getId() == 2) {
-                Assert.assertEquals(1600000, v.stream().mapToLong(Split::getLength).sum());
+                Assertions.assertEquals(1600000, v.stream().mapToLong(Split::getLength).sum());
             }
         });
 
@@ -719,11 +733,11 @@ public class FederationBackendPolicyTest {
         Map<Backend, List<Split>> backendListMap2 = mergeAssignment(assignment2);
         backendListMap2.forEach((k, v) -> {
             if (k.getId() == 1) {
-                Assert.assertEquals(1000000L, v.stream().mapToLong(Split::getLength).sum());
+                Assertions.assertEquals(1000000L, v.stream().mapToLong(Split::getLength).sum());
             } else if (k.getId() == 2) {
-                Assert.assertEquals(400000L, v.stream().mapToLong(Split::getLength).sum());
+                Assertions.assertEquals(400000L, v.stream().mapToLong(Split::getLength).sum());
             } else if (k.getId() == 3) {
-                Assert.assertEquals(1000000L, v.stream().mapToLong(Split::getLength).sum());
+                Assertions.assertEquals(1000000L, v.stream().mapToLong(Split::getLength).sum());
             }
         });
     }

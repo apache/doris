@@ -132,9 +132,21 @@ if [[ ${enable_hdfs} -eq 1 ]]; then
 
     if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
         # add hadoop libs
+        HADOOP_DEPS_JAR=
         for f in "${DORIS_HOME}/lib/hadoop_hdfs"/*.jar; do
+            if [[ "${f}" == *"/hadoop-deps"*".jar" ]]; then
+                HADOOP_DEPS_JAR="${f}"
+                continue
+            fi
             DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
         done
+        # hadoop-deps carries Doris-patched hadoop classes (org.apache.hadoop.fs.FileSystem with
+        # the credential-aware doris.fs.cache.key cache key). It must precede the vanilla hadoop
+        # jars in this same directory, which the glob above would otherwise order ahead of it
+        # ("hadoop-common-x.y.z.jar" sorts before "hadoop-deps.jar").
+        if [[ -n "${HADOOP_DEPS_JAR}" ]]; then
+            DORIS_CLASSPATH="${HADOOP_DEPS_JAR}:${DORIS_CLASSPATH}"
+        fi
     fi
 
     # and conf/ dir so that hadoop libhdfs can read .xml config file in conf/

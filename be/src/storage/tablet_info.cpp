@@ -42,6 +42,7 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type_serde/data_type_timestamp_ns_serde.h"
 #include "core/value/large_int_value.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
@@ -59,6 +60,15 @@
 #include "exprs/vliteral.h"
 
 namespace doris {
+
+const OlapTableIndexSchema* OlapTableSchemaParam::row_binlog_index_schema(int64_t index_id) const {
+    for (auto* schema : _row_binlog_index_schemas) {
+        if (schema->index_id == index_id) {
+            return schema;
+        }
+    }
+    return nullptr;
+}
 
 void OlapTableIndexSchema::to_protobuf(POlapTableIndexSchema* pindex) const {
     pindex->set_id(index_id);
@@ -225,8 +235,7 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         _indexes.emplace_back(index);
     }
 
-    if (pschema.has_row_binlog_index_schema()) {
-        const auto& p_index = pschema.row_binlog_index_schema();
+    for (const auto& p_index : pschema.row_binlog_index_schemas()) {
         auto* index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = p_index.id();
         index->schema_hash = p_index.schema_hash();
@@ -243,7 +252,7 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
             ti->init_from_pb(pindex_desc);
             index->indexes.emplace_back(ti);
         }
-        _row_binlog_index_schema = index;
+        _row_binlog_index_schemas.emplace_back(index);
     }
 
     std::sort(_indexes.begin(), _indexes.end(),
@@ -402,20 +411,21 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         _indexes.emplace_back(index);
     }
 
-    if (tschema.__isset.row_binlog_index_schema) {
-        const auto& t_index = tschema.row_binlog_index_schema;
-        auto* index = _obj_pool.add(new OlapTableIndexSchema());
-        index->index_id = t_index.id;
-        index->schema_hash = t_index.schema_hash;
-        if (t_index.__isset.row_binlog_id) {
-            index->row_binlog_id = t_index.row_binlog_id;
+    if (tschema.__isset.row_binlog_index_schemas) {
+        for (const auto& t_index : tschema.row_binlog_index_schemas) {
+            auto* index = _obj_pool.add(new OlapTableIndexSchema());
+            index->index_id = t_index.id;
+            index->schema_hash = t_index.schema_hash;
+            if (t_index.__isset.row_binlog_id) {
+                index->row_binlog_id = t_index.row_binlog_id;
+            }
+            for (const auto& tcolumn_desc : t_index.columns_desc) {
+                TabletColumn* tc = _obj_pool.add(new TabletColumn());
+                tc->init_from_thrift(tcolumn_desc);
+                index->columns.emplace_back(tc);
+            }
+            _row_binlog_index_schemas.emplace_back(index);
         }
-        for (const auto& tcolumn_desc : t_index.columns_desc) {
-            TabletColumn* tc = _obj_pool.add(new TabletColumn());
-            tc->init_from_thrift(tcolumn_desc);
-            index->columns.emplace_back(tc);
-        }
-        _row_binlog_index_schema = index;
     }
 
     std::sort(_indexes.begin(), _indexes.end(),
@@ -452,8 +462,8 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
     for (auto* index : _indexes) {
         index->to_protobuf(pschema->add_indexes());
     }
-    if (_row_binlog_index_schema != nullptr) {
-        _row_binlog_index_schema->to_protobuf(pschema->mutable_row_binlog_index_schema());
+    for (auto* index : _row_binlog_index_schemas) {
+        index->to_protobuf(pschema->add_row_binlog_index_schemas());
     }
 }
 
@@ -637,6 +647,11 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
                 ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
                 return Status::InternalError(ss.str());
             }
+            column->insert_data(reinterpret_cast<const char*>(&dt), 0);
+        } else if (primitive_type == TYPE_TIMESTAMP_NS) {
+            TimeStampNsValue dt;
+            RETURN_IF_ERROR(parse_timestamp_ns(
+                    {t_expr.date_literal.value.data(), t_expr.date_literal.value.size()}, &dt));
             column->insert_data(reinterpret_cast<const char*>(&dt), 0);
         } else if (primitive_type == TYPE_TIMESTAMPTZ) {
             TimestampTzValue res;

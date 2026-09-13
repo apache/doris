@@ -1152,7 +1152,8 @@ public:
         return Status::OK();
     }
 
-    static Status clean_udf_class_load_cache(const std::string& function_signature);
+    static Status clean_udf_class_load_cache(const std::string& function_signature,
+                                             int64_t function_id);
 
     static Status Init();
 

@@ -17,38 +17,32 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchemaInitializer;
-import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.mysql.MysqlChannel;
-import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.common.Status;
+import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
-import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
-import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
-import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
-import org.mockito.invocation.InvocationOnMock;
-import org.mockito.stubbing.Answer;
 
-import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.nio.ByteBuffer;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class StmtExecutorTest extends TestWithFeService {
+    private static final String AI_RESOURCE_LOG_SECRET = "sk-test-secret";
+    private static final String MASKED_STMT_FALLBACK = "/* masked statement unavailable */";
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -70,7 +64,43 @@ public class StmtExecutorTest extends TestWithFeService {
     public void testShowNull() throws Exception {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+    }
+
+    // The deferral gate (#67503): a coordinator is kept alive past GetFlightInfo only when the BE
+    // still fetches splits from it (Coordinator.hasBatchSplitSource), and the execution timeout it
+    // ran with is frozen at that moment. SET_VAR hint values are reverted when execute() ends, so
+    // the idle reaper must not read the session value later.
+    @Test
+    public void testDeferForArrowFlightFreezesExecTimeoutInEffect() throws Exception {
+        // Only an Arrow Flight SQL session defers a query's coordinator.
+        ConnectContext flightContext = ConnectContext.forFlight("test-peer-identity");
+        flightContext.setCurrentUserIdentity(connectContext.getCurrentUserIdentity());
+        flightContext.setEnv(connectContext.getEnv());
+        int savedIdleTimeout = Config.arrow_flight_deferred_query_idle_timeout_second;
+        flightContext.setQueryId(new TUniqueId(0x67503L, 0x1L));
+        try {
+            Config.arrow_flight_deferred_query_idle_timeout_second = 1;
+            flightContext.getSessionVariable().setQueryTimeoutS(1234);
+            StmtExecutor stmtExecutor = new StmtExecutor(flightContext,
+                    analyzeAndGetStmtByNereids("select 1", flightContext));
+            Assertions.assertFalse(stmtExecutor.isDeferredForArrowFlight());
+            Assertions.assertEquals(-1, stmtExecutor.getDeferredExecTimeoutS());
+
+            stmtExecutor.deferForArrowFlight();
+
+            Assertions.assertTrue(stmtExecutor.isDeferredForArrowFlight());
+            Assertions.assertEquals(1234, stmtExecutor.getDeferredExecTimeoutS());
+            // the reaper's bound is floored at the frozen value ...
+            Assertions.assertEquals(1234L, flightContext.getFlightSqlDeferredExecutorsIdleTimeoutS());
+            // ... even after the session value moved on, as it does when a SET_VAR hint is reverted
+            flightContext.getSessionVariable().setQueryTimeoutS(5);
+            Assertions.assertEquals(1234, stmtExecutor.getDeferredExecTimeoutS());
+            Assertions.assertEquals(1234L, flightContext.getFlightSqlDeferredExecutorsIdleTimeoutS());
+        } finally {
+            flightContext.closeFlightSqlDeferredExecutors();
+            Config.arrow_flight_deferred_query_idle_timeout_second = savedIdleTimeout;
+        }
     }
 
     // Arrow Flight SQL keeps a query's coordinator alive across GetFlightInfo -> DoGet (see #62259);
@@ -92,47 +122,47 @@ public class StmtExecutorTest extends TestWithFeService {
 
         // Simulate the in-flight query whose results DoGet is still pulling.
         QeProcessorImpl.INSTANCE.registerQuery(queryId, new QeProcessorImpl.QueryInfo(coord));
-        Assert.assertNotNull(QeProcessorImpl.INSTANCE.getCoordinator(queryId));
+        Assertions.assertNotNull(QeProcessorImpl.INSTANCE.getCoordinator(queryId));
 
         try {
             stmtExecutor.finalizeArrowFlightQuery();
-            Assert.fail("expected coord.close() failure to propagate after the query is unregistered");
+            Assertions.fail("expected coord.close() failure to propagate after the query is unregistered");
         } catch (RuntimeException e) {
-            Assert.assertEquals("coord close failed", e.getMessage());
+            Assertions.assertEquals("coord close failed", e.getMessage());
         }
 
         // The coordinator close was attempted (releases SplitSource + query queue slot) ...
         Mockito.verify(coord).close();
         // ... and despite it failing, the query registration was still released (no leak).
-        Assert.assertNull(QeProcessorImpl.INSTANCE.getCoordinator(queryId));
+        Assertions.assertNull(QeProcessorImpl.INSTANCE.getCoordinator(queryId));
     }
 
     @Test
     public void testKill() throws Exception {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test
     public void testKillOtherFail() throws Exception {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "kill 1000");
         stmtExecutor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
     }
 
     @Test
     public void testKillNoCtx() throws Exception {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "kill 1");
         stmtExecutor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
     }
 
     @Test
     public void testSet() throws Exception {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test
@@ -144,35 +174,35 @@ public class StmtExecutorTest extends TestWithFeService {
                 + "                + \"   \\\"catalog\\\" = \\\"kafka\\\"\\n\"\n"
                 + "                + \");");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
     }
 
     @Test
     public void testUse() throws Exception {
         StmtExecutor executor = new StmtExecutor(connectContext, "use testDb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test
     public void testUseFail() throws Exception {
         StmtExecutor executor = new StmtExecutor(connectContext, "use nondb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
     }
 
     @Test
     public void testUseWithCatalog() throws Exception {
         StmtExecutor executor = new StmtExecutor(connectContext, "use internal.testDb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test
     public void testUseWithCatalogFail() throws Exception {
         StmtExecutor executor = new StmtExecutor(connectContext, "use internal.nondb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
     }
 
     @Test
@@ -191,7 +221,7 @@ public class StmtExecutorTest extends TestWithFeService {
         } catch (Exception ignore) {
             // do nothing
             ignore.printStackTrace();
-            Assert.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
+            Assertions.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
         }
 
         Config.block_sql_ast_names = "AlterStmt, CreateFileCommand";
@@ -203,7 +233,7 @@ public class StmtExecutorTest extends TestWithFeService {
             executor.execute();
         } catch (Exception ignore) {
             ignore.printStackTrace();
-            Assert.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
+            Assertions.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
         }
 
         Config.block_sql_ast_names = "CreateFunctionStmt, CreateFileCommand";
@@ -218,153 +248,18 @@ public class StmtExecutorTest extends TestWithFeService {
             executor.execute();
         } catch (Exception ignore) {
             ignore.printStackTrace();
-            Assert.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
+            Assertions.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
         }
 
         executor = new StmtExecutor(connectContext, "use testDb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
 
         Config.block_sql_ast_names = "";
         StmtExecutor.initBlockSqlAstNames();
         executor = new StmtExecutor(connectContext, "use testDb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
-    }
-
-    @Test
-    public void testSendTextResultRow() throws IOException {
-        ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
-        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
-        Mockito.when(mockCtx.getConnectType()).thenReturn(ConnectType.MYSQL);
-        Mockito.when(mockCtx.getMysqlChannel()).thenReturn(channel);
-        MysqlSerializer mysqlSerializer = MysqlSerializer.newInstance();
-        Mockito.when(channel.getSerializer()).thenReturn(mysqlSerializer);
-        SessionVariable sessionVariable = VariableMgr.newSessionVariable();
-        Mockito.when(mockCtx.getSessionVariable()).thenReturn(sessionVariable);
-        OriginStatement stmt = new OriginStatement("", 1);
-
-        List<List<String>> rows = Lists.newArrayList();
-        List<String> row1 = Lists.newArrayList();
-        row1.add(null);
-        row1.add("row1");
-        List<String> row2 = Lists.newArrayList();
-        row2.add("1234");
-        row2.add("row2");
-        rows.add(row1);
-        rows.add(row2);
-        List<Column> columns = Lists.newArrayList();
-        columns.add(new Column());
-        columns.add(new Column());
-        ResultSet resultSet = new CommonResultSet(new CommonResultSetMetaData(columns), rows);
-        AtomicInteger i = new AtomicInteger();
-        Mockito.doAnswer(new Answer<Void>() {
-            @Override
-            public Void answer(InvocationOnMock invocation) {
-                byte[] expected0 = new byte[] {-5, 4, 114, 111, 119, 49};
-                byte[] expected1 = new byte[] {4, 49, 50, 51, 52, 4, 114, 111, 119, 50};
-                ByteBuffer buffer = invocation.getArgument(0);
-                if (i.get() == 0) {
-                    Assertions.assertArrayEquals(expected0, buffer.array());
-                    i.getAndIncrement();
-                } else if (i.get() == 1) {
-                    Assertions.assertArrayEquals(expected1, buffer.array());
-                    i.getAndIncrement();
-                }
-                return null;
-            }
-        }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
-
-        StmtExecutor executor = new StmtExecutor(mockCtx, stmt, false);
-        executor.sendTextResultRow(resultSet);
-    }
-
-    @Test
-    public void testSendBinaryResultRow() throws IOException {
-        ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
-        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
-        Mockito.when(mockCtx.getConnectType()).thenReturn(ConnectType.MYSQL);
-        Mockito.when(mockCtx.getMysqlChannel()).thenReturn(channel);
-        MysqlSerializer mysqlSerializer = MysqlSerializer.newInstance();
-        Mockito.when(channel.getSerializer()).thenReturn(mysqlSerializer);
-        SessionVariable sessionVariable = VariableMgr.newSessionVariable();
-        Mockito.when(mockCtx.getSessionVariable()).thenReturn(sessionVariable);
-        OriginStatement stmt = new OriginStatement("", 1);
-
-        List<List<String>> rows = Lists.newArrayList();
-        List<String> row1 = Lists.newArrayList();
-        row1.add(null);
-        row1.add("2025-01-01 01:02:03");
-        List<String> row2 = Lists.newArrayList();
-        row2.add("1234");
-        row2.add("2025-01-01 01:02:03.123456");
-        rows.add(row1);
-        rows.add(row2);
-        List<Column> columns = Lists.newArrayList();
-        columns.add(new Column("col1", PrimitiveType.BIGINT));
-        columns.add(new Column("col2", PrimitiveType.DATETIMEV2));
-        ResultSet resultSet = new CommonResultSet(new CommonResultSetMetaData(columns), rows);
-        AtomicInteger i = new AtomicInteger();
-        Mockito.doAnswer(new Answer<Void>() {
-            @Override
-            public Void answer(InvocationOnMock invocation) {
-                byte[] expected0 = new byte[] {0, 4, 7, -23, 7, 1, 1, 1, 2, 3};
-                byte[] expected1 = new byte[] {0, 0, -46, 4, 0, 0, 0, 0, 0, 0, 11, -23, 7, 1, 1, 1, 2, 3,
-                        64, -30, 1, 0};
-                ByteBuffer buffer = invocation.getArgument(0);
-                if (i.get() == 0) {
-                    Assertions.assertArrayEquals(expected0, buffer.array());
-                    i.getAndIncrement();
-                } else if (i.get() == 1) {
-                    Assertions.assertArrayEquals(expected1, buffer.array());
-                    i.getAndIncrement();
-                }
-                return null;
-            }
-        }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
-
-        StmtExecutor executor = new StmtExecutor(mockCtx, stmt, false);
-        executor.sendBinaryResultRow(resultSet);
-    }
-
-    @Test
-    public void testSendBinaryBooleanResultRow() throws IOException {
-        ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
-        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
-        Mockito.when(mockCtx.getConnectType()).thenReturn(ConnectType.MYSQL);
-        Mockito.when(mockCtx.getMysqlChannel()).thenReturn(channel);
-        MysqlSerializer mysqlSerializer = MysqlSerializer.newInstance();
-        Mockito.when(channel.getSerializer()).thenReturn(mysqlSerializer);
-        SessionVariable sessionVariable = VariableMgr.newSessionVariable();
-        Mockito.when(mockCtx.getSessionVariable()).thenReturn(sessionVariable);
-        OriginStatement stmt = new OriginStatement("", 1);
-
-        List<List<String>> rows = Lists.newArrayList();
-        rows.add(Lists.newArrayList("false"));
-        rows.add(Lists.newArrayList("1"));
-        List<Column> columns = Lists.newArrayList();
-        columns.add(new Column("col1", PrimitiveType.BOOLEAN));
-        ResultSet resultSet = new CommonResultSet(new CommonResultSetMetaData(columns), rows);
-        AtomicInteger i = new AtomicInteger();
-        Mockito.doAnswer(new Answer<Void>() {
-            @Override
-            public Void answer(InvocationOnMock invocation) {
-                byte[] expected0 = new byte[] {0, 0, 0};
-                byte[] expected1 = new byte[] {0, 0, 1};
-                ByteBuffer buffer = invocation.getArgument(0);
-                if (i.get() == 0) {
-                    Assertions.assertArrayEquals(expected0, buffer.array());
-                    i.getAndIncrement();
-                } else if (i.get() == 1) {
-                    Assertions.assertArrayEquals(expected1, buffer.array());
-                    i.getAndIncrement();
-                }
-                return null;
-            }
-        }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
-
-        StmtExecutor executor = new StmtExecutor(mockCtx, stmt, false);
-        executor.sendBinaryResultRow(resultSet);
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test
@@ -471,5 +366,145 @@ public class StmtExecutorTest extends TestWithFeService {
             connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs = originalPartitionTtl;
             connectContext.getSessionVariable().cloudTableVersionCacheTtlMs = originalTableTtl;
         }
+    }
+
+    @Test
+    public void testEmptyOriginStmtSkipsAuditMaskingReparse() throws Exception {
+        org.apache.doris.nereids.trees.plans.logical.LogicalPlan logicalPlan = Mockito.mock(
+                org.apache.doris.nereids.trees.plans.logical.LogicalPlan.class,
+                Mockito.withSettings().extraInterfaces(
+                        org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption.class));
+        Mockito.doThrow(new AssertionError("empty SQL should not trigger audit masking reparse"))
+                .when((org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption) logicalPlan)
+                .geneEncryptionSQL("");
+
+        org.apache.doris.analysis.StatementBase parsedStmt = new org.apache.doris.nereids.glue.LogicalPlanAdapter(
+                logicalPlan, new org.apache.doris.nereids.StatementContext());
+        parsedStmt.setOrigStmt(new OriginStatement("", 0));
+        StmtExecutor executor = new StmtExecutor(connectContext, parsedStmt);
+
+        // Empty internal SQL must bypass audit masking reparsing in both logging paths.
+        Method getStmtForLogging = StmtExecutor.class.getDeclaredMethod("getStmtForLogging", String.class);
+        getStmtForLogging.setAccessible(true);
+        Assertions.assertEquals("", getStmtForLogging.invoke(executor, ""));
+
+        Method getStmtForLoggingBeforeParse = StmtExecutor.class.getDeclaredMethod("getStmtForLoggingBeforeParse");
+        getStmtForLoggingBeforeParse.setAccessible(true);
+        Assertions.assertEquals("", getStmtForLoggingBeforeParse.invoke(executor));
+    }
+
+    @Test
+    public void testNeedAuditEncryptionStatementLogsMaskedSql() throws Exception {
+        String resourceName = newAiResourceName();
+        boolean originalPrintRequest = Config.enable_print_request_before_execution;
+        Config.enable_print_request_before_execution = true;
+        try (TestLogAppender appender = TestLogAppender.attach(StmtExecutor.class)) {
+            connectContext.getState().reset();
+            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, buildCreateAiResourceSql(resourceName,
+                    AI_RESOURCE_LOG_SECRET));
+            stmtExecutor.execute();
+
+            Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.INFO, AI_RESOURCE_LOG_SECRET));
+            Assertions.assertTrue(appender.contains(org.apache.logging.log4j.Level.INFO, "*XXX"));
+            Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.DEBUG, AI_RESOURCE_LOG_SECRET));
+            Assertions.assertTrue(appender.contains(org.apache.logging.log4j.Level.DEBUG, "*XXX"));
+        } finally {
+            Config.enable_print_request_before_execution = originalPrintRequest;
+        }
+        connectContext.getState().reset();
+        StmtExecutor showExecutor = new StmtExecutor(connectContext, "");
+        showExecutor.execute();
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+    }
+
+    @Test
+    public void testAlterResourceSuccessLogDoesNotPrintResourceObject() throws Exception {
+        String resourceName = newAiResourceName();
+        createResource(buildCreateAiResourceSql(resourceName, AI_RESOURCE_LOG_SECRET));
+        String alterSql = "ALTER RESOURCE \"" + resourceName + "\" PROPERTIES ("
+                + "\"ai.api_key\" = \"sk-updated-secret\")";
+        String fullResourceJson = Env.getCurrentEnv().getResourceMgr().getResource(resourceName).toString();
+
+        try (TestLogAppender appender = TestLogAppender.attach(ResourceMgr.class)) {
+            connectContext.getState().reset();
+            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, alterSql);
+            stmtExecutor.execute();
+
+            Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.INFO, "sk-updated-secret"));
+            Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.INFO, "\"properties\""));
+            Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.INFO, fullResourceJson));
+        }
+    }
+
+    @Test
+    public void testGetStmtForLoggingFailsClosedWhenMaskingThrows() throws Exception {
+        org.apache.doris.nereids.trees.plans.logical.LogicalPlan logicalPlan = Mockito.mock(
+                org.apache.doris.nereids.trees.plans.logical.LogicalPlan.class,
+                Mockito.withSettings().extraInterfaces(
+                        org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption.class));
+        Mockito.doThrow(new IllegalStateException("masking failed"))
+                .when((org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption) logicalPlan)
+                .geneEncryptionSQL(Mockito.anyString());
+
+        org.apache.doris.analysis.StatementBase parsedStmt = new org.apache.doris.nereids.glue.LogicalPlanAdapter(
+                logicalPlan, new org.apache.doris.nereids.StatementContext());
+        parsedStmt.setOrigStmt(new OriginStatement("CREATE EXTERNAL RESOURCE \"ai_resource\" PROPERTIES ("
+                + "\"ai.api_key\" = \"" + AI_RESOURCE_LOG_SECRET + "\")", 0));
+        StmtExecutor executor = new StmtExecutor(connectContext, parsedStmt);
+
+        Method getStmtForLogging = StmtExecutor.class.getDeclaredMethod("getStmtForLogging", String.class);
+        getStmtForLogging.setAccessible(true);
+        Assertions.assertEquals(MASKED_STMT_FALLBACK, getStmtForLogging.invoke(executor,
+                parsedStmt.getOrigStmt().originStmt));
+    }
+
+    @Test
+    public void testGetStmtForLoggingBeforeParseFailsClosedOnParseError() throws Exception {
+        StmtExecutor executor = new StmtExecutor(connectContext,
+                "CREATE EXTERNAL RESOURCE \"broken_ai_resource\" PROPERTIES (\"ai.api_key\" = \""
+                        + AI_RESOURCE_LOG_SECRET + "\"");
+
+        Method getStmtForLoggingBeforeParse = StmtExecutor.class.getDeclaredMethod("getStmtForLoggingBeforeParse");
+        getStmtForLoggingBeforeParse.setAccessible(true);
+        Assertions.assertEquals(MASKED_STMT_FALLBACK, getStmtForLoggingBeforeParse.invoke(executor));
+    }
+
+    @Test
+    public void testCancelForwardsToCancelDelegate() {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
+        AtomicInteger forwarded = new AtomicInteger();
+        stmtExecutor.setCancelDelegate(status -> forwarded.incrementAndGet());
+        stmtExecutor.cancel(Status.CANCELLED, false);
+        Assertions.assertEquals(1, forwarded.get());
+        // The delegate is scoped to the nested work only: once cleared, later
+        // cancellations on this executor must not reach it again.
+        stmtExecutor.clearCancelDelegate();
+        stmtExecutor.cancel(Status.CANCELLED, false);
+        Assertions.assertEquals(1, forwarded.get());
+    }
+
+    private void createResource(String sql) throws Exception {
+        connectContext.getState().reset();
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        stmtExecutor.execute();
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+    }
+
+    // Use unique resource names to keep log-masking tests isolated across the PER_CLASS test fixture.
+    private static String newAiResourceName() {
+        return "ai_resource_log_test_" + System.nanoTime();
+    }
+
+    // Build resource SQL with a caller-provided name so tests do not share catalog state.
+    private static String buildCreateAiResourceSql(String resourceName, String apiKey) {
+        return "CREATE EXTERNAL RESOURCE \"" + resourceName + "\"\n"
+                + "PROPERTIES\n"
+                + "(\n"
+                + "   \"type\" = \"ai\",\n"
+                + "   \"ai.provider_type\" = \"openai\",\n"
+                + "   \"ai.endpoint\" = \"https://api.test\",\n"
+                + "   \"ai.model_name\" = \"gpt-test\",\n"
+                + "   \"ai.api_key\" = \"" + apiKey + "\"\n"
+                + ");";
     }
 }

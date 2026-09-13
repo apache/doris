@@ -48,8 +48,6 @@ class RepeatedPtrField;
 } // namespace google::protobuf
 
 namespace doris {
-class PSlaveTabletNodes;
-class PSuccessSlaveTabletNodeIds;
 class PTabletError;
 class PTabletInfo;
 class PTabletWriterOpenRequest;
@@ -242,18 +240,11 @@ public:
     Status close(LoadChannel* parent, const PTabletWriterAddBlockRequest& req,
                  PTabletWriterAddBlockResult* res, bool* finished) override;
 
-    Status cancel() override;
-
 private:
-    void _init_profile(RuntimeProfile* profile) override;
-
     // deal with DeltaWriter commit_txn(), add tablet to list for return.
-    void _commit_txn(DeltaWriter* writer, const PTabletWriterAddBlockRequest& req,
-                     PTabletWriterAddBlockResult* res);
+    void _commit_txn(DeltaWriter* writer, PTabletWriterAddBlockResult* res);
 
     StorageEngine& _engine;
-    bool _write_single_replica = false;
-    RuntimeProfile::Counter* _slave_replica_timer = nullptr;
 };
 
 } // namespace doris

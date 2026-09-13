@@ -15,6 +15,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include "runtime/runtime_profile.h"
 
 namespace doris::format::parquet {
@@ -38,9 +40,16 @@ struct ParquetColumnReaderProfile {
     RuntimeProfile::Counter* level_only_read_time = nullptr;
     RuntimeProfile::Counter* level_only_skip_time = nullptr;
     RuntimeProfile::Counter* materialization_time = nullptr; // value materialization time (ns)
+    std::shared_ptr<RuntimeProfile::Counter> variant_reconstruction_time;
+    std::shared_ptr<RuntimeProfile::Counter> variant_reconstructed_rows;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_rows;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_path_misses;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_residual_fallbacks;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_unsupported_fallbacks;
     RuntimeProfile::Counter* hybrid_selection_batches = nullptr;
     RuntimeProfile::Counter* hybrid_selection_ranges = nullptr;
     RuntimeProfile::Counter* hybrid_selection_null_fallback_batches = nullptr;
+    RuntimeProfile::Counter* dictionary_predicate_fused_projected_rows = nullptr;
     // Native page/encoding reader internals. These counters keep page IO, decompression, levels,
     // value decode and conversion attributable to separate stages.
     RuntimeProfile::Counter* decompress_time = nullptr;
@@ -91,14 +100,27 @@ struct ParquetScanProfile {
     RuntimeProfile::Counter* predicate_alignment_columns = nullptr;
     RuntimeProfile::Counter* fixed_width_predicate_direct_batches = nullptr;
     RuntimeProfile::Counter* fixed_width_predicate_direct_rows = nullptr;
+    RuntimeProfile::Counter* raw_value_predicate_direct_batches = nullptr;
+    RuntimeProfile::Counter* raw_value_predicate_direct_rows = nullptr;
+    RuntimeProfile::Counter* typed_runtime_filter_direct_batches = nullptr;
+    RuntimeProfile::Counter* typed_runtime_filter_direct_rows = nullptr;
+    RuntimeProfile::Counter* dictionary_predicate_direct_batches = nullptr;
+    RuntimeProfile::Counter* dictionary_predicate_direct_rows = nullptr;
+    RuntimeProfile::Counter* dictionary_predicate_projected_rows = nullptr;
     RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr; // dictionary rewrite time (ns)
     RuntimeProfile::Counter* dict_filter_expr_rewrite_time =
             nullptr; // expression/residual rewrite time (ns)
     RuntimeProfile::Counter* dict_filter_read_dict_time = nullptr; // dictionary page read time (ns)
     RuntimeProfile::Counter* dict_filter_build_time =
             nullptr; // dictionary entry bitmap build time (ns)
-    RuntimeProfile::Counter* dict_filter_candidate_columns = nullptr;   // candidate columns
-    RuntimeProfile::Counter* dict_filter_columns = nullptr;             // optimized columns
+    RuntimeProfile::Counter* dict_filter_candidate_columns = nullptr; // candidate columns
+    RuntimeProfile::Counter* dict_filter_columns = nullptr;           // optimized columns
+    RuntimeProfile::Counter* dict_filter_typed_compare_columns =
+            nullptr; // fixed-width typed comparison columns
+    RuntimeProfile::Counter* dict_filter_string_compare_columns =
+            nullptr; // string typed comparison columns
+    RuntimeProfile::Counter* dict_filter_vectorized_runtime_filter_columns =
+            nullptr; // vectorized runtime-filter columns
     RuntimeProfile::Counter* dict_filter_unsupported_columns = nullptr; // unsupported columns
     RuntimeProfile::Counter* dict_filter_read_failures = nullptr;       // dictionary read failures
     RuntimeProfile::Counter* rows_filtered_by_dict_filter = nullptr;    // rows filtered by dict
@@ -119,6 +141,7 @@ struct ParquetProfile {
     ParquetScanProfile scan_profile() const;
 
     RuntimeProfile::Counter* total_time = nullptr;
+    RuntimeProfile::Counter* refresh_scan_request_time = nullptr;
 
     RuntimeProfile::Counter* filtered_row_groups = nullptr;
     RuntimeProfile::Counter* filtered_row_groups_by_min_max = nullptr;
@@ -130,6 +153,8 @@ struct ParquetProfile {
     RuntimeProfile::Counter* selected_row_ranges = nullptr;
     RuntimeProfile::Counter* filtered_group_rows = nullptr;
     RuntimeProfile::Counter* filtered_page_rows = nullptr;
+    // File-level Variant access paths that safely retained a physical typed-leaf projection.
+    RuntimeProfile::Counter* variant_leaf_projections = nullptr;
 
     // ======== Page Skip ========
     RuntimeProfile::Counter* pages_skipped_by_data_page_filter = nullptr;
@@ -151,9 +176,16 @@ struct ParquetProfile {
     RuntimeProfile::Counter* level_only_read_time = nullptr;
     RuntimeProfile::Counter* level_only_skip_time = nullptr;
     RuntimeProfile::Counter* materialization_time = nullptr;
+    std::shared_ptr<RuntimeProfile::Counter> variant_reconstruction_time;
+    std::shared_ptr<RuntimeProfile::Counter> variant_reconstructed_rows;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_rows;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_path_misses;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_residual_fallbacks;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_unsupported_fallbacks;
     RuntimeProfile::Counter* hybrid_selection_batches = nullptr;
     RuntimeProfile::Counter* hybrid_selection_ranges = nullptr;
     RuntimeProfile::Counter* hybrid_selection_null_fallback_batches = nullptr;
+    RuntimeProfile::Counter* dictionary_predicate_fused_projected_rows = nullptr;
     RuntimeProfile::Counter* native_read_calls = nullptr;
     RuntimeProfile::Counter* native_page_fragments = nullptr;
     RuntimeProfile::Counter* page_crossing_batches = nullptr;
@@ -207,15 +239,29 @@ struct ParquetProfile {
     RuntimeProfile::Counter* predicate_alignment_columns = nullptr;
     RuntimeProfile::Counter* fixed_width_predicate_direct_batches = nullptr;
     RuntimeProfile::Counter* fixed_width_predicate_direct_rows = nullptr;
+    RuntimeProfile::Counter* raw_value_predicate_direct_batches = nullptr;
+    RuntimeProfile::Counter* raw_value_predicate_direct_rows = nullptr;
+    RuntimeProfile::Counter* typed_runtime_filter_direct_batches = nullptr;
+    RuntimeProfile::Counter* typed_runtime_filter_direct_rows = nullptr;
+    RuntimeProfile::Counter* dictionary_predicate_direct_batches = nullptr;
+    RuntimeProfile::Counter* dictionary_predicate_direct_rows = nullptr;
+    RuntimeProfile::Counter* dictionary_predicate_projected_rows = nullptr;
     RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr;
     RuntimeProfile::Counter* dict_filter_expr_rewrite_time = nullptr;
     RuntimeProfile::Counter* dict_filter_read_dict_time = nullptr;
     RuntimeProfile::Counter* dict_filter_build_time = nullptr;
     RuntimeProfile::Counter* dict_filter_candidate_columns = nullptr;
     RuntimeProfile::Counter* dict_filter_columns = nullptr;
+    RuntimeProfile::Counter* dict_filter_typed_compare_columns = nullptr;
+    RuntimeProfile::Counter* dict_filter_string_compare_columns = nullptr;
+    RuntimeProfile::Counter* dict_filter_vectorized_runtime_filter_columns = nullptr;
     RuntimeProfile::Counter* dict_filter_unsupported_columns = nullptr;
     RuntimeProfile::Counter* dict_filter_read_failures = nullptr;
     RuntimeProfile::Counter* rows_filtered_by_dict_filter = nullptr;
+    RuntimeProfile::Counter* bloom_filter_probe_attempts = nullptr;
+    RuntimeProfile::Counter* bloom_filter_probe_successes = nullptr;
+    RuntimeProfile::Counter* bloom_filter_conservative_fallbacks = nullptr;
+    RuntimeProfile::Counter* bloom_filter_corrupt_rejections = nullptr;
     RuntimeProfile::Counter* bloom_filter_read_time = nullptr;
 };
 

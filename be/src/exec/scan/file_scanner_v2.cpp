@@ -24,7 +24,6 @@
 #include <map>
 #include <memory>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <utility>
 
@@ -37,7 +36,10 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/string_ref.h"
 #include "exec/common/util.hpp"
@@ -55,6 +57,7 @@
 #include "format_v2/jni/jdbc_reader.h"
 #include "format_v2/jni/max_compute_jni_reader.h"
 #include "format_v2/jni/trino_connector_jni_reader.h"
+#include "format_v2/table/adbc_reader.h"
 #include "format_v2/table/hive_reader.h"
 #include "format_v2/table/hudi_reader.h"
 #include "format_v2/table/iceberg_position_delete_sys_table_reader.h"
@@ -62,6 +65,7 @@
 #include "format_v2/table/paimon_reader.h"
 #include "format_v2/table/remote_doris_reader.h"
 #include "format_v2/table_reader.h"
+#include "format_v2/wal/wal_table_reader.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/io_common.h"
@@ -71,12 +75,15 @@
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "storage/id_manager.h"
+#include "util/string_util.h"
 
 namespace doris {
 namespace {
 
 constexpr int kIcebergPositionDeleteContent = 1;
 constexpr int kIcebergDeletionVectorContent = 3;
+
+std::string table_format_name(const TFileRangeDesc& range);
 
 std::string table_format_name(const TFileRangeDesc& range) {
     return range.__isset.table_format_params ? range.table_format_params.table_format_type
@@ -86,6 +93,26 @@ std::string table_format_name(const TFileRangeDesc& range) {
 TFileFormatType::type get_range_format_type(const TFileScanRangeParams& params,
                                             const TFileRangeDesc& range) {
     return range.__isset.format_type ? range.format_type : params.format_type;
+}
+
+bool contains_variant_type(const DataTypePtr& input) {
+    const auto type = remove_nullable(input);
+    switch (type->get_primitive_type()) {
+    case TYPE_VARIANT:
+        return true;
+    case TYPE_ARRAY:
+        return contains_variant_type(assert_cast<const DataTypeArray&>(*type).get_nested_type());
+    case TYPE_MAP: {
+        const auto& map = assert_cast<const DataTypeMap&>(*type);
+        return contains_variant_type(map.get_key_type()) ||
+               contains_variant_type(map.get_value_type());
+    }
+    case TYPE_STRUCT:
+        return std::ranges::any_of(assert_cast<const DataTypeStruct&>(*type).get_elements(),
+                                   contains_variant_type);
+    default:
+        return false;
+    }
 }
 
 bool is_supported_table_format(const TFileRangeDesc& range) {
@@ -103,28 +130,32 @@ bool is_supported_table_format(const TFileRangeDesc& range) {
 }
 
 bool is_supported_arrow_table_format(const TFileRangeDesc& range) {
-    return table_format_name(range) == "remote_doris";
+    const auto table_format = table_format_name(range);
+    return table_format == "remote_doris" || table_format == "adbc";
 }
 
 bool is_supported_jni_table_format(const TFileRangeDesc& range) {
     const auto table_format = table_format_name(range);
     if (table_format == "paimon") {
-        return range.__isset.table_format_params &&
-               range.table_format_params.__isset.paimon_params &&
-               range.table_format_params.paimon_params.__isset.reader_type &&
-               range.table_format_params.paimon_params.reader_type == TPaimonReaderType::PAIMON_JNI;
+        if (!range.__isset.table_format_params ||
+            !range.table_format_params.__isset.paimon_params) {
+            return false;
+        }
+        const auto& params = range.table_format_params.paimon_params;
+        if (params.__isset.reader_type) {
+            return params.reader_type == TPaimonReaderType::PAIMON_JNI &&
+                   params.__isset.paimon_split;
+        }
+        if (params.__isset.paimon_split) {
+            // Before reader_type was added, an encoded split unambiguously selected the Java
+            // reader; native scans carried only their physical Parquet or ORC range.
+            return true;
+        }
+        return params.__isset.file_format &&
+               (params.file_format == "parquet" || params.file_format == "orc");
     }
     return table_format == "jdbc" || table_format == "iceberg" || table_format == "hudi" ||
            table_format == "max_compute" || table_format == "trino_connector";
-}
-
-bool is_iceberg_position_deletes_sys_table(const TFileRangeDesc& range) {
-    return range.__isset.table_format_params &&
-           range.table_format_params.table_format_type == "iceberg" &&
-           range.table_format_params.__isset.iceberg_params &&
-           range.table_format_params.iceberg_params.__isset.content &&
-           (range.table_format_params.iceberg_params.content == kIcebergPositionDeleteContent ||
-            range.table_format_params.iceberg_params.content == kIcebergDeletionVectorContent);
 }
 
 bool is_csv_format(TFileFormatType::type format_type) {
@@ -156,20 +187,23 @@ bool is_native_format(TFileFormatType::type format_type) {
     return format_type == TFileFormatType::FORMAT_NATIVE;
 }
 
+bool is_wal_format(TFileFormatType::type format_type) {
+    return format_type == TFileFormatType::FORMAT_WAL;
+}
+
+bool is_legacy_virtual_slot(const std::string& column_name) {
+    return column_name.starts_with(BeConsts::GLOBAL_ROWID_COL) ||
+           iequal(column_name, BeConsts::ICEBERG_ROWID_COL);
+}
+
 bool is_partition_slot(const TFileScanSlotInfo& slot_info, const std::string& column_name) {
-    if (column_name.starts_with(BeConsts::GLOBAL_ROWID_COL) ||
-        column_name == BeConsts::ICEBERG_ROWID_COL) {
-        return false;
+    if (slot_info.__isset.category) {
+        return slot_info.category == TColumnCategory::PARTITION_KEY;
     }
-    return slot_info.__isset.category ? slot_info.category == TColumnCategory::PARTITION_KEY
-                                      : !slot_info.is_file_slot;
+    return !slot_info.is_file_slot && !is_legacy_virtual_slot(column_name);
 }
 
 bool is_data_file_slot(const TFileScanSlotInfo& slot_info, const std::string& column_name) {
-    if (column_name.starts_with(BeConsts::GLOBAL_ROWID_COL) ||
-        column_name == BeConsts::ICEBERG_ROWID_COL) {
-        return false;
-    }
     // CSV and other non-self-describing formats need FE slot descriptors for only the columns that
     // are physically read from the file. Partition/default/virtual columns stay in TableReader's
     // mapping layer and are materialized after the file-local block is read. New FE provides an
@@ -178,7 +212,7 @@ bool is_data_file_slot(const TFileScanSlotInfo& slot_info, const std::string& co
         return slot_info.category == TColumnCategory::REGULAR ||
                slot_info.category == TColumnCategory::GENERATED;
     }
-    return slot_info.is_file_slot;
+    return slot_info.is_file_slot && !is_legacy_virtual_slot(column_name);
 }
 
 Status rewrite_slot_refs_to_global_index(
@@ -227,9 +261,7 @@ Status rewrite_slot_refs_to_global_index(
 #ifdef BE_TEST
 FileScannerV2::FileScannerV2(RuntimeState* state, RuntimeProfile* profile,
                              std::unique_ptr<format::TableReader> table_reader)
-        : Scanner(state, profile),
-          _table_reader(std::move(table_reader)),
-          _scanner_profile(profile) {}
+        : Scanner(state, profile), _table_reader(std::move(table_reader)) {}
 
 Status FileScannerV2::TEST_validate_scan_range(const TFileScanRangeParams& params,
                                                const TFileRangeDesc& range) {
@@ -292,6 +324,8 @@ bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFile
         return is_supported_arrow_table_format(range);
     } else if (format_type == TFileFormatType::FORMAT_JNI) {
         return is_supported_jni_table_format(range);
+    } else if (is_wal_format(format_type)) {
+        return table_format_name(range) == "NotSet";
     } else if (is_csv_format(format_type) || is_text_format(format_type) ||
                is_json_format(format_type) || is_native_format(format_type)) {
         return is_supported_table_format(range);
@@ -309,6 +343,18 @@ Status FileScannerV2::_validate_scan_range(const TFileScanRangeParams& params,
                 table_format_name(range), to_string(get_range_format_type(params, range)));
     }
     return Status::OK();
+}
+
+Status FileScannerV2::_validate_variant_projection(TFileFormatType::type format_type,
+                                                   bool has_variant_projection) {
+    if (!has_variant_projection || format_type != TFileFormatType::FORMAT_ARROW) {
+        return Status::OK();
+    }
+    // Arrow readers have no external Variant carrier contract; reject before a stream is opened so
+    // every Arrow-backed table gets the same deterministic capability error instead of SerDe leakage.
+    return Status::NotSupported(
+            "External Variant is supported only for Parquet files in FileScannerV2; "
+            "file format ARROW is not supported");
 }
 
 FileScannerV2::FileScannerV2(RuntimeState* state, FileScanLocalState* local_state, int64_t limit,
@@ -329,9 +375,7 @@ FileScannerV2::FileScannerV2(RuntimeState* state, FileScanLocalState* local_stat
 
 Status FileScannerV2::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     RETURN_IF_ERROR(Scanner::init(state, conjuncts));
-    _initialize_scanner_residual_conjuncts();
     auto* profile = _local_state->scanner_profile();
-    _scanner_profile = profile;
     const auto hierarchy = file_scan_profile::ensure_hierarchy(profile);
     _scanner_total_timer = hierarchy.scanner;
     _io_timer = hierarchy.io;
@@ -365,11 +409,6 @@ Status FileScannerV2::init(RuntimeState* state, const VExprContextSPtrs& conjunc
             profile, "AdaptiveBatchActualBytes", TUnit::BYTES, file_scan_profile::SCANNER, 1);
     _adaptive_batch_probe_count_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "AdaptiveBatchProbeCount", TUnit::UNIT, file_scan_profile::SCANNER, 1);
-    _scanner_residual_filter_timer = ADD_CHILD_TIMER_WITH_LEVEL(
-            profile, "ScannerResidualFilterTime", file_scan_profile::SCANNER, 1);
-    _scanner_residual_rows_filtered_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
-            profile, "ScannerResidualRowsFiltered", TUnit::UNIT, file_scan_profile::SCANNER, 1);
-    _refresh_scanner_residual_profile();
     SCOPED_TIMER(_scanner_total_timer);
     SCOPED_TIMER(_init_timer);
     _file_cache_statistics = std::make_unique<io::FileCacheStatistics>();
@@ -411,7 +450,6 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
     SCOPED_TIMER(_get_block_timer);
     while (true) {
         RETURN_IF_CANCELLED(state);
-        RETURN_IF_ERROR(_sync_table_reader_conjuncts());
         if (!_has_prepared_split) {
             RETURN_IF_ERROR(_prepare_next_split(eof));
             if (*eof) {
@@ -420,6 +458,12 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
         }
 
         {
+            if (_table_reader_rf_num != _applied_rf_num) {
+                VExprContextSPtrs refreshed_conjuncts;
+                RETURN_IF_ERROR(_build_table_conjuncts(&refreshed_conjuncts));
+                RETURN_IF_ERROR(_table_reader->refresh_conjuncts(std::move(refreshed_conjuncts)));
+                _table_reader_rf_num = _applied_rf_num;
+            }
             if (_should_run_adaptive_batch_size()) {
                 _table_reader->set_batch_size(_predict_reader_batch_rows());
             }
@@ -461,33 +505,25 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
 }
 
 Status FileScannerV2::_filter_output_block(Block* block) {
-    if (_scanner_residual_conjuncts.empty() || block->rows() == 0) {
-        return Status::OK();
-    }
-    SCOPED_TIMER(_scanner_residual_filter_timer);
-    const size_t rows_before_filter = block->rows();
-    auto status = VExprContext::filter_block(_scanner_residual_conjuncts, block, block->columns());
-    if (!status.ok() && _params != nullptr &&
-        _get_current_format_type() == TFileFormatType::FORMAT_ORC) {
+    return _contextualize_output_filter_status(Scanner::_filter_output_block(block),
+                                               _get_current_format_type());
+}
+
+bool FileScannerV2::_can_merge_padding_blocks(const Block& /*left*/, const Block& /*right*/) const {
+    // A Variant access expression is evaluated above the file reader. Keep each file-local
+    // shredded schema intact until that projection turns complete and leaf-only states into a
+    // common logical result column.
+    return !_has_variant_projection;
+}
+
+Status FileScannerV2::_contextualize_output_filter_status(Status status,
+                                                          TFileFormatType::type format_type) {
+    if (!status.ok() && format_type == TFileFormatType::FORMAT_ORC) {
+        // Error-preserving expressions cannot be reordered into the ORC reader and therefore run
+        // at the scanner boundary; keep their error context identical to ORC callback failures.
         status.prepend("Orc row reader nextBatch failed. reason = ");
     }
-    RETURN_IF_ERROR(status);
-    const int64_t filtered_rows = cast_set<int64_t>(rows_before_filter - block->rows());
-    _counter.num_rows_unselected += filtered_rows;
-    if (_scanner_residual_rows_filtered_counter != nullptr) {
-        COUNTER_UPDATE(_scanner_residual_rows_filtered_counter, filtered_rows);
-    }
-    return Status::OK();
-}
-
-size_t FileScannerV2::_last_block_rows_read(const Block& block) const {
-    const auto& stats = _table_reader->last_materialized_block_stats();
-    return stats.has_materialized_input ? stats.rows : block.rows();
-}
-
-size_t FileScannerV2::_last_block_bytes_read(const Block& block) const {
-    const auto& stats = _table_reader->last_materialized_block_stats();
-    return stats.has_materialized_input ? stats.allocated_bytes : block.allocated_bytes();
+    return status;
 }
 
 Status FileScannerV2::_prepare_next_split(bool* eos) {
@@ -542,6 +578,7 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
         }
         COUNTER_UPDATE(_file_counter, 1);
         _has_prepared_split = true;
+        _table_reader_rf_num = _applied_rf_num;
         *eos = false;
         return Status::OK();
     }
@@ -573,7 +610,6 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
     RETURN_IF_ERROR(_table_reader->init({
             .projected_columns = _projected_columns,
             .conjuncts = std::move(table_conjuncts),
-            .table_reader_owned_conjunct_count = _table_reader_owned_conjunct_count,
             .format = file_format,
             .scan_params = const_cast<TFileScanRangeParams*>(_params),
             .io_ctx = _io_ctx,
@@ -584,15 +620,17 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
             .push_down_count_columns = std::move(push_down_count_columns),
             .condition_cache_digest = _local_state->get_condition_cache_digest(),
     }));
-    _table_reader_applied_rf_num = _applied_rf_num;
-    // RFs collected before TableReader initialization are already present in the full snapshot.
-    _late_arrival_rf_conjuncts.clear();
     return Status::OK();
 }
 
 Status FileScannerV2::_create_table_reader_for_format(
         const TFileRangeDesc& range, std::unique_ptr<format::TableReader>* reader) const {
     DORIS_CHECK(reader != nullptr);
+    const auto file_format = get_range_format_type(*_params, range);
+    if (file_format == TFileFormatType::FORMAT_WAL) {
+        *reader = std::make_unique<format::wal::WalTableReader>();
+        return Status::OK();
+    }
     const auto table_format = table_format_name(range);
     if (table_format == "NotSet" || table_format == "tvf") {
         *reader = std::make_unique<format::TableReader>();
@@ -621,6 +659,8 @@ Status FileScannerV2::_create_table_reader_for_format(
         *reader = std::make_unique<format::trino_connector::TrinoConnectorJniReader>();
     } else if (table_format == "remote_doris") {
         *reader = std::make_unique<format::remote_doris::RemoteDorisReader>();
+    } else if (table_format == "adbc") {
+        *reader = std::make_unique<format::adbc::AdbcReader>();
     } else {
         return Status::NotSupported("FileScannerV2 does not support table format {}", table_format);
     }
@@ -629,14 +669,21 @@ Status FileScannerV2::_create_table_reader_for_format(
 
 Status FileScannerV2::_prepare_table_reader_split(const TFileRangeDesc& range,
                                                   std::map<std::string, Field> partition_values) {
+    const auto format_type = get_range_format_type(*_params, range);
     format::FileFormat current_split_format;
-    RETURN_IF_ERROR(_to_file_format(get_range_format_type(*_params, range), &current_split_format));
+    RETURN_IF_ERROR(_to_file_format(format_type, &current_split_format));
+    VExprContextSPtrs conjuncts;
+    RETURN_IF_ERROR(_build_table_conjuncts(&conjuncts));
     VExprContextSPtrs partition_prune_conjuncts;
-    if (_state->query_options().enable_runtime_filter_partition_prune) {
+    if (!partition_values.empty()) {
+        // A split without partition constants cannot be pruned here, so avoid cloning every
+        // conjunct solely for a consumer that must return immediately. FileScannerV2 otherwise
+        // keeps safe partition pruning enabled independently of the legacy session gate.
         RETURN_IF_ERROR(_build_table_conjuncts(&partition_prune_conjuncts));
     }
     RETURN_IF_ERROR(_table_reader->prepare_split({
             .partition_values = std::move(partition_values),
+            .conjuncts = std::move(conjuncts),
             .partition_prune_conjuncts = std::move(partition_prune_conjuncts),
             // A metadata COUNT split may span scheduler turns. Do not enter that irreversible
             // synthetic-row path while a runtime filter can still arrive between batches.
@@ -748,6 +795,7 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
     _projected_columns.clear();
     _projected_columns.reserve(_params->required_slots.size());
     _need_global_rowid_column = false;
+    _has_variant_projection = false;
     format::ProjectedColumnBuildContext build_context {
             .scan_params = _params,
             .range = &_current_range,
@@ -765,6 +813,10 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
                                          slot_info.slot_id);
         }
         auto column = _build_table_column(it->second);
+        column.is_synthesized =
+                slot_info.__isset.category && slot_info.category == TColumnCategory::SYNTHESIZED;
+        _has_variant_projection = _has_variant_projection || contains_variant_type(column.type);
+        build_context.slot_desc = it->second;
         if (column.name.starts_with(BeConsts::GLOBAL_ROWID_COL)) {
             _need_global_rowid_column = true;
         }
@@ -796,6 +848,8 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
         _projected_columns.push_back(std::move(column));
     }
     RETURN_IF_ERROR(table_reader.validate_projected_columns(build_context));
+    RETURN_IF_ERROR(_validate_variant_projection(get_range_format_type(*_params, _current_range),
+                                                 _has_variant_projection));
     return Status::OK();
 }
 
@@ -826,82 +880,15 @@ format::ColumnDefinition FileScannerV2::_build_table_column(const SlotDescriptor
 }
 
 Status FileScannerV2::_build_table_conjuncts(VExprContextSPtrs* conjuncts) const {
-    return _build_table_conjuncts(_conjuncts, conjuncts);
-}
-
-Status FileScannerV2::_build_table_conjuncts(const VExprContextSPtrs& source,
-                                             VExprContextSPtrs* conjuncts) const {
     DORIS_CHECK(conjuncts != nullptr);
     conjuncts->clear();
-    conjuncts->reserve(source.size());
-    for (const auto& conjunct : source) {
+    conjuncts->reserve(_conjuncts.size());
+    for (const auto& conjunct : _conjuncts) {
         VExprSPtr root;
         RETURN_IF_ERROR(format::clone_table_expr_tree(conjunct->root(), &root));
         RETURN_IF_ERROR(rewrite_slot_refs_to_global_index(&root, _slot_id_to_global_index));
         conjuncts->push_back(VExprContext::create_shared(std::move(root)));
     }
-    return Status::OK();
-}
-
-size_t FileScannerV2::_safe_conjunct_prefix_size(const VExprContextSPtrs& conjuncts) {
-    for (size_t conjunct_index = 0; conjunct_index < conjuncts.size(); ++conjunct_index) {
-        if (!format::TableReader::is_safe_to_pre_execute(conjuncts[conjunct_index])) {
-            return conjunct_index;
-        }
-    }
-    return conjuncts.size();
-}
-
-void FileScannerV2::_initialize_scanner_residual_conjuncts() {
-    _table_reader_owned_conjunct_count = _safe_conjunct_prefix_size(_conjuncts);
-    // Preserve the entire suffix, not only the unsafe expression. Otherwise a later safe
-    // predicate could run below Scanner before a stateful/error-preserving ordering barrier.
-    _scanner_residual_conjuncts.assign(
-            _conjuncts.begin() + cast_set<ptrdiff_t>(_table_reader_owned_conjunct_count),
-            _conjuncts.end());
-    _refresh_scanner_residual_profile();
-}
-
-void FileScannerV2::_refresh_scanner_residual_profile() {
-    if (_scanner_profile == nullptr || _scanner_residual_conjuncts.empty()) {
-        return;
-    }
-    std::ostringstream predicates;
-    predicates << "[";
-    for (size_t conjunct_index = 0; conjunct_index < _scanner_residual_conjuncts.size();
-         ++conjunct_index) {
-        if (conjunct_index > 0) {
-            predicates << ", ";
-        }
-        predicates << _scanner_residual_conjuncts[conjunct_index]->root()->debug_string();
-    }
-    predicates << "]";
-    _scanner_profile->add_info_string("ScannerResidualPredicates", predicates.str());
-}
-
-Status FileScannerV2::_sync_table_reader_conjuncts() {
-    if (_table_reader == nullptr) {
-        return Status::OK();
-    }
-    if (_table_reader_applied_rf_num == _applied_rf_num) {
-        return Status::OK();
-    }
-    VExprContextSPtrs appended;
-    RETURN_IF_ERROR(_build_table_conjuncts(_late_arrival_rf_conjuncts, &appended));
-    const size_t owned_count = _scanner_residual_conjuncts.empty()
-                                       ? _safe_conjunct_prefix_size(_late_arrival_rf_conjuncts)
-                                       : 0;
-    // Preserve existing expression state and append the identity-tracked RF delta. Cost sorting
-    // may move a late RF ahead of an old stateful predicate in the full scanner snapshot.
-    RETURN_IF_ERROR(_table_reader->append_conjuncts_with_ownership(appended, owned_count));
-    _table_reader_owned_conjunct_count += owned_count;
-    _scanner_residual_conjuncts.insert(
-            _scanner_residual_conjuncts.end(),
-            _late_arrival_rf_conjuncts.begin() + cast_set<ptrdiff_t>(owned_count),
-            _late_arrival_rf_conjuncts.end());
-    _refresh_scanner_residual_profile();
-    _late_arrival_rf_conjuncts.clear();
-    _table_reader_applied_rf_num = _applied_rf_num;
     return Status::OK();
 }
 
@@ -944,6 +931,9 @@ Status FileScannerV2::_to_file_format(TFileFormatType::type format_type,
         return Status::OK();
     case TFileFormatType::FORMAT_ARROW:
         *file_format = format::FileFormat::ARROW;
+        return Status::OK();
+    case TFileFormatType::FORMAT_WAL:
+        *file_format = format::FileFormat::WAL;
         return Status::OK();
     default:
         return Status::NotSupported("FileScannerV2 does not support file format {}",
@@ -1028,19 +1018,17 @@ void FileScannerV2::_update_adaptive_batch_size(const Block& block) {
     if (!_should_run_adaptive_batch_size()) {
         return;
     }
-    const auto& stats = _table_reader->last_materialized_block_stats();
-    const size_t rows = stats.has_materialized_input ? stats.rows : block.rows();
-    const size_t bytes = stats.has_materialized_input ? stats.bytes : block.bytes();
-    COUNTER_SET(_adaptive_batch_actual_bytes_counter, static_cast<int64_t>(bytes));
-    if (rows == 0) {
+    COUNTER_SET(_adaptive_batch_actual_bytes_counter, static_cast<int64_t>(block.bytes()));
+    if (block.rows() == 0) {
         return;
     }
-    // Residual predicates run after wide table columns are materialized. Learn from that pre-filter
-    // shape so selective predicates cannot make the next reader batch dangerously large.
+    // The sample is taken after TableReader has finalized file-local columns to table columns.
+    // This matches the memory shape seen by upstream operators and catches very wide nested
+    // columns, such as map/string payloads, after the first probe batch.
     if (!_block_size_predictor->has_history()) {
         COUNTER_UPDATE(_adaptive_batch_probe_count_counter, 1);
     }
-    _block_size_predictor->update(rows, bytes);
+    _block_size_predictor->update(block);
 }
 
 Status FileScannerV2::close(RuntimeState* state) {
@@ -1241,8 +1229,9 @@ void FileScannerV2::_report_file_reader_predicate_filtered_rows() {
     const int64_t filtered_rows = _io_ctx != nullptr ? _io_ctx->predicate_filtered_rows : 0;
     const int64_t filtered_delta = filtered_rows - _reported_predicate_filtered_rows;
     if (filtered_delta > 0) {
-        // FileReader and TableReader both report their owned predicate rows through the shared IO
-        // context. Preserve scanner-level load statistics without re-evaluating either predicate.
+        // File readers can evaluate localized conjuncts before a block reaches Scanner. Count
+        // those rows as scanner-level unselected rows so load statistics stay identical no matter
+        // whether a predicate is pushed down or evaluated by Scanner::_filter_output_block().
         _counter.num_rows_unselected += filtered_delta;
         _reported_predicate_filtered_rows = filtered_rows;
     }

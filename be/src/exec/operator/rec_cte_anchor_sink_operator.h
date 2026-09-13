@@ -121,4 +121,7 @@ private:
     bool _need_notify_rec_side_ready = true;
 };
 
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class PipelineXSinkLocalState<RecCTESharedState>;
+
 } // namespace doris

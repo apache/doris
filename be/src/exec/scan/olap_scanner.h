@@ -44,7 +44,6 @@
 namespace doris {
 
 struct OlapScanRange;
-class FunctionFilter;
 class RuntimeProfile;
 class RuntimeState;
 class TPaloScanRange;
@@ -81,6 +80,8 @@ public:
         bool aggregation;
         bool read_row_binlog = false;
         TBinlogScanType::type binlog_scan_type = TBinlogScanType::NONE;
+        int32_t bucket_seq = 0;
+        int32_t bucket_num = 0;
         std::optional<int64_t> start_tso;
         std::optional<int64_t> end_tso;
     };
@@ -95,7 +96,9 @@ public:
 
     doris::TabletStorageType get_storage_type() override;
 
-    bool check_partition_pruned() const override;
+    bool is_pruned_by_runtime_filter() const override;
+
+    void release_unopened_resources() override;
 
     void update_realtime_counters() override;
 
@@ -105,14 +108,12 @@ protected:
 
 private:
     Status _init_tablet_reader_params(
-            const phmap::flat_hash_map<int, SlotDescriptor*>& slot_id_to_slot_desc,
             const std::vector<OlapScanRange*>& key_ranges,
             const phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
-                    predicates,
-            const std::vector<FunctionFilter>& function_filters);
+                    predicates);
 
     [[nodiscard]] Status _init_tso_predicates();
-    [[nodiscard]] Status _init_return_columns();
+    [[nodiscard]] Status _init_read_schema();
     [[nodiscard]] Status _init_variant_columns();
 #ifndef NDEBUG
     Status _check_ann_cache_hit_debug_points(const OlapReaderStatistics& stats);
@@ -124,15 +125,11 @@ private:
     std::unique_ptr<TabletReader> _tablet_reader;
     std::optional<int64_t> _start_tso;
     std::optional<int64_t> _end_tso;
+    int32_t _bucket_seq;
+    int32_t _bucket_num;
 
 public:
-    std::vector<ColumnId> _return_columns;
-
-    std::unordered_set<uint32_t> _tablet_columns_convert_to_null_set;
     io::FileCacheStatistics _initial_file_cache_stats;
-
-    // This field is copied from OlapScanLocalState.
-    std::map<SlotId, VExprContextSPtr> _slot_id_to_virtual_column_expr;
 
     // ColumnId of virtual column to its expr context
     std::map<ColumnId, VExprContextSPtr> _virtual_column_exprs;

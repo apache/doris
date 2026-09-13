@@ -25,6 +25,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "io/fs/local_file_system.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/query_v2/regexp_query/regexp_weight.h"
@@ -130,6 +131,21 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_construction) {
     // Verify weight is of correct type
     auto regexp_weight = std::dynamic_pointer_cast<query_v2::RegexpWeight>(weight);
     ASSERT_NE(regexp_weight, nullptr);
+}
+
+TEST_F(RegexpQueryV2Test, test_rejects_expensive_bounded_repeat) {
+    auto context = std::make_shared<IndexQueryContext>();
+    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+
+    std::wstring field = StringHelper::to_wstring("content");
+    for (const char* pattern : {"(ab?c?d){1000,5000}", "(?# [)(ab?c?d){1000,5000}"}) {
+        SCOPED_TRACE(pattern);
+        auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
+        auto weight = query->weight(false);
+        query_v2::QueryExecutionContext exec_ctx;
+        EXPECT_THROW(weight->scorer(exec_ctx), Exception);
+    }
 }
 
 // Test regexp query with scoring enabled

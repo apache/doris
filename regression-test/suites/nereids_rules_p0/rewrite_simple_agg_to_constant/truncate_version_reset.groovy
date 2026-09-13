@@ -16,25 +16,8 @@
 // under the License.
 
 /**
- * Regression test for: TRUNCATE TABLE must reset TableAttributes.visibleVersion.
- *
- * Bug: before the fix, truncateTableInternal() replaced partition data but did
- * not call olapTable.resetVisibleVersion().  As a result:
- *   - Partition.visibleVersion was reset to PARTITION_INIT_VERSION (1).
- *   - TableAttributes.visibleVersion kept its old, higher value.
- *   - TableAttributes.visibleVersionTime was never updated.
- *
- * Consequence for RewriteSimpleAggToConstantRule / SimpleAggCacheMgr:
- *   The cache entry was keyed by versionTime.  Because versionTime did not
- *   change at truncate time, the *caller* saw the same versionTime as the
- *   stale cached entry → cache HIT → the rule returned the pre-truncate
- *   count/min/max instead of the correct post-truncate values.
- *
- * The fix adds olapTable.resetVisibleVersion() inside truncateTableInternal(),
- * which bumps both visibleVersion (back to TABLE_INIT_VERSION = 1) and
- * visibleVersionTime (to System.currentTimeMillis()).  The new versionTime
- * differs from the cached entry's versionTime → cache MISS → the rule
- * correctly falls back to BE execution and returns the right result.
+ * TRUNCATE changes visible rows, so it must advance the table version metadata.
+ * SimpleAggCacheMgr uses that metadata to invalidate cached aggregate values.
  */
 suite("truncate_version_reset") {
     sql "SET enable_nereids_planner=true"
@@ -86,23 +69,14 @@ suite("truncate_version_reset") {
     // Confirm the cached count is correct before truncate.
     order_qt_count_before_truncate "SELECT count(*) FROM tbl;"
 
-    // -----------------------------------------------------------------------
-    // TRUNCATE the table.
-    // After the fix, resetVisibleVersion() is called inside
-    // truncateTableInternal(), which updates visibleVersionTime.
-    // The cache entry's versionTime no longer matches → cache is invalidated.
-    // -----------------------------------------------------------------------
+    // Truncate must invalidate the cached aggregate value.
     sql "TRUNCATE TABLE tbl;"
 
     // count(*) must return 0.
     // Without the fix, the stale cache entry (count = 5) would be returned.
     order_qt_count_after_truncate "SELECT count(*) FROM tbl;"
 
-    // -----------------------------------------------------------------------
     // Insert new rows after truncate, then verify count(*) reflects them.
-    // This also validates that the version counter is correctly reset so
-    // subsequent transactions start from the right next-version.
-    // -----------------------------------------------------------------------
     sql "INSERT INTO tbl VALUES (10, 100), (20, 200);"
 
     // After insert the count must be 2.

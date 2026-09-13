@@ -59,4 +59,7 @@ private:
     bool _should_convert_output_to_nullable;
 };
 
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class StreamingOperatorX<AssertNumRowsLocalState>;
+
 } // namespace doris

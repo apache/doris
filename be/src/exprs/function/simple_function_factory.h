@@ -93,6 +93,7 @@ void register_function_array(SimpleFunctionFactory& factory);
 void register_function_map(SimpleFunctionFactory& factory);
 void register_function_struct(SimpleFunctionFactory& factory);
 void register_function_variant_element(SimpleFunctionFactory& factory);
+void register_function_variant_parse(SimpleFunctionFactory& factory);
 void register_function_geo(SimpleFunctionFactory& factory);
 void register_function_multi_string_position(SimpleFunctionFactory& factory);
 void register_function_multi_string_search(SimpleFunctionFactory& factory);
@@ -204,6 +205,11 @@ public:
             attr.new_version_unix_timestamp) {
             key_str += "_new";
         }
+        if (attr.new_version_bitmap_op_count &&
+            (key_str == "bitmap_and_count" || key_str == "bitmap_or_count" ||
+             key_str == "bitmap_xor_count" || key_str == "bitmap_and_not_count")) {
+            key_str += "_v2";
+        }
 
         temporary_function_update(be_version, key_str);
 
@@ -312,6 +318,7 @@ public:
             register_function_date_time_string_to_string(instance);
             register_function_json(instance);
             register_function_jsonb(instance);
+            register_function_variant_parse(instance);
             register_function_to_json(instance);
             register_function_hash(instance);
             register_function_comparison_eq_for_null(instance);

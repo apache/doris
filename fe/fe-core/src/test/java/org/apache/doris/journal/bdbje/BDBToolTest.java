@@ -30,10 +30,10 @@ import com.sleepycat.je.DatabaseException;
 import com.sleepycat.je.Environment;
 import com.sleepycat.je.EnvironmentConfig;
 import com.sleepycat.je.OperationStatus;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 import java.io.File;
 import java.io.IOException;
@@ -45,7 +45,7 @@ public class BDBToolTest {
     private static Database db;
     private static String dbName = "12345";
 
-    @BeforeClass
+    @BeforeAll
     public static void setEnv() {
         try {
             File file = new File("./bdb");
@@ -111,7 +111,7 @@ public class BDBToolTest {
         }
     }
 
-    @AfterClass
+    @AfterAll
     public static void deleteEnv() {
         File file = new File(path);
         if (file.isDirectory()) {
@@ -129,7 +129,7 @@ public class BDBToolTest {
     public void testList() {
         BDBToolOptions options = new BDBToolOptions(true, "", false, "", "", 0);
         BDBTool tool = new BDBTool(path, options);
-        Assert.assertTrue(tool.run());
+        Assertions.assertTrue(tool.run());
     }
 
     @Test
@@ -137,27 +137,27 @@ public class BDBToolTest {
         // wrong db name
         BDBToolOptions options = new BDBToolOptions(false, "12346", true, "", "", 0);
         BDBTool tool = new BDBTool(path, options);
-        Assert.assertFalse(tool.run());
+        Assertions.assertFalse(tool.run());
 
         // right db name
         options = new BDBToolOptions(false, "12345", true, "", "", 0);
         tool = new BDBTool(path, options);
-        Assert.assertTrue(tool.run());
+        Assertions.assertTrue(tool.run());
     }
 
     @Test
     public void testGetKey() {
         BDBToolOptions options = new BDBToolOptions(false, "12345", false, "", "", 0);
         BDBTool tool = new BDBTool(path, options);
-        Assert.assertTrue(tool.run());
+        Assertions.assertTrue(tool.run());
 
         options = new BDBToolOptions(false, "12345", false, "23456", "12345", 0);
         tool = new BDBTool(path, options);
-        Assert.assertFalse(tool.run());
+        Assertions.assertFalse(tool.run());
 
         options = new BDBToolOptions(false, "12345", false, "23456", "", 0);
         tool = new BDBTool(path, options);
-        Assert.assertTrue(tool.run());
+        Assertions.assertTrue(tool.run());
     }
 
 }

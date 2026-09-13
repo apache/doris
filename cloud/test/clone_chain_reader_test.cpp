@@ -215,10 +215,13 @@ TEST_F(CloneChainReaderTest, GetPartitionVersion) {
     {
         VersionPB version_pb;
         Versionstamp partition_version;
-        ASSERT_EQ(reader.get_partition_version(1001, &version_pb, &partition_version),
+        std::string source_instance;
+        ASSERT_EQ(reader.get_partition_version(1001, &version_pb, &partition_version, false,
+                                               &source_instance),
                   TxnErrorCode::TXN_OK);
         ASSERT_EQ(version_pb.version(), 100);
         ASSERT_EQ(partition_version, Versionstamp(100, 1));
+        ASSERT_EQ(source_instance, instance_ids_[0]);
     }
 
     // Case 3: Insert data with version > snapshot_version in instance B (should be ignored)
@@ -262,12 +265,94 @@ TEST_F(CloneChainReaderTest, GetPartitionVersion) {
     {
         VersionPB version_pb;
         Versionstamp partition_version;
-        ASSERT_EQ(reader.get_partition_version(1001, &version_pb, &partition_version),
+        std::string source_instance;
+        ASSERT_EQ(reader.get_partition_version(1001, &version_pb, &partition_version, false,
+                                               &source_instance),
                   TxnErrorCode::TXN_OK);
         ASSERT_EQ(version_pb.version(), 150)
                 << "Should return first valid data encountered in chain";
         ASSERT_EQ(partition_version, Versionstamp(1500, 1));
+        ASSERT_EQ(source_instance, instance_ids_[1]);
     }
+}
+
+TEST_F(CloneChainReaderTest, GetTableStreamOffsets) {
+    CloneChainReader reader(instance_ids_[2], Versionstamp(snapshot_versions_[2]), txn_kv_.get(),
+                            resource_mgr_.get());
+    using OffsetMap = std::unordered_map<int64_t, std::unordered_map<int64_t, TableStreamOffsetPB>>;
+    using OffsetVersionstampMap =
+            std::unordered_map<int64_t, std::unordered_map<int64_t, Versionstamp>>;
+    TableStreamIdentityPB identity;
+    identity.set_base_db_id(2001);
+    identity.set_base_table_id(2002);
+    identity.set_stream_db_id(2003);
+    identity.set_stream_id(2004);
+    int64_t partition_id = 2005;
+
+    auto read_offsets = [&](const std::vector<int64_t>& partition_ids, OffsetMap* offsets,
+                            OffsetVersionstampMap* versionstamps) {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            return err;
+        }
+        TableStreamPartitionSetPB binding;
+        binding.mutable_identity()->CopyFrom(identity);
+        for (int64_t id : partition_ids) {
+            binding.add_partition_ids(id);
+        }
+        offsets->clear();
+        versionstamps->clear();
+        return reader.get_table_stream_offsets(txn.get(), {binding}, offsets, versionstamps, true);
+    };
+
+    OffsetMap offsets;
+    OffsetVersionstampMap versionstamps;
+    ASSERT_EQ(read_offsets({partition_id}, &offsets, &versionstamps), TxnErrorCode::TXN_OK);
+    EXPECT_TRUE(offsets.empty());
+
+    auto put_offset = [&](const std::string& instance_id, int64_t target_partition_id,
+                          Versionstamp key_version, int64_t offset_tso) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key = versioned::table_stream_offset_key(
+                {instance_id, identity.base_db_id(), identity.base_table_id(),
+                 identity.stream_db_id(), identity.stream_id(), target_partition_id});
+        TableStreamOffsetPB value;
+        value.set_partition_id(target_partition_id);
+        value.set_state(TABLE_STREAM_OFFSET_CONSUMED);
+        value.set_offset_tso(offset_tso);
+        versioned_put(txn.get(), key, key_version, value.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    };
+
+    put_offset(instance_ids_[0], partition_id, Versionstamp(500, 0), 50);
+    ASSERT_EQ(read_offsets({partition_id}, &offsets, &versionstamps), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(offsets.at(identity.stream_id()).at(partition_id).offset_tso(), 50);
+
+    // This value is newer than B's source snapshot and must not shadow A's value.
+    put_offset(instance_ids_[1], partition_id, Versionstamp(2100, 0), 210);
+    ASSERT_EQ(read_offsets({partition_id}, &offsets, &versionstamps), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(offsets.at(identity.stream_id()).at(partition_id).offset_tso(), 50);
+
+    put_offset(instance_ids_[1], partition_id, Versionstamp(1500, 0), 150);
+    ASSERT_EQ(read_offsets({partition_id}, &offsets, &versionstamps), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(offsets.at(identity.stream_id()).at(partition_id).offset_tso(), 150);
+
+    put_offset(instance_ids_[2], partition_id, Versionstamp(2500, 0), 250);
+    ASSERT_EQ(read_offsets({partition_id}, &offsets, &versionstamps), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(offsets.at(identity.stream_id()).at(partition_id).offset_tso(), 250);
+
+    int64_t parent_partition_id = partition_id + 1;
+    int64_t missing_partition_id = partition_id + 2;
+    put_offset(instance_ids_[0], parent_partition_id, Versionstamp(600, 0), 60);
+    ASSERT_EQ(read_offsets({partition_id, parent_partition_id, missing_partition_id}, &offsets,
+                           &versionstamps),
+              TxnErrorCode::TXN_OK);
+    ASSERT_EQ(offsets.at(identity.stream_id()).size(), 2);
+    EXPECT_EQ(offsets.at(identity.stream_id()).at(partition_id).offset_tso(), 250);
+    EXPECT_EQ(offsets.at(identity.stream_id()).at(parent_partition_id).offset_tso(), 60);
+    EXPECT_FALSE(offsets.at(identity.stream_id()).contains(missing_partition_id));
 }
 
 TEST_F(CloneChainReaderTest, GetTabletLoadStats) {
@@ -1075,7 +1160,9 @@ TEST_F(CloneChainReaderTest, GetPartitionVersions) {
         std::vector<int64_t> partition_ids = {10001, 10002, 10003};
         std::unordered_map<int64_t, VersionPB> versions;
         std::unordered_map<int64_t, Versionstamp> versionstamps;
-        ASSERT_EQ(reader.get_partition_versions(partition_ids, &versions, &versionstamps),
+        std::unordered_map<int64_t, std::string> source_instances;
+        ASSERT_EQ(reader.get_partition_versions(partition_ids, &versions, &versionstamps, false,
+                                                &source_instances),
                   TxnErrorCode::TXN_OK);
         ASSERT_TRUE(versions.empty());
         ASSERT_TRUE(versionstamps.empty());
@@ -1111,7 +1198,9 @@ TEST_F(CloneChainReaderTest, GetPartitionVersions) {
         std::vector<int64_t> partition_ids = {10001, 10002, 10003};
         std::unordered_map<int64_t, VersionPB> versions;
         std::unordered_map<int64_t, Versionstamp> versionstamps;
-        ASSERT_EQ(reader.get_partition_versions(partition_ids, &versions, &versionstamps),
+        std::unordered_map<int64_t, std::string> source_instances;
+        ASSERT_EQ(reader.get_partition_versions(partition_ids, &versions, &versionstamps, false,
+                                                &source_instances),
                   TxnErrorCode::TXN_OK);
         ASSERT_EQ(versions.size(), 2);
         ASSERT_EQ(versionstamps.size(), 2);
@@ -1121,6 +1210,8 @@ TEST_F(CloneChainReaderTest, GetPartitionVersions) {
         ASSERT_EQ(versionstamps[10003], Versionstamp(300, 1));
         ASSERT_EQ(versions.count(10002), 0);
         ASSERT_EQ(versionstamps.count(10002), 0);
+        ASSERT_EQ(source_instances[10001], instance_ids_[0]);
+        ASSERT_EQ(source_instances[10003], instance_ids_[0]);
     }
 
     // Case 3: Insert data with version > snapshot_version in instance B (should be ignored)
@@ -1142,7 +1233,9 @@ TEST_F(CloneChainReaderTest, GetPartitionVersions) {
         std::vector<int64_t> partition_ids = {10001, 10002, 10003};
         std::unordered_map<int64_t, VersionPB> versions;
         std::unordered_map<int64_t, Versionstamp> versionstamps;
-        ASSERT_EQ(reader.get_partition_versions(partition_ids, &versions, &versionstamps),
+        std::unordered_map<int64_t, std::string> source_instances;
+        ASSERT_EQ(reader.get_partition_versions(partition_ids, &versions, &versionstamps, false,
+                                                &source_instances),
                   TxnErrorCode::TXN_OK);
         ASSERT_EQ(versions.size(), 2);
         ASSERT_EQ(versions[10001].version(), 100) << "Should not read data with version > snapshot";
@@ -1178,7 +1271,9 @@ TEST_F(CloneChainReaderTest, GetPartitionVersions) {
         std::vector<int64_t> partition_ids = {10001, 10002, 10003};
         std::unordered_map<int64_t, VersionPB> versions;
         std::unordered_map<int64_t, Versionstamp> versionstamps;
-        ASSERT_EQ(reader.get_partition_versions(partition_ids, &versions, &versionstamps),
+        std::unordered_map<int64_t, std::string> source_instances;
+        ASSERT_EQ(reader.get_partition_versions(partition_ids, &versions, &versionstamps, false,
+                                                &source_instances),
                   TxnErrorCode::TXN_OK);
         ASSERT_EQ(versions.size(), 3);
         ASSERT_EQ(versions[10001].version(), 150) << "Should return first valid data encountered";
@@ -1188,6 +1283,9 @@ TEST_F(CloneChainReaderTest, GetPartitionVersions) {
         ASSERT_EQ(versionstamps[10001], Versionstamp(1500, 1));
         ASSERT_EQ(versionstamps[10002], Versionstamp(1600, 1));
         ASSERT_EQ(versionstamps[10003], Versionstamp(300, 1));
+        ASSERT_EQ(source_instances[10001], instance_ids_[1]);
+        ASSERT_EQ(source_instances[10002], instance_ids_[1]);
+        ASSERT_EQ(source_instances[10003], instance_ids_[0]);
     }
 }
 
@@ -1829,6 +1927,58 @@ TEST_F(CloneChainReaderTest, GetRowsetMeta) {
                 << "Should return rowset with higher versionstamp";
         ASSERT_EQ(rowset_meta.num_rows(), 1100);
     }
+}
+
+TEST_F(CloneChainReaderTest, GetRowsetMetasMinReadVersionstamp) {
+    constexpr int64_t tablet_id = 15001;
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+    auto put_rowset = [&](const std::string& instance_id, const std::string& id, int64_t start,
+                          int64_t end, Versionstamp version, bool compact) {
+        doris::RowsetMetaCloudPB rowset;
+        rowset.set_rowset_id(0);
+        rowset.set_rowset_id_v2(id);
+        rowset.set_tablet_id(tablet_id);
+        rowset.set_start_version(start);
+        rowset.set_end_version(end);
+        auto key = compact ? versioned::meta_rowset_compact_key({instance_id, tablet_id, end})
+                           : versioned::meta_rowset_load_key({instance_id, tablet_id, end});
+        ASSERT_TRUE(versioned::document_put(txn.get(), key, version, std::move(rowset)));
+    };
+    put_rowset("A", "L1", 1, 1, Versionstamp(70, 1), false);
+    put_rowset("A", "L2", 2, 2, Versionstamp(80, 1), false);
+    put_rowset("A", "L3", 3, 3, Versionstamp(90, 1), false);
+    put_rowset("A", "compact", 2, 3, Versionstamp(150, 2), true);
+    // This source rowset is newer than A's source snapshot (1000) and is invisible to C.
+    put_rowset("A", "too_new", 1, 3, Versionstamp(1000, 1), true);
+    put_rowset("C", "L4", 4, 4, Versionstamp(2170, 1), false);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    CloneChainReader reader(instance_ids_[2], Versionstamp(3000), txn_kv_.get(),
+                            resource_mgr_.get());
+    std::vector<doris::RowsetMetaCloudPB> rowsets;
+    ASSERT_EQ(reader.get_rowset_metas(tablet_id, 2, 4, &rowsets), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(rowsets.size(), 2);
+    EXPECT_EQ(rowsets[0].rowset_id_v2(), "compact");
+    EXPECT_EQ(rowsets[0].start_version(), 2);
+    EXPECT_EQ(rowsets[0].end_version(), 3);
+    EXPECT_EQ(rowsets[0].reference_instance_id(), "A");
+    EXPECT_EQ(rowsets[1].rowset_id_v2(), "L4");
+    EXPECT_EQ(rowsets[1].start_version(), 4);
+    EXPECT_EQ(rowsets[1].end_version(), 4);
+    EXPECT_EQ(rowsets[1].reference_instance_id(), "C");
+    EXPECT_EQ(reader.min_read_versionstamp(), Versionstamp(150, 2));
+
+    ASSERT_EQ(reader.get_rowset_metas(tablet_id, 1, 1, &rowsets), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(rowsets.size(), 1);
+    EXPECT_EQ(rowsets[0].rowset_id_v2(), "L1");
+    EXPECT_EQ(rowsets[0].reference_instance_id(), "A");
+    EXPECT_EQ(reader.min_read_versionstamp(), Versionstamp(70, 1));
+    ASSERT_EQ(reader.get_rowset_metas(tablet_id, 2, 4, &rowsets), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(reader.min_read_versionstamp(), Versionstamp(70, 1));
+    ASSERT_EQ(reader.get_rowset_metas(tablet_id, 5, 6, &rowsets), TxnErrorCode::TXN_OK);
+    EXPECT_TRUE(rowsets.empty());
+    EXPECT_EQ(reader.min_read_versionstamp(), Versionstamp(70, 1));
 }
 
 TEST_F(CloneChainReaderTest, GetRowsetMetas) {

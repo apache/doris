@@ -18,7 +18,6 @@
 #pragma once
 
 #include <mutex>
-#include <ranges>
 #include <vector>
 
 namespace doris {
@@ -53,8 +52,10 @@ public:
         // reverse delete object to make sure the obj can
         // safe access the member object construt early by
         // object pool
-        for (auto& _object : std::ranges::reverse_view(_objects)) {
-            _object.delete_fn(_object.obj);
+        // NOTE: keep <ranges> out of this widely-included header: doris_be_test
+        // builds with -fno-access-control, which libc++'s <ranges> rejects.
+        for (auto it = _objects.rbegin(); it != _objects.rend(); ++it) {
+            it->delete_fn(it->obj);
         }
         _objects.clear();
     }

@@ -23,11 +23,12 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.NamedArguments;
 import org.apache.doris.common.UserException;
+import org.apache.doris.foundation.util.NamedArguments;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.qe.CommonResultSet;
@@ -90,8 +91,14 @@ public abstract class BaseExecuteAction implements ExecuteAction {
                     tableNameInfo.getTbl());
         }
 
-        // Validate all registered arguments
-        namedArguments.validate(properties);
+        // Validate all registered arguments. NamedArguments (fe-foundation, shared with the connectors)
+        // signals failures with an unchecked IllegalArgumentException; re-wrap it as AnalysisException to
+        // preserve the legacy error type and message.
+        try {
+            namedArguments.validate(properties);
+        } catch (IllegalArgumentException e) {
+            throw new AnalysisException(e.getMessage());
+        }
 
         // Additional validation logic specific to the action
         validateAction();

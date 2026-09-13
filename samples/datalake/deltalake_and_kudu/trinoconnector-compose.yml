@@ -79,7 +79,7 @@ services:
 
   minio:
     hostname: minio
-    image: 'minio/minio:RELEASE.2022-05-26T05-48-41Z'
+    image: 'quay.io/minio/minio:RELEASE.2022-05-26T05-48-41Z'
     container_name: minio-storage
     ports:
       - '${MINIO_SERVICE_PORT}:9000'
@@ -90,7 +90,7 @@ services:
 
   # This job will create the "datalake" bucket on Minio
   mc-job:
-    image: 'minio/mc:RELEASE.2022-05-09T04-08-26Z'
+    image: 'quay.io/minio/mc:RELEASE.2022-05-09T04-08-26Z'
     volumes:
       - './data:/data'
     entrypoint: |

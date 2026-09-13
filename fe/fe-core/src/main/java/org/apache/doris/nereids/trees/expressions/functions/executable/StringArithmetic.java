@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.ArrayType;
@@ -559,6 +560,15 @@ public class StringArithmetic {
         return 0;
     }
 
+    private static int compareTimeStampNsLiteral(TimeStampNsLiteral first, TimeStampNsLiteral... second) {
+        for (int i = 0; i < second.length; i++) {
+            if (second[i].equals(first)) {
+                return i + 1;
+            }
+        }
+        return 0;
+    }
+
     private static int compareFloatLiteral(FloatLiteral first, FloatLiteral... second) {
         float firstValue = first.getValue();
         for (int i = 0; i < second.length; i++) {
@@ -667,6 +677,11 @@ public class StringArithmetic {
     @ExecFunction(name = "field")
     public static Expression fieldDateTimeV2(DateTimeV2Literal first, DateTimeV2Literal... second) {
         return new IntegerLiteral(compareLiteral(first, second));
+    }
+
+    @ExecFunction(name = "field")
+    public static Expression fieldTimeStampNs(TimeStampNsLiteral first, TimeStampNsLiteral... second) {
+        return new IntegerLiteral(compareTimeStampNsLiteral(first, second));
     }
 
     /**

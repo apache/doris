@@ -229,9 +229,13 @@ public class AnalyticEvalNode extends PlanNode {
             return Pair.of(this, LocalExchangeType.NOOP);
         } else if (orderByElements.isEmpty()) {
             if (AddLocalExchange.isColocated(this)) {
+                // requireHash() is the generic hash require, which BUCKET_HASH_SHUFFLE also
+                // satisfies — a bucket-distributed child then keeps its bucket placement and no
+                // local exchange is inserted. Leave outputType null so the real placement is
+                // reported upward; hardcoding LOCAL_EXECUTION_HASH_SHUFFLE would let a parent
+                // that requires exactly that type (a bucket join upgraded to local hash) skip
+                // its realign local exchange and pair up mismatched placements.
                 requireChild = LocalExchangeTypeRequire.requireHash();
-                outputType = AddLocalExchange.resolveExchangeType(
-                        LocalExchangeTypeRequire.requireHash());
             } else {
                 // Non-colocated analytic with PARTITION BY but no ORDER BY:
                 // The parent SortNode (mergeByExchange) will insert PASSTHROUGH above us,

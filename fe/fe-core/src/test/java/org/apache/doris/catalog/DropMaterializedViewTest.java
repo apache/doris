@@ -17,100 +17,33 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.alter.AlterJobV2;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
-import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
-import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
-import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateStreamCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.utframe.UtFrameUtils;
+import org.apache.doris.utframe.TestWithFeService;
 
-import org.junit.AfterClass;
-import org.junit.BeforeClass;
-import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-import java.io.File;
-import java.util.Map;
-import java.util.UUID;
+public class DropMaterializedViewTest extends TestWithFeService {
 
-public class DropMaterializedViewTest {
-    private static String runningDir = "fe/mocked/DropMaterializedViewTest/" + UUID.randomUUID() + "/";
-
-    private static ConnectContext connectContext;
-
-    @BeforeClass
-    public static void beforeClass() throws Exception {
-        UtFrameUtils.createDorisCluster(runningDir);
-
-        // create connect context
-        connectContext = UtFrameUtils.createDefaultCtx();
-
-        String createDbStmtStr = String.format("CREATE DATABASE %s;", UnitTestUtil.DB_NAME);
-        String createTableStr1 = String.format("CREATE TABLE %s.%s(k1 int, k2 bigint) DUPLICATE KEY(k1) DISTRIBUTED BY "
-                + "HASH(k2) BUCKETS 1 PROPERTIES('replication_num' = '1');", UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME);
-        String createMVStr1 = String.format("CREATE MATERIALIZED VIEW %s.%s BUILD IMMEDIATE REFRESH AUTO ON MANUAL "
+    @Override
+    protected void runBeforeAll() throws Exception {
+        createDatabase(UnitTestUtil.DB_NAME);
+        createTable(String.format("CREATE TABLE %s.%s(k1 int, k2 bigint) DUPLICATE KEY(k1) DISTRIBUTED BY "
+                + "HASH(k2) BUCKETS 1 PROPERTIES('replication_num' = '1');",
+                UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME));
+        createMvByNereids(String.format("CREATE MATERIALIZED VIEW %s.%s BUILD IMMEDIATE REFRESH AUTO ON MANUAL "
                 + "DISTRIBUTED BY RANDOM BUCKETS 1 PROPERTIES ('replication_num' = '1') AS SELECT k1, sum(k2) as k3 from %s.%s"
-                + " GROUP BY k1;", UnitTestUtil.DB_NAME, UnitTestUtil.MV_NAME, UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME);
-        createDb(createDbStmtStr);
-        createTable(createTableStr1);
-        createMvByNereids(createMVStr1);
-    }
-
-    @AfterClass
-    public static void tearDown() {
-        File file = new File(runningDir);
-        file.delete();
-    }
-
-    private static void createMvByNereids(String sql) throws Exception {
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan parsed = nereidsParser.parseSingle(sql);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        if (parsed instanceof CreateMTMVCommand) {
-            ((CreateMTMVCommand) parsed).run(connectContext, stmtExecutor);
-        }
-        checkAlterJob();
-        // waiting table state to normal
-        Thread.sleep(1000);
-    }
-
-    private static void dropMvByNereids(String sql) throws Exception {
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan parsed = nereidsParser.parseSingle(sql);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        if (parsed instanceof DropMTMVCommand) {
-            ((DropMTMVCommand) parsed).run(connectContext, stmtExecutor);
-        }
-        checkAlterJob();
-        // waiting table state to normal
-        Thread.sleep(1000);
-    }
-
-    private static void createDb(String sql) throws Exception {
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        if (logicalPlan instanceof CreateDatabaseCommand) {
-            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
-        }
-    }
-
-    private static void createTable(String sql) throws Exception {
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan parsed = nereidsParser.parseSingle(sql);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        if (parsed instanceof CreateTableCommand) {
-            ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
-        }
+                + " GROUP BY k1;",
+                UnitTestUtil.DB_NAME, UnitTestUtil.MV_NAME, UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME));
     }
 
     private static void dropTable(String db, String tbl, boolean isMaterializedView) throws Exception {
@@ -126,33 +59,12 @@ public class DropMaterializedViewTest {
                 false);
     }
 
-    private static void checkAlterJob() throws InterruptedException {
-        // check alter job
-        Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();
-        for (AlterJobV2 alterJobV2 : alterJobs.values()) {
-            while (!alterJobV2.getJobState().isFinalState()) {
-                System.out.println("alter job " + alterJobV2.getDbId()
-                        + " is running. state: " + alterJobV2.getJobState());
-                Thread.sleep(100);
-            }
-            System.out.println("alter job " + alterJobV2.getDbId() + " is done. state: " + alterJobV2.getJobState());
-            Assertions.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
-
-            try {
-                // Add table state check in case of below Exception:
-                // there is still a short gap between "job finish" and "table become normal",
-                // so if user send next alter job right after the "job finish",
-                // it may encounter "table's state not NORMAL" error.
-                Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(alterJobV2.getDbId());
-                OlapTable tbl = (OlapTable) db.getTableOrMetaException(alterJobV2.getTableId(), Table.TableType.OLAP);
-                while (tbl.getState() != OlapTable.OlapTableState.NORMAL) {
-                    Thread.sleep(1000);
-                }
-            } catch (MetaNotFoundException e) {
-                // Sometimes table could be dropped by tests, but the corresponding alter job is not deleted yet.
-                // Ignore this error.
-                System.out.println(e.getMessage());
-            }
+    private void createStreamByNereids(String sql) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof CreateStreamCommand) {
+            ((CreateStreamCommand) parsed).run(connectContext, stmtExecutor);
         }
     }
 
@@ -164,5 +76,73 @@ public class DropMaterializedViewTest {
                 () -> dropTable(UnitTestUtil.DB_NAME, UnitTestUtil.MV_NAME, false));
         ExceptionChecker.expectThrowsNoException(() -> dropMvByNereids(String.format("DROP MATERIALIZED VIEW %s.%s",
                 UnitTestUtil.DB_NAME, UnitTestUtil.MV_NAME)));
+    }
+
+    @Test
+    public void testDropIvmMtmvRemovesStreams() throws Exception {
+        Config.enable_table_stream = true;
+        String db = UnitTestUtil.DB_NAME;
+        String baseTable = "ivm_drop_test_base";
+
+        createTable(String.format("CREATE TABLE %s.%s (k1 int, v1 int) "
+                + "UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
+                + "'binlog.need_historical_value' = 'true');", db, baseTable));
+
+        String mvName = "ivm_drop_test_mv";
+        createMvByNereids(String.format("CREATE MATERIALIZED VIEW %s.%s "
+                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL "
+                + "DISTRIBUTED BY RANDOM BUCKETS 2 PROPERTIES ('replication_num' = '1') "
+                + "AS SELECT k1, v1 FROM %s.%s;", db, mvName, db, baseTable));
+        Thread.sleep(1000);
+
+        Database database = Env.getCurrentInternalCatalog().getDbOrDdlException(db);
+        MTMV mtmv = (MTMV) database.getTableOrDdlException(mvName);
+        Assertions.assertTrue(mtmv.isIvm());
+        String streamName = IvmUtil.streamName(mtmv.getId(),
+                database.getTableOrDdlException(baseTable).getFullQualifiers());
+        Assertions.assertNotNull(database.getTableNullable(streamName),
+                "Stream should be created for IVM MTMV");
+
+        // Drop MV should also remove associated streams
+        dropMvByNereids(String.format("DROP MATERIALIZED VIEW %s.%s", db, mvName));
+        Assertions.assertNull(database.getTableNullable(streamName),
+                "Stream should be removed after MTMV drop");
+    }
+
+    @Test
+    public void testDropIvmMtmvKeepsStreamOwnedByAnotherBaseTable() throws Exception {
+        Config.enable_table_stream = true;
+        String dbName = UnitTestUtil.DB_NAME;
+        String baseTable1 = "ivm_drop_owner_base1";
+        String baseTable2 = "ivm_drop_owner_base2";
+        String tableProperties = "PROPERTIES ('replication_num' = '1', "
+                + "'enable_unique_key_merge_on_write' = 'true', 'binlog.enable' = 'true', "
+                + "'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true')";
+        createTable(String.format("CREATE TABLE %s.%s (k1 int, v1 int) UNIQUE KEY(k1) "
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1 %s", dbName, baseTable1, tableProperties));
+        createTable(String.format("CREATE TABLE %s.%s (k1 int, v1 int) UNIQUE KEY(k1) "
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1 %s", dbName, baseTable2, tableProperties));
+
+        String mvName = "ivm_drop_owner_mv";
+        createMvByNereids(String.format("CREATE MATERIALIZED VIEW %s.%s "
+                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL "
+                + "DISTRIBUTED BY RANDOM BUCKETS 2 PROPERTIES ('replication_num' = '1') "
+                + "AS SELECT k1, v1 FROM %s.%s", dbName, mvName, dbName, baseTable1));
+
+        Database database = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        MTMV mtmv = (MTMV) database.getTableOrDdlException(mvName);
+        String streamName = IvmUtil.streamName(mtmv.getId(),
+                database.getTableOrDdlException(baseTable1).getFullQualifiers());
+        Env.getCurrentInternalCatalog().dropTableWithoutCheck(
+                database, (Table) database.getTableOrDdlException(streamName), false, true);
+        createStreamByNereids(String.format("CREATE STREAM %s.%s ON TABLE %s.%s "
+                + "PROPERTIES ('type' = 'min_delta', 'show_initial_rows' = 'true')",
+                dbName, streamName, dbName, baseTable2));
+        Table conflictingStream = (Table) database.getTableOrDdlException(streamName);
+
+        dropMvByNereids(String.format("DROP MATERIALIZED VIEW %s.%s", dbName, mvName));
+        Assertions.assertSame(conflictingStream, database.getTableOrDdlException(streamName));
     }
 }

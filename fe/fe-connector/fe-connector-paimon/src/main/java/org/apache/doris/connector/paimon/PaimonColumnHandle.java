@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 
 import java.util.Objects;
 
@@ -43,6 +43,10 @@ public class PaimonColumnHandle implements ConnectorColumnHandle {
 
     public int getFieldIndex() {
         return fieldIndex;
+    }
+
+    public boolean isMetadataColumn() {
+        return fieldIndex < 0;
     }
 
     @Override

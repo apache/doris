@@ -29,6 +29,9 @@ suite("test_min_delta_stream", "nonConcurrent") {
     def ukStream = "md_uk_stream"
     def ukSkipBase = "md_uk_skip_base"
     def ukSkipStream = "md_uk_skip_stream"
+    def ukReinsertBase = "md_uk_reinsert_base"
+    def ukReinsertStream = "md_uk_reinsert_stream"
+    def ukReinsertTarget = "md_uk_reinsert_target"
     def ukMultiBase = "md_uk_multi_base"
     def ukMultiStream = "md_uk_multi_stream"
     def ukDeleteBase = "md_uk_delete_base"
@@ -57,6 +60,9 @@ suite("test_min_delta_stream", "nonConcurrent") {
         sql "DROP TABLE IF EXISTS ${ukBase}"
         sql "DROP STREAM IF EXISTS ${ukSkipStream}"
         sql "DROP TABLE IF EXISTS ${ukSkipBase}"
+        sql "DROP STREAM IF EXISTS ${ukReinsertStream}"
+        sql "DROP TABLE IF EXISTS ${ukReinsertBase}"
+        sql "DROP TABLE IF EXISTS ${ukReinsertTarget}"
         sql "DROP STREAM IF EXISTS ${ukMultiStream}"
         sql "DROP TABLE IF EXISTS ${ukMultiBase}"
         sql "DROP STREAM IF EXISTS ${ukDeleteStream}"
@@ -187,7 +193,59 @@ suite("test_min_delta_stream", "nonConcurrent") {
         def ukSkipRows = sql "SELECT id, v1, __DORIS_STREAM_CHANGE_TYPE_COL__ FROM ${ukSkipStream}"
         assertEquals(0, ukSkipRows.size())
 
-        // 3) UNIQUE KEY + MIN_DELTA: verify multiple UPDATEs on the same key keep only first/last as BEFORE/AFTER.
+        // 3) UNIQUE KEY + MIN_DELTA: after INSERT+DELETE is consumed, reinserting the same key is APPEND.
+        sql """
+            CREATE TABLE ${ukReinsertBase} (
+                id BIGINT,
+                v1 INT
+            ) ENGINE=OLAP
+            UNIQUE KEY(id)
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "true",
+                "binlog.enable" = "true",
+                "binlog.format" = "ROW",
+                "binlog.need_historical_value" = "true"
+            )
+        """
+        sql """
+            CREATE STREAM ${ukReinsertStream}
+            ON TABLE ${ukReinsertBase}
+            PROPERTIES (
+                "type" = "min_delta",
+                "show_initial_rows" = "false"
+            )
+        """
+        sql """
+            CREATE TABLE ${ukReinsertTarget} (
+                id BIGINT,
+                v1 INT
+            ) ENGINE=OLAP
+            DUPLICATE KEY(id)
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES ("replication_num" = "1")
+        """
+        sql "INSERT INTO ${ukReinsertBase} VALUES (20, 200)"
+        sql "DELETE FROM ${ukReinsertBase} WHERE id = 20"
+        sql "sync"
+        sql "INSERT INTO ${ukReinsertTarget} SELECT id, v1 FROM ${ukReinsertStream}"
+        assertEquals(0, sql("SELECT id, v1 FROM ${ukReinsertStream}").size())
+
+        sql "INSERT INTO ${ukReinsertBase} VALUES (20, 201)"
+        sql "sync"
+
+        def ukReinsertRows = sql """
+            SELECT id, v1, __DORIS_STREAM_CHANGE_TYPE_COL__
+            FROM ${ukReinsertStream}
+            ORDER BY id, v1, __DORIS_STREAM_CHANGE_TYPE_COL__
+        """
+        assertEquals(1, ukReinsertRows.size())
+        assertEquals("20", ukReinsertRows[0][0].toString())
+        assertEquals("201", ukReinsertRows[0][1].toString())
+        assertEquals("APPEND", ukReinsertRows[0][2].toString())
+
+        // 4) UNIQUE KEY + MIN_DELTA: verify multiple UPDATEs on the same key keep only first/last as BEFORE/AFTER.
         sql """
             CREATE TABLE ${ukMultiBase} (
                 id BIGINT,
@@ -748,7 +806,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
             FROM ${incrBase}@incr('startTimestamp' = '${startTimestamp}',
                 "endTimestamp" = "${endTimestamp}",
                 "incrementType" =  "DETAIL")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
         assertEquals(6, detailWithRangeRows.size())
         assertEquals("2", detailWithRangeRows[0][0].toString())
@@ -774,14 +832,14 @@ suite("test_min_delta_stream", "nonConcurrent") {
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${incrBase}@incr('startTimestamp' = '${startTimestamp}',
                 "incrementType" =  "DETAIL")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
         assertEquals(detailWithRangeRows, detailWithStartRows)
 
         def minDeltaDefaultRows = sql """
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${incrBase}@incr("incrementType" =  "MIN_DELTA")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
         assertEquals(2, minDeltaDefaultRows.size())
         assertEquals("2", minDeltaDefaultRows[0][0].toString())
@@ -794,7 +852,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
         def emptyIncrRows = sql """
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${incrBase}@incr()
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
         assertEquals(minDeltaDefaultRows, emptyIncrRows)
 
@@ -825,7 +883,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${incrDupBase}@incr('startTimestamp' = '${dupStartTimestamp}',
                 "incrementType" = "DETAIL")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
         assertEquals(1, dupDetailRows.size())
         assertEquals("3", dupDetailRows[0][0].toString())
@@ -870,7 +928,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${incrMowNoHistoryBase}@incr('startTimestamp' = '${mowNoHistoryStartTimestamp}',
                 "incrementType" = "DETAIL")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
         assertEquals(1, mowNoHistoryDetailRows.size())
         assertEquals("1", mowNoHistoryDetailRows[0][0].toString())

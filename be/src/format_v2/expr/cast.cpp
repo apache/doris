@@ -56,7 +56,10 @@ Status Cast::prepare(RuntimeState* state, const RowDescriptor& desc, VExprContex
     // get the function. won't prepare function.
     _function = SimpleFunctionFactory::instance().get_function(
             "CAST", argument_template, _data_type,
-            {.new_version_unix_timestamp = state->query_options().new_version_unix_timestamp},
+            {.new_version_unix_timestamp = state->query_options().new_version_unix_timestamp,
+             .new_version_bitmap_op_count =
+                     state->query_options().__isset.new_version_bitmap_op_count &&
+                     state->query_options().new_version_bitmap_op_count},
             state->be_exec_version());
     if (_function == nullptr) {
         return Status::InternalError("Could not find function {} ", _expr_name);

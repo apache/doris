@@ -29,7 +29,9 @@
 #include "core/block/block.h"
 #include "core/data_type/common_data_type_serder_test.h"
 #include "core/data_type/common_data_type_test.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/types.h"
@@ -62,6 +64,22 @@ TEST_F(DataTypeTimeStampTzTest, test_normal) {
     auto other_type = std::make_shared<DataTypeTimeStampTz>();
     EXPECT_TRUE(type->equals(*other_type));
     EXPECT_TRUE(type->equals_ignore_precision(*other_type));
+}
+
+TEST_F(DataTypeTimeStampTzTest, test_equals_respects_nullable) {
+    auto timestamptz_3 = std::make_shared<DataTypeTimeStampTz>(3);
+    auto timestamptz_6 = std::make_shared<DataTypeTimeStampTz>(6);
+    auto nullable_timestamptz_6 = make_nullable(timestamptz_6);
+
+    EXPECT_FALSE(timestamptz_3->equals(*timestamptz_6));
+    EXPECT_FALSE(timestamptz_6->equals(*nullable_timestamptz_6));
+    EXPECT_FALSE(nullable_timestamptz_6->equals(*timestamptz_6));
+
+    auto struct_timestamptz = std::make_shared<DataTypeStruct>(DataTypes {timestamptz_6});
+    auto struct_nullable_timestamptz =
+            std::make_shared<DataTypeStruct>(DataTypes {nullable_timestamptz_6});
+    EXPECT_FALSE(struct_timestamptz->equals(*struct_nullable_timestamptz));
+    EXPECT_FALSE(struct_nullable_timestamptz->equals(*struct_timestamptz));
 }
 
 TEST_F(DataTypeTimeStampTzTest, test_serder) {

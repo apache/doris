@@ -18,8 +18,10 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 
@@ -57,6 +59,13 @@ public:
 
     void start();
 
+    // Stops the worker thread and waits for it to exit. Aborts the audit stream load that
+    // the worker may currently be running, so that this returns within about a second even
+    // if the request would never be answered.
+    //
+    // The manager sends its records to this BE's own http service, so it must be stopped
+    // before that service is torn down. doris_main() does that explicitly; the SAFE_STOP()
+    // in ExecEnv::destroy() is then a no-op. Calling this more than once is safe.
     void stop();
 
 private:
@@ -80,12 +89,17 @@ private:
 
     void _reset_batch(int64_t current_time);
 
+    // Waits at most `wait_ms` for stop() to be called. The caller re-checks _stop itself.
+    void _wait_for_stop(int64_t wait_ms);
+
 private:
     std::shared_ptr<StreamLoadRecorder> _recorder;
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 
     std::thread _worker_thread;
     std::atomic<bool> _stop;
+    std::mutex _stop_mutex;
+    std::condition_variable _stop_cv;
 
     faststring _buffer;
 

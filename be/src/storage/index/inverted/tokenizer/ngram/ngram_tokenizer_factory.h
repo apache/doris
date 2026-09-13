@@ -50,6 +50,10 @@ public:
         }
     }
 
+    PositionCapability position_capability() const override {
+        return PositionCapability::kAlwaysUnitIncrement;
+    }
+
     static void initialize_matchers();
     static CharMatcherPtr parse_token_chars(const Settings& settings);
 

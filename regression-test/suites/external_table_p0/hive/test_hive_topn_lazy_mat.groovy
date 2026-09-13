@@ -34,6 +34,15 @@ suite("test_hive_topn_lazy_mat", "p0,external") {
             qt_3 """ select score, value, active,name  from ${table} order by id,file_id limit 10; """
             qt_4 """ select value,name,id,file_id  from ${table} order by name limit 10; """
 
+            // Duplicate projected column - same column twice (the core bug from rowid_fetcher fix)
+            qt_dup_col_twice """ select name a, name b from ${table} order by id limit 10; """
+            // Duplicate projected column - same column three times
+            qt_dup_col_thrice """ select name a, name b, name c from ${table} order by id limit 10; """
+            // Duplicate column mixed with other columns
+            qt_dup_col_mixed """ select id, name a, score, name b from ${table} order by id limit 10; """
+            // Duplicate nullable column
+            qt_dup_col_nullable """ select score x, score y from ${table} order by id limit 10; """
+
 
             for (int limit : limitValues) {
                 // Basic query
@@ -151,9 +160,17 @@ suite("test_hive_topn_lazy_mat", "p0,external") {
             """
 
             qt_test_join6  """
-                select  * from parquet_topn_lazy_mat_table  as a join orc_topn_lazy_mat_table as b 
+                select  * from parquet_topn_lazy_mat_table  as a join orc_topn_lazy_mat_table as b
                 where a.file_id = 1  and b.file_id = 1 and a.id = 1
                 order by a.id,b.id  limit 100;
+            """
+
+            // Duplicate columns from both sides of join
+            qt_test_join_dup_cols """
+                select a.name, a.name, b.id, b.id
+                from parquet_topn_lazy_mat_table as a
+                join orc_topn_lazy_mat_table as b on a.id = b.id
+                order by a.id limit ${limit};
             """
         }
 
@@ -175,6 +192,15 @@ suite("test_hive_topn_lazy_mat", "p0,external") {
 
                 qt_complex_12 """ select * from ${table} where id%2 = 0 order by id limit ${limit}; """
                 qt_complex_13 """ select * from ${table} where id%2 = 1 order by id limit ${limit}; """                
+
+                // Duplicate projected columns over nested types. The scalar cases above only
+                // cover text/double/boolean; a STRUCT or MAP column reaches the row-id fetch as a
+                // different column shape, so dedup and the result remap need coverage here too.
+                qt_complex_dup_struct """ select col2 x, col2 y from ${table} order by id limit ${limit}; """
+                qt_complex_dup_map """ select col3 m, col3 n from ${table} order by id limit ${limit}; """
+                qt_complex_dup_string """ select col1 a, col1 b from ${table} order by id limit ${limit}; """
+                qt_complex_dup_mixed """ select id, col2 a, col1 b, col2 c, col3 d, col1 e from ${table} order by id limit ${limit}; """
+                qt_complex_dup_pred """ select col2 x, col2 y, col1 z from ${table} where col1 like 'text_1%' order by id limit ${limit}; """
             }
         }
     }
@@ -230,6 +256,28 @@ suite("test_hive_topn_lazy_mat", "p0,external") {
             contains("column_descs_lists[[`name` text NULL]]")
             contains("column_idxs_lists: [[1]]")
             contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__orc_topn_lazy_mat_table]")
+        }
+
+        // The duplicate-column regressions below only prove the fix if their queries really
+        // enter phase-2 materialization. Pin the plan: two result slots must point at one
+        // physical column index, which is the input that used to drop a column.
+        explain {
+            sql "select name a, name b from orc_topn_lazy_mat_table order by id limit 10;"
+            contains("VMaterializeNode")
+            contains("projectList:[a, b]")
+            contains("column_descs_lists[[`name` text NULL, `name` text NULL]]")
+            contains("locations: [[1, 2]]")
+            contains("column_idxs_lists: [[1, 1]]")
+            contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__orc_topn_lazy_mat_table]")
+        }
+
+        explain {
+            sql "select col2 x, col2 y from parquet_topn_lazy_complex_table order by id limit 10;"
+            contains("VMaterializeNode")
+            contains("column_descs_lists[[`col2` struct<a:int,b:array<int>> NULL, `col2` struct<a:int,b:array<int>> NULL]]")
+            contains("locations: [[1, 2]]")
+            contains("column_idxs_lists: [[2, 2]]")
+            contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__parquet_topn_lazy_complex_table]")
         }
 
         explain {

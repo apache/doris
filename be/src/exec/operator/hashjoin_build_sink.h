@@ -196,6 +196,7 @@ private:
     // Prepared against build child's row_desc directly (no intermediate tuple needed)
     VExprContextSPtr _asof_build_side_expr;
     TExprOpcode::type _asof_opcode = TExprOpcode::INVALID_OPCODE;
+    bool _asof_mixed_timestamp_ns_datetimev2 = false;
 
     bool _use_shared_hash_table = false;
     std::atomic<bool> _signaled = false;
@@ -276,5 +277,10 @@ private:
     int _batch_size;
     RuntimeState* _state = nullptr;
 };
+
+/// Instantiated once in join_build_sink_operator.cpp; suppresses per-TU implicit
+/// instantiation.
+extern template class JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>;
+extern template class JoinBuildSinkLocalState<HashJoinSharedState, HashJoinBuildSinkLocalState>;
 
 } // namespace doris

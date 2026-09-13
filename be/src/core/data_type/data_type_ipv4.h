@@ -30,7 +30,6 @@
 #include "core/data_type_serde/data_type_ipv4_serde.h"
 #include "core/pod_array.h"
 #include "core/types.h"
-#include "storage/olap_common.h"
 
 namespace doris {
 class BufferWritable;

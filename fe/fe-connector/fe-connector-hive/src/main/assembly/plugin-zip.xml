@@ -23,7 +23,7 @@ under the License.
       *.jar           (all runtime deps: direct + transitive)
 
   Jars already present in fe-core classpath are excluded from lib/:
-    fe-connector-api, fe-connector-spi, fe-extension-spi, fe-filesystem-api
+    fe-connector-spi, fe-extension-spi, fe-filesystem-api
 -->
 <assembly xmlns="http://maven.apache.org/ASSEMBLY/2.2.0"
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -40,6 +40,17 @@ under the License.
             <source>${project.build.directory}/${project.build.finalName}.jar</source>
             <outputDirectory>/</outputDirectory>
         </file>
+        <!--
+          The connector's settings template. Only the .template ships; build.sh seeds the live hms.conf
+          from it with cp -n, so unzipping a newer plugin build over a deployed directory refreshes this
+          file but never the administrator's copy. The name must equal ConnectorProvider.name() +
+          ".conf.template" - note that name() is "hms" while this plugin's directory is "hive";
+          HiveConnectorMetadataDdlTest fails if the two drift apart.
+        -->
+        <file>
+            <source>src/main/resources/hms.conf.template</source>
+            <outputDirectory>/</outputDirectory>
+        </file>
     </files>
 
     <dependencySets>
@@ -48,12 +59,14 @@ under the License.
             <useProjectArtifact>false</useProjectArtifact>
             <scope>runtime</scope>
             <excludes>
-                <exclude>org.apache.doris:fe-connector-api</exclude>
                 <exclude>org.apache.doris:fe-connector-spi</exclude>
                 <exclude>org.apache.doris:fe-extension-spi</exclude>
                 <exclude>org.apache.doris:fe-filesystem-api</exclude>
                 <exclude>org.apache.doris:fe-thrift</exclude>
                 <exclude>org.apache.thrift:libthrift</exclude>
+                <!-- Logging provided by host -->
+                <exclude>org.apache.logging.log4j:*</exclude>
+                <exclude>org.slf4j:*</exclude>
             </excludes>
         </dependencySet>
     </dependencySets>

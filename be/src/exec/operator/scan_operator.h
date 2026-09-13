@@ -21,8 +21,6 @@
 #include <optional>
 #include <set>
 #include <string>
-#include <utility>
-#include <vector>
 
 #include "common/status.h"
 #include "common/thread_safety_annotations.h"
@@ -34,7 +32,6 @@
 #include "exec/runtime_filter/runtime_filter_partition_pruner.h"
 #include "exec/scan/scan_node.h"
 #include "exec/scan/scanner_context.h"
-#include "exprs/function_filter.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vin_predicate.h"
 #include "runtime/descriptors.h"
@@ -68,7 +65,6 @@ public:
 
     virtual RuntimeProfile* scanner_profile() = 0;
 
-    [[nodiscard]] virtual const TupleDescriptor* input_tuple_desc() const = 0;
     [[nodiscard]] virtual const TupleDescriptor* output_tuple_desc() const = 0;
 
     virtual int64_t limit_per_scanner() = 0;
@@ -78,6 +74,18 @@ public:
                                  const std::vector<TScanRangeParams>& scan_ranges) = 0;
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
     virtual const std::optional<std::vector<int32_t>>& get_push_down_count_slot_ids() const = 0;
+
+    static bool is_count_star_pushdown(TPushAggOp::type agg_type,
+                                       const std::optional<std::vector<int32_t>>& count_slot_ids) {
+        // An absent argument field is an old plan with unknown semantics. Only an explicitly empty
+        // argument list proves COUNT(*)/COUNT(1) and permits placeholder slots to be ignored.
+        return agg_type == TPushAggOp::type::COUNT && count_slot_ids.has_value() &&
+               count_slot_ids->empty();
+    }
+
+    bool is_count_star_pushdown() {
+        return is_count_star_pushdown(get_push_down_agg_type(), get_push_down_count_slot_ids());
+    }
 
     // If scan operator is serial operator(like topn), its real parallelism is 1.
     // Otherwise, its real parallelism is query_parallel_instance_num.
@@ -90,17 +98,11 @@ public:
     [[nodiscard]] virtual int min_scanners_concurrency(RuntimeState* state) const;
     [[nodiscard]] virtual ScannerScheduler* scan_scheduler(RuntimeState* state) const;
 
-    // Thread-safe check whether a partition has been pruned by runtime filter.
-    // Callable from any scan type's scanner in scheduling threads.
-    bool is_partition_pruned(int64_t partition_id) const;
-
     [[nodiscard]] std::string get_name() { return _parent->get_name(); }
 
     uint64_t get_condition_cache_digest() const { return _condition_cache_digest; }
 
-    Status update_late_arrival_runtime_filter(RuntimeState* state, int applied_rf_num,
-                                              int& arrived_rf_num,
-                                              VExprContextSPtrs& arrived_conjuncts);
+    Status update_late_arrival_runtime_filter(RuntimeState* state, int& arrived_rf_num);
 
     Status clone_conjunct_ctxs(VExprContextSPtrs& scanner_conjuncts);
 
@@ -110,12 +112,12 @@ protected:
 
     virtual Status _init_profile() = 0;
 
-    // Hook for subclasses to react after new runtime filters are appended.
-    // Called inside update_late_arrival_runtime_filter() while _conjuncts_lock is held.
-    // Default implementation runs partition pruning on the newly appended RFs.
-    virtual Status _on_runtime_filter_update();
+    // Hook for subclasses to process only the runtime-filter conjuncts appended by the current
+    // update. Late-arrival updates call this while holding _conjuncts_lock because pruning may
+    // execute expression nodes shared with scanner clones.
+    virtual Status _on_runtime_filter_update(const VExprContextSPtrs& new_conjuncts);
 
-    Status _do_partition_pruning_by_rf();
+    Status _do_partition_pruning_by_rf(const VExprContextSPtrs& conjuncts);
 
     std::atomic<bool> _opened {false};
 
@@ -146,9 +148,6 @@ protected:
 
     AnnotatedMutex _conjuncts_lock;
     RuntimeFilterConsumerHelper _helper;
-    // Preserve append identity independently of the cost-sorted operator snapshot. Every scanner
-    // needs the exact RF contexts added since its own applied count.
-    std::vector<std::pair<int, VExprContextSPtrs>> _late_arrival_conjunct_batches;
     // magic number as seed to generate hash value for condition cache
     uint64_t _condition_cache_digest = 0;
     // condition cache filter stats
@@ -163,9 +162,6 @@ protected:
     // Moved from ScanLocalState<Derived> to avoid re-instantiation for each Derived type.
     std::atomic<bool> _eos = false;
     int _max_pushdown_conditions_per_column = 1024;
-    // Save all function predicates which may be pushed down to data source.
-    std::vector<FunctionFilter> _push_down_functions;
-
     // Virtual methods with default implementations; overridden by subclasses when supported.
     // Declared here so that the normalize methods below (non-Derived-template) can call them.
     virtual bool _push_down_topn(const RuntimePredicate& predicate) { return false; }
@@ -195,6 +191,10 @@ protected:
         return Status::OK();
     }
 
+    static void _init_slot_value_range(
+            phmap::flat_hash_map<int, ColumnValueRangeType>& slot_id_to_value_range,
+            SlotDescriptor* slot, const DataTypePtr& type_desc);
+
     // Non-templated normalize methods, moved here to avoid re-compilation per Derived type.
     Status _eval_const_conjuncts(VExprContext* expr_ctx, PushDownType* pdt);
     Status _normalize_bloom_filter(VExprContext* expr_ctx, const VExprSPtr& root,
@@ -206,6 +206,7 @@ protected:
                                   std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                   PushDownType* pdt);
     Status _normalize_function_filters(VExprContext* expr_ctx, SlotDescriptor* slot,
+                                       std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                        PushDownType* pdt);
 
     // Inner PrimitiveType-template methods. Moved to base to avoid N(Derived)×M(PrimitiveType)
@@ -251,7 +252,6 @@ class ScanLocalState : public ScanLocalStateBase {
 
     RuntimeProfile* scanner_profile() override { return _scanner_profile.get(); }
 
-    [[nodiscard]] const TupleDescriptor* input_tuple_desc() const override;
     [[nodiscard]] const TupleDescriptor* output_tuple_desc() const override;
 
     int64_t limit_per_scanner() override;
@@ -296,11 +296,12 @@ protected:
     friend class Scanner;
 
     Status _init_profile() override;
-    virtual Status _process_conjuncts(RuntimeState* state) {
-        RETURN_IF_ERROR(_do_partition_pruning_by_rf());
-        return _normalize_conjuncts(state);
-    }
+    virtual Status _process_conjuncts(RuntimeState* state) { return _normalize_conjuncts(state); }
     virtual bool _should_push_down_common_expr(const VExprSPtr&) { return false; }
+
+    virtual bool can_push_down_column_predicate(const SlotDescriptor* slot) {
+        return _parent->cast<typename Derived::Parent>().can_push_down_column_predicate(slot);
+    }
 
     virtual bool _storage_no_merge() { return false; }
     virtual bool _is_key_column(const std::string& col_name) { return false; }
@@ -348,7 +349,6 @@ protected:
     // Parsed from conjuncts
     phmap::flat_hash_map<int, ColumnValueRangeType> _slot_id_to_value_range;
     phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> _slot_id_to_predicates;
-    std::vector<std::shared_ptr<MutilColumnBlockPredicate>> _or_predicates;
 
     std::vector<std::shared_ptr<Dependency>> _filter_dependencies;
 
@@ -388,8 +388,6 @@ public:
     const ParsedPartitionBoundaries* parsed_partition_boundaries() const override {
         return &_parsed_partition_boundaries;
     }
-
-    [[nodiscard]] virtual int get_column_id(const std::string& col_name) const { return -1; }
 
     [[nodiscard]] virtual bool can_push_down_column_predicate(const SlotDescriptor*) const {
         return true;
@@ -435,7 +433,6 @@ protected:
     // For query scan node, there is only output_tuple_desc.
     TupleId _input_tuple_id = -1;
     TupleId _output_tuple_id = -1;
-    const TupleDescriptor* _input_tuple_desc = nullptr;
     const TupleDescriptor* _output_tuple_desc = nullptr;
 
     phmap::flat_hash_map<int, SlotDescriptor*> _slot_id_to_slot_desc;

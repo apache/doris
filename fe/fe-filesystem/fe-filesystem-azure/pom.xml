@@ -52,6 +52,43 @@ under the License.
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
         </dependency>
+        <!-- OAuth2 backend map only (toMap): the legacy fe-core AzureProperties handed BE a whole
+             org.apache.hadoop.conf.Configuration, so the map carries hadoop's core-default.xml
+             plus any core-site.xml on the FE classpath (start_fe.sh puts both ${DORIS_HOME}/conf
+             and ${HADOOP_CONF_DIR} there). Reproducing that key-for-key needs the real class.
+
+             Bundled (not provided), matching fe-filesystem-hdfs/-jfs/-oss-hdfs, so the plugin does
+             not depend on the host shipping hadoop. Note this copy is a FALLBACK, not the active
+             one: FileSystemPluginManager.FS_PARENT_FIRST_PREFIXES lists "org.apache.hadoop.", so
+             ChildFirstClassLoader resolves hadoop from the parent whenever fe/lib carries it and
+             only reaches these jars through the findClass fallback when it does not. That ordering
+             is what keeps a single Class object in play today, i.e. no classloader split-brain.
+
+             Logging exclusions mirror fe-filesystem-hdfs-base: the assembly drops org.slf4j:* and
+             org.apache.logging.log4j:*, but log4j:log4j (1.x) is a different groupId and would
+             otherwise land in the plugin lib/ and fight the host's logging. -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-common</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>commons-collections</groupId>
+                    <artifactId>commons-collections</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.commons</groupId>
+                    <artifactId>commons-compress</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-log4j12</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>log4j</groupId>
+                    <artifactId>log4j</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
 
         <!-- Azure SDK (versions managed by azure-sdk-bom in fe/pom.xml dependencyManagement) -->
         <dependency>

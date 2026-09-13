@@ -181,4 +181,10 @@ private:
     std::unique_ptr<PartitionerBase> _partitioner;
 };
 
+/// Instantiated once in join_build_sink_operator.cpp; suppresses per-TU implicit
+/// instantiation.
+extern template class JoinBuildSinkOperatorX<PartitionedHashJoinSinkLocalState>;
+extern template class JoinBuildSinkLocalState<PartitionedHashJoinSharedState,
+                                              PartitionedHashJoinSinkLocalState>;
+
 } // namespace doris

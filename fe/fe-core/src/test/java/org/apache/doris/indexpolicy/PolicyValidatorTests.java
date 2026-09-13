@@ -24,6 +24,10 @@ import org.junit.jupiter.api.Test;
 // import org.junit.jupiter.params.ParameterizedTest;
 // import org.junit.jupiter.params.provider.ValueSource;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -47,6 +51,19 @@ public class PolicyValidatorTests {
         Exception exception = Assertions.assertThrows(DdlException.class,
                 () -> validator.validate(props));
         Assertions.assertTrue(exception.getMessage().contains("does not support parameter"));
+    }
+
+    @Test
+    public void testAsciiFoldingValidatorAcceptsPreserveOriginal() throws Exception {
+        AsciiFoldingTokenFilterValidator validator = new AsciiFoldingTokenFilterValidator();
+        validator.validate(Map.of("type", "asciifolding", "preserve_original", "true"));
+        validator.validate(Map.of("type", "asciifolding", "preserve_original", "false"));
+    }
+
+    private static IndexPolicy roundTrip(IndexPolicy policy) throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        policy.write(new DataOutputStream(bytes));
+        return IndexPolicy.read(new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
     }
 
     // @ParameterizedTest

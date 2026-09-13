@@ -28,6 +28,7 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "storage/storage_engine.h"
 #include "util/debug_points.h"

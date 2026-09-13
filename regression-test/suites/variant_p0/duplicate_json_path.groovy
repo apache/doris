@@ -16,6 +16,7 @@
 // under the License.
 
 suite("duplicate_json_path", "p0") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def customBeConfig = [
         variant_enable_duplicate_json_path_check: true
     ]
@@ -35,13 +36,13 @@ suite("duplicate_json_path", "p0") {
             );
         """
 
-        sql """insert into duplicate_json_path values (1, '{"a":42,"a":{"b":42}}')"""
-        sql """insert into duplicate_json_path values (2, '{"a" : 123, "a" : "123"}')"""
-        sql """insert into duplicate_json_path values (3, '{"a.b":1,"a":{"b":2}}')"""
-        sql """insert into duplicate_json_path values (4, '{"a":{"b":3},"a.b":4}')"""
-        sql """insert into duplicate_json_path values (5, '{"a":{"b":5},"a":{"c":6}}')"""
-        sql """insert into duplicate_json_path values (6, '{"a":[1],"a":2}')"""
-        sql """insert into duplicate_json_path values (7, '{"a":2,"a":[1]}')"""
+        sql """insert into duplicate_json_path values (1, ${variantV2Function}('{"a":42,"a":{"b":42}}'))"""
+        sql """insert into duplicate_json_path values (2, ${variantV2Function}('{"a" : 123, "a" : "123"}'))"""
+        sql """insert into duplicate_json_path values (3, ${variantV2Function}('{"a.b":1,"a":{"b":2}}'))"""
+        sql """insert into duplicate_json_path values (4, ${variantV2Function}('{"a":{"b":3},"a.b":4}'))"""
+        sql """insert into duplicate_json_path values (5, ${variantV2Function}('{"a":{"b":5},"a":{"c":6}}'))"""
+        sql """insert into duplicate_json_path values (6, ${variantV2Function}('{"a":[1],"a":2}'))"""
+        sql """insert into duplicate_json_path values (7, ${variantV2Function}('{"a":2,"a":[1]}'))"""
 
         streamLoad {
             table "duplicate_json_path"
@@ -74,7 +75,7 @@ suite("duplicate_json_path", "p0") {
         assertEquals(14, totalRows[0][0])
 
         // When duplicate path check is enabled, duplicate Variant paths keep the first value.
-        def expectedResult = [
+        def expectedResultV1 = [
                 [1, "{\"b\":42}", "42", null],
                 [2, "123", null, null],
                 [3, "{\"b\":1}", "1", null],
@@ -90,6 +91,24 @@ suite("duplicate_json_path", "p0") {
                 [13, "[13]", null, null],
                 [14, "14", null, null]
         ]
+        def expectedResultV2 = [
+                [1, "42", null, null],
+                [2, "123", null, null],
+                [3, "{\"b\":2}", "2", null],
+                [4, "{\"b\":3}", "3", null],
+                [5, "{\"b\":5}", "5", null],
+                [6, "[1]", null, null],
+                [7, "2", null, null],
+                [8, "42", null, null],
+                [9, "123", null, null],
+                [10, "{\"b\":9}", "9", null],
+                [11, "{\"b\":10}", "10", null],
+                [12, "{\"b\":11}", "11", null],
+                [13, "[13]", null, null],
+                [14, "14", null, null]
+        ]
+        def expectedResult = getFeConfig("enable_variant_v2").toBoolean()
+                ? expectedResultV2 : expectedResultV1
 
         def queryResult = {
             sql """

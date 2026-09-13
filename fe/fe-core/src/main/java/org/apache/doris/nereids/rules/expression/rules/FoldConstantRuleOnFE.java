@@ -36,6 +36,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionTraverseListener;
 import org.apache.doris.nereids.rules.expression.ExpressionTraverseListenerFactory;
+import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
@@ -121,6 +122,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
 
     public static final FoldConstantRuleOnFE VISITOR_INSTANCE = new FoldConstantRuleOnFE(true);
     public static final FoldConstantRuleOnFE PATTERN_MATCH_INSTANCE = new FoldConstantRuleOnFE(false);
+    private static final FoldConstantRuleOnFE CONTEXT_FREE_VISITOR_INSTANCE
+            = new FoldConstantRuleOnFE(true, false);
 
     // record whether current expression is in an aggregate function with distinct,
     // if is, we will skip to fold constant
@@ -128,13 +131,24 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     private static final CheckWhetherUnderAggDistinct NOT_UNDER_AGG_DISTINCT = new CheckWhetherUnderAggDistinct();
 
     private final boolean deepRewrite;
+    private final boolean foldContextDependentExpressions;
 
     public FoldConstantRuleOnFE(boolean deepRewrite) {
+        this(deepRewrite, true);
+    }
+
+    private FoldConstantRuleOnFE(boolean deepRewrite, boolean foldContextDependentExpressions) {
         this.deepRewrite = deepRewrite;
+        this.foldContextDependentExpressions = foldContextDependentExpressions;
     }
 
     public static Expression evaluate(Expression expression, ExpressionRewriteContext expressionRewriteContext) {
         return VISITOR_INSTANCE.rewrite(expression, expressionRewriteContext);
+    }
+
+    /** Evaluate expressions that do not require a rewrite or connection context. */
+    public static Expression evaluateWithoutContext(Expression expression) {
+        return CONTEXT_FREE_VISITOR_INSTANCE.rewrite(expression, null);
     }
 
     @Override
@@ -229,12 +243,18 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
 
     @Override
     public Expression visitUnboundVariable(UnboundVariable unboundVariable, ExpressionRewriteContext context) {
+        if (!foldContextDependentExpressions) {
+            return unboundVariable;
+        }
         Variable variable = ExpressionAnalyzer.resolveUnboundVariable(unboundVariable);
         return variable.getRealExpression();
     }
 
     @Override
     public Expression visitEncryptKeyRef(EncryptKeyRef encryptKeyRef, ExpressionRewriteContext context) {
+        if (!foldContextDependentExpressions) {
+            return encryptKeyRef;
+        }
         String dbName = encryptKeyRef.getDbName();
         ConnectContext connectContext = context.cascadesContext.getConnectContext();
         if (Strings.isNullOrEmpty(dbName)) {
@@ -357,36 +377,54 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
 
     @Override
     public Expression visitDatabase(Database database, ExpressionRewriteContext context) {
+        if (!foldContextDependentExpressions) {
+            return database;
+        }
         String res = context.cascadesContext.getConnectContext().getDatabase();
         return new VarcharLiteral(res);
     }
 
     @Override
     public Expression visitCurrentUser(CurrentUser currentUser, ExpressionRewriteContext context) {
+        if (!foldContextDependentExpressions) {
+            return currentUser;
+        }
         String res = context.cascadesContext.getConnectContext().getCurrentUserIdentity().toString();
         return new VarcharLiteral(res);
     }
 
     @Override
     public Expression visitCurrentCatalog(CurrentCatalog currentCatalog, ExpressionRewriteContext context) {
+        if (!foldContextDependentExpressions) {
+            return currentCatalog;
+        }
         String res = context.cascadesContext.getConnectContext().getDefaultCatalog();
         return new VarcharLiteral(res);
     }
 
     @Override
     public Expression visitUser(User user, ExpressionRewriteContext context) {
+        if (!foldContextDependentExpressions) {
+            return user;
+        }
         String res = context.cascadesContext.getConnectContext().getUserWithLoginRemoteIpString();
         return new VarcharLiteral(res);
     }
 
     @Override
     public Expression visitSessionUser(SessionUser user, ExpressionRewriteContext context) {
+        if (!foldContextDependentExpressions) {
+            return user;
+        }
         String res = context.cascadesContext.getConnectContext().getUserWithLoginRemoteIpString();
         return new VarcharLiteral(res);
     }
 
     @Override
     public Expression visitLastQueryId(LastQueryId queryId, ExpressionRewriteContext context) {
+        if (!foldContextDependentExpressions) {
+            return queryId;
+        }
         String res = "Not Available";
         TUniqueId id = context.cascadesContext.getConnectContext().getLastQueryId();
         if (id != null) {
@@ -397,6 +435,9 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
 
     @Override
     public Expression visitConnectionId(ConnectionId connectionId, ExpressionRewriteContext context) {
+        if (!foldContextDependentExpressions) {
+            return connectionId;
+        }
         return new BigIntLiteral(context.cascadesContext.getConnectContext().getConnectionId());
     }
 
@@ -501,6 +542,12 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         }
         Expression child = cast.child();
         DataType dataType = cast.getDataType();
+        boolean strictCast = cast.isStrict() || SessionVariable.enableStrictCast();
+        // Unsupported type pairs must be handled by CheckCast, rather than being folded into a
+        // literal or NULL based on the value-conversion result.
+        if (!CheckCast.check(child.getDataType(), dataType, strictCast)) {
+            return cast;
+        }
         // todo: process other null case
         if (child.isNullLiteral()) {
             return new NullLiteral(dataType);
@@ -519,7 +566,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         // }
         try {
             // TODO: support no throw exception in `checkedCastTo` and return Optional<Expression>
-            if (cast.child().getDataType().isStringLikeType() && dataType.isComplexType()) {
+            if ((dataType.isVariantType() && cast.child().getDataType().isTimeStampNsType())
+                    || (cast.child().getDataType().isStringLikeType() && dataType.isComplexType())) {
                 return cast;
             }
             Expression castResult = child.checkedCastTo(dataType);
@@ -528,7 +576,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
             }
             return castResult;
         } catch (CastException c) {
-            if (SessionVariable.enableStrictCast()) {
+            if (strictCast) {
                 throw c;
             } else {
                 return new NullLiteral(dataType);

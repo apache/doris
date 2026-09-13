@@ -103,9 +103,9 @@ public class PostgreSQLTypeHandler extends DefaultTypeHandler {
             case DATETIMEV2:
                 return createConverter(input -> {
                     if (input instanceof Timestamp) {
-                        return ((Timestamp) input).toLocalDateTime();
+                        return checkSubSecondFits(((Timestamp) input).toLocalDateTime(), columnType);
                     } else if (input instanceof OffsetDateTime) {
-                        return ((OffsetDateTime) input).toLocalDateTime();
+                        return checkSubSecondFits(((OffsetDateTime) input).toLocalDateTime(), columnType);
                     } else if (input instanceof java.sql.Date) {
                         return ((java.sql.Date) input).toLocalDate().atStartOfDay();
                     }
@@ -114,8 +114,8 @@ public class PostgreSQLTypeHandler extends DefaultTypeHandler {
             case TIMESTAMPTZ:
                 return createConverter(input -> {
                     if (input instanceof Timestamp) {
-                        return LocalDateTime.ofInstant(
-                                ((Timestamp) input).toInstant(), java.time.ZoneOffset.UTC);
+                        return checkSubSecondFits(LocalDateTime.ofInstant(
+                                ((Timestamp) input).toInstant(), java.time.ZoneOffset.UTC), columnType);
                     }
                     return input;
                 }, LocalDateTime.class);
@@ -229,5 +229,35 @@ public class PostgreSQLTypeHandler extends DefaultTypeHandler {
             default:
                 return input;
         }
+    }
+
+    // A nanosecond value fits n sub-second digits when it divides SUB_SECOND_UNIT[n] evenly.
+    // It stops at six because PostgreSQL keeps no more than that, so a column declared with six
+    // can always hold what arrives.
+    private static final int[] SUB_SECOND_UNIT = {
+            1000000000, 100000000, 10000000, 1000000, 100000, 10000};
+
+    /**
+     * Fail when the value carries more sub-second digits than the column declares.
+     *
+     * <p>A PostgreSQL table is created with timestamp(0), so the schema cache holds datetime(0).
+     * The column is then altered to timestamp(6), but the cache does not change. Fail here, so
+     * the user sees it.
+     *
+     * <p>PostgreSQL only: other drivers report a column's precision less faithfully, and the same
+     * check there would reject healthy rows.
+     */
+    private static LocalDateTime checkSubSecondFits(LocalDateTime v, ColumnType columnType) {
+        int precision = columnType.getPrecision();
+        if (precision < 0 || precision >= SUB_SECOND_UNIT.length) {
+            return v;
+        }
+        if (v.getNano() % SUB_SECOND_UNIT[precision] != 0) {
+            throw new RuntimeException(String.format(
+                    "Column '%s' is datetime precision %d but the value carries more digits than"
+                            + " that. The cached external schema may be stale -- refresh the catalog.",
+                    columnType.getName(), precision));
+        }
+        return v;
     }
 }

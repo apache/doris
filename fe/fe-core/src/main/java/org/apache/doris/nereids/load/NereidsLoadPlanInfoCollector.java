@@ -34,7 +34,6 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -317,17 +316,13 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
         } catch (DdlException e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
-        boolean enableMemtableOnSinkNode = destTable.getTableProperty().getUseSchemaLightChange()
-                ? taskInfo.isMemtableOnSinkNode()
-                : false;
-        boolean enableSingleReplicaLoad = enableMemtableOnSinkNode ? false : Config.enable_single_replica_load;
         if (taskInfo instanceof NereidsStreamLoadTask && ((NereidsStreamLoadTask) taskInfo).getGroupCommit() != null) {
             loadPlanInfo.olapTableSink = new GroupCommitBlockSink(destTable, olapTuple, partitionIds,
-                    enableSingleReplicaLoad, partitionExprs, syncMvWhereClauses,
+                    partitionExprs, syncMvWhereClauses,
                     ((NereidsStreamLoadTask) taskInfo).getGroupCommit(),
                     taskInfo.getMaxFilterRatio());
         } else {
-            loadPlanInfo.olapTableSink = new OlapTableSink(destTable, olapTuple, partitionIds, enableSingleReplicaLoad,
+            loadPlanInfo.olapTableSink = new OlapTableSink(destTable, olapTuple, partitionIds,
                     partitionExprs, syncMvWhereClauses);
         }
         int timeout = taskInfo.getTimeout();

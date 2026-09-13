@@ -17,16 +17,14 @@
 
 package org.apache.doris.connector.hudi;
 
-import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
+import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.THudiFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -49,6 +47,10 @@ public class HudiScanRange implements ConnectorScanRange {
 
     private static final long serialVersionUID = 1L;
 
+    // How hudi spells a NULL partition value in columns_from_path. Byte-frozen: it is what this connector has
+    // always sent, and it is also accepted as an INPUT spelling (a "\N" partition directory means NULL too).
+    private static final String HUDI_NULL_PARTITION_VALUE = "\\N";
+
     private final String path;
     private final long start;
     private final long length;
@@ -56,6 +58,21 @@ public class HudiScanRange implements ConnectorScanRange {
     private final String fileFormat;
     private final Map<String, String> partitionValues;
     private final Map<String, String> properties;
+    // JNI reader list fields. Kept as typed lists (NOT joined into the
+    // properties map) because Hive type strings contain commas
+    // (e.g. decimal(10,2), struct<a:int,b:string>): a comma join+split
+    // round-trip would shatter them and misalign column_names/column_types.
+    // BE (hudi_jni_reader.cpp) joins these lists itself with the correct
+    // delimiters (names ',', types '#', delta logs ',').
+    private final List<String> deltaLogs;
+    private final List<String> columnNames;
+    private final List<String> columnTypes;
+    // When true (force_jni_scanner), the JNI escape hatch is engaged for this split: the no-delta-log native
+    // downgrade in populateRangeParams is suppressed so a native-eligible slice still reads via the JNI reader
+    // (dodging native-reader bugs). Baked in at plan time by HudiScanPlanProvider from the session flag, so
+    // populateRangeParams (which has no session) stays CONSISTENT with planScan's native/JNI branch. Legacy
+    // parity: HudiScanNode.setScanParams guards the same downgrade with !sessionVariable.isForceJniScanner().
+    private final boolean forceJni;
 
     private HudiScanRange(Builder builder) {
         this.path = builder.path;
@@ -85,21 +102,24 @@ public class HudiScanRange implements ConnectorScanRange {
             props.put("hudi.data_file_path", builder.dataFilePath);
         }
         props.put("hudi.data_file_length", String.valueOf(builder.dataFileLength));
-        if (builder.deltaLogs != null && !builder.deltaLogs.isEmpty()) {
-            props.put("hudi.delta_logs", String.join(",", builder.deltaLogs));
-        }
-        if (builder.columnNames != null && !builder.columnNames.isEmpty()) {
-            props.put("hudi.column_names", String.join(",", builder.columnNames));
-        }
-        if (builder.columnTypes != null && !builder.columnTypes.isEmpty()) {
-            props.put("hudi.column_types", String.join(",", builder.columnTypes));
+        // Per-split native-reader schema version (mirror paimon.schema_id). Only carried when the provider
+        // resolved one for a native slice; populateRangeParams stamps THudiFileDesc.schema_id (field 12) from it
+        // ONLY on the native branch (never JNI). Absent -> BE BY_NAME.
+        if (builder.schemaId != null) {
+            props.put("hudi.schema_id", String.valueOf(builder.schemaId));
         }
         this.properties = Collections.unmodifiableMap(props);
-    }
 
-    @Override
-    public ConnectorScanRangeType getRangeType() {
-        return ConnectorScanRangeType.FILE_SCAN;
+        this.deltaLogs = builder.deltaLogs != null
+                ? Collections.unmodifiableList(new ArrayList<>(builder.deltaLogs))
+                : Collections.emptyList();
+        this.columnNames = builder.columnNames != null
+                ? Collections.unmodifiableList(new ArrayList<>(builder.columnNames))
+                : Collections.emptyList();
+        this.columnTypes = builder.columnTypes != null
+                ? Collections.unmodifiableList(new ArrayList<>(builder.columnTypes))
+                : Collections.emptyList();
+        this.forceJni = builder.forceJni;
     }
 
     @Override
@@ -156,26 +176,25 @@ public class HudiScanRange implements ConnectorScanRange {
 
         boolean isJni = "jni".equalsIgnoreCase(getFileFormat());
 
-        // Dynamic format downgrade: if JNI but no delta logs, use native reader
-        if (isJni) {
-            String deltaLogs = props.get("hudi.delta_logs");
-            if (deltaLogs == null || deltaLogs.isEmpty()) {
-                String dataFilePath = props.getOrDefault(
-                        "hudi.data_file_path", "");
-                if (!dataFilePath.isEmpty()) {
-                    String lower = dataFilePath.toLowerCase();
-                    if (lower.endsWith(".parquet")) {
-                        rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
-                        isJni = false;
-                    } else if (lower.endsWith(".orc")) {
-                        rangeDesc.setFormatType(TFileFormatType.FORMAT_ORC);
-                        isJni = false;
-                    }
-                }
+        // A JNI-format split with no delta logs (a read-optimized / log-less slice) reads natively — UNLESS
+        // force_jni is engaged (legacy HudiScanNode.setScanParams' !isForceJniScanner() guard). In practice
+        // collectMorSplits/collectCowSplits already stamp the native format directly, so this only resolves a
+        // defensively-built "jni"+no-log range.
+        if (isJni && deltaLogs.isEmpty() && !forceJni) {
+            String dataFilePath = props.getOrDefault("hudi.data_file_path", "");
+            String lower = dataFilePath.toLowerCase();
+            if (lower.endsWith(".parquet") || lower.endsWith(".orc")) {
+                isJni = false;
             }
         }
 
+        // Set the per-range format EXPLICITLY (mirroring PaimonScanRange): the node-level file_format_type is a
+        // SINGLE default per table and cannot be correct for every slice — a MOR table mixes native no-log
+        // slices with JNI log slices, a COW ORC table's node default is parquet, and force_jni keeps a COW slice
+        // on JNI. Relying on that default silently delivered the wrong reader to BE (an empty THudiFileDesc under
+        // FORMAT_JNI for a native no-log slice, or the native reader for a force_jni / ORC slice).
         if (isJni) {
+            rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
             fileDesc.setInstantTime(
                     props.getOrDefault("hudi.instant_time", ""));
             fileDesc.setSerde(props.getOrDefault("hudi.serde", ""));
@@ -188,20 +207,27 @@ public class HudiScanRange implements ConnectorScanRange {
             fileDesc.setDataFileLength(Long.parseLong(
                     props.getOrDefault("hudi.data_file_length", "0")));
 
-            String deltaLogs = props.get("hudi.delta_logs");
-            if (deltaLogs != null && !deltaLogs.isEmpty()) {
-                fileDesc.setDeltaLogs(
-                        Arrays.asList(deltaLogs.split(",")));
+            // Set typed lists directly. BE (hudi_jni_reader.cpp) joins them with
+            // the correct delimiters: column_names ',', column_types '#', delta
+            // logs ','. Joining/splitting here would shatter comma-bearing Hive
+            // type strings (decimal(10,2), struct<...>).
+            if (!deltaLogs.isEmpty()) {
+                fileDesc.setDeltaLogs(deltaLogs);
             }
-            String colNames = props.get("hudi.column_names");
-            if (colNames != null && !colNames.isEmpty()) {
-                fileDesc.setColumnNames(
-                        Arrays.asList(colNames.split(",")));
+            if (!columnNames.isEmpty()) {
+                fileDesc.setColumnNames(columnNames);
             }
-            String colTypes = props.get("hudi.column_types");
-            if (colTypes != null && !colTypes.isEmpty()) {
-                fileDesc.setColumnTypes(
-                        Arrays.asList(colTypes.split(",")));
+            if (!columnTypes.isEmpty()) {
+                fileDesc.setColumnTypes(columnTypes);
+            }
+        } else {
+            rangeDesc.setFormatType(nativeFormatType(props));
+            // Native field-id path only (paimon parity): the per-split schema version the native reader matches
+            // the base file's columns against. The JNI reader consumes no schema_id (it reads column_names/types
+            // @instant), so this is NEVER set on the JNI branch. Absent -> BE BY_NAME (no evolution).
+            String schemaId = props.get("hudi.schema_id");
+            if (schemaId != null) {
+                fileDesc.setSchemaId(Long.parseLong(schemaId));
             }
         }
 
@@ -212,16 +238,47 @@ public class HudiScanRange implements ConnectorScanRange {
         if (partValues != null && !partValues.isEmpty()) {
             List<String> pathKeys = new ArrayList<>();
             List<String> pathValues = new ArrayList<>();
+            List<Boolean> pathIsNull = new ArrayList<>();
             for (Map.Entry<String, String> entry : partValues.entrySet()) {
+                // A hudi partition value is a DIRECTORY NAME (HudiScanPlanProvider.parsePartitionValues
+                // unescapes it out of the partition path), so three spellings all mean SQL NULL: the
+                // hive-canonical sentinel, the older text-table "\N", and — defensively — a Java null.
+                // This 3-way rule lives here rather than in the neutral module because it only holds for
+                // directory-name partitioning: hive narrows it (a hive column may hold "\N" as DATA) and
+                // paimon rejects it outright (its partition values are typed, so "\N" is ordinary data).
+                // Rendering: hudi emits "\N" for a NULL where hive/paimon/iceberg emit "" — BE ignores the
+                // string whenever the flag is set, but the bytes stay as they were (see
+                // HudiScanRangePartitionValuesTest).
+                String value = entry.getValue();
+                boolean nullValue = value == null
+                        || ConnectorPartitionValues.NULL_PARTITION_NAME.equals(value)
+                        || HUDI_NULL_PARTITION_VALUE.equals(value);
                 pathKeys.add(entry.getKey());
-                pathValues.add(entry.getValue());
+                pathValues.add(nullValue ? HUDI_NULL_PARTITION_VALUE : value);
+                pathIsNull.add(nullValue);
             }
-            ConnectorPartitionValues.Normalized normalized =
-                    ConnectorPartitionValues.normalize(pathValues);
             rangeDesc.setColumnsFromPathKeys(pathKeys);
-            rangeDesc.setColumnsFromPath(normalized.getValues());
-            rangeDesc.setColumnsFromPathIsNull(normalized.getIsNull());
+            rangeDesc.setColumnsFromPath(pathValues);
+            rangeDesc.setColumnsFromPathIsNull(pathIsNull);
         }
+    }
+
+    /**
+     * The BE native reader format for a non-JNI slice: from the range's own file format when it is already
+     * native (collectCowSplits / a no-log MOR slice stamp "parquet"/"orc" directly), else — for a "jni" range
+     * downgraded above — from the base file suffix. Defaults to parquet (matching {@code detectFileFormat}).
+     */
+    private TFileFormatType nativeFormatType(Map<String, String> props) {
+        String fmt = getFileFormat();
+        if ("orc".equalsIgnoreCase(fmt)) {
+            return TFileFormatType.FORMAT_ORC;
+        }
+        if ("parquet".equalsIgnoreCase(fmt)) {
+            return TFileFormatType.FORMAT_PARQUET;
+        }
+        String dataFilePath = props.getOrDefault("hudi.data_file_path", "");
+        return dataFilePath.toLowerCase().endsWith(".orc")
+                ? TFileFormatType.FORMAT_ORC : TFileFormatType.FORMAT_PARQUET;
     }
 
     /** Builder for constructing HudiScanRange instances. */
@@ -243,6 +300,9 @@ public class HudiScanRange implements ConnectorScanRange {
         private List<String> deltaLogs;
         private List<String> columnNames;
         private List<String> columnTypes;
+        private boolean forceJni;
+        // Native-reader per-split schema version (nullable = not stamped; JNI slices never carry one).
+        private Long schemaId;
 
         public Builder path(String path) {
             this.path = path;
@@ -316,6 +376,16 @@ public class HudiScanRange implements ConnectorScanRange {
 
         public Builder columnTypes(List<String> columnTypes) {
             this.columnTypes = columnTypes;
+            return this;
+        }
+
+        public Builder forceJni(boolean forceJni) {
+            this.forceJni = forceJni;
+            return this;
+        }
+
+        public Builder schemaId(long schemaId) {
+            this.schemaId = schemaId;
             return this;
         }
 

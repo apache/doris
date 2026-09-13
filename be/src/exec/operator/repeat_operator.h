@@ -90,4 +90,7 @@ private:
     VExprContextSPtrs _expr_ctxs;
 };
 
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class StatefulOperatorX<RepeatLocalState>;
+
 } // namespace doris

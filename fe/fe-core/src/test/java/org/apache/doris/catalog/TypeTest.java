@@ -17,35 +17,54 @@
 
 package org.apache.doris.catalog;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.apache.doris.common.Config;
+
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 
 public class TypeTest {
+
+    @Test
+    public void testTimestampNsJavaUdfType() {
+        Assertions.assertEquals(1,
+                Type.PrimitiveTypeToJavaClassType.get(PrimitiveType.TIMESTAMP_NS).size());
+        Assertions.assertTrue(Type.PrimitiveTypeToJavaClassType.get(PrimitiveType.TIMESTAMP_NS)
+                .contains(java.time.LocalDateTime.class));
+        Assertions.assertFalse(Type.PrimitiveTypeToJavaClassType.get(PrimitiveType.TIMESTAMP_NS)
+                .contains(org.joda.time.LocalDateTime.class));
+        Assertions.assertFalse(Type.PrimitiveTypeToJavaClassType.get(PrimitiveType.TIMESTAMP_NS)
+                .contains(org.joda.time.DateTime.class));
+    }
+
+    @Test
+    public void testTimestampNsVariantSubtype() {
+        Assertions.assertTrue(Type.getVariantSubTypes().contains(Type.TIMESTAMP_NS));
+    }
 
     // ===================== ArrayType =====================
     @Test
     public void testArrayOfArrayExactMatch() {
         ArrayType a1 = new ArrayType(new ArrayType(Type.INT, true), true);
         ArrayType a2 = new ArrayType(new ArrayType(Type.INT, true), true);
-        Assert.assertTrue(Type.matchExactType(a1, a2, false));
+        Assertions.assertTrue(Type.matchExactType(a1, a2, false));
 
         // inner type mismatch
         ArrayType a3 = new ArrayType(new ArrayType(Type.BIGINT, true), true);
-        Assert.assertFalse(Type.matchExactType(a1, a3, false));
+        Assertions.assertFalse(Type.matchExactType(a1, a3, false));
 
         // containsNull is always true now, so a4 is equivalent to a1
         ArrayType a4 = new ArrayType(new ArrayType(Type.INT, true), false);
-        Assert.assertTrue(Type.matchExactType(a1, a4, false));
+        Assertions.assertTrue(Type.matchExactType(a1, a4, false));
 
         // array nested decimal test
         ArrayType a5 = new ArrayType(new ArrayType(ScalarType.createDecimalV3Type(8, 2), true), true);
         ArrayType a6 = new ArrayType(new ArrayType(ScalarType.createDecimalV3Type(9, 2), true), true);
         ArrayType a7 = new ArrayType(new ArrayType(ScalarType.createDecimalV3Type(-1, -1), true), true);
-        Assert.assertFalse(Type.matchExactType(a5, a6, false));
-        Assert.assertFalse(Type.matchExactType(a5, a6, true));
-        Assert.assertFalse(Type.matchExactType(a6, a7, false));
+        Assertions.assertFalse(Type.matchExactType(a5, a6, false));
+        Assertions.assertFalse(Type.matchExactType(a5, a6, true));
+        Assertions.assertFalse(Type.matchExactType(a6, a7, false));
     }
 
     // ===================== MapType =====================
@@ -55,17 +74,17 @@ public class TypeTest {
         ArrayType arrayOfD = new ArrayType(d10s2, true);
         MapType m1 = new MapType(Type.INT, arrayOfD, true, true);
         MapType m2 = new MapType(Type.INT, new ArrayType(ScalarType.createDecimalV3Type(10, 2), true), true, true);
-        Assert.assertTrue(Type.matchExactType(m1, m2, false));
+        Assertions.assertTrue(Type.matchExactType(m1, m2, false));
 
         // value decimal precision differs, same scale
         MapType m3 = new MapType(Type.INT, new ArrayType(ScalarType.createDecimalV3Type(12, 2), true), true, true);
         // ignorePrecision = false -> not match
-        Assert.assertFalse(Type.matchExactType(m1, m3, false));
-        Assert.assertFalse(Type.matchExactType(m1, m3, true));
+        Assertions.assertFalse(Type.matchExactType(m1, m3, false));
+        Assertions.assertFalse(Type.matchExactType(m1, m3, true));
 
         // key/value containsNull differs, but MapType.equals() ignores it -> matches
         MapType m4 = new MapType(Type.INT, arrayOfD, false, true);
-        Assert.assertTrue(Type.matchExactType(m1, m4, false));
+        Assertions.assertTrue(Type.matchExactType(m1, m4, false));
     }
 
     // ===================== StructType =====================
@@ -81,21 +100,21 @@ public class TypeTest {
                 new StructField("y", new ArrayType(Type.INT, true), null, true)
         );
         // names are ignored by matchExactType recursion; matchesType requires containsNull equal
-        Assert.assertTrue(Type.matchExactType(s1, s2, false));
+        Assertions.assertTrue(Type.matchExactType(s1, s2, false));
 
         // inner element type differs
         StructType s3 = new StructType(
                 new StructField("f1", Type.INT, null, true),
                 new StructField("f2", new ArrayType(Type.BIGINT, true), null, true)
         );
-        Assert.assertFalse(Type.matchExactType(s1, s3, false));
+        Assertions.assertFalse(Type.matchExactType(s1, s3, false));
 
         // field nullability differs -> matchesType fails upfront
         StructType s4 = new StructType(
                 new StructField("f1", Type.INT, null, false),
                 new StructField("f2", new ArrayType(Type.INT, true), null, true)
         );
-        Assert.assertFalse(Type.matchExactType(s1, s4, false));
+        Assertions.assertFalse(Type.matchExactType(s1, s4, false));
     }
 
     // ===================== VariantType =====================
@@ -111,21 +130,30 @@ public class TypeTest {
         fields2.add(new VariantField("x", Type.INT, ""));
         fields2.add(new VariantField("y", new ArrayType(ScalarType.createDecimalV3Type(10, 2), true), ""));
         VariantType v2 = new VariantType(fields2);
-        Assert.assertTrue(Type.matchExactType(v1, v2, false));
+        Assertions.assertTrue(Type.matchExactType(v1, v2, false));
 
         // change type of second field
         ArrayList<VariantField> fields3 = new ArrayList<>();
         fields3.add(new VariantField("a", Type.INT, ""));
         fields3.add(new VariantField("b", new ArrayType(ScalarType.createDecimalV3Type(12, 2), true), ""));
         VariantType v3 = new VariantType(fields3);
-        Assert.assertFalse(Type.matchExactType(v1, v3, false));
+        Assertions.assertFalse(Type.matchExactType(v1, v3, false));
 
         // same types but different order -> index-wise comparison fails
         ArrayList<VariantField> fields4 = new ArrayList<>();
         fields4.add(new VariantField("b", new ArrayType(ScalarType.createDecimalV3Type(10, 2), true), ""));
         fields4.add(new VariantField("a", Type.INT, ""));
         VariantType v4 = new VariantType(fields4);
-        Assert.assertFalse(Type.matchExactType(v1, v4, false));
+        Assertions.assertFalse(Type.matchExactType(v1, v4, false));
+
+        VariantType differentMaxSubcolumns = new VariantType(fields1, 2048, false, 10000, 1,
+                false, 0L, 64, false);
+        Assertions.assertFalse(Type.matchExactType(v1, differentMaxSubcolumns, false));
+
+        VariantType docMode = new VariantType(fields1, 0, false, 10000, 1,
+                true, 0L, 64, false);
+        Assertions.assertFalse(Type.matchExactType(v1, docMode, false));
+
     }
 
     @Test
@@ -133,7 +161,21 @@ public class TypeTest {
         VariantType variantType = new VariantType(new ArrayList<>(), 0, false, 10000, 0,
                 false, 0L, 64, true);
 
-        Assert.assertTrue(variantType.toSql().contains("\"variant_enable_nested_group\" = \"true\""));
+        Assertions.assertTrue(variantType.toSql().contains("\"variant_enable_nested_group\" = \"true\""));
+    }
+
+    @Test
+    public void testVariantToThriftUsesGlobalV2Config() {
+        boolean originalEnableVariantV2 = Config.enable_variant_v2;
+        try {
+            Config.enable_variant_v2 = false;
+            Assertions.assertFalse(new VariantType().toThrift().types.get(0).scalar_type.variant_is_v2);
+
+            Config.enable_variant_v2 = true;
+            Assertions.assertTrue(new VariantType().toThrift().types.get(0).scalar_type.variant_is_v2);
+        } finally {
+            Config.enable_variant_v2 = originalEnableVariantV2;
+        }
     }
 
     // ===================== Mixed Nesting & Precision =====================
@@ -159,7 +201,7 @@ public class TypeTest {
         MapType innerMap2 = new MapType(Type.INT, innerStruct2, true, true);
         ArrayType complex2 = new ArrayType(innerMap2, true);
 
-        Assert.assertFalse(Type.matchExactType(complex1, complex2, false));
+        Assertions.assertFalse(Type.matchExactType(complex1, complex2, false));
     }
 
     // ===================== Decimal/DATETIMEV2 Precision & Scale =====================
@@ -168,21 +210,21 @@ public class TypeTest {
         // DECIMAL32 group (<=9)
         ScalarType d8s2 = ScalarType.createDecimalV3Type(8, 2);
         ScalarType d9s2 = ScalarType.createDecimalV3Type(9, 2);
-        Assert.assertFalse(Type.matchExactType(d8s2, d9s2, false));
+        Assertions.assertFalse(Type.matchExactType(d8s2, d9s2, false));
 
         // Cross group: DECIMAL32 vs DECIMAL64 -> should be false even when ignorePrecision
         ScalarType d10s2 = ScalarType.createDecimalV3Type(10, 2);
-        Assert.assertFalse(Type.matchExactType(d9s2, d10s2, true));
+        Assertions.assertFalse(Type.matchExactType(d9s2, d10s2, true));
 
         // DECIMAL64 group (10..18)
         ScalarType d10s3 = ScalarType.createDecimalV3Type(10, 3);
         ScalarType d18s3 = ScalarType.createDecimalV3Type(18, 3);
-        Assert.assertFalse(Type.matchExactType(d10s3, d18s3, false));
+        Assertions.assertFalse(Type.matchExactType(d10s3, d18s3, false));
 
         // DECIMAL128 group (19..38)
         ScalarType d20s1 = ScalarType.createDecimalV3Type(20, 1);
         ScalarType d38s1 = ScalarType.createDecimalV3Type(38, 1);
-        Assert.assertFalse(Type.matchExactType(d20s1, d38s1, false));
+        Assertions.assertFalse(Type.matchExactType(d20s1, d38s1, false));
     }
 
     // ===================== exceedsMaxNestingDepth =====================
@@ -204,14 +246,14 @@ public class TypeTest {
     public void testMapKeyPathNestingWithinLimit() {
         // MAP < MAP < ... STRING ...>, STRING > with total nesting == MAX_NESTING_DEPTH should be allowed
         Type t = buildMapKeyNestedType(Type.MAX_NESTING_DEPTH);
-        Assert.assertFalse(t.exceedsMaxNestingDepth());
+        Assertions.assertFalse(t.exceedsMaxNestingDepth());
     }
 
     @Test
     public void testMapKeyPathDeepNestingDetected() {
         // Nesting depth of MAX_NESTING_DEPTH + 1 via keyType path must be rejected
         Type t = buildMapKeyNestedType(Type.MAX_NESTING_DEPTH + 1);
-        Assert.assertTrue(t.exceedsMaxNestingDepth());
+        Assertions.assertTrue(t.exceedsMaxNestingDepth());
     }
 
     @Test
@@ -222,7 +264,7 @@ public class TypeTest {
         for (int i = 0; i <= Type.MAX_NESTING_DEPTH; i++) {
             current = new MapType(Type.STRING, current, true, true);
         }
-        Assert.assertTrue(current.exceedsMaxNestingDepth());
+        Assertions.assertTrue(current.exceedsMaxNestingDepth());
     }
 
     @Test
@@ -230,9 +272,25 @@ public class TypeTest {
         ScalarType dtv2s3 = ScalarType.createDatetimeV2Type(3);
         ScalarType dtv2s6 = ScalarType.createDatetimeV2Type(6);
         // Different scales -> no match regardless of ignorePrecision
-        Assert.assertFalse(Type.matchExactType(dtv2s3, dtv2s6, false));
-        Assert.assertFalse(Type.matchExactType(dtv2s3, dtv2s6, true));
+        Assertions.assertFalse(Type.matchExactType(dtv2s3, dtv2s6, false));
+        Assertions.assertFalse(Type.matchExactType(dtv2s3, dtv2s6, true));
         // Same scale -> match
-        Assert.assertTrue(Type.matchExactType(dtv2s6, ScalarType.createDatetimeV2Type(6), false));
+        Assertions.assertTrue(Type.matchExactType(dtv2s6, ScalarType.createDatetimeV2Type(6), false));
+
+        ScalarType timestampNs = ScalarType.createTimeStampNsType();
+        Assertions.assertNotEquals(timestampNs, dtv2s6);
+        Assertions.assertEquals(ScalarType.TIMESTAMP_NS_PRECISION, timestampNs.getScalarPrecision());
+        Assertions.assertEquals(ScalarType.TIMESTAMP_NS_SCALE, timestampNs.getScalarScale());
+        for (int invalidScale = 7; invalidScale <= 9; invalidScale++) {
+            ScalarType invalidDatetimeV2 = ScalarType.createDatetimeV2Type(invalidScale);
+            Assertions.assertTrue(invalidDatetimeV2.isDatetimeV2());
+            Assertions.assertFalse(invalidDatetimeV2.isTimeStampNs());
+            Assertions.assertNotEquals(timestampNs, invalidDatetimeV2);
+        }
+        ScalarType wildcardDatetimeV2 = ScalarType.createDatetimeV2Type(-1);
+        Assertions.assertFalse(timestampNs.matchesType(wildcardDatetimeV2));
+        Assertions.assertFalse(timestampNs.matchesType(dtv2s6));
+        Assertions.assertFalse(dtv2s6.matchesType(timestampNs));
+        Assertions.assertFalse(Type.matchExactType(timestampNs, wildcardDatetimeV2, false));
     }
 }

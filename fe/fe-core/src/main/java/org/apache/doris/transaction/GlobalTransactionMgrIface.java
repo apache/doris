@@ -20,6 +20,7 @@ package org.apache.doris.transaction;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DuplicatedRequestException;
@@ -115,6 +116,14 @@ public interface GlobalTransactionMgrIface extends Writable {
             TxnCommitAttachment txnCommitAttachment)
             throws UserException;
 
+    default boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
+            TxnCommitAttachment txnCommitAttachment, List<TableStreamUpdateInfo> streamUpdateInfos)
+            throws UserException {
+        return commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis,
+                txnCommitAttachment);
+    }
+
     public void commitTransaction2PC(Database db, List<Table> tableList, long transactionId, long timeoutMillis)
             throws UserException;
 
@@ -201,6 +210,12 @@ public interface GlobalTransactionMgrIface extends Writable {
     public long getAllPublishTxnNum();
 
     public Long getNextTransactionId() throws UserException;
+
+    /**
+     * Return the transaction ID upper bound expected by {@link #isPreviousTransactionsFinished}.
+     * This is a read-only operation and must not allocate a transaction ID.
+     */
+    public long getTransactionIdWatermark() throws UserException;
 
     public void readFields(DataInput in) throws IOException;
 

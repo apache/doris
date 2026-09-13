@@ -99,7 +99,7 @@ suite('test_file_cache_warmup_read_metrics_docker', 'docker') {
                 -e MINIO_ROOT_USER=minioadmin \
                 -e MINIO_ROOT_PASSWORD=minioadmin \
                 -e MINIO_DOMAIN=host.docker.internal \
-                minio/minio:RELEASE.2024-11-07T00-52-20Z \
+                quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z \
                 server /data --console-address ':9001'
         """
         waitForCondition({

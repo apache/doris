@@ -60,6 +60,7 @@ Modules are refreshed incrementally: only modules whose content SHA changed are 
 | `test` | `scripts/data/test/` | Lightweight smoke-test datasets |
 | `preinstalled_hql` | `scripts/create_preinstalled_scripts/*.hql` | ~77 HQL files, executed in parallel via `xargs -P` |
 | `view` | `scripts/create_view_scripts/create_view.hql` | View definitions |
+| `paimon_hms` | `scripts/create_external_paimon_scripts/create_paimon_tables.hql` | Paimon tables registered in HMS (`hdfs_db`, `ali_db`, …); only selected when `enablePaimonHms=true` |
 
 ### Layer 3 — Version-Specific File Selection
 

@@ -25,6 +25,8 @@
 #include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
+#include "storage/adaptive_thread_pool_controller.h"
+#include "util/threadpool.h"
 
 namespace doris {
 
@@ -33,8 +35,21 @@ bvar::Adder<int64_t> g_cloud_commit_empty_rowset_count("cloud_commit_empty_rowse
 
 CloudDeltaWriter::CloudDeltaWriter(CloudStorageEngine& engine, const WriteRequest& req,
                                    RuntimeProfile* profile, const UniqueId& load_id)
-        : BaseDeltaWriter(req, profile, load_id), _engine(engine) {
+        : BaseDeltaWriter(req, profile, load_id) {
     _rowset_builder = std::make_unique<CloudRowsetBuilder>(engine, req, profile);
+    _resource_ctx = thread_context()->resource_ctx();
+}
+
+CloudDeltaWriter::CloudDeltaWriter(CloudStorageEngine& engine, const WriteRequest& group_build_req,
+                                   const WriteRequest& sub_data_req,
+                                   const WriteRequest& sub_row_binlog_req, RuntimeProfile* profile,
+                                   const UniqueId& load_id)
+        : BaseDeltaWriter(group_build_req, profile, load_id) {
+    DCHECK(group_build_req.write_req_type == WriteRequestType::GROUP &&
+           sub_data_req.write_req_type == WriteRequestType::DATA &&
+           sub_row_binlog_req.write_req_type == WriteRequestType::ROW_BINLOG);
+    _rowset_builder = std::make_unique<CloudGroupRowsetBuilder>(
+            engine, group_build_req, sub_data_req, sub_row_binlog_req, profile);
     _resource_ctx = thread_context()->resource_ctx();
 }
 
@@ -86,8 +101,20 @@ Status CloudDeltaWriter::write(const Block* block, const TabletAddRowsPayload& r
     CHECK(_is_init || _is_cancelled);
     {
         SCOPED_TIMER(_wait_flush_limit_timer);
-        while (_memtable_writer->flush_running_count() >=
-               config::memtable_flush_running_count_limit) {
+        auto* s3_file_upload_pool = rowset_builder()->is_s3_storage()
+                                            ? ExecEnv::GetInstance()->s3_file_upload_thread_pool()
+                                            : nullptr;
+        const auto need_backpressure = [this, s3_file_upload_pool] {
+            if (s3_file_upload_pool != nullptr) {
+                return s3_file_upload_pool->get_queue_size() >
+                       AdaptiveThreadPoolController::kS3QueueBusyThreshold;
+            }
+            const auto effective_flush_running_count_limit =
+                    config::memtable_flush_running_count_limit *
+                    (_req.write_req_type == WriteRequestType::GROUP ? 2 : 1);
+            return _memtable_writer->flush_running_count() >= effective_flush_running_count_limit;
+        };
+        while (need_backpressure()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
@@ -124,10 +151,6 @@ void CloudDeltaWriter::update_tablet_stats() {
     rowset_builder()->update_tablet_stats();
 }
 
-const RowsetMetaSharedPtr& CloudDeltaWriter::rowset_meta() {
-    return rowset_builder()->rowset_meta();
-}
-
 Status CloudDeltaWriter::commit_rowset() {
     g_cloud_commit_rowset_count << 1;
     std::lock_guard<bthread::Mutex> lock(_mtx);
@@ -138,9 +161,7 @@ Status CloudDeltaWriter::commit_rowset() {
         return _commit_empty_rowset();
     }
 
-    // Handle normal rowset with data
-    return _engine.meta_mgr().commit_rowset(*rowset_meta(), "",
-                                            _rowset_builder->tablet()->table_id());
+    return rowset_builder()->commit_rowset("", _rowset_builder->tablet()->table_id());
 }
 
 Status CloudDeltaWriter::_commit_empty_rowset() {
@@ -158,8 +179,7 @@ Status CloudDeltaWriter::_commit_empty_rowset() {
         return Status::OK();
     }
     // write a empty rowset kv to keep version continuous
-    return _engine.meta_mgr().commit_rowset(*rowset_meta(), "",
-                                            _rowset_builder->tablet()->table_id());
+    return rowset_builder()->commit_rowset("", _rowset_builder->tablet()->table_id());
 }
 
 Status CloudDeltaWriter::set_txn_related_info() {

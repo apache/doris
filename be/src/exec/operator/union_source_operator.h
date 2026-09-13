@@ -89,7 +89,7 @@ public:
         RETURN_IF_ERROR(Base::prepare(state));
         // Prepare const expr lists.
         for (const VExprContextSPtrs& exprs : _const_expr_lists) {
-            RETURN_IF_ERROR(VExpr::prepare(exprs, state, row_descriptor()));
+            RETURN_IF_ERROR(VExpr::prepare(exprs, state, operator_row_desc_before_projection()));
         }
         // open const expr lists.
         for (const auto& exprs : _const_expr_lists) {

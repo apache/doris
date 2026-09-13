@@ -68,4 +68,9 @@ private:
     std::string _expr_name;
     FunctionBasePtr _function;
 };
+
+inline bool is_cast_expr(const VExprSPtr& expr) {
+    return dynamic_cast<const Cast*>(expr.get()) != nullptr;
+}
+
 } // namespace doris::format

@@ -38,6 +38,9 @@ suite("fix_leading") {
     sql """drop table if exists t2;"""
     sql """drop table if exists t3;"""
     sql """drop table if exists t4;"""
+    sql """drop table if exists right_join_a;"""
+    sql """drop table if exists right_join_b;"""
+    sql """drop table if exists right_join_c;"""
 
     sql """create table t1 (c1 int, c11 int) distributed by hash(c1) buckets 3 properties('replication_num' = '1');"""
     sql """create table t2 (c2 int, c22 int) distributed by hash(c2) buckets 3 properties('replication_num' = '1');"""
@@ -45,6 +48,13 @@ suite("fix_leading") {
     sql """create table t4 (c4 int, c44 int) distributed by hash(c4) buckets 3 properties('replication_num' = '1');"""
     sql """create table t5 (c5 int, c55 int) distributed by hash(c5) buckets 3 properties('replication_num' = '1');"""
     sql """create table t6 (c6 int, c66 int) distributed by hash(c6) buckets 3 properties('replication_num' = '1');"""
+    sql """create table right_join_a (k int) distributed by hash(k) buckets 1 properties('replication_num' = '1');"""
+    sql """create table right_join_b (k int) distributed by hash(k) buckets 1 properties('replication_num' = '1');"""
+    sql """create table right_join_c (k int) distributed by hash(k) buckets 1 properties('replication_num' = '1');"""
+
+    sql """insert into right_join_a values (1);"""
+    sql """insert into right_join_b values (0), (1);"""
+    sql """insert into right_join_c values (1), (2);"""
 
     streamLoad {
         table "t1"
@@ -195,6 +205,16 @@ suite("fix_leading") {
     qt_select4_1 """select count(*) from t1 left join t2 on c1 > 500 and c2 >500 right join t3 on c3 > 500 and c1 < 200;"""
     qt_select4_2 """select /*+ leading(t1 t2 t3)*/ count(*) from t1 left join t2 on c1 > 500 and c2 >500 right join t3 on c3 > 500 and c1 < 200;"""
     qt_select4_3 """explain shape plan select /*+ leading(t1 t2 t3)*/ count(*) from t1 left join t2 on c1 > 500 and c2 >500 right join t3 on c3 > 500 and c1 < 200;"""
+
+    // check right semi join keeps its complete non-output side
+    qt_select4_4 """select /*+ leading(right_join_b right_join_a right_join_c) */ count(*)
+        from right_join_a cross join right_join_c
+        right semi join right_join_b on right_join_a.k = right_join_b.k;"""
+
+    // check right anti join does not push its preserved-side ON predicate below the join
+    qt_select4_6 """select /*+ leading(right_join_b right_join_a right_join_c) */ count(*)
+        from right_join_a cross join right_join_c
+        right anti join right_join_b on right_join_a.k = right_join_b.k and right_join_b.k > 0;"""
 
     // check whether we have all tables
     explain {

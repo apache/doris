@@ -17,6 +17,11 @@
 
 #pragma once
 
+#include <array>
+#include <map>
+#include <optional>
+
+#include "storage/index/inverted/analyzer/analyzer_provider.h"
 #include "storage/index/inverted/analyzer/custom_analyzer_config.h"
 #include "storage/index/inverted/char_filter/char_filter_factory.h"
 #include "storage/index/inverted/setting.h"
@@ -60,7 +65,7 @@ public:
     TokenStream* tokenStream(const TCHAR* fieldName, const ReaderPtr& reader) override;
     TokenStream* reusableTokenStream(const TCHAR* fieldName, const ReaderPtr& reader) override;
 
-    static CustomAnalyzerPtr build_custom_analyzer(const CustomAnalyzerConfigPtr& config);
+    static CustomAnalyzerPtr build_custom_analyzer(const ImmutableCustomAnalyzerConfigPtr& config);
 
 private:
     ReaderPtr init_reader(ReaderPtr reader);
@@ -71,6 +76,18 @@ private:
     std::vector<TokenFilterFactoryPtr> _token_filters;
 
     TokenStreamComponentsPtr _reuse_token_stream;
+};
+
+class CustomAnalyzerProvider final : public AnalyzerProvider {
+public:
+    explicit CustomAnalyzerProvider(ImmutableCustomAnalyzerConfigPtr config,
+                                    std::map<std::string, std::string> outer_char_filter_map = {});
+
+    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override { return _analyzer; }
+
+private:
+    ImmutableCustomAnalyzerConfigPtr _config;
+    std::shared_ptr<lucene::analysis::Analyzer> _analyzer;
 };
 
 } // namespace doris::segment_v2::inverted_index

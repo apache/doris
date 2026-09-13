@@ -15,22 +15,30 @@
 # specific language governing permissions and limitations
 # under the License.
 
-FROM almalinux:8 AS builder
+FROM centos:7 AS builder
 
-# enable PowerTools for static libraries
-RUN dnf install -y dnf-plugins-core \
-    && dnf config-manager --set-enabled powertools \
-    && dnf clean all \
-    && dnf makecache
+# Switch repos to point to to vault.centos.org because CentOS 7 is EOL
+RUN sed -i \
+  -e 's/^mirrorlist/#mirrorlist/' \
+  -e 's/^#baseurl/baseurl/' \
+  -e 's/mirror\.centos\.org/vault.centos.org/' \
+  /etc/yum.repos.d/*.repo
+
+# install epel repo for ccache
+# EPEL 7 is EOL; use its archive instead of the retired metalink.
+RUN yum install epel-release -y \
+    && sed -i -e 's|^metalink=|#metalink=|' \
+       -e 's|^#baseurl=.*/pub/epel/7/|baseurl=https://archives.fedoraproject.org/pub/archive/epel/7/|' \
+       /etc/yum.repos.d/epel.repo \
+    && yum install https://packages.endpointdev.com/rhel/7/os/x86_64/endpoint-repo.x86_64.rpm -y \
+    && yum clean all && yum makecache
 
 # install dependencies
-RUN dnf install -y byacc patch automake libtool perf vim make which file ncurses-devel gettext-devel unzip bzip2 zip util-linux \
-    wget git python2 bison java-1.8.0-openjdk-devel glibc-langpack-en diffutils
-
-RUN if [ ! -e /usr/bin/python ]; then ln -s /usr/bin/python2 /usr/bin/python; fi
+RUN yum install -y byacc patch automake libtool perf vim make which file ncurses-devel gettext-devel unzip bzip2 zip util-linux \
+    wget git python2 python3 bison java-1.8.0-openjdk-devel
 
 # clean cache
-RUN dnf clean all
+RUN yum clean all
 
 # install jdk17
 RUN wget https://doris-thirdparty-1308700295.cos.ap-beijing.myqcloud.com/tools/openjdk-17.0.2_linux-x64_bin.tar.gz \
@@ -47,17 +55,20 @@ RUN mkdir -p /usr/share/maven /usr/share/maven/ref \
     && ln -s /usr/share/maven/bin/mvn /usr/bin/mvn
 
 # install nodejs
-RUN wget https://nodejs.org/download/release/latest-v14.x/node-v14.21.3-linux-x64.tar.gz \
-    -q -O /tmp/node-v14.21.3-linux-x64.tar.gz \
-    && cd /tmp/ && tar -xf node-v14.21.3-linux-x64.tar.gz \
-    && cp -r node-v14.21.3-linux-x64/* /usr/local/ \
-    && rm /tmp/node-v14.21.3-linux-x64.tar.gz && rm -rf node-v14.21.3-linux-x64
-
-# install Rust for lance-c
-ARG RUST_TOOLCHAIN="1.91.0"
-RUN wget https://sh.rustup.rs -q -O /tmp/rustup-init.sh \
-    && sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain "${RUST_TOOLCHAIN}" \
-    && rm /tmp/rustup-init.sh
+ARG NODEJS_VERSION=22.12.0
+ARG NODEJS_SHA256=a739c219ec1ebdb33a26cb93cce32189924612c8f32aefbac25d34fe18d47a38
+# Official Node.js 22 Linux binaries require glibc 2.28. Use the Node.js
+# unofficial-builds compatibility binary to retain this image's glibc 2.17 baseline.
+RUN wget https://unofficial-builds.nodejs.org/download/release/v${NODEJS_VERSION}/node-v${NODEJS_VERSION}-linux-x64-glibc-217.tar.xz \
+    -q -O /tmp/node-v${NODEJS_VERSION}-linux-x64-glibc-217.tar.xz \
+    && echo "${NODEJS_SHA256}  /tmp/node-v${NODEJS_VERSION}-linux-x64-glibc-217.tar.xz" | sha256sum --check --strict \
+    && cd /tmp/ && tar -xf node-v${NODEJS_VERSION}-linux-x64-glibc-217.tar.xz \
+    && cp -r node-v${NODEJS_VERSION}-linux-x64-glibc-217/* /usr/local/ \
+    && rm /tmp/node-v${NODEJS_VERSION}-linux-x64-glibc-217.tar.xz \
+    && rm -rf node-v${NODEJS_VERSION}-linux-x64-glibc-217 \
+    && node --version | grep -Fx "v${NODEJS_VERSION}" \
+    && npm --version \
+    && python3 -c 'import sys; assert sys.version_info >= (3, 6)'
 
 # install ldb-toolchain
 ## 0.18
@@ -81,7 +92,7 @@ RUN echo '#!/bin/bash' > /usr/local/bin/clang-format && \
 ENV REPOSITORY_URL="https://doris-thirdparty-hk-1308700295.cos.ap-hongkong.myqcloud.com/thirdparty" \
     DEFAULT_DIR="/var/local" \
     JAVA_HOME="/usr/lib/jvm/java-1.8.0/" \
-    PATH="/root/.cargo/bin:/var/local/ldb-toolchain/bin/:$PATH"
+    PATH="/var/local/ldb-toolchain/bin/:$PATH"
     # USE_AVX2=0
 
 # install ccache
@@ -98,9 +109,28 @@ RUN wget https://doris-community-bj-1308700295.cos.ap-beijing.myqcloud.com/tools
 RUN rm -f /etc/profile.d/ccache.* \
     && cp /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/certs/ca-certificates.crt
 
+# Install the Rust toolchain required by Lance-C.
+ENV CARGO_HOME=/opt/cargo RUSTUP_HOME=/opt/rustup
+ENV PATH="/opt/cargo/bin:${PATH}"
+# The CI compile pipeline installs rustup inside this image and then runs
+# `source ~/.cargo/env` in an `&&` chain. With CARGO_HOME relocated to /opt/cargo,
+# rustup-init writes /opt/cargo/env and ~/.cargo/env never exists, so that `source`
+# fails and the chain aborts before anything is built. Keep the default path valid.
+RUN wget -q https://sh.rustup.rs -O /tmp/rustup-init.sh \
+    && sh /tmp/rustup-init.sh -y --no-modify-path --profile minimal --default-toolchain 1.91.0 \
+    && rm -f /tmp/rustup-init.sh \
+    && mkdir -p /root/.cargo \
+    && ln -sf "${CARGO_HOME}/env" /root/.cargo/env \
+    && bash -c 'source ~/.cargo/env && cargo --version && rustc --version'
+
 # clone lastest source code, download and build third party
 COPY doris ${DEFAULT_DIR}/doris
-RUN cd ${DEFAULT_DIR}/doris && /bin/bash thirdparty/build-thirdparty.sh \
+# Cargo build scripts run on CentOS 7. The LDB linker introduces a
+# GLIBC_2.18 dependency; use system GCC for Rust linking and retain LDB for C/C++.
+RUN cd ${DEFAULT_DIR}/doris \
+    && CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=/usr/bin/gcc \
+       /bin/bash thirdparty/build-thirdparty.sh \
+    && rm -rf "${CARGO_HOME}/registry" "${CARGO_HOME}/git" \
     && rm -rf ${DEFAULT_DIR}/doris/thirdparty/src \
     && rm -rf ${DEFAULT_DIR}/doris-thirdparty.tar.gz \
     && rm -rf ${DEFAULT_DIR}/doris-thirdparty \
@@ -115,7 +145,10 @@ ENV JAVA_HOME="/usr/lib/jvm/jdk-17.0.2/" \
     MAVEN_HOME="/usr/share/maven" \
     REPOSITORY_URL="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty" \
     DEFAULT_DIR="/var/local" \
-    PATH="/usr/local/bin:/root/.cargo/bin:/var/local/ldb-toolchain/bin/:/var/local/thirdparty/installed/bin/:/usr/lib/jvm/jdk-17.0.2/bin/:$PATH" \
+    CARGO_HOME="/opt/cargo" \
+    RUSTUP_HOME="/opt/rustup" \
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER="/usr/bin/gcc" \
+    PATH="/opt/cargo/bin:/usr/local/bin:/var/local/ldb-toolchain/bin/:/var/local/thirdparty/installed/bin/:/usr/lib/jvm/jdk-17.0.2/bin/:$PATH" \
     DORIS_THIRDPARTY="/var/local/thirdparty"
 WORKDIR /root
 

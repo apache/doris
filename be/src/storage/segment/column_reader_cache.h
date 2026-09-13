@@ -21,6 +21,8 @@
 #include "agent/be_exec_version_manager.h"
 #include "core/field.h"
 #include "io/fs/file_reader.h"
+#include "io/io_common.h"
+#include "storage/olap_common.h"
 #include "storage/segment/stream_reader.h"
 #include "storage/tablet/tablet_fwd.h"
 #include "util/json/path_in_data.h"

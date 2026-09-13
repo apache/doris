@@ -21,8 +21,7 @@
 
 package org.apache.doris.filesystem.hdfs;
 
-import org.apache.doris.filesystem.spi.HadoopAuthenticator;
-import org.apache.doris.filesystem.spi.IOCallable;
+import org.apache.doris.foundation.security.ExecutionAuthenticator;
 import org.apache.doris.foundation.security.KerberosTicketUtils;
 
 import org.apache.hadoop.conf.Configuration;
@@ -39,6 +38,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.Callable;
 import javax.security.auth.Subject;
 import javax.security.auth.kerberos.KerberosPrincipal;
 import javax.security.auth.login.AppConfigurationEntry;
@@ -46,7 +46,7 @@ import javax.security.auth.login.LoginContext;
 import javax.security.auth.login.LoginException;
 
 /**
- * Kerberos-based implementation of {@link HadoopAuthenticator}.
+ * Kerberos-based implementation of {@link ExecutionAuthenticator}.
  *
  * <p>Logs in from a keytab via an explicit JAAS {@code Krb5LoginModule} configuration
  * ({@code doNotPrompt=true}) and proactively refreshes the TGT once it passes 80% of
@@ -66,7 +66,7 @@ import javax.security.auth.login.LoginException;
  * the existing auth method already matches, so concurrent Kerberos catalogs don't
  * stomp on each other. When modes disagree a WARN is logged so operators notice.
  */
-public class KerberosHadoopAuthenticator implements HadoopAuthenticator {
+public class KerberosHadoopAuthenticator implements ExecutionAuthenticator {
 
     private static final Logger LOG = LogManager.getLogger(KerberosHadoopAuthenticator.class);
 
@@ -132,17 +132,17 @@ public class KerberosHadoopAuthenticator implements HadoopAuthenticator {
     }
 
     @Override
-    public <T> T doAs(IOCallable<T> action) throws IOException {
+    public <T> T execute(Callable<T> task) throws Exception {
         UserGroupInformation currentUgi;
         try {
             currentUgi = getUGI();
         } catch (IOException | RuntimeException e) {
-            // Keep the SPI's checked-IOException contract: a relogin failure (unchecked
-            // RuntimeException from the JAAS login) must not escape doAs unchecked.
+            // Keep the checked-IOException contract of doAs(): a relogin failure (unchecked
+            // RuntimeException from the JAAS login) must not escape unchecked.
             throw new IOException("Kerberos relogin failed for principal=" + principal, e);
         }
         try {
-            return currentUgi.doAs((PrivilegedExceptionAction<T>) action::call);
+            return currentUgi.doAs((PrivilegedExceptionAction<T>) task::call);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("Kerberos doAs interrupted for principal=" + principal, e);

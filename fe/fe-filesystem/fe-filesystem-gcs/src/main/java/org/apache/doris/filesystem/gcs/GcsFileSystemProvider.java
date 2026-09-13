@@ -69,6 +69,16 @@ public class GcsFileSystemProvider implements FileSystemProvider<GcsFileSystemPr
     }
 
     @Override
+    public boolean supportsExplicit(Map<String, String> properties) {
+        return S3CompatSignals.isFsSupport(properties, FS_GCS_SUPPORT);
+    }
+
+    @Override
+    public boolean supportsGuess(Map<String, String> properties) {
+        return S3CompatSignals.guessIsGcs(properties);
+    }
+
+    @Override
     public FileSystem create(Map<String, String> properties) throws IOException {
         return create(bind(properties));
     }

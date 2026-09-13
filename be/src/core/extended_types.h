@@ -103,3 +103,12 @@ struct IsArithmetic {
 
 template <typename T>
 inline constexpr bool IsArithmeticV = IsArithmetic<T>::value;
+
+namespace doris {
+// Canonical 128-bit integer aliases. They live here (not in a storage header)
+// because bottom-of-the-world headers like core/packed_int128.h and
+// util/coding.h must be able to name them without dragging in the storage
+// layer; storage/olap_common.h re-exports them by including this header.
+using int128_t = __int128;
+using uint128_t = unsigned __int128;
+} // namespace doris

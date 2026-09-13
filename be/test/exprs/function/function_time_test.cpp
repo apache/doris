@@ -36,6 +36,14 @@
 namespace doris {
 using namespace ut_type;
 
+TEST(VTimestampFunctionsTest, current_timestamp_ns_precision_test) {
+    TimezoneUtils::load_timezones_to_cache();
+    InputTypeSet input_types = {ConstedNotnull {PrimitiveType::TYPE_INT}};
+    DataSet data_set = {{{int32_t {9}}, std::string("2019-08-06 01:38:57.805000000")}};
+
+    static_cast<void>(check_function<DataTypeTimeStampNs>("now", input_types, data_set));
+}
+
 TEST(VTimestampFunctionsTest, day_of_week_test) {
     std::string func_name = "dayofweek";
 
@@ -87,6 +95,27 @@ TEST(VTimestampFunctionsTest, year_test) {
 
     static_cast<void>(check_function<DataTypeInt16, true>(func_name, input_types, data_set));
 }
+
+TEST(VTimestampFunctionsTest, nanosecond_v2_test) {
+    {
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATEV2}};
+        DataSet data_set = {{{std::string("0000-01-01")}, int32_t {0}},
+                            {{std::string("1970-01-01")}, int32_t {0}},
+                            {{std::string("9999-12-31")}, int32_t {0}}};
+
+        static_cast<void>(check_function<DataTypeInt32, true>("nanosecond", input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 6}};
+        DataSet data_set = {{{std::string("0000-01-01 00:00:00.000001")}, int32_t {1000}},
+                            {{std::string("1970-01-01 00:00:00.000000")}, int32_t {0}},
+                            {{std::string("2026-08-27 17:50:00.123456")}, int32_t {123456000}},
+                            {{std::string("9999-12-31 23:59:59.999999")}, int32_t {999999000}}};
+
+        static_cast<void>(check_function<DataTypeInt32, true>("nanosecond", input_types, data_set));
+    }
+}
+
 TEST(VTimestampFunctionsTest, century_test) {
     std::string func_name = "century";
 
@@ -1047,6 +1076,80 @@ TEST(VTimestampFunctionsTest, days_add_v2_test) {
         static_cast<void>(
                 check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set));
     }
+}
+
+TEST(VTimestampFunctionsTest, days_add_v2_boundary_test) {
+    std::string func_name = "days_add";
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_DATEV2, PrimitiveType::TYPE_INT};
+        DataSet data_set = {
+                // leap-day and century rules
+                {{std::string("2020-02-28"), 1}, std::string("2020-02-29")},
+                {{std::string("2021-02-28"), 1}, std::string("2021-03-01")},
+                {{std::string("1900-02-28"), 1}, std::string("1900-03-01")},
+                {{std::string("2000-02-28"), 1}, std::string("2000-02-29")},
+                {{std::string("2100-02-28"), 1}, std::string("2100-03-01")},
+                // month / year boundaries in both directions
+                {{std::string("2020-12-31"), 1}, std::string("2021-01-01")},
+                {{std::string("2021-01-01"), -1}, std::string("2020-12-31")},
+                {{std::string("2020-03-01"), -1}, std::string("2020-02-29")},
+                // large deltas
+                {{std::string("1970-01-01"), 20000}, std::string("2024-10-04")},
+                {{std::string("2024-10-04"), -20000}, std::string("1970-01-01")},
+                // domain edges
+                {{std::string("9999-12-30"), 1}, std::string("9999-12-31")},
+                {{std::string("0001-01-01"), -1}, std::string("0000-12-31")},
+                {{std::string("0000-03-01"), 1}, std::string("0000-03-02")},
+                // year-0 quirk window keeps the historical (MySQL calc_daynr) behaviour
+                {{std::string("0000-03-01"), -1}, std::string("0000-02-28")},
+                {{std::string("0000-01-01"), 1}, std::string("0000-01-02")},
+                {{Null(), 1}, Null()},
+        };
+        static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
+    }
+    {
+        // the time part is untouched, including the last microsecond of the day
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 6}, PrimitiveType::TYPE_INT};
+        DataSet data_set = {
+                {{std::string("2020-02-28 23:59:59.999999"), 1},
+                 std::string("2020-02-29 23:59:59.999999")},
+                {{std::string("2021-01-01 00:00:00.000001"), -1},
+                 std::string("2020-12-31 00:00:00.000001")},
+                {{std::string("9999-12-30 23:59:59.999999"), 1},
+                 std::string("9999-12-31 23:59:59.999999")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, 6));
+    }
+    {
+        // out of range must still raise
+        InputTypeSet input_types = {PrimitiveType::TYPE_DATEV2, PrimitiveType::TYPE_INT};
+        DataSet data_set = {
+                {{std::string("9999-12-31"), 1}, Null()},
+        };
+        static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set, -1,
+                                                               -1, true));
+    }
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_DATEV2, PrimitiveType::TYPE_INT};
+        DataSet data_set = {
+                {{std::string("0000-01-01"), -1}, Null()},
+        };
+        static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set, -1,
+                                                               -1, true));
+    }
+}
+
+TEST(VTimestampFunctionsTest, weeks_add_v2_boundary_test) {
+    std::string func_name = "weeks_add";
+    InputTypeSet input_types = {PrimitiveType::TYPE_DATEV2, PrimitiveType::TYPE_INT};
+    DataSet data_set = {
+            {{std::string("2020-12-31"), 1}, std::string("2021-01-07")},
+            {{std::string("2020-02-25"), 1}, std::string("2020-03-03")},
+            {{std::string("2021-01-07"), -1}, std::string("2020-12-31")},
+            {{std::string("2000-01-01"), 1043}, std::string("2019-12-28")},
+    };
+    static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
 }
 
 TEST(VTimestampFunctionsTest, days_sub_v2_test) {

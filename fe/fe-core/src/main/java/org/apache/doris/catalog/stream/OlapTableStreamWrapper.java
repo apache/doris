@@ -22,12 +22,16 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TPrimitiveType;
+import org.apache.doris.tso.TSOTimestamp;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -43,6 +47,8 @@ public class OlapTableStreamWrapper extends OlapTable {
     private final OlapTable baseTable;
     protected final Map<Long, Pair<Long, Long>> outputUpdateMap;
     private final KeysType keysType;
+    private Map<Long, Cloud.TableStreamPartitionReadStatePB> cloudReadStates = ImmutableMap.of();
+    private boolean cloudReadStatesInstalled;
 
     public OlapTableStreamWrapper(OlapTableStream stream, OlapTable baseTable, List<Long> selectedPartitionIds) {
         super(stream.getId(), stream.getName(), stream.getFullSchema(), baseTable.getKeysType(),
@@ -69,6 +75,60 @@ public class OlapTableStreamWrapper extends OlapTable {
             outputUpdateMap.put(partitionId, stream.getStreamUpdate(partitionId));
         }
         return outputUpdateMap;
+    }
+
+    public void installCloudReadStates(Map<Long, Cloud.TableStreamPartitionReadStatePB> readStates) {
+        ImmutableMap<Long, Cloud.TableStreamPartitionReadStatePB> immutableReadStates =
+                ImmutableMap.copyOf(readStates);
+        if (cloudReadStatesInstalled) {
+            Preconditions.checkState(cloudReadStates.equals(immutableReadStates),
+                    "Cloud Table Stream read state changed within one statement");
+            return;
+        }
+        for (Map.Entry<Long, Cloud.TableStreamPartitionReadStatePB> entry : immutableReadStates.entrySet()) {
+            Cloud.TableStreamPartitionReadStatePB state = entry.getValue();
+            Preconditions.checkArgument(state.hasPartitionId() && state.getPartitionId() == entry.getKey(),
+                    "Cloud Table Stream partition state does not match partition %s", entry.getKey());
+            Preconditions.checkArgument(state.hasOffsetState() && state.hasEndTso() && state.hasVisibleVersion(),
+                    "Incomplete Cloud Table Stream read state for partition %s", entry.getKey());
+            if (state.getOffsetState() == Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_UNKNOWN) {
+                Preconditions.checkArgument(!state.hasOffsetTso(),
+                        "UNKNOWN Cloud Table Stream state must not contain an offset TSO");
+            } else {
+                Preconditions.checkArgument(state.hasOffsetTso(),
+                        "Cloud Table Stream state must contain an offset TSO");
+                Preconditions.checkArgument(state.getOffsetTso() <= state.getEndTso(),
+                        "Cloud Table Stream offset exceeds the statement end TSO");
+            }
+        }
+        cloudReadStates = immutableReadStates;
+        cloudReadStatesInstalled = true;
+        outputUpdateMap.clear();
+        cloudReadStates.forEach((partitionId, state) -> {
+            if (state.getVisibleVersion() > Partition.PARTITION_INIT_VERSION) {
+                Long startTso = state.hasOffsetTso() ? state.getOffsetTso() : null;
+                outputUpdateMap.put(partitionId, Pair.of(startTso, state.getEndTso()));
+            }
+        });
+    }
+
+    public boolean hasCloudReadStates() {
+        return cloudReadStatesInstalled;
+    }
+
+    public Map<Long, Cloud.TableStreamPartitionReadStatePB> getCloudReadStates() {
+        return cloudReadStates;
+    }
+
+    public Map<Long, Long> getCloudVisibleVersions(Collection<Long> partitionIds) {
+        Preconditions.checkState(hasCloudReadStates(), "Cloud Table Stream read state is not installed");
+        return partitionIds.stream().collect(Collectors.toMap(id -> id,
+                id -> {
+                    Cloud.TableStreamPartitionReadStatePB state = cloudReadStates.get(id);
+                    Preconditions.checkNotNull(state,
+                            "Cloud Table Stream read state is missing for partition %s", id);
+                    return state.getVisibleVersion();
+                }));
     }
 
     @Override
@@ -154,6 +214,23 @@ public class OlapTableStreamWrapper extends OlapTable {
         return stream.getId();
     }
 
+    public long getBaseDbId() {
+        return stream.getBaseTableInfo().getDbId();
+    }
+
+    public long getBaseTableId() {
+        return stream.getBaseTableInfo().getTableId();
+    }
+
+    public Cloud.TableStreamIdentityPB getCloudIdentity() {
+        return Cloud.TableStreamIdentityPB.newBuilder()
+                .setBaseDbId(getBaseDbId())
+                .setBaseTableId(getBaseTableId())
+                .setStreamDbId(getStreamDbId())
+                .setStreamId(getStreamId())
+                .build();
+    }
+
     @Override
     public boolean hasDeleteSign() {
         return getDeleteSignColumn() != null;
@@ -178,6 +255,14 @@ public class OlapTableStreamWrapper extends OlapTable {
     public List<Long> selectNonEmptyPartitionIds(Collection<Long> partitionIds,
             Optional<StreamReadMode> streamReadMode) {
         StreamReadMode readMode = streamReadMode.orElse(StreamReadMode.INCREMENTAL);
+        if (hasCloudReadStates()) {
+            return partitionIds.stream()
+                    .filter(id -> {
+                        Cloud.TableStreamPartitionReadStatePB state = cloudReadStates.get(id);
+                        return state != null && state.getVisibleVersion() > Partition.PARTITION_INIT_VERSION;
+                    })
+                    .collect(Collectors.toList());
+        }
         if (readMode == StreamReadMode.SNAPSHOT || readMode == StreamReadMode.RESET) {
             return baseTable.selectNonEmptyPartitionIds(partitionIds, Optional.of(readMode));
         }
@@ -191,12 +276,28 @@ public class OlapTableStreamWrapper extends OlapTable {
     }
 
     public List<Long> filterHistoryPartitionIds(List<Long> partitionIds) {
+        if (hasCloudReadStates()) {
+            return partitionIds.stream()
+                    .filter(id -> cloudReadStates.get(id).getOffsetState()
+                            == Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_INITIAL_SNAPSHOT_PENDING)
+                    .collect(ImmutableList.toImmutableList());
+        }
         return partitionIds.stream()
                 .filter(partitionId -> stream.hasHistoricalData(partitionId))
                 .collect(ImmutableList.toImmutableList());
     }
 
     public List<Long> filterIncrementalPartitionIds(List<Long> partitionIds) {
+        if (hasCloudReadStates()) {
+            return partitionIds.stream()
+                    .filter(id -> {
+                        Cloud.TableStreamPartitionReadStatePB state = cloudReadStates.get(id);
+                        return state.getOffsetState()
+                                != Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_INITIAL_SNAPSHOT_PENDING
+                                && (!state.hasOffsetTso() || state.getOffsetTso() < state.getEndTso());
+                    })
+                    .collect(ImmutableList.toImmutableList());
+        }
         return partitionIds.stream()
                 .filter(partitionId -> !stream.hasHistoricalData(partitionId)
                         && stream.hasData(getPartition(partitionId)))
@@ -204,6 +305,21 @@ public class OlapTableStreamWrapper extends OlapTable {
     }
 
     public List<Long> filterConsumedPartitionIds(List<Long> partitionIds) {
+        if (hasCloudReadStates()) {
+            return partitionIds.stream()
+                    .filter(id -> {
+                        Cloud.TableStreamPartitionReadStatePB state = cloudReadStates.get(id);
+                        // A partition empty at stream creation is recorded as CONSUMED with the
+                        // sentinel offset -1 (CloudInternalCatalog: emptyPartition -> commit_tso=-1).
+                        // Such a partition has no real consumption baseline; exclude it so snapshot
+                        // rebuild does not fall back to the live TSO and leak post-snapshot rows.
+                        // Mirrors the non-cloud hasConsumedData() offset > 0 guard.
+                        return state.getOffsetState()
+                                == Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED
+                                && state.hasOffsetTso() && state.getOffsetTso() > 0;
+                    })
+                    .collect(ImmutableList.toImmutableList());
+        }
         return partitionIds.stream()
                 .filter(partitionId -> stream.hasConsumedData(partitionId))
                 .collect(ImmutableList.toImmutableList());
@@ -211,6 +327,10 @@ public class OlapTableStreamWrapper extends OlapTable {
 
     public OlapTable getBaseTable() {
         return baseTable;
+    }
+
+    public KeysType getStreamKeysType() {
+        return keysType;
     }
 
     public BaseTableStream.StreamScanType getStreamScanType() {
@@ -223,23 +343,45 @@ public class OlapTableStreamWrapper extends OlapTable {
     public Map<Long, Pair<Long, Long>> getPartitionOffsets(List<Long> selectedPartitionIds) {
         return outputUpdateMap.entrySet().stream()
                 .filter(s -> selectedPartitionIds.contains(s.getKey()))
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+                .collect(Collectors.toMap(Map.Entry::getKey, s -> {
+                    // Storage keeps the real committed TSO points (closed-interval semantics).
+                    // BE scans a left-closed right-open range [startTso, endTso), so convert the
+                    // bounds only in this scan-facing read view. outputUpdateMap and the offset
+                    // commit path (toOlapTableStreamUpdate) stay on the real-TSO coordinate system.
+                    Pair<Long, Long> v = s.getValue();
+                    return Pair.of(TSOTimestamp.toExclusiveBound(v.first),
+                            TSOTimestamp.toExclusiveBound(v.second));
+                }));
     }
 
     // get history partition offsets partitionId -> (null, historicalTimestampOffset)
     public Map<Long, Pair<Long, Long>> getHistoryPartitionOffsets(List<Long> selectedPartitionIds) {
         return outputUpdateMap.entrySet().stream()
                 .filter(s -> selectedPartitionIds.contains(s.getKey()))
-                .collect(Collectors.toMap(Map.Entry::getKey, s -> Pair.of(null, s.getValue().first)));
+                // historicalTso is an inclusive upper bound; shift to the half-open exclusive end.
+                .collect(Collectors.toMap(Map.Entry::getKey,
+                        s -> Pair.of(null, TSOTimestamp.toExclusiveBound(s.getValue().first))));
     }
 
     public List<Long> filterNormalSnapshotPartitionIds(List<Long> partitionIds) {
+        if (hasCloudReadStates()) {
+            return partitionIds.stream()
+                    .filter(id -> {
+                        Cloud.TableStreamPartitionReadStatePB state = cloudReadStates.get(id);
+                        return state.hasOffsetTso() && state.getOffsetTso() == state.getEndTso();
+                    })
+                    .collect(Collectors.toList());
+        }
         return partitionIds.stream()
                 .filter(partitionId -> !stream.hasData(getPartition(partitionId)))
                 .collect(Collectors.toList());
     }
 
     public boolean isHistoryPartition(long partitionId) {
+        if (hasCloudReadStates()) {
+            return cloudReadStates.get(partitionId).getOffsetState()
+                    == Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_INITIAL_SNAPSHOT_PENDING;
+        }
         return stream.hasHistoricalData(partitionId);
     }
 }

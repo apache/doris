@@ -39,6 +39,7 @@ suite("query38") {
     set topn_opt_limit_threshold=1024;
     set enable_dphyp_optimizer = true;
     set max_table_count_use_cascades_join_reorder = 1;
+    set join_order_time_limit=10000;
     set dphyper_limit=2600;
     """
 

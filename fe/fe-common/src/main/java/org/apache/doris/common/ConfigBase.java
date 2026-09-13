@@ -65,10 +65,7 @@ public class ConfigBase {
         String callbackClassString() default "";
 
         // description for this config item.
-        // There should be 2 elements in the array.
-        // The first element is the description in Chinese.
-        // The second element is the description in English.
-        String[] description() default {"待补充", "TODO"};
+        String description() default "TODO";
 
         // Enum options for this config item, if it has.
         String[] options() default {};
@@ -96,6 +93,21 @@ public class ConfigBase {
                     + "' must have intersection between the configs");
             }
             setConfigField(field, newVal);
+        }
+    }
+
+    static class PartitionInvertedIndexStorageFormatRolloutConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String confVal) throws Exception {
+            confVal = confVal.trim();
+            if (!"true".equalsIgnoreCase(confVal) && !"false".equalsIgnoreCase(confVal)) {
+                throw new IllegalArgumentException("value must be true or false");
+            }
+            boolean enabled = Boolean.parseBoolean(confVal);
+            if (!enabled && field.getBoolean(null)) {
+                throw new IllegalStateException("can only be enabled and cannot be disabled");
+            }
+            setConfigField(field, confVal);
         }
     }
 

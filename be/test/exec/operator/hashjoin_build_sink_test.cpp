@@ -282,7 +282,7 @@ TEST_F(HashJoinBuildSinkTest, Sink) {
 
         ASSERT_EQ(sink_operator->get_reserve_mem_size(runtime_state.get(), false), 0);
 
-        const auto& row_desc = sink_operator->child()->row_desc();
+        const auto& row_desc = sink_operator->child()->operator_row_desc_after_projection();
         Block block(row_desc.tuple_descriptors()[0]->slots(), 0);
 
         auto mutable_block = MutableBlock(block.clone_empty());
@@ -371,7 +371,7 @@ TEST_F(HashJoinBuildSinkTest, Terminate) {
 
         ASSERT_EQ(sink_operator->get_reserve_mem_size(runtime_state.get(), false), 0);
 
-        const auto& row_desc = sink_operator->child()->row_desc();
+        const auto& row_desc = sink_operator->child()->operator_row_desc_after_projection();
         Block block(row_desc.tuple_descriptors()[0]->slots(), 0);
 
         auto mutable_block = MutableBlock(block.clone_empty());

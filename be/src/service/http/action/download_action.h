@@ -23,7 +23,6 @@
 #include "common/status.h"
 #include "service/http/http_handler.h"
 #include "service/http/http_handler_with_auth.h"
-#include "util/threadpool.h"
 
 struct bufferevent_rate_limit_group;
 
@@ -41,7 +40,7 @@ class DownloadAction : public HttpHandlerWithAuth {
 public:
     DownloadAction(ExecEnv* exec_env,
                    std::shared_ptr<bufferevent_rate_limit_group> rate_limit_group,
-                   const std::vector<std::string>& allow_dirs, int32_t num_workers = 0);
+                   const std::vector<std::string>& allow_dirs);
 
     // for load error
     DownloadAction(ExecEnv* exec_env, const std::string& error_log_root_dir);
@@ -68,9 +67,6 @@ private:
 
     std::vector<std::string> _allow_paths;
     std::string _error_log_root_dir;
-    int32_t _num_workers;
-    std::unique_ptr<ThreadPool> _download_workers;
-
     std::shared_ptr<bufferevent_rate_limit_group> _rate_limit_group;
 }; // end class DownloadAction
 

@@ -17,11 +17,15 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.DorisConnectorException;
 
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * SPI entry point for the Iceberg connector plugin.
@@ -41,5 +45,43 @@ public class IcebergConnectorProvider implements ConnectorProvider {
     @Override
     public Connector create(Map<String, String> properties, ConnectorContext context) {
         return new IcebergConnector(properties, context);
+    }
+
+    /**
+     * {@code CREATE TABLE ... ENGINE=iceberg} keeps working; omitting the clause is equivalent. The engine
+     * keyword is legacy syntax the connector owns, not the catalog type and not the displayed engine name.
+     */
+    @Override
+    public Set<String> acceptedCreateTableEngineNames() {
+        return Collections.singleton("iceberg");
+    }
+
+    /**
+     * Validates catalog properties at CREATE CATALOG time. Everything this used to spell out lives on
+     * {@link IcebergCatalogProperties} now: the meta-cache knobs and the per-flavor backend rules alike are
+     * CREATE-time-only, so they belong next to the binding rather than beside it, and keeping them out of
+     * {@code of(Map)} is what lets a catalog created before a rule existed still come back after an FE
+     * restart. Throws {@link IllegalArgumentException}, which {@code PluginDrivenExternalCatalog
+     * .checkProperties} wraps into a DdlException.
+     */
+    @Override
+    public void validateProperties(Map<String, String> properties) {
+        IcebergCatalogProperties.of(properties).checkCreateTimeOnlyRules();
+    }
+
+    @Override
+    public void validatePropertiesForUpdate(
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) {
+        Map<String, String> candidate = currentProperties == null
+                ? new HashMap<>() : new HashMap<>(currentProperties);
+        candidate.putAll(updatedProperties);
+        IcebergCatalogProperties.of(candidate).checkCreateTimeOnlyRules(updatedProperties);
+    }
+
+    @Override
+    public void validateCreateTable(Map<String, String> properties) {
+        if (IcebergCatalogProperties.TYPE_DLF.equals(IcebergCatalogProperties.of(properties).getFlavor())) {
+            throw new DorisConnectorException("CREATE TABLE is not supported for Iceberg DLF catalogs");
+        }
     }
 }

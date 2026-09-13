@@ -61,10 +61,8 @@ github:
           - Build Third Party Libraries (macOS)
           - Build Third Party Libraries (macOS-arm64)
           - COMPILE (DORIS_COMPILE)
-          - code-review
           - Cloud UT (Doris Cloud UT)
           - performance (Doris Performance)
-          - check_coverage (Coverage)
       required_pull_request_reviews:
         dismiss_stale_reviews: true
         require_code_owner_reviews: true

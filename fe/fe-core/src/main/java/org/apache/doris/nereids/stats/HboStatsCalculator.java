@@ -27,10 +27,10 @@ import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.hbo.PlanStatistics;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.Statistics;
 
 import java.util.Map;
 import java.util.Objects;

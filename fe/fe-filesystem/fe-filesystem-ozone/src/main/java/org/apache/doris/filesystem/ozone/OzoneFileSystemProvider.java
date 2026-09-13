@@ -66,6 +66,13 @@ public class OzoneFileSystemProvider implements FileSystemProvider<OzoneFileSyst
     }
 
     @Override
+    public boolean supportsExplicit(Map<String, String> properties) {
+        return S3CompatSignals.isFsSupport(properties, FS_OZONE_SUPPORT);
+    }
+
+    // No supportsGuess override: fe-core's registry has no guessIsMe for Ozone — explicit only.
+
+    @Override
     public FileSystem create(Map<String, String> properties) throws IOException {
         return create(bind(properties));
     }

@@ -59,17 +59,14 @@ public class AutoPartitionCacheManager {
 
     public static class PartitionTabletCache {
         public final List<TTabletLocation> tablets;
-        public final List<TTabletLocation> slaveTablets;
         public final long loadTabletIdx;
 
-        public PartitionTabletCache(List<TTabletLocation> tablets, List<TTabletLocation> slaveTablets) {
-            this(tablets, slaveTablets, -1);
+        public PartitionTabletCache(List<TTabletLocation> tablets) {
+            this(tablets, -1);
         }
 
-        public PartitionTabletCache(List<TTabletLocation> tablets, List<TTabletLocation> slaveTablets,
-                long loadTabletIdx) {
+        public PartitionTabletCache(List<TTabletLocation> tablets, long loadTabletIdx) {
             this.tablets = tablets;
-            this.slaveTablets = slaveTablets;
             this.loadTabletIdx = loadTabletIdx;
         }
     }
@@ -80,15 +77,13 @@ public class AutoPartitionCacheManager {
 
     // return true if cached, else false, this function only read cache
     public boolean getAutoPartitionInfo(Long txnId, Long partitionId,
-            List<TTabletLocation> partitionTablets, List<TTabletLocation> partitionSlaveTablets) {
-        return getAutoPartitionInfo(txnId, partitionId, partitionTablets, partitionSlaveTablets,
-                new AtomicLong(-1));
+            List<TTabletLocation> partitionTablets) {
+        return getAutoPartitionInfo(txnId, partitionId, partitionTablets, new AtomicLong(-1));
     }
 
     // return true if cached, else false, this function only read cache
     public boolean getAutoPartitionInfo(Long txnId, Long partitionId,
-            List<TTabletLocation> partitionTablets, List<TTabletLocation> partitionSlaveTablets,
-            AtomicLong loadTabletIdx) {
+            List<TTabletLocation> partitionTablets, AtomicLong loadTabletIdx) {
         ConcurrentHashMap<Long, PartitionTabletCache> partitionMap = autoPartitionInfo.get(txnId);
         if (partitionMap == null) {
             return false;
@@ -101,20 +96,17 @@ public class AutoPartitionCacheManager {
 
         partitionTablets.clear();
         partitionTablets.addAll(cached.tablets);
-        partitionSlaveTablets.clear();
-        partitionSlaveTablets.addAll(cached.slaveTablets);
         loadTabletIdx.set(cached.loadTabletIdx);
         return true;
     }
 
     public void getOrSetAutoPartitionInfo(Long txnId, Long partitionId,
-            List<TTabletLocation> partitionTablets, List<TTabletLocation> partitionSlaveTablets) {
-        getOrSetAutoPartitionInfo(txnId, partitionId, partitionTablets, partitionSlaveTablets, -1);
+            List<TTabletLocation> partitionTablets) {
+        getOrSetAutoPartitionInfo(txnId, partitionId, partitionTablets, -1);
     }
 
     public long getOrSetAutoPartitionInfo(Long txnId, Long partitionId,
-            List<TTabletLocation> partitionTablets, List<TTabletLocation> partitionSlaveTablets,
-            long loadTabletIdx) {
+            List<TTabletLocation> partitionTablets, long loadTabletIdx) {
         ConcurrentHashMap<Long, PartitionTabletCache> partitionMap =
                 autoPartitionInfo.computeIfAbsent(txnId, k -> new ConcurrentHashMap<>());
 
@@ -123,19 +115,16 @@ public class AutoPartitionCacheManager {
             needUpdate.set(true);
             return new PartitionTabletCache(
                     new ArrayList<>(partitionTablets),
-                    new ArrayList<>(partitionSlaveTablets),
                     loadTabletIdx
             );
         });
 
         if (!needUpdate.get()) {
             partitionTablets.clear();
-            partitionSlaveTablets.clear();
             partitionTablets.addAll(cached.tablets);
-            partitionSlaveTablets.addAll(cached.slaveTablets);
             LOG.debug("Get cached auto partition info from cache, txnId: {}, partitionId: {}, "
-                    + "tablets: {}, slaveTablets: {}, loadTabletIdx: {}", txnId, partitionId,
-                    cached.tablets.size(), cached.slaveTablets.size(), cached.loadTabletIdx);
+                    + "tablets: {}, loadTabletIdx: {}", txnId, partitionId,
+                    cached.tablets.size(), cached.loadTabletIdx);
         }
         return cached.loadTabletIdx;
     }

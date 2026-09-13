@@ -24,10 +24,10 @@ import org.apache.doris.persist.StorageInfo;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.Assert;
-import org.junit.Test;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.io.File;
 import java.io.IOException;
@@ -40,7 +40,7 @@ public class MetaHelperTest {
         ObjectMapper mapper = new ObjectMapper();
         String bodyStr = mapper.writeValueAsString(bodyBefore);
         ResponseBody<StorageInfo> bodyAfter = MetaHelper.parseResponse(bodyStr, StorageInfo.class);
-        Assert.assertEquals(bodyAfter, bodyBefore);
+        Assertions.assertEquals(bodyAfter, bodyBefore);
     }
 
     private ResponseBody<StorageInfo> buildResponseBody() {
@@ -80,12 +80,12 @@ public class MetaHelperTest {
         if (errorFileWithSuffix.exists()) {
             errorFileWithSuffix.delete();
         }
-        Assert.assertThrows(Exception.class, () -> MetaHelper.complete(errorFilename, tempDir));
-        Assert.assertThrows(Exception.class, () -> MetaHelper.getFile(errorFilename, tempDir));
+        Assertions.assertThrows(Exception.class, () -> MetaHelper.complete(errorFilename, tempDir));
+        Assertions.assertThrows(Exception.class, () -> MetaHelper.getFile(errorFilename, tempDir));
         if (rightFileWithSuffix.exists()) {
             rightFileWithSuffix.delete();
         }
-        Assert.assertEquals(rightFileWithSuffix.getName() + ".part", MetaHelper.getFile(rightFilename, tempDir).getName());
+        Assertions.assertEquals(rightFileWithSuffix.getName() + ".part", MetaHelper.getFile(rightFilename, tempDir).getName());
 
     }
 
@@ -96,7 +96,7 @@ public class MetaHelperTest {
         MetaHelper.checkIsValidFileName("image.1");
         MetaHelper.checkIsValidFileName("image.1.part");
         MetaHelper.checkIsValidFileName("image.1.part.1");
-        Assert.assertThrows(IllegalArgumentException.class, () -> MetaHelper.checkIsValidFileName("../testfile."));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> MetaHelper.checkIsValidFileName("../testfile."));
 
 
     }

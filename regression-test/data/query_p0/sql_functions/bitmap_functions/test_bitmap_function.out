@@ -228,6 +228,9 @@ true
 -- !sql_bitmap_and_count6 --
 0
 
+-- !sql_bitmap_and_count_nulls --
+0	0	0
+
 -- !sql_bitmap_or_count1 --
 3
 
@@ -237,11 +240,20 @@ true
 -- !sql_bitmap_or_count3 --
 5
 
+-- !sql_bitmap_or_count_set_diff_length --
+5
+
 -- !sql_bitmap_or_count4 --
 6
 
 -- !sql_bitmap_or_count5 --
 6
+
+-- !sql_bitmap_or_count_nulls --
+3	3	0
+
+-- !sql_bitmap_or_count_nulls_multi --
+5
 
 -- !sql --
 2
@@ -275,6 +287,12 @@ true
 
 -- !sql_bitmap_xor_count6 --
 0
+
+-- !sql_bitmap_xor_count_nulls --
+0	0	0
+
+-- !sql_bitmap_count_rewrite_nullable --
+3	3	0	0	0	0
 
 -- !sql_bitmap_and_count7 --
 1	1

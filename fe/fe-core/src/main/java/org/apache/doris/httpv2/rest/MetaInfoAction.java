@@ -21,11 +21,9 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
@@ -34,7 +32,6 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
-import org.apache.doris.httpv2.exception.BadRequestException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
@@ -65,8 +62,6 @@ public class MetaInfoAction extends RestBaseController {
     private static final String NAMESPACES = "namespaces";
     private static final String DATABASES = "databases";
     private static final String TABLES = "tables";
-    private static final String PARAM_LIMIT = "limit";
-    private static final String PARAM_OFFSET = "offset";
     private static final String PARAM_WITH_MV = "with_mv";
 
 
@@ -88,11 +83,14 @@ public class MetaInfoAction extends RestBaseController {
     public Object getAllDatabases(
             @PathVariable(value = NS_KEY) String ns,
             HttpServletRequest request, HttpServletResponse response) {
-        boolean checkAuth = Config.enable_all_http_auth ? true : false;
-        ActionAuthorizationInfo authInfo = checkWithCookie(request, response, checkAuth);
-        if (Config.enable_all_http_auth) {
-            checkAdminAuth(authInfo.userIdentity);
-        }
+        // Authenticate, but do not demand global ADMIN: the per-database SHOW check below is what
+        // authorizes this response, so a least-privilege account (for example the user a
+        // Doris-to-Doris external catalog is configured with) can list exactly the databases it is
+        // allowed to see. A caller that presents no credential at all is still rejected. Passing
+        // false also skips checkWithCookie's cloud overdue check, which is unrelated to privilege
+        // level, so it is re-applied explicitly on the next line.
+        ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
+        checkInstanceOverdueIfCloud(authInfo.userIdentity);
 
         // use NS_KEY as catalog, but NS_KEY's default value is 'default_cluster'.
         if (ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
@@ -104,22 +102,25 @@ public class MetaInfoAction extends RestBaseController {
         if (catalog == null) {
             return ResponseEntityBuilder.badRequest("Unknown catalog " + ns);
         }
+        // No defensive copy of getDbNames(): this method only iterates the returned list and
+        // sorts its own filtered copy, so it does not care whether an implementation hands back
+        // a fresh list or a shared one.
         List<String> dbNames = catalog.getDbNames();
-        List<String> dbNameSet = Lists.newArrayList();
+        List<String> visibleDbNames = Lists.newArrayList();
         for (String db : dbNames) {
+            // Check the privilege against the catalog actually being listed, not always the
+            // internal one, or the filter answers about the wrong object for external catalogs.
             if (!Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, db,
-                            PrivPredicate.SHOW)) {
+                    .checkDbPriv(ConnectContext.get(), ns, db, PrivPredicate.SHOW)) {
                 continue;
             }
-            dbNameSet.add(db);
+            visibleDbNames.add(db);
         }
 
-        Collections.sort(dbNames);
+        Collections.sort(visibleDbNames);
 
         // handle limit offset
-        Pair<Integer, Integer> fromToIndex = getFromToIndex(request, dbNames.size());
-        return ResponseEntityBuilder.ok(dbNames.subList(fromToIndex.first, fromToIndex.second));
+        return ResponseEntityBuilder.ok(paginate(request, visibleDbNames));
     }
 
     /** Get all tables of a database
@@ -139,11 +140,9 @@ public class MetaInfoAction extends RestBaseController {
     public Object getTables(
             @PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
             HttpServletRequest request, HttpServletResponse response) {
-        boolean checkAuth = Config.enable_all_http_auth ? true : false;
-        ActionAuthorizationInfo authInfo = checkWithCookie(request, response, checkAuth);
-        if (Config.enable_all_http_auth) {
-            checkAdminAuth(authInfo.userIdentity);
-        }
+        // Authenticate only; the per-table SHOW check below is what authorizes the response.
+        ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
+        checkInstanceOverdueIfCloud(authInfo.userIdentity);
 
         if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
@@ -170,8 +169,7 @@ public class MetaInfoAction extends RestBaseController {
         Collections.sort(tblNames);
 
         // handle limit offset
-        Pair<Integer, Integer> fromToIndex = getFromToIndex(request, tblNames.size());
-        return ResponseEntityBuilder.ok(tblNames.subList(fromToIndex.first, fromToIndex.second));
+        return ResponseEntityBuilder.ok(paginate(request, tblNames));
     }
 
     /** Get schema of a table
@@ -219,11 +217,9 @@ public class MetaInfoAction extends RestBaseController {
             @PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
             @PathVariable(value = TABLE_KEY) String tblName,
             HttpServletRequest request, HttpServletResponse response) throws UserException {
-        boolean checkAuth = Config.enable_all_http_auth ? true : false;
-        ActionAuthorizationInfo authInfo = checkWithCookie(request, response, checkAuth);
-        if (Config.enable_all_http_auth) {
-            checkAdminAuth(authInfo.userIdentity);
-        }
+        // Authenticate only; checkTblAuth below authorizes the response against the requested table.
+        ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
+        checkInstanceOverdueIfCloud(authInfo.userIdentity);
 
         if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
@@ -307,38 +303,4 @@ public class MetaInfoAction extends RestBaseController {
         return val.equals(FeConstants.null_string) ? null : val;
     }
 
-    // get limit and offset from query parameter
-    // and return fromIndex and toIndex of a list
-    private Pair<Integer, Integer> getFromToIndex(HttpServletRequest request, int maxNum) {
-        String limitStr = request.getParameter(PARAM_LIMIT);
-        String offsetStr = request.getParameter(PARAM_OFFSET);
-
-        int offset = 0;
-        int limit = Integer.MAX_VALUE;
-        if (Strings.isNullOrEmpty(limitStr)) {
-            // limit not set
-            if (!Strings.isNullOrEmpty(offsetStr)) {
-                throw new BadRequestException("Param offset should be set with param limit");
-            }
-        } else {
-            // limit is set
-            limit = Integer.valueOf(limitStr);
-            if (limit < 0) {
-                throw new BadRequestException("Param limit should >= 0");
-            }
-
-            offset = 0;
-            if (!Strings.isNullOrEmpty(offsetStr)) {
-                offset = Integer.valueOf(offsetStr);
-                if (offset < 0) {
-                    throw new BadRequestException("Param offset should >= 0");
-                }
-            }
-        }
-
-        if (maxNum <= 0) {
-            return Pair.of(0, 0);
-        }
-        return Pair.of(Math.min(offset, maxNum - 1), Math.min(limit + offset, maxNum));
-    }
 }

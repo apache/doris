@@ -21,9 +21,11 @@ import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
+import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
+import org.apache.doris.filesystem.spi.LegacyS3Uri;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
@@ -68,6 +70,9 @@ public final class OssFileSystemProperties
 
     private static final Pattern ENDPOINT_PATTERN =
             Pattern.compile("^(?:https?://)?(?:s3\\.)?oss-([a-z0-9-]+?)(?:-internal)?\\.aliyuncs\\.com$");
+    // Endpoint-only DLF catalogs need the same derived region to bind their OSS storage configuration.
+    private static final Pattern DLF_ENDPOINT_PATTERN =
+            Pattern.compile("^(?:https?://)?dlf(?:-vpc)?\\.([a-z0-9-]+)\\.aliyuncs\\.com(?:/.*)?$");
 
     private static final String JINDO_OSS_FILE_SYSTEM_IMPL =
             "com.aliyun.jindodata.oss.JindoOssFileSystem";
@@ -89,7 +94,7 @@ public final class OssFileSystemProperties
 
     @ConnectorProperty(names = {SECRET_KEY, "s3.secret_key", "s3.secret-access-key",
             "AWS_SECRET_KEY", "secret_key", "SECRET_KEY", "dlf.secret_key",
-            "dlf.catalog.secret_key", "fs.oss.accessKeySecret", "OSS_SECRET_KEY"},
+            "dlf.catalog.secret_key", "dlf.catalog.accessKeySecret", "fs.oss.accessKeySecret", "OSS_SECRET_KEY"},
             required = false,
             sensitive = true,
             description = "The secret key of OSS.")
@@ -108,7 +113,8 @@ public final class OssFileSystemProperties
     private String dlfAccessPublic = "false";
 
     @ConnectorProperty(names = {SESSION_TOKEN, "s3.session_token", "s3.session-token",
-            "session_token", "fs.oss.securityToken", "OSS_SESSION_TOKEN", "OSS_TOKEN", "AWS_TOKEN"},
+            "session_token", "dlf.session_token", "dlf.catalog.sessionToken", "dlf.catalog.securityToken",
+            "fs.oss.securityToken", "OSS_SESSION_TOKEN", "OSS_TOKEN", "AWS_TOKEN"},
             required = false,
             sensitive = true,
             description = "The session token of OSS.")
@@ -250,6 +256,12 @@ public final class OssFileSystemProperties
         kv.put("AWS_REQUEST_TIMEOUT_MS", requestTimeoutMs);
         kv.put("AWS_CONNECTION_TIMEOUT_MS", connectionTimeoutMs);
         kv.put("use_path_style", usePathStyle);
+        // Mirror fe-core AbstractS3CompatibleProperties#getAwsCredentialsProviderTypeForBackend:
+        // anonymous access (no static credentials) emits ANONYMOUS; otherwise the key is omitted so
+        // BE uses SimpleAWSCredentialsProvider. OSS never configures a provider type explicitly.
+        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
+            kv.put("AWS_CREDENTIALS_PROVIDER_TYPE", "ANONYMOUS");
+        }
         return Collections.unmodifiableMap(kv);
     }
 
@@ -258,8 +270,10 @@ public final class OssFileSystemProperties
         Map<String, String> cfg = new HashMap<>();
         cfg.put("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
         cfg.put("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
-        cfg.put("fs.s3.impl.disable.cache", "true");
-        cfg.put("fs.s3a.impl.disable.cache", "true");
+        // No blanket cache disabling: the Doris-patched FileSystem keys its cache by the
+        // per-scheme credential fingerprint below, so different credentials never share an
+        // instance and merging this map with another storage's loses neither.
+        FsCacheKeys.putFsCacheKeys(cfg, this);
         cfg.put("fs.s3a.endpoint", endpoint);
         cfg.put("fs.s3a.endpoint.region", region);
         if (StringUtils.isNotBlank(accessKey)) {
@@ -358,11 +372,33 @@ public final class OssFileSystemProperties
     }
 
     private void normalize() {
+        boolean dlfPublicAccess = ConnectorPropertiesUtils.parseBooleanProperty(
+                dlfAccessPublic, "dlf.access.public");
+        // Legacy AbstractS3CompatibleProperties.setEndpointIfPossible leg 2 (inherited by fe-core
+        // OSSProperties): derive the endpoint from the raw "uri" property when no endpoint key is
+        // set; parse failures are swallowed exactly like fe-core. Runs before the endpoint/region
+        // derivation so a uri-derived endpoint feeds region extraction and the standard-endpoint
+        // rewrite below, matching the legacy ordering.
+        if (StringUtils.isBlank(endpoint)) {
+            String derived = LegacyS3Uri.deriveEndpointQuietly(rawProperties, usePathStyle,
+                    forceParsingByStandardUrl);
+            if (StringUtils.isNotBlank(derived)) {
+                endpoint = derived;
+            }
+        }
         if (StringUtils.isBlank(region) && StringUtils.isNotBlank(endpoint)) {
             region = extractRegion(endpoint).orElse("");
         }
         if (StringUtils.isBlank(endpoint) && StringUtils.isNotBlank(region)) {
-            endpoint = getOssEndpoint(region, Boolean.parseBoolean(dlfAccessPublic));
+            endpoint = getOssEndpoint(region, dlfPublicAccess);
+        }
+        // Align fe-core OSSProperties.initNormalizeAndCheckProps: any endpoint that is not a
+        // standard OSS endpoint (e.g. the S3-compatible s3.<region>.aliyuncs.com spelling) is
+        // rewritten to oss-<region>[-internal].aliyuncs.com. Guarded on a non-blank region:
+        // with a blank region validate() throws first, exactly like fe-core.
+        if (StringUtils.isNotBlank(region)
+                && (StringUtils.isBlank(endpoint) || !ENDPOINT_PATTERN.matcher(endpoint).matches())) {
+            endpoint = getOssEndpoint(region, dlfPublicAccess);
         }
     }
 
@@ -376,6 +412,10 @@ public final class OssFileSystemProperties
 
     private static Optional<String> extractRegion(String endpoint) {
         Matcher matcher = ENDPOINT_PATTERN.matcher(endpoint.toLowerCase(Locale.ROOT));
+        if (matcher.matches()) {
+            return Optional.of(matcher.group(1));
+        }
+        matcher = DLF_ENDPOINT_PATTERN.matcher(endpoint.toLowerCase(Locale.ROOT));
         if (matcher.matches()) {
             return Optional.of(matcher.group(1));
         }
@@ -403,4 +443,10 @@ public final class OssFileSystemProperties
     public String toString() {
         return ConnectorPropertiesUtils.toMaskedString(this);
     }
+
+    @Override
+    public Set<String> legacyCacheSchemes() {
+        return Set.of("oss");
+    }
+
 }

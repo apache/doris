@@ -621,7 +621,8 @@ public class PipelineCoordinator {
                         String dorisTable = targetTableMappings.getOrDefault(table, table);
                         for (String record : result.getRecords()) {
                             scannedRows++;
-                            batchStreamLoad.writeRecord(targetDb, dorisTable, record.getBytes());
+                            batchStreamLoad.writeRecord(
+                                    targetDb, dorisTable, record.getBytes(StandardCharsets.UTF_8));
                         }
                         // Mark last message as data (not heartbeat)
                         lastMessageIsHeartbeat = false;

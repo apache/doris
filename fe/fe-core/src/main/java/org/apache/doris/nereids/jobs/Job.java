@@ -34,7 +34,7 @@ import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.base.Preconditions;
 
@@ -107,7 +107,8 @@ public abstract class Job implements TracerSupplier {
 
         CopyInResult result = context.getCascadesContext()
                 .getMemo()
-                .copyIn(after, targetGroup, rule.isRewrite());
+                .copyIn(after, targetGroup, rule.isRewrite(),
+                        context.getCascadesContext().getStatementContext().isDpHyp());
 
         if (result.generateNewExpression || result.correspondingExpression.getOwnerGroup() != targetGroup) {
             getEventTracer().log(TransformEvent.of(targetGroup.getLogicalExpression(), before, afters,

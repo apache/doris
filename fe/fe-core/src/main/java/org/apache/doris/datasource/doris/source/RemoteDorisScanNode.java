@@ -32,7 +32,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.datasource.scan.FileQueryScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;

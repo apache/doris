@@ -46,7 +46,7 @@
 #include "core/typeid_cast.h"
 #include "core/types.h"
 #include "exec/common/arithmetic_overflow.h"
-#include "storage/olap_common.h"
+#include "storage/field_type.h"
 
 namespace doris {
 class DecimalV2Value;
@@ -308,10 +308,7 @@ public:
     typename FieldType::NativeType get_scale_multiplier() const {
         return get_scale_multiplier(scale);
     }
-    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
-        scalar_type->set_precision(precision);
-        scalar_type->set_scale(scale);
-    }
+    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override;
 
     /// @returns multiplier for U to become T with correct scale
     template <PrimitiveType U>
@@ -525,5 +522,12 @@ static_assert(!has_original_precision_and_scale<DataTypeDecimal32>);
 static_assert(!has_original_precision_and_scale<DataTypeDecimal64>);
 static_assert(!has_original_precision_and_scale<DataTypeDecimal128>);
 static_assert(!has_original_precision_and_scale<DataTypeDecimal256>);
+
+/// Instantiated once in data_type_decimal.cpp; suppresses per-TU implicit instantiation.
+extern template class DataTypeDecimal<TYPE_DECIMAL32>;
+extern template class DataTypeDecimal<TYPE_DECIMAL64>;
+extern template class DataTypeDecimal<TYPE_DECIMALV2>;
+extern template class DataTypeDecimal<TYPE_DECIMAL128I>;
+extern template class DataTypeDecimal<TYPE_DECIMAL256>;
 
 } // namespace doris

@@ -1,0 +1,28 @@
+# generated from 4.1.3 by Gen413Fixtures -- do not edit by hand
+# <label>\t<target class FQN>\t<ABSTRACT if the label can never be emitted>
+BrokerTable	org.apache.doris.catalog.BrokerTable
+Dictionary	org.apache.doris.dictionary.Dictionary
+EsExternalTable	org.apache.doris.datasource.es.EsExternalTable
+EsTable	org.apache.doris.catalog.EsTable
+ExternalInfoSchemaTable	org.apache.doris.datasource.infoschema.ExternalInfoSchemaTable
+ExternalMysqlTable	org.apache.doris.datasource.infoschema.ExternalMysqlTable
+ExternalTable	org.apache.doris.datasource.ExternalTable
+FunctionGenTable	org.apache.doris.catalog.FunctionGenTable
+HMSExternalTable	org.apache.doris.datasource.hive.HMSExternalTable
+HiveTable	org.apache.doris.catalog.HiveTable
+IcebergExternalTable	org.apache.doris.datasource.iceberg.IcebergExternalTable
+InlineView	org.apache.doris.catalog.InlineView
+JdbcExternalTable	org.apache.doris.datasource.jdbc.JdbcExternalTable
+JdbcTable	org.apache.doris.catalog.JdbcTable
+LakeSoulExternalTable	org.apache.doris.datasource.lakesoul.LakeSoulExternalTable
+MTMV	org.apache.doris.catalog.MTMV
+MaxComputeExternalTable	org.apache.doris.datasource.maxcompute.MaxComputeExternalTable
+MysqlDBTable	org.apache.doris.catalog.MysqlDBTable
+MysqlTable	org.apache.doris.catalog.MysqlTable
+OdbcTable	org.apache.doris.catalog.OdbcTable
+OlapTable	org.apache.doris.catalog.OlapTable
+PaimonExternalTable	org.apache.doris.datasource.paimon.PaimonExternalTable
+SchemaTable	org.apache.doris.catalog.SchemaTable
+TestExternalTable	org.apache.doris.datasource.test.TestExternalTable
+TrinoConnectorExternalTable	org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable
+View	org.apache.doris.catalog.View

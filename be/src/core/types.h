@@ -626,9 +626,3 @@ struct fmt::formatter<doris::Decimal<T>> {
         return fmt::format_to(ctx.out(), "{}", to_string(value.value));
     }
 };
-
-extern template struct fmt::formatter<doris::Decimal32>;
-extern template struct fmt::formatter<doris::Decimal64>;
-extern template struct fmt::formatter<doris::Decimal128V2>;
-extern template struct fmt::formatter<doris::Decimal128V3>;
-extern template struct fmt::formatter<doris::Decimal256>;

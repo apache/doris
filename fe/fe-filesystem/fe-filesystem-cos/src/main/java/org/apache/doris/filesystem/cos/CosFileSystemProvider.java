@@ -65,6 +65,31 @@ public class CosFileSystemProvider implements FileSystemProvider<CosFileSystemPr
     }
 
     @Override
+    public boolean supportsExplicit(Map<String, String> properties) {
+        return Boolean.parseBoolean(properties.getOrDefault(FS_COS_SUPPORT, "false"));
+    }
+
+    @Override
+    public boolean supportsGuess(Map<String, String> properties) {
+        // Port of fe-core COSProperties.guessIsMe on raw props.
+        for (String name : ENDPOINT_NAMES) {
+            String value = properties.get(name);
+            if (value != null) {
+                if (!value.isEmpty()) {
+                    return value.contains("myqcloud.com");
+                }
+                break;
+            }
+        }
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if ("uri".equalsIgnoreCase(entry.getKey()) && entry.getValue() != null) {
+                return entry.getValue().contains("myqcloud.com");
+            }
+        }
+        return false;
+    }
+
+    @Override
     public FileSystem create(Map<String, String> properties) throws IOException {
         return create(bind(properties));
     }

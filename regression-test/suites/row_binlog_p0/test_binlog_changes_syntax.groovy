@@ -16,9 +16,6 @@
 // under the License.
 
 suite("test_binlog_changes_syntax", "nonConcurrent") {
-    if (isCloudMode()) {
-        return
-    }
     sql "DROP DATABASE IF EXISTS test_binlog_changes_syntax_db"
     sql "CREATE DATABASE test_binlog_changes_syntax_db"
     sql "USE test_binlog_changes_syntax_db"
@@ -164,14 +161,30 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
             ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
 
-        //  - far-past start + far-future end: equivalent to full binlog.
+        //  - CURRENT_TSO_PHYSICAL_TIME converted to an INCR timestamp is accepted.
+        sleep(1200)
+        def currentTsoPhysicalTime = Long.parseLong(sql("""
+            SELECT CURRENT_TSO_PHYSICAL_TIME FROM information_schema.tso_status
+        """)[0][0].toString())
+        def currentTsoEnd = incrTimeFormat.format(new Date(currentTsoPhysicalTime))
         order_qt_dup_full_cover """
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${dupTable}@incr('startTimestamp' = '1971-01-01 00:00:00',
-                "endTimestamp" = "2999-01-01 00:00:00",
+                "endTimestamp" = "${currentTsoEnd}",
                 "incrementType" = "DETAIL")
             ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
+
+        //  - a future end cannot be closed safely and must be rejected.
+        test {
+            sql """
+                SELECT id, v1, __DORIS_BINLOG_OP__
+                FROM ${dupTable}@incr('startTimestamp' = '1971-01-01 00:00:00',
+                    "endTimestamp" = "2999-01-01 00:00:00",
+                    "incrementType" = "DETAIL")
+            """
+            exception "CURRENT_TSO_PHYSICAL_TIME="
+        }
 
         // 1.8 Cross-check against binlog() TVF — DETAIL with full window must
         //     return the same rowset as the underlying binlog TVF for a dup
@@ -255,8 +268,9 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
         sql "INSERT INTO ${mowTable} VALUES (6, 60, 'f')"
         sql "sync"
 
-        // 2.1 APPEND_ONLY [mowT0, mowT1]: only brand-new keys with their first
-        //     INSERT. Updates / deletes / resurrections are filtered out.
+        // 2.1 APPEND_ONLY [mowT0, mowT1]: APPEND rows in the window.
+        //     Updates / deletes are filtered out. key=2 delete-then-reinsert
+        //     is kept because the previous version is a tombstone, not a live row.
         //     Expected:
         //       key=2 first INSERT(20) is APPEND (key did not exist before).
         //       key=4 INSERT(40) is APPEND.
@@ -270,6 +284,14 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
             ORDER BY id, __DORIS_BINLOG_LSN__
         """
 
+        order_qt_mow_append_value_only """
+            SELECT v1
+            FROM ${mowTable}@incr('startTimestamp' = '${mowT0}',
+                "endTimestamp" = "${mowT1}",
+                "incrementType" = "APPEND_ONLY")
+            ORDER BY v1
+        """
+
         // 2.2 MIN_DELTA [mowT0, mowT1]: per-key folded result.
         order_qt_mow_min_delta_range """
             SELECT id, v1, v2, __DORIS_BINLOG_OP__
@@ -277,6 +299,26 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
                 "endTimestamp" = "${mowT1}",
                 "incrementType" = "MIN_DELTA")
             ORDER BY id, __DORIS_BINLOG_OP__, v1
+        """
+
+        // Read only a value column. Key, TSO, OP and the matching before-image
+        // column are storage dependencies and must not appear in the result.
+        order_qt_mow_min_delta_value_only """
+            SELECT v1
+            FROM ${mowTable}@incr('startTimestamp' = '${mowT0}',
+                "endTimestamp" = "${mowT1}",
+                "incrementType" = "MIN_DELTA")
+            ORDER BY v1
+        """
+
+        // SELECT * expands to the visible base-table columns only. Internal
+        // binlog columns and generated before-image columns must stay hidden.
+        order_qt_mow_min_delta_select_star """
+            SELECT *
+            FROM ${mowTable}@incr('startTimestamp' = '${mowT0}',
+                "endTimestamp" = "${mowT1}",
+                "incrementType" = "MIN_DELTA")
+            ORDER BY id, v1, v2
         """
         // MIN_DELTA op codes (from __DORIS_BINLOG_OP__):
         //   0 = INSERT/APPEND, 1 = DELETE, 2 = UPDATE_BEFORE, 3 = UPDATE_AFTER
@@ -290,22 +332,29 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
         // 2.3 DETAIL [mowT0, mowT1]: every raw binlog row in the window.
         //     Each "INSERT into UNIQUE KEY MoW that hits an existing key" emits
         //     a UPDATE_BEFORE/UPDATE_AFTER pair instead of a plain INSERT. After
-        //     a DELETE the key version still exists in row binlog, so a later
-        //     INSERT on the same key is also recorded as an UPDATE (BEFORE is
-        //     populated from the deleted snapshot, hence NULL value columns).
+        //     a DELETE, a later INSERT on the same key is recorded as APPEND
+        //     because the previous version is a tombstone, not a live row.
         //     Count breakdown:
         //       key=1: 3 updates -> 3 * 2 = 6 rows
-        //       key=2: INSERT(20) + DELETE(20) + UPDATE(NULL -> 21) = 4 rows
+        //       key=2: INSERT(20) + DELETE(20) + INSERT(21) = 3 rows
         //       key=3: DELETE(30) = 1 row
         //       key=4: INSERT(40) = 1 row
         //       key=5: INSERT(50) + DELETE(50) = 2 rows
-        //     Total = 6 + 4 + 1 + 1 + 2 = 14.
+        //     Total = 6 + 3 + 1 + 1 + 2 = 13.
         order_qt_mow_detail_range """
             SELECT id, v1, v2, __DORIS_BINLOG_OP__
             FROM ${mowTable}@incr('startTimestamp' = '${mowT0}',
                 "endTimestamp" = "${mowT1}",
                 "incrementType" = "DETAIL")
             ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
+        """
+
+        order_qt_mow_detail_value_only """
+            SELECT v1
+            FROM ${mowTable}@incr('startTimestamp' = '${mowT0}',
+                "endTimestamp" = "${mowT1}",
+                "incrementType" = "DETAIL")
+            ORDER BY v1
         """
 
         // 2.4 startTimestamp only: includes the late (6,60).
@@ -361,14 +410,31 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
                 "incrementType" = "MIN_DELTA")
         """
 
-        // 2.9 Far-past + far-future window covers everything.
+        // 2.9 CURRENT_TSO_PHYSICAL_TIME converted to an INCR timestamp covers
+        //     all changes that were visible before it was captured.
+        sleep(1200)
+        def mowCurrentTsoPhysicalTime = Long.parseLong(sql("""
+            SELECT CURRENT_TSO_PHYSICAL_TIME FROM information_schema.tso_status
+        """)[0][0].toString())
+        def mowCurrentTsoEnd = incrTimeFormat.format(new Date(mowCurrentTsoPhysicalTime))
         order_qt_mow_full_cover """
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${mowTable}@incr('startTimestamp' = '1971-01-01 00:00:00',
-                "endTimestamp" = "2999-01-01 00:00:00",
+                "endTimestamp" = "${mowCurrentTsoEnd}",
                 "incrementType" = "DETAIL")
             ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
+
+        // A future end cannot be closed safely and must be rejected.
+        test {
+            sql """
+                SELECT id, v1, __DORIS_BINLOG_OP__
+                FROM ${mowTable}@incr('startTimestamp' = '1971-01-01 00:00:00',
+                    "endTimestamp" = "2999-01-01 00:00:00",
+                    "incrementType" = "DETAIL")
+            """
+            exception "endTimestamp exceeds the maximum supported time for an INCR read"
+        }
 
         // ============================================================
         // 3. MoW table with sequence column.
@@ -548,6 +614,25 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
             SELECT id, BITMAP_TO_STRING(b), __DORIS_BINLOG_OP__
             FROM ${mowBitmapTable}@incr('startTimestamp' = '${bitmapT0}',
                 "endTimestamp" = "${bitmapT1}",
+                "incrementType" = "MIN_DELTA")
+            ORDER BY __DORIS_BINLOG_OP__
+        """
+
+        // BITMAP does not implement compare_at in production. MIN_DELTA must conservatively
+        // retain an equal-value UPDATE instead of failing the query or suppressing an unproven
+        // no-op.
+        sleep(1200)
+        def bitmapEqualT0 = incrTimeFormat.format(new Date())
+        sleep(1200)
+        sql "INSERT INTO ${mowBitmapTable} VALUES (1, BITMAP_FROM_STRING('3,4'))"
+        sql "sync"
+        sleep(1200)
+        def bitmapEqualT1 = incrTimeFormat.format(new Date())
+
+        order_qt_bitmap_equal_min_delta """
+            SELECT id, BITMAP_TO_STRING(b), __DORIS_BINLOG_OP__
+            FROM ${mowBitmapTable}@incr('startTimestamp' = '${bitmapEqualT0}',
+                "endTimestamp" = "${bitmapEqualT1}",
                 "incrementType" = "MIN_DELTA")
             ORDER BY __DORIS_BINLOG_OP__
         """

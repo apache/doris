@@ -25,10 +25,10 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.IndexToThriftConvertor;
 import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.ColumnsUtil;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.thrift.TColumn;
@@ -43,6 +43,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
+import org.apache.doris.thrift.TTabletRole;
 import org.apache.doris.thrift.TTabletSchema;
 import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
@@ -131,8 +132,7 @@ public class CreateReplicaTask extends AgentTask {
     private boolean storeRowColumn;
 
     private BinlogConfig binlogConfig;
-    // update binlog schema only when create base index
-    private MaterializedIndexMeta rowBinlogMeta;
+    private TTabletRole tabletRole = TTabletRole.TABLET_ROLE_DATA;
     private List<Integer> clusterKeyUids;
 
     private Map<Object, Object> objectPool;
@@ -170,8 +170,7 @@ public class CreateReplicaTask extends AgentTask {
                              boolean variantEnableFlattenNested,
                              long storagePageSize, TEncryptionAlgorithm tdeAlgorithm,
                              long storageDictPageSize, Map<String, List<String>> columnSeqMapping,
-                             int verticalCompactionNumColumnsPerGroup,
-                             MaterializedIndexMeta rowBinlogMeta) {
+                             int verticalCompactionNumColumnsPerGroup) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.replicaId = replicaId;
@@ -223,7 +222,6 @@ public class CreateReplicaTask extends AgentTask {
         this.storageDictPageSize = storageDictPageSize;
         this.tdeAlgorithm = tdeAlgorithm;
         this.columnSeqMapping = columnSeqMapping;
-        this.rowBinlogMeta = rowBinlogMeta;
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -285,6 +283,10 @@ public class CreateReplicaTask extends AgentTask {
         this.baseSchemaHash = baseSchemaHash;
     }
 
+    public void setTabletRole(TTabletRole tabletRole) {
+        this.tabletRole = tabletRole;
+    }
+
     public void setStorageFormat(TStorageFormat storageFormat) {
         this.storageFormat = storageFormat;
     }
@@ -314,17 +316,21 @@ public class CreateReplicaTask extends AgentTask {
         int sequenceCol = -1;
         int versionCol = -1;
         int commitTsoCol = -1;
+        int rowLsnCol = -1;
         List<TColumn> tColumns = null;
         Object tCols = objectPool.get(columns);
         if (tCols != null) {
             tColumns = (List<TColumn>) tCols;
         } else {
             tColumns = new ArrayList<>();
+            Set<String> bfIndexColumns = Index.getBfIndexColumns(indexes);
             for (int i = 0; i < columns.size(); i++) {
                 Column column = columns.get(i);
                 TColumn tColumn = ColumnToThrift.toThrift(column);
+                String nonShadowColumnName = column.getNonShadowName();
                 // is bloom filter column
-                if (bfColumns != null && bfColumns.contains(column.getName())) {
+                if ((bfColumns != null && bfColumns.contains(nonShadowColumnName))
+                        || bfIndexColumns.contains(nonShadowColumnName)) {
                     tColumn.setIsBloomFilterColumn(true);
                 }
                 // when doing schema change, some modified column has a prefix in name.
@@ -352,12 +358,16 @@ public class CreateReplicaTask extends AgentTask {
             if (column.isCommitTsoColumn()) {
                 commitTsoCol = i;
             }
+            if (column.isRowLsnColumn()) {
+                rowLsnCol = i;
+            }
         }
         tSchema.setColumns(tColumns);
         tSchema.setDeleteSignIdx(deleteSign);
         tSchema.setSequenceColIdx(sequenceCol);
         tSchema.setVersionColIdx(versionCol);
         tSchema.setCommitTsoColIdx(commitTsoCol);
+        tSchema.setRowLsnColIdx(rowLsnCol);
         tSchema.setRowStoreColCids(rowStoreColumnUniqueIds);
         if (!CollectionUtils.isEmpty(clusterKeyUids)) {
             tSchema.setClusterKeyUids(clusterKeyUids);
@@ -379,7 +389,7 @@ public class CreateReplicaTask extends AgentTask {
             tSchema.setIndexes(tIndexes);
         }
 
-        if (bfColumns != null) {
+        if (bfColumns != null && !bfColumns.isEmpty()) {
             tSchema.setBloomFilterFpp(bfFpp);
         }
         tSchema.setIsInMemory(isInMemory);
@@ -448,7 +458,8 @@ public class CreateReplicaTask extends AgentTask {
         createTabletReq.setTabletType(tabletType);
         createTabletReq.setCompressionType(compressionType);
         createTabletReq.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
-        createTabletReq.setCompactionPolicy(compactionPolicy);
+        createTabletReq.setCompactionPolicy(tabletRole == TTabletRole.TABLET_ROLE_ROW_BINLOG
+                ? PropertyAnalyzer.BINLOG_COMPACTION_POLICY : compactionPolicy);
         createTabletReq.setTimeSeriesCompactionGoalSizeMbytes(timeSeriesCompactionGoalSizeMbytes);
         createTabletReq.setTimeSeriesCompactionFileCountThreshold(timeSeriesCompactionFileCountThreshold);
         createTabletReq.setTimeSeriesCompactionTimeThresholdSeconds(timeSeriesCompactionTimeThresholdSeconds);
@@ -461,47 +472,7 @@ public class CreateReplicaTask extends AgentTask {
             createTabletReq.setBinlogConfig(binlogConfig.toThrift());
         }
 
-        if (binlogConfig != null && binlogConfig.isEnableForStreaming() && rowBinlogMeta != null) {
-            TTabletSchema tRowBinlogSchema = new TTabletSchema();
-            tRowBinlogSchema.setShortKeyColumnCount(rowBinlogMeta.getShortKeyColumnCount());
-            tRowBinlogSchema.setSchemaHash(rowBinlogMeta.getSchemaHash());
-            tRowBinlogSchema.setKeysType(rowBinlogMeta.getKeysType().toThrift());
-            tRowBinlogSchema.setStorageType(TStorageType.COLUMN);
-            int binlogTsoIdx = -1;
-            int binlogLsnIdx = -1;
-            int binlogOpIdx = -1;
-
-            List<TColumn> tRowBinlogColumns = null;
-            List<Column> rowBinlogColumns = rowBinlogMeta.getSchema(true);
-            Object tRowBinlogCols = objectPool.get(rowBinlogColumns);
-            if (tRowBinlogCols != null) {
-                tRowBinlogColumns = (List<TColumn>) tRowBinlogCols;
-            } else {
-                tRowBinlogColumns = new ArrayList<>();
-                for (int i = 0; i < rowBinlogColumns.size(); i++) {
-                    Column column = rowBinlogColumns.get(i);
-                    TColumn tColumn = ColumnToThrift.toThrift(column);
-                    tColumn.setVisible(column.isVisible());
-                    tRowBinlogColumns.add(tColumn);
-                }
-                objectPool.put(rowBinlogColumns, tRowBinlogColumns);
-            }
-            for (int i = 0; i < rowBinlogColumns.size(); i++) {
-                Column column = rowBinlogColumns.get(i);
-                if (column.getName().equals(Column.BINLOG_TSO_COL)) {
-                    binlogTsoIdx = i;
-                } else if (column.getName().equals(Column.BINLOG_LSN_COL)) {
-                    binlogLsnIdx = i;
-                } else if (column.getName().equals(Column.BINLOG_OPERATION_COL)) {
-                    binlogOpIdx = i;
-                }
-            }
-            tRowBinlogSchema.setColumns(tRowBinlogColumns);
-            tRowBinlogSchema.setBinlogTsoIdx(binlogTsoIdx);
-            tRowBinlogSchema.setBinlogLsnIdx(binlogLsnIdx);
-            tRowBinlogSchema.setBinlogOpIdx(binlogOpIdx);
-            createTabletReq.setRowBinlogSchema(tRowBinlogSchema);
-        }
+        createTabletReq.setTabletRole(tabletRole);
 
         return createTabletReq;
     }

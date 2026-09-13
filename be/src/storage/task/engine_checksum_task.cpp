@@ -19,8 +19,11 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <ostream>
+#include <shared_mutex>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "core/block/block.h"
@@ -32,6 +35,7 @@
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/rowset.h"
+#include "storage/schema.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_manager.h"
@@ -39,6 +43,37 @@
 #include "storage/utils.h"
 
 namespace doris {
+namespace {
+
+Status prepare_checksum_reader(TabletSharedPtr tablet,
+                               const std::vector<RowsetSharedPtr>& input_rowsets,
+                               TabletReader::ReaderParams* reader_params, Block* block) {
+    reader_params->tablet = tablet;
+    reader_params->reader_type = ReaderType::READER_CHECKSUM;
+    reader_params->version =
+            Version(input_rowsets.front()->start_version(), input_rowsets.back()->end_version());
+
+    TabletReadSource read_source;
+    for (const auto& rowset : input_rowsets) {
+        RowsetReaderSharedPtr rs_reader;
+        RETURN_IF_ERROR(rowset->create_reader(&rs_reader));
+        read_source.rs_splits.emplace_back(std::move(rs_reader));
+    }
+    read_source.fill_delete_predicates();
+    reader_params->set_read_source(std::move(read_source));
+
+    std::vector<RowsetMetaSharedPtr> rowset_metas(input_rowsets.size());
+    std::transform(input_rowsets.begin(), input_rowsets.end(), rowset_metas.begin(),
+                   [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
+    auto read_tablet_schema = tablet->tablet_schema_with_merged_max_schema_version(rowset_metas);
+    reader_params->tablet_schema = read_tablet_schema;
+    reader_params->read_schema = std::make_shared<ReadSchema>(read_tablet_schema->columns());
+    *block = reader_params->read_schema->create_read_block();
+
+    return Status::OK();
+}
+
+} // namespace
 
 EngineChecksumTask::EngineChecksumTask(StorageEngine& engine, TTabletId tablet_id,
                                        TSchemaHash schema_hash, TVersion version,
@@ -90,8 +125,7 @@ Status EngineChecksumTask::_compute_checksum() {
             return std::move(ret.error());
         }
 
-        RETURN_IF_ERROR(TabletReader::init_reader_params_and_create_block(
-                tablet, ReaderType::READER_CHECKSUM, input_rowsets, &reader_params, &block));
+        RETURN_IF_ERROR(prepare_checksum_reader(tablet, input_rowsets, &reader_params, &block));
     }
     size_t input_size = 0;
     for (const auto& rowset : input_rowsets) {

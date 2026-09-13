@@ -19,6 +19,8 @@
 
 #include <gen_cpp/DataSinks_types.h>
 
+#include <functional>
+
 #include "exec/sink/writer/iceberg/vpartition_writer_base.h"
 #include "exprs/vexpr_fwd.h"
 #include "format/table/iceberg/schema.h"
@@ -43,6 +45,9 @@ class VFileFormatTransformer;
 
 class VIcebergPartitionWriter : public IPartitionWriterBase {
 public:
+    using ClosedFileCallback =
+            std::function<void(std::shared_ptr<io::FileSystem>, const std::string&)>;
+
     VIcebergPartitionWriter(const TDataSink& t_sink, std::vector<std::string> partition_values,
                             const VExprContextSPtrs& write_output_expr_ctxs,
                             const doris::iceberg::Schema& schema,
@@ -51,7 +56,8 @@ public:
                             std::string file_name, int file_name_index,
                             TFileFormatType::type file_format_type,
                             TFileCompressType::type compress_type,
-                            const std::map<std::string, std::string>& hadoop_conf);
+                            const std::map<std::string, std::string>& hadoop_conf,
+                            ClosedFileCallback closed_file_callback = nullptr);
 
     Status open(RuntimeState* state, RuntimeProfile* profile,
                 const RowDescriptor* row_desc) override;
@@ -93,6 +99,7 @@ private:
     TFileFormatType::type _file_format_type;
     TFileCompressType::type _compress_type;
     const std::map<std::string, std::string>& _hadoop_conf;
+    ClosedFileCallback _closed_file_callback;
     bool _collect_column_stats = true;
 
     std::shared_ptr<io::FileSystem> _fs = nullptr;

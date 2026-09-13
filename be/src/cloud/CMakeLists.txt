@@ -22,3 +22,15 @@ file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS *.cpp)
 add_library(Cloud STATIC ${SRC_FILES})
 
 pch_reuse(Cloud)
+
+# Unity build: homogeneous cloud glue TUs sharing the CloudStorageEngine /
+# meta-service RPC header closure. Batch 12 bounds jumbo-TU size and memory.
+# The two http action TUs stay individual: sibling TUs' file-scope
+# `using namespace ErrorCode` makes the unscoped HttpStatus enum constants
+# (OK, NOT_FOUND, ...) shadow ErrorCode variables under -Wshadow -Werror.
+set(CLOUD_UNITY_SKIP
+    ${CMAKE_CURRENT_SOURCE_DIR}/cloud_compaction_action.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/injection_point_action.cpp)
+doris_skip_unity_inclusion(${CLOUD_UNITY_SKIP})
+set_target_properties(Cloud PROPERTIES UNITY_BUILD ${DORIS_UNITY_BUILD}
+                                       UNITY_BUILD_BATCH_SIZE 12)

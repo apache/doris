@@ -16,10 +16,6 @@
 // under the License.
 
 suite("test_row_binlog_schema_change", "nonConcurrent") {
-    if (isCloudMode()) {
-        return
-    }
-
     sql "DROP TABLE IF EXISTS test_mow_schema_change_with_binlog FORCE"
 
     sql """

@@ -30,20 +30,20 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil.StartOfDate;
-import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 
 import com.google.common.collect.Lists;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
 
 public class MTMVPartitionCheckUtilTest {
-    private HMSExternalTable hmsExternalTable = Mockito.mock(HMSExternalTable.class);
+    private PluginDrivenMvccExternalTable nonOlapTable = Mockito.mock(PluginDrivenMvccExternalTable.class);
     private OlapTable originalTable = Mockito.mock(OlapTable.class);
     private OlapTable relatedTable = Mockito.mock(OlapTable.class);
     private PartitionInfo originalPartitionInfo = Mockito.mock(PartitionInfo.class);
@@ -60,7 +60,7 @@ public class MTMVPartitionCheckUtilTest {
     private MockedStatic<DynamicPartitionUtil> dynamicPartitionUtilStatic;
     private MockedStatic<PartitionExprUtil> partitionExprUtilStatic;
 
-    @Before
+    @BeforeEach
     public void setUp()
             throws NoSuchMethodException, SecurityException, AnalysisException, DdlException, MetaNotFoundException {
 
@@ -85,7 +85,7 @@ public class MTMVPartitionCheckUtilTest {
         Mockito.when(relatedPartitionInfo.getPartitionExprs()).thenReturn(relatedExprs);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         partitionExprUtilStatic.close();
         dynamicPartitionUtilStatic.close();
@@ -94,8 +94,8 @@ public class MTMVPartitionCheckUtilTest {
     @Test
     public void testCheckIfAllowMultiTablePartitionRefreshNotOlapTable() {
         Pair<Boolean, String> res = MTMVPartitionCheckUtil.checkIfAllowMultiTablePartitionRefresh(
-                hmsExternalTable);
-        Assert.assertFalse(res.first);
+                nonOlapTable);
+        Assertions.assertFalse(res.first);
     }
 
     @Test
@@ -103,7 +103,7 @@ public class MTMVPartitionCheckUtilTest {
         Mockito.when(originalTable.getPartitionType()).thenReturn(PartitionType.LIST);
         Pair<Boolean, String> res = MTMVPartitionCheckUtil.checkIfAllowMultiTablePartitionRefresh(
                 originalTable);
-        Assert.assertFalse(res.first);
+        Assertions.assertFalse(res.first);
     }
 
     @Test
@@ -113,7 +113,7 @@ public class MTMVPartitionCheckUtilTest {
                 .thenReturn(false);
         Pair<Boolean, String> res = MTMVPartitionCheckUtil.checkIfAllowMultiTablePartitionRefresh(
                 originalTable);
-        Assert.assertFalse(res.first);
+        Assertions.assertFalse(res.first);
     }
 
     @Test
@@ -123,7 +123,7 @@ public class MTMVPartitionCheckUtilTest {
                 .thenReturn(false);
         Pair<Boolean, String> res = MTMVPartitionCheckUtil.checkIfAllowMultiTablePartitionRefresh(
                 originalTable);
-        Assert.assertTrue(res.first);
+        Assertions.assertTrue(res.first);
     }
 
     @Test
@@ -133,13 +133,13 @@ public class MTMVPartitionCheckUtilTest {
                 .thenReturn(true);
         Pair<Boolean, String> res = MTMVPartitionCheckUtil.checkIfAllowMultiTablePartitionRefresh(
                 originalTable);
-        Assert.assertTrue(res.first);
+        Assertions.assertTrue(res.first);
     }
 
     @Test
     public void testCompareDynamicPartition() throws AnalysisException {
         Pair<Boolean, String> res = MTMVPartitionCheckUtil.compareDynamicPartition(originalTable, relatedTable);
-        Assert.assertTrue(res.first);
+        Assertions.assertTrue(res.first);
     }
 
     @Test
@@ -147,7 +147,7 @@ public class MTMVPartitionCheckUtilTest {
         Mockito.when(relatedDynamicPartitionProperty.getStartOfWeek()).thenReturn(new StartOfDate(1, 1, 1));
         Mockito.when(originalDynamicPartitionProperty.getStartOfWeek()).thenReturn(new StartOfDate(1, 1, 2));
         Pair<Boolean, String> res = MTMVPartitionCheckUtil.compareDynamicPartition(originalTable, relatedTable);
-        Assert.assertFalse(res.first);
+        Assertions.assertFalse(res.first);
     }
 
     @Test
@@ -160,7 +160,7 @@ public class MTMVPartitionCheckUtilTest {
                 Mockito.eq(relatedExprs), Mockito.any(PartitionType.class)))
                 .thenReturn(partitionExprUtilInstance.new FunctionIntervalInfo("datetrunc", "week", 1));
         Pair<Boolean, String> res = MTMVPartitionCheckUtil.compareAutoPartition(originalTable, relatedTable);
-        Assert.assertTrue(res.first);
+        Assertions.assertTrue(res.first);
     }
 
     @Test
@@ -172,6 +172,6 @@ public class MTMVPartitionCheckUtilTest {
                 Mockito.eq(relatedExprs), Mockito.any(PartitionType.class)))
                 .thenReturn(partitionExprUtilInstance.new FunctionIntervalInfo("datetrunc", "week", 2));
         Pair<Boolean, String> res = MTMVPartitionCheckUtil.compareAutoPartition(originalTable, relatedTable);
-        Assert.assertFalse(res.first);
+        Assertions.assertFalse(res.first);
     }
 }

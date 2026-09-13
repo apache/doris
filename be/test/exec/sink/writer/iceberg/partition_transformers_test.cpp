@@ -520,4 +520,30 @@ TEST_F(PartitionTransformersTest, test_nullable_column_integer_truncate_transfor
     }
 }
 
+TEST_F(PartitionTransformersTest, test_nullable_column_string_truncate_transform) {
+    auto column = ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
+    column->insert_data(nullptr, 0);
+    column->insert_data("iceberg", sizeof("iceberg") - 1);
+    column->insert_data("db", sizeof("db") - 1);
+    ColumnWithTypeAndName test_string(
+            column->get_ptr(),
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()), "test_string");
+
+    Block block({test_string});
+    auto source_type = DataTypeFactory::instance().create_data_type(TYPE_STRING, true);
+    StringTruncatePartitionColumnTransform transform(source_type, 3);
+
+    auto result = transform.apply(block, 0);
+
+    const auto* result_column = assert_cast<const ColumnNullable*>(result.column.get());
+    const auto* result_strings =
+            assert_cast<const ColumnString*>(result_column->get_nested_column_ptr().get());
+    EXPECT_EQ(3, result_column->size());
+    EXPECT_EQ(Field::create_field<TYPE_BOOLEAN>(1), result_column->get_null_map_column()[0]);
+    EXPECT_EQ(Field::create_field<TYPE_BOOLEAN>(0), result_column->get_null_map_column()[1]);
+    EXPECT_EQ(Field::create_field<TYPE_BOOLEAN>(0), result_column->get_null_map_column()[2]);
+    EXPECT_EQ("ice", result_strings->get_data_at(1).to_string());
+    EXPECT_EQ("db", result_strings->get_data_at(2).to_string());
+}
+
 } // namespace doris

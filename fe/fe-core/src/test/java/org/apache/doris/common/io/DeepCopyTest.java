@@ -20,8 +20,8 @@ package org.apache.doris.common.io;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.persist.TableInfo;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class DeepCopyTest {
 
@@ -29,8 +29,8 @@ public class DeepCopyTest {
     public void test() {
         TableInfo info = TableInfo.createForTableRename(1, 2, "newTbl");
         TableInfo copied = DeepCopy.copy(info, TableInfo.class, FeConstants.meta_version);
-        Assert.assertEquals(1, copied.getDbId());
-        Assert.assertEquals(2, copied.getTableId());
-        Assert.assertEquals("newTbl", copied.getNewTableName());
+        Assertions.assertEquals(1, copied.getDbId());
+        Assertions.assertEquals(2, copied.getTableId());
+        Assertions.assertEquals("newTbl", copied.getNewTableName());
     }
 }

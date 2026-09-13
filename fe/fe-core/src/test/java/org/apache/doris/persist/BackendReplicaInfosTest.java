@@ -20,8 +20,8 @@ package org.apache.doris.persist;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.meta.MetaContext;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -66,16 +66,16 @@ public class BackendReplicaInfosTest {
     }
 
     private void checkInfo(BackendReplicasInfo info) {
-        Assert.assertTrue(!info.isEmpty());
+        Assertions.assertTrue(!info.isEmpty());
         List<BackendReplicasInfo.ReplicaReportInfo> infos = info.getReplicaReportInfos();
         for (BackendReplicasInfo.ReplicaReportInfo reportInfo : infos) {
             if (reportInfo.tabletId == tabletId1) {
-                Assert.assertEquals(BackendReplicasInfo.ReportInfoType.BAD, reportInfo.type);
+                Assertions.assertEquals(BackendReplicasInfo.ReportInfoType.BAD, reportInfo.type);
             } else if (reportInfo.tabletId == tabletId2) {
-                Assert.assertEquals(BackendReplicasInfo.ReportInfoType.MISSING_VERSION, reportInfo.type);
-                Assert.assertEquals(11, reportInfo.lastFailedVersion);
+                Assertions.assertEquals(BackendReplicasInfo.ReportInfoType.MISSING_VERSION, reportInfo.type);
+                Assertions.assertEquals(11, reportInfo.lastFailedVersion);
             } else {
-                Assert.fail("unknown tablet id: " + reportInfo.tabletId);
+                Assertions.fail("unknown tablet id: " + reportInfo.tabletId);
             }
         }
     }

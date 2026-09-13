@@ -117,6 +117,17 @@ TEST(PartitionColumnFillerTest, FillNullableIntPartitionValue) {
     }
 }
 
+TEST(MockTableSchemaChangeHelper, UnknownStructChildDoesNotExist) {
+    TableSchemaChangeHelper::StructNode root;
+    root.add_children("file_column", "file_column",
+                      std::make_shared<TableSchemaChangeHelper::ScalarNode>());
+    root.add_not_exist_children("missing_file_column");
+
+    EXPECT_TRUE(root.children_column_exists("file_column"));
+    EXPECT_FALSE(root.children_column_exists("missing_file_column"));
+    EXPECT_FALSE(root.children_column_exists("partition_column"));
+}
+
 TEST(MockTableSchemaChangeHelper, OrcNameNoSchemaChange) {
     std::vector<DataTypePtr> data_types;
     std::vector<std::string> column_names;
@@ -165,6 +176,43 @@ TEST(MockTableSchemaChangeHelper, OrcNameNoSchemaChange) {
               "        ScalarNode\n"
               "  col3 (file: col3)\n"
               "    ScalarNode\n");
+}
+
+TEST(MockTableSchemaChangeHelper, HasChildrenColumnGuardsAbsentProjectedColumn) {
+    // Build a top-level StructNode with two known columns via the public by_orc_name path.
+    SlotDescriptor slot1;
+    slot1._type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+    slot1._col_name = "col1";
+
+    SlotDescriptor slot2;
+    slot2._type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+    slot2._col_name = "col2";
+
+    TupleDescriptor tuple_desc;
+    tuple_desc.add_slot(&slot1);
+    tuple_desc.add_slot(&slot2);
+
+    std::unique_ptr<orc::Type> orc_type(
+            orc::Type::buildTypeFromString("struct<col1:int,col2:int>"));
+    std::shared_ptr<TableSchemaChangeHelper::Node> node = nullptr;
+    ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(&tuple_desc,
+                                                                         orc_type.get(), node)
+                        .ok());
+
+    // A projected column that IS in the table schema tree -> present.
+    EXPECT_TRUE(node->has_children_column("col1"));
+    EXPECT_TRUE(node->has_children_column("col2"));
+    // A projected column that is NOT in the tree at all models an FE/BE schema-contract mismatch
+    // (e.g. a paimon renamed column missing from a stale history_schema_info entry). has_children_column
+    // must report it absent WITHOUT the DCHECK/abort that children_column_exists would trigger — this is
+    // the presence check the parquet reader's missing-cols guard relies on to fail the query instead of
+    // aborting the whole BE. MUTATION: having has_children_column call children.at() -> abort/red.
+    EXPECT_FALSE(node->has_children_column("not_a_projected_column"));
+
+    // ConstNode (the no-schema-change path) reports every column present, matching its
+    // children_column_exists.
+    EXPECT_TRUE(
+            TableSchemaChangeHelper::ConstNode::get_instance()->has_children_column("anything"));
 }
 
 TEST(MockTableSchemaChangeHelper, OrcNameSchemaChange1) {
@@ -618,10 +666,12 @@ TEST(MockTableSchemaChangeHelper, IcebergParquetNestedMixedFieldIdsPreferExistin
               "        ScalarNode\n"
               "      b (not exists)\n");
     const auto nested_node = ans_node->get_children_node("s");
-    const auto default_value = nested_node->children_initial_default_value("b");
-    ASSERT_TRUE(default_value.has_value());
-    EXPECT_EQ(default_value->value, "AAEC/w==");
-    EXPECT_TRUE(default_value->is_base64);
+    const auto* default_field = nested_node->get_missing_column_field("b");
+    ASSERT_NE(default_field, nullptr);
+    ASSERT_TRUE(default_field->__isset.initial_default_value);
+    EXPECT_EQ(default_field->initial_default_value, "AAEC/w==");
+    ASSERT_TRUE(default_field->__isset.initial_default_value_is_base64);
+    EXPECT_TRUE(default_field->initial_default_value_is_base64);
 }
 
 TEST(MockTableSchemaChangeHelper, IcebergParquetLegacyPlanFallsBackForNestedMixedFieldIds) {
@@ -971,17 +1021,31 @@ TEST(MockTableSchemaChangeHelper, IcebergOrcNestedMixedFieldIdsPreferExistingIds
               "        ScalarNode\n"
               "      b (not exists)\n");
     const auto nested_node = ans_node->get_children_node("s");
-    const auto default_value = nested_node->children_initial_default_value("b");
-    ASSERT_TRUE(default_value.has_value());
-    EXPECT_EQ(default_value->value, "AAEC/w==");
-    EXPECT_TRUE(default_value->is_base64);
+    const auto* default_field = nested_node->get_missing_column_field("b");
+    ASSERT_NE(default_field, nullptr);
+    ASSERT_TRUE(default_field->__isset.initial_default_value);
+    EXPECT_EQ(default_field->initial_default_value, "AAEC/w==");
+    ASSERT_TRUE(default_field->__isset.initial_default_value_is_base64);
+    EXPECT_TRUE(default_field->initial_default_value_is_base64);
 }
 
-TEST(MockTableSchemaChangeHelper, IcebergOrcDoesNotBindIdlessWrapperByName) {
+TEST(MockTableSchemaChangeHelper, IcebergOrcDescendantIdRetainsIdlessWrapper) {
     auto root_field = nested_partial_name_mapping_root_field();
-    std::unique_ptr<orc::Type> orc_type(orc::Type::buildTypeFromString("struct<s:struct<a:int>>"));
+    TColumnType int_type;
+    int_type.__set_type(TPrimitiveType::INT);
+    auto id_field = std::make_shared<schema::external::TField>();
+    id_field->__set_name("id");
+    id_field->__set_id(20);
+    id_field->__set_type(int_type);
+    schema::external::TFieldPtr id_ptr;
+    id_ptr.__set_field_ptr(id_field);
+    root_field.fields.insert(root_field.fields.begin(), std::move(id_ptr));
+
+    std::unique_ptr<orc::Type> orc_type(
+            orc::Type::buildTypeFromString("struct<id:int,s:struct<a:int>>"));
     const auto& attribute = IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE;
-    orc_type->getSubtype(0)->getSubtype(0)->setAttribute(attribute, "1");
+    orc_type->getSubtype(0)->setAttribute(attribute, "20");
+    orc_type->getSubtype(1)->getSubtype(0)->setAttribute(attribute, "1");
 
     std::shared_ptr<TableSchemaChangeHelper::Node> ans_node;
     ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_mapping(
@@ -989,7 +1053,13 @@ TEST(MockTableSchemaChangeHelper, IcebergOrcDoesNotBindIdlessWrapperByName) {
                         .ok());
     ASSERT_EQ(TableSchemaChangeHelper::debug(ans_node),
               "StructNode\n"
-              "  s (not exists)\n");
+              "  id (file: id)\n"
+              "    ScalarNode\n"
+              "  s (file: s)\n"
+              "    StructNode\n"
+              "      a (file: a)\n"
+              "        ScalarNode\n"
+              "      b (not exists)\n");
 }
 
 TEST(MockTableSchemaChangeHelper, NestedMapArrayStruct) {

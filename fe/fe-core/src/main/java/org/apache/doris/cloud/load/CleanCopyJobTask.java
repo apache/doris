@@ -25,7 +25,7 @@ import org.apache.doris.cloud.proto.Cloud.StagePB.StageType;
 import org.apache.doris.cloud.storage.ObjectInfo;
 import org.apache.doris.cloud.storage.ObjectInfoAdapter;
 import org.apache.doris.common.Config;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.fs.FileSystemFactory;
 
@@ -59,8 +59,8 @@ public class CleanCopyJobTask {
             return;
         }
         try {
-            StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
-            org.apache.doris.filesystem.FileSystem rawFs = FileSystemFactory.getFileSystem(storageProps);
+            StorageAdapter storageAdapter = ObjectInfoAdapter.toStorageAdapter(objectInfo);
+            org.apache.doris.filesystem.FileSystem rawFs = FileSystemFactory.getFileSystem(storageAdapter);
             Preconditions.checkState(rawFs instanceof ObjFileSystem,
                     "Clean copy operations require ObjFileSystem, but got: %s",
                     rawFs.getClass().getSimpleName());

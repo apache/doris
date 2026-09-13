@@ -19,6 +19,7 @@
 suite("regression_test_variant_add_multi_var_mulit_indexes", "variant_type"){
 
 
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def timeout = 60000
     def delta_time = 1000
     def alter_res = "null"
@@ -50,15 +51,15 @@ suite("regression_test_variant_add_multi_var_mulit_indexes", "variant_type"){
         DISTRIBUTED BY HASH(k) BUCKETS 1
         properties("replication_num" = "1", "disable_auto_compaction" = "true");
     """
-    sql """insert into  ${table_name} values (0, '{"a" : 12345,"b" : 2}')"""
+    sql """insert into  ${table_name} values (0, ${variantV2Function}('{"a" : 12345,"b" : 2}'))"""
 
     sql """ alter table  ${table_name} add column v2 variant<'a': string, 'b': string> NULL"""
 
-    sql """insert into  ${table_name} values (1, '{"a" : 12345,"b" : 2}', '{"a" : 12345,"b" : 3}')"""
+    sql """insert into  ${table_name} values (1, ${variantV2Function}('{"a" : 12345,"b" : 2}'), ${variantV2Function}('{"a" : 12345,"b" : 3}'))"""
 
     sql """alter table  ${table_name} add column v3 variant NULL"""
 
-    sql """insert into  ${table_name} values (2, '{"a" : 12345,"b" : 2}', '{"a" : 56789,"b" : 3}', '{"a" : 12345,"b" : 2}')"""
+    sql """insert into  ${table_name} values (2, ${variantV2Function}('{"a" : 12345,"b" : 2}'), ${variantV2Function}('{"a" : 56789,"b" : 3}'), ${variantV2Function}('{"a" : 12345,"b" : 2}'))"""
 
     sql """alter table ${table_name} add index idx_v2(v2) using inverted"""
     wait_for_latest_op_on_table_finish(table_name, timeout)
@@ -72,9 +73,9 @@ suite("regression_test_variant_add_multi_var_mulit_indexes", "variant_type"){
     sql """alter table  ${table_name} add index idx_v5(v3) using inverted properties("parser" = "unicode", "support_phrase" = "true")"""
     wait_for_latest_op_on_table_finish(table_name, timeout)
 
-    sql """insert into  ${table_name} values (3, '{"a" : 12345,"b" : 2}', '{"a" : 12345,"b" : 2}', '{"a" : 56789,"b" : 2}')"""
+    sql """insert into  ${table_name} values (3, ${variantV2Function}('{"a" : 12345,"b" : 2}'), ${variantV2Function}('{"a" : 12345,"b" : 2}'), ${variantV2Function}('{"a" : 56789,"b" : 2}'))"""
 
-    sql """insert into  ${table_name} values (4, '{"a" : 12345,"b" : 2}', '{"a" : 56789,"b" : 2}', '{"a" : 12345,"b" : 3}')"""
+    sql """insert into  ${table_name} values (4, ${variantV2Function}('{"a" : 12345,"b" : 2}'), ${variantV2Function}('{"a" : 56789,"b" : 2}'), ${variantV2Function}('{"a" : 12345,"b" : 3}'))"""
 
     trigger_and_wait_compaction("${table_name}", "full", 1800)
 

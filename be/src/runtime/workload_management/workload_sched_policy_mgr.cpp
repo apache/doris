@@ -22,6 +22,7 @@
 #include "common/config.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/workload_management/resource_context.h"
+#include "util/thread.h"
 
 namespace doris {
 

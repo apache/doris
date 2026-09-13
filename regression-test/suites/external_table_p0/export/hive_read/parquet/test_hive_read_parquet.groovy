@@ -61,9 +61,11 @@ suite("test_hive_read_parquet", "p0,external") {
             """
         }
 
-        def outfile_to_HDFS = {
+        def outfile_to_HDFS = { enableInt96Timestamps ->
             // select ... into outfile ...
             def uuid = UUID.randomUUID().toString()
+            def int96Property = enableInt96Timestamps == null ? "" :
+                    ",\n                    \"enable_int96_timestamps\" = \"${enableInt96Timestamps}\""
 
             outfile_path = "/user/doris/tmp_data/${uuid}"
             uri = "${defaultFS}" + "${outfile_path}/exp_"
@@ -74,8 +76,7 @@ suite("test_hive_read_parquet", "p0,external") {
                 FORMAT AS ${format}
                 PROPERTIES (
                     "fs.defaultFS"="${defaultFS}",
-                    "hadoop.username" = "${hdfsUserName}",
-                    "enable_int96_timestamps" = "true"
+                    "hadoop.username" = "${hdfsUserName}"${int96Property}
                 );
             """
             logger.info("outfile success path: " + res[0][3]);
@@ -135,7 +136,8 @@ suite("test_hive_read_parquet", "p0,external") {
             qt_select_base1 """ SELECT * FROM ${export_table_name} ORDER BY user_id; """ 
 
             // test outfile to hdfs
-            def outfile_url = outfile_to_HDFS()
+            // The default Doris OUTFILE path uses INT64 timestamps.
+            def outfile_url = outfile_to_HDFS(null)
 
             // create hive table
             create_hive_table(hive_table, hive_column_define)
@@ -249,9 +251,8 @@ suite("test_hive_read_parquet", "p0,external") {
             qt_select_base2 """ SELECT * FROM ${export_table_name} t ORDER BY user_id; """    
 
             // test outfile to hdfs
-            def outfile_url = outfile_to_HDFS()
-            // create hive table
-            create_hive_table(hive_table, hive_column_define)
+            // The default Doris OUTFILE path uses INT64 timestamps.
+            def outfile_url = outfile_to_HDFS(null)
 
             qt_select_tvf2 """ select * from HDFS(
                         "uri" = "${outfile_url}0.parquet",
@@ -259,6 +260,10 @@ suite("test_hive_read_parquet", "p0,external") {
                         "format" = "${format}");
                         """
 
+            // Hive 2 and 3 do not support Parquet INT64 logical timestamps. Keep the Doris
+            // OUTFILE/TVF path on INT64, and use INT96 only for the legacy Hive compatibility check.
+            outfile_to_HDFS(true)
+            create_hive_table(hive_table, hive_column_define)
             qt_hive_docker_02 """ SELECT * FROM ${hive_database}.${hive_table};"""
             
         } finally {

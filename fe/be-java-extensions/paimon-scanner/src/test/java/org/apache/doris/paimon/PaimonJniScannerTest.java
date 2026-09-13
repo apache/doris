@@ -17,14 +17,35 @@
 
 package org.apache.doris.paimon;
 
+import org.apache.doris.common.jni.vec.ColumnType;
+
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.Logger;
+import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.Configurator;
+import org.apache.logging.log4j.core.config.Property;
+import org.apache.paimon.CoreOptions;
+import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.disk.BufferFileReader;
 import org.apache.paimon.disk.BufferFileWriter;
 import org.apache.paimon.disk.FileIOChannel;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
+import org.apache.paimon.privilege.PrivilegeChecker;
+import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.reader.RecordReader;
+import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.DelegatedFileStoreTable;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.system.SystemTableLoader;
+import org.apache.paimon.types.RowType;
+import org.apache.paimon.utils.InstantiationUtil;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
@@ -32,24 +53,495 @@ import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.Serializable;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class PaimonJniScannerTest {
+    private static final String SERIALIZED_TABLE = "serialized_table";
+    private static final String SERIALIZED_SYSTEM_SOURCE =
+            "paimon.doris.serialized-system-source";
+    private static final String SERIALIZED_TABLE_CACHE_KEY = "serialized_table_cache_key";
+
     @Rule
     public TemporaryFolder temporaryFolder = new TemporaryFolder();
+
+    @After
+    public void clearTableCache() {
+        PaimonTableCache.clearForTest();
+    }
 
     @Test
     public void testConstructorAcceptsEmptyProjection() {
         new PaimonJniScanner(128, createBaseParams());
+    }
+
+    @Test
+    public void testConstructorRejectsMissingOrEmptyTableCacheKey() {
+        Map<String, String> params = createBaseParams();
+        params.remove(SERIALIZED_TABLE_CACHE_KEY);
+        assertInvalidTableCacheKey(params);
+
+        params.put(SERIALIZED_TABLE_CACHE_KEY, "");
+        assertInvalidTableCacheKey(params);
+    }
+
+    @Test
+    public void testWarmTableCacheHitReleasesSerializedTablePayloads() throws Exception {
+        String cacheKey = "warm-table-cache-hit";
+        Map<String, String> params = createBaseParams();
+        params.put(SERIALIZED_TABLE_CACHE_KEY, cacheKey);
+        params.put(SERIALIZED_TABLE, "serialized-table-payload");
+        params.put(SERIALIZED_SYSTEM_SOURCE, "serialized-system-source-payload");
+        Table cachedTable = newTestTable(Collections.emptyMap());
+        PaimonTableCache.TableCacheEntry cacheEntry =
+                new PaimonTableCache.TableCacheEntry(cachedTable, Collections.emptyList());
+        Assert.assertTrue(PaimonTableCache.publish(cacheKey, cacheEntry));
+
+        PaimonJniScanner scanner = new PaimonJniScanner(128, params);
+        Method initTableFromCache = PaimonJniScanner.class.getDeclaredMethod("initTableFromCache");
+        initTableFromCache.setAccessible(true);
+
+        Assert.assertTrue((Boolean) initTableFromCache.invoke(scanner));
+        Assert.assertFalse(params.containsKey(SERIALIZED_TABLE));
+        Assert.assertFalse(params.containsKey(SERIALIZED_SYSTEM_SOURCE));
+        Field tableField = PaimonJniScanner.class.getDeclaredField("table");
+        tableField.setAccessible(true);
+        Assert.assertSame(cachedTable, tableField.get(scanner));
+
+        scanner.close();
+        Assert.assertEquals(1, PaimonTableCache.size());
+        PaimonTableCache.release(cacheKey, cacheEntry);
+        Assert.assertEquals(0, PaimonTableCache.size());
+    }
+
+    @Test
+    public void testOldFeSerializedZeroReadBatchIsRejected() throws Exception {
+        Table configuredTable = (Table) Proxy.newProxyInstance(Table.class.getClassLoader(),
+                new Class[] {Table.class}, new SerializableTableHandler(
+                        Collections.singletonMap(CoreOptions.READ_BATCH_SIZE.key(), "0")));
+        Map<String, String> params = createBaseParams();
+        params.put("serialized_table", Base64.getUrlEncoder().withoutPadding().encodeToString(
+                InstantiationUtil.serializeObject(configuredTable)));
+        PaimonJniScanner scanner = new PaimonJniScanner(1024, params);
+        Method initTable = PaimonJniScanner.class.getDeclaredMethod("initTable");
+        initTable.setAccessible(true);
+
+        try {
+            initTable.invoke(scanner);
+            Assert.fail("an unvalidated old-FE batch size must not reach the Paimon reader");
+        } catch (InvocationTargetException e) {
+            Assert.assertTrue(String.valueOf(e.getCause()),
+                    e.getCause() instanceof IllegalArgumentException);
+            Assert.assertTrue(e.getCause().getMessage().contains(CoreOptions.READ_BATCH_SIZE.key()));
+        }
+    }
+
+    @Test
+    public void testOldFeSerializedFallbackZeroReadBatchIsRejected() throws Exception {
+        FileStoreTable main = serializableFileStoreTable(Collections.emptyMap());
+        FileStoreTable fallback = serializableFileStoreTable(
+                Collections.singletonMap(CoreOptions.READ_BATCH_SIZE.key(), "0"));
+        Map<String, String> params = createBaseParams();
+        params.put("serialized_table", Base64.getUrlEncoder().withoutPadding().encodeToString(
+                InstantiationUtil.serializeObject(new FallbackReadFileStoreTable(main, fallback))));
+        PaimonJniScanner scanner = new PaimonJniScanner(1024, params);
+        Method initTable = PaimonJniScanner.class.getDeclaredMethod("initTable");
+        initTable.setAccessible(true);
+
+        try {
+            initTable.invoke(scanner);
+            Assert.fail("a hidden old-FE batch size must not reach the fallback reader");
+        } catch (InvocationTargetException e) {
+            Assert.assertTrue(e.getCause() instanceof IllegalArgumentException);
+            Assert.assertTrue(e.getCause().getMessage().contains(CoreOptions.READ_BATCH_SIZE.key()));
+        }
+    }
+
+    @Test
+    public void testOldFeSerializedAsyncThresholdIsRejectedInEveryChild() throws Exception {
+        Table visible = (Table) Proxy.newProxyInstance(Table.class.getClassLoader(),
+                new Class[] {Table.class}, new SerializableTableHandler(
+                        Collections.singletonMap(CoreOptions.FILE_READER_ASYNC_THRESHOLD.key(), "0 B")));
+        FileStoreTable main = serializableFileStoreTable(Collections.emptyMap());
+        FileStoreTable fallback = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.FILE_READER_ASYNC_THRESHOLD.key(), "2 GB"));
+        for (Table configuredTable : Arrays.asList(visible, new FallbackReadFileStoreTable(main, fallback))) {
+            Map<String, String> params = createBaseParams();
+            params.put("serialized_table", Base64.getUrlEncoder().withoutPadding().encodeToString(
+                    InstantiationUtil.serializeObject(configuredTable)));
+            PaimonJniScanner scanner = new PaimonJniScanner(1024, params);
+            Method initTable = PaimonJniScanner.class.getDeclaredMethod("initTable");
+            initTable.setAccessible(true);
+
+            InvocationTargetException failure = Assert.assertThrows(
+                    InvocationTargetException.class, () -> initTable.invoke(scanner));
+            Assert.assertTrue(failure.getCause() instanceof IllegalArgumentException);
+            Assert.assertTrue(failure.getCause().getMessage()
+                    .contains(CoreOptions.FILE_READER_ASYNC_THRESHOLD.key()));
+        }
+    }
+
+    @Test
+    public void testOldFeSerializedSystemSourceRejectsZeroSplitTarget() throws Exception {
+        FileStoreTable main = serializableFileStoreTable(Collections.emptyMap());
+        FileStoreTable fallback = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.SOURCE_SPLIT_TARGET_SIZE.key(), "0 B"));
+        Table filesTable = SystemTableLoader.load(
+                "files", new FallbackReadFileStoreTable(main, fallback));
+        Map<String, String> params = createBaseParams();
+        params.put("serialized_table", Base64.getUrlEncoder().withoutPadding().encodeToString(
+                InstantiationUtil.serializeObject(filesTable)));
+        PaimonJniScanner scanner = new PaimonJniScanner(1024, params);
+        Method initTable = PaimonJniScanner.class.getDeclaredMethod("initTable");
+        initTable.setAccessible(true);
+
+        InvocationTargetException failure = Assert.assertThrows(
+                InvocationTargetException.class, () -> initTable.invoke(scanner));
+        Assert.assertTrue(failure.getCause() instanceof IllegalArgumentException);
+        Assert.assertTrue(failure.getCause().getMessage()
+                .contains(CoreOptions.SOURCE_SPLIT_TARGET_SIZE.key()));
+    }
+
+    @Test
+    public void testOldFeSerializedSystemSourceRejectsFallbackZeroReadBatch() throws Exception {
+        FileStoreTable main = serializableFileStoreTable(Collections.emptyMap());
+        FileStoreTable fallback = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.READ_BATCH_SIZE.key(), "0"));
+        Table readerBackedSystemTable = SystemTableLoader.load(
+                "audit_log", new FallbackReadFileStoreTable(main, fallback));
+        Map<String, String> params = createBaseParams();
+        params.put("serialized_table", Base64.getUrlEncoder().withoutPadding().encodeToString(
+                InstantiationUtil.serializeObject(readerBackedSystemTable)));
+        PaimonJniScanner scanner = new PaimonJniScanner(1024, params);
+        Method initTable = PaimonJniScanner.class.getDeclaredMethod("initTable");
+        initTable.setAccessible(true);
+
+        InvocationTargetException failure = Assert.assertThrows(
+                InvocationTargetException.class, () -> initTable.invoke(scanner));
+        Assert.assertTrue(failure.getCause() instanceof IllegalArgumentException);
+        Assert.assertTrue(failure.getCause().getMessage()
+                .contains(CoreOptions.READ_BATCH_SIZE.key()));
+    }
+
+    @Test
+    public void testBackendManifestCapReachesHiddenFallbackPlanner() {
+        FileStoreTable main = serializableFileStoreTable(Collections.emptyMap());
+        FileStoreTable fallback = serializableFileStoreTable(
+                Collections.singletonMap(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "8"));
+
+        Table safe = PaimonJniScanner.applyBackendManifestParallelism(
+                new FallbackReadFileStoreTable(main, fallback), "8", 4);
+
+        Assert.assertTrue(safe instanceof FallbackReadFileStoreTable);
+        Assert.assertEquals("4", ((FallbackReadFileStoreTable) safe).fallback()
+                .options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    @Test
+    public void testAdvertisedFeCapStillChecksSerializedChildren() {
+        FileStoreTable main = serializableFileStoreTable(Collections.emptyMap());
+        FileStoreTable fallback = serializableFileStoreTable(
+                Collections.singletonMap(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "200"));
+
+        Table safe = PaimonJniScanner.applyBackendManifestParallelism(
+                new FallbackReadFileStoreTable(main, fallback), "32", 64);
+
+        Assert.assertEquals("32", ((FallbackReadFileStoreTable) safe).fallback()
+                .options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    @Test
+    public void testOldFeManifestBackstopKeepsStableMaximum() {
+        FileStoreTable visible = serializableFileStoreTable(
+                Collections.singletonMap(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "300"));
+        FileStoreTable main = serializableFileStoreTable(Collections.emptyMap());
+        FileStoreTable fallback = serializableFileStoreTable(
+                Collections.singletonMap(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "300"));
+
+        Table safeVisible = PaimonJniScanner.applyBackendManifestParallelism(
+                visible, null, 512);
+        Table safeFallback = PaimonJniScanner.applyBackendManifestParallelism(
+                new FallbackReadFileStoreTable(main, fallback), null, 512);
+
+        Assert.assertEquals("256", safeVisible.options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+        Assert.assertEquals("256", ((FallbackReadFileStoreTable) safeFallback).fallback()
+                .options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    @Test
+    public void testMissingManifestParallelismGetsStableBackendCap() {
+        FileStoreTable table = serializableFileStoreTable(Collections.emptyMap());
+
+        Table safe = PaimonJniScanner.applyBackendManifestParallelism(table, null, 512);
+
+        Assert.assertEquals("256",
+                safe.options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    @Test
+    public void testFallbackManifestParallelismIsCappedPerBranch() {
+        FileStoreTable main = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"));
+        FileStoreTable fallback = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "128"));
+        Table pair = new FallbackReadFileStoreTable(main, fallback);
+
+        FallbackReadFileStoreTable unchanged = (FallbackReadFileStoreTable)
+                PaimonJniScanner.applyBackendManifestParallelism(pair, "128", 128);
+        Assert.assertEquals("1", unchanged.wrapped().options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+        Assert.assertEquals("128", unchanged.fallback().options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+
+        FallbackReadFileStoreTable capped = (FallbackReadFileStoreTable)
+                PaimonJniScanner.applyBackendManifestParallelism(pair, "128", 64);
+        Assert.assertEquals("1", capped.wrapped().options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+        Assert.assertEquals("64", capped.fallback().options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    @Test
+    public void testBackendCapTraversesPrivilegeDelegate() {
+        FileStoreTable main = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"));
+        FileStoreTable fallback = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "128"));
+        PrivilegeChecker checker = (PrivilegeChecker) Proxy.newProxyInstance(
+                PrivilegeChecker.class.getClassLoader(),
+                new Class<?>[] {PrivilegeChecker.class},
+                (proxy, method, args) -> null);
+        FileStoreTable privileged = PrivilegedFileStoreTable.wrap(
+                new FallbackReadFileStoreTable(main, fallback), checker,
+                Identifier.create("db", "table"));
+
+        Table safe = PaimonJniScanner.applyBackendManifestParallelism(
+                privileged, null, 64);
+        FileStoreTable planningTable = safe instanceof DelegatedFileStoreTable
+                && !(safe instanceof FallbackReadFileStoreTable)
+                ? ((DelegatedFileStoreTable) safe).wrapped() : (FileStoreTable) safe;
+
+        Assert.assertTrue(planningTable instanceof FallbackReadFileStoreTable);
+        FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) planningTable;
+        Assert.assertEquals("1", pair.wrapped().options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+        Assert.assertEquals("64", pair.fallback().options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    @Test
+    public void testOldFeSystemWrapperPreservesIndependentFallbackLimits() throws Exception {
+        FileStoreTable main = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"));
+        FileStoreTable fallback = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "128"));
+        Table wrapper = SystemTableLoader.load(
+                "partitions", new FallbackReadFileStoreTable(main, fallback));
+
+        Table safe = PaimonJniScanner.applyBackendManifestParallelism(
+                wrapper, null, 64);
+        Field storeTable = safe.getClass().getDeclaredField("storeTable");
+        storeTable.setAccessible(true);
+        FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) storeTable.get(safe);
+
+        Assert.assertEquals("1", pair.wrapped().options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+        Assert.assertEquals("64", pair.fallback().options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    @Test
+    public void testSystemWrapperExposesSafeFallbackBehindPrivilegeDelegate() throws Exception {
+        FileStoreTable main = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"));
+        FileStoreTable fallback = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "2"));
+        PrivilegeChecker checker = (PrivilegeChecker) Proxy.newProxyInstance(
+                PrivilegeChecker.class.getClassLoader(),
+                new Class<?>[] {PrivilegeChecker.class},
+                (proxy, method, args) -> null);
+        FileStoreTable privileged = PrivilegedFileStoreTable.wrap(
+                new FallbackReadFileStoreTable(main, fallback), checker,
+                Identifier.create("db", "table"));
+        Table wrapper = SystemTableLoader.load("partitions", privileged);
+
+        Table safe = PaimonJniScanner.applyBackendManifestParallelism(
+                wrapper, null, 64);
+        Field storeTable = safe.getClass().getDeclaredField("storeTable");
+        storeTable.setAccessible(true);
+
+        Assert.assertTrue(storeTable.get(safe) instanceof FallbackReadFileStoreTable);
+    }
+
+    @Test
+    public void testBackendCapRebuildsWrapperFromTransportedSystemSource() throws Exception {
+        FileStoreTable source = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "32"));
+        Table hiddenWrapper = SystemTableLoader.load("partitions", source);
+
+        Table safe = PaimonJniScanner.applyBackendManifestParallelism(
+                hiddenWrapper, "16", 4, source, "partitions");
+
+        Field storeTable = safe.getClass().getDeclaredField("storeTable");
+        storeTable.setAccessible(true);
+        Assert.assertEquals(SystemTableLoader.load("partitions", source).getClass(), safe.getClass());
+        Assert.assertEquals("4", ((FileStoreTable) storeTable.get(safe)).options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+
+        FileStoreTable largeSource = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "300"));
+        Table largeWrapper = SystemTableLoader.load("partitions", largeSource);
+        Table stableSafe = PaimonJniScanner.applyBackendManifestParallelism(
+                largeWrapper, null, 512);
+        Field stableStoreTable = stableSafe.getClass().getDeclaredField("storeTable");
+        stableStoreTable.setAccessible(true);
+        Assert.assertEquals("256", ((FileStoreTable) stableStoreTable.get(stableSafe)).options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    @Test
+    public void testOldFeSystemWrapperGetsBackendManifestBackstop() throws Exception {
+        FileStoreTable source = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "32"));
+        Table hiddenWrapper = SystemTableLoader.load("partitions", source);
+
+        Table safe = PaimonJniScanner.applyBackendManifestParallelism(
+                hiddenWrapper, null, 4);
+
+        Field storeTable = safe.getClass().getDeclaredField("storeTable");
+        storeTable.setAccessible(true);
+        Assert.assertEquals("4", ((FileStoreTable) storeTable.get(safe)).options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    private static FileStoreTable serializableFileStoreTable(Map<String, String> options) {
+        return (FileStoreTable) Proxy.newProxyInstance(FileStoreTable.class.getClassLoader(),
+                new Class[] {FileStoreTable.class}, new SerializableTableHandler(options));
+    }
+
+    @Test
+    public void testConstructorAcceptsDorisShortTimeZoneForNonTemporalProjection() {
+        Map<String, String> params = createBaseParams();
+        params.put("required_fields", "id");
+        params.put("columns_types", "int");
+        params.put("time_zone", "EST");
+
+        new PaimonJniScanner(128, params);
+    }
+
+    @Test
+    public void testConstructorDecodesDelimiterSafeProjectionNames() {
+        Map<String, String> params = createBaseParams();
+        params.put("required_fields", "legacy,value,is,ambiguous");
+        params.put("required_fields_base64", encodeFields(
+                "region,code", "hash#name", "地区 名"));
+        params.put("columns_types", "string#string#string");
+        params.put("columns_types_base64", encodeFields("string", "string", "string"));
+
+        PaimonJniScanner scanner = new PaimonJniScanner(128, params);
+
+        Assert.assertArrayEquals(new String[] {"region,code", "hash#name", "地区 名"},
+                PaimonJniScanner.requiredFields(params));
+        Assert.assertEquals("3", scanner.getStatistics().get("gauge:PaimonJniRequiredFieldCount"));
+        Assert.assertEquals(0, PaimonJniScanner.getFieldIndex(
+                Arrays.asList("region,code", "hash#name", "地区 名"), "REGION,CODE"));
+    }
+
+    @Test
+    public void testConstructorDecodesDelimiterSafeNestedFieldNamesAndTypes() {
+        Map<String, String> params = createBaseParams();
+        params.put("required_fields_base64", encodeFields("nested#value"));
+        params.put("columns_types", "legacy#type#framing");
+        params.put("columns_types_base64", encodeFields(
+                "struct<$aGFzaCNuYW1l:string,$cmVnaW9uLGNvZGU:string,$Y29sb246bmFtZQ:string>"));
+
+        InspectablePaimonJniScanner scanner = new InspectablePaimonJniScanner(128, params);
+
+        Assert.assertEquals(1, scanner.requiredTypes().length);
+        ColumnType structType = scanner.requiredTypes()[0];
+        Assert.assertTrue(structType.isStruct());
+        Assert.assertEquals(Arrays.asList("hash#name", "region,code", "colon:name"),
+                structType.getChildNames());
+    }
+
+    @Test
+    public void testConstructorDistinguishesEmptyIdentifierFromEmptyProjection() {
+        Map<String, String> oneEmptyField = createBaseParams();
+        oneEmptyField.put("required_fields_base64", "$");
+        oneEmptyField.put("columns_types_base64", "$c3RyaW5n");
+
+        new PaimonJniScanner(128, oneEmptyField);
+
+        Assert.assertArrayEquals(new String[] {""}, PaimonJniScanner.requiredFields(oneEmptyField));
+        Map<String, String> noFields = createBaseParams();
+        noFields.put("required_fields_base64", "");
+        noFields.put("columns_types_base64", "");
+        Assert.assertEquals(0, PaimonJniScanner.requiredFields(noFields).length);
+        new PaimonJniScanner(128, noFields);
+    }
+
+    @Test
+    public void testDebugSummaryNeverIncludesRawScannerParams() {
+        Map<String, String> params = createBaseParams();
+        params.put("hadoop.fs.s3a.secret.key", "FAKE_SECRET_MARKER");
+        params.put("paimon.jdbc.url", "jdbc:test?password=FAKE_PASSWORD_MARKER");
+
+        Logger logger = (Logger) LogManager.getLogger(PaimonJniScanner.class);
+        Level originalLevel = logger.getLevel();
+        CapturingAppender appender = new CapturingAppender();
+        appender.start();
+        logger.addAppender(appender);
+        Configurator.setLevel(PaimonJniScanner.class.getName(), Level.DEBUG);
+        try {
+            new PaimonJniScanner(128, params);
+        } finally {
+            logger.removeAppender(appender);
+            appender.stop();
+            Configurator.setLevel(PaimonJniScanner.class.getName(), originalLevel);
+        }
+
+        String captured = String.join("\n", appender.messages);
+        Assert.assertTrue(captured.contains("batchSize=128, requiredFieldCount=0"));
+        Assert.assertFalse(captured.contains("FAKE_SECRET_MARKER"));
+        Assert.assertFalse(captured.contains("FAKE_PASSWORD_MARKER"));
+        Assert.assertFalse(captured.contains("hadoop.fs.s3a.secret.key"));
+        Assert.assertFalse(captured.contains("paimon.jdbc.url"));
+    }
+
+    @Test
+    public void testThreadCountSampleIsSharedWithinTtl() {
+        AtomicLong ticker = new AtomicLong(1000L);
+        AtomicInteger sampleCalls = new AtomicInteger();
+        PaimonJniScanner.CachedThreadCounter counter = new PaimonJniScanner.CachedThreadCounter(
+                100L, ticker::get, () -> {
+                    sampleCalls.incrementAndGet();
+                    return 7;
+                });
+
+        Assert.assertEquals(7, counter.get());
+        Assert.assertEquals(7, counter.get());
+        Assert.assertEquals(1, sampleCalls.get());
+
+        ticker.addAndGet(100L);
+        Assert.assertEquals(7, counter.get());
+        Assert.assertEquals(2, sampleCalls.get());
     }
 
     @Test
@@ -110,7 +602,8 @@ public class PaimonJniScannerTest {
         params.put("paimon_split", "encoded-split");
         params.put("paimon_predicate", "encoded-predicate");
         PaimonJniScanner scanner = new PaimonJniScanner(128, params);
-        setTableOptions(scanner, Collections.singletonMap("file-reader-async-threshold", "10 MiB"));
+        setTableOptions(scanner, Collections.singletonMap(
+                "file-reader-async-threshold", "10 mebibytes"));
 
         Map<String, String> statistics = scanner.getStatistics();
 
@@ -157,11 +650,13 @@ public class PaimonJniScannerTest {
 
     @Test
     public void testParseDataSizeBytes() {
-        Assert.assertEquals(Long.valueOf(1024L), PaimonJniScanner.parseDataSizeBytes("1 KiB").get());
+        Assert.assertEquals(Long.valueOf(1024L),
+                PaimonJniScanner.parseDataSizeBytes("1 kibibytes").get());
         Assert.assertEquals(Long.valueOf(10L * 1024L * 1024L),
-                PaimonJniScanner.parseDataSizeBytes("10 MiB").get());
+                PaimonJniScanner.parseDataSizeBytes("10 mebibytes").get());
         Assert.assertEquals(Long.valueOf(2L * 1024L * 1024L * 1024L),
                 PaimonJniScanner.parseDataSizeBytes("2GB").get());
+        Assert.assertFalse(PaimonJniScanner.parseDataSizeBytes("1 gib").isPresent());
         Assert.assertFalse(PaimonJniScanner.parseDataSizeBytes("unknown").isPresent());
     }
 
@@ -193,8 +688,11 @@ public class PaimonJniScannerTest {
     }
 
     @Test
-    public void testFailedCloseRetainsResourcesForRetry() throws Exception {
-        PaimonJniScanner scanner = new PaimonJniScanner(128, createBaseParams());
+    public void testFailedCloseReleasesCacheAndRetainsResourcesForRetry() throws Exception {
+        String cacheKey = "retryable-close";
+        Map<String, String> params = createBaseParams();
+        params.put(SERIALIZED_TABLE_CACHE_KEY, cacheKey);
+        PaimonJniScanner scanner = new PaimonJniScanner(128, params);
         AtomicInteger iteratorCloseCalls = new AtomicInteger();
         RecordReader.RecordIterator<InternalRow> recordIterator =
                 new RecordReader.RecordIterator<InternalRow>() {
@@ -235,6 +733,13 @@ public class PaimonJniScannerTest {
         Field ioManagerField = PaimonJniScanner.class.getDeclaredField("ioManager");
         ioManagerField.setAccessible(true);
         ioManagerField.set(scanner, ioManager);
+        PaimonTableCache.TableCacheEntry cacheEntry =
+                new PaimonTableCache.TableCacheEntry(newTestTable(Collections.emptyMap()),
+                        Collections.emptyList());
+        Assert.assertTrue(PaimonTableCache.publish(cacheKey, cacheEntry));
+        Field cacheEntryField = PaimonJniScanner.class.getDeclaredField("tableCacheEntry");
+        cacheEntryField.setAccessible(true);
+        cacheEntryField.set(scanner, cacheEntry);
 
         try {
             scanner.close();
@@ -245,6 +750,7 @@ public class PaimonJniScannerTest {
         Assert.assertSame(recordIterator, recordIteratorField.get(scanner));
         Assert.assertSame(reader, readerField.get(scanner));
         Assert.assertSame(ioManager, ioManagerField.get(scanner));
+        Assert.assertEquals(0, PaimonTableCache.size());
 
         scanner.close();
         Assert.assertNull(recordIteratorField.get(scanner));
@@ -253,6 +759,7 @@ public class PaimonJniScannerTest {
         Assert.assertEquals(2, iteratorCloseCalls.get());
         Assert.assertEquals(2, readerCloseCalls.get());
         Assert.assertEquals(2, ioManager.closeCalls.get());
+        Assert.assertEquals(0, PaimonTableCache.size());
     }
 
     private Map<String, String> createBaseParams() {
@@ -261,11 +768,33 @@ public class PaimonJniScannerTest {
         params.put("columns_types", "");
         params.put("paimon_split", "");
         params.put("paimon_predicate", "");
+        params.put(SERIALIZED_TABLE_CACHE_KEY, "test-table-cache-key");
         return params;
     }
 
+    private void assertInvalidTableCacheKey(Map<String, String> params) {
+        try {
+            new PaimonJniScanner(128, params);
+            Assert.fail("expected constructor to reject an invalid table cache key");
+        } catch (IllegalStateException e) {
+            Assert.assertTrue(e.getMessage().contains(SERIALIZED_TABLE_CACHE_KEY));
+        }
+    }
+
+    private String encodeFields(String... fields) {
+        return Arrays.stream(fields)
+                .map(field -> "$" + Base64.getEncoder().encodeToString(field.getBytes(StandardCharsets.UTF_8)))
+                .collect(java.util.stream.Collectors.joining(","));
+    }
+
     private void setTableOptions(PaimonJniScanner scanner, Map<String, String> options) throws Exception {
-        Table table = (Table) Proxy.newProxyInstance(
+        Field tableField = PaimonJniScanner.class.getDeclaredField("table");
+        tableField.setAccessible(true);
+        tableField.set(scanner, newTestTable(options));
+    }
+
+    private Table newTestTable(Map<String, String> options) {
+        return (Table) Proxy.newProxyInstance(
                 Table.class.getClassLoader(), new Class[] {Table.class}, (proxy, method, args) -> {
                     if ("options".equals(method.getName())) {
                         return options;
@@ -275,9 +804,39 @@ public class PaimonJniScannerTest {
                     }
                     throw new UnsupportedOperationException(method.getName());
                 });
-        Field tableField = PaimonJniScanner.class.getDeclaredField("table");
-        tableField.setAccessible(true);
-        tableField.set(scanner, table);
+    }
+
+    private static class SerializableTableHandler implements InvocationHandler, Serializable {
+        private static final long serialVersionUID = 1L;
+        private final Map<String, String> options;
+
+        SerializableTableHandler(Map<String, String> options) {
+            this.options = options;
+        }
+
+        @Override
+        public Object invoke(Object proxy, Method method, Object[] args) {
+            if ("options".equals(method.getName())) {
+                return options;
+            }
+            if ("rowType".equals(method.getName())) {
+                return new RowType(Collections.emptyList());
+            }
+            if ("schema".equals(method.getName())) {
+                return new TableSchema(0L, Collections.emptyList(), 0,
+                        Collections.emptyList(), Collections.emptyList(), options, "");
+            }
+            if (("copy".equals(method.getName()) || "copyWithoutTimeTravel".equals(method.getName()))
+                    && args != null && args.length == 1 && args[0] instanceof Map) {
+                Map<String, String> copied = new HashMap<>(options);
+                copied.putAll((Map<String, String>) args[0]);
+                return serializableFileStoreTable(copied);
+            }
+            if ("toString".equals(method.getName())) {
+                return "SerializablePaimonTable";
+            }
+            throw new UnsupportedOperationException(method.getName());
+        }
     }
 
     public static class TestIOManager implements IOManager {
@@ -334,6 +893,29 @@ public class PaimonJniScannerTest {
             if (closeCalls.incrementAndGet() == 1) {
                 throw new RuntimeException("injected IO manager close failure");
             }
+        }
+    }
+
+    private static class CapturingAppender extends AbstractAppender {
+        private final CopyOnWriteArrayList<String> messages = new CopyOnWriteArrayList<>();
+
+        CapturingAppender() {
+            super("paimon-test-capture", null, null, false, Property.EMPTY_ARRAY);
+        }
+
+        @Override
+        public void append(LogEvent event) {
+            messages.add(event.getMessage().getFormattedMessage());
+        }
+    }
+
+    private static class InspectablePaimonJniScanner extends PaimonJniScanner {
+        InspectablePaimonJniScanner(int batchSize, Map<String, String> params) {
+            super(batchSize, params);
+        }
+
+        ColumnType[] requiredTypes() {
+            return types;
         }
     }
 

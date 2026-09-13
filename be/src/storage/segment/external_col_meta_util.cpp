@@ -29,8 +29,8 @@ namespace doris::segment_v2 {
 
 namespace {
 
-io::IOContext create_index_io_context(const io::IOContext* source_io_ctx,
-                                      OlapReaderStatistics* stats) {
+io::IOContext create_ext_meta_io_context(const io::IOContext* source_io_ctx,
+                                         OlapReaderStatistics* stats) {
     io::IOContext io_ctx;
     if (source_io_ctx != nullptr) {
         io_ctx = *source_io_ctx;
@@ -145,7 +145,7 @@ Status ExternalColMetaUtil::read_col_meta(const io::FileReaderSPtr& file_reader,
     std::string buf;
     buf.resize(static_cast<size_t>(size));
     size_t meta_read = 0;
-    io::IOContext io_ctx = create_index_io_context(source_io_ctx, stats);
+    io::IOContext io_ctx = create_ext_meta_io_context(source_io_ctx, stats);
     RETURN_IF_ERROR(file_reader->read_at(pos, Slice(buf.data(), buf.size()), &meta_read, &io_ctx));
     if (meta_read != size) {
         return Status::Corruption("short read ColumnMetaPB: expect={}, actual={}", size, meta_read);

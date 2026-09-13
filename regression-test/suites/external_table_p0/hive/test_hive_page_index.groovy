@@ -34,7 +34,8 @@ suite("test_hive_page_index", "p0,external") {
         sql """drop catalog if exists ${catalog_name}"""
         sql """create catalog if not exists ${catalog_name} properties (
             "type"="hms",
-            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
+            'hive.parquet.time-zone' = 'Asia/Shanghai'
         );"""
     
         sql """switch ${catalog_name}"""

@@ -1394,6 +1394,47 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
+    /**
+     * Returns the backend only when it belongs to the backend pool currently selected for
+     * {@code clusterName}. The name may identify a physical or virtual compute group; virtual
+     * routing is resolved internally. Backend health and load availability are not checked here.
+     *
+     * @return the matching backend, or null if the cluster or backend is absent or the backend is
+     *         outside the current pool
+     */
+    public Backend getBackendInCurrentCluster(String clusterName, long backendId) {
+        rlock.lock();
+        try {
+            String physicalClusterName = getPhysicalCluster(clusterName);
+            String clusterId = clusterNameToId.get(physicalClusterName);
+            if (Strings.isNullOrEmpty(clusterId)) {
+                return null;
+            }
+            List<Backend> backends = clusterIdToBackend.get(clusterId);
+            if (backends == null) {
+                return null;
+            }
+
+            int low = 0;
+            int high = backends.size() - 1;
+            while (low <= high) {
+                int mid = (low + high) >>> 1;
+                Backend backend = backends.get(mid);
+                int result = Long.compare(backend.getId(), backendId);
+                if (result < 0) {
+                    low = mid + 1;
+                } else if (result > 0) {
+                    high = mid - 1;
+                } else {
+                    return backend;
+                }
+            }
+            return null;
+        } finally {
+            rlock.unlock();
+        }
+    }
+
     public ImmutableMap<Long, Backend> getCloudIdToBackend(String clusterName) {
         rlock.lock();
         try {

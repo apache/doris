@@ -35,6 +35,7 @@
 #include "core/types.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
 #include "format/table/parquet_utils.h"
+#include "format_v2/table/iceberg_reader.h"
 #include "format_v2/table/iceberg_schema_utils.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -147,6 +148,8 @@ protected:
 
     void configure_mapper_options(format::TableColumnMapperOptions* options) const override {
         options->enable_row_lineage_virtual_columns = true;
+        // Position-delete row projection must reject a physically absent required field exactly like data scans.
+        options->reject_missing_required_field = supports_iceberg_scan_semantics_v2(_scan_params);
         // Parquet may preserve a selected complex wrapper without its own ID; position-delete row
         // projection must use the same descendant-ID fallback as ordinary Iceberg data scans.
         options->allow_idless_complex_wrapper_projection =
@@ -163,12 +166,6 @@ Status IcebergPositionDeleteSysTableV2Reader::prepare_split(
         const format::SplitReadOptions& options) {
     RETURN_IF_ERROR(close());
     RETURN_IF_ERROR(format::TableReader::prepare_split(options));
-    if (current_split_pruned()) {
-        return Status::OK();
-    }
-    // This synthetic reader has no physical schema where a predicate can be localized, so every
-    // split predicate must run after its system-table columns have been materialized.
-    RETURN_IF_ERROR(_prepare_all_conjuncts_as_remaining());
     // The inner delete-file reader has distinct counters, so the outer preparation can safely
     // contain its cache miss/open work without re-entering the same RuntimeProfile timer.
     SCOPED_TIMER(_profile.total_timer);
@@ -181,7 +178,6 @@ Status IcebergPositionDeleteSysTableV2Reader::prepare_split(
 Status IcebergPositionDeleteSysTableV2Reader::get_block(Block* block, bool* eos) {
     SCOPED_TIMER(_profile.total_timer);
     SCOPED_TIMER(_profile.exec_timer);
-    _reset_materialized_block_stats();
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(eos != nullptr);
     DORIS_CHECK(block->columns() == _projected_columns.size());
@@ -199,19 +195,9 @@ Status IcebergPositionDeleteSysTableV2Reader::get_block(Block* block, bool* eos)
         return Status::OK();
     }
 
+    size_t read_rows = 0;
     if (_delete_file_kind == DeleteFileKind::DELETION_VECTOR) {
-        size_t read_rows = 0;
-        RETURN_IF_ERROR(_append_deletion_vector_block(block, &read_rows, eos));
-        if (read_rows > 0) {
-            _record_materialized_block_stats(*block, read_rows);
-            RETURN_IF_ERROR(_filter_remaining_conjuncts(block, &read_rows));
-        }
-        if (read_rows == 0) {
-            // Yield after one deletion-vector batch so cancellation and Scanner row budgets are
-            // observed even when residual predicates reject every synthesized row.
-            block->clear_column_data(_projected_columns.size());
-        }
-        return Status::OK();
+        return _append_deletion_vector_block(block, &read_rows, eos);
     }
 
     DORIS_CHECK(_position_reader != nullptr);
@@ -225,18 +211,8 @@ Status IcebergPositionDeleteSysTableV2Reader::get_block(Block* block, bool* eos)
         RETURN_IF_ERROR(_position_reader->get_block(&delete_block, &position_reader_eof));
         const size_t delete_rows = delete_block.rows();
         if (delete_rows > 0) {
-            size_t read_rows = 0;
             RETURN_IF_ERROR(
                     _append_position_delete_block(block, delete_block, delete_rows, &read_rows));
-            _record_materialized_block_stats(*block, read_rows);
-            RETURN_IF_ERROR(_filter_remaining_conjuncts(block, &read_rows));
-            if (read_rows == 0) {
-                // A filtered materialized batch is still progress; return it to Scanner instead of
-                // consuming an unbounded number of position-delete batches in this call.
-                block->clear_column_data(_projected_columns.size());
-                *eos = false;
-                return Status::OK();
-            }
             *eos = false;
             return Status::OK();
         }
@@ -343,12 +319,10 @@ Status IcebergPositionDeleteSysTableV2Reader::_init_position_delete_reader() {
 
     static constexpr const char* kPositionReaderProfile = "IcebergPositionDeleteFileReader";
     if (_position_reader_profile == nullptr) {
-        _position_reader_profile = _scanner_profile->get_child(kPositionReaderProfile);
-        if (_position_reader_profile == nullptr) {
-            // The outer system-table reader calls the inner reader synchronously. Giving both the
-            // same profile would nest identical counter pointers and double-count every timer.
-            _position_reader_profile = _scanner_profile->create_child(kPositionReaderProfile);
-        }
+        // The nested reader needs a distinct profile to avoid double-counting its timers. Split
+        // readers share the scanner profile and initialize concurrently, so lookup and creation
+        // must also be atomic to preserve the unique child-name invariant.
+        _position_reader_profile = _scanner_profile->get_or_create_child(kPositionReaderProfile);
     }
     _position_reader = std::make_unique<PositionDeleteFileTableReader>();
     RETURN_IF_ERROR(_position_reader->init({
@@ -620,6 +594,9 @@ Status IcebergPositionDeleteSysTableV2Reader::_build_delete_file_projected_colum
             columns->push_back(*it);
             columns->back().type = column.type;
             set_iceberg_delete_field_id(&columns->back());
+            // The copied row tree bypasses IcebergTableReader::annotate_projected_column, so prepare its
+            // typed nested defaults before the generic inner reader builds the column mapper.
+            RETURN_IF_ERROR(prepare_iceberg_initial_default_exprs(&columns->back()));
             continue;
         }
         auto field = build_delete_file_column(column.name, column.type);

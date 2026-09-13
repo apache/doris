@@ -25,6 +25,7 @@
 #include "core/extended_types.h"
 #include "core/types.h"
 #include "core/value/large_int_value.h"
+#include "core/value/timestamp_ns_value.h"
 #include "core/value/timestamptz_value.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exprs/vexpr_fwd.h"
@@ -75,6 +76,8 @@ auto get_convertor() {
         return [](PColumnValue* value, const T& data) {
             value->set_longval(data.to_date_int_val());
         };
+    } else if constexpr (std::is_same_v<T, TimeStampNsValue>) {
+        return [](PColumnValue* value, const T& data) { value->set_longval(data.epoch_nanos()); };
     } else {
         throw Exception(ErrorCode::INTERNAL_ERROR,
                         "runtime filter data convertor meet invalid type {}", typeid(T).name());

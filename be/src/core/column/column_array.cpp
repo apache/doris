@@ -874,6 +874,9 @@ ColumnArrayDataOffsets filter_return_new_dispatch(const Filter& filt, ssize_t re
         return filter_number_return_new<TYPE_DATETIME>(filt, result_size_hint, data, offsets);
     if (check_and_get_column<ColumnDateTimeV2>(data.get()))
         return filter_number_return_new<TYPE_DATETIMEV2>(filt, result_size_hint, data, offsets);
+    if (check_and_get_column<ColumnTimeStampNs>(data.get())) {
+        return filter_number_return_new<TYPE_TIMESTAMP_NS>(filt, result_size_hint, data, offsets);
+    }
     if (check_and_get_column<ColumnTimeStampTz>(data.get()))
         return filter_number_return_new<TYPE_TIMESTAMPTZ>(filt, result_size_hint, data, offsets);
     if (check_and_get_column<ColumnTimeV2>(data.get()))
@@ -940,6 +943,9 @@ size_t filter_inplace_dispatch(const Filter& filter, IColumn& src_data,
         return filter_number_inplace<TYPE_DATETIME>(filter, src_data, src_offsets);
     if (check_and_get_column<ColumnDateTimeV2>(&src_data))
         return filter_number_inplace<TYPE_DATETIMEV2>(filter, src_data, src_offsets);
+    if (check_and_get_column<ColumnTimeStampNs>(&src_data)) {
+        return filter_number_inplace<TYPE_TIMESTAMP_NS>(filter, src_data, src_offsets);
+    }
     if (check_and_get_column<ColumnTimeStampTz>(&src_data))
         return filter_number_inplace<TYPE_TIMESTAMPTZ>(filter, src_data, src_offsets);
     if (check_and_get_column<ColumnTimeV2>(&src_data))

@@ -91,8 +91,8 @@ public class MaterializedViewAggregateOnNoneAggregateRule extends AbstractMateri
         PlanCheckContext scanCheckContext = PlanCheckContext.of(ImmutableSet.of());
         return structInfo.getTopPlan().accept(StructInfo.SCAN_PLAN_PATTERN_CHECKER, scanCheckContext)
                 && !scanCheckContext.isContainsTopAggregate()
-                && !joinCheckContext.isContainsTopLimit() && !joinCheckContext.isContainsTopTopN()
-                && !joinCheckContext.isContainsTopWindow();
+                && !scanCheckContext.isContainsTopLimit() && !scanCheckContext.isContainsTopTopN()
+                && !scanCheckContext.isContainsTopWindow();
     }
 
     @Override
@@ -105,8 +105,8 @@ public class MaterializedViewAggregateOnNoneAggregateRule extends AbstractMateri
         Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> invalidPartitions
                 = super.calcInvalidPartitions(queryUsedBaseTablePartitionMap, rewrittenPlan, cascadesContext,
                 materializationContext);
-        if (PartitionCompensator.needUnionRewrite(invalidPartitions, cascadesContext)) {
-            // if query use some invalid partition in mv, bail out
+        if (invalidPartitions != null && !invalidPartitions.value().isEmpty()) {
+            // Aggregate-on-non-aggregate rewrite does not support base-table union compensation.
             return null;
         }
         return invalidPartitions;

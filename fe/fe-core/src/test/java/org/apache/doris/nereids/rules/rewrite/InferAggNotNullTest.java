@@ -17,12 +17,24 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -31,11 +43,14 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 
 class InferAggNotNullTest implements MemoPatternMatchSupported {
@@ -59,12 +74,32 @@ class InferAggNotNullTest implements MemoPatternMatchSupported {
     }
 
     @Test
+    void testNotInferWhenAggregateArgumentReturnsFalseForNullInput() {
+        Expression isNotNull = new Not(new IsNull(scan1.getOutput().get(1)));
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .aggGroupUsingIndex(ImmutableList.of(),
+                        ImmutableList.of(new Alias(new Count(false, isNotNull), "cnt")))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new InferAggNotNull())
+                .matches(
+                        logicalAggregate(
+                                logicalOlapScan()
+                        )
+                );
+    }
+
+    @Test
     void testInferMultipleAggregateSameInput() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .aggGroupUsingIndex(ImmutableList.of(),
                         ImmutableList.of(
+                                new Alias(new Count(false, scan1.getOutput().get(1)), "count_k"),
                                 new Alias(new Avg(scan1.getOutput().get(1)), "avg_k"),
-                                new Alias(new Sum(scan1.getOutput().get(1)), "sum_k")))
+                                new Alias(new Sum(scan1.getOutput().get(1)), "sum_k"),
+                                new Alias(new Max(scan1.getOutput().get(1)), "max_k"),
+                                new Alias(new Min(scan1.getOutput().get(1)), "min_k")))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
@@ -74,6 +109,40 @@ class InferAggNotNullTest implements MemoPatternMatchSupported {
                                 logicalFilter().when(filter -> filter.getConjuncts().size() == 1
                                         && filter.getConjuncts().stream()
                                         .allMatch(e -> ((Not) e).isGeneratedIsNotNull()))
+                        )
+                );
+    }
+
+    @Test
+    void testNotInferForNullSensitiveAggregate() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .aggGroupUsingIndex(ImmutableList.of(),
+                        ImmutableList.of(new Alias(new ArrayAgg(scan1.getOutput().get(1)), "values")))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new InferAggNotNull())
+                .matches(
+                        logicalAggregate(
+                                logicalOlapScan()
+                        )
+                );
+    }
+
+    @Test
+    void testNullSensitiveAggregateBlocksCommonInference() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .aggGroupUsingIndex(ImmutableList.of(),
+                        ImmutableList.of(
+                                new Alias(new Count(false, scan1.getOutput().get(1)), "count_k"),
+                                new Alias(new ArrayAgg(scan1.getOutput().get(1)), "values")))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new InferAggNotNull())
+                .matches(
+                        logicalAggregate(
+                                logicalOlapScan()
                         )
                 );
     }
@@ -131,6 +200,37 @@ class InferAggNotNullTest implements MemoPatternMatchSupported {
     }
 
     @Test
+    void testInferPartialWhenArgsExceedSlotLimit() {
+        // count(distinct c0..c32) has 33 nullable arguments. inferNotNull merges input slots up to
+        // a 32-slot limit, so the first 32 arguments get a generated IS NOT NULL and the 33rd is
+        // skipped. This partial-inference path is only reachable after the all-children cheapness
+        // gate was removed from InferAggNotNull.
+        LogicalOlapScan wideScan = newWideNullableScan(33);
+        List<Expression> args = new ArrayList<>(wideScan.getOutput());
+
+        LogicalPlan plan = new LogicalPlanBuilder(wideScan)
+                .aggGroupUsingIndex(ImmutableList.of(),
+                        ImmutableList.of(new Alias(
+                                new Count(true, args.get(0), args.subList(1, 33).toArray(new Expression[0])),
+                                "cnt")))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new InferAggNotNull())
+                .matches(
+                        logicalAggregate(
+                                logicalFilter().when(filter -> {
+                                    Set<Expression> conjuncts = filter.getConjuncts();
+                                    return conjuncts.size() == 32
+                                            && conjuncts.stream().allMatch(e -> e instanceof Not
+                                                    && ((Not) e).isGeneratedIsNotNull()
+                                                    && ((Not) e).child() instanceof IsNull);
+                                })
+                        )
+                );
+    }
+
+    @Test
     void testGetAggregateFunctionsStopsAtAggregateFunction() {
         // Use different agg function types for inner (Avg) and outer (Count),
         // so we can verify by instanceof regardless of how the plan builder
@@ -146,5 +246,17 @@ class InferAggNotNullTest implements MemoPatternMatchSupported {
         Assertions.assertEquals(1, aggregateFunctions.size());
         Assertions.assertTrue(aggregateFunctions.stream().allMatch(f -> f instanceof Count),
                 "should collect only the outer Count, got: " + aggregateFunctions);
+    }
+
+    private LogicalOlapScan newWideNullableScan(int columnCount) {
+        List<Column> columns = new ArrayList<>(columnCount);
+        for (int i = 0; i < columnCount; i++) {
+            columns.add(new Column("c" + i, Type.INT, false, AggregateType.NONE, true, "", ""));
+        }
+        OlapTable table = new OlapTable(100L, "wide", columns,
+                KeysType.DUP_KEYS, new PartitionInfo(), null);
+        table.setIndexMeta(-1, "wide", table.getFullSchema(), 0, 0, (short) 0,
+                TStorageType.COLUMN, KeysType.DUP_KEYS);
+        return new LogicalOlapScan(RelationId.createGenerator().getNextId(), table, ImmutableList.of("db"));
     }
 }

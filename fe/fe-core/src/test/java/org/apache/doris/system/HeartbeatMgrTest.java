@@ -38,10 +38,10 @@ import org.apache.doris.thrift.TMasterInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -53,7 +53,7 @@ public class HeartbeatMgrTest {
     private Env env = Mockito.mock(Env.class);
     private MockedStatic<Env> mockedEnvStatic;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         mockedEnvStatic = Mockito.mockStatic(Env.class);
         mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
@@ -61,7 +61,7 @@ public class HeartbeatMgrTest {
         Mockito.when(env.isReady()).thenReturn(true);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedEnvStatic != null) {
             mockedEnvStatic.close();
@@ -101,27 +101,27 @@ public class HeartbeatMgrTest {
             FrontendHeartbeatHandler handler = new FrontendHeartbeatHandler(fe, 12345, "abcd");
             HeartbeatResponse response = handler.call();
 
-            Assert.assertTrue(response instanceof FrontendHbResponse);
+            Assertions.assertTrue(response instanceof FrontendHbResponse);
             FrontendHbResponse hbResponse = (FrontendHbResponse) response;
-            Assert.assertEquals(191224, hbResponse.getReplayedJournalId());
-            Assert.assertEquals(9131, hbResponse.getQueryPort());
-            Assert.assertEquals(9121, hbResponse.getRpcPort());
-            Assert.assertEquals(9141, hbResponse.getArrowFlightSqlPort());
-            Assert.assertEquals(HbStatus.OK, hbResponse.getStatus());
-            Assert.assertEquals("test", hbResponse.getVersion());
+            Assertions.assertEquals(191224, hbResponse.getReplayedJournalId());
+            Assertions.assertEquals(9131, hbResponse.getQueryPort());
+            Assertions.assertEquals(9121, hbResponse.getRpcPort());
+            Assertions.assertEquals(9141, hbResponse.getArrowFlightSqlPort());
+            Assertions.assertEquals(HbStatus.OK, hbResponse.getStatus());
+            Assertions.assertEquals("test", hbResponse.getVersion());
 
             Frontend fe2 = new Frontend(FrontendNodeType.FOLLOWER, "test2", "192.168.1.2", 9010);
             handler = new FrontendHeartbeatHandler(fe2, 12345, "abcde");
             response = handler.call();
 
-            Assert.assertTrue(response instanceof FrontendHbResponse);
+            Assertions.assertTrue(response instanceof FrontendHbResponse);
             hbResponse = (FrontendHbResponse) response;
-            Assert.assertEquals(0, hbResponse.getReplayedJournalId());
-            Assert.assertEquals(0, hbResponse.getQueryPort());
-            Assert.assertEquals(0, hbResponse.getRpcPort());
-            Assert.assertEquals(0, hbResponse.getArrowFlightSqlPort());
-            Assert.assertEquals(HbStatus.BAD, hbResponse.getStatus());
-            Assert.assertEquals("not ready", hbResponse.getMsg());
+            Assertions.assertEquals(0, hbResponse.getReplayedJournalId());
+            Assertions.assertEquals(0, hbResponse.getQueryPort());
+            Assertions.assertEquals(0, hbResponse.getRpcPort());
+            Assertions.assertEquals(0, hbResponse.getArrowFlightSqlPort());
+            Assertions.assertEquals(HbStatus.BAD, hbResponse.getStatus());
+            Assertions.assertEquals("not ready", hbResponse.getMsg());
         } finally {
             ClientPool.frontendHeartbeatPool = originalPool;
         }
@@ -146,13 +146,13 @@ public class HeartbeatMgrTest {
             mgr.setMaster(1, "token", 1L);
             AtomicReference<TMasterInfo> masterInfo =
                     (AtomicReference<TMasterInfo>) masterInfoField.get(null);
-            Assert.assertEquals(8030, masterInfo.get().getHttpPort());
+            Assertions.assertEquals(8030, masterInfo.get().getHttpPort());
 
             // enable_https=true: must send https_port to BEs so small_file_mgr can connect
             Config.enable_https = true;
             mgr.setMaster(1, "token", 1L);
             masterInfo = (AtomicReference<TMasterInfo>) masterInfoField.get(null);
-            Assert.assertEquals(8050, masterInfo.get().getHttpPort());
+            Assertions.assertEquals(8050, masterInfo.get().getHttpPort());
         } finally {
             Config.http_port = originalHttpPort;
             Config.https_port = originalHttpsPort;
@@ -180,9 +180,9 @@ public class HeartbeatMgrTest {
             BrokerHeartbeatHandler handler = new BrokerHeartbeatHandler("hdfs", broker, "abc");
             HeartbeatResponse response = handler.call();
 
-            Assert.assertTrue(response instanceof BrokerHbResponse);
+            Assertions.assertTrue(response instanceof BrokerHbResponse);
             BrokerHbResponse hbResponse = (BrokerHbResponse) response;
-            Assert.assertEquals(HbStatus.OK, hbResponse.getStatus());
+            Assertions.assertEquals(HbStatus.OK, hbResponse.getStatus());
         } finally {
             ClientPool.brokerPool = originalPool;
         }

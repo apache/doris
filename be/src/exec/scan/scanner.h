@@ -21,6 +21,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <functional>
+#include <optional>
 #include <vector>
 
 #include "common/status.h"
@@ -123,6 +125,10 @@ protected:
     // Subclass should implement this to return data.
     virtual Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) = 0;
 
+    virtual bool _can_merge_padding_blocks(const Block& /*left*/, const Block& /*right*/) const {
+        return true;
+    }
+
     Status _merge_padding_block() {
         if (_padding_block.empty()) {
             _padding_block.swap(_origin_block);
@@ -205,9 +211,15 @@ public:
         return doris::TabletStorageType::STORAGE_TYPE_REMOTE;
     }
 
-    // Returns true if this scanner's partition has been pruned by a runtime filter.
-    // Overridden by OlapScanner to check partition pruning state.
-    virtual bool check_partition_pruned() const { return false; }
+    // Returns true if this scanner's scan range has been pruned by a runtime filter.
+    virtual bool is_pruned_by_runtime_filter() const { return false; }
+
+    // Releases resources owned by a scanner that runtime-filter pruning makes unnecessary before
+    // open(). The scanner will not be scheduled again after this call.
+    virtual void release_unopened_resources() {
+        DORIS_CHECK(!_is_open);
+        _has_prepared = false;
+    }
 
     bool need_to_close() const { return _need_to_close; }
 
@@ -231,11 +243,6 @@ public:
     void update_block_avg_bytes(size_t block_avg_bytes) { _block_avg_bytes = block_avg_bytes; }
 
 protected:
-    virtual size_t _last_block_rows_read(const Block& block) const { return block.rows(); }
-    virtual size_t _last_block_bytes_read(const Block& block) const {
-        return block.allocated_bytes();
-    }
-
     RuntimeState* _state = nullptr;
     ScanLocalStateBase* _local_state = nullptr;
 
@@ -245,7 +252,8 @@ protected:
     RuntimeProfile* _profile = nullptr;
 
     const TupleDescriptor* _output_tuple_desc = nullptr;
-    const RowDescriptor* _output_row_descriptor = nullptr;
+    std::optional<std::reference_wrapper<const RowDescriptor>> _projection_output_row_descriptor;
+    bool _has_projection = false;
 
     // If _input_tuple_desc is set, the scanner will read data into
     // this _input_block first, then convert to the output block.
@@ -263,9 +271,6 @@ protected:
     // Cloned from _conjuncts of scan node.
     // It includes predicate in SQL and runtime filters.
     VExprContextSPtrs _conjuncts;
-    // Exact append-only RF delta for readers that preserve state across multiple splits. It must
-    // not be reconstructed by position from the cost-sorted full conjunct snapshot.
-    VExprContextSPtrs _late_arrival_rf_conjuncts;
     VExprContextSPtrs _projections;
     // Used in common subexpression elimination to compute intermediate results.
     std::vector<VExprContextSPtrs> _intermediate_projections;

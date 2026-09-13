@@ -91,10 +91,15 @@ TEST_F(EncodingInfoTest, v2_vs_v3_defaults) {
     check_split(FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, "QUANTILE_STATE");
     check_split(FieldType::OLAP_FIELD_TYPE_AGG_STATE, "AGG_STATE");
 
-    // Signed integers: V2=BIT_SHUFFLE, V3=PLAIN.
+    // Signed integers and floating-point types: V2=BIT_SHUFFLE, V3=PLAIN.
+    auto check_plain_v3 = [](FieldType type, const std::string& name) {
+        EXPECT_EQ(BIT_SHUFFLE, get_v2_default_encoding(type)) << name << " v2 default";
+        EXPECT_EQ(PLAIN_ENCODING, get_v3_default_encoding(type)) << name << " v3 default";
+    };
     constexpr FieldType bigint_type = FieldType::OLAP_FIELD_TYPE_BIGINT;
-    EXPECT_EQ(BIT_SHUFFLE, get_v2_default_encoding(bigint_type));
-    EXPECT_EQ(PLAIN_ENCODING, get_v3_default_encoding(bigint_type));
+    check_plain_v3(bigint_type, "BIGINT");
+    check_plain_v3(FieldType::OLAP_FIELD_TYPE_FLOAT, "FLOAT");
+    check_plain_v3(FieldType::OLAP_FIELD_TYPE_DOUBLE, "DOUBLE");
 
     // Value-seek default is only registered for VARCHAR (the only production caller).
     EXPECT_EQ(PREFIX_ENCODING,
@@ -345,9 +350,10 @@ struct EncodingMapEntry {
     const char* name;
 };
 
-// Expected V3 default per type. Differs from V2 default in two type families:
-//   - binary blobs (HLL/BITMAP/QUANTILE_STATE/AGG_STATE): PLAIN_ENCODING_V2 (vs V2's PLAIN)
+// Expected V3 default per type. Differs from V2 default in three type families:
+//   - binary blobs (HLL/BITMAP/QUANTILE_STATE/AGG_STATE): PLAIN_ENCODING_V3 (vs V2's PLAIN)
 //   - signed integers (TINYINT..LARGEINT): PLAIN_ENCODING (vs V2's BIT_SHUFFLE)
+//   - floating-point types (FLOAT/DOUBLE): PLAIN_ENCODING (vs V2's BIT_SHUFFLE)
 const std::vector<DefaultExpectation> kV3DefaultExpect = {
         {FieldType::OLAP_FIELD_TYPE_TINYINT, PLAIN_ENCODING, "TINYINT"},
         {FieldType::OLAP_FIELD_TYPE_SMALLINT, PLAIN_ENCODING, "SMALLINT"},
@@ -356,8 +362,8 @@ const std::vector<DefaultExpectation> kV3DefaultExpect = {
         {FieldType::OLAP_FIELD_TYPE_LARGEINT, PLAIN_ENCODING, "LARGEINT"},
         {FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT, BIT_SHUFFLE, "UNSIGNED_BIGINT"},
         {FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT, BIT_SHUFFLE, "UNSIGNED_INT"},
-        {FieldType::OLAP_FIELD_TYPE_FLOAT, BIT_SHUFFLE, "FLOAT"},
-        {FieldType::OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE, "DOUBLE"},
+        {FieldType::OLAP_FIELD_TYPE_FLOAT, PLAIN_ENCODING, "FLOAT"},
+        {FieldType::OLAP_FIELD_TYPE_DOUBLE, PLAIN_ENCODING, "DOUBLE"},
         {FieldType::OLAP_FIELD_TYPE_CHAR, DICT_ENCODING, "CHAR"},
         {FieldType::OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING, "VARCHAR"},
         {FieldType::OLAP_FIELD_TYPE_STRING, DICT_ENCODING, "STRING"},

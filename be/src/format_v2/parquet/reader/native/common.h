@@ -25,6 +25,7 @@
 
 #include "common/status.h"
 #include "core/column/column_nullable.h"
+#include "core/data_type_serde/parquet_decode_source.h"
 
 namespace doris::format::parquet::native {
 
@@ -65,6 +66,12 @@ public:
                 NullMap* null_map, FilterMap* filter_map, size_t filter_map_index,
                 const std::unordered_set<size_t>* skipped_indices = nullptr);
 
+    Status init_nested(std::vector<level_t>* repetition_levels,
+                       std::vector<level_t>* definition_levels, size_t level_start_index,
+                       level_t repeated_parent_def_level, level_t definition_level,
+                       NullMap* null_map, FilterMap* parent_filter, size_t filter_map_index,
+                       size_t* ancestor_null_count);
+
     size_t num_values() const { return _num_values; }
     size_t num_nulls() const { return _num_nulls; }
     size_t num_filtered() const { return _num_filtered; }
@@ -99,6 +106,8 @@ public:
     }
 
 private:
+    void reset(bool has_filter);
+
     std::vector<DataReadType> _data_map;
     const std::vector<uint16_t>* _run_length_null_map = nullptr;
     bool _has_filter = false;
@@ -107,5 +116,15 @@ private:
     size_t _num_filtered = 0;
     size_t _read_index = 0;
 };
+
+Status build_filtered_nullable_selection(const std::vector<uint16_t>& run_length_null_map,
+                                         size_t num_values, size_t num_nulls,
+                                         NullMap* output_null_map, FilterMap* filter_map,
+                                         size_t filter_map_index, ParquetSelection* selection,
+                                         NullMap* selected_nulls, size_t* num_filtered);
+
+// Fusion pays for its additional planning branches only when definition levels are materially
+// nullable and fragmented. Keep compact/no-NULL batches on the run-oriented legacy path.
+bool should_use_fused_nullable_selection(size_t num_values, size_t num_nulls, size_t num_null_runs);
 
 } // namespace doris::format::parquet::native

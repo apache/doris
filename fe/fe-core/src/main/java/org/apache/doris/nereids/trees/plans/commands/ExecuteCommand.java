@@ -17,21 +17,24 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapGroupCommitInsertExecutor;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -42,6 +45,7 @@ import org.apache.doris.qe.PreparedStatementContext;
 import org.apache.doris.qe.ShortCircuitQueryContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -86,10 +90,53 @@ public class ExecuteCommand extends Command {
                     "prepare statement " + stmtName + " not found,  maybe expired");
         }
         PrepareCommand prepareCommand = preparedStmtCtx.command;
-        StatementContext statementContext = preparedStmtCtx.getStatementContext();
+        // Allocate a fresh StatementContext per EXECUTE so the per-statement state accumulated by
+        // prior executions (bound tables, CTE maps, statistics, snapshots, ...) is released
+        // promptly instead of living as long as the connection, which can OOM long-lived
+        // connections. The necessary cross-execution state (placeholder bindings, comparison
+        // slots, id generator positions, short-circuit flags) is carried over to the new context.
+        StatementContext statementContext = preparedStmtCtx.nextStatementContext();
         statementContext.setPrepareStage(false);
         statementContext.setIsInsert(false);
         LogicalPlan logicalPlan = prepareCommand.getLogicalPlan();
+        List<LogicalPlan> relationRoots = new ArrayList<>();
+        if (logicalPlan instanceof InsertIntoTableCommand) {
+            relationRoots.add(((InsertIntoTableCommand) logicalPlan).getLogicalQuery());
+        } else if (logicalPlan instanceof InsertOverwriteTableCommand) {
+            relationRoots.add(((InsertOverwriteTableCommand) logicalPlan).getLogicalQuery());
+        } else if (logicalPlan instanceof UpdateCommand) {
+            relationRoots.add(((UpdateCommand) logicalPlan).getLogicalQuery());
+        } else if (logicalPlan instanceof DeleteFromUsingCommand) {
+            relationRoots.add(((DeleteFromUsingCommand) logicalPlan).getLogicalQuery());
+        } else if (logicalPlan instanceof DeleteFromCommand) {
+            relationRoots.add(((DeleteFromCommand) logicalPlan).logicalQuery);
+        } else if (logicalPlan instanceof MergeIntoCommand) {
+            relationRoots.addAll(((MergeIntoCommand) logicalPlan).getRelationRoots());
+        } else if (!(logicalPlan instanceof Command)) {
+            relationRoots.add(logicalPlan);
+        }
+        // Commands hide their retained query trees from normal plan traversal. Reset every exposed
+        // root so a later EXECUTE cannot reuse a relation-local snapshot from an earlier execution.
+        for (int rootIndex = 0; rootIndex < relationRoots.size(); rootIndex++) {
+            LogicalPlan relationRoot = relationRoots.get(rootIndex);
+            for (UnboundRelation relation : relationRoot.<UnboundRelation>collectToList(
+                    UnboundRelation.class::isInstance)) {
+                TableScanParams scanParams = relation.getScanParams();
+                if (scanParams != null) {
+                    scanParams.resetResolvedMapParams();
+                }
+            }
+            for (LogicalPlan plan : relationRoot.<LogicalPlan>collectToList(node -> true)) {
+                for (Expression expression : plan.getExpressions()) {
+                    for (SubqueryExpr subquery : expression.<SubqueryExpr>collectToList(
+                            SubqueryExpr.class::isInstance)) {
+                        // SubqueryExpr owns its query plan outside Plan.children(), so retained prepared
+                        // commands need this explicit edge to clear nested relation-local snapshot state.
+                        relationRoots.add(subquery.getQueryPlan());
+                    }
+                }
+            }
+        }
         if (logicalPlan instanceof LogicalSqlCache) {
             throw new AnalysisException("Unsupported sql cache for server prepared statement");
         }
@@ -110,6 +157,11 @@ public class ExecuteCommand extends Command {
                 && hasShortCircuitContext
                 && shortCircuitContextReusable
                 && !statementContext.hasNondeterministic()) {
+            // The fresh per-execution context carries the short-circuit flag but not the cached plan.
+            // Install the just-validated cache before the direct path: result sending reads it via
+            // statementContext.getShortCircuitQueryContext(), and the fallback (building one from a
+            // null planner, since this path skips planning) would NPE.
+            statementContext.setShortCircuitQueryContext(preparedStmtCtx.shortCircuitQueryContext.get());
             PointQueryExecutor.directExecuteShortCircuitQuery(executor, preparedStmtCtx, statementContext);
             return;
         }
@@ -134,11 +186,14 @@ public class ExecuteCommand extends Command {
         // early above, has just been refreshed here, or is stale and we are about to re-plan.
         preparedStmtCtx.shortCircuitQueryContext = Optional.empty();
         executor.execute();
-        if (executor.getContext().getStatementContext().isShortCircuitQuery()) {
-            // cache short-circuit plan
-            preparedStmtCtx.shortCircuitQueryContext = Optional.of(
-                    new ShortCircuitQueryContext(executor.planner(), (Queriable) executor.getParsedStmt()));
-            statementContext.setShortCircuitQueryContext(preparedStmtCtx.shortCircuitQueryContext.get());
+        StatementContext executedStatementContext = executor.getContext().getStatementContext();
+        ShortCircuitQueryContext shortCircuitQueryContext =
+                executedStatementContext.getShortCircuitQueryContext();
+        if (shortCircuitQueryContext != null) {
+            Preconditions.checkState(executedStatementContext.isShortCircuitQuery());
+            // Publish the exact context used by this execution so its topology generation stays
+            // bound to the cached partition pruner in the same planner scan node.
+            preparedStmtCtx.shortCircuitQueryContext = Optional.of(shortCircuitQueryContext);
         }
     }
 

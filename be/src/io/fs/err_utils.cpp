@@ -18,31 +18,36 @@
 #include "io/fs/err_utils.h"
 
 // IWYU pragma: no_include <bthread/errno.h>
-#include <aws/s3/S3Errors.h>
 #include <errno.h> // IWYU pragma: keep
 #include <fmt/format.h>
-#include <string.h>
 
 #include <sstream>
+#include <system_error>
 
 #include "common/status.h"
 #include "io/fs/hdfs.h"
-#include "io/fs/obj_storage_client.h"
 
 namespace doris {
 using namespace ErrorCode;
 
-io::ObjectStorageStatus convert_to_obj_response(Status st) {
-    int code = st._code;
-    std::string msg = st._err_msg == nullptr ? "" : std::move(st._err_msg->_msg);
-    return io::ObjectStorageStatus {.code = code, .msg = std::move(msg)};
-}
-
 namespace io {
 
+namespace {
+
+// strerror_r has two incompatible flavours: glibc's returns the text (and may leave the buffer
+// untouched), the POSIX one on macOS and musl returns an int and fills the buffer. Formatting the
+// return value directly prints "0" on the latter, and callers such as the ORC reader tell NotFound
+// apart by looking for "No such file or directory" in the text. generic_category spells the errno
+// the same way everywhere.
+std::string errno_message(int err) {
+    return std::generic_category().message(err);
+}
+
+} // namespace
+
 std::string errno_to_str() {
-    char buf[1024];
-    return fmt::format("({}), {}", errno, strerror_r(errno, buf, 1024));
+    int err = errno;
+    return fmt::format("({}), {}", err, errno_message(err));
 }
 
 std::string errcode_to_str(const std::error_code& ec) {
@@ -51,8 +56,8 @@ std::string errcode_to_str(const std::error_code& ec) {
 
 std::string hdfs_error() {
     std::stringstream ss;
-    char buf[1024];
-    ss << "(" << errno << "), " << strerror_r(errno, buf, 1024) << ")";
+    int err = errno;
+    ss << "(" << err << "), " << errno_message(err) << ")";
 #ifdef USE_HADOOP_HDFS
     char* root_cause = hdfsGetLastExceptionRootCause();
     if (root_cause != nullptr) {
@@ -104,8 +109,7 @@ Status localfs_error(const std::error_code& ec, std::string_view msg) {
 }
 
 Status localfs_error(int posix_errno, std::string_view msg) {
-    char buf[1024];
-    auto message = fmt::format("{}: {}", msg, strerror_r(errno, buf, 1024));
+    auto message = fmt::format("{}: {}", msg, errno_message(posix_errno));
     switch (posix_errno) {
     case EIO:
         return Status::Error<IO_ERROR, false>(message);
@@ -119,24 +123,6 @@ Status localfs_error(int posix_errno, std::string_view msg) {
         return Status::Error<PERMISSION_DENIED, false>(message);
     default:
         return Status::Error<ErrorCode::INTERNAL_ERROR, false>(message);
-    }
-}
-
-Status s3fs_error(const Aws::S3::S3Error& err, std::string_view msg) {
-    using namespace Aws::Http;
-    switch (err.GetResponseCode()) {
-    case HttpResponseCode::NOT_FOUND:
-        return Status::Error<NOT_FOUND, false>("{}: {} {} code=NOT_FOUND, type={}, request_id={}",
-                                               msg, err.GetExceptionName(), err.GetMessage(),
-                                               err.GetErrorType(), err.GetRequestId());
-    case HttpResponseCode::FORBIDDEN:
-        return Status::Error<PERMISSION_DENIED, false>(
-                "{}: {} {} code=FORBIDDEN, type={}, request_id={}", msg, err.GetExceptionName(),
-                err.GetMessage(), err.GetErrorType(), err.GetRequestId());
-    default:
-        return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
-                "{}: {} {} code={} type={}, request_id={}", msg, err.GetExceptionName(),
-                err.GetMessage(), err.GetResponseCode(), err.GetErrorType(), err.GetRequestId());
     }
 }
 

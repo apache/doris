@@ -43,10 +43,10 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -67,7 +67,8 @@ public class MTMVJobManager implements MTMVHookService {
         if (!mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
             return;
         }
-        MTMVTaskContext mtmvTaskContext = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM, null, true, null);
+        MTMVTaskContext mtmvTaskContext = MTMVTaskContext.of(MTMVTaskTriggerMode.SYSTEM, null,
+                RefreshMode.COMPLETE);
         try {
             Env.getCurrentEnv().getJobManager().triggerJob(mtmv.getId(), mtmvTaskContext);
         } catch (JobException e) {
@@ -157,8 +158,8 @@ public class MTMVJobManager implements MTMVHookService {
     @Override
     public void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException, JobException {
         MTMVJob job = getJobByTableNameInfo(info.getMvName());
-        MTMVTaskContext mtmvTaskContext = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, info.getPartitions(),
-                info.isComplete(), getCurrentComputeGroup());
+        MTMVTaskContext mtmvTaskContext = MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, info.getPartitions(),
+                info.getRefreshMode(), info.allowFallback(), getCurrentComputeGroup());
         Env.getCurrentEnv().getJobManager().triggerJob(job.getJobId(), mtmvTaskContext);
     }
 
@@ -220,8 +221,7 @@ public class MTMVJobManager implements MTMVHookService {
             }
             return;
         }
-        MTMVTaskContext mtmvTaskContext = new MTMVTaskContext(MTMVTaskTriggerMode.COMMIT, Lists.newArrayList(),
-                false, null);
+        MTMVTaskContext mtmvTaskContext = MTMVTaskContext.forMvDefault(MTMVTaskTriggerMode.COMMIT);
         Env.getCurrentEnv().getJobManager().triggerJob(job.getJobId(), mtmvTaskContext);
     }
 

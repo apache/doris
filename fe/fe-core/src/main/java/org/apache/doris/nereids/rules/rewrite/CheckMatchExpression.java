@@ -47,20 +47,18 @@ public class CheckMatchExpression extends OneRewriteRuleFactory {
 
     private Plan checkChildren(LogicalFilter<? extends Plan> filter) {
         List<Expression> expressions = filter.getExpressions();
-        for (Expression expr : expressions) {
-            if (expr instanceof Match) {
-                Match matchExpression = (Match) expr;
-                SlotReference slotReference = getSlotFromSlotCastOrAliasChain(matchExpression.left());
-                if (slotReference == null
-                        || !(matchExpression.right() instanceof Literal)) {
-                    throw new AnalysisException(String.format("Only support match left operand is SlotRef,"
-                            + " right operand is Literal. But meet expression %s", matchExpression));
-                }
-                if (slotReference.getDataType().isVariantType() && !slotReference.hasSubColPath()) {
-                    throw new AnalysisException(String.format("VARIANT root column does not support MATCH predicates. "
-                                    + "Please query a subcolumn instead, for example %s['field'] MATCH 'xxx'",
-                            slotReference.getName()));
-                }
+        List<Match> matchExpressions = ExpressionUtils.collectToList(expressions, Match.class::isInstance);
+        for (Match matchExpression : matchExpressions) {
+            SlotReference slotReference = getSlotFromSlotCastOrAliasChain(matchExpression.left());
+            if (slotReference == null
+                    || !(matchExpression.right() instanceof Literal)) {
+                throw new AnalysisException(String.format("Only support match left operand is SlotRef,"
+                        + " right operand is Literal. But meet expression %s", matchExpression));
+            }
+            if (slotReference.getDataType().isVariantType() && !slotReference.hasSubColPath()) {
+                throw new AnalysisException(String.format("VARIANT root column does not support MATCH predicates. "
+                                + "Please query a subcolumn instead, for example %s['field'] MATCH 'xxx'",
+                        slotReference.getName()));
             }
         }
         return filter;

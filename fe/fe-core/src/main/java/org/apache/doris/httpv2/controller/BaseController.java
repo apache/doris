@@ -67,6 +67,32 @@ public class BaseController {
         checkWithCookie(request, response, true);
     }
 
+    /**
+     * Authenticate browser-facing UI APIs with the existing opaque session cookie.
+     * Basic Authorization is deliberately not accepted on this boundary.
+     */
+    public SessionValue requireCookieSession(HttpServletRequest request, HttpServletResponse response) {
+        if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
+            throw new UnauthorizedException("Cookie authentication is required");
+        }
+
+        List<String> sessionIds = getCookieValues(request, PALO_SESSION_ID, response);
+        SessionValue sessionValue = HttpAuthManager.getInstance().getSessionValue(sessionIds);
+        if (sessionValue == null) {
+            throw new UnauthorizedException("Cookie is invalid");
+        }
+
+        if (Config.isCloudMode() && !sessionValue.currentUser.isRootUser()
+                && ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getInstanceStatus()
+                == Cloud.InstanceInfoPB.Status.OVERDUE) {
+            throw new UnauthorizedException("The warehouse is overdue!");
+        }
+
+        updateCookieAge(request, PALO_SESSION_ID, PALO_SESSION_EXPIRED_TIME, response);
+        setConnectContext(request, sessionValue);
+        return sessionValue;
+    }
+
     public ActionAuthorizationInfo checkWithCookie(HttpServletRequest request,
             HttpServletResponse response, boolean checkAuth) {
         // First we check if the request has Authorization header.
@@ -75,10 +101,23 @@ public class BaseController {
             // If has Authorization header, check auth info
             ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
             UserIdentity currentUser = checkPassword(authInfo, request);
+            // Callers do privilege checks on the returned authInfo, so the resolved identity must be
+            // carried back out. Leaving it null makes every such check throw NPE.
+            authInfo.userIdentity = currentUser;
+
+            // Built before the check, not after it, for the same reason checkCookie below builds it early: the
+            // check reaches the authorization source, and a source that looks at the circumstances of a
+            // request would otherwise be handed whatever the previous request on this pooled Jetty thread left
+            // behind - another client's address rather than none. Handed to the check explicitly, so nothing
+            // is put on the thread until this request is through.
+            ConnectContext ctx = new ConnectContext();
+            ctx.setRemoteIP(authInfo.remoteIp);
+            ctx.setCurrentUserIdentity(currentUser);
+            ctx.setEnv(Env.getCurrentEnv());
 
             if (Config.isCloudMode() && checkAuth) {
                 checkInstanceOverdue(currentUser);
-                checkGlobalAuth(currentUser, PrivPredicate.ADMIN_OR_NODE);
+                checkGlobalAuth(ctx, PrivPredicate.ADMIN_OR_NODE);
             }
 
             SessionValue value = new SessionValue();
@@ -86,10 +125,6 @@ public class BaseController {
             value.password = authInfo.password;
             addSession(request, response, value);
 
-            ConnectContext ctx = new ConnectContext();
-            ctx.setRemoteIP(authInfo.remoteIp);
-            ctx.setCurrentUserIdentity(currentUser);
-            ctx.setEnv(Env.getCurrentEnv());
             ctx.setThreadLocalInfo();
             if (LOG.isDebugEnabled()) {
                 LOG.debug("check auth without cookie success for user: {}, thread: {}",
@@ -117,6 +152,7 @@ public class BaseController {
         cookie.setMaxAge(PALO_SESSION_EXPIRED_TIME);
         cookie.setPath("/");
         cookie.setHttpOnly(true);
+        cookie.setAttribute("SameSite", "Lax");
         response.addCookie(cookie);
         if (LOG.isDebugEnabled()) {
             LOG.debug("add session cookie: {} {}", PALO_SESSION_ID, key);
@@ -137,7 +173,12 @@ public class BaseController {
             return null;
         }
 
-        if (checkAuth && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(sessionValue.currentUser,
+        // Built before the check, not after it: the check reaches the authorization source, and a source that
+        // looks at the circumstances of a request would otherwise be handed whatever the previous request on
+        // this pooled thread left behind - another client's address rather than none.
+        ConnectContext ctx = buildConnectContext(request, sessionValue);
+
+        if (checkAuth && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx,
                 PrivPredicate.ADMIN_OR_NODE)) {
             // need to check auth and check auth failed
             return null;
@@ -152,20 +193,38 @@ public class BaseController {
 
         updateCookieAge(request, PALO_SESSION_ID, PALO_SESSION_EXPIRED_TIME, response);
 
+        setConnectContext(ctx, sessionValue);
+        ActionAuthorizationInfo authInfo = new ActionAuthorizationInfo();
+        authInfo.fullUserName = sessionValue.currentUser.getQualifiedUser();
+        authInfo.remoteIp = request.getRemoteAddr();
+        authInfo.password = sessionValue.password;
+        authInfo.userIdentity = sessionValue.currentUser;
+        return authInfo;
+    }
+
+    private ConnectContext buildConnectContext(HttpServletRequest request, SessionValue sessionValue) {
         ConnectContext ctx = new ConnectContext();
-        ctx.setRemoteIP(request.getRemoteHost());
+        // getRemoteAddr, not getRemoteHost: this value reaches a plugin as the client address a policy
+        // may be written against, and getRemoteHost may answer with a resolved host name instead - so a
+        // policy matching on an address would behave differently depending on which of the two
+        // authentication branches the client came through. The Authorization header branch above has
+        // always used getRemoteAddr.
+        ctx.setRemoteIP(request.getRemoteAddr());
         ctx.setCurrentUserIdentity(sessionValue.currentUser);
         ctx.setEnv(Env.getCurrentEnv());
+        return ctx;
+    }
+
+    private void setConnectContext(HttpServletRequest request, SessionValue sessionValue) {
+        setConnectContext(buildConnectContext(request, sessionValue), sessionValue);
+    }
+
+    private void setConnectContext(ConnectContext ctx, SessionValue sessionValue) {
         ctx.setThreadLocalInfo();
         if (LOG.isDebugEnabled()) {
             LOG.debug("check cookie success for user: {}, thread: {}",
                     sessionValue.currentUser, Thread.currentThread().getId());
         }
-        ActionAuthorizationInfo authInfo = new ActionAuthorizationInfo();
-        authInfo.fullUserName = sessionValue.currentUser.getQualifiedUser();
-        authInfo.remoteIp = request.getRemoteHost();
-        authInfo.password = sessionValue.password;
-        return authInfo;
     }
 
     public List<String> getCookieValues(HttpServletRequest request, String cookieName, HttpServletResponse response) {
@@ -189,6 +248,7 @@ public class BaseController {
                 cookie.setMaxAge(age);
                 cookie.setPath("/");
                 cookie.setHttpOnly(true);
+                cookie.setAttribute("SameSite", "Lax");
                 if (Config.enable_https) {
                     cookie.setSecure(true);
                 } else {
@@ -215,6 +275,27 @@ public class BaseController {
         }
     }
 
+    /**
+     * The overdue-warehouse fence for handlers that call checkWithCookie(.., false).
+     *
+     * checkWithCookie's `checkAuth` flag gates two unrelated things at once: the global
+     * ADMIN_OR_NODE requirement and, in cloud mode, the overdue check. A handler that passes false
+     * is saying "I do my own, narrower authorization" -- it is not saying "serve this from an
+     * overdue warehouse". Such a handler calls this to get the fence back without the ADMIN
+     * requirement.
+     *
+     * This is deliberately opt-in per handler rather than unconditional inside checkWithCookie:
+     * /api/query also passes false, but it hands the statement to a real JDBC session that
+     * enforces the overdue state itself and reports it as a common error. Moving that rejection
+     * up to this layer would silently change that endpoint's response from COMMON_ERROR to
+     * UNAUTHORIZED.
+     */
+    protected void checkInstanceOverdueIfCloud(UserIdentity currentUser) {
+        if (Config.isCloudMode()) {
+            checkInstanceOverdue(currentUser);
+        }
+    }
+
     protected void checkInstanceOverdue(UserIdentity currentUsr) {
         Cloud.InstanceInfoPB.Status s = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getInstanceStatus();
         if (!currentUsr.isRootUser()
@@ -226,6 +307,20 @@ public class BaseController {
 
     protected void checkGlobalAuth(UserIdentity currentUser, PrivPredicate predicate) throws UnauthorizedException {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUser, predicate)) {
+            throw new UnauthorizedException("Access denied; you need (at least one of) the "
+                    + predicate.getPrivs().toString() + " privilege(s) for this operation");
+        }
+    }
+
+    /**
+     * The same check against the context of this request rather than the one left on the thread.
+     *
+     * <p>The identity-only overload falls back to whatever {@code ConnectContext} the thread carries, which on
+     * a pooled Jetty thread is the previous request's. An authorization source reading the circumstances of a
+     * request - the client address above all - is then answering about another client's.
+     */
+    protected void checkGlobalAuth(ConnectContext ctx, PrivPredicate predicate) throws UnauthorizedException {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
                     + predicate.getPrivs().toString() + " privilege(s) for this operation");
         }
@@ -283,8 +378,11 @@ public class BaseController {
             throws UnauthorizedException {
         ActionAuthorizationInfo authInfo = new ActionAuthorizationInfo();
         if (!parseAuthInfo(request, authInfo)) {
-            LOG.info("parse auth info failed, Authorization header {}, url {}",
-                    request.getHeader("Authorization"), request.getRequestURI());
+            // Never log the Authorization header itself: it carries base64(user:password),
+            // which is trivially decodable. Only record whether it was absent or malformed.
+            LOG.info("parse auth info failed, Authorization header is {}, url {}",
+                    Strings.isNullOrEmpty(request.getHeader("Authorization")) ? "absent" : "malformed",
+                    request.getRequestURI());
             throw new UnauthorizedException("Need auth information.");
         }
         if (LOG.isDebugEnabled()) {

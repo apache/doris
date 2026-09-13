@@ -17,16 +17,45 @@
 
 #include <gtest/gtest.h>
 
+#include "common/config.h"
+#include "common/exception.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
 #include "core/column/column_const.h"
+#include "core/column/column_map.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/function.h"
 #include "exprs/function/simple_function_factory.h"
+#include "runtime/thread_context.h"
 #include "testutil/column_helper.h"
 
 namespace doris {
+
+namespace {
+
+class ScopedMemAllocFaultInjection {
+public:
+    ScopedMemAllocFaultInjection() : _old_probability(config::mem_alloc_fault_probability) {
+        config::mem_alloc_fault_probability = 1.0;
+        ++enable_thread_catch_bad_alloc;
+    }
+
+    ~ScopedMemAllocFaultInjection() {
+        --enable_thread_catch_bad_alloc;
+        config::mem_alloc_fault_probability = _old_probability;
+    }
+
+    ScopedMemAllocFaultInjection(const ScopedMemAllocFaultInjection&) = delete;
+    ScopedMemAllocFaultInjection& operator=(const ScopedMemAllocFaultInjection&) = delete;
+
+private:
+    double _old_probability;
+};
+
+} // namespace
 
 TEST(ColumnSelfCheckTest, const_check_test) {
     {
@@ -146,5 +175,67 @@ TEST(ColumnSelfCheckTest, boolean_check) {
                 {0, 1, 2, 1, 1}, {0, 0, 1, 0, 0});
         EXPECT_EQ(column_nullable_bool->column_boolean_check(), true);
     }
+}
+
+TEST(ColumnSelfCheckTest, nullable_complex_without_nulls_does_not_copy_payload) {
+    constexpr size_t payload_size = 4 * 1024 * 1024;
+    const std::string payload(payload_size, 'x');
+
+    auto keys = ColumnString::create();
+    keys->insert_data(payload.data(), payload.size());
+    auto values = ColumnString::create();
+    values->insert_data(payload.data(), payload.size());
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->insert_value(1);
+    auto nullable_map = ColumnNullable::create(
+            ColumnMap::create(std::move(keys), std::move(values), std::move(offsets)),
+            ColumnUInt8::create(1, 0));
+
+    int64_t peak_memory = 0;
+    {
+        SCOPED_PEAK_MEM(&peak_memory);
+        EXPECT_TRUE(nullable_map->column_boolean_check());
+    }
+    EXPECT_LT(peak_memory, payload_size);
+}
+
+TEST(ColumnSelfCheckTest, non_boolean_complex_payload_does_not_allocate_during_boolean_check) {
+    auto keys = ColumnString::create();
+    keys->insert_data("key", 3);
+    auto values = ColumnString::create();
+    values->insert_data("value", 5);
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->insert_value(1);
+    auto map = ColumnMap::create(std::move(keys), std::move(values), std::move(offsets));
+    auto nullable_map = ColumnNullable::create(std::move(map), ColumnUInt8::create(1, 0));
+
+    bool is_valid = false;
+    {
+        ScopedMemAllocFaultInjection inject_allocation_failure;
+        EXPECT_NO_THROW(is_valid = nullable_map->column_boolean_check());
+    }
+    EXPECT_TRUE(is_valid);
+}
+
+TEST(ColumnSelfCheckTest, nested_boolean_check_respects_parent_null_map) {
+    auto create_nullable_map = [](UInt8 null_row_value, UInt8 non_null_row_value) {
+        auto keys = ColumnString::create();
+        keys->insert_data("first", 5);
+        keys->insert_data("second", 6);
+        auto values = ColumnUInt8::create();
+        values->insert_value(null_row_value);
+        values->insert_value(non_null_row_value);
+        auto offsets = ColumnArray::ColumnOffsets::create();
+        offsets->insert_value(1);
+        offsets->insert_value(2);
+        auto map = ColumnMap::create(std::move(keys), std::move(values), std::move(offsets));
+        auto null_map = ColumnUInt8::create();
+        null_map->insert_value(1);
+        null_map->insert_value(0);
+        return ColumnNullable::create(std::move(map), std::move(null_map));
+    };
+
+    EXPECT_TRUE(create_nullable_map(2, 1)->column_boolean_check());
+    EXPECT_FALSE(create_nullable_map(1, 2)->column_boolean_check());
 }
 } // namespace doris

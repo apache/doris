@@ -39,9 +39,28 @@
 #include "storage/index/inverted/analyzer/basic/basic_analyzer.h"
 #include "storage/index/inverted/analyzer/icu/icu_analyzer.h"
 #include "storage/index/inverted/analyzer/ik/IKAnalyzer.h"
+#include "storage/index/inverted/analyzer/kuromoji/KuromojiAnalyzer.h"
 #include "storage/index/inverted/char_filter/char_replace_char_filter_factory.h"
 
 namespace doris::segment_v2::inverted_index {
+namespace {
+
+class BuiltinAnalyzerProvider final : public AnalyzerProvider {
+public:
+    explicit BuiltinAnalyzerProvider(InvertedIndexAnalyzerConfig config)
+            : _analyzer(InvertedIndexAnalyzer::create_builtin_analyzer(
+                      config.analyzer_name.empty()
+                              ? config.parser_type
+                              : get_inverted_index_parser_type_from_string(config.analyzer_name),
+                      config.parser_mode, config.lower_case, config.stop_words)) {}
+
+    AnalyzerPtr get_analyzer() const override { return _analyzer; }
+
+private:
+    const AnalyzerPtr _analyzer;
+};
+
+} // namespace
 
 ReaderPtr InvertedIndexAnalyzer::create_reader(const CharFilterMap& char_filter_map) {
     ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
@@ -69,7 +88,8 @@ bool InvertedIndexAnalyzer::is_builtin_analyzer(const std::string& analyzer_name
            analyzer_name == INVERTED_INDEX_PARSER_CHINESE ||
            analyzer_name == INVERTED_INDEX_PARSER_ICU ||
            analyzer_name == INVERTED_INDEX_PARSER_BASIC ||
-           analyzer_name == INVERTED_INDEX_PARSER_IK;
+           analyzer_name == INVERTED_INDEX_PARSER_IK ||
+           analyzer_name == INVERTED_INDEX_PARSER_KUROMOJI;
 }
 
 AnalyzerPtr InvertedIndexAnalyzer::create_builtin_analyzer(InvertedIndexParserType parser_type,
@@ -107,6 +127,22 @@ AnalyzerPtr InvertedIndexAnalyzer::create_builtin_analyzer(InvertedIndexParserTy
             ik_analyzer->setMode(false);
         }
         analyzer = std::move(ik_analyzer);
+    } else if (parser_type == InvertedIndexParserType::PARSER_KUROMOJI) {
+        if (!config::enable_kuromoji_analyzer) {
+            throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                            "kuromoji analyzer is disabled by default. Set "
+                            "enable_kuromoji_analyzer=true in "
+                            "be.conf (or via the BE config HTTP API) to enable it.");
+        }
+
+        std::string kuromoji_mode = parser_mode;
+        if (kuromoji_mode.empty() || kuromoji_mode == INVERTED_INDEX_PARSER_COARSE_GRANULARITY) {
+            kuromoji_mode = INVERTED_INDEX_PARSER_KUROMOJI_SEARCH;
+        }
+        auto kuromoji_analyzer = std::make_shared<KuromojiAnalyzer>();
+        kuromoji_analyzer->setMode(kuromoji_mode_from_string(kuromoji_mode));
+        kuromoji_analyzer->initDict(config::inverted_index_dict_path + "/kuromoji");
+        analyzer = std::move(kuromoji_analyzer);
     } else {
         // default
         analyzer = std::make_shared<lucene::analysis::SimpleAnalyzer<char>>();
@@ -131,31 +167,37 @@ AnalyzerPtr InvertedIndexAnalyzer::create_builtin_analyzer(InvertedIndexParserTy
 
 AnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerConfig* config) {
     DCHECK(config != nullptr);
-    const std::string& analyzer_name = config->analyzer_name;
-
-    // Handle empty analyzer name - use builtin analyzer based on parser_type.
-    // This is the common case when user does not specify USING ANALYZER.
-    if (analyzer_name.empty()) {
-        return create_builtin_analyzer(config->parser_type, config->parser_mode, config->lower_case,
-                                       config->stop_words);
-    }
-
-    // Check if it's a builtin analyzer name (english, chinese, standard, etc.)
-    if (is_builtin_analyzer(analyzer_name)) {
-        InvertedIndexParserType parser_type =
-                get_inverted_index_parser_type_from_string(analyzer_name);
+    if (config->analyzer_name.empty() || is_builtin_analyzer(config->analyzer_name)) {
+        const InvertedIndexParserType parser_type =
+                config->analyzer_name.empty()
+                        ? config->parser_type
+                        : get_inverted_index_parser_type_from_string(config->analyzer_name);
         return create_builtin_analyzer(parser_type, config->parser_mode, config->lower_case,
                                        config->stop_words);
     }
 
-    // Custom analyzer - look up in policy manager
     auto* index_policy_mgr = doris::ExecEnv::GetInstance()->index_policy_mgr();
-    if (!index_policy_mgr) {
+    if (index_policy_mgr == nullptr) {
         throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
                         "Index policy manager is not initialized");
     }
+    return index_policy_mgr->get_analyzer_by_name(config->analyzer_name);
+}
 
-    return index_policy_mgr->get_policy_by_name(analyzer_name);
+AnalyzerProviderPtr InvertedIndexAnalyzer::create_analyzer_provider(
+        const InvertedIndexAnalyzerConfig* config) {
+    DCHECK(config != nullptr);
+    if (config->analyzer_name.empty() || is_builtin_analyzer(config->analyzer_name)) {
+        return std::make_shared<BuiltinAnalyzerProvider>(*config);
+    }
+
+    auto* index_policy_mgr = doris::ExecEnv::GetInstance()->index_policy_mgr();
+    if (index_policy_mgr == nullptr) {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "Index policy manager is not initialized");
+    }
+    return index_policy_mgr->get_analyzer_provider_by_name(config->analyzer_name,
+                                                           config->char_filter_map);
 }
 
 std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(

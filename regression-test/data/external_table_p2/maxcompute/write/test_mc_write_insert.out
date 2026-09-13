@@ -13,6 +13,11 @@
 1	test1	\N	\N
 2	test2	\N	\N
 
+-- !reordered_insert --
+7	alice	35
+9	bob	15
+11	carol	25
+
 -- !multi_batch --
 1	batch1
 2	batch2

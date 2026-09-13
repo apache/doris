@@ -38,6 +38,7 @@
 #include "common/status.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "service/http/http_client.h"
 #include "util/md5.h"

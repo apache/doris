@@ -48,7 +48,7 @@ class IColumn;
 template <PrimitiveType T>
 class DataTypeNumberBase : public IDataType {
     static_assert(is_int_or_bool(T) || is_ip(T) || is_date_type(T) || is_float_or_double(T) ||
-                  T == TYPE_TIMEV2 || T == TYPE_TIMESTAMPTZ);
+                  T == TYPE_TIMEV2 || T == TYPE_TIMESTAMPTZ || is_timestamp_ns_type(T));
 
 public:
     static constexpr bool is_parametric = false;
@@ -94,4 +94,24 @@ protected:
 private:
     bool _is_null_literal = false;
 };
+
+/// Instantiated once in data_type_number_base.cpp; suppresses per-TU implicit instantiation.
+extern template class DataTypeNumberBase<TYPE_BOOLEAN>;
+extern template class DataTypeNumberBase<TYPE_TINYINT>;
+extern template class DataTypeNumberBase<TYPE_SMALLINT>;
+extern template class DataTypeNumberBase<TYPE_INT>;
+extern template class DataTypeNumberBase<TYPE_BIGINT>;
+extern template class DataTypeNumberBase<TYPE_LARGEINT>;
+extern template class DataTypeNumberBase<TYPE_FLOAT>;
+extern template class DataTypeNumberBase<TYPE_DOUBLE>;
+extern template class DataTypeNumberBase<TYPE_DATE>;
+extern template class DataTypeNumberBase<TYPE_DATEV2>;
+extern template class DataTypeNumberBase<TYPE_DATETIME>;
+extern template class DataTypeNumberBase<TYPE_DATETIMEV2>;
+extern template class DataTypeNumberBase<TYPE_TIMESTAMP_NS>;
+extern template class DataTypeNumberBase<TYPE_IPV4>;
+extern template class DataTypeNumberBase<TYPE_IPV6>;
+extern template class DataTypeNumberBase<TYPE_TIMEV2>;
+extern template class DataTypeNumberBase<TYPE_TIMESTAMPTZ>;
+
 } // namespace doris

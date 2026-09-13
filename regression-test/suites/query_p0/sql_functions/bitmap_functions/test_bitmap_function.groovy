@@ -307,13 +307,17 @@ suite("test_bitmap_function") {
     qt_sql_bitmap_and_count4 """ select bitmap_and_count(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5')) """
     qt_sql_bitmap_and_count5 """ select bitmap_and_count(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'),bitmap_empty()) """
     qt_sql_bitmap_and_count6 """ select bitmap_and_count(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'), NULL) """
+    qt_sql_bitmap_and_count_nulls """ select bitmap_and_count(cast(NULL as bitmap), bitmap_from_string('1,2,3')), bitmap_and_count(bitmap_from_string('1,2,3'), cast(NULL as bitmap)), bitmap_and_count(cast(NULL as bitmap), cast(NULL as bitmap)) """
 
     // bitmap_or_count
     qt_sql_bitmap_or_count1 """ select bitmap_or_count(bitmap_from_string('1,2,3'),bitmap_empty()) """
     qt_sql_bitmap_or_count2 """ select bitmap_or_count(bitmap_from_string('1,2,3'),bitmap_from_string('1,2,3'))"""
     qt_sql_bitmap_or_count3 """ select bitmap_or_count(bitmap_from_string('1,2,3'),bitmap_from_string('3,4,5')) """
+    qt_sql_bitmap_or_count_set_diff_length """ select bitmap_or_count(bitmap_from_string('1,2'), bitmap_from_string('2,3,4,5')) """
     qt_sql_bitmap_or_count4 """ select bitmap_or_count(bitmap_from_string('1,2,3'), bitmap_from_string('3,4,5'), to_bitmap(100), bitmap_empty()) """
     qt_sql_bitmap_or_count5 """ select bitmap_or_count(bitmap_from_string('1,2,3'), bitmap_from_string('3,4,5'), to_bitmap(100), NULL) """
+    qt_sql_bitmap_or_count_nulls """ select bitmap_or_count(cast(NULL as bitmap), bitmap_from_string('1,2,3')), bitmap_or_count(bitmap_from_string('1,2,3'), cast(NULL as bitmap)), bitmap_or_count(cast(NULL as bitmap), cast(NULL as bitmap)) """
+    qt_sql_bitmap_or_count_nulls_multi """ select bitmap_or_count(cast(NULL as bitmap), bitmap_from_string('1,2,3'), bitmap_from_string('3,4,5'), cast(NULL as bitmap)) """
 
     // BITMAP_XOR
     qt_sql """ select bitmap_count(bitmap_xor(bitmap_from_string('2,3'),bitmap_from_string('1,2,3,4'))) cnt """
@@ -329,6 +333,88 @@ suite("test_bitmap_function") {
     qt_sql_bitmap_xor_count4 """ select (bitmap_xor_count(bitmap_from_string('2,3'),bitmap_from_string('1,2,3,4'),bitmap_from_string('3,4,5'))) """
     qt_sql_bitmap_xor_count5 """ select (bitmap_xor_count(bitmap_from_string('2,3'),bitmap_from_string('1,2,3,4'),bitmap_from_string('3,4,5'),bitmap_empty())) """
     qt_sql_bitmap_xor_count6 """ select (bitmap_xor_count(bitmap_from_string('2,3'),bitmap_from_string('1,2,3,4'),bitmap_from_string('3,4,5'),NULL)) """
+    qt_sql_bitmap_xor_count_nulls """ select bitmap_xor_count(cast(NULL as bitmap), bitmap_from_string('1,2,3')), bitmap_xor_count(bitmap_from_string('1,2,3'), cast(NULL as bitmap)), bitmap_xor_count(cast(NULL as bitmap), cast(NULL as bitmap)) """
+    qt_sql_bitmap_count_rewrite_nullable """ select bitmap_count(bitmap_or(cast(NULL as bitmap), bitmap_from_string('1,2,3'))), bitmap_or_count(cast(NULL as bitmap), bitmap_from_string('1,2,3')), bitmap_count(bitmap_and(bitmap_from_string('1,2,3'), cast(NULL as bitmap))), bitmap_and_count(bitmap_from_string('1,2,3'), cast(NULL as bitmap)), bitmap_count(bitmap_xor(bitmap_from_string('1,2,3'), cast(NULL as bitmap))), bitmap_xor_count(bitmap_from_string('1,2,3'), cast(NULL as bitmap)) """
+
+    sql """ DROP TABLE IF EXISTS test_bitmap_op_count_short_circuit """
+    sql """
+        CREATE TABLE test_bitmap_op_count_short_circuit (
+            id BIGINT NOT NULL,
+            lhs BITMAP NOT NULL,
+            rhs BITMAP NOT NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "store_row_column" = "true",
+            "enable_unique_key_merge_on_write" = "true",
+            "light_schema_change" = "true"
+        )
+    """
+    sql """
+        INSERT INTO test_bitmap_op_count_short_circuit VALUES
+            (1, bitmap_from_string('1,2,3'), bitmap_from_string('3,4'))
+    """
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_short_circuit_query=true"
+    explain {
+        sql """
+            SELECT
+                bitmap_count(bitmap_and(lhs, rhs)),
+                bitmap_count(bitmap_or(lhs, rhs)),
+                bitmap_count(bitmap_xor(lhs, rhs)),
+                bitmap_count(bitmap_and_not(lhs, rhs))
+            FROM test_bitmap_op_count_short_circuit
+            WHERE id = 1
+        """
+        contains "SHORT-CIRCUIT"
+        contains "bitmap_and_count"
+        contains "bitmap_or_count"
+        contains "bitmap_xor_count"
+        contains "bitmap_and_not_count"
+    }
+    def shortCircuitResult = sql """
+        SELECT
+            bitmap_count(bitmap_and(lhs, rhs)),
+            bitmap_count(bitmap_or(lhs, rhs)),
+            bitmap_count(bitmap_xor(lhs, rhs)),
+            bitmap_count(bitmap_and_not(lhs, rhs))
+        FROM test_bitmap_op_count_short_circuit
+        WHERE id = 1
+    """
+    sql "SET enable_short_circuit_query=false"
+    def regularResult = sql """
+        SELECT
+            bitmap_count(bitmap_and(lhs, rhs)),
+            bitmap_count(bitmap_or(lhs, rhs)),
+            bitmap_count(bitmap_xor(lhs, rhs)),
+            bitmap_count(bitmap_and_not(lhs, rhs))
+        FROM test_bitmap_op_count_short_circuit
+        WHERE id = 1
+    """
+    check2_doris(shortCircuitResult, regularResult)
+
+    sql "SET enable_short_circuit_query=true"
+    def shortCircuitNullableResult = sql """
+        SELECT
+            bitmap_count(bitmap_and(lhs, CAST(NULL AS BITMAP))),
+            bitmap_count(bitmap_or(lhs, CAST(NULL AS BITMAP))),
+            bitmap_count(bitmap_xor(lhs, CAST(NULL AS BITMAP)))
+        FROM test_bitmap_op_count_short_circuit
+        WHERE id = 1
+    """
+    sql "SET enable_short_circuit_query=false"
+    def regularNullableResult = sql """
+        SELECT
+            bitmap_count(bitmap_and(lhs, CAST(NULL AS BITMAP))),
+            bitmap_count(bitmap_or(lhs, CAST(NULL AS BITMAP))),
+            bitmap_count(bitmap_xor(lhs, CAST(NULL AS BITMAP)))
+        FROM test_bitmap_op_count_short_circuit
+        WHERE id = 1
+    """
+    check2_doris(shortCircuitNullableResult, regularNullableResult)
+    sql "SET enable_short_circuit_query=true"
 
     // bitmap_and_count, bitmap_xor_count, bitmap_and_not_count of all nullable column
     sql """ DROP TABLE IF EXISTS test_bitmap1 """

@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <unicode/locid.h>
+#include <unicode/utypes.h>
+
 #include <cstdint>
 #include <cstring>
 #include <memory>
@@ -26,6 +29,7 @@
 #include "core/field.h"
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
+#include "util/defer_op.h"
 #include "util/encryption_util.h"
 #include "util/md5.h"
 
@@ -76,6 +80,33 @@ DataSet make_md5_varbinary_dataset(const std::vector<std::string>& inputs) {
 }
 
 } // namespace
+
+TEST(function_string_test, function_auto_partition_name_case_insensitive_test) {
+    const InputTypeSet list_input_types = {Consted {PrimitiveType::TYPE_VARCHAR},
+                                           Consted {PrimitiveType::TYPE_VARCHAR}};
+    const DataSet list_data_set = {
+            {{std::string("LIST"), std::string("edc_server2")}, std::string("pedc5fserver211")},
+            {{std::string("LiSt"), std::string("edc_server2")}, std::string("pedc5fserver211")},
+    };
+    for (const auto& data : list_data_set) {
+        ASSERT_TRUE(check_function<DataTypeString>("auto_partition_name", list_input_types, {data})
+                            .ok());
+    }
+
+    const InputTypeSet range_input_types = {Consted {PrimitiveType::TYPE_VARCHAR},
+                                            Consted {PrimitiveType::TYPE_VARCHAR},
+                                            Consted {PrimitiveType::TYPE_VARCHAR}};
+    const DataSet range_data_set = {
+            {{std::string("RANGE"), std::string("MONTH"), std::string("2022-12-12 19:20:30")},
+             std::string("p20221201000000")},
+            {{std::string("rAnGe"), std::string("dAy"), std::string("2022-12-12 19:20:30")},
+             std::string("p20221212000000")},
+    };
+    for (const auto& data : range_data_set) {
+        ASSERT_TRUE(check_function<DataTypeString>("auto_partition_name", range_input_types, {data})
+                            .ok());
+    }
+}
 
 TEST(function_string_test, function_string_substr_test) {
     std::string func_name = "substr";
@@ -548,6 +579,8 @@ TEST(function_string_test, function_string_lower_test) {
                 {{std::string("GROSSE")}, std::string("grosse")},
                 {{std::string("Å")}, std::string("å")},
                 {{std::string("ΣΟΦΟΣ")}, std::string("σοφος")},
+                {{std::string("Iİı")}, std::string("ii̇ı")},
+                {{std::string("ΟΣ")}, std::string("ος")},
                 {{std::string("123ABC_")}, std::string("123abc_")},
                 {{std::string("MYtestSTR")}, std::string("myteststr")},
                 {{std::string("")}, std::string("")},
@@ -572,6 +605,7 @@ TEST(function_string_test, function_string_upper_test) {
                 {{std::string("MYtestSTR")}, std::string("MYTESTSTR")},
                 {{std::string("àç")}, std::string("ÀÇ")},
                 {{std::string("straße")}, std::string("STRASSE")},
+                {{std::string("ıi")}, std::string("II")},
                 {{std::string("àçac123")}, std::string("ÀÇAC123")},
                 {{std::string("ﬃ")}, std::string("FFI")},
                 {{std::string("ǅ")}, std::string("Ǆ")},
@@ -605,6 +639,59 @@ TEST(function_string_test, function_string_upper_test) {
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
         check_function_all_arg_comb<DataTypeString, true>(std::string("ucase"), input_types,
+                                                          data_set);
+    }
+}
+
+// LOWER/UPPER/INITCAP case-map through the ICU root locale, independent of the
+// process default locale. Under a Turkish (tr_TR) default locale ICU maps ASCII
+// 'I' -> 'ı' (U+0131) and 'i' -> 'İ' (U+0130); the root locale keeps the plain
+// ASCII round-trip. This test installs a tr_TR ICU default and asserts every
+// result stays locale independent.
+//
+// TransferImpl/InitcapImpl only take the ICU path when the whole input buffer
+// contains a non-ASCII byte; pure-ASCII columns use the locale-neutral SIMD/C
+// fast path. Each data set therefore keeps a non-ASCII anchor row so that
+// check_function_all_arg_comb's batched (non-const) combination routes the
+// ASCII rows through ICU, where the default locale would otherwise leak in.
+TEST(function_string_test, function_string_case_root_locale_test) {
+    UErrorCode status = U_ZERO_ERROR;
+    const icu::Locale saved_default = icu::Locale::getDefault();
+    icu::Locale::setDefault(icu::Locale("tr", "TR"), status);
+    ASSERT_TRUE(U_SUCCESS(status)) << "failed to install tr_TR ICU default locale";
+    // RAII restore of the process-wide ICU default locale, even if an assertion
+    // below throws during stack unwinding.
+    Defer restore_default {[&]() {
+        UErrorCode restore_status = U_ZERO_ERROR;
+        icu::Locale::setDefault(saved_default, restore_status);
+    }};
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    {
+        DataSet data_set = {
+                {{std::string("I")}, std::string("i")},             // tr default -> "ı"
+                {{std::string("KIZILAY")}, std::string("kizilay")}, // tr default -> "kızılay"
+                {{std::string("ÀÇ")}, std::string("àç")},           // non-ASCII anchor: forces ICU
+        };
+        check_function_all_arg_comb<DataTypeString, true>(std::string("lower"), input_types,
+                                                          data_set);
+    }
+    {
+        DataSet data_set = {
+                {{std::string("i")}, std::string("I")},               // tr default -> "İ"
+                {{std::string("istanbul")}, std::string("ISTANBUL")}, // tr default -> "İSTANBUL"
+                {{std::string("straße")}, std::string("STRASSE")},    // length-changing anchor
+        };
+        check_function_all_arg_comb<DataTypeString, true>(std::string("upper"), input_types,
+                                                          data_set);
+    }
+    {
+        DataSet data_set = {
+                {{std::string("BIT")}, std::string("Bit")},                 // tr default -> "Bıt"
+                {{std::string("KIZILAY BIT")}, std::string("Kizilay Bit")}, // tr -> "Kızılay Bıt"
+                {{std::string("ÀÇ")}, std::string("Àç")},                   // non-ASCII anchor
+        };
+        check_function_all_arg_comb<DataTypeString, true>(std::string("initcap"), input_types,
                                                           data_set);
     }
 }
@@ -3443,7 +3530,8 @@ TEST(function_string_test, function_initcap) {
                          std::string("Grosse     Àstanbul , Àçac123    Σοφος")},
                         {{std::string("HELLO, WORLD!")}, std::string("Hello, World!")},
                         {{std::string("HHHH+-1; asAAss__!")}, std::string("Hhhh+-1; Asaass__!")},
-                        {{std::string("a,B,C,D")}, std::string("A,B,C,D")}};
+                        {{std::string("a,B,C,D")}, std::string("A,B,C,D")},
+                        {{std::string("straße")}, std::string("Straße")}};
 
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
 }
@@ -3755,6 +3843,9 @@ TEST(function_string_test, function_count_substring_test) {
                             {{std::string("hello world"), std::string("")}, std::int32_t(0)},
                             {{std::string(""), std::string("l")}, std::int32_t(0)},
                             {{std::string(""), std::string("")}, std::int32_t(0)},
+                            {{std::string("ccc"), std::string("cc")}, std::int32_t(1)},
+                            {{std::string("aaaa"), std::string("aa")}, std::int32_t(2)},
+                            {{std::string("ab"), std::string("abc")}, std::int32_t(0)},
                             // utf-8 characters
                             {{std::string("你好123世界"), std::string("世")}, std::int32_t(1)},
                             {{std::string("你好123世界"), std::string("你")}, std::int32_t(1)},
@@ -3780,6 +3871,9 @@ TEST(function_string_test, function_count_substring_test) {
                 {{std::string("hello world"), std::string(""), std::int32_t(0)}, std::int32_t(0)},
                 {{std::string(""), std::string("l"), std::int32_t(1)}, std::int32_t(0)},
                 {{std::string(""), std::string(""), std::int32_t(1)}, std::int32_t(0)},
+                {{std::string("ccc"), std::string("cc"), std::int32_t(1)}, std::int32_t(1)},
+                {{std::string("ccc"), std::string("cc"), std::int32_t(3)}, std::int32_t(0)},
+                {{std::string("ab"), std::string("abc"), std::int32_t(1)}, std::int32_t(0)},
                 // utf-8 characters
                 {{std::string("你好123世界"), std::string("世"), std::int32_t(3)}, std::int32_t(1)},
                 {{std::string("你好123世界"), std::string("你"), std::int32_t(1)}, std::int32_t(1)},

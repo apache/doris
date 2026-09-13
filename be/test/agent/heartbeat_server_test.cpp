@@ -18,6 +18,7 @@
 #include "agent/heartbeat_server.h"
 
 #include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/Status_types.h>
 #include <gen_cpp/Types_types.h>
 
 #include <ctime>

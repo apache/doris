@@ -47,13 +47,21 @@ bool is_valid_ip(const std::string& ip);
 
 bool parse_endpoint(const std::string& endpoint, std::string* host, uint16_t* port);
 
-Status hostname_to_ip(const std::string& host, std::string& ip);
+// The `gai_err` out-parameter, when non-null, receives the raw getaddrinfo() return code
+// (0 on success). Callers need it to tell an authoritative "no such host" (EAI_NONAME)
+// apart from a transient resolver problem (EAI_AGAIN, EAI_SYSTEM, ...): the former means
+// the host is really gone, the latter means DNS itself is unhealthy while the host is
+// most likely still alive. DNSCache relies on that distinction so a resolver outage does
+// not get mistaken for every backend disappearing at once.
+// For the two-argument hostname_to_ip(), which falls back from IPv4 to IPv6, `gai_err`
+// reports the code of the last attempt.
+Status hostname_to_ip(const std::string& host, std::string& ip, int* gai_err = nullptr);
 
-Status hostname_to_ipv4(const std::string& host, std::string& ip);
+Status hostname_to_ipv4(const std::string& host, std::string& ip, int* gai_err = nullptr);
 
-Status hostname_to_ipv6(const std::string& host, std::string& ip);
+Status hostname_to_ipv6(const std::string& host, std::string& ip, int* gai_err = nullptr);
 
-Status hostname_to_ip(const std::string& host, std::string& ip, bool ipv6);
+Status hostname_to_ip(const std::string& host, std::string& ip, bool ipv6, int* gai_err = nullptr);
 
 // Finds the first non-localhost IP address in the given list. Returns
 // true if such an address was found, false otherwise.

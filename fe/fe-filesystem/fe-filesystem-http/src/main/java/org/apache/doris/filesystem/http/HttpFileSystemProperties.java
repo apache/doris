@@ -25,6 +25,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Typed properties for HTTP storage. HTTP is not a real filesystem: reads happen via the
@@ -88,6 +89,12 @@ public class HttpFileSystemProperties implements FileSystemProperties {
     }
 
     @Override
+    public java.util.Set<String> getSupportedSchemes() {
+        // fe-core parity (HttpProperties.schemas()): http only.
+        return java.util.Set.of("http");
+    }
+
+    @Override
     public StorageKind kind() {
         return StorageKind.HTTP;
     }
@@ -106,4 +113,15 @@ public class HttpFileSystemProperties implements FileSystemProperties {
     public Map<String, String> matchedProperties() {
         return matchedProperties;
     }
+
+    @Override
+    public String storageFamilyName() {
+        return "http";
+    }
+
+    @Override
+    public Set<String> legacyCacheSchemes() {
+        return Set.of("http");
+    }
+
 }

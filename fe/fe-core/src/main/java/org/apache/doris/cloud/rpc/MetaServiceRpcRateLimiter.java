@@ -68,7 +68,22 @@ class MetaServiceRpcRateLimiter {
         // Resilience4j returns negative when the estimated wait exceeds the configured timeout.
         // Otherwise the returned wait time is within meta_service_rpc_rate_limit_wait_timeout_ms.
         long nanosToWait = holder.rateLimiter.reservePermission(permitsToAcquire);
+        boolean dryRun = Config.meta_service_rpc_rate_limit_dry_run;
         if (nanosToWait < 0) {
+            if (MetricRepo.isInit) {
+                CloudMetrics.META_SERVICE_RPC_ALL_RATE_LIMITED.increase(1L);
+                CloudMetrics.META_SERVICE_RPC_RATE_LIMITED.getOrAdd(methodName).increase(1L);
+            }
+            if (dryRun) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("meta service rpc rate limiter dry run would reject request, method: {}, permits: {}, "
+                                    + "original permits: {}, max permits in timeout: {}, limit for period: {}, "
+                                    + "burst seconds: {}, wait timeout ms: {}",
+                            methodName, permitsToAcquire, permits, holder.maxPermitsInTimeout, holder.limitForPeriod,
+                            holder.burstSeconds, holder.waitTimeoutMs);
+                }
+                return 0;
+            }
             throw new MetaServiceRateLimitException(methodName,
                     Config.meta_service_rpc_rate_limit_wait_timeout_ms);
         }
@@ -77,6 +92,19 @@ class MetaServiceRpcRateLimiter {
         }
 
         long waitMs = TimeUnit.NANOSECONDS.toMillis(nanosToWait);
+        if (dryRun) {
+            if (MetricRepo.isInit) {
+                CloudMetrics.META_SERVICE_RPC_RATE_LIMIT_WAIT_LATENCY.getOrAdd(methodName).update(waitMs);
+            }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("meta service rpc rate limiter dry run would wait before acquiring permission, method: {}, "
+                                + "permits: {}, original permits: {}, max permits in timeout: {}, "
+                                + "limit for period: {}, burst seconds: {}, wait ms: {}",
+                        methodName, permitsToAcquire, permits, holder.maxPermitsInTimeout, holder.limitForPeriod,
+                        holder.burstSeconds, waitMs);
+            }
+            return 0;
+        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("meta service rpc rate limiter waits before acquiring permission, method: {}, permits: {}, "
                             + "original permits: {}, max permits in timeout: {}, limit for period: {}, "
@@ -93,7 +121,7 @@ class MetaServiceRpcRateLimiter {
             throw new RpcException("", e.getMessage(), e);
         }
         long actualWaitNs = System.nanoTime() - waitStartNs;
-        if (MetricRepo.isInit && Config.isCloudMode()) {
+        if (MetricRepo.isInit) {
             CloudMetrics.META_SERVICE_RPC_RATE_LIMIT_WAIT_LATENCY.getOrAdd(methodName)
                     .update(TimeUnit.NANOSECONDS.toMillis(actualWaitNs));
         }

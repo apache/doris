@@ -111,7 +111,7 @@ suite("test_array_map") {
         "is_being_synced" = "false",
         "storage_medium" = "hdd",
         "storage_format" = "V2",
-        "inverted_index_storage_format" = "V1",
+        "inverted_index_storage_format" = "V2",
         "enable_unique_key_merge_on_write" = "true",
         "light_schema_change" = "true",
         "disable_auto_compaction" = "false",

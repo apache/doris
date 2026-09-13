@@ -63,6 +63,13 @@ public class HardwareInfoController {
         return ResponseEntityBuilder.ok(map);
     }
 
+    @RequestMapping(path = "/hardware_info/fe/version", method = RequestMethod.GET)
+    public Object version() {
+        Map<String, Map<String, String>> map = new HashMap<>();
+        appendVersionInfo(map);
+        return ResponseEntityBuilder.ok(map);
+    }
+
     private void appendVersionInfo(Map<String, Map<String, String>> content) {
         Map<String, String> map = new HashMap<>();
         map.put("Version", Version.DORIS_BUILD_VERSION);

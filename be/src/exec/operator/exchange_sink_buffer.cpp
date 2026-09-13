@@ -224,6 +224,23 @@ Status ExchangeSinkBuffer::add_block(Channel* channel, BroadcastTransmitInfo&& r
 }
 
 Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
+    // A successful callback may synchronously call _send_rpc() to send the next queued packet.
+    // Therefore RPC-B can be started while RPC-A is still inside its completion callback:
+    //
+    //   RPC-A closure          callback-A            _send_rpc(RPC-B)          brpc
+    //        |                     |                        |                    |
+    //        |-- call() ---------->|                        |                    |
+    //        |                     |-- success handler ---->|                    |
+    //        |                     |                        |-- create callback-B |
+    //        |                     |                        |-- send RPC-B ------>|
+    //        |                     |<-----------------------|                    |
+    //        |<--------------------|                                             |
+    //
+    // Reusing callback-A for RPC-B would reset its Controller and reuse its response while RPC-A
+    // is still on this stack. A later read by RPC-A could then observe RPC-B's state or race with
+    // brpc writing RPC-B's response. Create a separate callback/Controller/response for every RPC
+    // instead. AutoReleaseClosure::Run() locks callback-A's weak_ptr before call(), so its local
+    // shared_ptr keeps callback-A alive when the channel member is replaced by callback-B.
     std::unique_lock<std::mutex> lock(*(instance_data.mutex));
 
     auto& q_map = instance_data.package_queue;
@@ -353,7 +370,6 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             }
             // The eos here only indicates that the current exchange sink has reached eos.
             // However, the queue still contains data from other exchange sinks, so RPCs need to continue being sent.
-            // `_send_rpc` must be the LAST operation in this function, because it may reuse the callback!
             s = _send_rpc(ins);
             if (!s) {
                 _failed(ins.id,
@@ -487,7 +503,6 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             }
             // The eos here only indicates that the current exchange sink has reached eos.
             // However, the queue still contains data from other exchange sinks, so RPCs need to continue being sent.
-            // `_send_rpc` must be the LAST operation in this function, because it may reuse the callback!
             s = _send_rpc(ins);
             if (!s) {
                 _failed(ins.id,

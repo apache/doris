@@ -42,10 +42,15 @@ under the License.
             <useProjectArtifact>false</useProjectArtifact>
             <excludes>
                 <!-- Provided by fe-core classloader (parent-first) -->
-                <exclude>org.apache.doris:fe-connector-api</exclude>
                 <exclude>org.apache.doris:fe-connector-spi</exclude>
                 <exclude>org.apache.doris:fe-extension-spi</exclude>
                 <exclude>org.apache.doris:fe-filesystem-api</exclude>
+                <!-- Thrift provided by fe-core: the doris-gen thrift types (fe-thrift, e.g.
+                     TFileScanRangeParams) resolve parent-first against the host's libthrift; bundling a
+                     child-first libthrift here splits org.apache.thrift.TBase across loaders and breaks
+                     TSerializer.serialize() with IncompatibleClassChangeError. Mirrors es/jdbc/hive/maxcompute. -->
+                <exclude>org.apache.doris:fe-thrift</exclude>
+                <exclude>org.apache.thrift:libthrift</exclude>
                 <!-- Logging provided by host -->
                 <exclude>org.apache.logging.log4j:*</exclude>
                 <exclude>org.slf4j:*</exclude>

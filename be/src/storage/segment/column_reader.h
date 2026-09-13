@@ -24,6 +24,7 @@
 
 #include <cstddef> // for size_t
 #include <cstdint> // for uint32_t
+#include <functional>
 #include <map>
 #include <memory> // for unique_ptr
 #include <optional>
@@ -500,18 +501,48 @@ public:
     }
 
 protected:
+    struct AccessPathSplit {
+        TColumnAccessPaths descendant_paths;
+        bool reads_current_data = false;
+        MetaReadMode current_meta_mode = MetaReadMode::DEFAULT;
+
+        bool has_descendant_paths() const { return !descendant_paths.empty(); }
+    };
+
+    // Nested columns share the same current-level access-path planning, while their data-child
+    // topology and descendant routing remain container-specific.
+    struct NestedAccessPathPlan {
+        AccessPathSplit all;
+        AccessPathSplit predicate;
+        bool skip_data_descendants = false;
+    };
+
+    // At their current level, Struct supports null-map metadata. Map and Array additionally
+    // support offsets.
+    enum class NestedMetaSupport { NULL_MAP, NULL_MAP_AND_OFFSET };
+
     void _convert_to_place_holder_column(MutableColumnPtr& dst, size_t count);
 
     void _recovery_from_place_holder_column(MutableColumnPtr& dst);
 
-    // Derive current-level meta-only read mode from access paths. Meta-only is valid only when
-    // this iterator had no data-read requirement before applying the current paths, and every
-    // visible path at this level is NULL/OFFSET metadata.
-    void _check_and_set_meta_read_mode(ReadRequirement requirement_before_access_path,
-                                       const TColumnAccessPaths& sub_all_access_paths);
+    // Derive current-level meta-only read mode from an explicit access-path split. Meta-only is
+    // valid only when this iterator had no data-read requirement before applying the current paths,
+    // no current DATA path exists, and no path must be routed to a descendant iterator.
+    Status _check_and_set_meta_read_mode(ReadRequirement requirement_before_access_path,
+                                         const AccessPathSplit& all_access_paths);
 
-    Result<TColumnAccessPaths> _get_sub_access_paths(TColumnAccessPaths access_paths,
-                                                     bool is_predicate = false);
+    // Apply the common current-level access-path state transitions and select a supported
+    // parent-owned meta-only mode. When that mode skips data descendants, synchronously invoke the
+    // callback once with SKIP before returning the routing plan. The callback is never retained.
+    Result<NestedAccessPathPlan> _prepare_nested_access_paths(
+            const TColumnAccessPaths& all_access_paths,
+            const TColumnAccessPaths& predicate_access_paths, NestedMetaSupport meta_support,
+            const std::function<void(ReadRequirement)>& set_all_data_descendants_read_requirement);
+
+    // Normalize the wire encoding, strip this iterator's column name, and explicitly partition
+    // paths consumed by this iterator from paths that must be routed to descendants. This helper is
+    // intentionally side-effect free; callers apply DATA/predicate read requirements explicitly.
+    Result<AccessPathSplit> _split_access_paths(TColumnAccessPaths access_paths) const;
     ColumnIteratorOptions _opts;
 
     ReadRequirement _read_requirement {ReadRequirement::NORMAL};
@@ -541,6 +572,9 @@ public:
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           MutableColumnPtr& dst) override;
+
+    Status set_access_paths(const TColumnAccessPaths& all_access_paths,
+                            const TColumnAccessPaths& predicate_access_paths) override;
 
     ordinal_t get_current_ordinal() const override { return _current_ordinal; }
 
@@ -618,10 +652,10 @@ public:
     ordinal_t get_current_ordinal() const override { return 0; }
 };
 
-// StringFileColumnIterator extends FileColumnIterator with meta-only reading
-// support for string/binary column types. When the OFFSET path is detected in
-// set_access_paths, it sets only_read_offsets on the ColumnIteratorOptions so
-// that the BinaryPlainPageDecoder skips chars memcpy and only fills offsets.
+// StringFileColumnIterator extends FileColumnIterator's NULL metadata support with OFFSET-only
+// reading for string/binary column types. When the OFFSET path is detected in set_access_paths, it
+// sets only_read_offsets on the ColumnIteratorOptions so that the BinaryPlainPageDecoder skips
+// chars memcpy and only fills offsets.
 class StringFileColumnIterator final : public FileColumnIterator {
 public:
     explicit StringFileColumnIterator(std::shared_ptr<ColumnReader> reader);
@@ -894,52 +928,6 @@ private:
     Status _seek_by_offsets(ordinal_t ord);
 };
 
-class RowIdColumnIterator : public ColumnIterator {
-public:
-    RowIdColumnIterator() = delete;
-    RowIdColumnIterator(int64_t tid, RowsetId rid, int32_t segid)
-            : _tablet_id(tid), _rowset_id(rid), _segment_id(segid) {}
-
-    Status seek_to_ordinal(ordinal_t ord_idx) override {
-        _current_rowid = cast_set<uint32_t>(ord_idx);
-        return Status::OK();
-    }
-
-    Status next_batch(size_t* n, MutableColumnPtr& dst) {
-        bool has_null;
-        return next_batch(n, dst, &has_null);
-    }
-
-    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
-        for (size_t i = 0; i < *n; ++i) {
-            const auto row_id = cast_set<uint32_t>(_current_rowid + i);
-            GlobalRowLoacation location(_tablet_id, _rowset_id, _segment_id, row_id);
-            dst->insert_data(reinterpret_cast<const char*>(&location), sizeof(GlobalRowLoacation));
-        }
-        _current_rowid += *n;
-        return Status::OK();
-    }
-
-    Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          MutableColumnPtr& dst) override {
-        for (size_t i = 0; i < count; ++i) {
-            rowid_t row_id = rowids[i];
-            GlobalRowLoacation location(_tablet_id, _rowset_id, _segment_id, row_id);
-            dst->insert_data(reinterpret_cast<const char*>(&location), sizeof(GlobalRowLoacation));
-        }
-        return Status::OK();
-    }
-
-    ordinal_t get_current_ordinal() const override { return _current_rowid; }
-
-private:
-    rowid_t _current_rowid = 0;
-    int64_t _tablet_id = 0;
-    RowsetId _rowset_id;
-    int32_t _segment_id = 0;
-};
-
-// Add new RowIdColumnIteratorV2
 class RowIdColumnIteratorV2 : public ColumnIterator {
 public:
     RowIdColumnIteratorV2(uint8_t version, int64_t backend_id, uint32_t file_id)

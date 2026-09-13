@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.jobs.executor;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.jobs.rewrite.CostBasedRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
@@ -131,7 +129,6 @@ import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
 import org.apache.doris.nereids.rules.rewrite.PushCountIntoUnionAll;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOnPkFk;
-import org.apache.doris.nereids.rules.rewrite.PushDownAggWithDistinctThroughJoinOneSide;
 import org.apache.doris.nereids.rules.rewrite.PushDownEncodeSlot;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterIntoSchemaScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
@@ -160,6 +157,7 @@ import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
 import org.apache.doris.nereids.rules.rewrite.RewriteSearchToSlots;
 import org.apache.doris.nereids.rules.rewrite.RewriteSimpleAggToConstantRule;
 import org.apache.doris.nereids.rules.rewrite.SaltJoin;
+import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.SetPreAggStatus;
 import org.apache.doris.nereids.rules.rewrite.SimplifyEncodeDecode;
 import org.apache.doris.nereids.rules.rewrite.SimplifyWindowExpression;
@@ -335,6 +333,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                     ),
                                     // push down SEMI Join
                                     bottomUp(
+                                            new SemiJoinCommute(),
                                             new TransposeSemiJoinLogicalJoin(),
                                             new TransposeSemiJoinLogicalJoinProject(),
                                             new TransposeSemiJoinAgg(),
@@ -575,6 +574,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 ),
                                 // push down SEMI Join
                                 bottomUp(
+                                        new SemiJoinCommute(),
                                         new TransposeSemiJoinLogicalJoin(),
                                         new TransposeSemiJoinLogicalJoinProject(),
                                         new TransposeSemiJoinAgg(),
@@ -675,7 +675,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalAggregate.class)
                                 || cascadesContext.rewritePlanContainsTypes(LogicalJoin.class)
                                 || cascadesContext.rewritePlanContainsTypes(LogicalUnion.class),
-                        topDown(new EliminateGroupByKey()),
                         topDown(new PushDownAggThroughJoinOnPkFk()),
                         topDown(new PullUpJoinFromUnionAll())
                 ),
@@ -684,7 +683,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(
                                 LogicalAggregate.class, LogicalJoin.class
                         ),
-                        costBased(topDown(new PushDownAggWithDistinctThroughJoinOneSide())),
                         custom(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN, PushDownAggregation::new),
                         topDown(new PushCountIntoUnionAll())
                 ),
@@ -913,6 +911,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             )));
                     rewriteJobs.addAll(jobs(topic("convert outer join to anti",
                             custom(RuleType.CONVERT_OUTER_JOIN_TO_ANTI, ConvertOuterJoinToAntiJoin::new))));
+                    rewriteJobs.addAll(jobs(topic("eliminate Aggregate according to fd items",
+                            cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalAggregate.class)
+                                    || cascadesContext.rewritePlanContainsTypes(LogicalJoin.class)
+                                    || cascadesContext.rewritePlanContainsTypes(LogicalUnion.class),
+                            custom(RuleType.ELIMINATE_GROUP_BY_KEY, EliminateGroupByKey::new))));
                     rewriteJobs.addAll(jobs(topic("eliminate group by key by uniform",
                             custom(RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, EliminateGroupByKeyByUniform::new))));
                     if (needOrExpansion) {
@@ -968,20 +971,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
     @Override
     public List<RewriteJob> getJobs() {
         return rewriteJobs;
-    }
-
-    @Override
-    protected boolean shouldRun(RewriteJob rewriteJob, JobContext jobContext, List<RewriteJob> jobs, int jobIndex) {
-        if (rewriteJob instanceof CostBasedRewriteJob) {
-            if (runCboRules) {
-                jobContext.setRemainJobs(jobs.subList(jobIndex + 1, jobs.size()));
-                return true;
-            } else {
-                return false;
-            }
-        } else {
-            return true;
-        }
     }
 
     @Override

@@ -23,8 +23,10 @@
 #include <string>
 #include <utility>
 
+#include "core/data_type/data_type_string.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/runtime_state.h"
 
 namespace doris::format::paimon {
 namespace {
@@ -47,14 +49,15 @@ TFileScanRangeParams make_scan_params() {
     return scan_params;
 }
 
-Status init_reader(PaimonJniReader* reader, TFileScanRangeParams* scan_params) {
+Status init_reader(PaimonJniReader* reader, TFileScanRangeParams* scan_params,
+                   RuntimeState* runtime_state = nullptr) {
     return reader->init({
             .projected_columns = {},
             .conjuncts = {},
             .format = FileFormat::JNI,
             .scan_params = scan_params,
             .io_ctx = nullptr,
-            .runtime_state = nullptr,
+            .runtime_state = runtime_state,
             .scanner_profile = nullptr,
     });
 }
@@ -79,6 +82,43 @@ TEST(PaimonJniReaderTest, UsesScanLevelPredicateBeforeLegacySplitPredicate) {
     std::map<std::string, std::string> params;
     ASSERT_TRUE(build_params(&reader, range, &params).ok());
     EXPECT_EQ(params["paimon_predicate"], "scan-predicate");
+}
+
+TEST(PaimonJniReaderTest, ForwardsSerializedTableCacheKey) {
+    auto range = make_paimon_jni_range();
+    range.table_format_params.paimon_params.__set_paimon_predicate("serialized-predicate");
+
+    auto scan_params = make_scan_params();
+    scan_params.__set_serialized_table_cache_key("table-cache-key");
+
+    PaimonJniReader reader;
+    ASSERT_TRUE(init_reader(&reader, &scan_params).ok());
+
+    std::map<std::string, std::string> params;
+    ASSERT_TRUE(build_params(&reader, range, &params).ok());
+    EXPECT_EQ(params["serialized_table_cache_key"], "table-cache-key");
+}
+
+TEST(PaimonJniReaderTest, GeneratesMissingOrEmptySerializedTableCacheKey) {
+    auto range = make_paimon_jni_range();
+    range.table_format_params.paimon_params.__set_paimon_predicate("serialized-predicate");
+    auto scan_params = make_scan_params();
+
+    PaimonJniReader reader;
+    ASSERT_TRUE(init_reader(&reader, &scan_params).ok());
+
+    std::map<std::string, std::string> params;
+    ASSERT_TRUE(build_params(&reader, range, &params).ok());
+    EXPECT_EQ(params["serialized_table"], "serialized-table");
+    const std::string missing_key = params["serialized_table_cache_key"];
+    EXPECT_FALSE(missing_key.empty());
+
+    scan_params.__set_serialized_table_cache_key("");
+    ASSERT_TRUE(build_params(&reader, range, &params).ok());
+    EXPECT_EQ(params["serialized_table"], "serialized-table");
+    const std::string empty_key = params["serialized_table_cache_key"];
+    EXPECT_FALSE(empty_key.empty());
+    EXPECT_NE(missing_key, empty_key);
 }
 
 TEST(PaimonJniReaderTest, FallsBackToLegacySplitPredicateWhenScanPredicateIsMissing) {
@@ -159,16 +199,35 @@ TEST(PaimonJniReaderTest, ScanLevelOptionsOverrideLegacySplitFallbacks) {
     EXPECT_EQ(params["hadoop.source"], "scan");
 }
 
-TEST(PaimonJniReaderTest, KeepsInitialPhysicalBatchSizeAfterOpen) {
+TEST(PaimonJniReaderTest, PublishesEncodedSchemaForQuotedIdentifiers) {
     PaimonJniReader reader;
-    reader.set_batch_size(32);
-    EXPECT_EQ(reader.TEST_batch_size(), 32);
+    reader._jni_columns = {JniTableReader::JniColumn {
+            .java_name = "region,code",
+            // Keep the aggregate complete because BE UT treats omitted JNI column fields as errors.
+            .output_type = std::make_shared<DataTypeString>(),
+            .transfer_type = std::make_shared<DataTypeString>(),
+    }};
 
-    // Paimon copies the constructor size into the RecordReader during Java open. A later predictor
-    // result cannot resize that physical reader, so keep the initial probe size for the split.
+    reader._prepare_jni_scanner_schema();
+
+    EXPECT_EQ(reader._scanner_params.at("required_fields_base64"), "$cmVnaW9uLGNvZGU=");
+    EXPECT_TRUE(reader._scanner_params.contains("columns_types_base64"));
+}
+
+TEST(PaimonJniReaderTest, UsesStableRuntimeBatchSizeBeforeAndAfterOpen) {
+    TQueryOptions query_options;
+    query_options.__set_batch_size(8160);
+    RuntimeState state {query_options, TQueryGlobals()};
+    auto scan_params = make_scan_params();
+    PaimonJniReader reader;
+    ASSERT_TRUE(init_reader(&reader, &scan_params, &state).ok());
+
+    reader.set_batch_size(32);
+    EXPECT_EQ(reader.TEST_batch_size(), 8160);
+
     reader.TEST_set_split_state(true, false);
     reader.set_batch_size(1);
-    EXPECT_EQ(reader.TEST_batch_size(), 32);
+    EXPECT_EQ(reader.TEST_batch_size(), 8160);
 }
 
 } // namespace

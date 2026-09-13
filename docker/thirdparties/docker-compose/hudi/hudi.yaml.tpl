@@ -25,7 +25,7 @@ networks:
 
 services:
   ${CONTAINER_UID}hudi-minio:
-    image: minio/minio:RELEASE.2025-01-20T14-49-07Z
+    image: quay.io/minio/minio:RELEASE.2025-01-20T14-49-07Z
     container_name: ${CONTAINER_UID}hudi-minio
     command: server /data --console-address ":${MINIO_CONSOLE_PORT}"
     environment:
@@ -38,7 +38,7 @@ services:
       - ${HUDI_NETWORK}
 
   ${CONTAINER_UID}hudi-minio-mc:
-    image: minio/mc:RELEASE.2025-01-17T23-25-50Z
+    image: quay.io/minio/mc:RELEASE.2025-01-17T23-25-50Z
     container_name: ${CONTAINER_UID}hudi-minio-mc
     entrypoint: |
       /bin/bash -c "

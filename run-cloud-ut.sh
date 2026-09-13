@@ -289,8 +289,8 @@ mkdir -p "${CMAKE_BUILD_DIR}/test/log"
 LIB_DIR="${CMAKE_BUILD_DIR}/test/lib"
 rm -rf "${LIB_DIR}"
 mkdir "${LIB_DIR}"
-if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
-    cp -r "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${LIB_DIR}"
+if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs_3_4/" ]]; then
+    cp -r "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs_3_4/" "${LIB_DIR}/hadoop_hdfs"
 fi
 
 if [[ "${RUN}" -ne 1 ]]; then

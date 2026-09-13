@@ -29,6 +29,11 @@
 #include "common/object_pool.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_nullable.h"
+#include "core/column/variant_v2/column_variant_v2.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_variant.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "exec/sort/heap_sorter.h"
 #include "exec/sort/sorter.h"
 #include "exec/sort/topn_sorter.h"
@@ -251,5 +256,22 @@ TEST_F(MergeSorterStateTest, test_reset_on_fresh_state) {
     EXPECT_EQ(state->get_queue().size(), 0);
     EXPECT_EQ(state->num_rows(), 0);
     EXPECT_EQ(state->data_size(), 0);
+}
+
+TEST_F(MergeSorterStateTest, variant_v2_state_uses_matching_physical_column) {
+    DataTypePtr type = make_nullable(std::make_shared<DataTypeVariantV2>());
+    MockRowDescriptor variant_row_desc({type}, &pool);
+    state = std::make_shared<MergeSorterState>(variant_row_desc, 0);
+
+    auto& destination = state->unsorted_block()->get_by_position(0).column;
+    const auto* nullable = check_and_get_column<ColumnNullable>(destination.get());
+    ASSERT_NE(nullable, nullptr);
+    EXPECT_NE(check_and_get_column<ColumnVariantV2>(&nullable->get_nested_column()), nullptr);
+
+    MutableColumnPtr source =
+            ColumnNullable::create(ColumnVariantV2::create(), ColumnUInt8::create());
+    source->insert_many_defaults(2);
+    destination->assert_mutable()->insert_range_from(*source, 0, source->size());
+    EXPECT_EQ(destination->size(), 2);
 }
 } // namespace doris

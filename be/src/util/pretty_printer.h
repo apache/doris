@@ -22,10 +22,10 @@
 
 #include <gen_cpp/RuntimeProfile_types.h>
 
-#include <boost/algorithm/string.hpp>
 #include <cmath>
 #include <iomanip>
 #include <sstream>
+#include <type_traits>
 
 #include "core/binary_cast.hpp"
 #include "util/cpu_info.h"
@@ -178,14 +178,14 @@ public:
     /// Utility method to print an iterable type to a stringstream like [v1, v2, v3]
     template <typename I>
     static void print_stringList(const I& iterable, TUnit::type unit, std::stringstream* out) {
-        std::vector<std::string> strings;
+        (*out) << "[";
         for (typename I::const_iterator it = iterable.begin(); it != iterable.end(); ++it) {
-            std::stringstream ss;
-            ss << PrettyPrinter::print(*it, unit);
-            strings.push_back(ss.str());
+            if (it != iterable.begin()) {
+                (*out) << ", ";
+            }
+            (*out) << PrettyPrinter::print(*it, unit);
         }
-
-        (*out) << "[" << boost::algorithm::join(strings, ", ") << "]";
+        (*out) << "]";
     }
 
     /// Convenience method
@@ -248,14 +248,13 @@ private:
 
     /// Utility to perform integer modulo if T is integral, otherwise to use fmod().
     template <typename T>
-    static typename boost::enable_if_c<boost::is_integral<T>::value, int64_t>::type mod(
-            const T& value, const int modulus) {
+    static std::enable_if_t<std::is_integral<T>::value, int64_t> mod(const T& value,
+                                                                     const int modulus) {
         return value % modulus;
     }
 
     template <typename T>
-    static typename boost::enable_if_c<!boost::is_integral<T>::value, double>::type mod(
-            const T& value, int modulus) {
+    static std::enable_if_t<!std::is_integral<T>::value, double> mod(const T& value, int modulus) {
         return fmod(value, 1. * modulus);
     }
 

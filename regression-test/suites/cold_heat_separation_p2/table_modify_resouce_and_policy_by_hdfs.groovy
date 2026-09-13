@@ -192,18 +192,28 @@ suite("table_modify_resouce_by_hdfs") {
     """
     log.info( "test tablets not empty")
     assertTrue(tablets.size() > 0)
-    fetchDataSize(sizes, tablets[0])
-
+    // Cooldown on a replicated table is leader-uploads / followers-follow-async: the asserts
+    // below check EVERY replica row, so the wait must too, not just tablets[0].
     def try_times = 100
-    while (sizes[0] != 0) {
-        log.info( "test local size is not zero, sleep 10s")
+    while (true) {
+        def all_cooled = true
+        for (def tablet in tablets) {
+            fetchDataSize(sizes, tablet)
+            if (sizes[0] != 0 || sizes[1] <= 0) {
+                all_cooled = false
+                break
+            }
+        }
+        if (all_cooled) {
+            break
+        }
+        log.info( "not all replicas cooled down, sleep 10s")
         sleep(10000)
         tablets = sql_return_maparray """
         SHOW TABLETS FROM ${tableName}
         """
-        fetchDataSize(sizes, tablets[0])
         try_times -= 1
-        assertTrue(try_times > 0, "remote size is still zero, maybe some error occurred")
+        assertTrue(try_times > 0, "cooldown not finished on all replicas, maybe some error occurred")
     }
 
     // 修改resource和policy到新值然后查看remote data size是否能对上
@@ -276,17 +286,28 @@ suite("table_modify_resouce_by_hdfs") {
     """
     log.info( "test tablets not empty")
     assertTrue(tablets.size() > 0)
-    fetchDataSize(sizes, tablets[0])
+    // Cooldown on a replicated table is leader-uploads / followers-follow-async: the asserts
+    // below check EVERY replica row, so the wait must too, not just tablets[0].
     try_times = 100
-    while (sizes[0] != 0) {
-        log.info( "test local size is not zero, sleep 10s")
+    while (true) {
+        def all_cooled = true
+        for (def tablet in tablets) {
+            fetchDataSize(sizes, tablet)
+            if (sizes[0] != 0 || sizes[1] <= 0) {
+                all_cooled = false
+                break
+            }
+        }
+        if (all_cooled) {
+            break
+        }
+        log.info( "not all replicas cooled down, sleep 10s")
         sleep(10000)
         tablets = sql_return_maparray """
         SHOW TABLETS FROM ${tableName}
         """
-        fetchDataSize(sizes, tablets[0])
         try_times -= 1
-        assertTrue(try_times > 0, "remote size is still zero, maybe some error occurred")
+        assertTrue(try_times > 0, "cooldown not finished on all replicas, maybe some error occurred")
     }
 
     // 修改resource和policy到新值然后查看remote data size是否能对上

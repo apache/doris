@@ -28,6 +28,7 @@
 
 #include "storage/delete/delete_handler.h"
 #include "storage/rowset/rowset_meta.h"
+#include "storage/schema.h"
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris {
@@ -35,9 +36,10 @@ namespace doris {
 class TabletReaderTest : public testing::Test {
 protected:
     static TabletSchemaSPtr create_schema(
-            const std::vector<std::pair<std::string, int32_t>>& name_and_uid) {
+            const std::vector<std::pair<std::string, int32_t>>& name_and_uid,
+            KeysType keys_type = KeysType::DUP_KEYS) {
         TabletSchemaPB schema_pb;
-        schema_pb.set_keys_type(KeysType::DUP_KEYS);
+        schema_pb.set_keys_type(keys_type);
         bool first = true;
         for (const auto& [name, uid] : name_and_uid) {
             auto* col = schema_pb.add_column();
@@ -55,16 +57,20 @@ protected:
 
     // Build a DeleteHandler initialized with a single delete-predicate rowset.
     static void init_delete_handler(DeleteHandler& handler, const TabletSchemaSPtr& schema,
-                                    const DeletePredicatePB& delete_predicate) {
+                                    const DeletePredicatePB& delete_predicate,
+                                    ReadSchemaSPtr* read_schema) {
         auto rs_meta = std::make_shared<RowsetMeta>();
         rs_meta->set_tablet_schema(schema);
         rs_meta->set_version(Version(2, 2));
         rs_meta->set_delete_predicate(delete_predicate);
-        ASSERT_TRUE(handler.init(schema, {rs_meta}, /*version=*/100).ok());
+        *read_schema = std::make_shared<ReadSchema>(schema->columns());
+        std::vector<TabletColumn> dropped_columns;
+        ASSERT_TRUE(handler.init({rs_meta}, /*version=*/100, *read_schema, &dropped_columns).ok());
+        (*read_schema)->append_dropped_columns(std::move(dropped_columns));
     }
 };
 
-// The delete columns (resolved by the delete handler to field ids) are mapped back to their
+// The delete columns (resolved by the delete handler to read-schema ordinals) are mapped to their
 // column unique ids and stripped from all_access_paths; unrelated columns keep their paths.
 TEST_F(TabletReaderTest, remove_delete_columns_from_access_paths) {
     auto schema = create_schema({{"k1", 10}, {"k2", 11}, {"v1", 12}, {"v2", 13}, {"v4", 15}});
@@ -88,14 +94,15 @@ TEST_F(TabletReaderTest, remove_delete_columns_from_access_paths) {
     in1->add_values("4");
 
     DeleteHandler handler;
-    init_delete_handler(handler, schema, delete_predicate);
+    ReadSchemaSPtr read_schema;
+    init_delete_handler(handler, schema, delete_predicate, &read_schema);
 
     std::map<int32_t, TColumnAccessPaths> access_paths;
     for (int32_t uid : {10, 11, 12, 13, 15}) {
         access_paths[uid] = TColumnAccessPaths {};
     }
 
-    TabletReader::remove_delete_columns_from_access_paths(handler, *schema, access_paths);
+    TabletReader::remove_delete_columns_from_access_paths(handler, *read_schema, access_paths);
 
     EXPECT_EQ(size_t(2), access_paths.size());
     EXPECT_EQ(size_t(1), access_paths.count(13)) << "non-delete column must keep its access path";
@@ -117,15 +124,15 @@ TEST_F(TabletReaderTest, remove_delete_columns_keeps_unrelated_paths) {
     p1->set_cond_value("1");
 
     DeleteHandler handler;
-    init_delete_handler(handler, schema, delete_predicate);
+    ReadSchemaSPtr read_schema;
+    init_delete_handler(handler, schema, delete_predicate, &read_schema);
 
     std::map<int32_t, TColumnAccessPaths> access_paths;
     access_paths[12] = TColumnAccessPaths {};
     access_paths[15] = TColumnAccessPaths {};
 
-    TabletReader::remove_delete_columns_from_access_paths(handler, *schema, access_paths);
+    TabletReader::remove_delete_columns_from_access_paths(handler, *read_schema, access_paths);
 
     EXPECT_EQ(size_t(2), access_paths.size());
 }
-
 } // namespace doris

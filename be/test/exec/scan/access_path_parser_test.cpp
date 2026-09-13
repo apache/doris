@@ -21,6 +21,7 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -31,7 +32,10 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/field.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
 
 namespace doris {
 namespace {
@@ -125,6 +129,92 @@ TEST(AccessPathParserTest, IgnoresPrimitiveColumnsAndScannerVirtualColumns) {
             &rowid, std::vector<TColumnAccessPath> {data_access_path({"-1"})}, nullptr);
     ASSERT_TRUE(status.ok()) << status;
     EXPECT_TRUE(rowid.children.empty());
+}
+
+TEST(AccessPathParserTest, PreservesVariantObjectKeysForPhysicalShreddingProjection) {
+    auto variant = root_column(100, "v", std::make_shared<DataTypeVariantV2>());
+    auto status = AccessPathParser::build_nested_children(
+            &variant,
+            std::vector<TColumnAccessPath> {data_access_path({"100", "typed_col"}),
+                                            data_access_path({"100", "nested", "leaf"})},
+            nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(variant.variant_access_paths,
+              (std::vector<std::vector<std::string>> {{"nested", "leaf"}, {"typed_col"}}));
+
+    status = AccessPathParser::build_nested_children(
+            &variant, std::vector<TColumnAccessPath> {data_access_path({"100"})}, nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(variant.variant_access_paths.empty());
+
+    status = AccessPathParser::build_nested_children(
+            &variant,
+            std::vector<TColumnAccessPath> {data_access_path({"100", "typed_col"}),
+                                            data_access_path({})},
+            nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(variant.variant_access_paths.empty());
+}
+
+TEST(AccessPathParserTest, SeparatesFinalAndPredicateComplexAccessPaths) {
+    auto variant = root_column(100, "v", std::make_shared<DataTypeVariantV2>());
+    auto status = AccessPathParser::build_nested_children(
+            &variant, std::vector<TColumnAccessPath> {data_access_path({"v"})},
+            std::vector<TColumnAccessPath> {data_access_path({"v", "n"})}, nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(variant.variant_access_paths.empty());
+    ASSERT_TRUE(variant.has_predicate_access_paths);
+    EXPECT_EQ(variant.predicate_variant_access_paths,
+              (std::vector<std::vector<std::string>> {{"n"}}));
+
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"});
+    auto structure = root_column(101, "s", struct_type);
+    status = AccessPathParser::build_nested_children(
+            &structure, std::vector<TColumnAccessPath> {data_access_path({"s"})},
+            std::vector<TColumnAccessPath> {data_access_path({"s", "b"})}, nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(structure.children.size(), 2);
+    ASSERT_TRUE(structure.has_predicate_access_paths);
+    ASSERT_EQ(structure.predicate_children.size(), 1);
+    EXPECT_EQ(structure.predicate_children[0].name, "b");
+}
+
+TEST(AccessPathParserTest, PreservesVariantPathsNestedInComplexColumns) {
+    auto variant_type = std::make_shared<DataTypeVariantV2>();
+
+    auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {variant_type}, Strings {"payload"});
+    auto structure = root_column(100, "s", struct_type);
+    auto status = AccessPathParser::build_nested_children(
+            &structure,
+            std::vector<TColumnAccessPath> {data_access_path({"s", "payload", "typed_col"})},
+            nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(structure.children.size(), 1);
+    EXPECT_EQ(structure.children[0].variant_access_paths,
+              (std::vector<std::vector<std::string>> {{"typed_col"}}));
+
+    auto array = root_column(101, "items", std::make_shared<DataTypeArray>(variant_type));
+    status = AccessPathParser::build_nested_children(
+            &array, std::vector<TColumnAccessPath> {data_access_path({"items", "*", "kind"})},
+            nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(array.children.size(), 1);
+    EXPECT_EQ(array.children[0].variant_access_paths,
+              (std::vector<std::vector<std::string>> {{"kind"}}));
+
+    auto map = root_column(
+            102, "attrs",
+            std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(), variant_type));
+    status = AccessPathParser::build_nested_children(
+            &map, std::vector<TColumnAccessPath> {data_access_path({"attrs", "*", "enabled"})},
+            nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto* value = find_child_by_name(map, "value");
+    ASSERT_NE(value, nullptr);
+    EXPECT_EQ(value->variant_access_paths, (std::vector<std::vector<std::string>> {{"enabled"}}));
 }
 
 // Scenario: reject unsupported top-level inputs before recursive type parsing, including META
@@ -443,21 +533,58 @@ TEST(AccessPathParserTest, MapAccessPathMatrix) {
     }
 }
 
-TEST(AccessPathParserTest, PreservesNestedInitialDefaultMetadata) {
-    auto binary_type = std::make_shared<DataTypeString>();
-    auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {binary_type}, Strings {"data"});
-    auto defaulted_child = field(101, "data", binary_type);
-    defaulted_child.initial_default_value = "AAEC/w==";
-    defaulted_child.initial_default_value_is_base64 = true;
-    auto schema = field(100, "s", struct_type, {defaulted_child});
+TEST(AccessPathParserTest, PreservesSchemaEvolutionMetadataAcrossComplexProjection) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto string_type = std::make_shared<DataTypeString>();
+    const auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {string_type}, Strings {"added"});
+    const auto array_type = std::make_shared<DataTypeArray>(struct_type);
+    const auto map_type = std::make_shared<DataTypeMap>(int_type, array_type);
 
-    auto column = root_column(100, "s", struct_type);
-    auto status = AccessPathParser::build_nested_children(
-            &column, std::vector<TColumnAccessPath> {data_access_path({"s", "data"})}, &schema);
+    const auto default_expr = VExprContext::create_shared(VLiteral::create_shared(
+            string_type, Field::create_field<TYPE_STRING>("nested-default")));
+    auto added = field(404, "added", string_type, {}, {"legacy_added"}, true);
+    added.initial_default_value = "nested-default";
+    added.initial_default_value_is_base64 = true;
+    added.is_optional = false;
+    added.default_expr = default_expr;
+    auto element = field(403, "element", struct_type, {std::move(added)});
+    element.is_optional = true;
+    auto value = field(402, "value", array_type, {std::move(element)});
+    value.is_optional = true;
+    auto key = field(401, "key", int_type);
+    key.is_optional = false;
+    format::ColumnDefinition schema {
+            .identifier = Field::create_field<TYPE_INT>(400),
+            .name = "m",
+            .type = map_type,
+            .children = {std::move(key), std::move(value)},
+    };
+
+    auto column = root_column(400, "m", map_type);
+    const auto status = AccessPathParser::build_nested_children(
+            &column, std::vector<TColumnAccessPath> {data_access_path({"m"})}, &schema);
     ASSERT_TRUE(status.ok()) << status;
-    ASSERT_EQ(column.children.size(), 1);
-    EXPECT_EQ(column.children[0].initial_default_value, std::optional<std::string>("AAEC/w=="));
-    EXPECT_TRUE(column.children[0].initial_default_value_is_base64);
+    ASSERT_EQ(column.children.size(), 2);
+    ASSERT_TRUE(column.children[0].is_optional.has_value());
+    EXPECT_FALSE(*column.children[0].is_optional);
+
+    const auto& projected_value = column.children[1];
+    ASSERT_TRUE(projected_value.is_optional.has_value());
+    EXPECT_TRUE(*projected_value.is_optional);
+    ASSERT_EQ(projected_value.children.size(), 1);
+    const auto& projected_element = projected_value.children[0];
+    ASSERT_TRUE(projected_element.is_optional.has_value());
+    EXPECT_TRUE(*projected_element.is_optional);
+    ASSERT_EQ(projected_element.children.size(), 1);
+    const auto& projected_added = projected_element.children[0];
+    EXPECT_EQ(projected_added.name_mapping, std::vector<std::string>({"legacy_added"}));
+    EXPECT_TRUE(projected_added.has_name_mapping);
+    EXPECT_EQ(projected_added.initial_default_value, std::optional<std::string>("nested-default"));
+    EXPECT_TRUE(projected_added.initial_default_value_is_base64);
+    ASSERT_TRUE(projected_added.is_optional.has_value());
+    EXPECT_FALSE(*projected_added.is_optional);
+    EXPECT_EQ(projected_added.default_expr, default_expr);
 }
 
 } // namespace doris

@@ -277,6 +277,14 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
 
         try {
             writeLock();
+            // The transaction callback or another terminal path may finish the job while tasks drain.
+            if (state != JobState.RETRY) {
+                LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
+                        .add("state", state)
+                        .add("msg", "skip retry because the load job is no longer retrying")
+                        .build());
+                return;
+            }
             this.state = JobState.PENDING;
             this.idToTasks.clear();
             this.failMsg = null;
@@ -328,6 +336,12 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
                     .add("error_msg", "failed to abort txn when job is cancelled. " + e.getMessage())
                     .build());
         }
+
+        // A Cloud Broker Load retry starts a new pending task. Clear the previous attempt's
+        // transaction id so beginTxn() does not blindly reuse a transaction that was aborted.
+        // If aborting failed and the old transaction is still PREPARE, beginTxn() will resolve
+        // the label conflict and adopt the transaction only after verifying that it belongs to this job.
+        transactionId = 0;
 
         // cancel all running coordinators, so that the scheduler's worker thread will be released
         for (TUniqueId loadId : loadIds) {

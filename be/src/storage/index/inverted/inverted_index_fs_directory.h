@@ -170,6 +170,11 @@ class DorisFSDirectory::FSIndexInput : public lucene::store::BufferedIndexInput 
         std::mutex _shared_lock;
         //std::mutex* _shared_lock = nullptr;
         char path[4096];
+        // True when _reader serves ranges straight from remote storage with no
+        // CachedRemoteFileReader in between (NO_CACHE on a non-local fs): only
+        // that layer would normally account physical remote bytes, so
+        // readInternal then counts them itself.
+        bool _direct_remote_io = false;
         SharedHandle(const char* path);
         ~SharedHandle() override;
     };

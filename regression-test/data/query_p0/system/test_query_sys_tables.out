@@ -78,8 +78,13 @@ NULLABLE	varchar(3)	Yes	false	\N
 INDEX_TYPE	varchar(16)	Yes	false	\N	
 COMMENT	varchar(16)	Yes	false	\N	
 INDEX_COMMENT	varchar(1024)	Yes	false	\N	
+IS_VISIBLE	varchar(3)	Yes	false	\N	
+EXPRESSION	varchar(1024)	Yes	false	\N	
 
 -- !query_statistics --
+test_query_sys_db_1	test_query_sys_tb_1	1	DUPLICATE	1	aaa	A	\N	\N		BTREE	YES	\N
+test_query_sys_db_2	test_query_sys_tb_2	1	DUPLICATE	1	aaa	A	\N	\N		BTREE	YES	\N
+test_query_sys_db_3	test_query_sys_tb_3	1	DUPLICATE	1	aaa	A	\N	\N		BTREE	YES	\N
 
 -- !desc_statistics --
 CONSTRAINT_CATALOG	varchar(512)	Yes	false	\N	
@@ -90,6 +95,22 @@ TABLE_NAME	varchar(64)	Yes	false	\N
 CONSTRAINT_TYPE	varchar(64)	Yes	false	\N	
 
 -- !query_table_constraints --
+
+-- !desc_key_column_usage --
+CONSTRAINT_CATALOG	varchar(64)	Yes	false	\N	
+CONSTRAINT_SCHEMA	varchar(64)	Yes	false	\N	
+CONSTRAINT_NAME	varchar(64)	Yes	false	\N	
+TABLE_CATALOG	varchar(64)	Yes	false	\N	
+TABLE_SCHEMA	varchar(64)	Yes	false	\N	
+TABLE_NAME	varchar(64)	Yes	false	\N	
+COLUMN_NAME	varchar(64)	Yes	false	\N	
+ORDINAL_POSITION	bigint	Yes	false	\N	
+POSITION_IN_UNIQUE_CONSTRAINT	bigint	Yes	false	\N	
+REFERENCED_TABLE_SCHEMA	varchar(64)	Yes	false	\N	
+REFERENCED_TABLE_NAME	varchar(64)	Yes	false	\N	
+REFERENCED_COLUMN_NAME	varchar(64)	Yes	false	\N	
+
+-- !query_key_column_usage --
 
 -- !desc_schema_privileges --
 GRANTEE	varchar(81)	Yes	false	\N	
@@ -189,8 +210,6 @@ wait_timeout	31000
 
 -- !views --
 test_view	SELECT `internal`.`test_query_sys_db_1`.`test_query_sys_tb_1`.`ccc` AS `a` FROM `internal`.`test_query_sys_db_1`.`test_query_sys_tb_1`
-
--- !sql --
 
 -- !sql --
 

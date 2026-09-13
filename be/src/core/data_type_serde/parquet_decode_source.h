@@ -93,6 +93,10 @@ struct ParquetDecodeContext {
     bool logical_float16 = false;
     bool logical_uuid = false;
     bool dictionary_index_only = false;
+    // Legacy UTC/INT96 DATETIMEV2 materialization keeps permissive conversion failures as the
+    // zero default instead of exposing them as SQL NULL. Raw predicates must follow the same
+    // policy so pushdown cannot change comparison or IS NULL results.
+    bool conversion_failure_is_null = true;
 
     const cctz::time_zone* timezone = nullptr;
 };
@@ -138,6 +142,15 @@ public:
         }
         return consume(values.data(), values.size());
     }
+};
+
+// SerDes use this sink to publish converted logical POD batches straight to predicate kernels.
+// `conversion_nulls` is optional and marks permissive conversion failures without an IColumn.
+class ParquetLogicalValueConsumer {
+public:
+    virtual ~ParquetLogicalValueConsumer() = default;
+    virtual Status consume(const uint8_t* values, size_t num_values, size_t value_width,
+                           const uint8_t* conversion_nulls) = 0;
 };
 
 // Dictionary decoders publish validated IDs without knowing the destination Doris type. A
@@ -253,6 +266,9 @@ public:
 
 enum class ParquetDictionaryMaterializationStrategy : uint8_t { DIRECT, INDICES };
 
+bool try_simd_insert_parquet_dictionary_indices(IColumn& destination, const IColumn& dictionary,
+                                                const uint32_t* indices, size_t num_values);
+
 // Dictionary values are materialized once into the selected Doris type. The state belongs to a
 // column reader rather than DataTypeSerDe because a SerDe instance can be shared by many files.
 struct ParquetMaterializationState {
@@ -363,7 +379,10 @@ struct ParquetMaterializationState {
                     : _destination(destination), _dictionary(dictionary) {}
 
             Status consume_indices(const uint32_t* indices, size_t num_values) override {
-                _destination.insert_indices_from(_dictionary, indices, indices + num_values);
+                if (!try_simd_insert_parquet_dictionary_indices(_destination, _dictionary, indices,
+                                                                num_values)) {
+                    _destination.insert_indices_from(_dictionary, indices, indices + num_values);
+                }
                 return Status::OK();
             }
 

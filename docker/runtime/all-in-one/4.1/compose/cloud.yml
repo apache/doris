@@ -1,0 +1,320 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# Doris 4.1 in compute-storage separated (cloud) mode, for local feature work
+# and demos. Every Doris process runs from the all-in-one image; FoundationDB
+# and MinIO come from their upstream images.
+#
+#   docker compose -f cloud.yml up --wait          # 1 FE, 3 BE in 2 compute groups
+#   docker compose -f cloud.yml --profile ha up --wait   # ... with 3 FE
+#   docker compose -f cloud.yml exec client mysql -uroot -hfe-1 -P9030
+#   docker compose -f cloud.yml down                # clean slate (nothing persists)
+#
+#   fdb ─ fdb-init ─┬─ ms ─ cloud-init ─ fe-1 ─┬─ be-1, be-2  (compute group cg_a)
+#                   └─ recycler                 ├─ be-3        (compute group cg_b)
+#   minio ─ minio-init ─┘                       └─ client      (healthy = cluster ready)
+#
+# Knobs, as environment variables or a .env file next to this file:
+#   DORIS_IMAGE   apache/doris:all-in-one-4.1.3     any tag built from ../Dockerfile
+#   SUBNET        172.31.80                         first three octets; change it to run
+#                                                   two clusters side by side
+#   FE_PORT 9030  FE_HTTP_PORT 8030  BE_HTTP_PORT 8040  MS_PORT 15000 (5000 is AirPlay on macOS)
+#   MINIO_PORT 9000  MINIO_CONSOLE_PORT 9001         host ports
+#   FE_HEAP 1024m  BE_MEM_LIMIT 25%                 per-process memory
+#   CG_A cg_a  CG_B cg_b                            compute group names
+#   INSTANCE_ID 100001                              numeric; also the FEs' cluster_id
+#   S3_BUCKET doris  S3_AK / S3_SK minioadmin
+#   FDB_IMAGE foundationdb/foundationdb:7.1.23      amd64 only upstream: on an arm64
+#   FDB_PLATFORM linux/amd64                        host it runs under emulation
+#
+# Node addresses are pinned inside the private network, so a restarted
+# container keeps the identity Doris knows it by. From the host, use the
+# published ports; on Docker Desktop the container addresses themselves are
+# not routable, which is what the client service is for.
+
+name: doris-cloud
+
+x-node: &node
+  image: ${DORIS_IMAGE:-apache/doris:all-in-one-4.1.3}
+  stop_grace_period: 60s
+
+x-cloud-env: &cloud-env
+  DEPLOY_MODE: cloud
+  INSTANCE_ID: ${INSTANCE_ID:-100001}
+  MS_ENDPOINT: ms:5000
+  FE_MASTER: fe-1,fe-2,fe-3
+
+x-be: &be
+  <<: *node
+  depends_on:
+    fe-1:
+      condition: service_healthy
+
+services:
+  # ----------------------------------------------------- infrastructure ---
+  fdb:
+    image: ${FDB_IMAGE:-foundationdb/foundationdb:7.1.23}
+    platform: ${FDB_PLATFORM:-linux/amd64}
+    environment:
+      FDB_NETWORKING_MODE: container
+      FDB_PORT: "4500"
+    networks:
+      doris:
+        ipv4_address: ${SUBNET:-172.31.80}.10
+    healthcheck:
+      # "available" only once fdb-init has configured the database.
+      test: ["CMD-SHELL", "fdbcli -C /var/fdb/fdb.cluster --exec 'status minimal' | grep -q 'is available'"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 10s
+
+  fdb-init:
+    image: ${FDB_IMAGE:-foundationdb/foundationdb:7.1.23}
+    platform: ${FDB_PLATFORM:-linux/amd64}
+    depends_on:
+      fdb:
+        condition: service_started
+    environment:
+      FDB_CLUSTER_FILE_CONTENTS: docker:docker@${SUBNET:-172.31.80}.10:4500
+    networks:
+      doris:
+    entrypoint: ["bash", "-c"]
+    command:
+      - |
+        echo "$$FDB_CLUSTER_FILE_CONTENTS" > /tmp/fdb.cluster
+        for i in $$(seq 1 60); do
+          out=$$(fdbcli -C /tmp/fdb.cluster --exec 'configure new single ssd' 2>&1)
+          case "$$out" in
+            *"Database created"*|*"already exists"*) echo "$$out"; exit 0 ;;
+          esac
+          sleep 2
+        done
+        echo "$$out"; exit 1
+
+  minio:
+    image: ${MINIO_IMAGE:-quay.io/minio/minio:RELEASE.2025-01-20T14-49-07Z}
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${S3_AK:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SK:-minioadmin}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    networks:
+      doris:
+        ipv4_address: ${SUBNET:-172.31.80}.20
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  minio-init:
+    image: ${MINIO_IMAGE:-quay.io/minio/minio:RELEASE.2025-01-20T14-49-07Z}
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${S3_AK:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SK:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-doris}
+    networks:
+      doris:
+    entrypoint: ["sh", "-c"]
+    command:
+      - mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" && mc mb --ignore-existing "local/$$S3_BUCKET"
+
+  # ----------------------------------------------------- doris cloud ------
+  ms:
+    <<: *node
+    environment:
+      DORIS_ROLE: ms
+      DEPLOY_MODE: cloud
+      FDB_CLUSTER: docker:docker@${SUBNET:-172.31.80}.10:4500
+    depends_on:
+      fdb:
+        condition: service_healthy
+      fdb-init:
+        condition: service_completed_successfully
+    ports:
+      - "${MS_PORT:-15000}:5000"
+    networks:
+      doris:
+        ipv4_address: ${SUBNET:-172.31.80}.30
+
+  recycler:
+    <<: *node
+    environment:
+      DORIS_ROLE: recycler
+      DEPLOY_MODE: cloud
+      FDB_CLUSTER: docker:docker@${SUBNET:-172.31.80}.10:4500
+    depends_on:
+      fdb:
+        condition: service_healthy
+      fdb-init:
+        condition: service_completed_successfully
+    networks:
+      doris:
+        ipv4_address: ${SUBNET:-172.31.80}.31
+
+  # One-shot: creates the instance on the meta-service with MinIO as its
+  # storage vault, then exits. A second run finds it and leaves it alone.
+  cloud-init:
+    <<: *node
+    environment:
+      DORIS_ROLE: cloud-init
+      DEPLOY_MODE: cloud
+      MS_ENDPOINT: ms:5000
+      INSTANCE_ID: ${INSTANCE_ID:-100001}
+      S3_ENDPOINT: minio:9000
+      S3_BUCKET: ${S3_BUCKET:-doris}
+      S3_AK: ${S3_AK:-minioadmin}
+      S3_SK: ${S3_SK:-minioadmin}
+      S3_PROVIDER: S3
+      S3_REGION: us-east-1
+      S3_PREFIX: ${S3_PREFIX:-doris}
+      S3_PATH_STYLE: "true"
+    depends_on:
+      ms:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      disable: true
+    networks:
+      doris:
+
+  # ----------------------------------------------------- frontends --------
+  fe-1:
+    <<: *node
+    environment:
+      <<: *cloud-env
+      DORIS_ROLE: fe
+      FE_MASTER: ""
+      FE_HEAP: ${FE_HEAP:-1024m}
+    depends_on:
+      cloud-init:
+        condition: service_completed_successfully
+    ports:
+      - "${FE_PORT:-9030}:9030"
+      - "${FE_HTTP_PORT:-8030}:8030"
+    networks:
+      doris:
+        ipv4_address: ${SUBNET:-172.31.80}.40
+
+  fe-2:
+    <<: *node
+    profiles: [ha]
+    environment:
+      <<: *cloud-env
+      DORIS_ROLE: fe
+      FE_ROLE: follower
+      FE_HEAP: ${FE_HEAP:-1024m}
+    depends_on:
+      fe-1:
+        condition: service_healthy
+    ports:
+      - "${FE2_PORT:-9031}:9030"
+      - "${FE2_HTTP_PORT:-8031}:8030"
+    networks:
+      doris:
+        ipv4_address: ${SUBNET:-172.31.80}.41
+
+  fe-3:
+    <<: *node
+    profiles: [ha]
+    environment:
+      <<: *cloud-env
+      DORIS_ROLE: fe
+      FE_ROLE: follower
+      FE_HEAP: ${FE_HEAP:-1024m}
+    depends_on:
+      fe-1:
+        condition: service_healthy
+    ports:
+      - "${FE3_PORT:-9032}:9030"
+      - "${FE3_HTTP_PORT:-8032}:8030"
+    networks:
+      doris:
+        ipv4_address: ${SUBNET:-172.31.80}.42
+
+  # ----------------------------------------------------- backends ---------
+  # BEs are compute nodes here: data lives in MinIO, the local disk is only a
+  # file cache. Two compute groups, so `use @cg_b` has somewhere to go.
+  be-1:
+    <<: *be
+    environment:
+      <<: *cloud-env
+      DORIS_ROLE: be
+      COMPUTE_GROUP: ${CG_A:-cg_a}
+      BE_CONFIG_EXTRA: "mem_limit = ${BE_MEM_LIMIT:-25%}"
+    ports:
+      - "${BE_HTTP_PORT:-8040}:8040"
+    networks:
+      doris:
+        ipv4_address: ${SUBNET:-172.31.80}.50
+
+  be-2:
+    <<: *be
+    environment:
+      <<: *cloud-env
+      DORIS_ROLE: be
+      COMPUTE_GROUP: ${CG_A:-cg_a}
+      BE_CONFIG_EXTRA: "mem_limit = ${BE_MEM_LIMIT:-25%}"
+    networks:
+      doris:
+        ipv4_address: ${SUBNET:-172.31.80}.51
+
+  be-3:
+    <<: *be
+    environment:
+      <<: *cloud-env
+      DORIS_ROLE: be
+      COMPUTE_GROUP: ${CG_B:-cg_b}
+      BE_CONFIG_EXTRA: "mem_limit = ${BE_MEM_LIMIT:-25%}"
+    networks:
+      doris:
+        ipv4_address: ${SUBNET:-172.31.80}.52
+
+  # ----------------------------------------------------- client -----------
+  # Turns healthy once every node above is alive, which is what
+  # `docker compose up --wait` blocks on; then idles inside the network with a
+  # mysql client and curl, so stream load redirects to BE addresses resolve.
+  client:
+    <<: *node
+    environment:
+      DORIS_ROLE: client
+      FE_MASTER: fe-1,fe-2,fe-3
+      EXPECT_FE: ${EXPECT_FE:-1}
+      EXPECT_BE: 3
+    depends_on:
+      be-1:
+        condition: service_healthy
+      be-2:
+        condition: service_healthy
+      be-3:
+        condition: service_healthy
+    networks:
+      doris:
+
+networks:
+  doris:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${SUBNET:-172.31.80}.0/24

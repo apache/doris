@@ -26,8 +26,8 @@ import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 
@@ -38,9 +38,9 @@ public class AlterProcDirFilterExpressionTest {
         SchemaChangeProcDir schemaChangeProcDir = new SchemaChangeProcDir(null, null);
         HashMap<String, Expression> filter = buildCreateTimeRangeFilter();
 
-        Assert.assertTrue(schemaChangeProcDir.filterResultExpression(
+        Assertions.assertTrue(schemaChangeProcDir.filterResultExpression(
                 "CreateTime", "2026-04-17 10:44:34.380", filter));
-        Assert.assertFalse(schemaChangeProcDir.filterResultExpression(
+        Assertions.assertFalse(schemaChangeProcDir.filterResultExpression(
                 "CreateTime", "2026-04-17 10:44:23.070", filter));
     }
 
@@ -49,9 +49,9 @@ public class AlterProcDirFilterExpressionTest {
         RollupProcDir rollupProcDir = new RollupProcDir(null, null);
         HashMap<String, Expression> filter = buildCreateTimeRangeFilter();
 
-        Assert.assertTrue(rollupProcDir.filterResultExpression(
+        Assertions.assertTrue(rollupProcDir.filterResultExpression(
                 "CreateTime", "2026-04-17 10:44:34.380", filter));
-        Assert.assertFalse(rollupProcDir.filterResultExpression(
+        Assertions.assertFalse(rollupProcDir.filterResultExpression(
                 "CreateTime", "2026-04-17 10:44:23.070", filter));
     }
 
@@ -60,9 +60,9 @@ public class AlterProcDirFilterExpressionTest {
         BuildIndexProcDir buildIndexProcDir = new BuildIndexProcDir(null, null);
         HashMap<String, Expression> filter = buildCreateTimeRangeFilter();
 
-        Assert.assertTrue(buildIndexProcDir.filterResultExpression(
+        Assertions.assertTrue(buildIndexProcDir.filterResultExpression(
                 "CreateTime", "2026-04-17 10:44:34.380", filter));
-        Assert.assertFalse(buildIndexProcDir.filterResultExpression(
+        Assertions.assertFalse(buildIndexProcDir.filterResultExpression(
                 "CreateTime", "2026-04-17 10:44:23.070", filter));
     }
 

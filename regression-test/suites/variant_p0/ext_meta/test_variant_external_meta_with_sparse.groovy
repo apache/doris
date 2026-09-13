@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_variant_external_meta_with_sparse", "nonConcurrent") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def set_be_config = { key, value ->
         String backend_id;
         def backendId_to_backendIP = [:]
@@ -42,9 +43,9 @@ suite("test_variant_external_meta_with_sparse", "nonConcurrent") {
     """
     
     // Insert data that will exceed subcolumn limit, creating sparse columns
-    sql """insert into test_sparse_embedded values (1, '{"a": 1, "b": 2, "c": 3}')"""
-    sql """insert into test_sparse_embedded values (2, '{"a": 10, "b": 20, "c": 30, "d": 40}')"""
-    sql """insert into test_sparse_embedded values (3, '{"a": 100, "e": 500, "f": 600, "g": 700}')"""
+    sql """insert into test_sparse_embedded values (1, ${variantV2Function}('{"a": 1, "b": 2, "c": 3}'))"""
+    sql """insert into test_sparse_embedded values (2, ${variantV2Function}('{"a": 10, "b": 20, "c": 30, "d": 40}'))"""
+    sql """insert into test_sparse_embedded values (3, ${variantV2Function}('{"a": 100, "e": 500, "f": 600, "g": 700}'))"""
     
     // Query extracted columns (should be in external meta)
     qt_sparse_1 "select k, v['a'] from test_sparse_embedded order by k"
@@ -84,7 +85,7 @@ suite("test_variant_external_meta_with_sparse", "nonConcurrent") {
             fields.add("\"sparse_${i}_${j}\": ${i * 100 + j}")
         }
         def json = "{" + fields.join(", ") + "}"
-        sql """insert into test_bucket_sparse values (${i}, '${json}')"""
+        sql """insert into test_bucket_sparse values (${i}, ${variantV2Function}('${json}'))"""
     }
     
     // Query extracted columns
@@ -115,13 +116,13 @@ suite("test_variant_external_meta_with_sparse", "nonConcurrent") {
     """
     
     // Row 1: Only extracted columns
-    sql """insert into test_mixed_column_types values (1, '{"e1": 1, "e2": 2, "e3": 3, "e4": 4, "e5": 5}')"""
+    sql """insert into test_mixed_column_types values (1, ${variantV2Function}('{"e1": 1, "e2": 2, "e3": 3, "e4": 4, "e5": 5}'))"""
     
     // Row 2: Extracted + sparse
-    sql """insert into test_mixed_column_types values (2, '{"e1": 10, "e2": 20, "e3": 30, "e4": 40, "e5": 50, "s1": 60, "s2": 70}')"""
+    sql """insert into test_mixed_column_types values (2, ${variantV2Function}('{"e1": 10, "e2": 20, "e3": 30, "e4": 40, "e5": 50, "s1": 60, "s2": 70}'))"""
     
     // Row 3: Different set of fields
-    sql """insert into test_mixed_column_types values (3, '{"e1": 100, "new1": 200, "new2": 300}')"""
+    sql """insert into test_mixed_column_types values (3, ${variantV2Function}('{"e1": 100, "new1": 200, "new2": 300}'))"""
     
     // Query all types
     qt_mixed_1 "select k, v['e1'] from test_mixed_column_types order by k"  // Exists in all rows (extracted)
@@ -143,12 +144,12 @@ suite("test_variant_external_meta_with_sparse", "nonConcurrent") {
     """
     
     // Segment 1: Within extraction limit
-    sql """insert into test_extraction_threshold values (1, '{"field_a": 1, "field_b": 2}')"""
-    sql """insert into test_extraction_threshold values (2, '{"field_a": 10, "field_b": 20, "field_c": 30}')"""
+    sql """insert into test_extraction_threshold values (1, ${variantV2Function}('{"field_a": 1, "field_b": 2}'))"""
+    sql """insert into test_extraction_threshold values (2, ${variantV2Function}('{"field_a": 10, "field_b": 20, "field_c": 30}'))"""
     
     // Segment 2: Exceeds limit, triggers sparse columns
-    sql """insert into test_extraction_threshold values (3, '{"field_a": 100, "field_b": 200, "field_c": 300, "field_d": 400}')"""
-    sql """insert into test_extraction_threshold values (4, '{"field_a": 1000, "field_e": 5000}')"""
+    sql """insert into test_extraction_threshold values (3, ${variantV2Function}('{"field_a": 100, "field_b": 200, "field_c": 300, "field_d": 400}'))"""
+    sql """insert into test_extraction_threshold values (4, ${variantV2Function}('{"field_a": 1000, "field_e": 5000}'))"""
     
     // All fields should be queryable
     qt_threshold_1 "select k, v['field_a'] from test_extraction_threshold order by k"
@@ -177,13 +178,13 @@ suite("test_variant_external_meta_with_sparse", "nonConcurrent") {
     """
     
     // Write with external meta enabled (V2.1)
-    sql """insert into test_sparse_config_toggle values (1, '{"a": 1, "b": 2, "c": 3, "d": 4}')"""
+    sql """insert into test_sparse_config_toggle values (1, ${variantV2Function}('{"a": 1, "b": 2, "c": 3, "d": 4}'))"""
     
     // Switch to legacy V2
-    sql """insert into test_sparse_config_toggle values (2, '{"a": 10, "b": 20, "c": 30, "e": 50}')"""
+    sql """insert into test_sparse_config_toggle values (2, ${variantV2Function}('{"a": 10, "b": 20, "c": 30, "e": 50}'))"""
     
     // Enable external meta again (V2.1)
-    sql """insert into test_sparse_config_toggle values (3, '{"a": 100, "f": 600, "g": 700}')"""
+    sql """insert into test_sparse_config_toggle values (3, ${variantV2Function}('{"a": 100, "f": 600, "g": 700}'))"""
     
     // All queries should work regardless of which format was used
     qt_toggle_sparse_1 "select k, v['a'] from test_sparse_config_toggle order by k"
@@ -220,7 +221,7 @@ suite("test_variant_external_meta_with_sparse", "nonConcurrent") {
             fields.add("\"unique_${i}_${j}\": ${i * 100 + j}")
         }
         def json = "{" + fields.join(", ") + "}"
-        sql """insert into test_high_cardinality_sparse values (${i}, '${json}')"""
+        sql """insert into test_high_cardinality_sparse values (${i}, ${variantV2Function}('${json}'))"""
     }
     
     // Query common extracted field
@@ -247,5 +248,4 @@ suite("test_variant_external_meta_with_sparse", "nonConcurrent") {
     
     
 }
-
 

@@ -94,6 +94,7 @@ class DataTypeSerDe;
 using DataTypeSerDeSPtr = std::shared_ptr<DataTypeSerDe>;
 using DataTypeSerDeSPtrs = std::vector<DataTypeSerDeSPtr>;
 class ParquetDecodeSource;
+class ParquetLogicalValueConsumer;
 struct ParquetDecodeContext;
 struct ParquetMaterializationState;
 
@@ -515,6 +516,19 @@ public:
     virtual Status read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
                                             const ParquetDecodeContext& context, size_t num_values,
                                             ParquetMaterializationState& state) const;
+    // Convert decoder-owned physical values into contiguous Doris logical POD values and publish
+    // them directly to a predicate sink. Implementations must not construct an IColumn.
+    virtual bool supports_parquet_raw_predicate(const ParquetDecodeContext& context) const;
+    virtual Status read_parquet_raw_predicate(ParquetDecodeSource& source,
+                                              const ParquetDecodeContext& context,
+                                              size_t num_values, bool enable_strict_mode,
+                                              ParquetLogicalValueConsumer& consumer) const;
+    // Raw conversion scratch is owned by the persistent leaf SerDe. The reader accounts active
+    // and retained bytes separately, then asks the SerDe to discard idle oversized capacity using
+    // the same bounded high-water policy as decoder scratch.
+    virtual size_t retained_parquet_raw_predicate_scratch_bytes() const { return 0; }
+    virtual size_t active_parquet_raw_predicate_scratch_bytes() const { return 0; }
+    virtual void release_parquet_raw_predicate_scratch(size_t max_retained_bytes) const {}
     // Decode one dictionary page into the selected Doris type without consuming data-page
     // indices. Dictionary filters use this to keep type interpretation in SerDe instead of
     // exposing dictionary bytes or decoder-owned strings to ColumnReader.

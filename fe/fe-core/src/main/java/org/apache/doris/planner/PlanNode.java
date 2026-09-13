@@ -20,7 +20,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.ColumnAccessPath;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
@@ -36,7 +35,6 @@ import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
@@ -52,6 +50,7 @@ import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
@@ -67,6 +66,7 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -953,33 +953,19 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
             if (slot.getDisplayAllAccessPaths() != null
                     && slot.getDisplayAllAccessPaths() != null
                     && !slot.getDisplayAllAccessPaths().isEmpty()) {
-                if (this instanceof IcebergScanNode) {
-                    displayAllAccessPathsString = mergeIcebergAccessPathsWithId(
-                            slot.getAllAccessPaths(),
-                            slot.getDisplayAllAccessPaths()
-                    );
-                } else {
-                    displayAllAccessPathsString = slot.getDisplayAllAccessPaths()
-                            .stream()
-                            .map(a -> StringUtils.join(a.getPath(), "."))
-                            .collect(Collectors.joining(", "));
-                }
+                displayAllAccessPathsString = slot.getDisplayAllAccessPaths()
+                        .stream()
+                        .map(a -> StringUtils.join(a.getPath(), "."))
+                        .collect(Collectors.joining(", "));
             }
             String displayPredicateAccessPathsString = null;
             if (slot.getDisplayPredicateAccessPaths() != null
                     && slot.getDisplayPredicateAccessPaths() != null
                     && !slot.getDisplayPredicateAccessPaths().isEmpty()) {
-                if (this instanceof IcebergScanNode) {
-                    displayPredicateAccessPathsString = mergeIcebergAccessPathsWithId(
-                            slot.getPredicateAccessPaths(),
-                            slot.getDisplayPredicateAccessPaths()
-                    );
-                } else {
-                    displayPredicateAccessPathsString = slot.getPredicateAccessPaths()
-                            .stream()
-                            .map(a -> StringUtils.join(a.getPath(), "."))
-                            .collect(Collectors.joining(", "));
-                }
+                displayPredicateAccessPathsString = slot.getPredicateAccessPaths()
+                        .stream()
+                        .map(a -> StringUtils.join(a.getPath(), "."))
+                        .collect(Collectors.joining(", "));
             }
 
 
@@ -1013,30 +999,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
                         .append(displayPredicateAccessPathsString).append("]\n");
             }
         }
-    }
-
-    private String mergeIcebergAccessPathsWithId(
-            List<ColumnAccessPath> accessPaths, List<ColumnAccessPath> displayAccessPaths) {
-        List<String> mergeDisplayAccessPaths = Lists.newArrayList();
-        for (int i = 0; i < displayAccessPaths.size(); i++) {
-            ColumnAccessPath displayAccessPath = displayAccessPaths.get(i);
-            ColumnAccessPath idAccessPath = accessPaths.get(i);
-            List<String> nameAccessPathStrings = displayAccessPath.getPath();
-            List<String> idAccessPathStrings = idAccessPath.getPath();
-
-            List<String> mergedPath = new ArrayList<>();
-            for (int j = 0; j < idAccessPathStrings.size(); j++) {
-                String name = nameAccessPathStrings.get(j);
-                String id = idAccessPathStrings.get(j);
-                if (name.equals(id)) {
-                    mergedPath.add(name);
-                } else {
-                    mergedPath.add(name + "(" + id + ")");
-                }
-            }
-            mergeDisplayAccessPaths.add(StringUtils.join(mergedPath, "."));
-        }
-        return StringUtils.join(mergeDisplayAccessPaths, ", ");
     }
 
     public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
@@ -1109,7 +1071,12 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         //   node's sink, e.g. Exchange is in AGG_Sink pipeline).
         // For non-splitting operators (shouldReset=false, e.g. streaming AGG):
         //   Inherit parent's serial flag + this node's own.
-        boolean inheritedSerial = shouldResetSerialFlagForChild(childIndex)
+        boolean startsNewPipeline = shouldResetSerialFlagForChild(childIndex);
+        Supplier<Boolean> currentNodeSerialOnBe = Suppliers.memoize(
+                () -> isSerialOperatorOnBe(translatorContext.getConnectContext()));
+        boolean currentPipelineSerial = translatorContext.hasSerialAncestorInPipeline(this)
+                || currentNodeSerialOnBe.get();
+        boolean inheritedSerial = startsNewPipeline
                 ? false : translatorContext.hasSerialAncestorInPipeline(this);
         // Use isSerialOperatorOnBe (= isSerialNode && fragment.useSerialSource) instead of the
         // raw isSerialNode().  BE's OperatorBase reads the Thrift `is_serial_operator` flag —
@@ -1118,8 +1085,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         // Using isSerialNode here would set the child's serial-ancestor flag wider than BE's
         // view and over-skip required LocalExchanges downstream.
         boolean childHasSerialAncestor = inheritedSerial
-                || isSerialOperatorOnBe(translatorContext.getConnectContext());
+                || currentNodeSerialOnBe.get();
         translatorContext.setHasSerialAncestorInPipeline(child, childHasSerialAncestor);
+        translatorContext.setHasSerialParentPipeline(child, startsNewPipeline
+                ? currentPipelineSerial : translatorContext.hasSerialParentPipeline(this));
 
         // 1b. Propagate shuffle-for-correctness-ancestor flag to child.
         // Mirrors BE's _followed_by_shuffled_operator: a downstream operator needs hash
@@ -1180,7 +1149,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         // Use isSerialOperatorOnBe (not isSerialNode) because BE's Pipeline::need_to_local_exchange
         // checks op->is_serial_operator() which reads the Thrift flag set from isSerialOperatorOnBe;
         // when fragment.useSerialSource is false, BE treats this node as non-serial.
-        if (translatorContext.hasSerialAncestorInPipeline(this)
+        if (translatorContext.hasSerialParentPipeline(this)
+                || translatorContext.hasSerialAncestorInPipeline(this)
                 || isSerialOperatorOnBe(translatorContext.getConnectContext())) {
             return childOutput;
         }

@@ -34,8 +34,53 @@ suite("test_having_project") {
         SELECT 1 AS c1 FROM t HAVING count(1) > 0
     """
 
+    qt_having_map_lambda_local_slots """
+        SELECT id, COUNT(*) AS n
+        FROM (SELECT 1 id UNION ALL SELECT 1 id) input
+        GROUP BY id
+        HAVING map_exists((k, v) -> v > 1, map(1, COUNT(*)))
+        ORDER BY id
+    """
+
+    qt_having_array_lambda_local_slots """
+        SELECT id, COUNT(*) AS n
+        FROM (SELECT 1 id UNION ALL SELECT 1 id) input
+        GROUP BY id
+        HAVING array_match_any(array_map(x -> x > 1, array(COUNT(*))))
+        ORDER BY id
+    """
+
+    test {
+        sql """
+            SELECT id, COUNT(*) AS n
+            FROM (
+                SELECT 1 id, 1 AS ungrouped_col
+                UNION ALL
+                SELECT 1 id, 2 AS ungrouped_col
+            ) input
+            GROUP BY id
+            HAVING array_match_any(array_map(x -> x > 1, array(COUNT(*) + ungrouped_col)))
+        """
+        exception "HAVING expression 'ungrouped_col' must appear in the GROUP BY clause or be used in an aggregate function"
+    }
+
     test {
         sql "SELECT 1 AS c1 FROM t HAVING count(1) > 0 OR c1 IS NOT NULL"
         exception "HAVING expression 'c1' must appear in the GROUP BY clause or be used in an aggregate function"
+    }
+
+    sql "INSERT INTO t VALUES (1)"
+
+    qt_scalar_subquery_having_true """
+        SELECT (SELECT 1 FROM t HAVING SUM(id) > 0) AS scalar_value
+    """
+
+    qt_scalar_subquery_having_false """
+        SELECT (SELECT 1 FROM t HAVING SUM(id) < 0) AS scalar_value
+    """
+
+    test {
+        sql "SELECT (SELECT 1, 2 FROM t HAVING SUM(id) > 0)"
+        exception "Multiple columns returned by subquery are not yet supported. Found 2"
     }
 }

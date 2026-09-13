@@ -315,18 +315,30 @@ struct EncryptionAndDecryptMultiImpl {
         auto& result_offset = result_column->get_offsets();
         result_offset.resize(input_rows_count);
 
-        if ((arg_num == 5) && col_const[1] && col_const[2] && col_const[3] && col_const[4]) {
-            vector_const(assert_cast<const ColumnString*>(argument_columns[0].get()),
-                         argument_columns[1]->get_data_at(0), argument_columns[2]->get_data_at(0),
-                         argument_columns[3]->get_data_at(0), input_rows_count, result_data,
-                         result_offset, result_null_map_column->get_data(),
-                         argument_columns[4]->get_data_at(0));
-        } else if ((arg_num == 4) && col_const[1] && col_const[2] && col_const[3]) {
-            vector_const(assert_cast<const ColumnString*>(argument_columns[0].get()),
-                         argument_columns[1]->get_data_at(0), argument_columns[2]->get_data_at(0),
-                         argument_columns[3]->get_data_at(0), input_rows_count, result_data,
-                         result_offset, result_null_map_column->get_data(), StringRef());
-        } else {
+        // if constexpr: the discarded arg_num instantiation must not index
+        // col_const[4] / argument_columns[4] out of bounds (-Warray-bounds).
+        bool all_params_const = false;
+        if constexpr (arg_num == 5) {
+            if (col_const[1] && col_const[2] && col_const[3] && col_const[4]) {
+                vector_const(assert_cast<const ColumnString*>(argument_columns[0].get()),
+                             argument_columns[1]->get_data_at(0),
+                             argument_columns[2]->get_data_at(0),
+                             argument_columns[3]->get_data_at(0), input_rows_count, result_data,
+                             result_offset, result_null_map_column->get_data(),
+                             argument_columns[4]->get_data_at(0));
+                all_params_const = true;
+            }
+        } else if constexpr (arg_num == 4) {
+            if (col_const[1] && col_const[2] && col_const[3]) {
+                vector_const(assert_cast<const ColumnString*>(argument_columns[0].get()),
+                             argument_columns[1]->get_data_at(0),
+                             argument_columns[2]->get_data_at(0),
+                             argument_columns[3]->get_data_at(0), input_rows_count, result_data,
+                             result_offset, result_null_map_column->get_data(), StringRef());
+                all_params_const = true;
+            }
+        }
+        if (!all_params_const) {
             std::vector<const ColumnString::Offsets*> offsets_list(argument_size);
             std::vector<const ColumnString::Chars*> chars_list(argument_size);
             for (size_t i = 0; i < argument_size; ++i) {

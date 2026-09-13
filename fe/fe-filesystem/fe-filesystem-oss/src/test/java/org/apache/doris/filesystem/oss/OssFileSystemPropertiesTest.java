@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.lang.reflect.Method;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -112,6 +113,41 @@ class OssFileSystemPropertiesTest {
     }
 
     @Test
+    void bind_usesSameDlfAccessPublicSemanticsAsMetastore() {
+        for (String truthy : java.util.Arrays.asList("yes", "ON", "y")) {
+            OssFileSystemProperties properties = OssFileSystemProperties.of(Map.of(
+                    "dlf.region", "cn-hangzhou",
+                    "dlf.access.public", truthy));
+
+            Assertions.assertEquals("oss-cn-hangzhou.aliyuncs.com", properties.getEndpoint());
+        }
+    }
+
+    @Test
+    void bind_acceptsCanonicalDlfCredentialsAndToken() {
+        OssFileSystemProperties properties = OssFileSystemProperties.of(Map.of(
+                "dlf.catalog.endpoint", "dlf.cn-hangzhou.aliyuncs.com",
+                "dlf.catalog.accessKeyId", "dlf-ak",
+                "dlf.catalog.accessKeySecret", "dlf-sk",
+                "dlf.catalog.securityToken", "dlf-token"));
+
+        Assertions.assertEquals("oss-cn-hangzhou-internal.aliyuncs.com", properties.getEndpoint());
+        Assertions.assertEquals("cn-hangzhou", properties.getRegion());
+        Assertions.assertEquals("dlf-ak", properties.getAccessKey());
+        Assertions.assertEquals("dlf-sk", properties.getSecretKey());
+        Assertions.assertEquals("dlf-token", properties.getSessionToken());
+    }
+
+    @Test
+    void bind_derivesRegionFromDlfVpcEndpoint() {
+        OssFileSystemProperties properties = OssFileSystemProperties.of(Map.of(
+                "dlf.catalog.endpoint", "https://dlf-vpc.cn-shanghai.aliyuncs.com"));
+
+        Assertions.assertEquals("cn-shanghai", properties.getRegion());
+        Assertions.assertEquals("oss-cn-shanghai-internal.aliyuncs.com", properties.getEndpoint());
+    }
+
+    @Test
     void toBackendProperties_returnsOnlyAwsCompatibleKeysForBeAdapters() {
         OssFileSystemProperties properties = OssFileSystemProperties.of(Map.of(
                 "oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com",
@@ -131,6 +167,39 @@ class OssFileSystemPropertiesTest {
         Assertions.assertEquals("oss-bucket", backendMap.get("AWS_BUCKET"));
         Assertions.assertEquals("oss-role", backendMap.get("AWS_ROLE_ARN"));
         Assertions.assertFalse(backendMap.keySet().stream().anyMatch(key -> key.startsWith("OSS_")));
+        // Parity with fe-core AbstractS3CompatibleProperties#getAwsCredentialsProviderTypeForBackend:
+        // when static credentials are present the type is omitted (BE uses SimpleAWSCredentialsProvider).
+        Assertions.assertNull(backendMap.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
+    }
+
+    @Test
+    void toBackendProperties_emitsAnonymousProviderTypeWhenNoStaticCredentials() {
+        OssFileSystemProperties properties = OssFileSystemProperties.of(Map.of(
+                "oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com"));
+
+        Map<String, String> backendMap = properties.toBackendProperties().orElseThrow().toMap();
+
+        // Parity with fe-core AbstractS3CompatibleProperties#getAwsCredentialsProviderTypeForBackend:
+        // both access key and secret key blank => anonymous access.
+        Assertions.assertEquals("ANONYMOUS", backendMap.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
+    }
+
+    @Test
+    void toMaps_emitOssTuningDefaultsWhenNotConfigured() {
+        OssFileSystemProperties properties = OssFileSystemProperties.of(Map.of(
+                "oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com"));
+
+        // Parity with fe-core OSSProperties defaults (100 / 10000 / 10000). Literal expected values
+        // (not DEFAULT_* constants) so that mutating a default in the main class fails this guard.
+        Map<String, String> beKv = properties.toMap();
+        Assertions.assertEquals("100", beKv.get("AWS_MAX_CONNECTIONS"));
+        Assertions.assertEquals("10000", beKv.get("AWS_REQUEST_TIMEOUT_MS"));
+        Assertions.assertEquals("10000", beKv.get("AWS_CONNECTION_TIMEOUT_MS"));
+
+        Map<String, String> hadoopKv = properties.toHadoopConfigurationMap();
+        Assertions.assertEquals("100", hadoopKv.get("fs.s3a.connection.maximum"));
+        Assertions.assertEquals("10000", hadoopKv.get("fs.s3a.connection.request.timeout"));
+        Assertions.assertEquals("10000", hadoopKv.get("fs.s3a.connection.timeout"));
     }
 
     @Test
@@ -179,5 +248,50 @@ class OssFileSystemPropertiesTest {
         for (Method method : OssObjStorage.class.getDeclaredMethods()) {
             Assertions.assertNotEquals("toS3Props", method.getName());
         }
+    }
+
+    // ------------------------------------------------------------------
+    // uri-derived endpoint/region (legacy AbstractS3CompatibleProperties
+    // setEndpointIfPossible leg 2). Expected values are hardcoded from the
+    // legacy fe-core S3URI algorithm — do not "fix" them to look nicer.
+    // ------------------------------------------------------------------
+
+    @Test
+    void uriOnly_virtualHostedAliyuncsUri_derivesEndpointAndRegion() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("uri", "https://mybucket.oss-cn-hangzhou.aliyuncs.com/data/file.csv");
+        raw.put("oss.access_key", "ak");
+        raw.put("oss.secret_key", "sk");
+
+        OssFileSystemProperties properties = OssFileSystemProperties.of(raw);
+
+        Assertions.assertEquals("oss-cn-hangzhou.aliyuncs.com", properties.getEndpoint());
+        Assertions.assertEquals("cn-hangzhou", properties.getRegion());
+    }
+
+    @Test
+    void uriPlusExplicitEndpoint_explicitEndpointWins() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("uri", "https://mybucket.oss-cn-hangzhou.aliyuncs.com/data/file.csv");
+        raw.put("oss.endpoint", "oss-cn-beijing.aliyuncs.com");
+        raw.put("oss.access_key", "ak");
+        raw.put("oss.secret_key", "sk");
+
+        OssFileSystemProperties properties = OssFileSystemProperties.of(raw);
+
+        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", properties.getEndpoint());
+        Assertions.assertEquals("cn-beijing", properties.getRegion());
+    }
+
+    @Test
+    void unparsableUri_isSwallowed_thenRegionNotSetFires() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("uri", "oss-cn-hangzhou.aliyuncs.com/bucket/file.csv"); // no scheme
+        raw.put("oss.access_key", "ak");
+        raw.put("oss.secret_key", "sk");
+
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> OssFileSystemProperties.of(raw));
+        Assertions.assertTrue(exception.getMessage().contains("Region is not set"), exception.getMessage());
     }
 }

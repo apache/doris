@@ -20,6 +20,8 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
 
+#include <algorithm>
+#include <iterator>
 #include <memory>
 #include <random>
 
@@ -70,8 +72,19 @@ bool RowsetMeta::init(const RowsetMeta* rowset_meta) {
 }
 
 bool RowsetMeta::init_from_pb(const RowsetMetaPB& rowset_meta_pb) {
+    if (rowset_meta_pb.has_inverted_index_storage_format()) {
+        _rowset_meta_pb.set_inverted_index_storage_format(
+                rowset_meta_pb.inverted_index_storage_format());
+    } else {
+        _rowset_meta_pb.clear_inverted_index_storage_format();
+    }
     if (rowset_meta_pb.has_tablet_schema()) {
-        set_tablet_schema(rowset_meta_pb.tablet_schema());
+        TabletSchemaPB schema_pb = rowset_meta_pb.tablet_schema();
+        if (rowset_meta_pb.has_inverted_index_storage_format()) {
+            schema_pb.set_inverted_index_storage_format(
+                    rowset_meta_pb.inverted_index_storage_format());
+        }
+        set_tablet_schema(schema_pb);
     }
     // Release ownership of TabletSchemaPB from `rowset_meta_pb` and then set it back to `rowset_meta_pb`,
     // this won't break const semantics of `rowset_meta_pb`, because `rowset_meta_pb` is not changed
@@ -209,6 +222,10 @@ void RowsetMeta::to_rowset_pb(RowsetMetaPB* rs_meta_pb, bool skip_schema) const 
         if (!skip_schema) {
             // For cloud, separate tablet schema from rowset meta to reduce persistent size.
             _schema->to_schema_pb(rs_meta_pb->mutable_tablet_schema());
+            if (rs_meta_pb->has_inverted_index_storage_format()) {
+                rs_meta_pb->mutable_tablet_schema()->set_inverted_index_storage_format(
+                        rs_meta_pb->inverted_index_storage_format());
+            }
         }
     }
     rs_meta_pb->set_has_variant_type_in_schema(has_variant_type_in_schema());
@@ -221,6 +238,12 @@ RowsetMetaPB RowsetMeta::get_rowset_pb(bool skip_schema) const {
 }
 
 void RowsetMeta::set_tablet_schema(const TabletSchemaSPtr& tablet_schema) {
+    if (_rowset_meta_pb.has_inverted_index_storage_format()) {
+        TabletSchemaPB schema_pb;
+        tablet_schema->to_schema_pb(&schema_pb);
+        set_tablet_schema(schema_pb);
+        return;
+    }
     if (_handle) {
         TabletSchemaCache::instance()->release(_handle);
     }
@@ -230,13 +253,28 @@ void RowsetMeta::set_tablet_schema(const TabletSchemaSPtr& tablet_schema) {
 }
 
 void RowsetMeta::set_tablet_schema(const TabletSchemaPB& tablet_schema) {
+    TabletSchemaPB resolved_schema = tablet_schema;
+    if (_rowset_meta_pb.has_inverted_index_storage_format()) {
+        resolved_schema.set_inverted_index_storage_format(
+                _rowset_meta_pb.inverted_index_storage_format());
+    }
     if (_handle) {
         TabletSchemaCache::instance()->release(_handle);
     }
     auto pair = TabletSchemaCache::instance()->insert(
-            TabletSchema::deterministic_string_serialize(tablet_schema));
+            TabletSchema::deterministic_string_serialize(resolved_schema));
     _handle = pair.first;
     _schema = pair.second;
+}
+
+void RowsetMeta::set_inverted_index_storage_format(InvertedIndexStorageFormatPB format) {
+    _rowset_meta_pb.set_inverted_index_storage_format(format);
+    if (_schema && _schema->get_inverted_index_storage_format() != format) {
+        TabletSchemaPB schema_pb;
+        _schema->to_schema_pb(&schema_pb);
+        schema_pb.set_inverted_index_storage_format(format);
+        set_tablet_schema(schema_pb);
+    }
 }
 
 bool RowsetMeta::_deserialize_from_pb(std::string_view value) {
@@ -245,7 +283,12 @@ bool RowsetMeta::_deserialize_from_pb(std::string_view value) {
         return false;
     }
     if (_rowset_meta_pb.has_tablet_schema()) {
-        set_tablet_schema(_rowset_meta_pb.tablet_schema());
+        TabletSchemaPB schema_pb = _rowset_meta_pb.tablet_schema();
+        if (_rowset_meta_pb.has_inverted_index_storage_format()) {
+            schema_pb.set_inverted_index_storage_format(
+                    _rowset_meta_pb.inverted_index_storage_format());
+        }
+        set_tablet_schema(schema_pb);
         _rowset_meta_pb.set_allocated_tablet_schema(nullptr);
     }
     return true;
@@ -258,6 +301,10 @@ bool RowsetMeta::_serialize_to_pb(std::string* value) {
     RowsetMetaPB rowset_meta_pb = _rowset_meta_pb;
     if (_schema) {
         _schema->to_schema_pb(rowset_meta_pb.mutable_tablet_schema());
+        if (rowset_meta_pb.has_inverted_index_storage_format()) {
+            rowset_meta_pb.mutable_tablet_schema()->set_inverted_index_storage_format(
+                    rowset_meta_pb.inverted_index_storage_format());
+        }
     }
     return rowset_meta_pb.SerializeToString(value);
 }
@@ -268,7 +315,40 @@ void RowsetMeta::_init() {
     } else {
         _rowset_id.init(_rowset_meta_pb.rowset_id_v2());
     }
+    _validate_segment_ids();
     update_metadata_size();
+}
+
+void RowsetMeta::_validate_segment_ids() const {
+    if (!has_segment_ids()) {
+        return;
+    }
+    DORIS_CHECK_EQ(_rowset_meta_pb.segment_ids_size(), _rowset_meta_pb.num_segments());
+    int64_t prev_segment_id = -1;
+    for (const auto segment_id : _rowset_meta_pb.segment_ids()) {
+        DORIS_CHECK_GE(segment_id, 0);
+        DORIS_CHECK_GT(segment_id, prev_segment_id);
+        prev_segment_id = segment_id;
+    }
+}
+
+void RowsetMeta::set_segment_ids(const std::vector<int64_t>& segment_ids) {
+    _rowset_meta_pb.mutable_segment_ids()->Assign(segment_ids.begin(), segment_ids.end());
+    set_num_segments(cast_set<int64_t>(segment_ids.size()));
+    _validate_segment_ids();
+}
+
+size_t RowsetMeta::position_of(int64_t seg_id) const {
+    DORIS_CHECK_GE(seg_id, 0);
+    if (!has_segment_ids()) {
+        DORIS_CHECK_LT(seg_id, num_segments());
+        return cast_set<size_t>(seg_id);
+    }
+    const auto& segment_ids = _rowset_meta_pb.segment_ids();
+    auto it = std::lower_bound(segment_ids.begin(), segment_ids.end(), seg_id);
+    DORIS_CHECK(it != segment_ids.end());
+    DORIS_CHECK_EQ(*it, seg_id);
+    return cast_set<size_t>(std::distance(segment_ids.begin(), it));
 }
 
 void RowsetMeta::add_segments_file_size(const std::vector<size_t>& seg_file_size) {
@@ -278,13 +358,13 @@ void RowsetMeta::add_segments_file_size(const std::vector<size_t>& seg_file_size
     }
 }
 
-int64_t RowsetMeta::segment_file_size(int seg_id) const {
+int64_t RowsetMeta::segment_file_size_by_pos(size_t pos) const {
     DCHECK(_rowset_meta_pb.segments_file_size().empty() ||
-           _rowset_meta_pb.segments_file_size_size() > seg_id)
-            << _rowset_meta_pb.segments_file_size_size() << ' ' << seg_id;
+           _rowset_meta_pb.segments_file_size_size() > cast_set<int>(pos))
+            << _rowset_meta_pb.segments_file_size_size() << ' ' << pos;
     return _rowset_meta_pb.enable_segments_file_size()
-                   ? (_rowset_meta_pb.segments_file_size_size() > seg_id
-                              ? _rowset_meta_pb.segments_file_size(seg_id)
+                   ? (_rowset_meta_pb.segments_file_size_size() > cast_set<int>(pos)
+                              ? _rowset_meta_pb.segments_file_size(cast_set<int>(pos))
                               : -1)
                    : -1;
 }
@@ -404,10 +484,10 @@ int64_t RowsetMeta::get_metadata_size() const {
     return sizeof(RowsetMeta) + _rowset_meta_pb.ByteSizeLong();
 }
 
-InvertedIndexFileInfo RowsetMeta::inverted_index_file_info(int seg_id) {
+InvertedIndexFileInfo RowsetMeta::inverted_index_file_info_by_pos(size_t pos) const {
     return _rowset_meta_pb.enable_inverted_index_file_info()
-                   ? (_rowset_meta_pb.inverted_index_file_info_size() > seg_id
-                              ? _rowset_meta_pb.inverted_index_file_info(seg_id)
+                   ? (_rowset_meta_pb.inverted_index_file_info_size() > cast_set<int>(pos)
+                              ? _rowset_meta_pb.inverted_index_file_info(cast_set<int>(pos))
                               : InvertedIndexFileInfo())
                    : InvertedIndexFileInfo();
 }

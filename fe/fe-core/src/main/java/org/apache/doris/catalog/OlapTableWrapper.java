@@ -20,7 +20,10 @@ package org.apache.doris.catalog;
 import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.common.Pair;
 
+import com.google.common.collect.ImmutableMap;
+
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,24 +42,38 @@ public class OlapTableWrapper extends OlapTable {
 
     protected final OlapTable originTable;
     private final Map<Long, Pair<Long, Long>> partitionOffsetMap; // partitionId -> (startOffset, endOffset)
+    private final Map<Long, Long> partitionVisibleVersionMap;
 
     protected OlapTableWrapper(OlapTable originTable, String wrapperName, List<Column> baseSchema, KeysType keysType,
                                Map<Long, Pair<Long, Long>> partitionOffsetMap) {
+        this(originTable, wrapperName, baseSchema, keysType, partitionOffsetMap, Collections.emptyMap());
+    }
+
+    protected OlapTableWrapper(OlapTable originTable, String wrapperName, List<Column> baseSchema, KeysType keysType,
+                               Map<Long, Pair<Long, Long>> partitionOffsetMap,
+                               Map<Long, Long> partitionVisibleVersionMap) {
         super(originTable.getId(), wrapperName, baseSchema,
                 keysType, originTable.getPartitionInfo(), originTable.getDefaultDistributionInfo());
         this.originTable = originTable;
         this.setBaseIndexId(originTable.getBaseIndexId());
         this.setQualifiedDbName(originTable.getQualifiedDbName());
         this.partitionOffsetMap = partitionOffsetMap;
+        this.partitionVisibleVersionMap = ImmutableMap.copyOf(partitionVisibleVersionMap);
     }
 
     public OlapTableWrapper(OlapTable originTable, Map<Long, Pair<Long, Long>> partitionOffsetMap) {
+        this(originTable, partitionOffsetMap, Collections.emptyMap());
+    }
+
+    public OlapTableWrapper(OlapTable originTable, Map<Long, Pair<Long, Long>> partitionOffsetMap,
+                            Map<Long, Long> partitionVisibleVersionMap) {
         super(originTable.getId(), originTable.getName(), originTable.getBaseSchema(),
                 originTable.getKeysType(), originTable.getPartitionInfo(), originTable.getDefaultDistributionInfo());
         this.originTable = originTable;
         this.setBaseIndexId(originTable.getBaseIndexId());
         this.setQualifiedDbName(originTable.getQualifiedDbName());
         this.partitionOffsetMap = partitionOffsetMap;
+        this.partitionVisibleVersionMap = ImmutableMap.copyOf(partitionVisibleVersionMap);
     }
 
     protected OlapTableWrapper(OlapTable originTable) {
@@ -177,6 +194,14 @@ public class OlapTableWrapper extends OlapTable {
         return partitionOffsetMap.get(partitionId);
     }
 
+    public boolean hasFixedVisibleVersions() {
+        return !partitionVisibleVersionMap.isEmpty();
+    }
+
+    public Map<Long, Long> getPartitionVisibleVersionMap() {
+        return partitionVisibleVersionMap;
+    }
+
     @Override
     public boolean equals(Object obj) {
         if (!super.equals(obj)) {
@@ -184,11 +209,13 @@ public class OlapTableWrapper extends OlapTable {
         }
         OlapTableWrapper other = (OlapTableWrapper) obj;
         return originTable.equals(other.originTable)
-                && partitionOffsetMap.equals(other.partitionOffsetMap);
+                && partitionOffsetMap.equals(other.partitionOffsetMap)
+                && partitionVisibleVersionMap.equals(other.partitionVisibleVersionMap);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), originTable.getId());
+        return Objects.hash(super.hashCode(), originTable.getId(), partitionOffsetMap,
+                partitionVisibleVersionMap);
     }
 }

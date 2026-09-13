@@ -25,6 +25,7 @@
 #include <memory>
 #include <utility>
 
+#include "common/check.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "core/column/column.h"
 #include "core/custom_allocator.h"
@@ -76,7 +77,6 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::init() {
     // get the block compression codec
     RETURN_IF_ERROR(get_block_compression_codec(_metadata.codec, &_block_compress_codec));
     _state = INITIALIZED;
-    RETURN_IF_ERROR(_parse_first_page_header());
     return Status::OK();
 }
 
@@ -103,20 +103,28 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::skip_nested_values(
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_parse_first_page_header() {
-    RETURN_IF_ERROR(parse_page_header());
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_ensure_dictionary_page_loaded() {
+    if (_dict_checked) {
+        return Status::OK();
+    }
 
+    DORIS_CHECK(_state == INITIALIZED);
+    RETURN_IF_ERROR(_page_reader->parse_page_header());
     const tparquet::PageHeader* header = nullptr;
     RETURN_IF_ERROR(_page_reader->get_page_header(&header));
     if (header->type == tparquet::PageType::DICTIONARY_PAGE) {
-        // the first page maybe directory page even if _metadata.__isset.dictionary_page_offset == false,
-        // so we should parse the directory page in next_page()
         RETURN_IF_ERROR(_decode_dict_page());
-        // parse the real first data page
         RETURN_IF_ERROR(_page_reader->dict_next_page());
-        _state = INITIALIZED;
     }
 
+    _dict_checked = true;
+    return Status::OK();
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_dictionary_page(bool* has_dict) {
+    RETURN_IF_ERROR(_ensure_dictionary_page_loaded());
+    *has_dict = _has_dict;
     return Status::OK();
 }
 
@@ -125,6 +133,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
     if (_state == HEADER_PARSED || _state == DATA_LOADED) {
         return Status::OK();
     }
+    RETURN_IF_ERROR(_ensure_dictionary_page_loaded());
     RETURN_IF_ERROR(_page_reader->parse_page_header());
 
     const tparquet::PageHeader* header = nullptr;
@@ -145,8 +154,14 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::next_page() {
-    _state = INITIALIZED;
+    if constexpr (OFFSET_INDEX) {
+        RETURN_IF_ERROR(_ensure_dictionary_page_loaded());
+    } else {
+        // Sequential readers need the current header to locate the next page.
+        DORIS_CHECK(_state == HEADER_PARSED || _state == DATA_LOADED);
+    }
     RETURN_IF_ERROR(_page_reader->next_page());
+    _state = INITIALIZED;
     return Status::OK();
 }
 

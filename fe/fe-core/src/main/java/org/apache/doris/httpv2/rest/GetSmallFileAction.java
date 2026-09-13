@@ -18,9 +18,7 @@
 package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.util.SmallFileMgr;
-import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 
 import com.google.common.base.Strings;
@@ -40,11 +38,6 @@ public class GetSmallFileAction extends RestBaseController {
 
     @RequestMapping(path = "/api/get_small_file", method = RequestMethod.GET)
     public Object execute(HttpServletRequest request, HttpServletResponse response) {
-        if (Config.enable_all_http_auth) {
-            ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
-            checkAdminAuth(authInfo.userIdentity);
-        }
-
         String token = request.getParameter("token");
         String fileIdStr = request.getParameter("file_id");
         // check param empty
@@ -53,6 +46,10 @@ public class GetSmallFileAction extends RestBaseController {
         }
 
         // check token
+        // The cluster token is the credential the internal callers of this endpoint present: BE
+        // downloads small files with `token=<cluster token>` and no user, and so does the CDC
+        // client. It authenticates the request the same way an auth token does on the BE HTTP
+        // interfaces, so requiring credentials on top of it would lock those callers out.
         if (!token.equals(Env.getCurrentEnv().getToken())) {
             return ResponseEntityBuilder.okWithCommonError("Invalid token");
         }

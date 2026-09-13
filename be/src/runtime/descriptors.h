@@ -362,6 +362,7 @@ public:
 
     int num_materialized_slots() const { return _num_materialized_slots; }
     MOCK_FUNCTION const std::vector<SlotDescriptor*>& slots() const { return _slots; }
+    int get_column_id(SlotId slot_id) const;
 
     bool has_varlen_slots() const { return _has_varlen_slots; }
     const TableDescriptor* table_desc() const { return _table_desc; }
@@ -469,6 +470,8 @@ public:
             _num_slots += (*it)->slots().size();
         }
     }
+
+    RowDescriptor& operator=(const RowDescriptor&) = default;
 
     RowDescriptor(TupleDescriptor* tuple_desc);
 

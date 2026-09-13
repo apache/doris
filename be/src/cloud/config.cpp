@@ -49,11 +49,15 @@ DEFINE_mInt32(lease_compaction_interval_seconds, "20");
 DEFINE_mBool(enable_parallel_cumu_compaction, "false");
 DEFINE_mDouble(base_compaction_thread_num_factor, "0.25");
 DEFINE_mDouble(cumu_compaction_thread_num_factor, "0.5");
+DEFINE_mDouble(binlog_compaction_thread_num_factor, "0.25");
 DEFINE_mInt32(check_auto_compaction_interval_seconds, "5");
 DEFINE_mInt32(max_base_compaction_task_num_per_disk, "2");
 DEFINE_mBool(prioritize_query_perf_in_compaction, "false");
 DEFINE_mInt32(compaction_max_rowset_count, "10000");
 DEFINE_mInt64(compaction_txn_max_size_bytes, "7340032"); // 7MB
+DEFINE_mBool(enable_cloud_single_rowset_compaction, "false");
+DEFINE_mInt32(cloud_single_rowset_compaction_min_segments, "512");
+DEFINE_mInt32(cloud_single_rowset_compaction_segment_group_size, "64");
 
 DEFINE_mInt32(refresh_s3_info_interval_s, "60");
 DEFINE_mInt32(vacuum_stale_rowsets_interval_s, "300");
@@ -162,6 +166,10 @@ DEFINE_mInt64(file_cache_warmup_download_rate_limit_bytes_per_second, "104857600
 DEFINE_mInt64(peer_candidate_cleanup_interval_s, "3600"); // cleanup interval, 1 hour
 DEFINE_mInt64(peer_candidate_expiry_s, "3600");           // candidate expiry, 1 hour
 DEFINE_mInt32(peer_rpc_failure_eviction_threshold, "3");  // consecutive failures to evict
+// Consecutive connection or RPC failures to one peer address before opening its circuit.
+DEFINE_mInt32(cache_peer_read_failure_threshold, "3");
+// Seconds to reject reads to a peer address before allowing one recovery probe.
+DEFINE_mInt32(cache_peer_read_circuit_open_seconds, "30");
 DEFINE_mInt32(peer_all_miss_cooldown_threshold,
               "5"); // consecutive all-miss races to trigger cooldown
 DEFINE_mInt64(peer_all_miss_cooldown_duration_s, "300"); // cooldown duration, 5 minutes
@@ -191,6 +199,7 @@ DEFINE_mBool(enable_file_cache_write_cumu_compaction_index_only, "false");
 
 // MS RPC rate limiting config
 DEFINE_mBool(enable_ms_rpc_host_level_rate_limit, "false");
+DEFINE_mBool(enable_ms_rpc_host_level_rate_limit_dry_run, "true");
 
 // Per-RPC QPS limit configs (per CPU core)
 // QPS limit = config_value * num_cores
@@ -222,6 +231,7 @@ DEFINE_mInt32(ms_rpc_qps_update_packed_file_info, "-1");
 
 // Table-level backpressure handling config
 DEFINE_mBool(enable_ms_backpressure_handling, "false");
+DEFINE_mBool(enable_ms_backpressure_handling_dry_run, "true");
 DEFINE_Int32(ms_rpc_table_qps_window_sec, "3");
 
 // Throttle upgrade config

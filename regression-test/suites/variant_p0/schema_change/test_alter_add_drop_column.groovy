@@ -16,6 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_add_drop_column", "variant_type"){
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def table_name = "variant_add_drop_column"
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """
@@ -27,29 +28,29 @@ suite("regression_test_variant_add_drop_column", "variant_type"){
         DISTRIBUTED BY HASH(k) BUCKETS 1
         properties("replication_num" = "1", "disable_auto_compaction" = "true");
     """
-    sql """insert into variant_add_drop_column values (1, '{"a" : 12345,"b" : 2}')"""
+    sql """insert into variant_add_drop_column values (1, ${variantV2Function}('{"a" : 12345,"b" : 2}'))"""
 
     sql "alter table variant_add_drop_column add column v2 variant default null"
     sql "alter table variant_add_drop_column add column t1 datetime default null"
     sql "alter table variant_add_drop_column add column t2 datetime default null"
-    sql """insert into variant_add_drop_column values (1, '{"a" : 12345234567,"b" : 2}', '{"xxx" : 1}', "2021-01-01 01:01:01", "2021-01-01 01:01:01")"""
+    sql """insert into variant_add_drop_column values (1, ${variantV2Function}('{"a" : 12345234567,"b" : 2}'), ${variantV2Function}('{"xxx" : 1}'), "2021-01-01 01:01:01", "2021-01-01 01:01:01")"""
     sql "alter table variant_add_drop_column add column i1 int default null"
-    sql """insert into variant_add_drop_column values (2, '{"a" : 12345,"b" : 2}', '{"xxx" : 1}', "2021-01-01 01:01:01", "2021-01-01 01:01:01", 12345)"""
+    sql """insert into variant_add_drop_column values (2, ${variantV2Function}('{"a" : 12345,"b" : 2}'), ${variantV2Function}('{"xxx" : 1}'), "2021-01-01 01:01:01", "2021-01-01 01:01:01", 12345)"""
     sql "alter table variant_add_drop_column drop column t1"
-    sql """insert into variant_add_drop_column values (3, '{"a" : 12345,"b" : 2}', '{"xxx" : 1}', "2021-01-01 01:01:01", 12345)"""
+    sql """insert into variant_add_drop_column values (3, ${variantV2Function}('{"a" : 12345,"b" : 2}'), ${variantV2Function}('{"xxx" : 1}'), "2021-01-01 01:01:01", 12345)"""
     sql "alter table variant_add_drop_column drop column t2"
-    sql """insert into variant_add_drop_column values (4, '{"a" : 12345,"b" : 2}', '{"xxx" : 1}', 12345)"""
+    sql """insert into variant_add_drop_column values (4, ${variantV2Function}('{"a" : 12345,"b" : 2}'), ${variantV2Function}('{"xxx" : 1}'), 12345)"""
     sql "alter table variant_add_drop_column drop column i1"
-    sql """insert into variant_add_drop_column values (5, '{"a" : 12345,"b" : 2}', '{"xxx" : 1}')"""
+    sql """insert into variant_add_drop_column values (5, ${variantV2Function}('{"a" : 12345,"b" : 2}'), ${variantV2Function}('{"xxx" : 1}'))"""
     sql "alter table variant_add_drop_column drop column v"
-    sql """insert into variant_add_drop_column values (6, '{"a" : 12345,"b" : 2}')"""
+    sql """insert into variant_add_drop_column values (6, ${variantV2Function}('{"a" : 12345,"b" : 2}'))"""
     sql "alter table variant_add_drop_column add column v variant default null"
-    sql """insert into variant_add_drop_column values (7, '{"a" : 12345,"b" : 2}', '{"a" : 12345,"b" : 2}')"""
+    sql """insert into variant_add_drop_column values (7, ${variantV2Function}('{"a" : 12345,"b" : 2}'), ${variantV2Function}('{"a" : 12345,"b" : 2}'))"""
     sql "alter table variant_add_drop_column add column v3 variant default null"
-    sql """insert into variant_add_drop_column values (8, '{"a" : 12345,"b" : 2}', '{"a" : 12345,"b" : 2}', '{"a" : 12345,"b" : 2}')"""
+    sql """insert into variant_add_drop_column values (8, ${variantV2Function}('{"a" : 12345,"b" : 2}'), ${variantV2Function}('{"a" : 12345,"b" : 2}'), ${variantV2Function}('{"a" : 12345,"b" : 2}'))"""
     sql "alter table variant_add_drop_column drop column v"
     sql "alter table variant_add_drop_column drop column v2"
-    sql """insert into variant_add_drop_column values (9, '{"a" : 12345,"b" : 2}')"""
+    sql """insert into variant_add_drop_column values (9, ${variantV2Function}('{"a" : 12345,"b" : 2}'))"""
 
     // trigger compactions for all tablets in ${tableName}
     def tablets = sql_return_maparray """ show tablets from ${table_name}; """

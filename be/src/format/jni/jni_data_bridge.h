@@ -140,6 +140,12 @@ public:
      */
     static std::string get_jni_type_with_different_string(const DataTypePtr& data_type);
 
+    /** Encodes every list element independently so schema delimiters remain unambiguous. */
+    static std::string encode_schema_values(const std::vector<std::string>& values);
+
+    /** Encodes STRUCT field names inside a JNI type descriptor. */
+    static std::string get_jni_type_with_encoded_struct_fields(const DataTypePtr& data_type);
+
 private:
     // Column fill helpers for various types
     static Status _fill_string_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
@@ -170,6 +176,7 @@ private:
                  !std::is_same_v<COLUMN_TYPE, ColumnDateTime> &&
                  !std::is_same_v<COLUMN_TYPE, ColumnDateV2> &&
                  !std::is_same_v<COLUMN_TYPE, ColumnDateTimeV2> &&
+                 !std::is_same_v<COLUMN_TYPE, ColumnTimeStampNs> &&
                  !std::is_same_v<COLUMN_TYPE, ColumnTimeStampTz>)
     static Status _fill_fixed_length_column(MutableColumnPtr& doris_column, CPP_TYPE* ptr,
                                             size_t num_rows) {
@@ -182,7 +189,8 @@ private:
 
     template <typename COLUMN_TYPE, typename CPP_TYPE>
         requires(std::is_same_v<COLUMN_TYPE, ColumnDate> ||
-                 std::is_same_v<COLUMN_TYPE, ColumnDateTime>)
+                 std::is_same_v<COLUMN_TYPE, ColumnDateTime> ||
+                 std::is_same_v<COLUMN_TYPE, ColumnTimeStampNs>)
     static Status _fill_fixed_length_column(MutableColumnPtr& doris_column, CPP_TYPE* ptr,
                                             size_t num_rows) {
         auto& column_data = assert_cast<COLUMN_TYPE&>(*doris_column).get_data();

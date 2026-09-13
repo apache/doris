@@ -54,7 +54,8 @@ suite("test_hive_base_case_auth", "p0,auth_call") {
         connect(user, "${pwd}", context.config.jdbcUrl) {
             test {
                 sql """create catalog if not exists ${catalogName} properties (
-                    'type'='hms'
+                    'type'='hms',
+                    'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
                 );"""
                 exception "denied"
             }
@@ -62,7 +63,8 @@ suite("test_hive_base_case_auth", "p0,auth_call") {
             assertTrue(ctl_res.size() == 1)
         }
         sql """create catalog if not exists ${catalogName} properties (
-            'type'='hms'
+            'type'='hms',
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
         );"""
         sql """grant Create_priv on ${catalogName}.*.* to ${user}"""
         try_sql """drop catalog if exists ${catalogName}"""

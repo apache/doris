@@ -18,6 +18,8 @@
 #pragma once
 
 #include <butil/macros.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/QueryCache_types.h>
 #include <glog/logging.h>
 #include <stddef.h>
 #include <stdint.h>

@@ -24,14 +24,13 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.property.storage.BrokerProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.DorisInputFile;
 import org.apache.doris.filesystem.DorisOutputFile;
 import org.apache.doris.filesystem.FileEntry;
@@ -169,20 +168,20 @@ public class Repository implements Writable, GsonPostProcessable {
     }
 
     public Repository(long id, String name, boolean isReadOnly, String location,
-            StorageProperties storageProperties) {
+            StorageAdapter storageAdapter) {
         this.id = id;
         this.name = name;
         this.isReadOnly = isReadOnly;
         this.location = location;
-        String fsName = (storageProperties instanceof BrokerProperties)
-                ? ((BrokerProperties) storageProperties).getBrokerName() : "";
-        this.fileSystemDescriptor = FileSystemDescriptor.fromStorageProperties(storageProperties, fsName);
+        String fsName = (storageAdapter.getType() == StorageTypeId.BROKER)
+                ? storageAdapter.getBrokerName() : "";
+        this.fileSystemDescriptor = FileSystemDescriptor.fromStorageAdapter(storageAdapter, fsName);
         this.createTime = System.currentTimeMillis();
         // Initialize SPI filesystem for I/O; broker resolves a live endpoint per I/O call
         if (fileSystemDescriptor.getStorageType() != FsStorageType.BROKER
                 && !FeConstants.runningUnitTest) {
             try {
-                this.spiFs = FileSystemFactory.getFileSystem(storageProperties);
+                this.spiFs = FileSystemFactory.getFileSystem(storageAdapter);
             } catch (IOException e) {
                 throw new IllegalStateException(
                         "Failed to initialize SPI filesystem for repository '" + name + "': " + e.getMessage(), e);
@@ -253,14 +252,14 @@ public class Repository implements Writable, GsonPostProcessable {
             Map<String, String> props = legacyFs.properties != null ? legacyFs.properties : new HashMap<>();
             String fsName = legacyFs.name != null ? legacyFs.name : "";
             try {
-                StorageProperties storageProperties = StorageProperties.createPrimary(props);
-                fileSystemDescriptor = FileSystemDescriptor.fromStorageProperties(storageProperties, "");
+                StorageAdapter storageAdapter = StorageAdapter.of(props);
+                fileSystemDescriptor = FileSystemDescriptor.fromStorageAdapter(storageAdapter, "");
             } catch (RuntimeException e) {
                 LOG.warn("Repository '{}': primary storage migration failed ({}), trying broker fallback",
                         name, e.getMessage());
                 try {
-                    BrokerProperties brokerProperties = BrokerProperties.of(fsName, props);
-                    fileSystemDescriptor = FileSystemDescriptor.fromStorageProperties(brokerProperties, fsName);
+                    StorageAdapter brokerAdapter = StorageAdapter.ofBroker(fsName, props);
+                    fileSystemDescriptor = FileSystemDescriptor.fromStorageAdapter(brokerAdapter, fsName);
                 } catch (RuntimeException e2) {
                     LOG.error("Repository '{}': failed to migrate legacy filesystem metadata: {}",
                             name, e2.getMessage());
@@ -275,7 +274,7 @@ public class Repository implements Writable, GsonPostProcessable {
         // Initialize SPI filesystem for I/O; broker resolves a live endpoint per I/O call
         if (fileSystemDescriptor.getStorageType() != FsStorageType.BROKER) {
             try {
-                this.spiFs = FileSystemFactory.getFileSystem(StorageProperties.createPrimary(fsProps));
+                this.spiFs = FileSystemFactory.getFileSystem(StorageAdapter.of(fsProps));
             } catch (IOException | RuntimeException e) {
                 LOG.warn("Failed to initialize SPI filesystem for repository {}: {}", name, e.getMessage());
             }
@@ -299,12 +298,8 @@ public class Repository implements Writable, GsonPostProcessable {
                 || fileSystemDescriptor.getStorageType() == FsStorageType.BROKER) {
             return location;
         }
-        try {
-            return StorageProperties.createPrimary(fileSystemDescriptor.getProperties())
-                    .validateAndNormalizeUri(location);
-        } catch (UserException e) {
-            throw new RuntimeException(e);
-        }
+        return StorageAdapter.of(fileSystemDescriptor.getProperties())
+                .validateAndNormalizeUri(location);
     }
 
     public String getErrorMsg() {
@@ -332,14 +327,14 @@ public class Repository implements Writable, GsonPostProcessable {
         }
         // Broker: resolve live endpoint and create a per-call filesystem
         try {
-            BrokerProperties bp = BrokerProperties.of(fileSystemDescriptor.getName(),
+            StorageAdapter brokerAdapter = StorageAdapter.ofBroker(fileSystemDescriptor.getName(),
                     fileSystemDescriptor.getProperties());
             FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getBroker(fileSystemDescriptor.getName(),
                     FrontendOptions.getLocalHostAddress());
             String clientId = NetUtils.getHostPortInAccessibleFormat(
                     FrontendOptions.getLocalHostAddress(), Config.edit_log_port);
             return FileSystemFactory.getBrokerFileSystem(broker.host, broker.port, clientId,
-                    bp.getBrokerParams());
+                    brokerAdapter.getBrokerParams());
         } catch (AnalysisException e) {
             throw new IOException("Failed to acquire broker filesystem for repository " + name
                     + ": " + e.getMessage(), e);

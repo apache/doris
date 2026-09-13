@@ -19,6 +19,7 @@
 
 #include <bthread/bthread.h>
 
+#include <future>
 #include <memory>
 #include <string>
 
@@ -29,6 +30,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
+#include "util/threadpool.h"
 
 const char* EXECUTOR_CLASS = "org/apache/doris/udf/UdfExecutor";
 const char* EXECUTOR_CTOR_SIGNATURE = "([B)V";

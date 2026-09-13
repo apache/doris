@@ -39,6 +39,16 @@
 1	2	2	2	2000	201	2000	200
 2	1	1	1	10	10	10	10
 
+-- !mow_reinsert_before_binlog --
+0	1	10	\N
+2	1	10	10
+0	1	10	\N
+
+-- !mow_reinsert_binlog --
+0	2	20	partial
+2	2	\N	default
+0	2	20	default
+
 -- !mow_seq_raw --
 
 -- !mow_seq_binlog --
@@ -56,3 +66,4 @@
 1	1	1	1	400	350	300	350
 1	1	1	1	400	360	400	350
 2	1	1	1	400	350	400	350
+

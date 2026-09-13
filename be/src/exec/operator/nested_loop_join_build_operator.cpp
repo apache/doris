@@ -83,14 +83,17 @@ Status NestedLoopJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeSta
 
 Status NestedLoopJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>::prepare(state));
-    size_t num_build_tuples = _child->row_desc().tuple_descriptors().size();
+    size_t num_build_tuples =
+            _child->operator_row_desc_after_projection().tuple_descriptors().size();
 
     for (size_t i = 0; i < num_build_tuples; ++i) {
-        TupleDescriptor* build_tuple_desc = _child->row_desc().tuple_descriptors()[i];
+        TupleDescriptor* build_tuple_desc =
+                _child->operator_row_desc_after_projection().tuple_descriptors()[i];
         auto tuple_idx = _row_descriptor.get_tuple_idx(build_tuple_desc->id());
         RETURN_IF_INVALID_TUPLE_IDX(build_tuple_desc->id(), tuple_idx);
     }
-    RETURN_IF_ERROR(VExpr::prepare(_filter_src_expr_ctxs, state, _child->row_desc()));
+    RETURN_IF_ERROR(VExpr::prepare(_filter_src_expr_ctxs, state,
+                                   _child->operator_row_desc_after_projection()));
     return VExpr::open(_filter_src_expr_ctxs, state);
 }
 

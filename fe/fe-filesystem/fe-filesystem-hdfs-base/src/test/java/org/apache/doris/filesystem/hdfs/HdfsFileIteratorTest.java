@@ -17,8 +17,7 @@
 
 package org.apache.doris.filesystem.hdfs;
 
-import org.apache.doris.filesystem.spi.HadoopAuthenticator;
-import org.apache.doris.filesystem.spi.IOCallable;
+import org.apache.doris.foundation.security.ExecutionAuthenticator;
 
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.RemoteIterator;
@@ -34,12 +33,7 @@ import java.io.IOException;
  */
 class HdfsFileIteratorTest {
 
-    private static final HadoopAuthenticator PASSTHROUGH = new HadoopAuthenticator() {
-        @Override
-        public <T> T doAs(IOCallable<T> action) throws IOException {
-            return action.call();
-        }
-    };
+    private static final ExecutionAuthenticator PASSTHROUGH = ExecutionAuthenticator.DIRECT;
 
     /** RemoteIterator that also implements Closeable so we can observe close propagation. */
     private static final class CloseableRemoteIterator

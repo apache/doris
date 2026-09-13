@@ -20,6 +20,7 @@
 #include <queue>
 #include <vector>
 
+#include "storage/index/inverted/query_v2/score_combiner.h"
 #include "storage/index/inverted/query_v2/scorer.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
@@ -62,5 +63,9 @@ private:
 template <typename ScoreCombinerPtrT>
 ScorerPtr make_disjunction(std::vector<ScorerPtr> scorers, ScoreCombinerPtrT score_combiner,
                            size_t minimum_matches_required);
+
+/// Instantiated once in disjunction_scorer.cpp; suppresses per-TU implicit instantiation.
+extern template class DisjunctionScorer<SumCombinerPtr>;
+extern template class DisjunctionScorer<DoNothingCombinerPtr>;
 
 } // namespace doris::segment_v2::inverted_index::query_v2

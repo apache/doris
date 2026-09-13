@@ -22,6 +22,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format/transformer/vjni_format_transformer.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/uid_util.h"

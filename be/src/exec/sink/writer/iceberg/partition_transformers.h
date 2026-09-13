@@ -167,7 +167,10 @@ public:
 
         // Create a temp_block to execute substring function.
         Block temp_block;
-        temp_block.insert(column_with_type_and_name);
+        // Substring requires the physical ColumnString; preserve nullability separately and
+        // restore the original null map after transforming the nested values.
+        temp_block.insert({string_column_ptr, remove_nullable(column_with_type_and_name.type),
+                           column_with_type_and_name.name});
         temp_block.insert({int_type->create_column_const(temp_block.rows(), to_field<TYPE_INT>(1)),
                            int_type, "const 1"});
         temp_block.insert(

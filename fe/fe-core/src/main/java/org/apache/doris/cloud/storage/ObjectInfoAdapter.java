@@ -22,12 +22,7 @@ import org.apache.doris.cloud.proto.Cloud.StagePB;
 import org.apache.doris.cloud.proto.Cloud.StagePB.StageAccessType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.datasource.property.storage.AzureProperties;
-import org.apache.doris.datasource.property.storage.COSProperties;
-import org.apache.doris.datasource.property.storage.OBSProperties;
-import org.apache.doris.datasource.property.storage.OSSProperties;
-import org.apache.doris.datasource.property.storage.S3Properties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.filesystem.spi.StsCredentials;
 import org.apache.doris.fs.FileSystemFactory;
@@ -42,13 +37,12 @@ import java.util.Map;
 
 /**
  * Converts {@link ObjectInfo} (cloud-specific credential holder) to the
- * corresponding {@link StorageProperties} subclass so that callers can obtain an
- * {@code ObjFileSystem} via {@code FileSystemFactory.get(props)}.
+ * corresponding provider-bound {@link StorageAdapter} so that callers can obtain an
+ * {@code ObjFileSystem} via {@code FileSystemFactory.getFileSystem(adapter)}.
  *
  * <p>STS-related parameters (role ARN, role name, external ID) are carried via the
- * origProps map under the keys defined as public constants below. Each
- * {@code ObjStorage} implementation retrieves them via
- * {@code storageProperties.getOrigProps().get(STS_ROLE_ARN_KEY)}, etc.
+ * raw property map under the keys defined as public constants below; the filesystem
+ * plugins bind them through their own {@code sts.*} property aliases.
  */
 public class ObjectInfoAdapter {
     private static final Logger LOG = LogManager.getLogger(ObjectInfoAdapter.class);
@@ -66,33 +60,34 @@ public class ObjectInfoAdapter {
     private ObjectInfoAdapter() {}
 
     /**
-     * Converts an {@link ObjectInfo} to the matching {@link StorageProperties}
-     * subclass. The returned instance can be passed directly to
-     * {@code FileSystemFactory.get(props)}.
+     * Converts an {@link ObjectInfo} to a {@link StorageAdapter} bound to the matching
+     * filesystem provider (forced by name, mirroring the former per-dialect typed factories).
+     * The returned instance can be passed directly to
+     * {@code FileSystemFactory.getFileSystem(adapter)}.
      *
      * <p>Note: {@code objectInfo.prefix} is <em>not</em> injected into the
-     * {@link StorageProperties} — it is a stage-level concept. Callers must pass
+     * adapter — it is a stage-level concept. Callers must pass
      * it separately to {@code listObjectsWithPrefix} / {@code headObjectWithMeta}.
      */
-    public static StorageProperties toStorageProperties(ObjectInfo obj) {
+    public static StorageAdapter toStorageAdapter(ObjectInfo obj) {
         switch (obj.getProvider()) {
             case OSS:
-                return OSSProperties.of(buildS3CompatibleProps(obj));
+                return StorageAdapter.ofProvider("OSS", buildS3CompatibleProps(obj));
             case S3:
             case GCP:
-                return S3Properties.of(buildS3CompatibleProps(obj));
+                return StorageAdapter.ofProvider("S3", buildS3CompatibleProps(obj));
             case COS:
-                return COSProperties.of(buildS3CompatibleProps(obj));
+                return StorageAdapter.ofProvider("COS", buildS3CompatibleProps(obj));
             case OBS:
-                return OBSProperties.of(buildS3CompatibleProps(obj));
+                return StorageAdapter.ofProvider("OBS", buildS3CompatibleProps(obj));
             case BOS:
-                // BOS uses S3-compatible endpoints; S3Properties handles it
-                return S3Properties.of(buildS3CompatibleProps(obj));
+                // BOS uses S3-compatible endpoints; the generic S3 provider handles it
+                return StorageAdapter.ofProvider("S3", buildS3CompatibleProps(obj));
             case TOS:
                 // TOS uses S3-compatible endpoints; no STS/Presigned support
-                return S3Properties.of(buildS3CompatibleProps(obj));
+                return StorageAdapter.ofProvider("S3", buildS3CompatibleProps(obj));
             case AZURE:
-                return AzureProperties.of(buildAzureProps(obj));
+                return StorageAdapter.ofProvider("AZURE", buildAzureProps(obj));
             default:
                 throw new IllegalArgumentException("Unsupported provider: " + obj.getProvider());
         }
@@ -114,8 +109,8 @@ public class ObjectInfoAdapter {
             LOG.info("Before parse object storage info={}, encodedExternalId={}", stagePB, encodedExternalId);
             ObjectInfo arnObj = new ObjectInfo(infoPB, stagePB.getRoleName(), stagePB.getArn(),
                     encodedExternalId, null);
-            StorageProperties props = toStorageProperties(arnObj);
-            try (ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.getFileSystem(props)) {
+            StorageAdapter adapter = toStorageAdapter(arnObj);
+            try (ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.getFileSystem(adapter)) {
                 StsCredentials stsToken = fs.getStsToken();
                 ObjectInfo objInfo = new ObjectInfo(infoPB.getProvider(), stsToken.getAccessKey(),
                         stsToken.getSecretKey(), infoPB.getBucket(), infoPB.getEndpoint(), infoPB.getRegion(),
@@ -165,8 +160,14 @@ public class ObjectInfoAdapter {
         putIfNotBlank(props, "s3.endpoint",      obj.getEndpoint());
         putIfNotBlank(props, "s3.region",        obj.getRegion());
         putIfNotBlank(props, "s3.bucket",        obj.getBucket());
+        // Dialect alias coverage: OSS (and siblings) alias bucket only under the legacy env
+        // spelling ({OSS_BUCKET, AWS_BUCKET}) — without the dual write the OSS binding gets an
+        // empty bucket and CREATE STAGE pings die with "OSS bucket is required"
+        // (cloud_p0 test_copy_into).
+        putIfNotBlank(props, "AWS_BUCKET",       obj.getBucket());
         // STS temporary session token (set after a successful getStsToken call)
         putIfNotBlank(props, "s3.session_token", obj.getToken());
+        putIfNotBlank(props, "AWS_TOKEN",        obj.getToken());
         // STS parameters — stored in origProps, read by ObjStorage sub-classes
         putIfNotBlank(props, STS_ROLE_NAME_KEY,    obj.getRoleName());
         putIfNotBlank(props, STS_ROLE_ARN_KEY,     obj.getArn());

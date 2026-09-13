@@ -21,8 +21,8 @@ import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.exception.JobException;
 
 import com.fasterxml.jackson.core.type.TypeReference;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.List;
@@ -42,9 +42,9 @@ public class JdbcSourceOffsetProviderErrorHandlingTest {
                 + "\"data\":[{\"splitId\":\"db.t:0\",\"tableId\":\"db.t\"}]}";
         List<SnapshotSplit> splits =
                 provider.parseCdcResponseData(response, new TypeReference<List<SnapshotSplit>>() {});
-        Assert.assertEquals(1, splits.size());
-        Assert.assertEquals("db.t:0", splits.get(0).getSplitId());
-        Assert.assertEquals("db.t", splits.get(0).getTableId());
+        Assertions.assertEquals(1, splits.size());
+        Assertions.assertEquals("db.t:0", splits.get(0).getSplitId());
+        Assertions.assertEquals("db.t", splits.get(0).getTableId());
     }
 
     @Test
@@ -54,10 +54,9 @@ public class JdbcSourceOffsetProviderErrorHandlingTest {
         String response = "{\"code\":1,\"msg\":\"Internal Error\",\"data\":\"" + realError + "\"}";
         try {
             provider.parseCdcResponseData(response, new TypeReference<List<SnapshotSplit>>() {});
-            Assert.fail("a failed envelope must throw");
+            Assertions.fail("a failed envelope must throw");
         } catch (JobException e) {
-            Assert.assertTrue("the real remote error must be surfaced, got: " + e.getMessage(),
-                    e.getMessage().contains(realError));
+            Assertions.assertTrue(e.getMessage().contains(realError), "the real remote error must be surfaced, got: " + e.getMessage());
         }
     }
 
@@ -68,10 +67,9 @@ public class JdbcSourceOffsetProviderErrorHandlingTest {
         String response = "{\"code\":0,\"msg\":\"Success\",\"data\":\"not-a-map\"}";
         try {
             provider.parseCdcResponseData(response, new TypeReference<Map<String, String>>() {});
-            Assert.fail("an incompatible success payload must throw");
+            Assertions.fail("an incompatible success payload must throw");
         } catch (JobException e) {
-            Assert.assertTrue("the raw response must be surfaced, got: " + e.getMessage(),
-                    e.getMessage().contains("not-a-map"));
+            Assertions.assertTrue(e.getMessage().contains("not-a-map"), "the raw response must be surfaced, got: " + e.getMessage());
         }
     }
 
@@ -81,10 +79,9 @@ public class JdbcSourceOffsetProviderErrorHandlingTest {
         String response = "<html>502 Bad Gateway</html>";
         try {
             provider.parseCdcResponseData(response, new TypeReference<Integer>() {});
-            Assert.fail("an unparseable response must throw");
+            Assertions.fail("an unparseable response must throw");
         } catch (JobException e) {
-            Assert.assertTrue("the raw response must be surfaced, got: " + e.getMessage(),
-                    e.getMessage().contains("502"));
+            Assertions.assertTrue(e.getMessage().contains("502"), "the raw response must be surfaced, got: " + e.getMessage());
         }
     }
 
@@ -98,9 +95,9 @@ public class JdbcSourceOffsetProviderErrorHandlingTest {
         };
         try {
             provider.initOnCreate(Collections.singletonList("db.t"));
-            Assert.fail("CREATE JOB must fail when the remote reader cannot be opened");
+            Assertions.fail("CREATE JOB must fail when the remote reader cannot be opened");
         } catch (JobException e) {
-            Assert.assertTrue(e.getMessage().contains("simulated reader init failure"));
+            Assertions.assertTrue(e.getMessage().contains("simulated reader init failure"));
         }
     }
 }

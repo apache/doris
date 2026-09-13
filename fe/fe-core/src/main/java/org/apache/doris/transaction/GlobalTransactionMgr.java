@@ -314,7 +314,8 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(db.getId());
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
-        List<Table> lockTableList = buildLockTableList(tableList, dbTransactionMgr.getTransactionState(transactionId));
+        TransactionState transactionState = dbTransactionMgr.getTransactionState(transactionId);
+        List<Table> lockTableList = buildLockTableList(tableList, transactionState);
         if (!MetaLockUtils.tryWriteLockTablesOrMetaException(lockTableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
             throw new UserException("get tableList write lock timeout, tableList=("
                     + StringUtils.join(lockTableList, ",") + ")");
@@ -514,6 +515,10 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     public static List<TransactionState> checkFailedTxns(List<TransactionState> conflictTxns) {
         List<TransactionState> failedTxns = new ArrayList<>();
         for (TransactionState txn : conflictTxns) {
+            TransactionStatus status = txn.getTransactionStatus();
+            if (status == TransactionStatus.COMMITTED || status.isFinalStatus()) {
+                continue;
+            }
             if (checkFailedTxnsByCoordinator(txn)) {
                 failedTxns.add(txn);
             }
@@ -925,6 +930,12 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public Long getNextTransactionId() {
         return this.idGenerator.getNextTransactionId();
+    }
+
+    @Override
+    public long getTransactionIdWatermark() {
+        // The classic conflict check treats its upper bound as inclusive.
+        return this.idGenerator.getCurrentTransactionId();
     }
 
     @Override

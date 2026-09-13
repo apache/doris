@@ -31,7 +31,6 @@
 #include "exec/pipeline/pipeline_task.h"
 #include "exec/pipeline/task_queue.h"
 #include "runtime/query_context.h"
-#include "runtime/workload_group/workload_group.h"
 #include "util/thread.h"
 #include "util/uid_util.h"
 

@@ -69,6 +69,14 @@ suite("test_streaming_postgres_job_lag",
             """
 
         try {
+            // Wait until the offset=latest baseline is committed before writing incremental data.
+            Awaitility.await().atMost(120, SECONDS)
+                    .pollInterval(1, SECONDS).until({
+                        def jobInfo = sql """ select SucceedTaskCount from jobs("type"="insert")
+                                where Name = '${jobName}' and ExecuteType='STREAMING' """
+                        return jobInfo.size() == 1 && Integer.parseInt(jobInfo[0][0] as String) >= 1
+                    })
+
             // insert incremental data to trigger WAL consumption
             connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
                 sql """INSERT INTO ${pgDB}.${pgSchema}.${pgTable} (name, age) VALUES ('Bob', 20)"""
@@ -77,14 +85,20 @@ suite("test_streaming_postgres_job_lag",
             // wait for binlog data consumed and lag is available
             Awaitility.await().atMost(300, SECONDS)
                     .pollInterval(1, SECONDS).until({
-                        def jobInfo = sql """ select SucceedTaskCount, Lag from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
+                        def jobInfo = sql """ select SucceedTaskCount, LagBytes, LastSourceEventTimestamp
+                                from jobs("type"="insert")
+                                where Name = '${jobName}' and ExecuteType='STREAMING' """
                         log.info("jobInfo: " + jobInfo)
                         if (jobInfo.size() != 1 || Integer.parseInt(jobInfo[0][0] as String) < 1) {
                             return false
                         }
                         def lagValue = jobInfo[0][1] as String
+                        def sourceEventTime = jobInfo[0][2] as String
                         log.info("lag value: " + lagValue)
-                        return lagValue != null && lagValue != "" && lagValue.isNumber()
+                        return lagValue != null && lagValue != ""
+                                && lagValue.isLong() && Long.parseLong(lagValue) >= 0
+                                && sourceEventTime != null && sourceEventTime.isLong()
+                                && Long.parseLong(sourceEventTime) > 0
                     })
         } catch (Exception ex) {
             def showjob = sql """select * from jobs("type"="insert") where Name='${jobName}'"""

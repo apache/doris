@@ -284,6 +284,45 @@ TEST_F(PackedFileSystemTest, LaterSegmentIndexFileUsesDirectWriter) {
     EXPECT_FALSE(writer->is_in_packed_file());
 }
 
+TEST_F(PackedFileSystemTest, NonzeroFirstSegmentUsesPackedWriter) {
+    _append_info.first_segment_id = 10;
+    PackedFileSystem merge_fs(_inner_fs, _append_info);
+
+    Path first_segment_path("rowset_1_10.dat");
+    FileWriterPtr first_segment_writer;
+    ASSERT_TRUE(merge_fs.create_file(first_segment_path, &first_segment_writer, nullptr).ok());
+    ASSERT_NE(first_segment_writer, nullptr);
+
+    std::string data = "test";
+    Slice data_slice(data);
+    ASSERT_TRUE(first_segment_writer->appendv(&data_slice, 1).ok());
+    ASSERT_NE(_inner_fs->last_writer(), nullptr);
+    EXPECT_EQ(_inner_fs->last_writer()->bytes_appended(), 0);
+    EXPECT_TRUE(first_segment_writer->is_in_packed_file());
+
+    Path segment_zero_path("rowset_1_0.dat");
+    FileWriterPtr segment_zero_writer;
+    ASSERT_TRUE(merge_fs.create_file(segment_zero_path, &segment_zero_writer, nullptr).ok());
+    ASSERT_NE(segment_zero_writer, nullptr);
+    ASSERT_TRUE(segment_zero_writer->appendv(&data_slice, 1).ok());
+    ASSERT_NE(_inner_fs->last_writer(), nullptr);
+    EXPECT_EQ(_inner_fs->last_writer()->bytes_appended(), data.size());
+    EXPECT_FALSE(segment_zero_writer->is_in_packed_file());
+
+    Path first_segment_index_path("rowset_1_10.idx");
+    FileWriterPtr first_segment_index_writer;
+    ASSERT_TRUE(merge_fs.create_file(first_segment_index_path, &first_segment_index_writer, nullptr)
+                        .ok());
+    ASSERT_NE(first_segment_index_writer, nullptr);
+
+    std::string index = "idx";
+    Slice index_slice(index);
+    ASSERT_TRUE(first_segment_index_writer->appendv(&index_slice, 1).ok());
+    ASSERT_NE(_inner_fs->last_writer(), nullptr);
+    EXPECT_EQ(_inner_fs->last_writer()->bytes_appended(), 0);
+    EXPECT_TRUE(first_segment_index_writer->is_in_packed_file());
+}
+
 TEST_F(PackedFileSystemTest, OpenFileNotInMergeFile) {
     PackedFileSystem merge_fs(_inner_fs, _append_info);
 

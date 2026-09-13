@@ -33,7 +33,7 @@
 #include "storage/iterator/block_reader.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/segment/segment.h"
-#include "storage/segment/segment_writer.h"
+#include "storage/segment/vertical_segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_reader.h"
@@ -181,7 +181,7 @@ public:
         std::vector<Block> ret;
         int const_value = 999;
         for (const auto& segment_rows : data) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (const auto& row : segment_rows) {
                 columns[0]->insert_data(row.data(), row.size());

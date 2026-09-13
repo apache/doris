@@ -118,6 +118,8 @@ private:
                                std::shared_ptr<LoadStreamMap> load_stream_map);
 
 private:
+    static constexpr int64_t CLOSE_WAIT_EVENT_FALLBACK_MS = 1000;
+
     Status _init_row_distribution();
 
     Status _init(RuntimeState* state, RuntimeProfile* profile);

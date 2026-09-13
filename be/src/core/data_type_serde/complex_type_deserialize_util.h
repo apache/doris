@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/string_ref.h"
 

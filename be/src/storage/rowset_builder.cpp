@@ -20,6 +20,7 @@
 #include <brpc/controller.h>
 #include <fmt/format.h>
 
+#include <chrono>
 #include <filesystem>
 #include <memory>
 #include <ostream>
@@ -138,8 +139,8 @@ void RowsetBuilder::_garbage_collection(bool cancel_txn) {
     // when rollback failed should not delete rowset
     if (need_clean) {
         _engine.add_unused_rowset(_rowset);
-        for (auto& rs : _attach_rowsets) {
-            _engine.add_unused_rowset(rs);
+        if (_attach_row_binlog.rowset != nullptr) {
+            _engine.add_unused_rowset(_attach_row_binlog.rowset);
         }
     }
 }
@@ -395,7 +396,7 @@ Status RowsetBuilder::commit_txn() {
     // Transfer ownership of `PendingRowsetGuard` to `TxnManager`
     Status res = _engine.txn_manager()->commit_txn(
             _req.partition_id, *tablet(), _req.txn_id, _req.load_id, _rowset,
-            std::move(_pending_rs_guard), false, _partial_update_info, &_attach_rowsets);
+            std::move(_pending_rs_guard), false, _partial_update_info, _attach_row_binlog);
 
     if (!res && !res.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
         LOG(WARNING) << "Failed to commit txn: " << _req.txn_id
@@ -403,7 +404,7 @@ Status RowsetBuilder::commit_txn() {
         return res;
     }
     if (_tablet->enable_unique_key_merge_on_write()) {
-        // no need to update binlog_delvec, it'll be updated in publish phase
+        // no need to update binlog tablet delete bitmap, it'll be updated in publish phase
         _engine.txn_manager()->set_txn_related_delete_bitmap(
                 _req.partition_id, _req.txn_id, tablet()->tablet_id(), tablet()->tablet_uid(), true,
                 _delete_bitmap, *_rowset_ids, _partial_update_info);
@@ -430,9 +431,8 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
         const TabletSchema& ori_tablet_schema) {
     const OlapTableIndexSchema* index_schema = nullptr;
     if (_req.write_req_type == WriteRequestType::ROW_BINLOG) {
-        const auto* row_binlog_index_schema = table_schema_param->row_binlog_index_schema();
+        const auto* row_binlog_index_schema = table_schema_param->row_binlog_index_schema(index_id);
         DCHECK(row_binlog_index_schema != nullptr);
-        DCHECK_EQ(row_binlog_index_schema->index_id, index_id);
         index_schema = row_binlog_index_schema;
     } else {
         for (const auto* schema : table_schema_param->indexes()) {
@@ -506,7 +506,9 @@ GroupRowsetBuilder::GroupRowsetBuilder(StorageEngine& engine, const WriteRequest
                                        const WriteRequest& sub_data_req,
                                        const WriteRequest& sub_row_binlog_req,
                                        RuntimeProfile* profile)
-        : BaseRowsetBuilder(group_build_req, profile) {
+        : BaseRowsetBuilder(group_build_req, profile),
+          _engine(engine),
+          _row_binlog_tablet_id(sub_row_binlog_req.tablet_id) {
     DCHECK(group_build_req.write_req_type == WriteRequestType::GROUP &&
            sub_data_req.write_req_type == WriteRequestType::DATA &&
            sub_row_binlog_req.write_req_type == WriteRequestType::ROW_BINLOG);
@@ -516,14 +518,51 @@ GroupRowsetBuilder::GroupRowsetBuilder(StorageEngine& engine, const WriteRequest
 }
 
 Status GroupRowsetBuilder::init() {
-    // init binlog builder first so that its rowset id can be added into
-    // PendingLocalRowsets before txn builder init.
-    RETURN_IF_ERROR(_row_binlog_rowset_builder->init());
-    // before init txn, need to add all rowset_ids into PendingLocalRowsets.
-    // see https://github.com/apache/doris/pull/25921
-    RETURN_IF_ERROR(_txn_rs_builder->attach_pending_rs_guard_to_txn(
-            _row_binlog_rowset_builder->rowset_id()));
-    RETURN_IF_ERROR(_txn_rs_builder->init());
+    {
+        TabletSharedPtr row_binlog_tablet =
+                _engine.tablet_manager()->get_tablet(_row_binlog_tablet_id);
+        if (row_binlog_tablet == nullptr) {
+            return Status::Error<TABLE_NOT_FOUND>(
+                    "row-binlog tablet not found when initializing group rowset builder, "
+                    "tablet_id={}",
+                    _row_binlog_tablet_id);
+        }
+
+        // Hold the row-binlog migration lock until its relation is visible from the prepared base
+        // transaction. Migration can then drain the transaction instead of replacing this object.
+        std::shared_lock<std::shared_timed_mutex> row_binlog_migration_lock(
+                row_binlog_tablet->get_migration_lock(), std::defer_lock);
+        if (!row_binlog_migration_lock.try_lock_for(
+                    std::chrono::milliseconds(config::migration_lock_timeout_ms))) {
+            return Status::ObtainLockFailed(
+                    "try_lock row-binlog migration lock failed after {}ms, tablet_id={}",
+                    config::migration_lock_timeout_ms, _row_binlog_tablet_id);
+        }
+        if (row_binlog_tablet->tablet_state() == TABLET_SHUTDOWN) {
+            return Status::InternalError<false>(
+                    "row-binlog tablet is shutdown and may have been dropped or migrated, "
+                    "tablet_id={}",
+                    _row_binlog_tablet_id);
+        }
+
+        // Init binlog builder first so that its rowset id can be added into PendingLocalRowsets
+        // before txn builder init.
+        RETURN_IF_ERROR(_row_binlog_rowset_builder->init());
+        if (_row_binlog_rowset_builder->tablet_sptr().get() != row_binlog_tablet.get()) {
+            return Status::InternalError(
+                    "row-binlog tablet changed while initializing group rowset builder, "
+                    "tablet_id={}",
+                    _row_binlog_tablet_id);
+        }
+        // Before init txn, add all rowset ids into PendingLocalRowsets.
+        // See https://github.com/apache/doris/pull/25921.
+        RETURN_IF_ERROR(_txn_rs_builder->attach_pending_rs_guard_to_txn(
+                _row_binlog_rowset_builder->rowset_id()));
+        RETURN_IF_ERROR(_txn_rs_builder->init());
+        RETURN_IF_ERROR(_engine.txn_manager()->attach_row_binlog_tablet_to_txn(
+                _req.partition_id, _req.txn_id, _txn_rs_builder->tablet_sptr()->get_tablet_info(),
+                row_binlog_tablet));
+    }
 
     // Create a GroupRowsetWriter that forwards flush to both underlying
     // RowsetWriters.
@@ -531,6 +570,7 @@ Status GroupRowsetBuilder::init() {
     RETURN_IF_ERROR(RowsetFactory::create_empty_group_rowset_writer(&group_writer));
     group_writer->set_data_writer(_txn_rs_builder->rowset_writer());
     group_writer->set_row_binlog_writer(_row_binlog_rowset_builder->rowset_writer());
+    RETURN_IF_ERROR(group_writer->init(_txn_rs_builder->rowset_writer()->context()));
 
     {
         const auto& data_ctx = _txn_rs_builder->rowset_writer()->context();
@@ -542,6 +582,7 @@ Status GroupRowsetBuilder::init() {
         cfg.source.mow_context = data_ctx.mow_context;
         cfg.source.is_transient_rowset_writer = data_ctx.is_transient_rowset_writer;
         cfg.source.source_write_type = data_ctx.write_type;
+        cfg.source.base_tablet = _txn_rs_builder->tablet_sptr();
     }
 
     _rowset_writer = std::move(group_writer);
@@ -558,9 +599,13 @@ Status GroupRowsetBuilder::wait_calc_delete_bitmap() {
 }
 
 Status GroupRowsetBuilder::commit_txn() {
-    // Attach binlog rowset to txn rowset, so that commit/rollback and
-    // clean-up are all handled by txn rowset builder.
-    RETURN_IF_ERROR(_txn_rs_builder->attach_rowset_to_txn(_row_binlog_rowset_builder->rowset()));
+    // Attach binlog rowset (and its independent binlog tablet) to txn rowset, so that
+    // commit/rollback and clean-up are all handled by txn rowset builder.
+    RowBinlogTxnInfo attach_row_binlog;
+    attach_row_binlog.rowset = _row_binlog_rowset_builder->rowset();
+    attach_row_binlog.tablet =
+            std::static_pointer_cast<Tablet>(_row_binlog_rowset_builder->tablet_sptr());
+    RETURN_IF_ERROR(_txn_rs_builder->attach_row_binlog_to_txn(attach_row_binlog));
     auto st = _txn_rs_builder->commit_txn();
     if (st.ok()) {
         // Avoid RowBinlogRowsetBuilder being cleaned in its base dtor.
@@ -575,9 +620,8 @@ Status RowBinlogRowsetBuilder::init() {
     RETURN_IF_ERROR(_init_context_common_fields(context));
 
     // build tablet schema in request level
-    RETURN_IF_ERROR(_build_current_tablet_schema(
-            _req.index_id, _req.table_schema_param.get(),
-            *std::dynamic_pointer_cast<Tablet>(_tablet)->row_binlog_tablet_schema()));
+    RETURN_IF_ERROR(_build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
+                                                 *_tablet->tablet_schema()));
     context.tablet_schema = _tablet_schema;
     context.write_binlog_opt().enable = true;
 
@@ -589,11 +633,11 @@ Status RowBinlogRowsetBuilder::init() {
     return Status::OK();
 }
 
-Status BaseRowsetBuilder::attach_rowset_to_txn(const RowsetSharedPtr& rowset) {
+Status BaseRowsetBuilder::attach_row_binlog_to_txn(const RowBinlogTxnInfo& attach_row_binlog) {
     if (!is_data_builder()) {
         return Status::RuntimeError("the rowset isn't allowed to manage txn");
     }
-    _attach_rowsets.push_back(rowset);
+    _attach_row_binlog = attach_row_binlog;
     return Status::OK();
 }
 

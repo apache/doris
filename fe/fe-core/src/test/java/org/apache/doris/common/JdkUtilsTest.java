@@ -19,30 +19,30 @@ package org.apache.doris.common;
 
 import org.apache.doris.common.util.JdkUtils;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class JdkUtilsTest {
 
     @Test
     public void testNormal() {
-        Assert.assertTrue(JdkUtils.checkJavaVersion());
+        Assertions.assertTrue(JdkUtils.checkJavaVersion());
     }
 
     @Test
     public void testFunctions() {
         String versionStr = JdkUtils.getJavaVersionFromFullVersion("java full version \"1.8.0_131-b11\"");
-        Assert.assertEquals("1.8.0_131-b11", versionStr);
+        Assertions.assertEquals("1.8.0_131-b11", versionStr);
         versionStr = JdkUtils.getJavaVersionFromFullVersion("openjdk full version \"13.0.1+9\"");
-        Assert.assertEquals("13.0.1+9", versionStr);
+        Assertions.assertEquals("13.0.1+9", versionStr);
 
         int version = JdkUtils.getJavaVersionAsInteger("1.8.0_131-b11");
-        Assert.assertEquals(8, version);
+        Assertions.assertEquals(8, version);
         version = JdkUtils.getJavaVersionAsInteger("1.7.0_79-b15");
-        Assert.assertEquals(7, version);
+        Assertions.assertEquals(7, version);
         version = JdkUtils.getJavaVersionAsInteger("13.0.1+9");
-        Assert.assertEquals(13, version);
+        Assertions.assertEquals(13, version);
         version = JdkUtils.getJavaVersionAsInteger("11.0.0+7");
-        Assert.assertEquals(11, version);
+        Assertions.assertEquals(11, version);
     }
 }

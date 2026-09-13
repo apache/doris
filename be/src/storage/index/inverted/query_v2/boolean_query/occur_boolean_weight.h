@@ -20,6 +20,7 @@
 #include <roaring/roaring.hh>
 
 #include "storage/index/inverted/query_v2/boolean_query/occur.h"
+#include "storage/index/inverted/query_v2/score_combiner.h"
 #include "storage/index/inverted/query_v2/scorer.h"
 #include "storage/index/inverted/query_v2/term_query/term_scorer.h"
 #include "storage/index/inverted/query_v2/wand/block_wand.h"
@@ -139,5 +140,9 @@ void OccurBooleanWeight<ScoreCombinerPtrT>::for_each_pruning(const QueryExecutio
             },
             std::move(specialized));
 }
+
+/// Instantiated once in occur_boolean_weight.cpp; suppresses per-TU implicit instantiation.
+extern template class OccurBooleanWeight<SumCombinerPtr>;
+extern template class OccurBooleanWeight<DoNothingCombinerPtr>;
 
 } // namespace doris::segment_v2::inverted_index::query_v2
