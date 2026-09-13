@@ -59,7 +59,7 @@ services:
       - './scripts:/opt/scripts'
 
   minio:
-    image: minio/minio
+    image: quay.io/minio/minio
     container_name: doris-iceberg-paimon-minio
     ports:
       - ${MINIO_API_PORT}:9000
@@ -77,7 +77,7 @@ services:
   mc:
     depends_on:
       - minio
-    image: minio/mc
+    image: quay.io/minio/mc
     container_name: doris-iceberg-paimon-mc
     environment:
       - AWS_ACCESS_KEY_ID=admin

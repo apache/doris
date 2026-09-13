@@ -107,7 +107,7 @@ services:
         echo "$$out"; exit 1
 
   minio:
-    image: ${MINIO_IMAGE:-minio/minio:RELEASE.2025-01-20T14-49-07Z}
+    image: ${MINIO_IMAGE:-quay.io/minio/minio:RELEASE.2025-01-20T14-49-07Z}
     command: server /data --console-address :9001
     environment:
       MINIO_ROOT_USER: ${S3_AK:-minioadmin}
@@ -125,7 +125,7 @@ services:
       retries: 30
 
   minio-init:
-    image: ${MINIO_IMAGE:-minio/minio:RELEASE.2025-01-20T14-49-07Z}
+    image: ${MINIO_IMAGE:-quay.io/minio/minio:RELEASE.2025-01-20T14-49-07Z}
     depends_on:
       minio:
         condition: service_healthy

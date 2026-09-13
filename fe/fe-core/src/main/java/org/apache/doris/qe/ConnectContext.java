@@ -30,6 +30,9 @@ import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
+import org.apache.doris.arrowflight.results.FlightSqlChannel;
+import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.authentication.Principal;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -67,15 +70,13 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.qe.protocol.ProtocolAdapter;
+import org.apache.doris.qe.protocol.ResultSender;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.BackendSelectionProfile;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
-import org.apache.doris.service.arrowflight.protocol.FlightProtocolAdapter;
-import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
-import org.apache.doris.service.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.model.Histogram;
 import org.apache.doris.system.Backend;
@@ -320,6 +321,11 @@ public class ConnectContext {
 
     public ProtocolAdapter getProtocolAdapter() {
         return protocolAdapter;
+    }
+
+    /** How a statement's result reaches this connection's client. */
+    public ResultSender getResultSender() {
+        return protocolAdapter.resultSender(this);
     }
 
     public MysqlSslContext getMysqlSslContext() {

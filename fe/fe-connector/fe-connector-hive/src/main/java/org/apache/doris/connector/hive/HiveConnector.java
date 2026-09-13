@@ -87,7 +87,7 @@ public class HiveConnector implements Connector {
     // every (re)build of the connector, including the lazy one an FE does after replaying the edit log.
     private final HiveCatalogProperties props;
     private final ConnectorContext context;
-    private final CatalogMetaCache metaCache = new CatalogMetaCache();
+    private final CatalogMetaCache metaCache;
     private volatile HmsClient hmsClient;
 
     // Lazily-built plugin-side Kerberos authenticator (single-owner auth), null for a non-Kerberos catalog.
@@ -133,17 +133,24 @@ public class HiveConnector implements Connector {
     // NEVER cast (a cast would CCE across the loader split).
     private volatile Connector hudiSibling;
 
+    // Writes are guarded by this; the volatile read rejects post-close fast paths. Closing and lazy sibling
+    // publication share the same monitor so a sibling can never be published after the gateway has released its
+    // managed metadata-cache owner.
+    private volatile boolean closed;
+
     public HiveConnector(Map<String, String> properties, ConnectorContext context) {
         HmsConfHelper.initializeHadoopConfigDir(context);
         this.props = HiveCatalogProperties.of(properties);
         this.properties = props.getRaw();
         this.context = context;
+        this.metaCache = CatalogMetaCache.managed(context.getCatalogId(), "hive", this.properties);
         this.fileListingCache = new HiveFileListingCache(metaCache, props);
         // Reads its own meta.cache.hive.partition_view.(enable|ttl-second|capacity) from the catalog properties
         // via the framework's CacheSpec (default ON / 24h / 1000).
         this.partitionViewCache = new ConnectorMetadataCache<>(metaCache, "hive-partition-view",
                 "hive", "partition_view", this.properties,
-                key -> ScopePath.partitionCollection(key.getDb(), key.getTable()));
+                key -> ScopePath.partitionCollection(key.getDb(), key.getTable()),
+                HivePartitionViewSizeEstimator::estimateEntry);
     }
 
     @Override
@@ -487,36 +494,40 @@ public class HiveConnector implements Connector {
      * memoized (a null sibling leaves the field unset), so a later-available plugin recovers on the next access.
      */
     Connector getOrCreateIcebergSibling() {
-        if (icebergSibling == null) {
-            synchronized (this) {
-                if (icebergSibling == null) {
-                    Connector sibling = context.createSiblingConnector(
-                            ICEBERG_CONNECTOR_TYPE, IcebergSiblingProperties.synthesize(properties));
-                    if (sibling == null) {
-                        throw new DorisConnectorException(
-                                "Cannot serve iceberg-on-HMS tables in catalog '" + context.getCatalogName()
-                                        + "': the iceberg connector plugin is not available");
-                    }
-                    // Fail-loud invariant guard for the cache-isolation security track: the hive gateway FRONT
-                    // DOOR never declares SUPPORTS_USER_SESSION, so fe-core keys its per-user schema/name cache
-                    // bypass off THIS (front-door) connector's capabilities and would NOT bypass for a delegated
-                    // sibling. The iceberg sibling is forced iceberg.catalog.type=hms (IcebergSiblingProperties
-                    // .synthesize) and can never be REST session=user, so this must hold today. If a future change
-                    // ever let the sibling be session=user, the front-door-only bypass would silently leak
-                    // cross-user metadata — fail here instead.
-                    if (sibling.getCapabilities().contains(ConnectorCapability.SUPPORTS_USER_SESSION)) {
-                        throw new DorisConnectorException(
-                                "iceberg-on-HMS sibling in catalog '" + context.getCatalogName()
-                                        + "' unexpectedly declares SUPPORTS_USER_SESSION: the hive gateway front "
-                                        + "door is not session=user, so fe-core's per-user schema/name cache bypass "
-                                        + "would not trigger and cross-user metadata would leak. The sibling must "
-                                        + "stay iceberg.catalog.type=hms (never REST session=user).");
-                    }
-                    icebergSibling = sibling;
-                }
-            }
+        checkOpenForSiblingCreation();
+        Connector current = icebergSibling;
+        if (current != null) {
+            return current;
         }
-        return icebergSibling;
+        synchronized (this) {
+            checkOpenForSiblingCreation();
+            if (icebergSibling == null) {
+                Connector sibling = context.createSiblingConnector(
+                        ICEBERG_CONNECTOR_TYPE, IcebergSiblingProperties.synthesize(properties));
+                if (sibling == null) {
+                    throw new DorisConnectorException(
+                            "Cannot serve iceberg-on-HMS tables in catalog '" + context.getCatalogName()
+                                    + "': the iceberg connector plugin is not available");
+                }
+                // Fail-loud invariant guard for the cache-isolation security track: the hive gateway FRONT
+                // DOOR never declares SUPPORTS_USER_SESSION, so fe-core keys its per-user schema/name cache
+                // bypass off THIS (front-door) connector's capabilities and would NOT bypass for a delegated
+                // sibling. The iceberg sibling is forced iceberg.catalog.type=hms (IcebergSiblingProperties
+                // .synthesize) and can never be REST session=user, so this must hold today. If a future change
+                // ever let the sibling be session=user, the front-door-only bypass would silently leak
+                // cross-user metadata — fail here instead.
+                if (sibling.getCapabilities().contains(ConnectorCapability.SUPPORTS_USER_SESSION)) {
+                    throw new DorisConnectorException(
+                            "iceberg-on-HMS sibling in catalog '" + context.getCatalogName()
+                                    + "' unexpectedly declares SUPPORTS_USER_SESSION: the hive gateway front "
+                                    + "door is not session=user, so fe-core's per-user schema/name cache bypass "
+                                    + "would not trigger and cross-user metadata would leak. The sibling must "
+                                    + "stay iceberg.catalog.type=hms (never REST session=user).");
+                }
+                icebergSibling = sibling;
+            }
+            return icebergSibling;
+        }
     }
 
     /**
@@ -531,21 +542,33 @@ public class HiveConnector implements Connector {
      * memoized (a null sibling leaves the field unset), so a later-available plugin recovers on the next access.
      */
     Connector getOrCreateHudiSibling() {
-        if (hudiSibling == null) {
-            synchronized (this) {
-                if (hudiSibling == null) {
-                    Connector sibling = context.createSiblingConnector(
-                            HUDI_CONNECTOR_TYPE, HudiSiblingProperties.synthesize(properties));
-                    if (sibling == null) {
-                        throw new DorisConnectorException(
-                                "Cannot serve hudi-on-HMS tables in catalog '" + context.getCatalogName()
-                                        + "': the hudi connector plugin is not available");
-                    }
-                    hudiSibling = sibling;
-                }
-            }
+        checkOpenForSiblingCreation();
+        Connector current = hudiSibling;
+        if (current != null) {
+            return current;
         }
-        return hudiSibling;
+        synchronized (this) {
+            checkOpenForSiblingCreation();
+            if (hudiSibling == null) {
+                Connector sibling = context.createSiblingConnector(
+                        HUDI_CONNECTOR_TYPE, HudiSiblingProperties.synthesize(properties));
+                if (sibling == null) {
+                    throw new DorisConnectorException(
+                            "Cannot serve hudi-on-HMS tables in catalog '" + context.getCatalogName()
+                                    + "': the hudi connector plugin is not available");
+                }
+                hudiSibling = sibling;
+            }
+            return hudiSibling;
+        }
+    }
+
+    private void checkOpenForSiblingCreation() {
+        if (closed) {
+            throw new DorisConnectorException(
+                    "Cannot create a sibling connector after Hive catalog '" + context.getCatalogName()
+                            + "' has been closed");
+        }
     }
 
     private HmsClient createClient() {
@@ -701,24 +724,57 @@ public class HiveConnector implements Connector {
 
     @Override
     public void close() throws IOException {
-        metaCache.close();
-        HmsClient c = hmsClient;
-        if (c != null) {
-            c.close();
+        HmsClient client;
+        Connector sibling;
+        Connector hudi;
+        synchronized (this) {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            client = hmsClient;
             hmsClient = null;
+            sibling = icebergSibling;
+            icebergSibling = null;
+            hudi = hudiSibling;
+            hudiSibling = null;
+        }
+        metaCache.close();
+        IOException closeFailure = null;
+        try {
+            if (client != null) {
+                client.close();
+            }
+        } catch (IOException e) {
+            closeFailure = e;
         }
         // Forward close to the embedded iceberg sibling: the engine closes only a catalog's PRIMARY connector,
         // so the gateway owns the sibling's lifecycle. No-op when the sibling was never built (dormant path).
-        Connector sibling = icebergSibling;
-        if (sibling != null) {
-            sibling.close();
-            icebergSibling = null;
+        try {
+            if (sibling != null) {
+                sibling.close();
+            }
+        } catch (IOException e) {
+            if (closeFailure == null) {
+                closeFailure = e;
+            } else {
+                closeFailure.addSuppressed(e);
+            }
         }
         // Same for the embedded hudi sibling — the gateway owns its lifecycle too. No-op when never built.
-        Connector hudi = hudiSibling;
-        if (hudi != null) {
-            hudi.close();
-            hudiSibling = null;
+        try {
+            if (hudi != null) {
+                hudi.close();
+            }
+        } catch (IOException e) {
+            if (closeFailure == null) {
+                closeFailure = e;
+            } else {
+                closeFailure.addSuppressed(e);
+            }
+        }
+        if (closeFailure != null) {
+            throw closeFailure;
         }
     }
 }

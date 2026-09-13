@@ -2204,6 +2204,11 @@ public class Config extends ConfigBase {
     @ConfField(description = "The auto-refresh interval of the external meta cache.")
     public static long external_cache_refresh_time_minutes = 10; // 10 mins
 
+    @ConfField(mutable = false, masterOnly = false,
+            description = "FE-wide maximum weight for managed external metadata caches. Supports byte units "
+                    + "or a percentage of the JVM max heap; 0 disables the global quota.")
+    public static String external_meta_cache_max_weight = "0";
+
     // Enable manual miss load for external meta cache to avoid blocking replayer on slow loaders.
     @ConfField(mutable = true, masterOnly = false,
             description = "Whether external meta cache uses manual miss load instead of Caffeine sync load.")

@@ -2,6 +2,17 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20260911
+
+- Modified: libunwind 1.6.2 -> 1.8.3. 1.6.2 hard-codes a 4 KiB page size in the
+  AArch64 memory validator (`mincore`/`msync` on 4 KiB-aligned addresses), so on a
+  64 KiB-page kernel every validation fails, `unw_step` falls back to a link register
+  that `getcontext_trace` never saved and dereferences it unvalidated. This crashed
+  every aarch64 BE on such kernels before `main()`, in bRPC's `backtrace()` warm-up.
+  1.8.x reads the page size at runtime, validates through the pipe-write probe only,
+  and validates addresses before the DWARF-failure fallback. The Doris PHDR-cache hook
+  patch is rebased onto 1.8.3; the test programs and man pages are no longer built.
+
 ## 20260909
 
 - Modified: snappy 1.1.10 -> 1.2.1. Enable x86 SSE4.2 paths and AVX2 by default;

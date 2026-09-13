@@ -65,6 +65,29 @@ public class FeMetaCacheEntryTest {
     }
 
     @Test
+    public void testRejectedWeightedMutationReturnsWithoutRetryingForever() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        String oversized = "x".repeat(2_048);
+        try {
+            FeMetaCacheEntry<String, String> entry = new FeMetaCacheEntry<>(
+                    "objects", ignored -> "old",
+                    CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 100L, 1_024L),
+                    refreshExecutor, false);
+            Assertions.assertEquals("old", entry.get("key"));
+
+            Future<String> mutation = worker.submit(
+                    () -> entry.compute("key", (key, value) -> oversized));
+
+            Assertions.assertSame(oversized, mutation.get(3L, TimeUnit.SECONDS));
+            Assertions.assertNull(entry.getIfPresent("key"));
+        } finally {
+            worker.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testContextualOnlyAndDisabledEntry() {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
