@@ -42,6 +42,7 @@
 #include "core/column/column.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "exec/operator/file_scan_operator.h"
 #include "exec/scan/file_scanner.h"
 #include "exec/scan/file_scanner_v2.h"
 #include "format/orc/vorc_reader.h"
@@ -438,6 +439,19 @@ const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseRowsRead
 const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseSegmentsRead =
         "TopNLazyMaterializationSecondPhaseSegmentsRead";
 
+bool RowIdStorageReader::should_use_file_scanner_v2(const TQueryOptions& query_options,
+                                                    const TFileScanRangeParams& scan_params,
+                                                    const TFileRangeDesc& range) {
+    const auto format_type =
+            range.__isset.format_type ? range.format_type : scan_params.format_type;
+    // Phase two inherits the query options, including the Thrift presence bit. Reuse phase one's
+    // policy so disabling V2 (or an older payload omitting the option) also keeps row fetches on V1.
+    return FileScanLocalState::should_use_file_scanner_v2(query_options, false, scan_params) &&
+           (format_type == TFileFormatType::FORMAT_PARQUET ||
+            format_type == TFileFormatType::FORMAT_ORC) &&
+           FileScannerV2::is_supported(scan_params, range);
+}
+
 Status RowIdStorageReader::read_external_row_from_file_mapping(
         size_t idx, const std::multimap<segment_v2::rowid_t, size_t>& row_ids,
         const std::shared_ptr<FileMapping>& file_mapping,
@@ -479,11 +493,8 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
     std::unique_ptr<RuntimeProfile> sub_runtime_profile =
             std::make_unique<RuntimeProfile>("ExternalRowIDFetcher");
     {
-        const auto format_type = scan_range_desc.__isset.format_type ? scan_range_desc.format_type
-                                                                     : rpc_scan_params.format_type;
-        if ((format_type == TFileFormatType::FORMAT_PARQUET ||
-             format_type == TFileFormatType::FORMAT_ORC) &&
-            FileScannerV2::is_supported(rpc_scan_params, scan_range_desc)) {
+        if (should_use_file_scanner_v2(runtime_state->query_options(), rpc_scan_params,
+                                       scan_range_desc)) {
             auto file_scanner = FileScannerV2::create_unique(
                     runtime_state.get(), sub_runtime_profile.get(), &rpc_scan_params,
                     &colname_to_slot_id, &tuple_desc);
