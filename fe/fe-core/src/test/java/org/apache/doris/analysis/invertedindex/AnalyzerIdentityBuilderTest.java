@@ -17,10 +17,15 @@
 
 package org.apache.doris.analysis.invertedindex;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.indexpolicy.IndexPolicy;
+import org.apache.doris.indexpolicy.IndexPolicyMgr;
+import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.HashMap;
 import java.util.Iterator;
@@ -100,5 +105,47 @@ public class AnalyzerIdentityBuilderTest {
                 "none",
                 null);
         Assertions.assertEquals("standard", identity);
+    }
+
+    @Test
+    public void testNgramValidationLimitDoesNotChangeAnalyzerIdentity() {
+        IndexPolicyMgr policyMgr = Mockito.mock(IndexPolicyMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        Map<String, String> tokenizerProps = new HashMap<>();
+        tokenizerProps.put(IndexPolicy.PROP_TYPE, "ngram");
+        tokenizerProps.put("min_gram", "1");
+        tokenizerProps.put("max_gram", "8");
+        tokenizerProps.put("max_ngram_diff", "7");
+        IndexPolicy tokenizerWithLimit = new IndexPolicy(
+                1, "ngram_with_limit", IndexPolicyTypeEnum.TOKENIZER, tokenizerProps);
+
+        Map<String, String> equivalentTokenizerProps = new HashMap<>(tokenizerProps);
+        equivalentTokenizerProps.remove("max_ngram_diff");
+        IndexPolicy tokenizerWithoutLimit = new IndexPolicy(
+                2, "ngram_without_limit", IndexPolicyTypeEnum.TOKENIZER, equivalentTokenizerProps);
+
+        IndexPolicy analyzerWithLimit = analyzerPolicy(3, "analyzer_with_limit", "ngram_with_limit");
+        IndexPolicy analyzerWithoutLimit = analyzerPolicy(4, "analyzer_without_limit", "ngram_without_limit");
+        Mockito.when(policyMgr.getPolicyByName("ngram_with_limit")).thenReturn(tokenizerWithLimit);
+        Mockito.when(policyMgr.getPolicyByName("ngram_without_limit")).thenReturn(tokenizerWithoutLimit);
+        Mockito.when(policyMgr.getPolicyByName("analyzer_with_limit")).thenReturn(analyzerWithLimit);
+        Mockito.when(policyMgr.getPolicyByName("analyzer_without_limit")).thenReturn(analyzerWithoutLimit);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            String identityWithLimit = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    nonEmptyProperties(), "analyzer_with_limit", "", "__default__", "none", null);
+            String identityWithoutLimit = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    nonEmptyProperties(), "analyzer_without_limit", "", "__default__", "none", null);
+            Assertions.assertEquals(identityWithoutLimit, identityWithLimit);
+        }
+    }
+
+    private IndexPolicy analyzerPolicy(long id, String name, String tokenizer) {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(IndexPolicy.PROP_TOKENIZER, tokenizer);
+        return new IndexPolicy(id, name, IndexPolicyTypeEnum.ANALYZER, properties);
     }
 }

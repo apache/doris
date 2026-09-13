@@ -167,6 +167,17 @@ public class PolicyValidatorTests {
         Assertions.assertTrue(exception.getMessage().contains("greater than or equal to 0"));
     }
 
+    @Test
+    public void testNGramValidator_RejectsNonAsciiDifferenceLimit() {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> props = new HashMap<>();
+        props.put("max_ngram_diff", "٧");
+
+        Exception exception = Assertions.assertThrows(DdlException.class,
+                () -> validator.validate(props));
+        Assertions.assertTrue(exception.getMessage().contains("non-negative integer"));
+    }
+
     // StandardTokenizerValidator Tests
     @Test
     public void testStandardTokenizerValidator_ValidProperties() throws Exception {

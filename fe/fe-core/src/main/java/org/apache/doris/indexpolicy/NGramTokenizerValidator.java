@@ -79,8 +79,12 @@ public class NGramTokenizerValidator extends BasePolicyValidator {
 
         int maxNgramDiff = 1;
         if (props.containsKey("max_ngram_diff")) {
+            String value = props.get("max_ngram_diff");
+            if (!value.matches("-?[0-9]+")) {
+                throw new DdlException("max_ngram_diff must be a non-negative integer");
+            }
             try {
-                maxNgramDiff = Integer.parseInt(props.get("max_ngram_diff"));
+                maxNgramDiff = Integer.parseInt(value);
                 if (maxNgramDiff < 0) {
                     throw new DdlException("max_ngram_diff must be greater than or equal to 0");
                 }
