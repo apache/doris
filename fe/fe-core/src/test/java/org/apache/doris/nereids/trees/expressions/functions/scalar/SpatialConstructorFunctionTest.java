@@ -71,4 +71,32 @@ public class SpatialConstructorFunctionTest {
         Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, asText.getDataType());
         Assertions.assertEquals(geography, asText.expectedInputTypes().get(0));
     }
+
+    @Test
+    public void testSpatialFunctionsPreserveParameterizedInputTypes() {
+        GeometryType geometry = new GeometryType("EPSG:3857");
+        GeographyType geography = new GeographyType("OGC:CRS84", "vincenty");
+        SlotReference geometrySlot = new SlotReference("geometry", geometry);
+        SlotReference geographySlot = new SlotReference("geography", geography);
+
+        Assertions.assertEquals(geometry, new StAswkt(geometrySlot).expectedInputTypes().get(0));
+        Assertions.assertEquals(geometry, new StAsBinary(geometrySlot).expectedInputTypes().get(0));
+        Assertions.assertEquals(geometry, new StGeometryType(geometrySlot).expectedInputTypes().get(0));
+        Assertions.assertEquals(geometry, new StX(geometrySlot).expectedInputTypes().get(0));
+        Assertions.assertEquals(geometry, new StY(geometrySlot).expectedInputTypes().get(0));
+        Assertions.assertEquals(geography, new StLength(geographySlot).expectedInputTypes().get(0));
+
+        Assertions.assertEquals(geometry,
+                new StDistance(geometrySlot, geographySlot).expectedInputTypes().get(0));
+        Assertions.assertEquals(geography,
+                new StDistance(geometrySlot, geographySlot).expectedInputTypes().get(1));
+        Assertions.assertEquals(geometry,
+                new StContains(geometrySlot, geographySlot).expectedInputTypes().get(0));
+        Assertions.assertEquals(geometry,
+                new StIntersects(geometrySlot, geographySlot).expectedInputTypes().get(0));
+        Assertions.assertEquals(geometry,
+                new StDisjoint(geometrySlot, geographySlot).expectedInputTypes().get(0));
+        Assertions.assertEquals(geometry,
+                new StTouches(geometrySlot, geographySlot).expectedInputTypes().get(0));
+    }
 }
