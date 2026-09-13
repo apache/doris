@@ -94,6 +94,12 @@ public:
                             InvertedIndexQueryCacheHandle* cache_handle,
                             lucene::store::Directory* dir = nullptr) override;
     InvertedIndexReaderType type() override { return _reader_type; }
+    // A policy that cannot be resolved names no index a gram query could use; an analyzed query
+    // reports that failure where it matters.
+    bool is_gram_family() const override {
+        std::optional<segment_v2::gram::GramScheme> scheme;
+        return _current_gram_scheme(nullptr, &scheme).ok() && scheme.has_value();
+    }
 
 #ifdef BE_TEST
     void set_single_flight_follower_joined_observer_for_test(

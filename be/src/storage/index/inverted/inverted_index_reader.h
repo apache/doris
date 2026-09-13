@@ -272,6 +272,11 @@ public:
 
     virtual InvertedIndexReaderType type() = 0;
 
+    // Whether the index names an analyzer that cuts sparse or dense grams under the current
+    // policy -- the index LIKE / REGEXP gram queries are meant for. Decided from the index
+    // properties and in-memory policies only, never by opening the index.
+    virtual bool is_gram_family() const { return false; }
+
     [[nodiscard]] uint64_t get_index_id() const override { return _index_meta.index_id(); }
 
     [[nodiscard]] MOCK_FUNCTION const std::map<std::string, std::string>& get_index_properties()
