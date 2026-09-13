@@ -22,6 +22,7 @@ import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.GeographyType;
 import org.apache.doris.nereids.types.GeometryType;
@@ -59,5 +60,22 @@ class ColumnDefinitionTest {
                     org.apache.doris.common.AnalysisException.class, () -> definition.analyze(true));
             Assertions.assertTrue(exception.getMessage().contains(INTERNAL_TABLE_SPATIAL_ERROR));
         }
+    }
+
+    @Test
+    void rejectNestedSpatialTypesForInternalTables() {
+        ColumnDefinition nereidsDefinition = new ColumnDefinition("shapes",
+                ArrayType.of(new GeometryType("EPSG:3857")), false, null, true, Optional.empty(), "");
+        AnalysisException nereidsException = Assertions.assertThrows(AnalysisException.class,
+                () -> nereidsDefinition.validate(true, Collections.emptySet(), Collections.emptySet(), false,
+                        KeysType.DUP_KEYS));
+        Assertions.assertTrue(nereidsException.getMessage().contains(INTERNAL_TABLE_SPATIAL_ERROR));
+
+        ColumnDef legacyDefinition = new ColumnDef("shapes", new TypeDef(
+                new org.apache.doris.catalog.ArrayType(ScalarType.createGeometryType("EPSG:3857"))),
+                false, null, true, ColumnDef.DefaultValue.NOT_SET, "");
+        org.apache.doris.common.AnalysisException legacyException = Assertions.assertThrows(
+                org.apache.doris.common.AnalysisException.class, () -> legacyDefinition.analyze(true));
+        Assertions.assertTrue(legacyException.getMessage().contains(INTERNAL_TABLE_SPATIAL_ERROR));
     }
 }

@@ -383,8 +383,7 @@ public class ColumnDefinition {
         }
         type.validateDataType();
         type = updateCharacterTypeLength(type);
-        PrimitiveType primitiveType = type.toCatalogDataType().getPrimitiveType();
-        if (isOlap && (primitiveType == PrimitiveType.GEOMETRY || primitiveType == PrimitiveType.GEOGRAPHY)) {
+        if (isOlap && containsSpatialType(type)) {
             throw new AnalysisException("GEOMETRY and GEOGRAPHY are not supported for Doris internal tables");
         }
         if (type.isArrayType()) {
@@ -575,6 +574,25 @@ public class ColumnDefinition {
             throw new AnalysisException("Time type is not supported for olap table");
         }
         validateGeneratedColumnInfo();
+    }
+
+    private static boolean containsSpatialType(DataType type) {
+        PrimitiveType primitiveType = type.toCatalogDataType().getPrimitiveType();
+        if (primitiveType == PrimitiveType.GEOMETRY || primitiveType == PrimitiveType.GEOGRAPHY) {
+            return true;
+        }
+        if (type.isArrayType()) {
+            return containsSpatialType(((ArrayType) type).getItemType());
+        }
+        if (type.isMapType()) {
+            MapType mapType = (MapType) type;
+            return containsSpatialType(mapType.getKeyType()) || containsSpatialType(mapType.getValueType());
+        }
+        if (type.isStructType()) {
+            return ((StructType) type).getFields().stream()
+                    .anyMatch(field -> containsSpatialType(field.getDataType()));
+        }
+        return false;
     }
 
     /**
