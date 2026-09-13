@@ -81,6 +81,33 @@ public class StreamingJobActionSchemaChangeTest extends TestWithFeService {
     }
 
     @Test
+    public void testExecuteSchemaChangeRejectsDropTable() throws Exception {
+        Map<String, String> body = Collections.singletonMap(
+                "stmt", "DROP TABLE " + DB_NAME + "." + TABLE_NAME);
+
+        ResponseEntity<?> result = (ResponseEntity<?>) action.executeSchemaChange(body, tokenRequest());
+
+        ResponseBody<?> responseBody = (ResponseBody<?>) result.getBody();
+        Assertions.assertEquals(RestApiStatusCode.BAD_REQUEST.code, responseBody.getCode());
+        Assertions.assertNotNull(Env.getCurrentEnv().getInternalCatalog()
+                .getDbOrMetaException(DB_NAME).getTableOrMetaException(TABLE_NAME));
+    }
+
+    @Test
+    public void testExecuteSchemaChangeRejectsMultipleStatements() throws Exception {
+        Map<String, String> body = Collections.singletonMap("stmt",
+                "ALTER TABLE " + DB_NAME + "." + TABLE_NAME + " ADD COLUMN rejected_col INT; "
+                        + "DROP TABLE " + DB_NAME + "." + TABLE_NAME);
+
+        ResponseEntity<?> result = (ResponseEntity<?>) action.executeSchemaChange(body, tokenRequest());
+
+        ResponseBody<?> responseBody = (ResponseBody<?>) result.getBody();
+        Assertions.assertEquals(RestApiStatusCode.COMMON_ERROR.code, responseBody.getCode());
+        Assertions.assertNull(Env.getCurrentEnv().getInternalCatalog()
+                .getDbOrMetaException(DB_NAME).getTableOrMetaException(TABLE_NAME).getColumn("rejected_col"));
+    }
+
+    @Test
     public void testExecuteSchemaChangeRejectsNonMaster() throws Exception {
         HttpServletRequest request = tokenRequest();
         Map<String, String> body = Collections.singletonMap("stmt", "ALTER TABLE forwarded_tbl ADD COLUMN k2 INT");

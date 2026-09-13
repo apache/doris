@@ -27,6 +27,8 @@ import org.apache.doris.job.cdc.request.CommitOffsetRequest;
 import org.apache.doris.job.cdc.request.TaskFailureRequest;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
@@ -93,6 +95,9 @@ public class StreamingJobAction extends RestBaseController {
 
         ConnectContext ctx = createJobContext(request);
         try (AutoCloseConnectContext ignored = new AutoCloseConnectContext(ctx)) {
+            if (!(new NereidsParser().parseSingle(stmt) instanceof AlterTableCommand)) {
+                return ResponseEntityBuilder.badRequest("Only one ALTER TABLE statement is allowed");
+            }
             StmtExecutor executor = new StmtExecutor(ctx, stmt);
             executor.execute();
             if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR) {
