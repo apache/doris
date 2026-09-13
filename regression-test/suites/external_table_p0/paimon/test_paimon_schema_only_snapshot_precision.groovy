@@ -92,32 +92,32 @@ suite("test_paimon_schema_only_snapshot_precision", "p0,external,paimon") {
         sql """use ${dbName}"""
         sql """refresh table ${tableName}"""
 
-        assertEquals([[1, "base"]], sql("""
+        order_qt_plain_schema """
             select id, current_name from ${tableName} order by id
-        """))
-        assertEquals([[1, "base"]], sql("""
+        """
+        order_qt_options_schema """
             select id, current_name
             from ${tableName}@options('scan.plan-sort-partition'='true')
             order by id
-        """))
-        assertEquals([[1, "base"]], sql("""
+        """
+        order_qt_branch_schema """
             select id, branch_name
             from ${tableName}@branch(${branchName})
             order by id
-        """))
+        """
 
         // Sub-millisecond precision must survive FE predicate conversion or Paimon's file
         // statistics can reject the only matching file before either reader sees it.
         sql """set force_jni_scanner=false"""
-        assertEquals([[1]], sql("""
+        order_qt_native_precision """
             select id from ${tableName}
             where event_time = cast('2024-01-01 00:00:00.123456' as datetime(6))
-        """))
+        """
         sql """set force_jni_scanner=true"""
-        assertEquals([[1]], sql("""
+        order_qt_jni_precision """
             select id from ${tableName}
             where event_time = cast('2024-01-01 00:00:00.123456' as datetime(6))
-        """))
+        """
     } finally {
         sql """set force_jni_scanner=false"""
         sql """drop catalog if exists ${catalogName}"""

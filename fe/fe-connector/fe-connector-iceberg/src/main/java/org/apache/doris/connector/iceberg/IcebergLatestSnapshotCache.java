@@ -37,7 +37,7 @@ import java.util.function.Supplier;
  * query-begin pin ({@link IcebergConnectorMetadata#beginQuerySnapshot}) reads the SAME snapshot until the
  * entry expires or is invalidated by {@code REFRESH TABLE}/{@code REFRESH CATALOG}.
  *
- * <p><b>Value carries snapshotId, schemaId and the resolved-empty partition style.</b>
+ * <p><b>Value carries snapshotId, schemaId, specId and the resolved-empty partition style.</b>
  * {@code beginQuerySnapshot} pins the snapshot id <i>and</i> the LATEST schema id
  * ({@code table.schema().schemaId()} — not {@code currentSnapshot().schemaId()}, mirroring legacy
  * {@code IcebergUtils.getLatestIcebergSnapshot}). A schema-only {@code ALTER} bumps the latest schema id
@@ -55,10 +55,11 @@ import java.util.function.Supplier;
  */
 final class IcebergLatestSnapshotCache {
 
-    /** Immutable atomic pin for the latest snapshot/schema and its resolved-empty partition style. */
+    /** Immutable atomic pin for the latest snapshot/schema/spec and its resolved-empty partition style. */
     static final class CachedSnapshot {
         final long snapshotId;
         final long schemaId;
+        final int specId;
         final ConnectorMvccPartitionView.Style emptyPartitionStyle;
 
         CachedSnapshot(long snapshotId, long schemaId) {
@@ -67,8 +68,14 @@ final class IcebergLatestSnapshotCache {
 
         CachedSnapshot(long snapshotId, long schemaId,
                 ConnectorMvccPartitionView.Style emptyPartitionStyle) {
+            this(snapshotId, schemaId, -1, emptyPartitionStyle);
+        }
+
+        CachedSnapshot(long snapshotId, long schemaId, int specId,
+                ConnectorMvccPartitionView.Style emptyPartitionStyle) {
             this.snapshotId = snapshotId;
             this.schemaId = schemaId;
+            this.specId = specId;
             this.emptyPartitionStyle = emptyPartitionStyle;
         }
     }

@@ -172,6 +172,28 @@ public class IcebergConnectorMetadataMvccTest {
     }
 
     @Test
+    public void latestCacheHitKeepsPartitionSchemaAfterLiveRename() {
+        Table table = dayPartitionedTable();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = table;
+        IcebergLatestSnapshotCache cache = new IcebergLatestSnapshotCache(100, 1000);
+        IcebergConnectorMetadata firstQuery = new IcebergConnectorMetadata(ops,
+                IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext(), cache);
+        ConnectorMvccSnapshot first = firstQuery.beginQuerySnapshot(null, handle()).get();
+        table.updateSchema().renameColumn("ts", "renamed_ts").commit();
+        table.updateSpec().addField("id").commit();
+        IcebergConnectorMetadata nextQuery = new IcebergConnectorMetadata(ops,
+                IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext(), cache);
+        ConnectorMvccSnapshot cached = nextQuery.beginQuerySnapshot(null, handle()).get();
+        Assertions.assertEquals(first.getSchemaId(), cached.getSchemaId());
+        ConnectorTableSchema schema = nextQuery.getTableSchema(null, handle(), cached);
+        Assertions.assertTrue(columnNames(schema).contains("ts"));
+        Assertions.assertEquals("ts", schema.getProperties().get(ConnectorTableSchema.PARTITION_COLUMNS_KEY));
+        Assertions.assertEquals("PARTITION BY LIST (DAY(`ts`)) ()",
+                schema.getProperties().get(ConnectorTableSchema.SHOW_PARTITION_CLAUSE_KEY));
+    }
+
+    @Test
     public void beginQuerySnapshotDisabledCacheLoadsEveryCall() {
         Fixture f = fixture();
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();

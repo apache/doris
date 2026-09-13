@@ -113,6 +113,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     // Internal sentinel property carrying a tag/branch ref name from resolveTimeTravel to applySnapshot (the
     // typed ConnectorMvccSnapshot has snapshotId/schemaId carriers but no ref field). NOT a BE scan option.
     static final String REF_PROPERTY = "iceberg.scan.ref";
+    private static final String PARTITION_SPEC_ID_PROPERTY = "iceberg.partition.spec.id";
     private static final String EMPTY_PARTITION_STYLE_PROPERTY = "iceberg.empty.partition.style";
 
     // Iceberg v3 row-lineage hidden columns. Local literal copies of the Doris-side constants — the
@@ -499,17 +500,24 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 schema = table.schema();
             }
         }
-        return buildTableSchema(iceHandle.getTableName(), table, schema, true);
+        String specId = snapshot.getProperties().get(PARTITION_SPEC_ID_PROPERTY);
+        PartitionSpec spec = specId == null ? table.spec() : table.specs().get(Integer.parseInt(specId));
+        return buildTableSchema(iceHandle.getTableName(), table, schema, spec, true);
     }
 
     /**
      * Assembles the {@link ConnectorTableSchema} for {@code table} from {@code schema} (the latest schema, or a
-     * historical schema for a time-travel read). The {@code iceberg.format-version} / {@code location} /
-     * {@code iceberg.partition-spec} properties are table-level (not schema-versioned). Factored out so the
-     * latest and at-snapshot paths share ONE assembly.
+     * historical schema for a time-travel read). Pinned reads also supply the partition spec from their
+     * metadata generation; table properties and location still come from the loaded table. Factored out
+     * so the latest and at-snapshot paths share one assembly.
      */
     private ConnectorTableSchema buildTableSchema(String tableName, Table table, Schema schema,
             boolean appendDataFileMetadataColumns) {
+        return buildTableSchema(tableName, table, schema, table.spec(), appendDataFileMetadataColumns);
+    }
+
+    private ConnectorTableSchema buildTableSchema(String tableName, Table table, Schema schema,
+            PartitionSpec spec, boolean appendDataFileMetadataColumns) {
         List<ConnectorColumn> columns = parseSchema(schema);
 
         // Iceberg file metadata columns are always available for data tables, but are hidden from
@@ -552,7 +560,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         if (table.location() != null) {
             tableProps.put(ConnectorTableSchema.SHOW_LOCATION_KEY, table.location());
         }
-        String partitionClause = buildShowPartitionClause(table);
+        String partitionClause = buildShowPartitionClause(schema, spec);
         if (!partitionClause.isEmpty()) {
             tableProps.put(ConnectorTableSchema.SHOW_PARTITION_CLAUSE_KEY, partitionClause);
         }
@@ -560,14 +568,10 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         if (!sortClause.isEmpty()) {
             tableProps.put(ConnectorTableSchema.SHOW_SORT_CLAUSE_KEY, sortClause);
         }
-        if (!table.spec().isUnpartitioned()) {
-            // Generic FE partition-column contract: post-cutover, PluginDrivenExternalTable derives the
-            // table's partition columns SOLELY from a "partition_columns" CSV property (toSchemaCacheValue),
-            // the same key MaxCompute/paimon emit. Mirror legacy IcebergUtils.loadTableSchemaCacheValue:
-            // walk the CURRENT spec, resolve each partition field's SOURCE column name (NO identity filter),
-            // case-preserved to match parseSchema's case-preserved column names (#65094 read-path
-            // alignment; fromRemoteColumnName is identity for iceberg, so the FE consumer looks the names up
-            // case-sensitively).
+        if (!spec.isUnpartitioned()) {
+            // A cached latest pin can outlive schema-only renames and spec evolution while REST
+            // credentials require a fresh Table. Resolve partition source IDs in the pinned schema
+            // and spec so FE never receives historical columns paired with live partition names.
             // DEDUPED per source column (LinkedHashSet, first-occurrence order): this CSV becomes a SET of
             // partition COLUMNS on the FE side, not a list of spec FIELDS. fe-core maps each name to one scan
             // Slot (PruneFileScanPartition) and OneListPartitionEvaluator collects Slot -> literal into an
@@ -577,8 +581,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // deduped column sequence, so the two stay index-aligned (the arity checkState in
             // PluginDrivenMvccExternalTable.toListPartitionItem).
             Set<String> partitionColumns = new LinkedHashSet<>();
-            for (PartitionField field : table.spec().fields()) {
-                Types.NestedField source = table.schema().findField(field.sourceId());
+            for (PartitionField field : spec.fields()) {
+                Types.NestedField source = schema.findField(field.sourceId());
                 if (source != null) {
                     partitionColumns.add(source.name());
                 }
@@ -601,14 +605,13 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * {@code bucket[N]}/{@code truncate[W]}/{@code year}/{@code month}/{@code day}/{@code hour} -> the
      * matching Doris partition function. Returns "" for an unpartitioned table or no renderable field.
      */
-    private String buildShowPartitionClause(Table table) {
-        PartitionSpec spec = table.spec();
+    private String buildShowPartitionClause(Schema schema, PartitionSpec spec) {
         if (spec == null || spec.isUnpartitioned()) {
             return "";
         }
         List<String> fields = new ArrayList<>();
         for (PartitionField field : spec.fields()) {
-            String colName = table.schema().findColumnName(field.sourceId());
+            String colName = schema.findColumnName(field.sourceId());
             if (colName == null) {
                 continue;
             }
@@ -2131,6 +2134,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 : loadLatestSnapshotPin(session, iceHandle);
         ConnectorMvccSnapshot.Builder snapshot = ConnectorMvccSnapshot.builder()
                 .snapshotId(pin.snapshotId).schemaId(pin.schemaId);
+        if (pin.specId >= 0) {
+            snapshot.property(PARTITION_SPEC_ID_PROPERTY, Integer.toString(pin.specId));
+        }
         if (pin.snapshotId < 0) {
             snapshot.property(EMPTY_PARTITION_STYLE_PROPERTY, pin.emptyPartitionStyle.name());
         }
@@ -2177,7 +2183,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 ? ConnectorMvccPartitionView.Style.RANGE
                 : ConnectorMvccPartitionView.Style.UNPARTITIONED;
         return new IcebergLatestSnapshotCache.CachedSnapshot(
-                current == null ? -1L : current.snapshotId(), table.schema().schemaId(), emptyPartitionStyle);
+                current == null ? -1L : current.snapshotId(), table.schema().schemaId(),
+                table.spec().specId(), emptyPartitionStyle);
     }
 
     /**

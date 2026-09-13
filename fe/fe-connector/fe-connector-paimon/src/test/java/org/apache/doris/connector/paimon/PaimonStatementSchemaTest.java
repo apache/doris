@@ -31,9 +31,13 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.fs.local.LocalFileIO;
+import org.apache.paimon.privilege.PrivilegeChecker;
+import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
+import org.apache.paimon.table.DelegatedFileStoreTable;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.sink.BatchTableCommit;
@@ -46,6 +50,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -53,6 +58,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 public class PaimonStatementSchemaTest {
@@ -69,6 +76,89 @@ public class PaimonStatementSchemaTest {
     @Test
     public void systemOptionsKeepsExactStatementSchema(@TempDir Path warehouse) throws Exception {
         checkSchemaMutation(warehouse, true, true);
+    }
+
+    @Test
+    public void warmKeyRenameUsesBoundSchemaOptions(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.INT().notNull())
+                    .column("old_key", DataTypes.INT().notNull()).primaryKey("id", "old_key")
+                    .option("bucket", "1").option("bucket-key", "old_key")
+                    .option("sequence.field", "old_key").option("file.format", "parquet").build(), false);
+            FileStoreTable warm = (FileStoreTable) catalog.getTable(id);
+            append(warm, GenericRow.of(1, 10));
+            warm = warm.copyWithoutTimeTravel(Collections.singletonMap("read.batch-size", "64"));
+            catalog.alterTable(id, Collections.singletonList(
+                    SchemaChange.renameColumn("old_key", "bound_key")), false);
+            long boundId = ((FileStoreTable) catalog.getTable(id)).schema().id();
+            catalog.alterTable(id, Collections.singletonList(
+                    SchemaChange.renameColumn("bound_key", "later_key")), false);
+            for (FileStoreTable loaded : Arrays.asList(warm, (FileStoreTable) catalog.getTable(id))) {
+                FileStoreTable pinned = PaimonScanParams.applyOptionsWithoutTimeTravel(loaded,
+                        PaimonScanParams.withBoundSchema(
+                                PaimonScanParams.pinOptionsToSnapshot(Collections.emptyMap(), 1), boundId));
+                Assertions.assertEquals("bound_key", pinned.options().get("bucket-key"));
+                Assertions.assertEquals("bound_key", pinned.options().get("sequence.field"));
+                Assertions.assertEquals(Collections.singletonList(1), readIds(pinned));
+                if (loaded == warm) {
+                    Assertions.assertEquals("64", pinned.options().get("read.batch-size"));
+                }
+            }
+        }
+    }
+
+    @Test
+    public void stalePrivilegedFallbackKeepsBranchProvenance(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.INT())
+                    .column("value", DataTypes.INT()).partitionKeys("id")
+                    .option("file.format", "parquet").option("scan.manifest.parallelism", "1").build(), false);
+            FileStoreTable warm = (FileStoreTable) catalog.getTable(id);
+            warm.createBranch("backup");
+            FileStoreTable fallback = warm.switchToBranch("backup");
+            append(fallback, GenericRow.of(2, 20));
+            append(warm, GenericRow.of(1, 10));
+            catalog.alterTable(id, Collections.singletonList(SchemaChange.setOption("read.batch-size", "32")),
+                    false);
+            FileStoreTable latest = (FileStoreTable) catalog.getTable(id);
+            AtomicInteger selectChecks = new AtomicInteger();
+            AtomicBoolean denied = new AtomicBoolean();
+            PrivilegeChecker checker = (PrivilegeChecker) Proxy.newProxyInstance(
+                    PrivilegeChecker.class.getClassLoader(), new Class<?>[] {PrivilegeChecker.class},
+                    (proxy, method, args) -> {
+                        if (method.getName().equals("assertCanSelect")) {
+                            selectChecks.incrementAndGet();
+                            if (denied.get()) {
+                                throw new SecurityException("Select denied");
+                            }
+                        }
+                        return null;
+                    });
+            FileStoreTable privileged = PrivilegedFileStoreTable.wrap(
+                    new FallbackReadFileStoreTable(warm, fallback), checker, id);
+            FileStoreTable pinned = PaimonScanParams.applyOptionsWithoutTimeTravel(privileged,
+                    PaimonScanParams.withBoundSchema(
+                            PaimonScanParams.pinOptionsToSnapshot(Collections.emptyMap(), 1), latest.schema().id()));
+            Assertions.assertInstanceOf(PrivilegedFileStoreTable.class, pinned);
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable)
+                    ((DelegatedFileStoreTable) pinned).wrapped();
+            Assertions.assertEquals("backup", pair.fallback().coreOptions().branch());
+            Assertions.assertEquals(fallback.schema().id(), pair.fallback().schema().id());
+            Assertions.assertEquals(latest.schema().id(), pair.wrapped().schema().id());
+            List<Integer> ids = readIds(pinned);
+            Collections.sort(ids);
+            Assertions.assertEquals(Arrays.asList(1, 2), ids);
+            Assertions.assertTrue(selectChecks.get() >= 2);
+            denied.set(true);
+            Assertions.assertThrows(SecurityException.class, pinned::newScan);
+            Assertions.assertThrows(SecurityException.class, pinned::newRead);
+        }
     }
 
     private void checkSchemaMutation(Path warehouse, boolean options, boolean system) throws Exception {

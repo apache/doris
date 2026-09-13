@@ -38,6 +38,7 @@ import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypeRoot;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.TimestampType;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -328,6 +329,11 @@ public class PaimonPredicateConverter {
                 }
                 return null;
             case TIMESTAMP_WITHOUT_TIME_ZONE:
+                // Doris truncates source nanoseconds to DATETIMEV2(6). Exact source comparisons
+                // would reject rows that become equal after that truncation, so keep them residual.
+                if (((TimestampType) paimonType).getPrecision() > 6) {
+                    return null;
+                }
                 // Preserve the complete wall-clock value: narrowing it to epoch milliseconds can
                 // make Paimon prune every file matching a non-millisecond-aligned predicate.
                 if (value instanceof LocalDateTime) {

@@ -24,6 +24,9 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.options.FallbackKey;
+import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.DelegatedFileStoreTable;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.snapshot.FullCompactedStartingScanner;
@@ -33,6 +36,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -199,14 +203,36 @@ public final class PaimonScanParams {
         }
         String schemaId = options.get(BOUND_SCHEMA_ID);
         if (schemaId != null && table.schema().id() != Long.parseLong(schemaId)) {
-            // A cached table can predate binding, and latest can advance again after binding.
-            // Copy the exact schema while retaining catalog options, decorators and branch identity.
-            table = table.copy(table.schemaManager().schema(Long.parseLong(schemaId)).copy(table.options()));
+            table = restoreBoundSchema(table, Long.parseLong(schemaId));
         }
         FileStoreTable effectiveTable = (FileStoreTable) PaimonReaderOptions.runtimeSafeTable(
                 table.copyWithoutTimeTravel(isolatedOptions));
         PaimonReaderOptions.validateEffectiveTable(effectiveTable);
         return effectiveTable;
+    }
+
+    private static FileStoreTable restoreBoundSchema(FileStoreTable table, long schemaId) {
+        if (table instanceof FallbackReadFileStoreTable) {
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
+            // Schema IDs are branch-local. Broadcasting the main schema through copy(TableSchema)
+            // overwrites the fallback's provenance and can even reset its branch to main.
+            return new FallbackReadFileStoreTable(restoreBoundSchema(pair.wrapped(), schemaId), pair.fallback());
+        }
+        if (table instanceof DelegatedFileStoreTable) {
+            FileStoreTable wrapped = ((DelegatedFileStoreTable) table).wrapped();
+            return PaimonTableDecorators.replaceWrapped(table, restoreBoundSchema(wrapped, schemaId));
+        }
+        TableSchema bound = table.schemaManager().schema(schemaId);
+        Map<String, String> persisted = table.schemaManager().schema(table.schema().id()).options();
+        Map<String, String> merged = new HashMap<>(bound.options());
+        // Field-referencing options evolve with the schema (e.g. bucket-key and sequence.field
+        // on rename). Only replay the catalog/runtime delta, never another generation's options.
+        table.options().forEach((key, value) -> {
+            if (!Objects.equals(persisted.get(key), value)) {
+                merged.put(key, value);
+            }
+        });
+        return table.copy(bound.copy(merged));
     }
 
     /**
