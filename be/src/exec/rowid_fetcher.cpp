@@ -452,6 +452,15 @@ bool RowIdStorageReader::should_use_file_scanner_v2(const TQueryOptions& query_o
            FileScannerV2::is_supported(scan_params, range);
 }
 
+TFileRangeDesc RowIdStorageReader::build_external_fetch_range(const TFileRangeDesc& source_range) {
+    // Rows were selected after delete filtering. Preserve the original path and row lineage
+    // needed by virtual columns, and do not mutate the FileMapping shared by other fetches.
+    auto range = source_range;
+    range.table_format_params.iceberg_params.__set_delete_files({});
+    range.table_format_params.transactional_hive_params = TTransactionalHiveDesc {};
+    return range;
+}
+
 Status RowIdStorageReader::read_external_row_from_file_mapping(
         size_t idx, const std::multimap<segment_v2::rowid_t, size_t>& row_ids,
         const std::shared_ptr<FileMapping>& file_mapping,
@@ -482,13 +491,7 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
     scan_blocks[idx] = Block(scan_slots, read_ids.size());
 
     auto& external_info = file_mapping->get_external_file_info();
-    auto& scan_range_desc = external_info.scan_range_desc;
-
-    // Clear to avoid reading iceberg position delete file...
-    scan_range_desc.table_format_params.iceberg_params = TIcebergFileDesc {};
-
-    // Clear to avoid reading hive transactional delete delta file...
-    scan_range_desc.table_format_params.transactional_hive_params = TTransactionalHiveDesc {};
+    auto scan_range_desc = build_external_fetch_range(external_info.scan_range_desc);
 
     std::unique_ptr<RuntimeProfile> sub_runtime_profile =
             std::make_unique<RuntimeProfile>("ExternalRowIDFetcher");
@@ -653,7 +656,18 @@ TFileScanRangeParams RowIdStorageReader::build_external_scan_params(
         slot_info.__set_slot_id(slot.id());
         // Hive V2 checks the Thrift presence bit before trusting is_file_slot. Without it,
         // partition columns consume physical file indexes and invalidate the rebuilt projection.
-        const bool is_file_slot = !partition_names.contains(slot.col_name());
+        bool is_file_slot = !partition_names.contains(slot.col_name());
+        if (source_params.__isset.column_name_to_category) {
+            // Lazy metadata slots may be absent from phase one's required_slots and have new
+            // slot IDs here. The pinned schema's name map preserves their original categories.
+            const auto it = source_params.column_name_to_category.find(slot.col_name());
+            const auto category = it != source_params.column_name_to_category.end()
+                                          ? it->second
+                                          : TColumnCategory::REGULAR;
+            slot_info.__set_category(category);
+            is_file_slot =
+                    category == TColumnCategory::REGULAR || category == TColumnCategory::GENERATED;
+        }
         slot_info.__set_is_file_slot(is_file_slot);
         if (is_file_slot) {
             params.column_idxs.emplace_back(column_idx);

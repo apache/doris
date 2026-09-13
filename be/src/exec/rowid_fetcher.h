@@ -122,6 +122,8 @@ private:
             const std::unordered_map<std::string, int>& colname_to_slot_id,
             std::counting_semaphore<>& semaphore, TupleDescriptor& tuple_desc);
 
+    static TFileRangeDesc build_external_fetch_range(const TFileRangeDesc& source_range);
+
     static TFileScanRangeParams build_external_scan_params(
             const TFileScanRangeParams& source_params, const TFileRangeDesc& range,
             const std::vector<SlotDescriptor>& scan_slots,

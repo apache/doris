@@ -24,6 +24,7 @@
 
 #include "exec/operator/file_scan_operator.h"
 #include "exec/scan/file_scanner_v2.h"
+#include "format_v2/column_mapper.h"
 #include "format_v2/table/hive_reader.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
@@ -45,6 +46,7 @@ protected:
     struct SlotSpec {
         std::string col_name = "c";
         int32_t slot_id = 0;
+        PrimitiveType type = TYPE_INT;
         int32_t col_unique_id = 1;
         std::vector<std::string> column_paths = {};
         TColumnAccessPaths access_paths = {};
@@ -52,7 +54,7 @@ protected:
 
     static SlotDescriptor make_slot(const SlotSpec& spec) {
         TSlotDescriptor tdesc = TSlotDescriptorBuilder()
-                                        .type(TYPE_INT)
+                                        .type(spec.type)
                                         .nullable(true)
                                         .column_name(spec.col_name)
                                         .column_pos(0)
@@ -125,6 +127,86 @@ TEST_F(RowIdStorageReaderTest, ExternalScannerSelectionKeepsUnsupportedFormatsOn
     params.__set_table_format_params(table);
     range.__set_table_format_params(table);
     EXPECT_FALSE(RowIdStorageReader::should_use_file_scanner_v2(options, params, range));
+}
+
+TEST_F(RowIdStorageReaderTest, ExternalFetchPreservesIcebergFileMetadata) {
+    TFileRangeDesc range;
+    range.__set_path("normalized/data.parquet");
+    TIcebergFileDesc iceberg;
+    iceberg.__set_original_file_path("s3://bucket/data.parquet");
+    iceberg.__set_format_version(3);
+    iceberg.__set_first_row_id(128);
+    iceberg.__set_last_updated_sequence_number(7);
+    TIcebergDeleteFileDesc deletes;
+    deletes.__set_path("s3://bucket/deletes.parquet");
+    iceberg.__set_delete_files({deletes});
+    range.table_format_params.__set_iceberg_params(iceberg);
+
+    const auto fetch_range = RowIdStorageReader::build_external_fetch_range(range);
+    const auto& fetch_iceberg = fetch_range.table_format_params.iceberg_params;
+    EXPECT_TRUE(fetch_iceberg.__isset.original_file_path);
+    EXPECT_EQ(fetch_iceberg.original_file_path, iceberg.original_file_path);
+    EXPECT_EQ(fetch_iceberg.format_version, 3);
+    EXPECT_EQ(fetch_iceberg.first_row_id, 128);
+    EXPECT_EQ(fetch_iceberg.last_updated_sequence_number, 7);
+    EXPECT_TRUE(fetch_iceberg.delete_files.empty());
+    EXPECT_EQ(range.table_format_params.iceberg_params, iceberg);
+}
+
+TEST_F(RowIdStorageReaderTest, ExternalFetchPreservesPrunedMetadataCategories) {
+    TFileScanRangeParams source_params;
+    source_params.__set_column_name_to_category(
+            {{"_file", TColumnCategory::SYNTHESIZED},
+             {"_pos", TColumnCategory::SYNTHESIZED},
+             {"generated_col", TColumnCategory::GENERATED},
+             {"partition_col", TColumnCategory::PARTITION_KEY}});
+    // Phase one projects only the sort key; none of these fetch slots survives in required_slots.
+    TFileScanSlotInfo sort_slot;
+    sort_slot.__set_slot_id(99);
+    sort_slot.__set_category(TColumnCategory::REGULAR);
+    source_params.__set_required_slots({sort_slot});
+    source_params.__set_column_idxs({0});
+    std::vector<SlotDescriptor> slots;
+    for (const auto* name : {"_file", "_pos", "generated_col", "partition_col", "value"}) {
+        slots.emplace_back(
+                make_slot({.col_name = name,
+                           .slot_id = static_cast<int32_t>(slots.size()),
+                           .type = std::string_view(name) == "_file" ? TYPE_STRING : TYPE_BIGINT}));
+    }
+    const auto params = RowIdStorageReader::build_external_scan_params(
+            source_params, TFileRangeDesc {}, slots, {3, 4, 1, 2, 0});
+    EXPECT_EQ(params.column_idxs, (std::vector<int32_t> {1, 0}));
+    const std::vector<TColumnCategory::type> categories {
+            TColumnCategory::SYNTHESIZED, TColumnCategory::SYNTHESIZED, TColumnCategory::GENERATED,
+            TColumnCategory::PARTITION_KEY, TColumnCategory::REGULAR};
+    std::vector<format::ColumnDefinition> columns;
+    for (size_t i = 0; i < slots.size(); ++i) {
+        const auto& info = params.required_slots[i];
+        EXPECT_TRUE(info.__isset.category);
+        EXPECT_EQ(info.category, categories[i]);
+        EXPECT_EQ(info.is_file_slot, i == 2 || i == 4);
+        EXPECT_EQ(FileScannerV2::TEST_is_partition_slot(info, slots[i].col_name()), i == 3);
+        auto column = FileScannerV2::_build_table_column(&slots[i]);
+        column.is_synthesized =
+                info.__isset.category && info.category == TColumnCategory::SYNTHESIZED;
+        columns.emplace_back(std::move(column));
+    }
+    format::TableColumnMapper mapper({.mode = format::TableColumnMappingMode::BY_NAME,
+                                      .enable_iceberg_metadata_virtual_columns = true});
+    ASSERT_TRUE(mapper.create_mapping({columns[0], columns[1]}, {}, {}).ok());
+    EXPECT_EQ(mapper.mappings()[0].virtual_column_type,
+              format::TableVirtualColumnType::ICEBERG_FILE_PATH);
+    EXPECT_EQ(mapper.mappings()[1].virtual_column_type,
+              format::TableVirtualColumnType::ICEBERG_ROW_POSITION);
+
+    // An authoritative empty map means ordinary physical columns, even for metadata spellings.
+    source_params.__set_column_name_to_category({});
+    const auto physical_params = RowIdStorageReader::build_external_scan_params(
+            source_params, TFileRangeDesc {}, slots, {3, 4, 1, 2, 0});
+    for (const auto& info : physical_params.required_slots) {
+        EXPECT_EQ(info.category, TColumnCategory::REGULAR);
+        EXPECT_TRUE(info.is_file_slot);
+    }
 }
 
 // Row-id fetch rebuilds the projection after TopN. Hive's positional mapper must consume
