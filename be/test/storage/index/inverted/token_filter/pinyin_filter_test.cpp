@@ -219,6 +219,70 @@ TEST_F(PinyinFilterTest, TestIKOffsetsPreserveFullwidthSourceBytes) {
     EXPECT_EQ(filter->next(&token), nullptr);
 }
 
+TEST_F(PinyinFilterTest, TestIKOffsetsPreserveConnectorGaps) {
+    Settings settings;
+    settings.set("keep_first_letter", "false");
+    settings.set("keep_full_pinyin", "false");
+    settings.set("keep_original", "false");
+    settings.set("keep_none_chinese", "true");
+    settings.set("none_chinese_pinyin_tokenize", "true");
+    settings.set("ignore_pinyin_offset", "false");
+
+    for (const std::string tokenizer_type : {"ik_smart", "ik_max_word"}) {
+        auto tokenizer = createTokenizer(tokenizer_type, "ＬＩＵ-ＤＥ");
+        PinyinFilterFactory filter_factory;
+        filter_factory.initialize(settings);
+        auto filter = filter_factory.create(tokenizer);
+
+        Token token;
+        ASSERT_NE(filter->next(&token), nullptr);
+        EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), "liu");
+        EXPECT_EQ(token.startOffset(), 0);
+        EXPECT_EQ(token.endOffset(), 9);
+        ASSERT_NE(filter->next(&token), nullptr);
+        EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), "de");
+        EXPECT_EQ(token.startOffset(), 10);
+        EXPECT_EQ(token.endOffset(), 16);
+    }
+}
+
+TEST_F(PinyinFilterTest, TestIKOffsetsStayAlignedWhenLongTermsAreClippedAndReset) {
+    Settings settings;
+    settings.set("keep_first_letter", "false");
+    settings.set("keep_full_pinyin", "false");
+    settings.set("keep_original", "false");
+    settings.set("keep_none_chinese", "true");
+    settings.set("none_chinese_pinyin_tokenize", "true");
+    settings.set("ignore_pinyin_offset", "false");
+
+    std::string long_text;
+    for (int i = 0; i < 1024; ++i) {
+        long_text += "ＬＩＵＤＥ";
+    }
+
+    auto tokenizer = createTokenizer("ik_smart", long_text);
+    PinyinFilterFactory filter_factory;
+    filter_factory.initialize(settings);
+    auto filter = filter_factory.create(tokenizer);
+
+    Token token;
+    ASSERT_NE(filter->next(&token), nullptr);
+    EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), "liu");
+    EXPECT_EQ(token.startOffset(), 0);
+    EXPECT_EQ(token.endOffset(), 9);
+
+    auto reset_reader = std::make_shared<lucene::util::SStringReader<char>>();
+    const std::string reset_text = "ＬＩＵＤＥ";
+    reset_reader->init(reset_text.data(), static_cast<int32_t>(reset_text.size()), false);
+    tokenizer->set_reader(reset_reader);
+    filter->reset();
+
+    ASSERT_NE(filter->next(&token), nullptr);
+    EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), "liu");
+    EXPECT_EQ(token.startOffset(), 0);
+    EXPECT_EQ(token.endOffset(), 9);
+}
+
 TEST_F(PinyinFilterTest, TestIKSourceOffsetsAreOptIn) {
     auto tokenizer = createTokenizer("ik_smart", "ＬＩＵＤＥ");
     Token token;

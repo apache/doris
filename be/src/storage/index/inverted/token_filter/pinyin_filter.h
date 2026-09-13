@@ -57,7 +57,8 @@ private:
 
     void addCandidate(const TermItem& item);
 
-    void processAsciiBuffer(const std::string& ascii_buffer, int start_pos, int end_pos);
+    void processAsciiBuffer(const std::string& ascii_buffer,
+                            const std::vector<int>& source_rune_indices);
 
     void setTokenAttributes(Token* token, const std::string& term, int startOffset, int endOffset,
                             int position);
