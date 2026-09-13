@@ -92,6 +92,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /*
@@ -494,13 +495,42 @@ public class MockedBackendFactory {
 
     // The default Brpc service.
     public static class DefaultPBackendServiceImpl extends PBackendServiceGrpc.PBackendServiceImplBase {
+        // How many of the next exec_plan_fragment rpcs answer with a TIMEOUT status, which the
+        // coordinator reports as an RpcException (the kind of failure StmtExecutor retries a query
+        // on), without blacklisting this backend. Every exec_plan_fragment rpc counts.
+        private static final AtomicInteger execPlanFragmentTimeouts = new AtomicInteger();
+        private static final AtomicInteger execPlanFragmentCalls = new AtomicInteger();
+
+        /** Makes the next {@code times} exec_plan_fragment rpcs of every mocked backend fail. */
+        public static void failNextExecPlanFragments(int times) {
+            execPlanFragmentTimeouts.set(times);
+        }
+
+        public static int getExecPlanFragmentCalls() {
+            return execPlanFragmentCalls.get();
+        }
+
+        /** How many of the failures asked for by {@link #failNextExecPlanFragments} are still pending. */
+        public static int getPendingExecPlanFragmentFailures() {
+            return execPlanFragmentTimeouts.get();
+        }
+
+        private static InternalService.PExecPlanFragmentResult execPlanFragmentResult() {
+            execPlanFragmentCalls.incrementAndGet();
+            if (execPlanFragmentTimeouts.getAndUpdate(left -> left > 0 ? left - 1 : 0) > 0) {
+                return InternalService.PExecPlanFragmentResult.newBuilder()
+                        .setStatus(Types.PStatus.newBuilder().setStatusCode(TStatusCode.TIMEOUT.getValue())
+                                .addErrorMsgs("injected exec_plan_fragment timeout")).build();
+            }
+            return InternalService.PExecPlanFragmentResult.newBuilder()
+                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build();
+        }
 
         @Override
         public void execPlanFragment(InternalService.PExecPlanFragmentRequest request,
                                      StreamObserver<InternalService.PExecPlanFragmentResult> responseObserver) {
             System.out.println("get exec_plan_fragment request");
-            responseObserver.onNext(InternalService.PExecPlanFragmentResult.newBuilder()
-                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
+            responseObserver.onNext(execPlanFragmentResult());
             responseObserver.onCompleted();
         }
 
@@ -508,8 +538,7 @@ public class MockedBackendFactory {
         public void execPlanFragmentPrepare(InternalService.PExecPlanFragmentRequest request,
                                             StreamObserver<InternalService.PExecPlanFragmentResult> responseObserver) {
             System.out.println("get exec_plan_fragment_prepare request");
-            responseObserver.onNext(InternalService.PExecPlanFragmentResult.newBuilder()
-                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
+            responseObserver.onNext(execPlanFragmentResult());
             responseObserver.onCompleted();
         }
 
@@ -517,8 +546,7 @@ public class MockedBackendFactory {
         public void execPlanFragmentStart(InternalService.PExecPlanFragmentStartRequest request,
                                           StreamObserver<InternalService.PExecPlanFragmentResult> responseObserver) {
             System.out.println("get exec_plan_fragment_start request");
-            responseObserver.onNext(InternalService.PExecPlanFragmentResult.newBuilder()
-                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
+            responseObserver.onNext(execPlanFragmentResult());
             responseObserver.onCompleted();
         }
 

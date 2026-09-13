@@ -27,9 +27,19 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlProto;
+import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.qe.protocol.RecordingMysqlChannel;
+import org.apache.doris.qe.protocol.RecordingMysqlChannel.RecordedPacket;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
+import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.utframe.MockedBackendFactory.DefaultPBackendServiceImpl;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -162,6 +172,95 @@ public class ProtocolCapabilityWiringTest extends TestWithFeService {
                 connectContext.setThreadLocalInfo();
             }
         }
+    }
+
+    // A query whose backend rpc failed is run again under a new query id on a MySQL connection: its
+    // client has seen nothing of the failed attempt. A Flight session gets the failure instead,
+    // because the backend endpoints the failed attempt registered would have to be withdrawn
+    // first. The mocked backend answers the first exec_plan_fragment rpc with a TIMEOUT status,
+    // which the coordinator raises as the RpcException the executor retries on.
+    @Test
+    public void testAFailedQueryIsRetriedOnlyWhereTheClientCannotTell() throws Exception {
+        createTable("create table retry_tbl (k int) distributed by hash(k) buckets 1"
+                + " properties ('replication_num' = '1')");
+        try {
+            ConnectContext mysql = createDefaultCtx();
+            mysql.setDatabase(DB_NAME);
+            mysql.setThreadLocalInfo();
+            // The table is empty; without this the scan folds into an empty relation the frontend
+            // answers by itself and no backend rpc is ever sent.
+            mysql.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+            StmtExecutor retried = executorFor(mysql, "select k from retry_tbl");
+            TUniqueId firstQueryId = new TUniqueId(1, 1);
+            int callsBefore = DefaultPBackendServiceImpl.getExecPlanFragmentCalls();
+            DefaultPBackendServiceImpl.failNextExecPlanFragments(1);
+
+            retried.execute(firstQueryId);
+
+            Assertions.assertEquals(MysqlStateType.EOF, mysql.getState().getStateType(),
+                    mysql.getState().getErrorMessage());
+            // The rpc that failed, then at least the one that succeeded, under a new query id.
+            Assertions.assertEquals(0, DefaultPBackendServiceImpl.getPendingExecPlanFragmentFailures());
+            Assertions.assertTrue(DefaultPBackendServiceImpl.getExecPlanFragmentCalls() - callsBefore >= 2);
+            Assertions.assertNotEquals(firstQueryId, mysql.queryId());
+
+            ConnectContext flight = flightContext();
+            flight.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+            StmtExecutor failed = executorFor(flight, "select k from retry_tbl");
+            TUniqueId flightQueryId = new TUniqueId(2, 2);
+            DefaultPBackendServiceImpl.failNextExecPlanFragments(1);
+
+            RpcException e = Assertions.assertThrows(RpcException.class, () -> failed.execute(flightQueryId));
+
+            Assertions.assertTrue(e.getMessage().contains("injected exec_plan_fragment timeout"), e.getMessage());
+            Assertions.assertEquals(0, DefaultPBackendServiceImpl.getPendingExecPlanFragmentFailures());
+            Assertions.assertEquals(MysqlStateType.ERR, flight.getState().getStateType());
+            Assertions.assertEquals(flightQueryId, flight.queryId());
+        } finally {
+            DefaultPBackendServiceImpl.failNextExecPlanFragments(0);
+            connectContext.setThreadLocalInfo();
+            dropTable("retry_tbl", true);
+        }
+    }
+
+    // An internal executor (the dry run of RefreshMTMVCommand) answers the client of the session
+    // that issued the statement, encoded with that client's capabilities: it is handed the
+    // caller's sender, as its own session is connected to nobody.
+    @Test
+    public void testAnInternalExecutorAnswersOnTheCallersConnection() throws Exception {
+        // The caller's client did not deprecate EOF; an internal session's default capabilities do.
+        RecordingMysqlChannel callerChannel = new RecordingMysqlChannel();
+        ConnectContext caller = new ConnectContext(new MysqlProtocolAdapter(callerChannel));
+        ConnectContext internal = createDefaultCtx();
+        internal.setDatabase(DB_NAME);
+        internal.setThreadLocalInfo();
+        try {
+            StmtExecutor executor = executorFor(internal, "select 1");
+
+            executor.executeInternalQueryAndSend((LogicalPlanAdapter) executor.getParsedStmt(),
+                    caller.getResultSender());
+
+            // column count, one column definition, the terminator the caller's client expects, one row
+            List<RecordedPacket> packets = callerChannel.getOutbound();
+            Assertions.assertEquals(4, packets.size());
+            Assertions.assertArrayEquals(new byte[] {1}, packets.get(0).getPayload());
+            Assertions.assertEquals(0xFE, Byte.toUnsignedInt(packets.get(2).getPayload()[0]));
+            Assertions.assertEquals(5, packets.get(2).getPayload().length);
+            Assertions.assertArrayEquals(new byte[] {1, '1'}, packets.get(3).getPayload());
+        } finally {
+            connectContext.setThreadLocalInfo();
+        }
+    }
+
+    // An executor the way the connect processor builds one: the parsed statement carries the
+    // original text, and the statement context knows it (so a NereidsCoordinator runs the query).
+    private static StmtExecutor executorFor(ConnectContext ctx, String sql) {
+        StatementContext statementContext = new StatementContext(ctx, new OriginStatement(sql, 0));
+        ctx.setStatementContext(statementContext);
+        LogicalPlan plan = new NereidsParser().parseSingle(sql);
+        LogicalPlanAdapter adapter = new LogicalPlanAdapter(plan, statementContext);
+        adapter.setOrigStmt(statementContext.getOriginStatement());
+        return new StmtExecutor(ctx, adapter);
     }
 
     private ConnectContext flightContext() {
