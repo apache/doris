@@ -26,6 +26,7 @@ import org.apache.logging.log4j.Logger;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.sql.Types;
 import java.util.Map;
 
 /**
@@ -105,6 +106,74 @@ public class JdbcSQLServerConnectorClient extends JdbcConnectorClient {
                 return enableMappingVarbinary
                         ? ConnectorType.of("VARBINARY", fieldInfo.requiredColumnSize(), -1)
                         : ConnectorType.of("STRING");
+            case "xml":
+            case "sql_variant":
+            case "geometry":
+            case "geography":
+            case "hierarchyid":
+            case "json":
+            case "vector":
+                // SQL Server system types that Doris does not support. They are listed explicitly
+                // so that they never reach the JDBC type code fallback below.
+                return ConnectorType.of("UNSUPPORTED");
+            default:
+                return jdbcTypeCodeToConnectorType(fieldInfo);
+        }
+    }
+
+    /**
+     * Fallback for type names that are not SQL Server system types.
+     * <p>
+     * User-defined alias types ({@code CREATE TYPE dbo.my_type FROM varchar(50)}) are reported by
+     * {@code DatabaseMetaData.getColumns()} with {@code TYPE_NAME} set to the alias name, so they can not be
+     * matched by name. {@code DATA_TYPE}, {@code COLUMN_SIZE} and {@code DECIMAL_DIGITS} still describe the
+     * base type, so the standard {@link Types} code is used to resolve the Doris type. The mapping mirrors
+     * the name based one above.
+     * <p>
+     * Binary codes are deliberately not mapped: mssql-jdbc also reports CLR user-defined types
+     * (geometry, geography, hierarchyid, ...) as {@link Types#VARBINARY}, so they can not be told apart from
+     * an alias over a binary type by the type code alone. Vendor specific codes stay unsupported as well.
+     */
+    private ConnectorType jdbcTypeCodeToConnectorType(JdbcFieldInfo fieldInfo) {
+        switch (fieldInfo.getDataType()) {
+            case Types.BIT:
+            case Types.BOOLEAN:
+                return ConnectorType.of("BOOLEAN");
+            // SQL Server tinyint is unsigned (0 to 255), so it needs SMALLINT
+            case Types.TINYINT:
+            case Types.SMALLINT:
+                return ConnectorType.of("SMALLINT");
+            case Types.INTEGER:
+                return ConnectorType.of("INT");
+            case Types.BIGINT:
+                return ConnectorType.of("BIGINT");
+            case Types.REAL:
+                return ConnectorType.of("FLOAT");
+            case Types.FLOAT:
+            case Types.DOUBLE:
+                return ConnectorType.of("DOUBLE");
+            case Types.DECIMAL:
+            case Types.NUMERIC: {
+                // money and smallmoney are reported as DECIMAL(19,4) and DECIMAL(10,4)
+                int precision = fieldInfo.requiredColumnSize();
+                int scale = fieldInfo.requiredDecimalDigits();
+                return createDecimalOrString(precision, scale);
+            }
+            case Types.DATE:
+                return ConnectorType.of("DATEV2");
+            case Types.TIMESTAMP: {
+                int scale = fieldInfo.getDecimalDigits().orElse(0);
+                scale = Math.min(scale, JDBC_DATETIME_SCALE);
+                return ConnectorType.of("DATETIMEV2", scale, -1);
+            }
+            case Types.CHAR:
+            case Types.NCHAR:
+            case Types.VARCHAR:
+            case Types.NVARCHAR:
+            case Types.LONGVARCHAR:
+            case Types.LONGNVARCHAR:
+            case Types.TIME:
+                return ConnectorType.of("STRING");
             default:
                 return ConnectorType.of("UNSUPPORTED");
         }

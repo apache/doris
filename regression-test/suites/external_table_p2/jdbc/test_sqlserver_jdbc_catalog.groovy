@@ -86,6 +86,13 @@ suite("test_sqlserver_jdbc_catalog", "p2,external") {
 
         order_qt_identity_decimal """ select * from test_identity_decimal order by id; """
 
+        // Regression test for https://github.com/apache/doris/issues/67793
+        // Columns declared with a user-defined alias type (CREATE TYPE ... FROM base_type) are reported
+        // by the driver with the alias name as TYPE_NAME. They must resolve to the Doris type of their
+        // base type instead of UNSUPPORTED, so that both DESC and SELECT * work.
+        order_qt_desc_alias_type """ desc test_alias_type; """
+        order_qt_alias_type """ select * from test_alias_type order by id; """
+
         // Test cases for SQL Server date format pushdown (handleSQLServerDateFormat)
         // Uses test_date_filter table which has diverse date/datetime values across rows
         // to verify that filters genuinely include/exclude the correct rows.

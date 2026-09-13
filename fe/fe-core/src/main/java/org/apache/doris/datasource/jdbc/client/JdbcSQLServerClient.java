@@ -21,6 +21,8 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
+import java.sql.Types;
+
 public class JdbcSQLServerClient extends JdbcClient {
 
     protected JdbcSQLServerClient(JdbcClientConfig jdbcClientConfig) {
@@ -99,6 +101,76 @@ public class JdbcSQLServerClient extends JdbcClient {
             case "varbinary":
                 return enableMappingVarbinary ? ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize())
                         : ScalarType.createStringType();
+            case "xml":
+            case "sql_variant":
+            case "geometry":
+            case "geography":
+            case "hierarchyid":
+            case "json":
+            case "vector":
+                // SQL Server system types that Doris does not support. They are listed explicitly
+                // so that they never reach the JDBC type code fallback below.
+                return Type.UNSUPPORTED;
+            default:
+                return jdbcTypeCodeToDoris(fieldSchema);
+        }
+    }
+
+    /**
+     * Fallback for type names that are not SQL Server system types.
+     * <p>
+     * User-defined alias types ({@code CREATE TYPE dbo.my_type FROM varchar(50)}) are reported by
+     * {@code DatabaseMetaData.getColumns()} with {@code TYPE_NAME} set to the alias name, so they can not be
+     * matched by name. {@code DATA_TYPE}, {@code COLUMN_SIZE} and {@code DECIMAL_DIGITS} still describe the
+     * base type, so the standard {@link Types} code is used to resolve the Doris type. The mapping mirrors
+     * the name based one above.
+     * <p>
+     * Binary codes are deliberately not mapped: mssql-jdbc also reports CLR user-defined types
+     * (geometry, geography, hierarchyid, ...) as {@link Types#VARBINARY}, so they can not be told apart from
+     * an alias over a binary type by the type code alone. Vendor specific codes stay unsupported as well.
+     */
+    private Type jdbcTypeCodeToDoris(JdbcFieldSchema fieldSchema) {
+        switch (fieldSchema.getDataType()) {
+            case Types.BIT:
+            case Types.BOOLEAN:
+                return Type.BOOLEAN;
+            // SQL Server tinyint is unsigned (0 to 255), so it needs SMALLINT
+            case Types.TINYINT:
+            case Types.SMALLINT:
+                return Type.SMALLINT;
+            case Types.INTEGER:
+                return Type.INT;
+            case Types.BIGINT:
+                return Type.BIGINT;
+            case Types.REAL:
+                return Type.FLOAT;
+            case Types.FLOAT:
+            case Types.DOUBLE:
+                return Type.DOUBLE;
+            case Types.DECIMAL:
+            case Types.NUMERIC: {
+                // money and smallmoney are reported as DECIMAL(19,4) and DECIMAL(10,4)
+                int precision = fieldSchema.getColumnSize().orElse(0);
+                int scale = fieldSchema.getDecimalDigits().orElse(0);
+                return createDecimalOrStringType(precision, scale);
+            }
+            case Types.DATE:
+                return ScalarType.createDateV2Type();
+            case Types.TIMESTAMP: {
+                int scale = fieldSchema.getDecimalDigits().orElse(0);
+                if (scale > 6) {
+                    scale = 6;
+                }
+                return ScalarType.createDatetimeV2Type(scale);
+            }
+            case Types.CHAR:
+            case Types.VARCHAR:
+            case Types.LONGVARCHAR:
+            case Types.NCHAR:
+            case Types.NVARCHAR:
+            case Types.LONGNVARCHAR:
+            case Types.TIME:
+                return ScalarType.createStringType();
             default:
                 return Type.UNSUPPORTED;
         }

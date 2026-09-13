@@ -23,14 +23,19 @@ import org.apache.doris.connector.spi.ConnectorType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.sql.Types;
 import java.util.Collections;
 import java.util.Optional;
 
 /**
  * Tests for {@link JdbcSQLServerConnectorClient}, focusing on SQL Server
- * IDENTITY column type name handling.
+ * IDENTITY column type name handling and user-defined alias type resolution.
  */
 public class JdbcSQLServerConnectorClientTest {
+
+    // ODBC type codes that mssql-jdbc passes through DatabaseMetaData.getColumns() unchanged
+    private static final int SQL_VARIANT = -150;
+    private static final int SQL_SS_TIMESTAMPOFFSET = -155;
 
     private JdbcSQLServerConnectorClient createClient() {
         return new JdbcSQLServerConnectorClient(
@@ -133,5 +138,101 @@ public class JdbcSQLServerConnectorClientTest {
         JdbcSQLServerConnectorClient client = createClient();
 
         Assertions.assertEquals("%", client.getSchemaPatternForDatabaseNameList());
+    }
+
+    /**
+     * One DatabaseMetaData.getColumns() row as reported by mssql-jdbc. For a user-defined alias type,
+     * TYPE_NAME is the alias name while DATA_TYPE, COLUMN_SIZE and DECIMAL_DIGITS describe the base type.
+     */
+    private static JdbcFieldInfo column(String typeName, int dataType, int columnSize, int decimalDigits) {
+        return new JdbcFieldInfo("col", Optional.of(typeName), dataType,
+                Optional.of(columnSize), Optional.of(decimalDigits), Optional.empty());
+    }
+
+    private static String typeOf(JdbcSQLServerConnectorClient client, JdbcFieldInfo info) {
+        return client.jdbcTypeToConnectorType(info).getTypeName();
+    }
+
+    @Test
+    void testAliasTypeIsResolvedByJdbcTypeCode() {
+        JdbcSQLServerConnectorClient client = createClient();
+
+        // CREATE TYPE dbo.customtexttype FROM varchar(50), the case reported in #67793
+        Assertions.assertEquals("STRING", typeOf(client, column("customtexttype", Types.VARCHAR, 50, 0)));
+        // sysname is a built-in alias over nvarchar(128)
+        Assertions.assertEquals("STRING", typeOf(client, column("sysname", Types.NVARCHAR, 128, 0)));
+        Assertions.assertEquals("STRING", typeOf(client, column("alias_nchar", Types.NCHAR, 10, 0)));
+        Assertions.assertEquals("STRING",
+                typeOf(client, column("alias_text", Types.LONGVARCHAR, Integer.MAX_VALUE, 0)));
+        Assertions.assertEquals("STRING",
+                typeOf(client, column("alias_ntext", Types.LONGNVARCHAR, Integer.MAX_VALUE / 2, 0)));
+        Assertions.assertEquals("STRING", typeOf(client, column("alias_time", Types.TIME, 16, 7)));
+        // uniqueidentifier is reported as CHAR(36)
+        Assertions.assertEquals("STRING", typeOf(client, column("alias_guid", Types.CHAR, 36, 0)));
+
+        Assertions.assertEquals("BOOLEAN", typeOf(client, column("alias_bit", Types.BIT, 1, 0)));
+        // SQL Server tinyint is unsigned, so it keeps the SMALLINT mapping of the name based path
+        Assertions.assertEquals("SMALLINT", typeOf(client, column("alias_tinyint", Types.TINYINT, 3, 0)));
+        Assertions.assertEquals("SMALLINT", typeOf(client, column("alias_smallint", Types.SMALLINT, 5, 0)));
+        Assertions.assertEquals("INT", typeOf(client, column("alias_int", Types.INTEGER, 10, 0)));
+        Assertions.assertEquals("BIGINT", typeOf(client, column("alias_bigint", Types.BIGINT, 19, 0)));
+        Assertions.assertEquals("FLOAT", typeOf(client, column("alias_real", Types.REAL, 24, 0)));
+        Assertions.assertEquals("DOUBLE", typeOf(client, column("alias_float", Types.DOUBLE, 53, 0)));
+
+        ConnectorType decimal = client.jdbcTypeToConnectorType(column("alias_decimal", Types.DECIMAL, 10, 2));
+        Assertions.assertEquals("DECIMALV3", decimal.getTypeName());
+        Assertions.assertEquals(10, decimal.getPrecision());
+        Assertions.assertEquals(2, decimal.getScale());
+        // money is reported as DECIMAL(19,4), the same as the name based mapping produces
+        ConnectorType money = client.jdbcTypeToConnectorType(column("alias_money", Types.DECIMAL, 19, 4));
+        Assertions.assertEquals("DECIMALV3", money.getTypeName());
+        Assertions.assertEquals(19, money.getPrecision());
+        Assertions.assertEquals(4, money.getScale());
+        // precision beyond DECIMAL128 falls back to STRING like the name based path
+        Assertions.assertEquals("STRING", typeOf(client, column("alias_numeric", Types.NUMERIC, 39, 0)));
+
+        Assertions.assertEquals("DATEV2", typeOf(client, column("alias_date", Types.DATE, 10, 0)));
+        ConnectorType datetime = client.jdbcTypeToConnectorType(column("alias_datetime", Types.TIMESTAMP, 23, 3));
+        Assertions.assertEquals("DATETIMEV2", datetime.getTypeName());
+        Assertions.assertEquals(3, datetime.getPrecision());
+        // datetime2 defaults to 7 fractional digits, Doris supports at most 6
+        ConnectorType datetime2 = client.jdbcTypeToConnectorType(column("alias_datetime2", Types.TIMESTAMP, 27, 7));
+        Assertions.assertEquals("DATETIMEV2", datetime2.getTypeName());
+        Assertions.assertEquals(6, datetime2.getPrecision());
+    }
+
+    @Test
+    void testUnknownTypesStayUnsupported() {
+        JdbcSQLServerConnectorClient client = createClient();
+
+        // CLR user-defined types are reported as VARBINARY, exactly like an alias over varbinary,
+        // so binary codes must not be resolved by the fallback
+        Assertions.assertEquals("UNSUPPORTED",
+                typeOf(client, column("geometry", Types.VARBINARY, Integer.MAX_VALUE, 0)));
+        Assertions.assertEquals("UNSUPPORTED", typeOf(client, column("my_clr_type", Types.VARBINARY, 8000, 0)));
+        Assertions.assertEquals("UNSUPPORTED", typeOf(client, column("alias_binary", Types.BINARY, 20, 0)));
+        Assertions.assertEquals("UNSUPPORTED",
+                typeOf(client, column("alias_image", Types.LONGVARBINARY, Integer.MAX_VALUE, 0)));
+        // vendor specific type codes
+        Assertions.assertEquals("UNSUPPORTED", typeOf(client, column("sql_variant", SQL_VARIANT, 8000, 0)));
+        Assertions.assertEquals("UNSUPPORTED",
+                typeOf(client, column("alias_datetimeoffset", SQL_SS_TIMESTAMPOFFSET, 34, 7)));
+        // explicitly unsupported system types keep that behavior whatever type code the driver reports
+        Assertions.assertEquals("UNSUPPORTED",
+                typeOf(client, column("xml", Types.LONGNVARCHAR, Integer.MAX_VALUE / 2, 0)));
+        Assertions.assertEquals("UNSUPPORTED",
+                typeOf(client, column("json", Types.LONGNVARCHAR, Integer.MAX_VALUE / 2, 0)));
+        Assertions.assertEquals("UNSUPPORTED", typeOf(client, column("hierarchyid", Types.VARBINARY, 892, 0)));
+    }
+
+    @Test
+    void testSystemTypeNamesTakePrecedence() {
+        JdbcSQLServerConnectorClient client = createClient();
+
+        // the name based mapping is unchanged, the type code is only consulted for unknown names
+        Assertions.assertEquals("SMALLINT", typeOf(client, column("tinyint", Types.TINYINT, 3, 0)));
+        Assertions.assertEquals("STRING", typeOf(client, column("varbinary", Types.VARBINARY, 20, 0)));
+        Assertions.assertEquals("STRING",
+                typeOf(client, column("datetimeoffset", SQL_SS_TIMESTAMPOFFSET, 34, 7)));
     }
 }

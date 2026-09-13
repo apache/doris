@@ -132,3 +132,8 @@ Insert into dbo.test_date_filter values
 (3, '2024-12-31', '2024-12-31 23:59:59', '2024-12-31 23:59:59.999'),
 (4, '2023-01-17', '2023-01-17 08:00:00', '2023-01-17 08:00:00'),
 (5, '2025-03-15', '2025-03-15 12:00:00', '2025-03-15 12:00:00.500');
+
+-- Alias typed columns, see #67793
+Insert into dbo.test_alias_type values
+(1, 'plain', 'alias', 'alias nvarchar', 1, 9223372036854775807, 255, 1, 12345.67, 123.4567, 1.5, '2023-01-17', '2023-01-17 10:30:45.123', '16:49:05.1234567'),
+(2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);

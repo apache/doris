@@ -284,3 +284,37 @@ CREATE TABLE dbo.test_date_filter (
     datetime_value datetime NULL,
     datetime2_value datetime2 NULL
 );
+
+-- User-defined alias types (CREATE TYPE ... FROM base_type). DatabaseMetaData.getColumns()
+-- reports such columns with TYPE_NAME set to the alias name, see #67793.
+-- They must exist before the table below is created, hence the batch separator.
+CREATE TYPE dbo.doris_alias_varchar FROM varchar(50) NOT NULL;
+CREATE TYPE dbo.doris_alias_nvarchar FROM nvarchar(20) NULL;
+CREATE TYPE dbo.doris_alias_int FROM int NULL;
+CREATE TYPE dbo.doris_alias_bigint FROM bigint NULL;
+CREATE TYPE dbo.doris_alias_tinyint FROM tinyint NULL;
+CREATE TYPE dbo.doris_alias_bit FROM bit NULL;
+CREATE TYPE dbo.doris_alias_decimal FROM decimal(10, 2) NULL;
+CREATE TYPE dbo.doris_alias_money FROM money NULL;
+CREATE TYPE dbo.doris_alias_float FROM float NULL;
+CREATE TYPE dbo.doris_alias_date FROM date NULL;
+CREATE TYPE dbo.doris_alias_datetime2 FROM datetime2(3) NULL;
+CREATE TYPE dbo.doris_alias_time FROM time NULL;
+GO
+
+CREATE TABLE dbo.test_alias_type (
+    id int PRIMARY KEY NOT NULL,
+    plain_col varchar(50) NULL,
+    alias_varchar_col dbo.doris_alias_varchar NULL,
+    alias_nvarchar_col dbo.doris_alias_nvarchar NULL,
+    alias_int_col dbo.doris_alias_int NULL,
+    alias_bigint_col dbo.doris_alias_bigint NULL,
+    alias_tinyint_col dbo.doris_alias_tinyint NULL,
+    alias_bit_col dbo.doris_alias_bit NULL,
+    alias_decimal_col dbo.doris_alias_decimal NULL,
+    alias_money_col dbo.doris_alias_money NULL,
+    alias_float_col dbo.doris_alias_float NULL,
+    alias_date_col dbo.doris_alias_date NULL,
+    alias_datetime2_col dbo.doris_alias_datetime2 NULL,
+    alias_time_col dbo.doris_alias_time NULL
+);

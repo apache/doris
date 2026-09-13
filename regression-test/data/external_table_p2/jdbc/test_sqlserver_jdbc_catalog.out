@@ -133,6 +133,26 @@ timestamp_col	text	Yes	true	\N
 -- !identity_decimal --
 1	1
 
+-- !desc_alias_type --
+alias_bigint_col	bigint	Yes	true	\N	
+alias_bit_col	boolean	Yes	true	\N	
+alias_date_col	date	Yes	true	\N	
+alias_datetime2_col	datetime(3)	Yes	true	\N	
+alias_decimal_col	decimal(10,2)	Yes	true	\N	
+alias_float_col	double	Yes	true	\N	
+alias_int_col	int	Yes	true	\N	
+alias_money_col	decimal(19,4)	Yes	true	\N	
+alias_nvarchar_col	text	Yes	true	\N	
+alias_time_col	text	Yes	true	\N	
+alias_tinyint_col	smallint	Yes	true	\N	
+alias_varchar_col	text	Yes	true	\N	
+id	int	No	true	\N	
+plain_col	text	Yes	true	\N	
+
+-- !alias_type --
+1	plain	alias	alias nvarchar	1	9223372036854775807	255	true	12345.67	123.4567	1.5	2023-01-17	2023-01-17T10:30:45.123	16:49:05.123
+2	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
+
 -- !datetime_eq --
 1	2023-01-17	2023-01-17T10:30	2023-01-17T10:30:00.123
 
