@@ -89,6 +89,18 @@ public class PaimonPredicateConverterTest {
     }
 
     @Test
+    public void ntzPushPreservesMicroseconds() {
+        RowType rowType = RowType.builder().field("ts", DataTypes.TIMESTAMP(6)).build();
+        LocalDateTime literal = LocalDateTime.of(2024, 1, 1, 0, 0, 0, 123_456_000);
+
+        List<Predicate> predicates = convertEq(rowType, "ts", literal);
+
+        LeafPredicate leaf = (LeafPredicate) predicates.get(0);
+        Assertions.assertEquals(Timestamp.fromLocalDateTime(literal), leaf.literals().get(0),
+                "an NTZ predicate literal must retain precision below one millisecond");
+    }
+
+    @Test
     public void ltzNotPushed() {
         RowType rowType = RowType.builder()
                 .field("ts", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE()).build();

@@ -518,7 +518,8 @@ public class PaimonConnectorMetadataMvccTest {
         ConnectorMvccSnapshot snap = metadataWith(ops)
                 .resolveTimeTravel(null, handle, ConnectorTimeTravelSpec.branch("b1")).get();
 
-        // WHY: @branch must pin the BRANCH's LATEST snapshot + its schemaId, carry the branch identity
+        // WHY: @branch must pin the BRANCH's latest data snapshot while retaining its current schema,
+        // because a schema-only ALTER does not create a data snapshot. It must also carry the branch identity
         // via the CoreOptions.BRANCH sentinel (NOT scan.snapshot-id — the branch reads its own latest),
         // and validate the branch on the BASE table. Branches have no in-branch time-travel (legacy
         // reads the branch's latestSnapshot() only). MUTATION: pinning scan.snapshot-id -> the no-key
@@ -526,8 +527,8 @@ public class PaimonConnectorMetadataMvccTest {
         // base table instead of the branch -> the lastMvccTable assertion red.
         Assertions.assertEquals(7L, snap.getSnapshotId(),
                 "@branch must pin the BRANCH's latest snapshot id");
-        Assertions.assertEquals(3L, snap.getSchemaId(),
-                "@branch must stamp the BRANCH's latest snapshot schemaId");
+        Assertions.assertEquals(-1L, snap.getSchemaId(),
+                "@branch must use the current-schema sentinel independently of its latest data snapshot");
         Assertions.assertEquals("b1", snap.getProperties().get(CoreOptions.BRANCH.key()),
                 "@branch must carry the branch name under the CoreOptions.BRANCH sentinel key");
         Assertions.assertNull(snap.getProperties().get("scan.snapshot-id"),
@@ -541,10 +542,11 @@ public class PaimonConnectorMetadataMvccTest {
                 "the branch table must be loaded via a 3-arg branch Identifier");
         Assertions.assertNull(ops.lastGetTableId.getSystemTableName(),
                 "a branch load must NOT carry a system-table name");
-        // The latest-snapshot / schemaId lookups ran against the BRANCH table, not the base. (The last
-        // seam call before this assertion is snapshotSchemaId, which captured lastMvccTable.)
+        // The latest-snapshot lookup ran against the BRANCH table, not the base.
         Assertions.assertSame(branch, ops.lastMvccTable,
-                "latestSnapshotId/snapshotSchemaId must run against the BRANCH table");
+                "latestSnapshotId must run against the BRANCH table");
+        Assertions.assertFalse(ops.log.contains("snapshotSchemaId:7"),
+                "a branch schema-only ALTER must not be hidden by the data snapshot's old schema id");
         // branchExists validation ran against the BASE table (legacy resolvePaimonBranch).
         Assertions.assertEquals("b1", ops.lastBranchExistsArg,
                 "branchExists must be asked about the requested branch name");

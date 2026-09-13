@@ -619,12 +619,13 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      *       loads the branch as its OWN table (independent schema/snapshots, via the 3-arg branch
      *       Identifier through {@link PaimonTableHandle#withBranch}) and pins its LATEST snapshot —
      *       branches have NO in-branch time-travel (legacy {@code PaimonExternalTable} reads the
-     *       branch's {@code latestSnapshot()} only). The branch identity is carried to
+     *       branch's {@code latestSnapshot()} only). Its schema id remains {@code -1} so binding uses
+     *       the branch's current schema, which can advance without a new data snapshot. The branch
+     *       identity is carried to
      *       {@link #applySnapshot} via an internal sentinel ({@code CoreOptions.BRANCH} key, NOT a
      *       scan-copy option); no {@code scan.snapshot-id} is pinned (the branch reads its own latest).
-     *       An empty branch (no snapshot) pins {@code snapshotId=-1} and {@code schemaId=-1}: a benign
-     *       divergence from legacy's {@code schemaId=0L} — the resulting schema is identical (both
-     *       resolve to the branch's current schema), mirroring the INCREMENTAL empty-table -1 note.</li>
+     *       An empty branch also pins {@code snapshotId=-1}; both empty and non-empty branches bind
+     *       against the current branch schema.</li>
      * </ul>
      *
      * <p>CONTRACT DIFFERENCE (intentional, documented): legacy {@code PaimonUtil} THREW a
@@ -733,9 +734,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 // latestSnapshot() only).
                 Table branchTable = resolveTable(paimonHandle.withBranch(branchName));
                 long snapshotId = catalogOps.latestSnapshotId(branchTable).orElse(-1L);
-                long schemaId = snapshotId < 0
-                        ? -1L
-                        : catalogOps.snapshotSchemaId(branchTable, snapshotId).orElse(-1L);
+                // A schema-only ALTER advances the branch schema without creating a data snapshot.
+                // Keep the data fence but bind the branch's current schema instead of that snapshot's old schema.
+                long schemaId = -1L;
                 // Carry the branch identity to applySnapshot via an internal sentinel
                 // (CoreOptions.BRANCH key). Branch is a handle-IDENTITY change, not a scan-copy
                 // option: applySnapshot reads this sentinel and routes it to handle.withBranch (it is
@@ -905,8 +906,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      * <p>Threads the FULL {@code snapshot.getProperties()} map: this may be
      * {@code scan.snapshot-id=<id>} (snapshot-id / timestamp time-travel) OR
      * {@code scan.tag-name=<name>} (tag time-travel), whichever {@link #resolveTimeTravel} pinned.
-     * When {@code properties} is empty (the {@link #beginQuerySnapshot} latest-pin path, which
-     * carries no properties) it falls back to {@code scan.snapshot-id=<snapshotId>} for B5a parity.
+     * When {@code properties} is empty (the {@link #beginQuerySnapshot} latest-pin path), it pins
+     * {@code scan.snapshot-id=<snapshotId>} while retaining the current bound schema generation.
      *
      * <p>BRANCH is special: when the snapshot carries the {@code CoreOptions.BRANCH} sentinel (set by
      * {@link #resolveTimeTravel}'s BRANCH case), it is a handle-IDENTITY change, not a scan option —
@@ -959,8 +960,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             return paimonHandle.withScanOptions(
                     PaimonScanParams.pinOptionsToSnapshot(Collections.emptyMap(), -1L));
         }
-        Map<String, String> scanOptions = Collections.singletonMap(
-                CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(snapshot.getSnapshotId()));
+        // The latest statement snapshot fences data only. Its schema was bound from the current table,
+        // which may be newer after a schema-only ALTER that created no data snapshot.
+        Map<String, String> scanOptions = PaimonScanParams.pinOptionsToSnapshot(
+                Collections.emptyMap(), snapshot.getSnapshotId());
         return paimonHandle.withScanOptions(scanOptions);
     }
 

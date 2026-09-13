@@ -346,7 +346,13 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         Map<String, String> scanOptions = paimonHandle.getScanOptions();
         Table finalTable = table;
         if (scanOptions != null && !scanOptions.isEmpty()) {
-            if (PaimonScanParams.isOptionsPin(scanOptions)) {
+            if (table instanceof FileStoreTable
+                    && PaimonScanParams.preservesBoundSchema(scanOptions)) {
+                // A statement fence owns data visibility, not schema time travel. Reusing Table.copy
+                // here would roll schema-only ALTERs back to the data snapshot's older schema.
+                finalTable = PaimonScanParams.applyOptionsWithoutTimeTravel(
+                        (FileStoreTable) table, scanOptions);
+            } else if (PaimonScanParams.isOptionsPin(scanOptions)) {
                 // An @options pin owns the whole scan-startup state: applyOptions strips the internal
                 // markers and nulls out the absent members of paimon's inherited read-state family, so a
                 // scan.mode / tag persisted on the base table cannot leak into this relation's read.
