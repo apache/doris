@@ -218,4 +218,35 @@ public class AnalyzerIdentityBuilderTest {
         Assertions.assertEquals("ik_smart",
                 resolve.invoke(null, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER));
     }
+
+    @Test
+    public void testBuiltinFilterIdentitiesAreCanonicalized() throws Exception {
+        Method resolveTokenFilters = AnalyzerIdentityBuilder.class.getDeclaredMethod(
+                "resolveTokenFilterIdentity", String.class);
+        resolveTokenFilters.setAccessible(true);
+        Method resolveCharFilters = AnalyzerIdentityBuilder.class.getDeclaredMethod(
+                "resolveCharFilterIdentity", String.class);
+        resolveCharFilters.setAccessible(true);
+
+        Assertions.assertEquals("pinyin", resolveTokenFilters.invoke(null, "PINYIN"));
+        Assertions.assertEquals("icu_normalizer", resolveCharFilters.invoke(null, "ICU_NORMALIZER"));
+    }
+
+    @Test
+    public void testTypeOnlyIkPolicyMatchesBuiltinIdentity() throws Exception {
+        IndexPolicyMgr policyMgr = Mockito.mock(IndexPolicyMgr.class);
+        Mockito.when(policyMgr.getPolicyByName("named_ik")).thenReturn(new IndexPolicy(
+                1, "named_ik", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "ik_smart")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        Method resolve = AnalyzerIdentityBuilder.class.getDeclaredMethod(
+                "resolveComponentIdentity", String.class, IndexPolicyTypeEnum.class);
+        resolve.setAccessible(true);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertEquals(resolve.invoke(null, "ik_smart", IndexPolicyTypeEnum.TOKENIZER),
+                    resolve.invoke(null, "named_ik", IndexPolicyTypeEnum.TOKENIZER));
+        }
+    }
 }

@@ -192,6 +192,32 @@ TEST_F(PinyinFilterTest, TestIKSmartOffsetsRemainDocumentRelative) {
     EXPECT_EQ(filter->next(&token), nullptr);
 }
 
+TEST_F(PinyinFilterTest, TestIKOffsetsPreserveFullwidthSourceBytes) {
+    std::unordered_map<std::string, std::string> filter_config;
+    filter_config["keep_first_letter"] = "false";
+    filter_config["keep_full_pinyin"] = "false";
+    filter_config["keep_original"] = "false";
+    filter_config["keep_none_chinese"] = "true";
+    filter_config["none_chinese_pinyin_tokenize"] = "true";
+    filter_config["ignore_pinyin_offset"] = "false";
+
+    auto tokenizer = createTokenizer("ik_smart", "ＬＩＵＤＥ");
+    PinyinFilterFactory filter_factory;
+    filter_factory.initialize(Settings(filter_config));
+    auto filter = filter_factory.create(tokenizer);
+
+    Token token;
+    ASSERT_NE(filter->next(&token), nullptr);
+    EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), "liu");
+    EXPECT_EQ(token.startOffset(), 0);
+    EXPECT_EQ(token.endOffset(), 9);
+    ASSERT_NE(filter->next(&token), nullptr);
+    EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), "de");
+    EXPECT_EQ(token.startOffset(), 9);
+    EXPECT_EQ(token.endOffset(), 15);
+    EXPECT_EQ(filter->next(&token), nullptr);
+}
+
 TEST_F(PinyinFilterTest, TestTokenFilter_StandardAnalyzer_FullPinyin) {
     std::unordered_map<std::string, std::string> config;
     config["keep_first_letter"] = "false";

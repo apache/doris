@@ -167,6 +167,14 @@ public final class AnalyzerIdentityBuilder {
                     Map<String, String> props = policy.getProperties();
                     if (props != null && !props.isEmpty()) {
                         TreeMap<String, String> sortedProps = new TreeMap<>(props);
+                        String type = sortedProps.get(IndexPolicy.PROP_TYPE);
+                        String normalizedType = normalizeBuiltinComponentName(type, expectedType);
+                        if (normalizedType != null) {
+                            if (sortedProps.size() == 1) {
+                                return normalizedType;
+                            }
+                            sortedProps.put(IndexPolicy.PROP_TYPE, normalizedType);
+                        }
                         if (expectedType == IndexPolicyTypeEnum.TOKENIZER
                                 && "ngram".equals(sortedProps.get(IndexPolicy.PROP_TYPE))) {
                             // This setting only limits policy creation; it does not change emitted tokens.
@@ -180,12 +188,24 @@ public final class AnalyzerIdentityBuilder {
             // Fall through to built-in resolution or the original name.
         }
 
+        String normalizedName = normalizeBuiltinComponentName(name, expectedType);
+        return normalizedName == null ? name : normalizedName;
+    }
+
+    private static String normalizeBuiltinComponentName(String name, IndexPolicyTypeEnum expectedType) {
+        if (Strings.isNullOrEmpty(name)) {
+            return null;
+        }
         String normalizedName = name.toLowerCase(Locale.ROOT);
-        if (expectedType == IndexPolicyTypeEnum.TOKENIZER
-                && IndexPolicy.BUILTIN_TOKENIZERS.contains(normalizedName)) {
+        if ((expectedType == IndexPolicyTypeEnum.TOKENIZER
+                    && IndexPolicy.BUILTIN_TOKENIZERS.contains(normalizedName))
+                || (expectedType == IndexPolicyTypeEnum.TOKEN_FILTER
+                    && IndexPolicy.BUILTIN_TOKEN_FILTERS.contains(normalizedName))
+                || (expectedType == IndexPolicyTypeEnum.CHAR_FILTER
+                    && IndexPolicy.BUILTIN_CHAR_FILTERS.contains(normalizedName))) {
             return normalizedName;
         }
-        return name;
+        return null;
     }
 
     /**
@@ -207,11 +227,7 @@ public final class AnalyzerIdentityBuilder {
                 sb.append(",");
             }
 
-            if (IndexPolicy.BUILTIN_TOKEN_FILTERS.contains(filter)) {
-                sb.append(filter);
-            } else {
-                sb.append(resolveComponentIdentity(filter, IndexPolicyTypeEnum.TOKEN_FILTER));
-            }
+            sb.append(resolveComponentIdentity(filter, IndexPolicyTypeEnum.TOKEN_FILTER));
         }
         return sb.toString();
     }
@@ -235,11 +251,7 @@ public final class AnalyzerIdentityBuilder {
                 sb.append(",");
             }
 
-            if (IndexPolicy.BUILTIN_CHAR_FILTERS.contains(filter)) {
-                sb.append(filter);
-            } else {
-                sb.append(resolveComponentIdentity(filter, IndexPolicyTypeEnum.CHAR_FILTER));
-            }
+            sb.append(resolveComponentIdentity(filter, IndexPolicyTypeEnum.CHAR_FILTER));
         }
         return sb.toString();
     }
