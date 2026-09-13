@@ -181,6 +181,64 @@ suite("test_gram_policy_recovery", "p0") {
     sql "DROP TABLE IF EXISTS test_gram_legacy_recovery"
     sql "DROP INVERTED INDEX ANALYZER IF EXISTS gram_legacy_analyzer"
     sql "DROP INVERTED INDEX TOKENIZER IF EXISTS gram_legacy_tokenizer"
+
+    // The same mismatch seen from the other side: a segment cut in gram mode, recovered after its
+    // policy was recreated for a tokenizer that predates gram mode. The current analyzer now
+    // carries no scheme while the segment still does, and the segment's dictionary holds dense3
+    // grams, not the bigrams a MATCH query is cut into, so the index has to step aside here too.
+    // The bigram answers are pinned: parity alone would also hold if both passes came back empty.
+    sql "DROP TABLE IF EXISTS test_gram_reverse_recovery"
+    sql "DROP INVERTED INDEX ANALYZER IF EXISTS gram_reverse_analyzer"
+    sql "DROP INVERTED INDEX TOKENIZER IF EXISTS gram_reverse_tokenizer"
+    sql """CREATE INVERTED INDEX TOKENIZER gram_reverse_tokenizer PROPERTIES (
+        "type"="ngram", "mode"="dense", "min_gram"="3")"""
+    sql """CREATE INVERTED INDEX ANALYZER gram_reverse_analyzer
+        PROPERTIES ("tokenizer"="gram_reverse_tokenizer")"""
+    waitAnalyzerInstalledNamed("gram_reverse_analyzer", 4)
+
+    sql """CREATE TABLE test_gram_reverse_recovery (
+        id INT,
+        msg VARCHAR(128),
+        INDEX idx_msg (msg) USING INVERTED PROPERTIES ("analyzer"="gram_reverse_analyzer")
+    ) DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+    PROPERTIES ("replication_num"="1", "disable_auto_compaction"="true",
+                "inverted_index_storage_format"="SNII")"""
+    sql """INSERT INTO test_gram_reverse_recovery VALUES
+        (1, 'abcd'), (2, 'xx abcd yy'), (3, 'nothing here'), (4, 'abce'), (5, 'zz bc zz'),
+        (6, NULL)"""
+    sql "sync"
+
+    sql "DROP TABLE test_gram_reverse_recovery"
+    sql "DROP INVERTED INDEX ANALYZER gram_reverse_analyzer"
+    sql "DROP INVERTED INDEX TOKENIZER gram_reverse_tokenizer"
+    sql """CREATE INVERTED INDEX TOKENIZER gram_reverse_tokenizer PROPERTIES (
+        "type"="ngram", "min_gram"="2", "max_gram"="2")"""
+    sql """CREATE INVERTED INDEX ANALYZER gram_reverse_analyzer
+        PROPERTIES ("tokenizer"="gram_reverse_tokenizer")"""
+    waitAnalyzerInstalledNamed("gram_reverse_analyzer", 5)
+    sql "RECOVER TABLE test_gram_reverse_recovery"
+
+    def reverseIds = { String predicate ->
+        return sql("SELECT id FROM test_gram_reverse_recovery WHERE ${predicate} ORDER BY id")
+                .collect { it[0] as Integer }
+    }
+    // Bigrams of 'abcd' are ab, bc, cd; '^ab$' matches the term ab.
+    [
+        ["msg MATCH_ANY 'abcd'", [1, 2, 4, 5]],
+        ["msg MATCH_ALL 'abcd'", [1, 2]],
+        ["msg MATCH_REGEXP '^ab\$'", [1, 2, 4]],
+        ["msg LIKE '%abcd%'", [1, 2]],
+    ].each { entry ->
+        sql "SET enable_inverted_index_query=false"
+        def withoutIndex = reverseIds(entry[0])
+        sql "SET enable_inverted_index_query=true"
+        def withIndex = reverseIds(entry[0])
+        assertEquals(entry[1], withoutIndex, "scalar answer for ${entry[0]}")
+        assertEquals(withoutIndex, withIndex, "the index changed the answer for ${entry[0]}")
+    }
+    sql "DROP TABLE IF EXISTS test_gram_reverse_recovery"
+    sql "DROP INVERTED INDEX ANALYZER IF EXISTS gram_reverse_analyzer"
+    sql "DROP INVERTED INDEX TOKENIZER IF EXISTS gram_reverse_tokenizer"
     // The policies live cluster-wide and the cluster is shared, so a suite that leaves
     // its own behind eats into the instance-wide policy limit for everyone else.
     sql "DROP TABLE IF EXISTS test_gram_policy_recovery"
