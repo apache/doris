@@ -781,13 +781,14 @@ struct StGeoFromWkb {
         std::string wkb;
         for (int row = 0; row < size; ++row) {
             auto value = geo->get_data_at(row);
-            std::unique_ptr<GeoShape> shape = GeoShape::from_wkb(value.data, value.size, status);
-            if (shape == nullptr || status != GEO_PARSE_OK) {
+            if (!decode_wkb_hex(value, &wkb)) {
                 null_map_data[row] = 1;
                 res->insert_default();
                 continue;
             }
-            if (!decode_wkb_hex(value, &wkb)) {
+            std::unique_ptr<GeoShape> shape =
+                    GeoShape::from_wkb_bytes(wkb.data(), wkb.size(), status);
+            if (shape == nullptr || status != GEO_PARSE_OK) {
                 null_map_data[row] = 1;
                 res->insert_default();
                 continue;

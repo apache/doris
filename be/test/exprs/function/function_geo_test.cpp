@@ -146,6 +146,27 @@ TEST(VGeoFunctionsTest, function_geo_st_geomfromwkb_returns_raw_geometry_wkb) {
     }
 }
 
+TEST(VGeoFunctionsTest, function_geo_st_geomfromwkb_accepts_0x_prefixed_wkb) {
+    const std::string wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    auto input_column = ColumnString::create();
+    input_column->insert_data("0x0101000000000000000000F03F0000000000000040", 44);
+    auto input_type = std::make_shared<DataTypeString>();
+    ColumnsWithTypeAndName arguments {{std::move(input_column), input_type, "wkb"}};
+    auto result_type = make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY));
+    auto function = SimpleFunctionFactory::instance().get_function("st_geomfromwkb", arguments,
+                                                                   result_type);
+    ASSERT_NE(nullptr, function);
+
+    Block block;
+    block.insert(arguments.front());
+    block.insert({nullptr, result_type, "result"});
+    ASSERT_TRUE(function->execute(nullptr, block, {0}, 1, 1).ok());
+
+    const auto value = block.get_by_position(1).column->get_data_at(0);
+    EXPECT_EQ(wkb, std::string(value.data, value.size));
+}
+
 TEST(VGeoFunctionsTest, function_geo_st_geogfromwkb_returns_raw_geography_wkb) {
     const std::string wkb(
             "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
