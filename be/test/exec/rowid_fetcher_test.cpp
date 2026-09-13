@@ -23,8 +23,11 @@
 #include <vector>
 
 #include "exec/operator/file_scan_operator.h"
+#include "exec/scan/file_scanner_v2.h"
+#include "format_v2/table/hive_reader.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
 
 namespace doris {
 
@@ -41,6 +44,7 @@ public:
 protected:
     struct SlotSpec {
         std::string col_name = "c";
+        int32_t slot_id = 0;
         int32_t col_unique_id = 1;
         std::vector<std::string> column_paths = {};
         TColumnAccessPaths access_paths = {};
@@ -53,6 +57,7 @@ protected:
                                         .column_name(spec.col_name)
                                         .column_pos(0)
                                         .build();
+        tdesc.__set_id(spec.slot_id);
         tdesc.__set_col_unique_id(spec.col_unique_id);
         tdesc.__set_column_paths(spec.column_paths);
         if (!spec.access_paths.empty()) {
@@ -120,6 +125,73 @@ TEST_F(RowIdStorageReaderTest, ExternalScannerSelectionKeepsUnsupportedFormatsOn
     params.__set_table_format_params(table);
     range.__set_table_format_params(table);
     EXPECT_FALSE(RowIdStorageReader::should_use_file_scanner_v2(options, params, range));
+}
+
+// Row-id fetch rebuilds the projection after TopN. Hive's positional mapper must consume
+// indexes only for physical columns, including when partition columns precede file columns.
+TEST_F(RowIdStorageReaderTest, ExternalFetchPartitionSlotsPreserveHivePositionMapping) {
+    for (const auto format : {TFileFormatType::FORMAT_ORC, TFileFormatType::FORMAT_PARQUET}) {
+        TQueryOptions options;
+        options.__set_hive_orc_use_column_names(false);
+        options.__set_hive_parquet_use_column_names(false);
+        RuntimeState state(options, TQueryGlobals {});
+        TFileScanRangeParams source_params;
+        source_params.__set_format_type(format);
+        source_params.__set_column_idxs({0, 1, 2});
+        TFileScanSlotInfo old_slot;
+        old_slot.__set_slot_id(99);
+        source_params.__set_required_slots({old_slot});
+        source_params.__set_slot_name_to_schema_pos({{"old_column", 0}});
+        TFileRangeDesc range;
+        range.__set_columns_from_path_keys({"partition_col"});
+
+        for (const auto& names : {std::vector<std::string> {"value", "partition_col"},
+                                  std::vector<std::string> {"partition_col", "value", "id"},
+                                  std::vector<std::string> {"partition_col"},
+                                  std::vector<std::string> {"value", "id"}}) {
+            SCOPED_TRACE(fmt::format("format={}, columns={}", static_cast<int>(format),
+                                     fmt::join(names, ",")));
+            std::vector<SlotDescriptor> slots;
+            std::vector<uint32_t> indices;
+            std::vector<int32_t> file_indices;
+            for (const auto& name : names) {
+                slots.emplace_back(make_slot(
+                        {.col_name = name, .slot_id = static_cast<int32_t>(slots.size())}));
+                const uint32_t index = name == "partition_col" ? 3 : name == "value" ? 2 : 0;
+                indices.emplace_back(index);
+                if (name != "partition_col") {
+                    file_indices.emplace_back(index);
+                }
+            }
+            const auto params = RowIdStorageReader::build_external_scan_params(source_params, range,
+                                                                               slots, indices);
+            ASSERT_EQ(params.required_slots.size(), slots.size());
+            EXPECT_EQ(params.column_idxs, file_indices);
+            EXPECT_FALSE(params.slot_name_to_schema_pos.contains("old_column"));
+            format::ProjectedColumnBuildContext context {
+                    .scan_params = &params, .range = &range, .runtime_state = &state};
+            format::hive::HiveReader reader;
+            for (size_t i = 0; i < slots.size(); ++i) {
+                const auto& slot_info = params.required_slots[i];
+                const auto& name = names[i];
+                const bool is_partition = name == "partition_col";
+                EXPECT_TRUE(slot_info.__isset.slot_id);
+                EXPECT_EQ(slot_info.slot_id, slots[i].id());
+                EXPECT_TRUE(slot_info.__isset.is_file_slot);
+                EXPECT_EQ(FileScannerV2::TEST_is_partition_slot(slot_info, name), is_partition);
+                format::ColumnDefinition column;
+                column.name = name;
+                column.type = slots[i].get_data_type_ptr();
+                const auto status = reader.annotate_projected_column(slot_info, &context, &column);
+                ASSERT_TRUE(status.ok()) << status;
+                if (!is_partition) {
+                    EXPECT_EQ(column.get_identifier_position(), indices[i]);
+                }
+            }
+            EXPECT_EQ(context.next_file_column_idx, file_indices.size());
+            EXPECT_TRUE(reader.validate_projected_columns(context).ok());
+        }
+    }
 }
 
 TEST_F(RowIdStorageReaderTest, SameSourceColumnSharesKey) {

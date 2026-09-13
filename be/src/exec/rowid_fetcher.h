@@ -122,6 +122,11 @@ private:
             const std::unordered_map<std::string, int>& colname_to_slot_id,
             std::counting_semaphore<>& semaphore, TupleDescriptor& tuple_desc);
 
+    static TFileScanRangeParams build_external_scan_params(
+            const TFileScanRangeParams& source_params, const TFileRangeDesc& range,
+            const std::vector<SlotDescriptor>& scan_slots,
+            const std::vector<uint32_t>& scan_column_idxs);
+
     static std::string source_column_key(const SlotDescriptor& slot, uint32_t column_idx);
 
     friend class RowIdStorageReaderTest;

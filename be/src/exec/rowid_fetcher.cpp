@@ -635,6 +635,36 @@ Status RowIdStorageReader::submit_external_scan_tasks(
     return scan_status.ok() ? Status::OK() : scan_status.status();
 }
 
+TFileScanRangeParams RowIdStorageReader::build_external_scan_params(
+        const TFileScanRangeParams& source_params, const TFileRangeDesc& range,
+        const std::vector<SlotDescriptor>& scan_slots,
+        const std::vector<uint32_t>& scan_column_idxs) {
+    DORIS_CHECK(scan_slots.size() == scan_column_idxs.size());
+    auto params = source_params;
+    params.required_slots.clear();
+    params.column_idxs.clear();
+    params.slot_name_to_schema_pos.clear();
+    const std::set partition_names(range.columns_from_path_keys.begin(),
+                                   range.columns_from_path_keys.end());
+    for (size_t slot_idx = 0; slot_idx < scan_slots.size(); ++slot_idx) {
+        const auto& slot = scan_slots[slot_idx];
+        const auto column_idx = scan_column_idxs[slot_idx];
+        TFileScanSlotInfo slot_info;
+        slot_info.__set_slot_id(slot.id());
+        // Hive V2 checks the Thrift presence bit before trusting is_file_slot. Without it,
+        // partition columns consume physical file indexes and invalidate the rebuilt projection.
+        const bool is_file_slot = !partition_names.contains(slot.col_name());
+        slot_info.__set_is_file_slot(is_file_slot);
+        if (is_file_slot) {
+            params.column_idxs.emplace_back(column_idx);
+        }
+        params.default_value_of_src_slot.emplace(slot.id(), TExpr {});
+        params.required_slots.emplace_back(slot_info);
+        params.slot_name_to_schema_pos.emplace(slot.col_name(), column_idx);
+    }
+    return params;
+}
+
 Status RowIdStorageReader::read_batch_external_row(
         const uint64_t workload_group_id, const PRequestBlockDesc& request_block_desc,
         std::shared_ptr<IdFileMap> id_file_map, std::vector<SlotDescriptor>& slots,
@@ -667,15 +697,6 @@ Status RowIdStorageReader::read_batch_external_row(
 
         DCHECK(id_file_map->get_external_scan_params().contains(plan_node_id));
         const auto* old_scan_params = &(id_file_map->get_external_scan_params().at(plan_node_id));
-        rpc_scan_params = *old_scan_params;
-
-        rpc_scan_params.required_slots.clear();
-        rpc_scan_params.column_idxs.clear();
-        rpc_scan_params.slot_name_to_schema_pos.clear();
-
-        std::set partition_name_set(first_scan_range_desc.columns_from_path_keys.begin(),
-                                    first_scan_range_desc.columns_from_path_keys.end());
-
         std::unordered_map<std::string, size_t> source_column_to_scan_idx;
 
         result_column_to_scan_column.reserve(slots.size());
@@ -694,24 +715,12 @@ Status RowIdStorageReader::read_batch_external_row(
             }
         }
 
-        for (auto slot_idx = 0; slot_idx < scan_slots.size(); ++slot_idx) {
-            auto& slot = scan_slots[slot_idx];
+        for (auto& slot : scan_slots) {
             tuple_desc.add_slot(&slot);
             colname_to_slot_id[slot.col_name()] = slot.id();
-            TFileScanSlotInfo slot_info;
-            slot_info.slot_id = slot.id();
-            auto column_idx = scan_column_idxs[slot_idx];
-            if (partition_name_set.contains(slot.col_name())) {
-                //This is partition column.
-                slot_info.is_file_slot = false;
-            } else {
-                rpc_scan_params.column_idxs.emplace_back(column_idx);
-                slot_info.is_file_slot = true;
-            }
-            rpc_scan_params.default_value_of_src_slot.emplace(slot.id(), TExpr {});
-            rpc_scan_params.required_slots.emplace_back(slot_info);
-            rpc_scan_params.slot_name_to_schema_pos.emplace(slot.col_name(), column_idx);
         }
+        rpc_scan_params = build_external_scan_params(*old_scan_params, first_scan_range_desc,
+                                                     scan_slots, scan_column_idxs);
 
         const auto& query_options = id_file_map->get_query_options();
         const auto& query_globals = id_file_map->get_query_globals();
