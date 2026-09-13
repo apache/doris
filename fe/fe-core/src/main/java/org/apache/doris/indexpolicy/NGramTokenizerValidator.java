@@ -38,13 +38,23 @@ public class NGramTokenizerValidator extends BasePolicyValidator {
     private static final Set<String> VALID_TOKEN_CHARS = ImmutableSet.of(
             "letter", "digit", "whitespace", "punctuation", "symbol", "custom");
 
+    private final boolean enforceAbsoluteSizeLimit;
+
     public NGramTokenizerValidator() {
+        this(true);
+    }
+
+    private NGramTokenizerValidator(boolean enforceAbsoluteSizeLimit) {
         super(ALLOWED_PROPS);
+        this.enforceAbsoluteSizeLimit = enforceAbsoluteSizeLimit;
     }
 
     static boolean isValidPolicy(Map<String, String> properties) {
         try {
-            new NGramTokenizerValidator().validate(properties);
+            // Policies created before max_ngram_diff existed have no compatibility marker and
+            // must retain the absolute-size behavior accepted by the previous release.
+            boolean hasCompatibilityMarker = properties.containsKey("max_ngram_diff");
+            new NGramTokenizerValidator(hasCompatibilityMarker).validate(properties);
             return true;
         } catch (DdlException | RuntimeException e) {
             return false;
@@ -90,7 +100,8 @@ public class NGramTokenizerValidator extends BasePolicyValidator {
             throw new DdlException("max_gram [" + maxGram + "] "
                 + "cannot be smaller than min_gram [" + minGram + "]");
         }
-        if (minGram > MAX_NGRAM_SIZE || maxGram > MAX_NGRAM_SIZE) {
+        if (enforceAbsoluteSizeLimit
+                && (minGram > MAX_NGRAM_SIZE || maxGram > MAX_NGRAM_SIZE)) {
             throw new DdlException("min_gram and max_gram must be less than or equal to " + MAX_NGRAM_SIZE);
         }
 

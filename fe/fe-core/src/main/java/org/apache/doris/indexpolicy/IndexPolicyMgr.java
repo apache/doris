@@ -196,8 +196,16 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
 
         writeLock();
         try {
-            validatePolicyProperties(type, properties);
-            IndexPolicy indexPolicy = IndexPolicy.create(policyName, type, properties);
+            Map<String, String> storedProperties = properties == null
+                    ? null : Maps.newHashMap(properties);
+            validatePolicyProperties(type, storedProperties);
+            if (type == IndexPolicyTypeEnum.TOKENIZER
+                    && "ngram".equals(storedProperties.get(IndexPolicy.PROP_TYPE))) {
+                // Presence distinguishes policies created with the absolute-size limit from
+                // compatible policies replayed from a version before max_ngram_diff existed.
+                storedProperties.putIfAbsent("max_ngram_diff", "1");
+            }
+            IndexPolicy indexPolicy = IndexPolicy.create(policyName, type, storedProperties);
 
             if (nameToIndexPolicy.containsKey(normalizedName)) {
                 if (ifNotExists) {

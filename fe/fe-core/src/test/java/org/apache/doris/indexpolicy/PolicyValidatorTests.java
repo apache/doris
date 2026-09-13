@@ -17,10 +17,14 @@
 
 package org.apache.doris.indexpolicy;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.persist.EditLog;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 // import org.junit.jupiter.params.ParameterizedTest;
 // import org.junit.jupiter.params.provider.ValueSource;
 
@@ -220,6 +224,42 @@ public class PolicyValidatorTests {
         Exception exception = Assertions.assertThrows(DdlException.class,
                 () -> validator.validate(props));
         Assertions.assertTrue(exception.getMessage().contains("less than or equal to 1024"));
+    }
+
+    @Test
+    public void testLegacyNGramPolicyAboveCurrentLimitRemainsValidAfterReplay() throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put(IndexPolicy.PROP_TYPE, "ngram");
+        props.put("min_gram", "2048");
+        props.put("max_gram", "2048");
+
+        IndexPolicy replayed = roundTrip(new IndexPolicy(
+                1, "legacy_large_ngram", IndexPolicyTypeEnum.TOKENIZER, props));
+
+        Assertions.assertFalse(replayed.isInvalid());
+
+        props.put("max_ngram_diff", "1");
+        IndexPolicy current = roundTrip(new IndexPolicy(
+                2, "current_large_ngram", IndexPolicyTypeEnum.TOKENIZER, props));
+        Assertions.assertTrue(current.isInvalid());
+    }
+
+    @Test
+    public void testNewNGramPolicyPersistsCompatibilityMarker() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getNextId()).thenReturn(2L);
+        Mockito.when(env.getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        Map<String, String> props = new HashMap<>();
+        props.put(IndexPolicy.PROP_TYPE, "ngram");
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            policyMgr.createIndexPolicy(false, "new_ngram", IndexPolicyTypeEnum.TOKENIZER, props);
+        }
+
+        Assertions.assertEquals("1",
+                policyMgr.getPolicyByName("new_ngram").getProperties().get("max_ngram_diff"));
     }
 
     // StandardTokenizerValidator Tests

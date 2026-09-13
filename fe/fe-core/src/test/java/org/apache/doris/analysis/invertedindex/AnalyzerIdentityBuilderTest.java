@@ -183,6 +183,26 @@ public class AnalyzerIdentityBuilderTest {
         }
     }
 
+    @Test
+    public void testReplayedLegacyLargeNgramAnalyzerRemainsUsable() throws Exception {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        Map<String, String> legacyProps = new HashMap<>();
+        legacyProps.put(IndexPolicy.PROP_TYPE, "ngram");
+        legacyProps.put("min_gram", "2048");
+        legacyProps.put("max_gram", "2048");
+        IndexPolicy legacyTokenizer = new IndexPolicy(
+                20, "legacy_large_ngram", IndexPolicyTypeEnum.TOKENIZER, legacyProps);
+        IndexPolicy legacyAnalyzer = analyzerPolicy(
+                21, "legacy_large_analyzer", "legacy_large_ngram");
+
+        policyMgr.replayCreateIndexPolicy(legacyTokenizer);
+        policyMgr.replayCreateIndexPolicy(legacyAnalyzer);
+
+        Assertions.assertFalse(legacyTokenizer.isInvalid());
+        Assertions.assertDoesNotThrow(
+                () -> policyMgr.validateAnalyzerExists("legacy_large_analyzer"));
+    }
+
     private IndexPolicy analyzerPolicy(long id, String name, String tokenizer) {
         Map<String, String> properties = new HashMap<>();
         properties.put(IndexPolicy.PROP_TOKENIZER, tokenizer);

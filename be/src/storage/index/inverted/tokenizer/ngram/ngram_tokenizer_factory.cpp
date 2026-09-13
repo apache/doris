@@ -32,7 +32,8 @@ void NGramTokenizerFactory::initialize(const Settings& settings) {
     if (_min_gram > _max_gram) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "min_gram must not be greater than max_gram");
     }
-    if (_min_gram > MAX_NGRAM_SIZE || _max_gram > MAX_NGRAM_SIZE) {
+    const bool has_max_ngram_diff = !settings.get_string("max_ngram_diff").empty();
+    if (has_max_ngram_diff && (_min_gram > MAX_NGRAM_SIZE || _max_gram > MAX_NGRAM_SIZE)) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "min_gram and max_gram must be less than or equal to " +
                                 std::to_string(MAX_NGRAM_SIZE));
