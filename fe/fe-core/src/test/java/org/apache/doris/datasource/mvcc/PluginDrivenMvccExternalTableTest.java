@@ -627,6 +627,36 @@ public class PluginDrivenMvccExternalTableTest {
         Assertions.assertEquals("10", key.getKeys().get(0).getStringValue());
     }
 
+    @Test
+    public void testLatestPinnedSchemaRejectsCaseInsensitiveDuplicateColumns() {
+        checkLatestPinnedDuplicateColumns(false);
+    }
+
+    @Test
+    public void testLatestPinnedSchemaRejectsIdentifierMappingCollisions() {
+        checkLatestPinnedDuplicateColumns(true);
+    }
+
+    private void checkLatestPinnedDuplicateColumns(boolean mappedCollision) {
+        Fixture f = pinnedPartitionFixture();
+        ConnectorMvccSnapshot snapshot = ConnectorMvccSnapshot.builder()
+                .snapshotId(PINNED_SNAPSHOT_ID).schemaId(Fixture.TT_SCHEMA_ID).build();
+        ConnectorTableSchema schema = new ConnectorTableSchema("REMOTE_TBL", Arrays.asList(
+                new ConnectorColumn("id", ConnectorType.of("INT"), "", true, null),
+                new ConnectorColumn(mappedCollision ? "remote_id" : "ID", ConnectorType.of("INT"), "", true, null)),
+                "", Collections.emptyMap());
+        Mockito.when(f.metadata.getTableSchema(f.session, f.pinnedHandle, snapshot)).thenReturn(schema);
+        if (mappedCollision) {
+            Mockito.when(f.metadata.fromRemoteColumnName(f.session, "REMOTE_DB", "REMOTE_TBL", "remote_id"))
+                    .thenReturn("ID");
+        }
+        IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> f.table.loadSnapshot(Optional.empty(), Optional.empty()));
+        Assertions.assertEquals("Duplicate column name found: ID", error.getMessage());
+        Mockito.verify(f.metadata, Mockito.never()).getMvccPartitionView(Mockito.any(), Mockito.any());
+        Mockito.verify(f.metadata, Mockito.never()).listPartitions(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
     private Fixture pinnedPartitionFixture() {
         Fixture f = Fixture.timeTravel();
         // The local pin predates a partition type/arity change in the ambient latest schema.

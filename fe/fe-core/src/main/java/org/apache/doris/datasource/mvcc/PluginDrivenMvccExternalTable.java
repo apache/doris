@@ -179,6 +179,8 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             ConnectorTableSchema atSchema = metadata.getTableSchema(session, pinnedHandle, connectorSnapshot);
             pinnedSchema = toSchemaCacheValue(metadata, session,
                     db != null ? db.getRemoteName() : "", getRemoteName(), atSchema);
+            // Eager pins bypass the schema cache loader, so preserve its mapped-column validation.
+            pinnedSchema.validateSchema();
         }
         // This pin is not in StatementContext yet; ambient schema lookup can see a later generation.
         List<Column> partitionColumns = pinnedSchema == null
