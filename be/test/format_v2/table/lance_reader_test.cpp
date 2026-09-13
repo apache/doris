@@ -24,6 +24,7 @@
 #include <arrow/builder.h>
 #include <arrow/c/bridge.h>
 #include <arrow/extension/json.h>
+#include <arrow/memory_pool.h>
 #include <arrow/record_batch.h>
 #include <arrow/type.h>
 #include <arrow/util/decimal.h>
@@ -2048,6 +2049,35 @@ TEST(LanceTableReaderTypeTest, ConvertsBFloat16SpecialValuesExactly) {
         EXPECT_EQ(expected_bits[index], std::bit_cast<uint32_t>(floats->Value(index)));
     }
     EXPECT_TRUE(floats->IsNull(expected_bits.size()));
+}
+
+// Verifies normalization honors the supplied pool when widening and compacting arrays.
+TEST(LanceTableReaderTypeTest, HonorsNormalizationMemoryPoolLimit) {
+    arrow::ProxyMemoryPool proxy_pool(arrow::default_memory_pool());
+    arrow::CappedMemoryPool capped_pool(&proxy_pool, 0);
+    std::shared_ptr<arrow::Array> normalized;
+
+    const auto bfloat16_metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.bfloat16"});
+    const auto bfloat16_field =
+            arrow::field("value", arrow::fixed_size_binary(2))->WithMetadata(bfloat16_metadata);
+    const auto bfloat16_status = normalize_lance_arrow_array_for_test(
+            bfloat16_field, make_bfloat16_array({0x3F80}), &normalized, &capped_pool);
+    EXPECT_FALSE(bfloat16_status.ok());
+    EXPECT_NE(std::string::npos,
+              bfloat16_status.to_string().find("reserve Lance BFloat16 output failed"));
+
+    const auto duration_type = arrow::duration(arrow::TimeUnit::MILLI);
+    arrow::DurationBuilder duration_builder(duration_type, arrow::default_memory_pool());
+    ASSERT_TRUE(duration_builder.AppendValues({100, 200}).ok());
+    std::shared_ptr<arrow::DurationArray> durations;
+    ASSERT_TRUE(duration_builder.Finish(&durations).ok());
+    const auto duration_status =
+            normalize_lance_arrow_array_for_test(arrow::field("duration", duration_type),
+                                                 durations->Slice(1, 1), &normalized, &capped_pool);
+    EXPECT_FALSE(duration_status.ok());
+    EXPECT_NE(std::string::npos,
+              duration_status.to_string().find("reserve sliced Lance array builder failed"));
 }
 
 // Verifies nested BFloat16 fields are converted without rebuilding unaffected sibling data.

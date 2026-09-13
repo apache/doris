@@ -292,8 +292,10 @@ Status field_requires_lance_normalization(const std::shared_ptr<arrow::Field>& f
 
 // Widen little-endian Lance BFloat16 values to Arrow Float32 without precision loss.
 Status convert_bfloat16_array(const std::shared_ptr<arrow::Array>& array,
+                              arrow::MemoryPool* memory_pool,
                               std::shared_ptr<arrow::Array>* normalized) {
     DORIS_CHECK(array != nullptr);
+    DORIS_CHECK(memory_pool != nullptr);
     DORIS_CHECK(normalized != nullptr);
     const auto fixed_binary = std::dynamic_pointer_cast<arrow::FixedSizeBinaryArray>(array);
     if (fixed_binary == nullptr || fixed_binary->byte_width() != 2) {
@@ -304,7 +306,7 @@ Status convert_bfloat16_array(const std::shared_ptr<arrow::Array>& array,
         check_arrow_fixed_width_buffer(*fixed_binary, sizeof(uint16_t));
     }
 
-    arrow::FloatBuilder builder;
+    arrow::FloatBuilder builder(memory_pool);
     auto arrow_status = builder.Reserve(fixed_binary->length());
     if (!arrow_status.ok()) {
         return Status::InternalError("reserve Lance BFloat16 output failed: {}",
@@ -454,13 +456,15 @@ Status unwrap_lance_extension_arrays(const std::shared_ptr<arrow::DataType>& exp
 
 // Materialize the visible range into an offset-zero Arrow array for Doris SerDes.
 Status compact_lance_array(const std::shared_ptr<arrow::Array>& array,
+                           arrow::MemoryPool* memory_pool,
                            std::shared_ptr<arrow::Array>* compacted) {
+    DORIS_CHECK(memory_pool != nullptr);
     const auto validation = array->ValidateFull();
     if (!validation.ok()) {
         return Status::InvalidArgument("validate sliced Lance array failed: {}",
                                        validation.message());
     }
-    auto builder_result = arrow::MakeBuilder(array->type(), arrow::default_memory_pool());
+    auto builder_result = arrow::MakeBuilder(array->type(), memory_pool);
     if (!builder_result.ok()) {
         return Status::InternalError("create sliced Lance array builder failed: {}",
                                      builder_result.status().message());
@@ -490,6 +494,7 @@ Status compact_lance_array(const std::shared_ptr<arrow::Array>& array,
 // Compact a sliced variable-offset parent and all of its visible descendants.
 template <typename ArrayType>
 Status compact_lance_offset_array(const std::shared_ptr<arrow::Array>& array,
+                                  arrow::MemoryPool* memory_pool,
                                   std::shared_ptr<arrow::Array>* compacted) {
     const auto offset_array = std::dynamic_pointer_cast<ArrayType>(array);
     if (offset_array == nullptr) {
@@ -507,19 +512,20 @@ Status compact_lance_offset_array(const std::shared_ptr<arrow::Array>& array,
         *compacted = array;
         return Status::OK();
     }
-    return compact_lance_array(array, compacted);
+    return compact_lance_array(array, memory_pool, compacted);
 }
 
 // Compact sliced arrays and nested children only when Doris cannot consume their current layout.
 Status compact_lance_array_if_needed(const std::shared_ptr<arrow::Array>& array,
+                                     arrow::MemoryPool* memory_pool,
                                      std::shared_ptr<arrow::Array>* compacted) {
     switch (array->type_id()) {
     case arrow::Type::LIST:
-        return compact_lance_offset_array<arrow::ListArray>(array, compacted);
+        return compact_lance_offset_array<arrow::ListArray>(array, memory_pool, compacted);
     case arrow::Type::LARGE_LIST:
-        return compact_lance_offset_array<arrow::LargeListArray>(array, compacted);
+        return compact_lance_offset_array<arrow::LargeListArray>(array, memory_pool, compacted);
     case arrow::Type::MAP:
-        return compact_lance_offset_array<arrow::MapArray>(array, compacted);
+        return compact_lance_offset_array<arrow::MapArray>(array, memory_pool, compacted);
     case arrow::Type::FIXED_SIZE_LIST: {
         const auto list = std::dynamic_pointer_cast<arrow::FixedSizeListArray>(array);
         if (list == nullptr) {
@@ -538,7 +544,7 @@ Status compact_lance_array_if_needed(const std::shared_ptr<arrow::Array>& array,
             *compacted = array;
             return Status::OK();
         }
-        return compact_lance_array(array, compacted);
+        return compact_lance_array(array, memory_pool, compacted);
     }
     case arrow::Type::STRUCT: {
         const auto struct_array = std::dynamic_pointer_cast<arrow::StructArray>(array);
@@ -554,14 +560,14 @@ Status compact_lance_array_if_needed(const std::shared_ptr<arrow::Array>& array,
             *compacted = array;
             return Status::OK();
         }
-        return compact_lance_array(array, compacted);
+        return compact_lance_array(array, memory_pool, compacted);
     }
     default:
         if (array->offset() == 0) {
             *compacted = array;
             return Status::OK();
         }
-        return compact_lance_array(array, compacted);
+        return compact_lance_array(array, memory_pool, compacted);
     }
 }
 
@@ -570,9 +576,11 @@ Status compact_lance_array_if_needed(const std::shared_ptr<arrow::Array>& array,
 // Normalize Lance extensions and materialize sliced arrays for Doris Arrow SerDes.
 Status normalize_lance_arrow_array(const std::shared_ptr<arrow::Field>& field,
                                    const std::shared_ptr<arrow::Array>& array,
+                                   arrow::MemoryPool* memory_pool,
                                    std::shared_ptr<arrow::Array>* normalized) {
     DORIS_CHECK(field != nullptr);
     DORIS_CHECK(array != nullptr);
+    DORIS_CHECK(memory_pool != nullptr);
     DORIS_CHECK(normalized != nullptr);
 
     LanceExtensionKind extension_kind;
@@ -591,11 +599,11 @@ Status normalize_lance_arrow_array(const std::shared_ptr<arrow::Field>& field,
                 storage_type->ToString(), storage_array->type()->ToString());
     }
     if (extension_kind == LanceExtensionKind::BFLOAT16) {
-        return convert_bfloat16_array(storage_array, normalized);
+        return convert_bfloat16_array(storage_array, memory_pool, normalized);
     }
 
     std::shared_ptr<arrow::Array> compacted_array;
-    RETURN_IF_ERROR(compact_lance_array_if_needed(storage_array, &compacted_array));
+    RETURN_IF_ERROR(compact_lance_array_if_needed(storage_array, memory_pool, &compacted_array));
     storage_array = std::move(compacted_array);
 
     const auto& child_fields = storage_type->fields();
@@ -636,7 +644,7 @@ Status normalize_lance_arrow_array(const std::shared_ptr<arrow::Field>& field,
         auto child_array = arrow::MakeArray(storage_array->data()->child_data[child_idx]);
         std::shared_ptr<arrow::Array> normalized_child;
         RETURN_IF_ERROR(normalize_lance_arrow_array(child_fields[child_idx], child_array,
-                                                    &normalized_child));
+                                                    memory_pool, &normalized_child));
         if (normalized_child.get() == child_array.get()) {
             continue;
         }
@@ -663,8 +671,11 @@ Status normalize_lance_arrow_array(const std::shared_ptr<arrow::Field>& field,
 // Expose Lance Arrow normalization for allocation-sensitive unit tests.
 Status normalize_lance_arrow_array_for_test(const std::shared_ptr<arrow::Field>& field,
                                             const std::shared_ptr<arrow::Array>& array,
-                                            std::shared_ptr<arrow::Array>* normalized) {
-    return normalize_lance_arrow_array(field, array, normalized);
+                                            std::shared_ptr<arrow::Array>* normalized,
+                                            arrow::MemoryPool* memory_pool) {
+    return normalize_lance_arrow_array(
+            field, array, memory_pool != nullptr ? memory_pool : arrow::default_memory_pool(),
+            normalized);
 }
 #endif
 

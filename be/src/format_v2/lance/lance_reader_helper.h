@@ -35,6 +35,7 @@ struct LanceScanner;
 namespace arrow {
 class Array;
 class Field;
+class MemoryPool;
 class Schema;
 } // namespace arrow
 
@@ -68,13 +69,15 @@ Status parse_index_segment_uuids(const TLanceFileDesc& lance_params,
 // Normalize Lance extension arrays into Arrow arrays supported by Doris.
 Status normalize_lance_arrow_array(const std::shared_ptr<arrow::Field>& field,
                                    const std::shared_ptr<arrow::Array>& array,
+                                   arrow::MemoryPool* memory_pool,
                                    std::shared_ptr<arrow::Array>* normalized);
 
 #ifdef BE_TEST
 // Expose Lance Arrow normalization for allocation-sensitive unit tests.
 Status normalize_lance_arrow_array_for_test(const std::shared_ptr<arrow::Field>& field,
                                             const std::shared_ptr<arrow::Array>& array,
-                                            std::shared_ptr<arrow::Array>* normalized);
+                                            std::shared_ptr<arrow::Array>* normalized,
+                                            arrow::MemoryPool* memory_pool = nullptr);
 #endif
 
 // Convert every top-level field without discarding unsupported columns. Malformed schemas still
