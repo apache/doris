@@ -19,6 +19,9 @@
 
 #include <unicode/utf8.h>
 
+#include <tuple>
+#include <utility>
+
 namespace doris::segment_v2 {
 
 namespace {
@@ -54,6 +57,23 @@ std::vector<int32_t> regularize_with_source_byte_offsets(std::string& token, boo
     return offsets;
 }
 
+std::pair<size_t, size_t> utf8_prefix_at_most(std::string_view text, size_t max_bytes) {
+    const auto length = static_cast<int32_t>(text.size());
+    const auto limit = static_cast<int32_t>(std::min(text.size(), max_bytes));
+    int32_t offset = 0;
+    size_t rune_count = 0;
+    while (offset < length) {
+        int32_t next = offset;
+        U8_FWD_1(text, next, length);
+        if (next > limit) {
+            break;
+        }
+        offset = next;
+        ++rune_count;
+    }
+    return {static_cast<size_t>(offset), rune_count};
+}
+
 } // namespace
 
 IKTokenizer::IKTokenizer(std::shared_ptr<Configuration> config, bool lower_case, bool own_reader) {
@@ -79,10 +99,23 @@ Token* IKTokenizer::next(Token* token) {
         current_source_byte_offsets_.clear();
     }
     current_token_ = &token_data;
-    size_t size = std::min(token_data.text.size(), static_cast<size_t>(LUCENE_MAX_WORD_LEN));
-    set(token, std::string_view(token_data.text.data(), size));
+    size_t published_size = token_data.text.size();
+    size_t published_runes = current_source_byte_offsets_.size();
+    if (published_size > static_cast<size_t>(LUCENE_MAX_WORD_LEN)) {
+        std::tie(published_size, published_runes) =
+                utf8_prefix_at_most(token_data.text, static_cast<size_t>(LUCENE_MAX_WORD_LEN));
+    }
+    set(token, std::string_view(token_data.text.data(), published_size));
     token->setStartOffset(token_data.start_offset);
-    token->setEndOffset(token_data.end_offset);
+    if (source_byte_offsets_enabled_ && published_size < token_data.text.size()) {
+        DORIS_CHECK_LT(published_runes, current_source_byte_offsets_.size());
+        current_source_byte_offsets_.resize(published_runes + 1);
+        // A clipped term represents only this source prefix, so its end offset must not claim the
+        // unpublished suffix. The provenance vector uses the same exclusive source boundary.
+        token->setEndOffset(token_data.start_offset + current_source_byte_offsets_.back());
+    } else {
+        token->setEndOffset(token_data.end_offset);
+    }
     return token;
 }
 

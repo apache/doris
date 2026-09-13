@@ -265,7 +265,7 @@ bool PinyinFilter::processCurrentToken() {
 
     // Buffer for accumulating ASCII characters
     std::string ascii_buffer;
-    int ascii_buffer_start_pos = -1;
+    std::vector<int> ascii_source_rune_indices;
 
     for (size_t i = 0; i < source_codepoints.size(); ++i) {
         UChar32 codepoint = source_codepoints[i];
@@ -283,9 +283,9 @@ bool PinyinFilter::processCurrentToken() {
             if (!config_->keepNoneChineseTogether && config_->keepNoneChinese) {
                 // Process accumulated ASCII buffer before processing individual character
                 if (!ascii_buffer.empty()) {
-                    processAsciiBuffer(ascii_buffer, ascii_buffer_start_pos, static_cast<int>(i));
+                    processAsciiBuffer(ascii_buffer, ascii_source_rune_indices);
                     ascii_buffer.clear();
-                    ascii_buffer_start_pos = -1;
+                    ascii_source_rune_indices.clear();
                 }
                 // Process individual ASCII character immediately
                 position_++;
@@ -294,10 +294,8 @@ bool PinyinFilter::processCurrentToken() {
                                       position_));
             } else {
                 // Accumulate ASCII characters for later processing
-                if (ascii_buffer.empty()) {
-                    ascii_buffer_start_pos = static_cast<int>(i);
-                }
                 ascii_buffer += static_cast<char>(codepoint);
+                ascii_source_rune_indices.push_back(static_cast<int>(i));
             }
 
             // Handle ASCII alphanumeric characters for first letters
@@ -314,9 +312,9 @@ bool PinyinFilter::processCurrentToken() {
         } else {
             // Process accumulated ASCII buffer when we hit non-ASCII (Chinese) characters
             if (!ascii_buffer.empty()) {
-                processAsciiBuffer(ascii_buffer, ascii_buffer_start_pos, static_cast<int>(i));
+                processAsciiBuffer(ascii_buffer, ascii_source_rune_indices);
                 ascii_buffer.clear();
-                ascii_buffer_start_pos = -1;
+                ascii_source_rune_indices.clear();
             }
 
             if (!pinyin.empty() && !chinese.empty()) {
@@ -359,8 +357,7 @@ bool PinyinFilter::processCurrentToken() {
 
     // Process any remaining ASCII buffer at the end
     if (!ascii_buffer.empty()) {
-        processAsciiBuffer(ascii_buffer, ascii_buffer_start_pos,
-                           static_cast<int>(source_codepoints.size()));
+        processAsciiBuffer(ascii_buffer, ascii_source_rune_indices);
     }
 
     // Store the collected letters for later processing
@@ -405,28 +402,39 @@ void PinyinFilter::addCandidate(const TermItem& item) {
     candidate_.push_back(new_item);
 }
 
-void PinyinFilter::processAsciiBuffer(const std::string& ascii_buffer, int start_pos, int end_pos) {
+void PinyinFilter::processAsciiBuffer(const std::string& ascii_buffer,
+                                      const std::vector<int>& source_rune_indices) {
     if (ascii_buffer.empty() || !config_->keepNoneChinese) {
         return;
     }
+    DORIS_CHECK_EQ(ascii_buffer.size(), source_rune_indices.size());
 
     if (config_->noneChinesePinyinTokenize) {
         // Use PinyinAlphabetTokenizer to split ASCII buffer into meaningful tokens
         std::vector<std::string> tokens = PinyinAlphabetTokenizer::walk(ascii_buffer);
 
-        int current_offset = start_pos;
+        size_t compact_offset = 0;
+        int fixed_offset = source_rune_indices.front();
         for (const auto& token : tokens) {
+            const size_t compact_end = compact_offset + token.size();
+            DORIS_CHECK_LE(compact_end, source_rune_indices.size());
             position_++;
-            int token_end = (config_->fixedPinyinOffset)
-                                    ? (current_offset + 1)
-                                    : (current_offset + static_cast<int>(token.length()));
-            addCandidate(TermItem(token, current_offset, token_end, position_));
-            current_offset = token_end;
+            if (config_->fixedPinyinOffset) {
+                addCandidate(TermItem(token, fixed_offset, fixed_offset + 1, position_));
+                ++fixed_offset;
+            } else {
+                const int source_start = source_rune_indices[compact_offset];
+                const int source_end = source_rune_indices[compact_end - 1] + 1;
+                addCandidate(TermItem(token, source_start, source_end, position_));
+            }
+            compact_offset = compact_end;
         }
+        DORIS_CHECK_EQ(compact_offset, source_rune_indices.size());
     } else {
         // Treat the entire ASCII buffer as a single token
         position_++;
-        addCandidate(TermItem(ascii_buffer, start_pos, end_pos, position_));
+        addCandidate(TermItem(ascii_buffer, source_rune_indices.front(),
+                              source_rune_indices.back() + 1, position_));
     }
 }
 
