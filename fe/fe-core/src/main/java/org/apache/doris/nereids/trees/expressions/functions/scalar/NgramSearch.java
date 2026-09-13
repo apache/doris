@@ -62,11 +62,11 @@ public class NgramSearch extends ScalarFunction
                     "ngram_search(text,pattern,gram_num): pattern support const value only.");
         }
         Expression gramNum = child(2);
-        if (!gramNum.isConstant()) {
+        if (!(gramNum instanceof IntegerLikeLiteral)) {
             throw new AnalysisException(
                     "ngram_search(text,pattern,gram_num): gram_num support const value only.");
         }
-        if (!(gramNum instanceof IntegerLikeLiteral) || ((IntegerLikeLiteral) gramNum).getIntValue() <= 0) {
+        if (((IntegerLikeLiteral) gramNum).getIntValue() <= 0) {
             throw new AnalysisException(
                     "ngram_search(text,pattern,gram_num): gram_num must be a positive constant.");
         }
