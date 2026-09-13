@@ -26,12 +26,18 @@ std::unordered_map<std::string, CharMatcherPtr> NGramTokenizerFactory::MATCHERS;
 void NGramTokenizerFactory::initialize(const Settings& settings) {
     _min_gram = settings.get_int("min_gram", NGramTokenizer::DEFAULT_MIN_NGRAM_SIZE);
     _max_gram = settings.get_int("max_gram", NGramTokenizer::DEFAULT_MAX_NGRAM_SIZE);
+    int32_t max_ngram_diff = settings.get_int("max_ngram_diff", 1);
+    if (max_ngram_diff < 0) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "max_ngram_diff must be greater than or equal to 0");
+    }
     int32_t ngram_diff = _max_gram - _min_gram;
-    if (ngram_diff > 1) {
+    if (ngram_diff > max_ngram_diff) {
         throw Exception(
                 ErrorCode::INVALID_ARGUMENT,
                 "The difference between max_gram and min_gram in NGram Tokenizer must be less "
-                "than or equal to: [ 1 ] but was [" +
+                "than or equal to: [ " +
+                        std::to_string(max_ngram_diff) + " ] but was [" +
                         std::to_string(ngram_diff) + "]");
     }
     _matcher = parse_token_chars(settings);

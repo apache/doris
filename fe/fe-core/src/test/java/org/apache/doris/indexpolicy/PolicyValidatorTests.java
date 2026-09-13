@@ -130,7 +130,41 @@ public class PolicyValidatorTests {
         Map<String, String> props = new HashMap<>();
         props.put("min_gram", "3");
         props.put("max_gram", "5");
+        props.put("max_ngram_diff", "2");
         validator.validate(props); // Should not throw
+    }
+
+    @Test
+    public void testNGramValidator_DefaultDifferenceLimit() {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> props = new HashMap<>();
+        props.put("min_gram", "1");
+        props.put("max_gram", "8");
+
+        Exception exception = Assertions.assertThrows(DdlException.class,
+                () -> validator.validate(props));
+        Assertions.assertTrue(exception.getMessage().contains("less than or equal to: [ 1 ]"));
+    }
+
+    @Test
+    public void testNGramValidator_ConfiguredDifferenceLimit() throws Exception {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> props = new HashMap<>();
+        props.put("min_gram", "1");
+        props.put("max_gram", "8");
+        props.put("max_ngram_diff", "7");
+        validator.validate(props); // Should not throw
+    }
+
+    @Test
+    public void testNGramValidator_InvalidDifferenceLimit() {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> props = new HashMap<>();
+        props.put("max_ngram_diff", "-1");
+
+        Exception exception = Assertions.assertThrows(DdlException.class,
+                () -> validator.validate(props));
+        Assertions.assertTrue(exception.getMessage().contains("greater than or equal to 0"));
     }
 
     // StandardTokenizerValidator Tests

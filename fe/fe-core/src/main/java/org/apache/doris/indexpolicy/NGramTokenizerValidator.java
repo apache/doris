@@ -28,7 +28,7 @@ import java.util.Set;
 
 public class NGramTokenizerValidator extends BasePolicyValidator {
     private static final Set<String> ALLOWED_PROPS = ImmutableSet.of(
-            "type", "min_gram", "max_gram", "token_chars", "custom_token_chars");
+            "type", "min_gram", "max_gram", "max_ngram_diff", "token_chars", "custom_token_chars");
 
     private static final Set<String> VALID_TOKEN_CHARS = ImmutableSet.of(
             "letter", "digit", "whitespace", "punctuation", "symbol", "custom");
@@ -75,6 +75,24 @@ public class NGramTokenizerValidator extends BasePolicyValidator {
         if (minGram > maxGram) {
             throw new DdlException("max_gram [" + maxGram + "] "
                 + "cannot be smaller than min_gram [" + minGram + "]");
+        }
+
+        int maxNgramDiff = 1;
+        if (props.containsKey("max_ngram_diff")) {
+            try {
+                maxNgramDiff = Integer.parseInt(props.get("max_ngram_diff"));
+                if (maxNgramDiff < 0) {
+                    throw new DdlException("max_ngram_diff must be greater than or equal to 0");
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException("max_ngram_diff must be a non-negative integer");
+            }
+        }
+
+        int ngramDiff = maxGram - minGram;
+        if (ngramDiff > maxNgramDiff) {
+            throw new DdlException("The difference between max_gram and min_gram in NGram Tokenizer must be less "
+                    + "than or equal to: [ " + maxNgramDiff + " ] but was [" + ngramDiff + "]");
         }
 
         if (props.containsKey("token_chars")) {

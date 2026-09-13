@@ -87,6 +87,29 @@ TEST(NGramTokenizerTest, InvalidMinMaxDifference) {
     ASSERT_TRUE(exception_thrown);
 }
 
+TEST(NGramTokenizerTest, ConfiguredMinMaxDifference) {
+    NGramTokenizerFactory factory;
+    std::unordered_map<std::string, std::string> args;
+    args["min_gram"] = "1";
+    args["max_gram"] = "8";
+    args["max_ngram_diff"] = "7";
+    Settings settings(args);
+    factory.initialize(settings);
+    auto tokens = tokenize(factory, "abcd");
+
+    std::vector<std::string> expected {"a", "ab", "abc", "abcd", "b", "bc", "bcd", "c", "cd", "d"};
+    ASSERT_EQ(tokens, expected);
+}
+
+TEST(NGramTokenizerTest, InvalidConfiguredDifferenceLimit) {
+    NGramTokenizerFactory factory;
+    std::unordered_map<std::string, std::string> args;
+    args["max_ngram_diff"] = "-1";
+    Settings settings(args);
+
+    EXPECT_THROW(factory.initialize(settings), Exception);
+}
+
 TEST(NGramTokenizerTest, SymbolCharactersHandling) {
     NGramTokenizerFactory factory;
     std::unordered_map<std::string, std::string> args;
