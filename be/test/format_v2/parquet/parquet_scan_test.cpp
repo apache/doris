@@ -2513,6 +2513,37 @@ TEST_F(ParquetScanTest, GlobalRowIdUsesFileLocalPositionForScanRange) {
     EXPECT_EQ(row_ids, std::vector<uint32_t>({2, 3}));
 }
 
+TEST_F(ParquetScanTest, ReadsOnlyRequestedAbsoluteFileRowsAcrossRowGroups) {
+    write_int_pair_parquet_file(_file_path, 2);
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    request->row_ids = {0, 3, 5};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<int32_t> ids;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block({schema[0]});
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows == 0) {
+            continue;
+        }
+        const auto& id_column = int32_data_column(*block.get_by_position(0).column);
+        for (size_t row = 0; row < rows; ++row) {
+            ids.push_back(id_column.get_element(row));
+        }
+    }
+
+    EXPECT_EQ(ids, std::vector<int32_t>({1, 4, 6}));
+}
+
 TEST_F(ParquetScanTest, PredicateOnlyGlobalRowIdKeepsSignedFileLocalId) {
     write_int_pair_parquet_file(_file_path, 6, false);
     format::GlobalRowIdContext context {.version = 7, .backend_id = 123456789, .file_id = 42};

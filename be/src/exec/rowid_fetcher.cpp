@@ -43,6 +43,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "exec/scan/file_scanner.h"
+#include "exec/scan/file_scanner_v2.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "io/io_common.h"
@@ -478,14 +479,28 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
     std::unique_ptr<RuntimeProfile> sub_runtime_profile =
             std::make_unique<RuntimeProfile>("ExternalRowIDFetcher");
     {
-        std::unique_ptr<FileScanner> vfile_scanner_ptr =
-                FileScanner::create_unique(runtime_state.get(), sub_runtime_profile.get(),
-                                           &rpc_scan_params, &colname_to_slot_id, &tuple_desc);
-
-        RETURN_IF_ERROR(vfile_scanner_ptr->prepare_for_read_lines(scan_range_desc));
-        RETURN_IF_ERROR(vfile_scanner_ptr->read_lines_from_range(
-                scan_range_desc, read_ids, &scan_blocks[idx], external_info,
-                &fetch_statistics[idx].init_reader_ms, &fetch_statistics[idx].get_block_ms));
+        const auto format_type = scan_range_desc.__isset.format_type ? scan_range_desc.format_type
+                                                                     : rpc_scan_params.format_type;
+        if ((format_type == TFileFormatType::FORMAT_PARQUET ||
+             format_type == TFileFormatType::FORMAT_ORC) &&
+            FileScannerV2::is_supported(rpc_scan_params, scan_range_desc)) {
+            auto file_scanner = FileScannerV2::create_unique(
+                    runtime_state.get(), sub_runtime_profile.get(), &rpc_scan_params,
+                    &colname_to_slot_id, &tuple_desc);
+            RETURN_IF_ERROR(file_scanner->read_by_rows(scan_range_desc, read_ids, &scan_blocks[idx],
+                                                       &fetch_statistics[idx].init_reader_ms,
+                                                       &fetch_statistics[idx].get_block_ms));
+        } else {
+            // Phase one can still use V1 for table-format variants unsupported by V2, so keep the
+            // matching phase-two path instead of turning a previously valid query into an error.
+            auto file_scanner =
+                    FileScanner::create_unique(runtime_state.get(), sub_runtime_profile.get(),
+                                               &rpc_scan_params, &colname_to_slot_id, &tuple_desc);
+            RETURN_IF_ERROR(file_scanner->prepare_for_read_lines(scan_range_desc));
+            RETURN_IF_ERROR(file_scanner->read_lines_from_range(
+                    scan_range_desc, read_ids, &scan_blocks[idx], external_info,
+                    &fetch_statistics[idx].init_reader_ms, &fetch_statistics[idx].get_block_ms));
+        }
     }
 
     if (scan_blocks[idx].rows() != read_ids.size()) {
@@ -506,7 +521,7 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
     }
 
     auto file_read_bytes_counter =
-            sub_runtime_profile->get_counter(FileScanner::FileReadBytesProfile);
+            sub_runtime_profile->get_counter(FileScannerV2::FileReadBytesProfile);
 
     if (file_read_bytes_counter != nullptr) {
         fetch_statistics[idx].file_read_bytes = PrettyPrinter::print(
@@ -514,7 +529,7 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
     }
 
     auto file_read_times_counter =
-            sub_runtime_profile->get_counter(FileScanner::FileReadTimeProfile);
+            sub_runtime_profile->get_counter(FileScannerV2::FileReadTimeProfile);
     if (file_read_times_counter != nullptr) {
         fetch_statistics[idx].file_read_times = PrettyPrinter::print(
                 file_read_times_counter->value(), file_read_times_counter->type());
@@ -866,9 +881,9 @@ Status RowIdStorageReader::read_batch_external_row(
                                          std::to_string(*init_reader_avg_ms) + "ms");
         runtime_profile->add_info_string(FileReadLinesProfile,
                                          fmt::to_string(file_read_lines_buffer));
-        runtime_profile->add_info_string(FileScanner::FileReadBytesProfile,
+        runtime_profile->add_info_string(FileScannerV2::FileReadBytesProfile,
                                          fmt::to_string(file_read_bytes_buffer));
-        runtime_profile->add_info_string(FileScanner::FileReadTimeProfile,
+        runtime_profile->add_info_string(FileScannerV2::FileReadTimeProfile,
                                          fmt::to_string(file_read_times_buffer));
     }
 

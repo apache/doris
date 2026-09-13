@@ -556,7 +556,28 @@ Status build_native_row_group_read_plans(
         row_group_plan.row_group_id = row_group_idx;
         row_group_plan.first_file_row = row_group_first_rows[row_group_idx];
         row_group_plan.row_group_rows = row_group.num_rows;
-        row_group_plan.selected_ranges = {{.start = 0, .length = row_group.num_rows}};
+        if (request.row_ids.has_value()) {
+            const auto& row_ids = *request.row_ids;
+            const int64_t row_group_end = row_group_plan.first_file_row + row_group.num_rows;
+            auto row_id = std::ranges::lower_bound(row_ids, row_group_plan.first_file_row);
+            const auto row_id_end = std::ranges::lower_bound(row_id, row_ids.end(), row_group_end);
+            for (; row_id != row_id_end; ++row_id) {
+                const int64_t local_row = *row_id - row_group_plan.first_file_row;
+                if (!row_group_plan.selected_ranges.empty() &&
+                    row_group_plan.selected_ranges.back().start +
+                                    row_group_plan.selected_ranges.back().length ==
+                            local_row) {
+                    ++row_group_plan.selected_ranges.back().length;
+                } else {
+                    row_group_plan.selected_ranges.push_back({.start = local_row, .length = 1});
+                }
+            }
+            if (row_group_plan.selected_ranges.empty()) {
+                continue;
+            }
+        } else {
+            row_group_plan.selected_ranges = {{.start = 0, .length = row_group.num_rows}};
+        }
         row_group_plan.expensive_pruning_pending = true;
         plan->row_groups.push_back(std::move(row_group_plan));
     }
