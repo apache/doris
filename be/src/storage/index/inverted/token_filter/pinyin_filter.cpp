@@ -80,6 +80,8 @@ Token* PinyinFilter::next(Token* token) {
         current_token_text_ = std::string(token->termBuffer<char>(), token->termLength<char>());
         current_start_offset_ = token->startOffset();
         current_end_offset_ = token->endOffset();
+        auto source_byte_offsets = get_source_byte_offsets(current_token_text_);
+        current_source_byte_offsets_.assign(source_byte_offsets.begin(), source_byte_offsets.end());
 
         done_ = false;
     }
@@ -123,6 +125,7 @@ void PinyinFilter::resetVariables() {
     full_pinyin_letters_.clear();
     current_source_.clear();
     current_runes_.clear();
+    current_source_byte_offsets_.clear();
     candidate_offset_ = 0;
     terms_filter_.clear();
     last_increment_position_ = 0;
@@ -237,6 +240,14 @@ bool PinyinFilter::processCurrentToken() {
     // Convert to Unicode codepoints for processing
     std::vector<UChar32> source_codepoints;
     current_runes_ = convertToRunes(current_source_, source_codepoints);
+
+    if (current_source_ == current_token_text_ &&
+        current_source_byte_offsets_.size() == current_runes_.size() + 1) {
+        for (size_t i = 0; i < current_runes_.size(); ++i) {
+            current_runes_[i].byte_start = current_source_byte_offsets_[i];
+            current_runes_[i].byte_end = current_source_byte_offsets_[i + 1];
+        }
+    }
 
     if (source_codepoints.empty()) {
         return false;

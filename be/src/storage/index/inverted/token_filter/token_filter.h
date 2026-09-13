@@ -28,6 +28,12 @@ public:
 
     void reset() override { _in->reset(); }
 
+    std::span<const int32_t> get_source_byte_offsets(std::string_view term) const override {
+        const auto* source = dynamic_cast<const DorisTokenStream*>(_in.get());
+        return source == nullptr ? std::span<const int32_t> {}
+                                 : source->get_source_byte_offsets(term);
+    }
+
 protected:
     TokenStreamPtr _in;
 };

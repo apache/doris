@@ -17,7 +17,42 @@
 
 #include "storage/index/inverted/analyzer/ik/IKTokenizer.h"
 
+#include <unicode/utf8.h>
+
 namespace doris::segment_v2 {
+
+namespace {
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): ICU UTF-8 macros expand to branches.
+std::vector<int32_t> build_source_byte_offsets(std::string_view token, bool lowercase) {
+    const auto* text = token.data();
+    const auto length = static_cast<int32_t>(token.size());
+    int32_t offset = 0;
+    bool changes_byte_width = false;
+    while (offset < length) {
+        UChar32 codepoint;
+        U8_NEXT(text, offset, length, codepoint);
+        if (codepoint >= 0 &&
+            U8_LENGTH(codepoint) != U8_LENGTH(CharacterUtil::regularize(codepoint, lowercase))) {
+            changes_byte_width = true;
+            break;
+        }
+    }
+    if (!changes_byte_width) {
+        return {};
+    }
+
+    std::vector<int32_t> offsets {0};
+    offset = 0;
+    while (offset < length) {
+        UChar32 codepoint;
+        U8_NEXT(text, offset, length, codepoint);
+        offsets.push_back(offset);
+    }
+    return offsets;
+}
+
+} // namespace
 
 IKTokenizer::IKTokenizer(std::shared_ptr<Configuration> config, bool lower_case, bool own_reader) {
     this->lowercase = lower_case;
@@ -35,11 +70,19 @@ Token* IKTokenizer::next(Token* token) {
     // full-width to half-width, and lowercase
     // TODO(ryan19929): do regularizeString in fillBuffer.
     CharacterUtil::regularizeString(token_data.text, this->lowercase);
+    current_token_ = &token_data;
     size_t size = std::min(token_data.text.size(), static_cast<size_t>(LUCENE_MAX_WORD_LEN));
     set(token, std::string_view(token_data.text.data(), size));
     token->setStartOffset(token_data.start_offset);
     token->setEndOffset(token_data.end_offset);
     return token;
+}
+
+std::span<const int32_t> IKTokenizer::get_source_byte_offsets(std::string_view term) const {
+    if (current_token_ == nullptr || term != current_token_->text) {
+        return {};
+    }
+    return current_token_->source_byte_offsets;
 }
 
 void IKTokenizer::reset() {
@@ -57,15 +100,21 @@ void IKTokenizer::reset(lucene::util::Reader* reader) {
     this->buffer_index_ = 0;
     this->data_length_ = 0;
     this->tokens_.clear();
+    this->current_token_ = nullptr;
 
     try {
         buffer_.reserve(input->size());
         ik_segmenter_->reset(reader);
         Lexeme lexeme;
         while (ik_segmenter_->next(lexeme)) {
-            tokens_.push_back({lexeme.getText(),
-                               static_cast<int32_t>(lexeme.getByteBeginPosition()),
-                               static_cast<int32_t>(lexeme.getByteEndPosition())});
+            TokenData token_data {
+                    .text = lexeme.getText(),
+                    .start_offset = static_cast<int32_t>(lexeme.getByteBeginPosition()),
+                    .end_offset = static_cast<int32_t>(lexeme.getByteEndPosition()),
+                    .source_byte_offsets = {}};
+            token_data.source_byte_offsets =
+                    build_source_byte_offsets(token_data.text, this->lowercase);
+            tokens_.push_back(std::move(token_data));
         }
     } catch (const CLuceneError&) {
         throw;

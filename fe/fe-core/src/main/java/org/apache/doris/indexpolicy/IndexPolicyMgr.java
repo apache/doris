@@ -41,6 +41,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -61,7 +62,7 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
      * Policy names are case-insensitive in Doris.
      */
     private static String normalizeKey(String name) {
-        return name == null ? null : name.trim().toLowerCase();
+        return name == null ? null : name.trim().toLowerCase(Locale.ROOT);
     }
 
     private void writeLock() {

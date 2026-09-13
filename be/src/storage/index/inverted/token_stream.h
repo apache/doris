@@ -20,6 +20,7 @@
 #include <unicode/utext.h>
 
 #include <memory>
+#include <span>
 #include <string_view>
 
 #include "CLucene.h"
@@ -59,6 +60,11 @@ public:
 
     int32_t get_position_increment(Token* t) { return t->getPositionIncrement(); }
     void set_position_increment(Token* t, int32_t pos) { t->setPositionIncrement(pos); }
+
+    // Return the original relative byte boundaries when token normalization changed them.
+    virtual std::span<const int32_t> get_source_byte_offsets(std::string_view term) const {
+        return {};
+    }
 };
 
 class TokenStreamWrapper : public TokenStream {

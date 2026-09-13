@@ -99,6 +99,7 @@ private:
     int current_start_offset_;
     int current_end_offset_;
     std::vector<RuneInfo> current_runes_;
+    std::vector<int32_t> current_source_byte_offsets_;
 };
 
 using PinyinFilterPtr = std::shared_ptr<PinyinFilter>;

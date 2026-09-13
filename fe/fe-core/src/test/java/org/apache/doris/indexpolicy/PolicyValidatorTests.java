@@ -34,6 +34,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.lang.reflect.Method;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 
 public class PolicyValidatorTests {
@@ -289,6 +290,22 @@ public class PolicyValidatorTests {
         validate.setAccessible(true);
         Assertions.assertDoesNotThrow(
                 () -> validate.invoke(manager, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER));
+    }
+
+    @Test
+    public void testBuiltinIkValidationIsLocaleIndependent() throws Exception {
+        Locale originalLocale = Locale.getDefault();
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr-TR"));
+            IndexPolicyMgr manager = new IndexPolicyMgr();
+            Method validate = IndexPolicyMgr.class.getDeclaredMethod(
+                    "validatePolicyReference", String.class, IndexPolicyTypeEnum.class);
+            validate.setAccessible(true);
+            Assertions.assertDoesNotThrow(
+                    () -> validate.invoke(manager, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER));
+        } finally {
+            Locale.setDefault(originalLocale);
+        }
     }
 
     // StandardTokenizerValidator Tests

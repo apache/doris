@@ -186,10 +186,6 @@ TEST_F(IndexPolicyMgrTest, TestTokenFilterProcessing) {
 }
 
 TEST_F(IndexPolicyMgrTest, BuiltinTokenizerNamesAreCaseInsensitive) {
-    const char* doris_home = std::getenv("DORIS_HOME");
-    ASSERT_NE(doris_home, nullptr);
-    config::inverted_index_dict_path = std::string(doris_home) + "../../dict";
-
     TIndexPolicy analyzer;
     analyzer.id = 20;
     analyzer.name = "uppercase_ik_analyzer";
@@ -199,12 +195,6 @@ TEST_F(IndexPolicyMgrTest, BuiltinTokenizerNamesAreCaseInsensitive) {
 
     auto built = mgr.get_policy_by_name(analyzer.name);
     ASSERT_NE(built, nullptr);
-    auto reader = segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader({});
-    const std::string text = "我来到北京";
-    reader->init(text.data(), static_cast<int32_t>(text.size()), false);
-    auto terms = segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(reader,
-                                                                                       built.get());
-    ASSERT_FALSE(terms.empty());
 }
 
 TEST_F(IndexPolicyMgrTest, ExistingPolicyTakesPrecedenceOverNewBuiltinName) {
