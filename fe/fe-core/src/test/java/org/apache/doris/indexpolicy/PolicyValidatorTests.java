@@ -200,6 +200,28 @@ public class PolicyValidatorTests {
         Assertions.assertDoesNotThrow(() -> validator.validate(props));
     }
 
+    @Test
+    public void testNGramValidator_AcceptsAbsoluteSizeBoundary() {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> props = new HashMap<>();
+        props.put("min_gram", Integer.toString(NGramTokenizerValidator.MAX_NGRAM_SIZE));
+        props.put("max_gram", Integer.toString(NGramTokenizerValidator.MAX_NGRAM_SIZE));
+
+        Assertions.assertDoesNotThrow(() -> validator.validate(props));
+    }
+
+    @Test
+    public void testNGramValidator_RejectsExcessiveAbsoluteSize() {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> props = new HashMap<>();
+        props.put("min_gram", Integer.toString(NGramTokenizerValidator.MAX_NGRAM_SIZE));
+        props.put("max_gram", Integer.toString(NGramTokenizerValidator.MAX_NGRAM_SIZE + 1));
+
+        Exception exception = Assertions.assertThrows(DdlException.class,
+                () -> validator.validate(props));
+        Assertions.assertTrue(exception.getMessage().contains("less than or equal to 1024"));
+    }
+
     // StandardTokenizerValidator Tests
     @Test
     public void testStandardTokenizerValidator_ValidProperties() throws Exception {

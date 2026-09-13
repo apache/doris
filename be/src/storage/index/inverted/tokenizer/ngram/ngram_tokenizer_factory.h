@@ -28,6 +28,8 @@ class NGramTokenizerFactory : public TokenizerFactory {
 public:
     // A configured range can emit one token per gram size at every input position.
     static constexpr int32_t MAX_NGRAM_DIFF = 255;
+    // Bound the per-stream buffer while retaining support for large application-specific grams.
+    static constexpr int32_t MAX_NGRAM_SIZE = 1024;
 
     NGramTokenizerFactory() = default;
     ~NGramTokenizerFactory() override = default;

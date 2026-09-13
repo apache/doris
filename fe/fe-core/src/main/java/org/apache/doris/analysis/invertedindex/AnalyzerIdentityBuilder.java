@@ -171,6 +171,9 @@ public final class AnalyzerIdentityBuilder {
             if (policy == null || policy.getType() != expectedType) {
                 return name;
             }
+            if (policy.isInvalid()) {
+                return "invalid-policy:" + policy.getId() + ":" + policy.getName();
+            }
 
             Map<String, String> props = policy.getProperties();
             if (props == null || props.isEmpty()) {

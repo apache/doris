@@ -29,6 +29,8 @@ import java.util.Set;
 public class NGramTokenizerValidator extends BasePolicyValidator {
     // A configured range can emit one token per gram size at every input position.
     static final int MAX_NGRAM_DIFF = 255;
+    // NGramTokenizer keeps four code-point slots per configured gram plus a refill margin.
+    static final int MAX_NGRAM_SIZE = 1024;
 
     private static final Set<String> ALLOWED_PROPS = ImmutableSet.of(
             "type", "min_gram", "max_gram", "max_ngram_diff", "token_chars", "custom_token_chars");
@@ -38,6 +40,15 @@ public class NGramTokenizerValidator extends BasePolicyValidator {
 
     public NGramTokenizerValidator() {
         super(ALLOWED_PROPS);
+    }
+
+    static boolean isValidPolicy(Map<String, String> properties) {
+        try {
+            new NGramTokenizerValidator().validate(properties);
+            return true;
+        } catch (DdlException | RuntimeException e) {
+            return false;
+        }
     }
 
     @Override
@@ -78,6 +89,9 @@ public class NGramTokenizerValidator extends BasePolicyValidator {
         if (minGram > maxGram) {
             throw new DdlException("max_gram [" + maxGram + "] "
                 + "cannot be smaller than min_gram [" + minGram + "]");
+        }
+        if (minGram > MAX_NGRAM_SIZE || maxGram > MAX_NGRAM_SIZE) {
+            throw new DdlException("min_gram and max_gram must be less than or equal to " + MAX_NGRAM_SIZE);
         }
 
         int maxNgramDiff = 1;

@@ -18,6 +18,7 @@
 package org.apache.doris.analysis.invertedindex;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.indexpolicy.IndexPolicyMgr;
 import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
@@ -116,7 +117,7 @@ public class AnalyzerIdentityBuilderTest {
         Map<String, String> tokenizerProps = new HashMap<>();
         tokenizerProps.put(IndexPolicy.PROP_TYPE, "ngram");
         tokenizerProps.put("min_gram", "1");
-        tokenizerProps.put("max_gram", "8");
+        tokenizerProps.put("max_gram", "2");
         tokenizerProps.put("max_ngram_diff", "7");
         IndexPolicy tokenizerWithLimit = new IndexPolicy(
                 1, "ngram_with_limit", IndexPolicyTypeEnum.TOKENIZER, tokenizerProps);
@@ -140,6 +141,45 @@ public class AnalyzerIdentityBuilderTest {
             String identityWithoutLimit = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
                     nonEmptyProperties(), "analyzer_without_limit", "", "__default__", "none", null);
             Assertions.assertEquals(identityWithoutLimit, identityWithLimit);
+        }
+    }
+
+    @Test
+    public void testReplayedInvalidNgramDoesNotBlockValidReplacement() throws Exception {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        Map<String, String> invalidProps = new HashMap<>();
+        invalidProps.put(IndexPolicy.PROP_TYPE, "ngram");
+        invalidProps.put("min_gram", "1");
+        invalidProps.put("max_gram", "8");
+        IndexPolicy invalidTokenizer = new IndexPolicy(
+                10, "replayed_ngram", IndexPolicyTypeEnum.TOKENIZER, invalidProps);
+
+        Map<String, String> replacementProps = new HashMap<>(invalidProps);
+        replacementProps.put("max_ngram_diff", "7");
+        IndexPolicy replacementTokenizer = new IndexPolicy(
+                11, "replacement_ngram", IndexPolicyTypeEnum.TOKENIZER, replacementProps);
+        IndexPolicy invalidAnalyzer = analyzerPolicy(12, "replayed_analyzer", "replayed_ngram");
+        IndexPolicy replacementAnalyzer = analyzerPolicy(13, "replacement_analyzer", "replacement_ngram");
+        policyMgr.replayCreateIndexPolicy(invalidTokenizer);
+        policyMgr.replayCreateIndexPolicy(replacementTokenizer);
+        policyMgr.replayCreateIndexPolicy(invalidAnalyzer);
+        policyMgr.replayCreateIndexPolicy(replacementAnalyzer);
+
+        Assertions.assertTrue(invalidTokenizer.isInvalid());
+        Assertions.assertFalse(replacementTokenizer.isInvalid());
+        Assertions.assertThrows(DdlException.class,
+                () -> policyMgr.validateAnalyzerExists("replayed_analyzer"));
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            String invalidIdentity = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    nonEmptyProperties(), "replayed_analyzer", "", "__default__", "none", null);
+            String replacementIdentity = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    nonEmptyProperties(), "replacement_analyzer", "", "__default__", "none", null);
+            Assertions.assertNotEquals(invalidIdentity, replacementIdentity);
         }
     }
 
