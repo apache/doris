@@ -130,6 +130,28 @@ protected:
 
 // Test for Dictionary exception handling
 TEST_F(IKTokenizerTest, TestDictionaryExceptionHandling) {
+    // A named custom IK analyzer defers dictionary loading until its first token stream.
+    // That public boundary must translate CLucene failures into a Doris analyzer exception.
+    const std::string old_dict_path = config::inverted_index_dict_path;
+    config::inverted_index_dict_path = "/non_existent_path";
+    inverted_index::CustomAnalyzerConfig::Builder builder;
+    builder.with_tokenizer_config("ik_smart", {});
+    auto custom_analyzer = inverted_index::CustomAnalyzer::build_custom_analyzer(builder.build());
+    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+    reader->init("test", 4, false);
+    bool caught_doris_exception = false;
+    try {
+        std::unique_ptr<TokenStream> stream(custom_analyzer->tokenStream(L"", reader));
+    } catch (const Exception& e) {
+        caught_doris_exception = true;
+        EXPECT_EQ(e.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
+        EXPECT_NE(e.message().find("Dictionary initialization failed"), std::string::npos);
+    } catch (const CLuceneError& e) {
+        ADD_FAILURE() << "Raw CLuceneError escaped custom analyzer: " << e.what();
+    }
+    config::inverted_index_dict_path = old_dict_path;
+    EXPECT_TRUE(caught_doris_exception);
+
     // Test 1: Load non-existent path
     {
         Configuration cfg;

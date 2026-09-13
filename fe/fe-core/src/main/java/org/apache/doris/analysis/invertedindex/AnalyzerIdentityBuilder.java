@@ -67,6 +67,10 @@ public final class AnalyzerIdentityBuilder {
                         InvertedIndexProperties.INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE))) {
             return null;
         }
+        String lowerCase = properties.get(InvertedIndexProperties.INVERTED_INDEX_PARSER_LOWERCASE_KEY);
+        if (!Strings.isNullOrEmpty(lowerCase) && !Boolean.TRUE.toString().equalsIgnoreCase(lowerCase)) {
+            return null;
+        }
 
         String mode = properties.get(InvertedIndexProperties.INVERTED_INDEX_PARSER_MODE_KEY);
         if (Strings.isNullOrEmpty(mode)) {
@@ -76,8 +80,9 @@ public final class AnalyzerIdentityBuilder {
         if (!"ik_smart".equals(tokenizer) && !"ik_max_word".equals(tokenizer)) {
             return null;
         }
-        return buildIdentityFromPolicyProperties(
-                IndexPolicyTypeEnum.ANALYZER, Map.of(IndexPolicy.PROP_TOKENIZER, tokenizer));
+        // Legacy IK always uses the built-in tokenizer. Do not let a replayed policy whose name
+        // shadows the built-in mode change this synthetic identity.
+        return IndexPolicyTypeEnum.ANALYZER.name() + ":tokenizer=" + tokenizer + ";";
     }
 
     /**

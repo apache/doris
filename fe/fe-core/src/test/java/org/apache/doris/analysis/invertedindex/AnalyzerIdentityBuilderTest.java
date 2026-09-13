@@ -279,6 +279,30 @@ public class AnalyzerIdentityBuilderTest {
             Assertions.assertNotEquals(customSmart, AnalyzerIdentityBuilder.buildAnalyzerIdentity(
                     Map.of("parser", "ik", "char_filter_type", "char_replace"), "", "ik",
                     "__default__", "none", null));
+            Assertions.assertNotEquals(customSmart, AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("parser", "ik", "lower_case", "false"), "", "ik",
+                    "__default__", "none", null));
+        }
+    }
+
+    @Test
+    public void testLegacyIkIdentityIgnoresShadowingTokenizerPolicy() {
+        IndexPolicyMgr policyMgr = Mockito.mock(IndexPolicyMgr.class);
+        Mockito.when(policyMgr.getPolicyByName("ik_smart")).thenReturn(new IndexPolicy(
+                1, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard")));
+        Mockito.when(policyMgr.getPolicyByName("smart_analyzer")).thenReturn(new IndexPolicy(
+                2, "smart_analyzer", IndexPolicyTypeEnum.ANALYZER, Map.of("tokenizer", "ik_smart")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            String shadowedCustom = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("analyzer", "smart_analyzer"), "smart_analyzer", "none",
+                    "__default__", "none", null);
+            String legacy = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("parser", "ik"), "", "ik", "__default__", "none", null);
+            Assertions.assertNotEquals(shadowedCustom, legacy);
         }
     }
 }
