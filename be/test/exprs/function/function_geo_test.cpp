@@ -153,7 +153,8 @@ TEST(VGeoFunctionsTest, function_geo_st_geogfromwkb_returns_raw_geography_wkb) {
     input_column->insert_data("0101000000000000000000F03F0000000000000040", 42);
     auto input_type = std::make_shared<DataTypeString>();
     ColumnsWithTypeAndName arguments {{std::move(input_column), input_type, "wkb"}};
-    auto result_type = make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY));
+    auto result_type = make_nullable(
+            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "spherical"));
     auto function = SimpleFunctionFactory::instance().get_function("st_geogfromwkb", arguments, result_type);
     ASSERT_NE(nullptr, function);
 
@@ -177,8 +178,10 @@ TEST(VGeoFunctionsTest, function_geo_fromwkb_rejects_unsupported_metadata) {
             input_column->insert_data(wkb.data(), wkb.size());
             auto input_type = std::make_shared<DataTypeString>();
             ColumnsWithTypeAndName arguments {{std::move(input_column), input_type, "wkb"}};
-            auto result_type = make_nullable(std::make_shared<DataTypeSpatial>(
-                    function_name == "st_geomfromwkb" ? TYPE_GEOMETRY : TYPE_GEOGRAPHY));
+            auto result_type = function_name == "st_geomfromwkb"
+                    ? make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY))
+                    : make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84",
+                                                                       "spherical"));
             auto function =
                     SimpleFunctionFactory::instance().get_function(function_name, arguments, result_type);
             ASSERT_NE(nullptr, function);

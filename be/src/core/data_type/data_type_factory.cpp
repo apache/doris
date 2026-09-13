@@ -673,6 +673,12 @@ DataTypePtr DataTypeFactory::create_data_type(
                 nested = std::make_shared<DataTypeVariant>(node.variant_max_subcolumns_count(),
                                                            node.variant_enable_doc_mode());
             }
+        } else if (primitive_type == TYPE_GEOMETRY || primitive_type == TYPE_GEOGRAPHY) {
+            const std::string crs = node.has_spatial_crs() ? node.spatial_crs() : "OGC:CRS84";
+            const std::string algorithm = primitive_type == TYPE_GEOGRAPHY
+                    ? (node.has_spatial_algorithm() ? node.spatial_algorithm() : "spherical")
+                    : "";
+            nested = std::make_shared<DataTypeSpatial>(primitive_type, crs, algorithm);
         } else {
             return create_data_type(primitive_type, is_nullable,
                                     scalar_type.has_precision() ? scalar_type.precision() : 0,

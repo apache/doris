@@ -123,8 +123,13 @@ bool DataTypeSpatial::equals(const IDataType& rhs) const {
            _algorithm == other->_algorithm;
 }
 
-void DataTypeSpatial::to_protobuf(PTypeDesc* /* ptype */, PTypeNode* /* node */,
-                                  PScalarType* /* scalar_type */) const {}
+void DataTypeSpatial::to_protobuf(PTypeDesc* /* ptype */, PTypeNode* node,
+                                  PScalarType* /* scalar_type */) const {
+    node->set_spatial_crs(_crs);
+    if (_primitive_type == TYPE_GEOGRAPHY) {
+        node->set_spatial_algorithm(_algorithm);
+    }
+}
 
 #ifdef BE_TEST
 void DataTypeSpatial::to_thrift(TTypeDesc& thrift_type, TTypeNode& node) const {

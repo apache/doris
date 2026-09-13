@@ -23,17 +23,17 @@ import org.apache.doris.nereids.types.GeographyType;
 import org.apache.doris.nereids.types.GeometryType;
 import org.apache.doris.nereids.types.VarcharType;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class SpatialConstructorFunctionTest {
     @Test
     public void testGeomFromWkbReturnsDefaultGeometry() {
         GeometryType defaultGeometry = new GeometryType("OGC:CRS84");
-        Assert.assertEquals(defaultGeometry,
+        Assertions.assertEquals(defaultGeometry,
                 new StGeomFromWKB(new StringLiteral("0101000000000000000000F03F0000000000000040"))
                         .getDataType());
-        Assert.assertEquals(defaultGeometry,
+        Assertions.assertEquals(defaultGeometry,
                 new StGeometryFromWKB(new StringLiteral("0101000000000000000000F03F0000000000000040"))
                         .getDataType());
     }
@@ -41,7 +41,7 @@ public class SpatialConstructorFunctionTest {
     @Test
     public void testGeogFromWkbReturnsDefaultGeography() {
         GeographyType defaultGeography = new GeographyType("OGC:CRS84", "spherical");
-        Assert.assertEquals(defaultGeography,
+        Assertions.assertEquals(defaultGeography,
                 new StGeogFromWKB(new StringLiteral("0101000000000000000000F03F0000000000000040"))
                         .getDataType());
     }
@@ -51,24 +51,24 @@ public class SpatialConstructorFunctionTest {
         GeometryType defaultGeometry = new GeometryType("OGC:CRS84");
         StAstext asText = new StAstext(new StGeomFromWKB(
                 new StringLiteral("0101000000000000000000F03F0000000000000040")));
-        Assert.assertEquals(VarcharType.SYSTEM_DEFAULT,
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT,
                 asText.getDataType());
-        Assert.assertEquals(defaultGeometry, asText.expectedInputTypes().get(0));
+        Assertions.assertEquals(defaultGeometry, asText.expectedInputTypes().get(0));
     }
 
     @Test
     public void testAsTextPreservesGeometryCrs() {
         GeometryType webMercator = new GeometryType("EPSG:3857");
         StAstext asText = new StAstext(new SlotReference("spatial", webMercator));
-        Assert.assertEquals(VarcharType.SYSTEM_DEFAULT, asText.getDataType());
-        Assert.assertEquals(webMercator, asText.expectedInputTypes().get(0));
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, asText.getDataType());
+        Assertions.assertEquals(webMercator, asText.expectedInputTypes().get(0));
     }
 
     @Test
     public void testAsTextPreservesGeographyMetadata() {
         GeographyType geography = new GeographyType("OGC:CRS84", "vincenty");
         StAstext asText = new StAstext(new SlotReference("spatial", geography));
-        Assert.assertEquals(VarcharType.SYSTEM_DEFAULT, asText.getDataType());
-        Assert.assertEquals(geography, asText.expectedInputTypes().get(0));
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, asText.getDataType());
+        Assertions.assertEquals(geography, asText.expectedInputTypes().get(0));
     }
 }

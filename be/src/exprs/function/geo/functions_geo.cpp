@@ -810,7 +810,11 @@ public:
     bool is_variadic() const override { return false; }
 
     DataTypePtr get_return_type_impl(const DataTypes&) const override {
-        return make_nullable(std::make_shared<DataTypeSpatial>(Impl::OUTPUT_TYPE));
+        if constexpr (Impl::OUTPUT_TYPE == TYPE_GEOGRAPHY) {
+            return make_nullable(
+                    std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "spherical"));
+        }
+        return make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY));
     }
 
     Status execute_impl(FunctionContext*, Block& block, const ColumnNumbers& arguments,

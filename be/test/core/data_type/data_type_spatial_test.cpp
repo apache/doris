@@ -92,6 +92,25 @@ TEST(DataTypeSpatialTest, FactoryPreservesSpatialMetadataFromTypeDescriptor) {
     EXPECT_EQ("spherical", geography_type.algorithm());
 }
 
+TEST(DataTypeSpatialTest, ProtobufRoundTripPreservesSpatialMetadata) {
+    const auto geography = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "EPSG:4326", "vincenty");
+    PTypeDesc descriptor;
+    static_cast<const IDataType&>(*geography).to_protobuf(&descriptor);
+
+    ASSERT_EQ(1, descriptor.types_size());
+    ASSERT_TRUE(descriptor.types(0).has_spatial_crs());
+    ASSERT_TRUE(descriptor.types(0).has_spatial_algorithm());
+    EXPECT_EQ("EPSG:4326", descriptor.types(0).spatial_crs());
+    EXPECT_EQ("vincenty", descriptor.types(0).spatial_algorithm());
+
+    int index = 0;
+    const auto restored = DataTypeFactory::instance().create_data_type(descriptor.types(), &index, false);
+    const auto& restored_type = assert_cast<const DataTypeSpatial&>(*restored);
+    EXPECT_EQ(TYPE_GEOGRAPHY, restored_type.get_primitive_type());
+    EXPECT_EQ("EPSG:4326", restored_type.crs());
+    EXPECT_EQ("vincenty", restored_type.algorithm());
+}
+
 TEST(DataTypeSpatialTest, ArrowBinaryReadPreservesWkbForSpatialTypes) {
     const std::string wkb(
             "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00@", 21);
