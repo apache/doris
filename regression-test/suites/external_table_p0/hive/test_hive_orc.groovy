@@ -139,8 +139,10 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
     }
     def test_topn_abs = {
         def test_col_topn = { String col -> 
-            "qt_orc_all_types_${col}_topn_abs_asc"  """ select  * from  orc_all_types  where  string_col is not null order by abs(${col}),string_col asc limit 10; """
-            "qt_orc_all_types_${col}_topn_abs_desc"  """ select * from  orc_all_types  where  string_col is not null order by abs(${col}),string_col desc limit 10; """
+            // Numeric functions require an explicit text interpretation of binary fixture data.
+            def numericInput = col == "binary_col" ? "cast(binary_col as string)" : col
+            "qt_orc_all_types_${col}_topn_abs_asc"  """ select  * from  orc_all_types  where  string_col is not null order by abs(${numericInput}),string_col asc limit 10; """
+            "qt_orc_all_types_${col}_topn_abs_desc"  """ select * from  orc_all_types  where  string_col is not null order by abs(${numericInput}),string_col desc limit 10; """
         }
 
         test_col_topn("tinyint_col")
@@ -278,4 +280,3 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
         }
     }
 }
-

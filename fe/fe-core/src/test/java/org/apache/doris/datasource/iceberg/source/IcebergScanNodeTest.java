@@ -3537,23 +3537,30 @@ public class IcebergScanNodeTest {
     }
 
     @Test
-    public void testRejectBinaryPartitionValueWithoutBinarySafeTransport() throws Exception {
-        assertUnsupportedPositionDeletesPartitionValue(
-                Types.BinaryType.get(), ByteBuffer.wrap(new byte[] {0, (byte) 0xff}), false, "binary");
-        assertUnsupportedPositionDeletesPartitionValue(
-                Types.FixedType.ofLength(2), ByteBuffer.wrap(new byte[] {0, (byte) 0xff}), false, "fixed[2]");
+    public void testBinaryPartitionValueUsesHexTransport() throws Exception {
+        assertPositionDeletesBinaryPartitionValue(
+                Types.BinaryType.get(), ByteBuffer.wrap(new byte[] {0, (byte) 0xff}), "0x00FF");
+        assertPositionDeletesBinaryPartitionValue(
+                Types.FixedType.ofLength(2), ByteBuffer.wrap(new byte[] {0, (byte) 0xff}), "0x00FF");
+        assertPositionDeletesBinaryPartitionValue(Types.BinaryType.get(), ByteBuffer.allocate(0), "0x");
+        ByteBuffer sliced = ByteBuffer.wrap(new byte[] {1, 0, (byte) 0xff, 2});
+        sliced.position(1);
+        sliced.limit(3);
+        assertPositionDeletesBinaryPartitionValue(Types.BinaryType.get(), sliced, "0x00FF");
+        Assert.assertEquals(1, sliced.position());
     }
 
     @Test
-    public void testRejectUuidPartitionValueWhenMappedToVarbinary() throws Exception {
-        assertUnsupportedPositionDeletesPartitionValue(
-                Types.UUIDType.get(), UUID.fromString("123e4567-e89b-12d3-a456-426614174000"), true, "uuid");
+    public void testUuidPartitionValueUsesHexTransport() throws Exception {
+        assertPositionDeletesBinaryPartitionValue(
+                Types.UUIDType.get(), UUID.fromString("123e4567-e89b-12d3-a456-426614174000"),
+                "0x123E4567E89B12D3A456426614174000");
+        assertPositionDeletesBinaryPartitionValue(Types.UUIDType.get(), null, null);
     }
 
-    private void assertUnsupportedPositionDeletesPartitionValue(
-            org.apache.iceberg.types.Type type, Object value, boolean enableMappingVarbinary,
-            String expectedType) throws Exception {
-        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable(), enableMappingVarbinary);
+    private void assertPositionDeletesBinaryPartitionValue(
+            org.apache.iceberg.types.Type type, Object value, String expectedHex) throws Exception {
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
         Schema schema = new Schema(Types.NestedField.required(1, "p", type));
         PartitionSpec spec = PartitionSpec.builderFor(schema).identity("p").build();
         PartitionData partitionData = new PartitionData(spec.partitionType());
@@ -3562,14 +3569,8 @@ public class IcebergScanNodeTest {
         Method method = IcebergScanNode.class.getDeclaredMethod("getPartitionDataObjectJson",
                 PartitionData.class, PartitionSpec.class, List.class);
         method.setAccessible(true);
-        try {
-            method.invoke(node, partitionData, spec, spec.partitionType().fields());
-            Assert.fail("Binary partition values must not be silently materialized as NULL");
-        } catch (InvocationTargetException e) {
-            Assert.assertTrue(e.getCause() instanceof UserException);
-            Assert.assertTrue(e.getCause().getMessage().contains("partition field 'p'"));
-            Assert.assertTrue(e.getCause().getMessage().contains(expectedType));
-        }
+        String expected = expectedHex == null ? "{}" : "{\"p\":\"" + expectedHex + "\"}";
+        Assert.assertEquals(expected, method.invoke(node, partitionData, spec, spec.partitionType().fields()));
     }
 
     @Test

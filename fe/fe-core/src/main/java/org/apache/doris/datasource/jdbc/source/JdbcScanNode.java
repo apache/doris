@@ -285,6 +285,13 @@ public class JdbcScanNode extends ExternalScanNode {
     }
 
     private static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
+        // These dialects do not accept Doris X'...' as binary literals (PostgreSQL reads bit
+        // strings). Keep the conjunct local without disabling MySQL's compatible binary syntax.
+        if ((tableType == TOdbcTableType.POSTGRESQL || tableType == TOdbcTableType.ORACLE
+                || tableType == TOdbcTableType.SQLSERVER)
+                && expr.contains(org.apache.doris.analysis.VarBinaryLiteral.class)) {
+            return false;
+        }
         // Prevent pushing down expressions with NullLiteral to Oracle
         if (ConnectContext.get() != null
                 && !ConnectContext.get().getSessionVariable().enableJdbcOracleNullPredicatePushDown

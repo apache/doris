@@ -369,14 +369,15 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             sql """drop materialized view if exists ${mvName}"""
         }
 
-        // FileScannerV2 is required by both the native and JNI scan paths for external VARIANT.
+        // Versioned native ranges force V2 so their timestamp and VARIANT contracts stay intact.
         sql """set enable_file_scanner_v2 = false"""
         sql """set force_jni_scanner = false"""
-        test {
-            sql """select * from ${catalogName}.test_paimon_spark.variant_smoke"""
-            exception "External VARIANT columns require FileScannerV2"
-        }
+        def nativeWithV2Disabled = sql """select * from ${catalogName}.test_paimon_spark.variant_smoke order by id"""
+        sql """set enable_file_scanner_v2 = true"""
+        assertEquals(sql("""select * from ${catalogName}.test_paimon_spark.variant_smoke order by id"""),
+                nativeWithV2Disabled)
 
+        sql """set enable_file_scanner_v2 = false"""
         sql """set force_jni_scanner = true"""
         test {
             sql """select * from ${catalogName}.test_paimon_spark.variant_smoke"""

@@ -1094,7 +1094,7 @@ public class IcebergUtils {
         }
     }
 
-    private static String serializePartitionValue(org.apache.iceberg.types.Type type, Object value, String timeZone) {
+    public static String serializePartitionValue(org.apache.iceberg.types.Type type, Object value, String timeZone) {
         switch (type.typeId()) {
             case BOOLEAN:
             case INTEGER:

@@ -101,6 +101,9 @@ public:
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                    const FormatOptions& options) const override;
+
+    Status from_string(StringRef& str, IColumn& column,
+                       const FormatOptions& options) const override;
 };
 
 #include "common/compile_check_end.h"

@@ -41,12 +41,18 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
+#include "util/timezone_utils.h"
 #include "util/uid_util.h"
 
 namespace doris {
 
 class VParquetTransformerTest : public testing::Test {
 protected:
+    static void SetUpTestSuite() {
+        // RuntimeState resolves named zones from the cache normally populated during BE startup.
+        TimezoneUtils::load_timezones_to_cache();
+    }
+
     void SetUp() override {
         _file_path = "./vparquet_transformer_" + UniqueId::gen_uid().to_string() + ".parquet";
         _fs = io::global_local_filesystem();
@@ -191,7 +197,8 @@ TEST_F(VParquetTransformerTest, WritesInt96DatetimeUsingWriterTimezone) {
     column->insert_value(datetime);
     Block block;
     block.insert(ColumnWithTypeAndName(std::move(column), datetime_type, "local_time"));
-    ASSERT_TRUE(transformer.write(block).ok());
+    const auto write_status = transformer.write(block);
+    ASSERT_TRUE(write_status.ok()) << write_status.to_string();
     ASSERT_TRUE(transformer.close().ok());
 
     auto physical_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);

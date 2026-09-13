@@ -20,6 +20,7 @@ package org.apache.doris.nereids.processor.post.materialize;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.table.VectorSearch;
@@ -28,7 +29,14 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.tablefunction.VectorSearchTableValuedFunction;
 import org.apache.doris.thrift.TAccessPathType;
@@ -50,6 +58,39 @@ import java.util.Map;
 import java.util.Optional;
 
 class MaterializeProbeVisitorTest {
+
+    @Test
+    void testExternalTimestampsStayInInitialScan() {
+        MaterializeProbeVisitor visitor = new MaterializeProbeVisitor();
+        for (DataType type : ImmutableList.of(DateTimeV2Type.SYSTEM_DEFAULT, TimeStampTzType.SYSTEM_DEFAULT,
+                ArrayType.of(DateTimeV2Type.SYSTEM_DEFAULT),
+                MapType.of(IntegerType.INSTANCE, TimeStampTzType.SYSTEM_DEFAULT),
+                new StructType(ImmutableList.of(new StructField("ts", DateTimeV2Type.SYSTEM_DEFAULT, true, ""))))) {
+            SlotReference slot = new SlotReference("ts", type).withColumn(new Column("ts", type.toCatalogDataType()));
+            PhysicalTVFRelation relation = mockVectorSearchRelation();
+            Mockito.when(relation.getFunction().getName()).thenReturn("s3");
+            Mockito.when(relation.getFunction().getTVFProperties())
+                    .thenReturn(new Properties(ImmutableMap.of("format", "parquet")));
+            Mockito.when(relation.getOutput()).thenReturn(ImmutableList.of(slot));
+            Mockito.when(relation.getOperativeSlots()).thenReturn(ImmutableList.of());
+            Assertions.assertFalse(visitor.visitPhysicalTVFRelation(
+                    relation, new MaterializeProbeVisitor.ProbeContext(slot)).isPresent(), type.toSql());
+        }
+    }
+
+    @Test
+    void testExternalIntegerCanStillBeDeferred() {
+        SlotReference slot = new SlotReference("id", IntegerType.INSTANCE)
+                .withColumn(new Column("id", org.apache.doris.catalog.Type.INT));
+        PhysicalTVFRelation relation = mockVectorSearchRelation();
+        Mockito.when(relation.getFunction().getName()).thenReturn("s3");
+        Mockito.when(relation.getFunction().getTVFProperties())
+                .thenReturn(new Properties(ImmutableMap.of("format", "parquet")));
+        Mockito.when(relation.getOutput()).thenReturn(ImmutableList.of(slot));
+        Mockito.when(relation.getOperativeSlots()).thenReturn(ImmutableList.of());
+        Assertions.assertTrue(new MaterializeProbeVisitor().visitPhysicalTVFRelation(
+                relation, new MaterializeProbeVisitor.ProbeContext(slot)).isPresent());
+    }
 
     @Test
     void testVectorSearchSupportsLazyMaterialization() {

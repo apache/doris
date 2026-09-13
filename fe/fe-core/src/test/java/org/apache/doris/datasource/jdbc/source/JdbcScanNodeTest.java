@@ -30,6 +30,7 @@ import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.VarBinaryLiteral;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -40,10 +41,36 @@ import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.List;
 
 public class JdbcScanNodeTest {
+
+    @Test
+    public void testBinaryInPredicatesStayLocal() throws Exception {
+        Method method = JdbcScanNode.class.getDeclaredMethod("shouldPushDownConjunct",
+                TOdbcTableType.class, Expr.class);
+        method.setAccessible(true);
+        SlotRef slot = new SlotRef(null, "binary_col");
+        slot.setType(Type.VARBINARY);
+        for (TOdbcTableType dialect : Arrays.asList(TOdbcTableType.POSTGRESQL,
+                TOdbcTableType.ORACLE, TOdbcTableType.SQLSERVER)) {
+            for (boolean notIn : Arrays.asList(false, true)) {
+                Expr predicate = new InPredicate(slot, Arrays.asList(
+                        new VarBinaryLiteral(new byte[] {(byte) 0xde, 0, (byte) 0xff}),
+                        new VarBinaryLiteral(new byte[0])), notIn);
+                Assert.assertEquals(false, method.invoke(null, dialect, predicate));
+                Expr compound = new CompoundPredicate(CompoundPredicate.Operator.OR, predicate,
+                        new BinaryPredicate(Operator.EQ, new SlotRef(null, "id"), new IntLiteral(1)));
+                Assert.assertEquals(false, method.invoke(null, dialect, compound));
+            }
+            Assert.assertEquals(true, method.invoke(null, dialect,
+                    new InPredicate(new SlotRef(null, "id"), Arrays.asList(new IntLiteral(1)), false)));
+        }
+        Assert.assertEquals(true, method.invoke(null, TOdbcTableType.MYSQL,
+                new InPredicate(slot, Arrays.asList(new VarBinaryLiteral(new byte[] {0, (byte) 0xff})), false)));
+    }
 
     @Mocked
     private JdbcTable mockTable;
