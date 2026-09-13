@@ -463,11 +463,15 @@ TEST(PaimonArrowWriteConverterTest, BinaryStructPreservesEncodedAndTypedBytesAnd
 }
 
 TEST(PaimonArrowWriteConverterTest, NestedArrayUsesPaimonSerdeRecursively) {
-    auto variants = encoded_json({R"({"id":1})", R"([true,"x"])", "null"});
+    auto variants = encoded_json({R"({"id":1})", R"({"hidden":true})", R"([true,"x"])", "null"});
     const auto expected = variants->read_view();
     auto offsets = ColumnArray::ColumnOffsets::create();
-    offsets->get_data().assign({2, 3});
-    auto array = ColumnArray::create(std::move(variants), std::move(offsets));
+    offsets->get_data().assign({2, 4});
+    // DataTypeArray always wraps its element type in Nullable, including VARIANT.
+    auto nulls = ColumnUInt8::create(4, 0);
+    nulls->get_data()[1] = 1;
+    auto elements = ColumnNullable::create(std::move(variants), std::move(nulls));
+    auto array = ColumnArray::create(std::move(elements), std::move(offsets));
 
     DataTypePtr variant_type = std::make_shared<DataTypeVariantV2>();
     DataTypePtr array_type = std::make_shared<DataTypeArray>(variant_type);
@@ -488,8 +492,11 @@ TEST(PaimonArrowWriteConverterTest, NestedArrayUsesPaimonSerdeRecursively) {
     const auto& structs = assert_cast<const arrow::StructArray&>(*lists.values());
     const auto& values = assert_cast<const arrow::BinaryArray&>(*structs.field(0));
     const auto& metadata = assert_cast<const arrow::BinaryArray&>(*structs.field(1));
-    ASSERT_EQ(3, structs.length());
-    for (size_t row = 0; row < 3; ++row) {
+    ASSERT_TRUE(output->ValidateFull().ok());
+    ASSERT_EQ(4, structs.length());
+    EXPECT_TRUE(structs.IsNull(1));
+    EXPECT_FALSE(structs.IsNull(3));
+    for (size_t row : {0, 2, 3}) {
         const VariantRef value = expected.value_at(row);
         const auto actual_value = values.GetView(row);
         const auto actual_metadata = metadata.GetView(row);

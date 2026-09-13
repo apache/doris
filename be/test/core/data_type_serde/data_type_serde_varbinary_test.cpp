@@ -57,6 +57,26 @@ static std::string make_bytes(size_t n, uint8_t seed = 0x31) {
 
 class DataTypeVarbinarySerDeTest : public ::testing::Test {};
 
+TEST_F(DataTypeVarbinarySerDeTest, FromHexStringPreservesBinaryPartitionBytes) {
+    DataTypeVarbinarySerDe serde;
+    auto column = ColumnVarbinary::create();
+    auto options = DataTypeSerDe::get_default_format_options();
+    for (const std::string text : {"0x00FF", "0x", "0x123E4567E89B12D3A456426614174000"}) {
+        StringRef input(text);
+        ASSERT_TRUE(serde.from_string(input, *column, options).ok());
+    }
+    ASSERT_EQ(3, column->size());
+    EXPECT_EQ(std::string("\0\xff", 2), column->get_data_at(0).to_string());
+    EXPECT_EQ(0, column->get_data_at(1).size);
+    EXPECT_EQ(std::string("\x12\x3e\x45\x67\xe8\x9b\x12\xd3\xa4\x56\x42\x66\x14\x17\x40\x00", 16),
+              column->get_data_at(2).to_string());
+    for (const std::string text : {"0x0", "0xGG", "1234"}) {
+        StringRef input(text);
+        EXPECT_FALSE(serde.from_string(input, *column, options).ok());
+        EXPECT_EQ(3, column->size());
+    }
+}
+
 TEST_F(DataTypeVarbinarySerDeTest, Name) {
     DataTypeVarbinarySerDe serde;
     EXPECT_EQ(serde.get_name(), std::string("Varbinary"));

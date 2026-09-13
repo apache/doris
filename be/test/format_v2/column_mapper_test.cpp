@@ -561,7 +561,10 @@ protected:
 class Int64ChildGreaterThanExpr final : public VExpr {
 public:
     explicit Int64ChildGreaterThanExpr(int64_t value)
-            : VExpr(std::make_shared<DataTypeUInt8>(), false), _value(value) {}
+            : VExpr(std::make_shared<DataTypeUInt8>(), false), _value(value) {
+        // A synthetic predicate must not inherit VExpr's default SLOT_REF discriminator.
+        set_node_type(TExprNodeType::FUNCTION_CALL);
+    }
 
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override {
@@ -2684,29 +2687,34 @@ TEST(ColumnMapperScanRequestTest, FilterOnlyNestedTimestampRetainsTableFormatSem
     const auto ltz_type = timestamptz(9);
 
     auto table_payload = field_id_col("payload", 1, int_type);
-    auto projected_table_struct = struct_col("s", 10, {table_payload});
     auto table_ltz = field_id_col("ltz", 2, ltz_type);
-    auto full_table_struct = struct_col("s", 10, {table_payload, table_ltz});
+    // FE all-access paths include residual predicate inputs even when SELECT omits those fields.
+    auto table_struct = struct_col("s", 10, {table_payload, table_ltz});
+    table_struct.has_predicate_access_paths = true;
+    table_struct.predicate_children = {table_ltz};
 
     auto file_payload = field_id_col("payload", 1, int_type, 0);
     auto file_ltz = field_id_col("ltz", 2, ltz_type, 1);
     file_ltz.timestamp_is_adjusted_to_utc = true;
     auto file_struct = struct_col("s", 10, {file_payload, file_ltz}, 5);
 
-    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
-    ASSERT_TRUE(mapper.create_mapping({projected_table_struct}, {}, {file_struct}).ok());
+    // Independent predicate projections are a Parquet mapper contract.
+    ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
 
     auto filter_expr = null_predicate(
-            struct_element(table_slot(0, 0, full_table_struct.type, "s"), ltz_type, "ltz"), false);
+            struct_element(table_slot(0, 0, table_struct.type, "s"), ltz_type, "ltz"), false);
     TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
                         .global_indices = {GlobalIndex(0)}};
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {projected_table_struct}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request).ok());
 
     ASSERT_EQ(request.predicate_columns.size(), 1);
     const auto& root_projection = request.predicate_columns[0];
-    ASSERT_EQ(projection_ids(root_projection.children), std::vector<int32_t>({0, 1}));
+    ASSERT_EQ(projection_ids(root_projection.children), std::vector<int32_t>({1}));
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_TRUE(request.non_predicate_columns[0].project_all_children);
     const auto* ltz_projection = find_child_projection(&root_projection, 1);
     ASSERT_NE(ltz_projection, nullptr);
     ASSERT_TRUE(ltz_projection->timestamp_is_adjusted_to_utc.has_value());

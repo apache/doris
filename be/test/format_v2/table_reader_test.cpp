@@ -369,7 +369,10 @@ VExprSPtr runtime_filter_wrapper_expr(VExprSPtr impl) {
 class NonDeterministicPartitionPredicate final : public VExpr {
 public:
     explicit NonDeterministicPartitionPredicate(bool* executed)
-            : VExpr(std::make_shared<DataTypeUInt8>(), false), _executed(executed) {}
+            : VExpr(std::make_shared<DataTypeUInt8>(), false), _executed(executed) {
+        // Dependency collection must not mistake this synthetic predicate for a slot reference.
+        set_node_type(TExprNodeType::FUNCTION_CALL);
+    }
 
     Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t count,
                                ColumnPtr& result_column) const override {
@@ -399,6 +402,8 @@ class NonLocalizableInt32Predicate final : public VExpr {
 public:
     explicit NonLocalizableInt32Predicate(int column_id)
             : VExpr(std::make_shared<DataTypeUInt8>(), false), _column_id(column_id) {
+        // Only the child is a slot reference; the residual predicate itself is not one.
+        set_node_type(TExprNodeType::FUNCTION_CALL);
         // The production dependency collector walks slot children. Keep the input in the tree so
         // a rejected file-local rewrite still marks its value as required by the residual filter.
         add_child(table_int32_slot_ref(column_id, column_id, "non_localizable_input"));

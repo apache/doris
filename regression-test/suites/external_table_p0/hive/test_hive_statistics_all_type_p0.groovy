@@ -36,7 +36,8 @@ suite("test_hive_statistics_all_type_p0", "all_types,p0,external,hive,external_d
             sql """use `${catalog_name}`.`default`"""
             sql """analyze table orc_all_types with sync with sample rows 4000000"""
             def result = sql """show column stats orc_all_types;"""
-            assertEquals(16, result.size())
+            // Binary columns retain VARBINARY and are excluded from column statistics.
+            assertEquals(15, result.size())
 
             result = sql """show column stats orc_all_types (int_col);"""
             assertEquals("int_col", result[0][0])
@@ -62,7 +63,7 @@ suite("test_hive_statistics_all_type_p0", "all_types,p0,external,hive,external_d
             sql """drop stats orc_all_types"""
             sql """analyze table orc_all_types with sync"""
             result = sql """show column stats orc_all_types;"""
-            assertEquals(16, result.size())
+            assertEquals(15, result.size())
             result = sql """show column stats orc_all_types (int_col);"""
             assertEquals("int_col", result[0][0])
             assertEquals("3600.0", result[0][2])
@@ -166,4 +167,3 @@ suite("test_hive_statistics_all_type_p0", "all_types,p0,external,hive,external_d
         }
     }
 }
-

@@ -496,7 +496,10 @@ public class StreamingJobUtils {
         columns.forEach(col -> {
             Preconditions.checkArgument(!col.getType().isUnsupported(),
                     "Unsupported column type, table:[%s], column:[%s]", table, col.getName());
-            if (col.getType().isVarchar()) {
+            if (col.getDataType() == PrimitiveType.VARBINARY) {
+                // JDBC catalogs retain binary identity, but CDC targets must use OLAP storage types.
+                col.setType(ScalarType.createStringType());
+            } else if (col.getType().isVarchar()) {
                 // The length of varchar needs to be multiplied by 3.
                 int len = col.getType().getLength() * 3;
                 if (len > ScalarType.MAX_VARCHAR_LENGTH) {

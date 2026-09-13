@@ -18,12 +18,14 @@
 #include "core/data_type_serde/data_type_varbinary_serde.h"
 
 #include <cstring>
+#include <limits>
 
 #include "common/config.h"
 #include "core/column/column_varbinary.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/parquet_decode_source.h"
+#include "exprs/function/string_hex_util.h"
 
 namespace doris {
 namespace {
@@ -319,6 +321,23 @@ Status DataTypeVarbinarySerDe::serialize_one_cell_to_json(const IColumn& column,
 Status DataTypeVarbinarySerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                               const FormatOptions& options) const {
     assert_cast<ColumnVarbinary&>(column).insert_data(slice.data, slice.size);
+    return Status::OK();
+}
+
+Status DataTypeVarbinarySerDe::from_string(StringRef& str, IColumn& column,
+                                           const FormatOptions& options) const {
+    // Partition structs use the same hex representation as nested VARBINARY output. Decode it
+    // before appending so arbitrary bytes survive JSON transport instead of becoming NULL.
+    if (str.size < 2 || str.data[0] != '0' || str.data[1] != 'x' || (str.size - 2) % 2 != 0 ||
+        str.size - 2 > std::numeric_limits<int>::max()) {
+        return Status::InvalidArgument("Invalid VARBINARY hex representation");
+    }
+    const size_t hex_size = str.size - 2;
+    std::string bytes(hex_size / 2, '\0');
+    if (string_hex::hex_decode(str.data + 2, hex_size, bytes.data()) != bytes.size()) {
+        return Status::InvalidArgument("Invalid VARBINARY hex representation");
+    }
+    assert_cast<ColumnVarbinary&>(column).insert_data(bytes.data(), bytes.size());
     return Status::OK();
 }
 

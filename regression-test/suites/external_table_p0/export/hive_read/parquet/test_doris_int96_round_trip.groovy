@@ -64,7 +64,7 @@ suite("test_doris_int96_round_trip", "p0,external") {
     sql """ set time_zone='America/Los_Angeles' """
     sql """ set enable_file_scanner_v2=true """
     qt_session_timezone """ SELECT @@time_zone """
-    qt_int96_round_trip """
+    String roundTripQuery = """
         SELECT * FROM HDFS(
             "uri" = "${int96OutfileUrl}0.parquet",
             "hadoop.username" = "doris",
@@ -73,5 +73,23 @@ suite("test_doris_int96_round_trip", "p0,external") {
         )
         ORDER BY id
     """
+    qt_int96_round_trip roundTripQuery
+
+    // A phase-two legacy row fetch must not reinterpret a deferred timestamp in the read session
+    // timezone. Compare TopN against the same query with lazy materialization disabled.
+    def oldThreshold = sql "SELECT @@topn_lazy_materialization_threshold"
+    try {
+        sql "SET topn_lazy_materialization_threshold=0"
+        def expected = sql "${roundTripQuery} LIMIT 1"
+        assertEquals(1, expected.size())
+        sql "SET topn_lazy_materialization_threshold=1024"
+        for (boolean scannerV2 : [false, true]) {
+            sql "SET enable_file_scanner_v2=${scannerV2}"
+            assertEquals(expected, sql("${roundTripQuery} LIMIT 1"))
+        }
+    } finally {
+        sql "SET topn_lazy_materialization_threshold=${oldThreshold[0][0]}"
+        sql "SET enable_file_scanner_v2=true"
+    }
 
 }

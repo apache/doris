@@ -2525,23 +2525,28 @@ public class IcebergScanNode extends FileQueryScanNode {
     private String getPartitionDataObjectJson(PartitionData partitionData, PartitionSpec partitionSpec,
             List<NestedField> outputPartitionFields) throws UserException {
         List<NestedField> partitionTypes = partitionData.getPartitionType().asNestedType().fields();
-        for (int i = 0; i < partitionTypes.size(); i++) {
-            Type type = partitionTypes.get(i).type();
-            if (partitionData.get(i) != null && (type.typeId() == Type.TypeID.BINARY
-                    || type.typeId() == Type.TypeID.FIXED
-                    || type.typeId() == Type.TypeID.UUID)) {
-                throw new UserException("Iceberg position_deletes cannot materialize non-null partition field '"
-                        + partitionTypes.get(i).name() + "' of type " + type
-                        + " without a binary-safe partition transport");
-            }
-        }
-        List<String> partitionValues = IcebergUtils.getPartitionValues(
-                partitionData, partitionSpec, sessionVariable.getTimeZone());
         Map<Integer, Object> partitionValueByFieldId = new HashMap<>();
         List<PartitionField> fields = partitionSpec.fields();
         for (int i = 0; i < fields.size(); i++) {
-            partitionValueByFieldId.put(fields.get(i).fieldId(),
-                    getPartitionJsonValue(partitionTypes.get(i).type(), partitionValues.get(i)));
+            Type type = partitionTypes.get(i).type();
+            Object value = partitionData.get(i);
+            Object jsonValue = null;
+            if (value != null) {
+                if (type.typeId() == Type.TypeID.BINARY || type.typeId() == Type.TypeID.FIXED
+                        || type.typeId() == Type.TypeID.UUID) {
+                    // JSON text must not transcode arbitrary bytes. Iceberg's conversion preserves
+                    // UUID byte order; duplicate the buffer so metadata positions remain unchanged.
+                    java.nio.ByteBuffer buffer = org.apache.iceberg.types.Conversions.toByteBuffer(type, value)
+                            .duplicate();
+                    byte[] bytes = new byte[buffer.remaining()];
+                    buffer.get(bytes);
+                    jsonValue = "0x" + BaseEncoding.base16().encode(bytes);
+                } else {
+                    jsonValue = getPartitionJsonValue(type,
+                            IcebergUtils.serializePartitionValue(type, value, sessionVariable.getTimeZone()));
+                }
+            }
+            partitionValueByFieldId.put(fields.get(i).fieldId(), jsonValue);
         }
         JsonObject partitionJson = new JsonObject();
         for (NestedField outputPartitionField : outputPartitionFields) {
