@@ -129,37 +129,16 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
 
     /**
      * Compare properties between compute cluster in MS and compute group in FE,
-     * update only the changed key-value pairs to avoid unnecessary updates.
+     * replace the FE properties with the authoritative MS snapshot when changed.
      */
     private void updatePropertiesIfChanged(CloudComputeGroupMeta computeGroupInFe, Cloud.ClusterPB computeClusterInMs) {
         Map<String, String> propertiesInMs = computeClusterInMs.getPropertiesMap();
         Map<String, String> propertiesInFe = computeGroupInFe.getProperties();
 
-        if (propertiesInMs == null || propertiesInMs.isEmpty()) {
-            return;
-        }
-        Map<String, String> changedProperties = new HashMap<>();
-
-        // Check for changed or new properties
-        for (Map.Entry<String, String> entry : propertiesInMs.entrySet()) {
-            String key = entry.getKey();
-            String valueInMs = entry.getValue();
-            String valueInFe = propertiesInFe.get(key);
-
-            if (valueInFe != null && valueInFe.equalsIgnoreCase(valueInMs)) {
-                continue;
-            }
-            changedProperties.put(key, valueInMs);
-
-            LOG.debug("Property changed for compute group {}: {} = {} (was: {})",
-                    computeGroupInFe.getName(), key, valueInMs, valueInFe);
-        }
-
-        // Only update if there are actual changes
-        if (!changedProperties.isEmpty()) {
+        if (!propertiesInFe.equals(propertiesInMs)) {
             LOG.info("Updating properties for compute group {}: {}",
-                    computeGroupInFe.getName(), changedProperties);
-            computeGroupInFe.setProperties(changedProperties);
+                    computeGroupInFe.getName(), propertiesInMs);
+            computeGroupInFe.setProperties(propertiesInMs);
         }
     }
 

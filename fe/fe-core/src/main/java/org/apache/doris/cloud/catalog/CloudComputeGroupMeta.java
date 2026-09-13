@@ -155,7 +155,7 @@ public class CloudComputeGroupMeta {
 
     @Getter
     @Setter
-    private Map<String, String> properties = new LinkedHashMap<>(ALL_PROPERTIES_DEFAULT_VALUE_MAP);
+    private volatile Map<String, String> properties = new LinkedHashMap<>(ALL_PROPERTIES_DEFAULT_VALUE_MAP);
 
     public CloudComputeGroupMeta(String id, String name, ComputeTypeEnum type) {
         this.id = id;
@@ -264,9 +264,7 @@ public class CloudComputeGroupMeta {
 
     // set properties, just set in periodic instance status checker
     public void setProperties(Map<String, String> propertiesInMs) {
-        if (propertiesInMs == null || propertiesInMs.isEmpty()) {
-            return;
-        }
+        Map<String, String> newProperties = new LinkedHashMap<>();
 
         for (Map.Entry<String, String> entry : propertiesInMs.entrySet()) {
             String key = entry.getKey();
@@ -281,9 +279,10 @@ public class CloudComputeGroupMeta {
             }
 
             if (value != null && !value.isEmpty()) {
-                properties.put(key, value);
+                newProperties.put(key, value);
             }
         }
+        properties = newProperties;
     }
 
     public BalanceTypeEnum getBalanceType() {
