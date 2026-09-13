@@ -14,8 +14,13 @@ Non-contributing states include:
 - Percentile arrays with no quantile levels and therefore no retained samples.
 - Sequence functions and Window Funnel V2 states with no matched events.
 
-Empty percentile arrays may still retain their output shape when all merged
-states have no samples. Their parameters never constrain a contributing state.
+`percentile_approx_array` returns `[]` when it has no retained samples, including
+all-NaN input and empty quantile arrays. Sample-free states use the fresh-state
+serialized encoding and do not constrain a contributing state's parameters.
+Only two contributing states must have matching quantiles and compression.
+This changes all-NaN results from an array of NaNs to an empty array, independent
+of the requested quantile count or the order in which empty states are merged.
+Other percentile arrays may retain their output shape when all states are empty.
 An empty TopN map is handled before full-map count adjustment, avoiding invalid
 counter changes when capacity is zero.
 

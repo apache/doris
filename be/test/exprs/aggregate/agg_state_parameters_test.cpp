@@ -192,6 +192,37 @@ public:
         }
     }
 
+    void check_sample_free_arrays(const Arguments& first, const Arguments& second,
+                                  const Arguments& populated) {
+        for (bool serialized : {false, true}) {
+            SCOPED_TRACE(serialized);
+            auto* left = create(first);
+            auto* right = create(second);
+            check_empty_array_state(left);
+            check_empty_array_state(right);
+            merge(left, right, serialized);
+            check_empty_array_state(left);
+
+            // Check the empty intermediate before a later contributor can hide its shape.
+            auto* restored = create();
+            auto empty_column = serialize(left);
+            _function->deserialize_and_merge_from_column(restored, *empty_column, _arena);
+            check_empty_array_state(restored);
+            merge(restored, create(populated), serialized);
+            EXPECT_TRUE(ColumnHelper::column_equal(result(restored), result(create(populated))));
+
+            // Both association orders must adopt the contributor's parameters.
+            merge(left, create(populated), serialized);
+            merge(right, create(populated), serialized);
+            auto* other_left = create(first);
+            merge(other_left, right, serialized);
+            EXPECT_TRUE(ColumnHelper::column_equal(result(left), result(other_left)));
+            EXPECT_TRUE(ColumnHelper::column_equal(result(left), result(create(populated))));
+            _function->reset(left);
+            check_empty_array_state(left);
+        }
+    }
+
     void check_invalid_outputs(const Arguments& arguments, const std::string& message) {
         auto* state = create(arguments);
         for (bool serialize_state : {false, true}) {
@@ -211,6 +242,15 @@ public:
     }
 
 private:
+    void check_empty_array_state(AggregateDataPtr place) {
+        const auto output = result(place);
+        const auto& array = assert_cast<const ColumnArray&>(*output);
+        EXPECT_EQ(array.size(), 1);
+        EXPECT_EQ(array.get_data().size(), 0);
+        EXPECT_EQ(serialize(place)->get_data_at(0).to_string(),
+                  serialize(create())->get_data_at(0).to_string());
+    }
+
     void merge(AggregateDataPtr destination, AggregateDataPtr source, bool serialized) {
         if (serialized) {
             auto column = serialize(source);
@@ -442,6 +482,40 @@ TEST(AggregateStateParametersTest, PercentileEmptyParametersAreIgnored) {
     check_compatible_states("percentile_approx_weighted",
                             {value, argument<DataTypeFloat64>(0), argument<DataTypeFloat64>(0.25)},
                             {value, argument<DataTypeFloat64>(1), argument<DataTypeFloat64>(0.25)});
+}
+
+TEST(AggregateStateParametersTest, PercentileApproxArraySampleFreeStates) {
+    const auto nan = argument<DataTypeFloat64>(std::numeric_limits<double>::quiet_NaN());
+    const auto value = argument<DataTypeFloat64>(7);
+    for (bool has_compression : {false, true}) {
+        SCOPED_TRACE(has_compression);
+        std::vector<Arguments> empty_cases {
+                {nan, quantiles({0.25})}, {nan, quantiles({0.25, 0.75})}, {value, quantiles({})}};
+        Arguments populated {value, quantiles({0.1, 0.5, 0.9})};
+        if (has_compression) {
+            for (size_t i = 0; i < empty_cases.size(); ++i) {
+                empty_cases[i].push_back(argument<DataTypeFloat64>(2048 * (i + 1)));
+            }
+            populated.push_back(argument<DataTypeFloat64>(10000));
+        }
+        DataTypes types;
+        for (const auto& arg : populated) {
+            types.push_back(arg.type);
+        }
+        auto function = AggregateFunctionSimpleFactory::instance().get(
+                "percentile_approx_array", types, nullptr, false,
+                BeExecVersionManager::get_newest_version());
+        ASSERT_NE(function, nullptr);
+        StateParameterChecks checks(function);
+        for (const auto& first : empty_cases) {
+            for (const auto& second : empty_cases) {
+                checks.check_sample_free_arrays(first, second, populated);
+            }
+        }
+    }
+    check_parameters("percentile_approx_array",
+                     {value, quantiles({0.25}), argument<DataTypeFloat64>(2048)},
+                     {value, quantiles({0.25}), argument<DataTypeFloat64>(4096)});
 }
 
 TEST(AggregateStateParametersTest, CollectAndConcat) {

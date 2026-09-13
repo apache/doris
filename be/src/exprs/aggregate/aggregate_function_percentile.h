@@ -332,6 +332,8 @@ public:
 };
 
 struct PercentileApproxArrayState {
+    bool has_samples() const { return !levels.empty() && digest->total_size() != 0; }
+
     void init(const PaddedPODArray<Float64>& quantiles, const NullMap& null_map, size_t start,
               size_t size, float compression = 10000) {
         if (init_flag) {
@@ -369,16 +371,15 @@ struct PercentileApproxArrayState {
     }
 
     void write(BufferWritable& buf) const {
-        buf.write_binary(init_flag);
-        if (!init_flag) {
+        // Sample-free states share the fresh-state encoding, independent of their parameters.
+        const bool has_data = has_samples();
+        buf.write_binary(has_data);
+        if (!has_data) {
             return;
         }
 
         levels.write(buf);
         buf.write_binary(compressions);
-        if (levels.empty()) {
-            return;
-        }
         uint32_t serialize_size = digest->serialized_size();
         std::string result(serialize_size, '0');
         digest->serialize(reinterpret_cast<uint8_t*>(result.data()));
@@ -404,33 +405,22 @@ struct PercentileApproxArrayState {
     }
 
     void merge(const PercentileApproxArrayState& rhs) {
-        if (!rhs.init_flag) {
+        if (!rhs.has_samples()) {
             return;
         }
 
-        // Preserve the result shape when every state is empty, but let contributing
-        // samples replace parameters recorded by an empty destination.
-        if (!init_flag || levels.empty() || digest->total_size() == 0) {
+        if (!has_samples()) {
             levels = rhs.levels;
             compressions = rhs.compressions;
-            if (!levels.empty()) {
-                digest = TDigest::create_unique(compressions);
-            }
+            digest = TDigest::create_unique(compressions);
             init_flag = true;
-        } else if (rhs.levels.empty() || rhs.digest->total_size() == 0) {
-            return;
-        } else {
-            if (UNLIKELY(compressions != rhs.compressions ||
-                         levels.quantiles != rhs.levels.quantiles)) {
-                throw Exception(
-                        ErrorCode::INVALID_ARGUMENT,
-                        "percentile_approx_array aggregate states have incompatible quantiles "
-                        "or compression");
-            }
+        } else if (UNLIKELY(compressions != rhs.compressions ||
+                            levels.quantiles != rhs.levels.quantiles)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "percentile_approx_array aggregate states have incompatible quantiles "
+                            "or compression");
         }
-        if (!levels.empty()) {
-            digest->merge(rhs.digest.get());
-        }
+        digest->merge(rhs.digest.get());
     }
 
     void reset() {
@@ -442,7 +432,7 @@ struct PercentileApproxArrayState {
 
     void insert_result_into(IColumn& to) const {
         auto& column_data = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to).get_data();
-        if (levels.empty()) {
+        if (!has_samples()) {
             return;
         }
 
