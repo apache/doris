@@ -95,9 +95,13 @@ TEST(NGramTokenizerTest, ConfiguredMinMaxDifference) {
     args["max_ngram_diff"] = "7";
     Settings settings(args);
     factory.initialize(settings);
-    auto tokens = tokenize(factory, "abcd");
+    auto tokens = tokenize(factory, "abcdefgh");
 
-    std::vector<std::string> expected {"a", "ab", "abc", "abcd", "b", "bc", "bcd", "c", "cd", "d"};
+    std::vector<std::string> expected {
+            "a",    "ab",    "abc",    "abcd",  "abcde",  "abcdef",  "abcdefg", "abcdefgh", "b",
+            "bc",   "bcd",   "bcde",   "bcdef", "bcdefg", "bcdefgh", "c",       "cd",       "cde",
+            "cdef", "cdefg", "cdefgh", "d",     "de",     "def",     "defg",    "defgh",    "e",
+            "ef",   "efg",   "efgh",   "f",     "fg",     "fgh",     "g",       "gh",       "h"};
     ASSERT_EQ(tokens, expected);
 }
 

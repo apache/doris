@@ -66,7 +66,16 @@ suite("test_ngram_max_diff_custom_analyzer", "p0") {
             "Analyzer ${ngramAnalyzer} was not ready: ${lastException?.message}")
 
     def ngramTokens = sql """SELECT TOKENIZE('abcdefgh', '"analyzer"="${ngramAnalyzer}"')"""
-    def ngramTokenString = ngramTokens[0][0].toString()
-    assertTrue(ngramTokenString.contains('"token": "abcdefgh"'))
-    assertTrue(ngramTokenString.contains('"token": "bcdefgh"'))
+    def actualTokens = parseJson(ngramTokens[0][0].toString()).collect { it.token }
+    def expectedTokens = [
+            "a", "ab", "abc", "abcd", "abcde", "abcdef", "abcdefg", "abcdefgh",
+            "b", "bc", "bcd", "bcde", "bcdef", "bcdefg", "bcdefgh",
+            "c", "cd", "cde", "cdef", "cdefg", "cdefgh",
+            "d", "de", "def", "defg", "defgh",
+            "e", "ef", "efg", "efgh",
+            "f", "fg", "fgh",
+            "g", "gh",
+            "h"
+    ]
+    assertEquals(expectedTokens, actualTokens)
 }
