@@ -480,6 +480,46 @@ TEST_F(SniiGramCacheTest, UnprunablePatternsReleaseFollowersWithoutCachingResult
     }
 }
 
+// A dense3 segment recovered after its analyzer name was recreated for a tokenizer that predates
+// gram mode. The current analyzer then carries no scheme while the segment still does, and the
+// segment's dictionary holds trigrams, not the bigrams the query is now cut into. The index must
+// decline the analyzed query instead of answering it from that dictionary, and because a declined
+// attempt computes nothing, repeating the query must decline again rather than be served from the
+// result cache.
+TEST_F(SniiGramCacheTest, AnalyzedQueriesDeclineWhenTheAnalyzerNoLongerCutsGrams) {
+    TIndexPolicy tokenizer;
+    tokenizer.id = 6753980;
+    tokenizer.name = "gram_cache_dense3_tokenizer";
+    tokenizer.type = TIndexPolicyType::TOKENIZER;
+    tokenizer.properties = {{"type", "ngram"}, {"min_gram", "2"}, {"max_gram", "2"}};
+    TIndexPolicy analyzer;
+    analyzer.id = tokenizer.id + 1;
+    analyzer.name = "gram_cache_dense3_analyzer";
+    analyzer.type = TIndexPolicyType::ANALYZER;
+    analyzer.properties = {{"tokenizer", tokenizer.name}};
+    // Replace the dense3 pair SetUp installed (ids 6753900 / 6753901) under the same names.
+    _policy_mgr.apply_policy_changes({tokenizer, analyzer}, {6753900, 6753901});
+    ASSERT_FALSE(
+            _policy_mgr.get_analyzer_provider_by_name(analyzer.name)->gram_scheme().has_value());
+
+    for (const auto& [pattern, type] : std::vector<std::pair<std::string, InvertedIndexQueryType>> {
+                 {"abcdef", InvertedIndexQueryType::MATCH_ANY_QUERY},
+                 {"abcdef", InvertedIndexQueryType::MATCH_ALL_QUERY},
+                 {"^ab$", InvertedIndexQueryType::MATCH_REGEXP_QUERY}}) {
+        SCOPED_TRACE(query_type_to_string(type));
+        const std::vector<GramCacheRequest> requests {{_readers[0], pattern, type}};
+        for (size_t attempt = 0; attempt < 2; ++attempt) {
+            SCOPED_TRACE(attempt);
+            const auto results = run_queries(requests);
+            const auto& result = results.front();
+            EXPECT_TRUE(result.status.is<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>())
+                    << result.status;
+            EXPECT_EQ(result.stats.inverted_index_query_cache_hit, 0);
+            EXPECT_EQ(result.stats.inverted_index_query_cache_insert, 0);
+        }
+    }
+}
+
 class SniiGramCacheOptionsTest : public SniiGramCacheTest,
                                  public testing::WithParamInterface<std::pair<bool, bool>> {};
 

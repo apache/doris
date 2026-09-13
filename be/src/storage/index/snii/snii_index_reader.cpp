@@ -741,12 +741,14 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     const ::doris::snii::reader::LogicalIndexReader* logical_reader = nullptr;
     RETURN_IF_ERROR(_get_logical_reader(context, &searcher_cache_handle, &uncached_reader,
                                         &logical_reader));
-    // Compare the two optionals, not just two schemes: a segment written by a legacy ngram
-    // tokenizer carries no scheme at all, and its dictionary holds that tokenizer's terms. Once
-    // the current analyzer cuts grams, looking those grams up in that dictionary answers a
-    // different question, so an absent persisted scheme is a mismatch like any other.
-    if (analyzed_query && current_gram_scheme.has_value() &&
-        current_gram_scheme != logical_reader->gram_scheme()) {
+    // Compare the two optionals, not just two schemes, and whichever side is empty. A segment
+    // written by a legacy ngram tokenizer carries no scheme, and its dictionary holds that
+    // tokenizer's terms, so grams cut by the current analyzer mean nothing there. The reverse
+    // holds too: a gram segment recovered after its policy was recreated without a mode keeps its
+    // gram dictionary while the analyzer now cuts legacy terms -- and with no current scheme the
+    // result cache is enabled. Returning here, before anything is computed, keeps such an answer
+    // out of the index and out of that cache alike.
+    if (analyzed_query && current_gram_scheme != logical_reader->gram_scheme()) {
         return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
                 "gram index segment was cut with a different scheme than the current "
                 "analyzer; the predicate is evaluated without the index");
