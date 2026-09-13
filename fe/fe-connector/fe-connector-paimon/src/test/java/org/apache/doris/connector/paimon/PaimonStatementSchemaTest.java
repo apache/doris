@@ -18,7 +18,9 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ForwardingConnectorContext;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
@@ -30,6 +32,7 @@ import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalRow;
+import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.privilege.PrivilegeChecker;
 import org.apache.paimon.privilege.PrivilegedFileStoreTable;
@@ -50,6 +53,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -58,11 +62,103 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 public class PaimonStatementSchemaTest {
+    @Test
+    public void latestCacheHitCapturesSchemaInsideAuth(@TempDir Path warehouse) throws Exception {
+        checkAuthenticatedSchemaRead(warehouse, "capture");
+    }
+
+    @Test
+    public void pinnedSchemaMaterializesInsideAuth(@TempDir Path warehouse) throws Exception {
+        checkAuthenticatedSchemaRead(warehouse, "materialize");
+    }
+
+    @Test
+    public void scanRestoresSchemaInsideAuth(@TempDir Path warehouse) throws Exception {
+        checkAuthenticatedSchemaRead(warehouse, "restore");
+    }
+
+    private void checkAuthenticatedSchemaRead(Path warehouse, String operation) throws Exception {
+        AtomicBoolean enforceScope = new AtomicBoolean();
+        ThreadLocal<Boolean> authenticated = ThreadLocal.withInitial(() -> false);
+        AtomicInteger reads = new AtomicInteger();
+        ClassLoader pluginLoader = new ClassLoader(getClass().getClassLoader()) {};
+        ClassLoader callerLoader = Thread.currentThread().getContextClassLoader();
+        FileIO local = LocalFileIO.create();
+        FileIO guarded = (FileIO) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[] {FileIO.class}, (proxy, method, args) -> {
+                    if (enforceScope.get() && args != null && args.length > 0
+                            && args[0] instanceof org.apache.paimon.fs.Path
+                            && args[0].toString().contains("/schema")) {
+                        Assertions.assertTrue(authenticated.get(), "schema FileIO must run inside auth");
+                        Assertions.assertSame(pluginLoader, Thread.currentThread().getContextClassLoader());
+                        reads.incrementAndGet();
+                    }
+                    try {
+                        return method.invoke(local, args);
+                    } catch (InvocationTargetException e) {
+                        throw e.getCause();
+                    }
+                });
+        ConnectorContext context = new TcclPinningConnectorContext(
+                new ForwardingConnectorContext(new RecordingConnectorContext()) {
+                    @Override
+                    public <T> T executeAuthenticated(Callable<T> task) throws Exception {
+                        boolean previous = authenticated.get();
+                        authenticated.set(true);
+                        try {
+                            return task.call();
+                        } finally {
+                            authenticated.set(previous);
+                        }
+                    }
+                }, pluginLoader, () -> null);
+        try (Catalog catalog = new FileSystemCatalog(guarded,
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder().column("old_name", DataTypes.INT())
+                    .option("scan.manifest.parallelism", "1").build(), false);
+            FileStoreTable warm = (FileStoreTable) catalog.getTable(id);
+            PaimonTableHandle handle = new PaimonTableHandle("db", "t",
+                    Collections.emptyList(), Collections.emptyList());
+            handle.setPaimonTable(warm);
+            PaimonCatalogOps ops = new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(catalog);
+            PaimonLatestSnapshotCache cache = new PaimonLatestSnapshotCache(100, 1000);
+            PaimonCatalogProperties props = PaimonCatalogProperties.of(Collections.emptyMap());
+            new PaimonConnectorMetadata(ops, props, context, new PaimonSchemaAtMemo(1000), cache)
+                    .beginQuerySnapshot(null, handle);
+            catalog.alterTable(id, Collections.singletonList(
+                    SchemaChange.renameColumn("old_name", "bound_name")), false);
+            long schemaId = ((FileStoreTable) catalog.getTable(id)).schema().id();
+            PaimonConnectorMetadata metadata = new PaimonConnectorMetadata(
+                    ops, props, context, new PaimonSchemaAtMemo(1000), cache);
+            ConnectorMvccSnapshot snapshot = ConnectorMvccSnapshot.builder().snapshotId(-1L)
+                    .schemaId(schemaId).build();
+            enforceScope.set(true);
+            if (operation.equals("capture")) {
+                Assertions.assertEquals(schemaId, metadata.beginQuerySnapshot(null, handle).get().getSchemaId());
+            } else if (operation.equals("materialize")) {
+                Assertions.assertEquals("bound_name",
+                        metadata.getTableSchema(null, handle, snapshot).getColumns().get(0).getName());
+            } else {
+                PaimonTableHandle pinned = (PaimonTableHandle) metadata.applySnapshot(null, handle, snapshot);
+                Assertions.assertEquals(Collections.singletonList("bound_name"),
+                        new PaimonScanPlanProvider(props, ops, context).resolveScanTable(pinned)
+                                .rowType().getFieldNames());
+            }
+            Assertions.assertTrue(reads.get() > 0, "the assertion must exercise real schema-file IO");
+            Assertions.assertFalse(authenticated.get());
+            Assertions.assertSame(callerLoader, Thread.currentThread().getContextClassLoader());
+            enforceScope.set(false);
+        }
+    }
+
     @Test
     public void warmTableKeepsExactStatementSchema(@TempDir Path warehouse) throws Exception {
         checkSchemaMutation(warehouse, false, false);

@@ -586,6 +586,64 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
+    public void testLatestRangeUsesPinnedPartitionTypeAndArity() {
+        Fixture f = pinnedPartitionFixture();
+        Mockito.when(f.metadata.getMvccPartitionView(f.session, f.pinnedHandle))
+                .thenReturn(Optional.of(rangeView(rangePart("p1", "10", "20", FRESH_555))));
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot)
+                f.table.loadSnapshot(Optional.empty(), Optional.empty());
+        RangePartitionItem item = (RangePartitionItem) pin.getNameToPartitionItem().get("p1");
+        Assertions.assertEquals(1, item.getItems().lowerEndpoint().getKeys().size());
+        Assertions.assertEquals(Type.INT, item.getItems().lowerEndpoint().getKeys().get(0).getType());
+        Assertions.assertEquals("10", item.getItems().lowerEndpoint().getKeys().get(0).getStringValue());
+    }
+
+    @Test
+    public void testLatestListUsesPinnedPartitionTypeAndArity() {
+        checkLatestPinnedList(false);
+    }
+
+    @Test
+    public void testLatestUnpartitionedViewUsesPinnedListColumns() {
+        checkLatestPinnedList(true);
+    }
+
+    private void checkLatestPinnedList(boolean unpartitionedView) {
+        Fixture f = pinnedPartitionFixture();
+        if (unpartitionedView) {
+            // The ambient schema has no partition columns, but this pin still owns a LIST partition.
+            f.latestCacheValue.getPartitionColumns().clear();
+            Mockito.when(f.metadata.getMvccPartitionView(f.session, f.pinnedHandle))
+                    .thenReturn(Optional.of(ConnectorMvccPartitionView.unpartitioned()));
+        }
+        Mockito.when(f.metadata.listPartitions(Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any()))
+                .thenReturn(Collections.singletonList(cpi("key=10", TS_2024_01_01)));
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot)
+                f.table.loadSnapshot(Optional.empty(), Optional.empty());
+        Assertions.assertEquals(1, pin.getNameToPartitionItem().size());
+        PartitionKey key = ((ListPartitionItem) pin.getNameToPartitionItem().get("key=10")).getItems().get(0);
+        Assertions.assertEquals(1, key.getKeys().size());
+        Assertions.assertEquals(Type.INT, key.getKeys().get(0).getType());
+        Assertions.assertEquals("10", key.getKeys().get(0).getStringValue());
+    }
+
+    private Fixture pinnedPartitionFixture() {
+        Fixture f = Fixture.timeTravel();
+        // The local pin predates a partition type/arity change in the ambient latest schema.
+        f.latestCacheValue.getPartitionColumns().clear();
+        f.latestCacheValue.getPartitionColumns().add(new Column("key", Type.DATEV2));
+        f.latestCacheValue.getPartitionColumns().add(new Column("added", Type.INT));
+        ConnectorMvccSnapshot snapshot = ConnectorMvccSnapshot.builder()
+                .snapshotId(PINNED_SNAPSHOT_ID).schemaId(Fixture.TT_SCHEMA_ID).build();
+        Mockito.when(f.metadata.beginQuerySnapshot(f.session, f.handle)).thenReturn(Optional.of(snapshot));
+        ConnectorTableSchema schema = new ConnectorTableSchema("REMOTE_TBL",
+                Collections.singletonList(new ConnectorColumn("key", ConnectorType.of("INT"), "", true, null)),
+                "", Collections.singletonMap(ConnectorTableSchema.PARTITION_COLUMNS_KEY, "key"));
+        Mockito.when(f.metadata.getTableSchema(f.session, f.pinnedHandle, snapshot)).thenReturn(schema);
+        return f;
+    }
+
+    @Test
     public void testInitialLatestPartitionAccountingUsesPinnedHandle() {
         Fixture f = Fixture.partitioned();
         Mockito.when(f.metadata.listPartitions(
@@ -1532,7 +1590,7 @@ public class PluginDrivenMvccExternalTableTest {
             // string-key path) — the LATEST schema.
             List<Column> schema = Collections.singletonList(new Column("dt", partitionColType));
             PluginDrivenSchemaCacheValue latestCacheValue = new PluginDrivenSchemaCacheValue(
-                    schema, schema, Collections.singletonList("dt"));
+                    schema, new ArrayList<>(schema), Collections.singletonList("dt"));
 
             ConnectorMvccSnapshot resolvedSnapshot = ConnectorMvccSnapshot.builder()
                     .snapshotId(7L).schemaId(TT_SCHEMA_ID).build();

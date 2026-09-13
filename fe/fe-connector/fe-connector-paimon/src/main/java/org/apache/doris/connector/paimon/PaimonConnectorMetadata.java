@@ -65,6 +65,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * {@link ConnectorMetadata} implementation for Paimon.
@@ -254,7 +255,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         // tables (isSystemTable()) always keep their synthetic rowType() (no schema-version history; some
         // are not DataTable). Sharing buildTableSchema with the at-snapshot path keeps the two from drifting.
         if (!paimonHandle.isSystemTable()) {
-            Optional<PaimonCatalogOps.PaimonSchemaSnapshot> latest = catalogOps.latestSchema(table);
+            Optional<PaimonCatalogOps.PaimonSchemaSnapshot> latest =
+                    readSchemaAuthenticated(() -> catalogOps.latestSchema(table));
             if (latest.isPresent()) {
                 PaimonCatalogOps.PaimonSchemaSnapshot schema = latest.get();
                 return buildTableSchema(
@@ -317,7 +319,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         // carries branchName in equals/hashCode) so a branch@schemaId and a base@same-schemaId cannot
         // collide in this long-lived memo. resolveTable runs ONCE, outside the loader.
         PaimonCatalogOps.PaimonSchemaSnapshot schema =
-                schemaAtMemo.getOrLoad(pinned, schemaId, () -> catalogOps.schemaAt(table, schemaId));
+                schemaAtMemo.getOrLoad(pinned, schemaId,
+                        () -> readSchemaAuthenticated(() -> catalogOps.schemaAt(table, schemaId)));
         return buildTableSchema(
                 paimonHandle.getTableName(),
                 table,
@@ -588,9 +591,21 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 .schemaId(statementSchemaId(paimonHandle, resolveTable(paimonHandle))).build());
     }
 
+    private <T> T readSchemaAuthenticated(Supplier<T> read) {
+        // Cached tables do not cache schema files: exact/latest schema reads still need plugin UGI and TCCL.
+        try {
+            return context.executeAuthenticated(read::get);
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to read Paimon schema", e);
+        }
+    }
+
     private long statementSchemaId(PaimonTableHandle handle, Table table) {
         return statementSchemaIds.computeIfAbsent(handle,
-                ignored -> catalogOps.latestSchema(table).map(PaimonCatalogOps.PaimonSchemaSnapshot::schemaId)
+                ignored -> readSchemaAuthenticated(() -> catalogOps.latestSchema(table))
+                        .map(PaimonCatalogOps.PaimonSchemaSnapshot::schemaId)
                         .orElse(-1L));
     }
 
@@ -1191,7 +1206,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         // (aborts the BE). latestSchema() is empty for a non-DataTable/schema-less backend -> fall back to
         // rowType(). System tables keep their synthetic rowType() (no schema-version history).
         if (!paimonHandle.isSystemTable()) {
-            Optional<PaimonCatalogOps.PaimonSchemaSnapshot> latest = catalogOps.latestSchema(table);
+            Optional<PaimonCatalogOps.PaimonSchemaSnapshot> latest =
+                    readSchemaAuthenticated(() -> catalogOps.latestSchema(table));
             if (latest.isPresent()) {
                 return buildColumnHandles(latest.get().fields(), true);
             }
@@ -1243,7 +1259,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         // per-catalog and long-lived, so keying on the base handle would let a branch@schemaId poison a
         // later base@same-schemaId read (each has its own independently-evolved schema-<id>).
         PaimonCatalogOps.PaimonSchemaSnapshot schema =
-                schemaAtMemo.getOrLoad(pinned, schemaId, () -> catalogOps.schemaAt(table, schemaId));
+                schemaAtMemo.getOrLoad(pinned, schemaId,
+                        () -> readSchemaAuthenticated(() -> catalogOps.schemaAt(table, schemaId)));
         return buildColumnHandles(schema.fields(), true);
     }
 
@@ -1608,6 +1625,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             return systemTable;
         }
         Table dataTable = PaimonTableResolver.resolveSystemSource(catalogOps, handle, context);
+        if (PaimonScanParams.preservesBoundSchema(scanOptions)) {
+            return readSchemaAuthenticated(() -> PaimonReaderOptions.runtimeSafeSystemTable(
+                    handle.getSysTableName(), systemTable, dataTable, scanOptions));
+        }
         return PaimonReaderOptions.runtimeSafeSystemTable(
                 handle.getSysTableName(), systemTable, dataTable, scanOptions);
     }

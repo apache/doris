@@ -114,6 +114,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -343,6 +344,24 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      */
     Table resolveScanTable(PaimonTableHandle paimonHandle) {
         Table table = resolveTable(paimonHandle);
+        return withBoundSchemaAuthentication(paimonHandle, () -> applyScanOptions(paimonHandle, table));
+    }
+
+    private <T> T withBoundSchemaAuthentication(PaimonTableHandle handle, Supplier<T> action) {
+        if (context == null || !PaimonScanParams.preservesBoundSchema(handle.getScanOptions())) {
+            return action.get();
+        }
+        // Restoring a bound schema can read FileIO after table resolution has left the authenticated scope.
+        try {
+            return context.executeAuthenticated(action::get);
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to restore Paimon statement schema", e);
+        }
+    }
+
+    private Table applyScanOptions(PaimonTableHandle paimonHandle, Table table) {
         Map<String, String> scanOptions = paimonHandle.getScanOptions();
         Table finalTable = table;
         if (scanOptions != null && !scanOptions.isEmpty()
@@ -1203,6 +1222,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      */
     // Package-private for direct unit testing (PaimonBackendBoundTableTest).
     Table tableForBackend(PaimonTableHandle handle, Table scanTable) {
+        return withBoundSchemaAuthentication(handle, () -> buildBackendTable(handle, scanTable));
+    }
+
+    private Table buildBackendTable(PaimonTableHandle handle, Table scanTable) {
         if (scanTable instanceof FileStoreTable) {
             // resolveScanTable's copy(...) merged the relation's dynamic options into the schema,
             // and the rebuild below goes through that schema, so this branch needs no re-application.
@@ -1453,8 +1476,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             FileStoreTable pinnedSource = handle.getSysBaseTable();
             // A reloaded source still needs the bound schema and data selector; otherwise the
             // native dictionary can disagree with the wrapper after either cache or handle reload.
-            return PaimonReaderOptions.runtimeSafeSystemSource(
-                    pinnedSource == null ? reloadBaseTable(handle) : pinnedSource, handle.getScanOptions());
+            return withBoundSchemaAuthentication(handle, () -> PaimonReaderOptions.runtimeSafeSystemSource(
+                    pinnedSource == null ? reloadBaseTable(handle) : pinnedSource, handle.getScanOptions()));
         }
         return null;
     }
