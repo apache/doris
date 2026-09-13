@@ -387,6 +387,8 @@ public class SystemInfoServiceTest {
         Backend excluded = Mockito.mock(Backend.class);
         Mockito.when(selected.getId()).thenReturn(10001L);
         Mockito.when(excluded.getId()).thenReturn(10002L);
+        Mockito.when(selected.isQueryAvailable()).thenReturn(true);
+        Mockito.when(excluded.isQueryAvailable()).thenReturn(true);
         BeSelectionPolicy policy = new BeSelectionPolicy.Builder()
                 .addRequiredBackendIds(Collections.singletonList(selected.getId()))
                 .build();
