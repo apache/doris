@@ -349,7 +349,7 @@ under the License.
         <!-- Please modify iceberg.version and avro.version together,
          you can find avro version info in iceberg mvn repository -->
         <iceberg.version>1.11.0</iceberg.version>
-        <lance.version>9.1.0-beta.3</lance.version>
+        <lance.version>11.0.0</lance.version>
         <substrait.version>0.40.0</substrait.version>
         <!-- 0.56.1 has bug that "SplitMode" in query response may not be set-->
         <maxcompute.version>0.53.2-public</maxcompute.version>
