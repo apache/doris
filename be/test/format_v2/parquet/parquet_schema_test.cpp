@@ -28,6 +28,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/primitive_type.h"
@@ -939,6 +940,43 @@ TEST(ParquetSchemaTest, NativeStringAnnotationsAndTimeUnitsPreserveLogicalTypes)
     EXPECT_EQ(remove_nullable(descriptor.get_column(5)->data_type)->get_scale(), 6);
     EXPECT_EQ(remove_nullable(descriptor.get_column(6)->data_type)->get_scale(), 3);
     EXPECT_EQ(remove_nullable(descriptor.get_column(7)->data_type)->get_scale(), 6);
+}
+
+TEST(ParquetSchemaTest, NativeSpatialAnnotationsPreserveMetadata) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(2);
+
+    auto binary_leaf = [](const std::string& name) {
+        tparquet::SchemaElement leaf;
+        leaf.__set_name(name);
+        leaf.__set_type(tparquet::Type::BYTE_ARRAY);
+        leaf.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+        leaf.__set_logicalType(tparquet::LogicalType());
+        return leaf;
+    };
+    auto geometry = binary_leaf("shape");
+    geometry.logicalType.__set_GEOMETRY(tparquet::GeometryType());
+    geometry.logicalType.GEOMETRY.__set_crs("EPSG:3857");
+
+    auto geography = binary_leaf("place");
+    geography.logicalType.__set_GEOGRAPHY(tparquet::GeographyType());
+    geography.logicalType.GEOGRAPHY.__set_crs("OGC:CRS84");
+    geography.logicalType.GEOGRAPHY.__set_algorithm(tparquet::EdgeInterpolationAlgorithm::VINCENTY);
+
+    NativeFieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor.parse_from_thrift({root, geometry, geography}).ok());
+
+    const auto& geometry_type = assert_cast<const DataTypeSpatial&>(
+            *remove_nullable(descriptor.get_column(0)->data_type));
+    EXPECT_EQ(TYPE_GEOMETRY, geometry_type.get_primitive_type());
+    EXPECT_EQ("EPSG:3857", geometry_type.crs());
+
+    const auto& geography_type = assert_cast<const DataTypeSpatial&>(
+            *remove_nullable(descriptor.get_column(1)->data_type));
+    EXPECT_EQ(TYPE_GEOGRAPHY, geography_type.get_primitive_type());
+    EXPECT_EQ("OGC:CRS84", geography_type.crs());
+    EXPECT_EQ("vincenty", geography_type.algorithm());
 }
 
 TEST(ParquetSchemaTest, NativeSchemaRejectsAmbiguousKindsAndMissingRepetition) {

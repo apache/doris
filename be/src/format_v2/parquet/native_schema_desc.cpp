@@ -31,6 +31,7 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
 #include "util/slice.h"
@@ -59,6 +60,23 @@ static bool is_map_node(const tparquet::SchemaElement& schema) {
 
 static bool is_variant_node(const tparquet::SchemaElement& schema) {
     return schema.__isset.logicalType && schema.logicalType.__isset.VARIANT;
+}
+
+static std::string geography_algorithm_to_string(
+        tparquet::EdgeInterpolationAlgorithm::type algorithm) {
+    switch (algorithm) {
+    case tparquet::EdgeInterpolationAlgorithm::SPHERICAL:
+        return "spherical";
+    case tparquet::EdgeInterpolationAlgorithm::VINCENTY:
+        return "vincenty";
+    case tparquet::EdgeInterpolationAlgorithm::THOMAS:
+        return "thomas";
+    case tparquet::EdgeInterpolationAlgorithm::ANDOYER:
+        return "andoyer";
+    case tparquet::EdgeInterpolationAlgorithm::KARNEY:
+        return "karney";
+    }
+    throw Exception(Status::InternalError("Unsupported Parquet geography edge algorithm"));
 }
 
 enum class VariantPrimitiveAnnotation : uint8_t {
@@ -907,6 +925,16 @@ std::pair<DataTypePtr, bool> NativeFieldDescriptor::convert_to_doris_type(
         }
     } else if (logicalType.__isset.FLOAT16) {
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_FLOAT, nullable);
+    } else if (logicalType.__isset.GEOMETRY) {
+        const auto& geometry = logicalType.GEOMETRY;
+        ans.first = std::make_shared<DataTypeSpatial>(
+                TYPE_GEOMETRY, geometry.__isset.crs ? geometry.crs : "OGC:CRS84");
+    } else if (logicalType.__isset.GEOGRAPHY) {
+        const auto& geography = logicalType.GEOGRAPHY;
+        ans.first = std::make_shared<DataTypeSpatial>(
+                TYPE_GEOGRAPHY, geography.__isset.crs ? geography.crs : "OGC:CRS84",
+                geography.__isset.algorithm ? geography_algorithm_to_string(geography.algorithm)
+                                            : "spherical");
     } else {
         throw Exception(Status::InternalError("Not supported parquet logicalType"));
     }
