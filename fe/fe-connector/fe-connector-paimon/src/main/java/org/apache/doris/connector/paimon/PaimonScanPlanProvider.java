@@ -1088,8 +1088,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 source = paimonHandle.getSysBaseTable();
             }
             Table effectiveSource = source == null ? null
-                    : PaimonReaderOptions.runtimeSafeSystemSource(
-                            source, paimonHandle.getScanOptions());
+                    : prepareSystemSource(paimonHandle, source);
             if (effectiveSource instanceof FileStoreTable) {
                 // A system wrapper can hide its physical option map. Ship the exact catalog-less
                 // source so a smaller BE can cap it and rebuild without reopening catalog state.
@@ -1185,11 +1184,17 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             if (source != null) {
                 // System wrappers hide their manifest planner, so send its FE-safe value out of
                 // band; a smaller BE can lower the same hidden planner after deserialization.
-                planningTable = PaimonReaderOptions.runtimeSafeSystemSource(
-                        source, handle.getScanOptions());
+                planningTable = prepareSystemSource(handle, source);
             }
         }
         return PaimonReaderOptions.backendManifestParallelismCap(planningTable);
+    }
+
+    private Table prepareSystemSource(PaimonTableHandle handle, Table source) {
+        // These later property transformations can reopen schema files on the retained source,
+        // after tableForBackend has already left its authentication and plugin classloader scope.
+        return withBoundSchemaAuthentication(handle,
+                () -> PaimonReaderOptions.runtimeSafeSystemSource(source, handle.getScanOptions()));
     }
 
     /**

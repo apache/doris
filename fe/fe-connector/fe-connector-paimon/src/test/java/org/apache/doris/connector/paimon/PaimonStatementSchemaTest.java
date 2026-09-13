@@ -33,6 +33,7 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.fs.FileIO;
+import org.apache.paimon.fs.SeekableInputStream;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.privilege.PrivilegeChecker;
 import org.apache.paimon.privilege.PrivilegedFileStoreTable;
@@ -53,7 +54,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.lang.reflect.InvocationTargetException;
+import java.io.IOException;
 import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -83,28 +84,41 @@ public class PaimonStatementSchemaTest {
         checkAuthenticatedSchemaRead(warehouse, "restore");
     }
 
+    @Test
+    public void systemOptionsScanPropertiesRestoreSchemaInsideAuth(@TempDir Path warehouse) throws Exception {
+        checkAuthenticatedSchemaRead(warehouse, "system-properties");
+    }
+
+    private static final class SchemaGuardFileIO extends LocalFileIO {
+        // The FE-only assertion must not be serialized into the table sent to the backend.
+        private final transient Runnable checkSchemaRead;
+
+        private SchemaGuardFileIO(Runnable checkSchemaRead) {
+            this.checkSchemaRead = checkSchemaRead;
+        }
+
+        @Override
+        public SeekableInputStream newInputStream(org.apache.paimon.fs.Path path) throws IOException {
+            if (checkSchemaRead != null && path.toString().contains("/schema")) {
+                checkSchemaRead.run();
+            }
+            return super.newInputStream(path);
+        }
+    }
+
     private void checkAuthenticatedSchemaRead(Path warehouse, String operation) throws Exception {
         AtomicBoolean enforceScope = new AtomicBoolean();
         ThreadLocal<Boolean> authenticated = ThreadLocal.withInitial(() -> false);
         AtomicInteger reads = new AtomicInteger();
         ClassLoader pluginLoader = new ClassLoader(getClass().getClassLoader()) {};
         ClassLoader callerLoader = Thread.currentThread().getContextClassLoader();
-        FileIO local = LocalFileIO.create();
-        FileIO guarded = (FileIO) Proxy.newProxyInstance(getClass().getClassLoader(),
-                new Class<?>[] {FileIO.class}, (proxy, method, args) -> {
-                    if (enforceScope.get() && args != null && args.length > 0
-                            && args[0] instanceof org.apache.paimon.fs.Path
-                            && args[0].toString().contains("/schema")) {
-                        Assertions.assertTrue(authenticated.get(), "schema FileIO must run inside auth");
-                        Assertions.assertSame(pluginLoader, Thread.currentThread().getContextClassLoader());
-                        reads.incrementAndGet();
-                    }
-                    try {
-                        return method.invoke(local, args);
-                    } catch (InvocationTargetException e) {
-                        throw e.getCause();
-                    }
-                });
+        FileIO guarded = new SchemaGuardFileIO(() -> {
+            if (enforceScope.get()) {
+                Assertions.assertTrue(authenticated.get(), "schema FileIO must run inside auth");
+                Assertions.assertSame(pluginLoader, Thread.currentThread().getContextClassLoader());
+                reads.incrementAndGet();
+            }
+        });
         ConnectorContext context = new TcclPinningConnectorContext(
                 new ForwardingConnectorContext(new RecordingConnectorContext()) {
                     @Override
@@ -140,6 +154,11 @@ public class PaimonStatementSchemaTest {
                     ops, props, context, new PaimonSchemaAtMemo(1000), cache);
             ConnectorMvccSnapshot snapshot = ConnectorMvccSnapshot.builder().snapshotId(-1L)
                     .schemaId(schemaId).build();
+            if (operation.equals("system-properties")) {
+                snapshot = metadata.resolveTimeTravel(null, handle, ConnectorTimeTravelSpec.options(
+                        Collections.singletonMap("scan.plan-sort-partition", "true"), -1L)).get();
+                handle = (PaimonTableHandle) metadata.getSysTableHandle(null, handle, "ro").get();
+            }
             enforceScope.set(true);
             if (operation.equals("capture")) {
                 Assertions.assertEquals(schemaId, metadata.beginQuerySnapshot(null, handle).get().getSchemaId());
@@ -148,9 +167,16 @@ public class PaimonStatementSchemaTest {
                         metadata.getTableSchema(null, handle, snapshot).getColumns().get(0).getName());
             } else {
                 PaimonTableHandle pinned = (PaimonTableHandle) metadata.applySnapshot(null, handle, snapshot);
+                PaimonScanPlanProvider provider = new PaimonScanPlanProvider(props, ops, context);
                 Assertions.assertEquals(Collections.singletonList("bound_name"),
-                        new PaimonScanPlanProvider(props, ops, context).resolveScanTable(pinned)
-                                .rowType().getFieldNames());
+                        provider.resolveScanTable(pinned).rowType().getFieldNames());
+                if (operation.equals("system-properties")) {
+                    // Exercise both source restorations without the pre-existing native history-dictionary IO.
+                    Map<String, String> scanProperties = provider.getScanNodeProperties(
+                            session(true), pinned, Collections.emptyList(), Optional.empty());
+                    Assertions.assertTrue(scanProperties.get("paimon.options_json")
+                            .contains("doris.serialized-system-source"));
+                }
             }
             Assertions.assertTrue(reads.get() > 0, "the assertion must exercise real schema-file IO");
             Assertions.assertFalse(authenticated.get());
@@ -387,6 +413,10 @@ public class PaimonStatementSchemaTest {
     }
 
     private static ConnectorSession session() {
+        return session(false);
+    }
+
+    private static ConnectorSession session(boolean forceJni) {
         return new ConnectorSession() {
             @Override
             public String getQueryId() {
@@ -430,7 +460,7 @@ public class PaimonStatementSchemaTest {
 
             @Override
             public Map<String, String> getSessionProperties() {
-                return Collections.emptyMap();
+                return Collections.singletonMap("force_jni_scanner", Boolean.toString(forceJni));
             }
         };
     }

@@ -487,6 +487,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         Schema schema = resolvePinnedSchema(table, snapshot);
         String specId = snapshot.getProperties().get(PARTITION_SPEC_ID_PROPERTY);
         PartitionSpec spec = specId == null ? table.spec() : table.specs().get(Integer.parseInt(specId));
+        if (spec == null) {
+            // A warm pin can outlive an external drop/recreate and refer to a spec absent from
+            // the replacement table. Match the schema lookup's missing-history fallback.
+            spec = table.spec();
+        }
         return buildTableSchema(iceHandle.getTableName(), table, schema, spec, true);
     }
 

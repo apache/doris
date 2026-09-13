@@ -254,6 +254,43 @@ public class IcebergConnectorMetadataMvccTest {
     }
 
     @Test
+    public void latestCacheHitFallsBackWhenRecreatedTableLacksPinnedSpec() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table original = catalog.createTable(id, PARTITIONED_SCHEMA,
+                PartitionSpec.builderFor(PARTITIONED_SCHEMA).day("ts").build());
+        original.updateSchema().renameColumn("ts", "old_ts").commit();
+        original.updateSpec().addField("id").commit();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = original;
+        IcebergLatestSnapshotCache cache = new IcebergLatestSnapshotCache(100, 1000);
+        IcebergCatalogProperties properties = IcebergCatalogProperties.of(Collections.emptyMap());
+        ConnectorMvccSnapshot first = new IcebergConnectorMetadata(
+                ops, properties, new RecordingConnectorContext(), cache).beginQuerySnapshot(null, handle()).get();
+        Assertions.assertEquals("1", first.getProperties().get("iceberg.partition.spec.id"));
+        catalog.dropTable(id, false);
+        Schema replacementSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "new_ts", Types.TimestampType.withoutZone()));
+        ops.table = catalog.createTable(id, replacementSchema,
+                PartitionSpec.builderFor(replacementSchema).day("new_ts").build());
+        IcebergConnectorMetadata nextQuery = new IcebergConnectorMetadata(
+                ops, properties, new RecordingConnectorContext(), cache);
+        ConnectorMvccSnapshot cached = nextQuery.beginQuerySnapshot(null, handle()).get();
+        Assertions.assertEquals(first.getProperties(), cached.getProperties());
+        Assertions.assertFalse(ops.table.schemas().containsKey((int) cached.getSchemaId()));
+        Assertions.assertFalse(ops.table.specs().containsKey(1));
+        ConnectorTableSchema schema = nextQuery.getTableSchema(null, handle(), cached);
+        Assertions.assertTrue(columnNames(schema).contains("new_ts"));
+        Assertions.assertEquals("new_ts", schema.getProperties().get(ConnectorTableSchema.PARTITION_COLUMNS_KEY));
+        Assertions.assertEquals("PARTITION BY LIST (DAY(`new_ts`)) ()",
+                schema.getProperties().get(ConnectorTableSchema.SHOW_PARTITION_CLAUSE_KEY));
+        Assertions.assertTrue(nextQuery.getColumnHandles(null, handle(), cached).containsKey("new_ts"));
+    }
+
+    @Test
     public void beginQuerySnapshotDisabledCacheLoadsEveryCall() {
         Fixture f = fixture();
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
