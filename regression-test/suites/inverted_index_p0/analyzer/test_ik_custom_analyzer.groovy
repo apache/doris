@@ -19,9 +19,8 @@ suite("test_ik_custom_analyzer", "p0") {
     def pinyinFilter = "test_ik_pinyin_filter"
     def smartAnalyzer = "test_ik_smart_pinyin_analyzer"
     def maxWordAnalyzer = "test_ik_max_word_pinyin_analyzer"
-    def tableName = "test_ik_custom_analyzer"
 
-    sql "DROP TABLE IF EXISTS ${tableName}"
+    sql "DROP TABLE IF EXISTS test_ik_custom_analyzer"
     try_sql "DROP INVERTED INDEX ANALYZER IF EXISTS ${smartAnalyzer}"
     try_sql "DROP INVERTED INDEX ANALYZER IF EXISTS ${maxWordAnalyzer}"
     try_sql "DROP INVERTED INDEX TOKEN_FILTER IF EXISTS ${pinyinFilter}"
@@ -71,24 +70,21 @@ suite("test_ik_custom_analyzer", "p0") {
     waitAnalyzerReady(smartAnalyzer)
     waitAnalyzerReady(maxWordAnalyzer)
 
-    def smartTokens = sql """SELECT TOKENIZE('我来到北京清华大学', '"analyzer"="${smartAnalyzer}"')"""
-    def smartTokenString = smartTokens[0][0].toString()
-    assertTrue(smartTokenString.contains('"token": "清华大学"'))
-    assertTrue(smartTokenString.contains('"token": "qinghuadaxue"'))
-
-    def maxWordTokens = sql """SELECT TOKENIZE('我来到北京清华大学', '"analyzer"="${maxWordAnalyzer}"')"""
-    def maxWordTokenString = maxWordTokens[0][0].toString()
-    assertTrue(maxWordTokenString.contains('"token": "清华"'))
-    assertTrue(maxWordTokenString.contains('"token": "qinghua"'))
+    qt_smart_tokenize """
+        SELECT TOKENIZE('我来到北京清华大学', '"analyzer"="${smartAnalyzer}"')
+    """
+    qt_max_word_tokenize """
+        SELECT TOKENIZE('我来到北京清华大学', '"analyzer"="${maxWordAnalyzer}"')
+    """
 
     sql """
-        CREATE TABLE ${tableName} (
+        CREATE TABLE test_ik_custom_analyzer (
             id INT,
             content STRING,
             INDEX idx_smart (content) USING INVERTED
-                PROPERTIES("analyzer" = "${smartAnalyzer}", "support_phrase" = "true"),
+                PROPERTIES("analyzer" = "${smartAnalyzer}"),
             INDEX idx_max_word (content) USING INVERTED
-                PROPERTIES("analyzer" = "${maxWordAnalyzer}", "support_phrase" = "true")
+                PROPERTIES("analyzer" = "${maxWordAnalyzer}")
         ) DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES (
@@ -97,27 +93,21 @@ suite("test_ik_custom_analyzer", "p0") {
         )
     """
     sql """
-        INSERT INTO ${tableName} VALUES
+        INSERT INTO test_ik_custom_analyzer VALUES
             (1, '清华大学'),
             (2, '北京大学'),
             (3, '清华园')
     """
     sql "SYNC"
 
-    def smartMatches = sql """
-        SELECT id FROM ${tableName}
+    order_qt_smart_match """
+        SELECT id FROM test_ik_custom_analyzer
         WHERE content MATCH 'qinghuadaxue' USING ANALYZER ${smartAnalyzer}
         ORDER BY id
     """
-    assertEquals(1, smartMatches.size())
-    assertEquals(1, smartMatches[0][0])
-
-    def maxWordMatches = sql """
-        SELECT id FROM ${tableName}
+    order_qt_max_word_match """
+        SELECT id FROM test_ik_custom_analyzer
         WHERE content MATCH 'qinghua' USING ANALYZER ${maxWordAnalyzer}
         ORDER BY id
     """
-    assertEquals(2, maxWordMatches.size())
-    assertEquals(1, maxWordMatches[0][0])
-    assertEquals(3, maxWordMatches[1][0])
 }

@@ -220,7 +220,7 @@ IndexPolicyMgr::build_analyzer_config_from_policy(const TIndexPolicy& index_poli
         }
         builder.with_tokenizer_config(type_it->second, settings);
     } else {
-        builder.with_tokenizer_config(tokenizer_name, {});
+        builder.with_tokenizer_config(normalized_tokenizer_name, {});
     }
 
     process_filter_configs(index_policy_analyzer, PROP_CHAR_FILTER, "char filter",
@@ -313,7 +313,7 @@ void IndexPolicyMgr::process_filter_configs(
             add_config_func(type_it->second, settings);
         } else {
             // Simple filter
-            add_config_func(filter_name, {});
+            add_config_func(normalized_filter_name, {});
         }
     }
 }

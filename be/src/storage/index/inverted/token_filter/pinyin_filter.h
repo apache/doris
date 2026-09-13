@@ -98,6 +98,7 @@ private:
     std::string current_token_text_;
     int current_start_offset_;
     int current_end_offset_;
+    std::vector<RuneInfo> current_runes_;
 };
 
 using PinyinFilterPtr = std::shared_ptr<PinyinFilter>;

@@ -334,6 +334,17 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     private void validatePolicyReference(String name, IndexPolicyTypeEnum expectedType)
             throws DdlException {
         String normalizedName = normalizeKey(name);
+        IndexPolicy policy = getPolicyByName(name);
+        if (policy != null) {
+            if (policy.getType() != expectedType) {
+                throw new DdlException("Referenced policy '" + name + "' is of type "
+                        + policy.getType() + " but expected " + expectedType);
+            }
+            if (policy.isInvalid()) {
+                throw new DdlException("Referenced " + expectedType + " policy '" + name + "' is invalid");
+            }
+            return;
+        }
         if (expectedType == IndexPolicyTypeEnum.TOKENIZER
                 && IndexPolicy.BUILTIN_TOKENIZERS.contains(normalizedName)) {
             return;
@@ -346,18 +357,7 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                 && IndexPolicy.BUILTIN_CHAR_FILTERS.contains(normalizedName)) {
             return;
         }
-
-        IndexPolicy policy = getPolicyByName(name);
-        if (policy == null) {
-            throw new DdlException("Referenced " + expectedType + " policy '" + name + "' does not exist");
-        }
-        if (policy.getType() != expectedType) {
-            throw new DdlException("Referenced policy '" + name + "' is of type "
-                    + policy.getType() + " but expected " + expectedType);
-        }
-        if (policy.isInvalid()) {
-            throw new DdlException("Referenced " + expectedType + " policy '" + name + "' is invalid");
-        }
+        throw new DdlException("Referenced " + expectedType + " policy '" + name + "' does not exist");
     }
 
     private void validateTokenizerProperties(Map<String, String> properties) throws DdlException {
@@ -393,6 +393,10 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                 break;
             case "basic":
                 validator = new BasicTokenizerValidator();
+                break;
+            case "ik_smart":
+            case "ik_max_word":
+                validator = new NoOperationValidator(type + " tokenizer");
                 break;
             default:
                 Set<String> userFacingTypes = IndexPolicy.BUILTIN_TOKENIZERS.stream()

@@ -43,11 +43,16 @@ Token* IKTokenizer::next(Token* token) {
 }
 
 void IKTokenizer::reset() {
+    if (_in_pending == nullptr) {
+        return;
+    }
     inverted_index::DorisTokenizer::reset();
+    _in_pending.reset();
     reset(_in.get());
 }
 
 void IKTokenizer::reset(lucene::util::Reader* reader) {
+    _in_pending.reset();
     this->input = reader;
     this->buffer_index_ = 0;
     this->data_length_ = 0;
