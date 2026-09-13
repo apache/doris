@@ -205,15 +205,26 @@ public interface PaimonCatalogOps {
      * offline without faking a concrete paimon {@code TableSchema}.
      */
     final class PaimonSchemaSnapshot {
+        private final long schemaId;
         private final List<DataField> fields;
         private final List<String> partitionKeys;
         private final List<String> primaryKeys;
 
         public PaimonSchemaSnapshot(List<DataField> fields, List<String> partitionKeys,
                 List<String> primaryKeys) {
+            this(-1L, fields, partitionKeys, primaryKeys);
+        }
+
+        public PaimonSchemaSnapshot(long schemaId, List<DataField> fields, List<String> partitionKeys,
+                List<String> primaryKeys) {
+            this.schemaId = schemaId;
             this.fields = fields;
             this.partitionKeys = partitionKeys;
             this.primaryKeys = primaryKeys;
+        }
+
+        public long schemaId() {
+            return schemaId;
         }
 
         /** The schema's fields ({@code tableSchema.fields()}). */
@@ -368,7 +379,7 @@ public interface PaimonCatalogOps {
             // (legacy PaimonExternalTable.initSchema(schemaId) reads the same accessors).
             TableSchema tableSchema = ((DataTable) table).schemaManager().schema(schemaId);
             return new PaimonSchemaSnapshot(
-                    tableSchema.fields(), tableSchema.partitionKeys(), tableSchema.primaryKeys());
+                    tableSchema.id(), tableSchema.fields(), tableSchema.partitionKeys(), tableSchema.primaryKeys());
         }
 
         @Override
@@ -381,7 +392,7 @@ public interface PaimonCatalogOps {
                 return Optional.empty();
             }
             return ((DataTable) table).schemaManager().latest()
-                    .map(s -> new PaimonSchemaSnapshot(s.fields(), s.partitionKeys(), s.primaryKeys()));
+                    .map(s -> new PaimonSchemaSnapshot(s.id(), s.fields(), s.partitionKeys(), s.primaryKeys()));
         }
 
         @Override

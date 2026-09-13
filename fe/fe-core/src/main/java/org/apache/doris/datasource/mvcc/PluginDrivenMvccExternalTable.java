@@ -172,6 +172,14 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         // legacy listPartitions/LIST/timestamp path below (byte-unchanged; the no-op applySnapshot for the
         // latest pin is side-effect-free for both paimon and iceberg).
         ConnectorTableHandle pinnedHandle = metadata.applySnapshot(session, handle, connectorSnapshot);
+        PluginDrivenSchemaCacheValue pinnedSchema = null;
+        if (connectorSnapshot.getSchemaId() >= 0) {
+            // Latest data and schema can advance independently. Keep the connector's exact schema
+            // on the statement pin so analysis cannot fall back to a different cached generation.
+            ConnectorTableSchema atSchema = metadata.getTableSchema(session, pinnedHandle, connectorSnapshot);
+            pinnedSchema = toSchemaCacheValue(metadata, session,
+                    db != null ? db.getRemoteName() : "", getRemoteName(), atSchema);
+        }
         // Partition counts feed COUNT(*) pushdown and SQL block rules, so even the initial latest
         // materialization must enumerate the same pinned generation that the data scan reads.
         ConnectorTableHandle partitionHandle = pinnedHandle;
@@ -182,7 +190,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             if (connectorSnapshot.getSnapshotId() < 0) {
                 // A negative query-begin pin is the connector's resolved-empty generation. Falling through to
                 // a live LIST read would mix partitions committed after the data scan's empty boundary.
-                return buildFromRangeView(connectorSnapshot, view);
+                return buildFromRangeView(connectorSnapshot, view, pinnedSchema);
             }
             // A non-RANGE (UNPARTITIONED) view is the connector's "not RANGE / not MTMV-range-eligible" verdict
             // (iceberg's range view only covers single time-transform specs). If the table nonetheless declares
@@ -199,16 +207,16 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
                 Map<String, Long> listLastModifiedMillis = Maps.newHashMap();
                 listLatestPartitions(metadata, session, partitionHandle, listItems, listLastModifiedMillis);
                 return new PluginDrivenMvccSnapshot(connectorSnapshot, listItems, listLastModifiedMillis,
-                        null, PartitionType.UNPARTITIONED, false, 0L);
+                        pinnedSchema, PartitionType.UNPARTITIONED, false, 0L);
             }
-            return buildFromRangeView(connectorSnapshot, view);
+            return buildFromRangeView(connectorSnapshot, view, pinnedSchema);
         }
 
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
         Map<String, Long> nameToLastModifiedMillis = Maps.newHashMap();
         listLatestPartitions(metadata, session, partitionHandle, nameToPartitionItem, nameToLastModifiedMillis);
         return new PluginDrivenMvccSnapshot(connectorSnapshot, nameToPartitionItem,
-                nameToLastModifiedMillis);
+                nameToLastModifiedMillis, pinnedSchema);
     }
 
     /**
@@ -221,7 +229,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
      * per-partition log-and-skip).
      */
     private PluginDrivenMvccSnapshot buildFromRangeView(ConnectorMvccSnapshot connectorSnapshot,
-            ConnectorMvccPartitionView view) {
+            ConnectorMvccPartitionView view, PluginDrivenSchemaCacheValue pinnedSchema) {
         PartitionType partitionType = view.getStyle() == ConnectorMvccPartitionView.Style.RANGE
                 ? PartitionType.RANGE : PartitionType.UNPARTITIONED;
         boolean snapshotIdFreshness =
@@ -244,7 +252,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             }
         }
         return new PluginDrivenMvccSnapshot(connectorSnapshot, nameToPartitionItem, nameToFreshnessValue,
-                null, partitionType, snapshotIdFreshness, view.getNewestUpdateMonotonicMarker(),
+                pinnedSchema, partitionType, snapshotIdFreshness, view.getNewestUpdateMonotonicMarker(),
                 view.getNewestUpdateWallClockMillis());
     }
 

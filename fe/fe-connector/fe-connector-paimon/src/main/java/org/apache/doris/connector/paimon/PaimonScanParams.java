@@ -61,6 +61,7 @@ public final class PaimonScanParams {
     private static final String PINNED_FILE_CREATION_TIME =
             "doris.internal.paimon.file-creation-time-millis";
     private static final String PINNED_EMPTY_SCAN = "doris.internal.paimon.empty-scan";
+    private static final String BOUND_SCHEMA_ID = "doris.internal.paimon.bound-schema-id";
     private static final String PRESERVE_BOUND_SCHEMA =
             "doris.internal.paimon.preserve-bound-schema";
     /**
@@ -196,8 +197,12 @@ public final class PaimonScanParams {
                     .filter(key -> !tableOptions.containsKey(key))
                     .forEach(key -> isolatedOptions.put(key, null));
         }
-        // The statement fence already selected the schema generation. Preserve that generation
-        // while carrying only the resolved read selector and execution options into this copy.
+        String schemaId = options.get(BOUND_SCHEMA_ID);
+        if (schemaId != null && table.schema().id() != Long.parseLong(schemaId)) {
+            // A cached table can predate binding, and latest can advance again after binding.
+            // Copy the exact schema while retaining catalog options, decorators and branch identity.
+            table = table.copy(table.schemaManager().schema(Long.parseLong(schemaId)).copy(table.options()));
+        }
         FileStoreTable effectiveTable = (FileStoreTable) PaimonReaderOptions.runtimeSafeTable(
                 table.copyWithoutTimeTravel(isolatedOptions));
         PaimonReaderOptions.validateEffectiveTable(effectiveTable);
@@ -384,6 +389,14 @@ public final class PaimonScanParams {
         // bound schema generation. Explicit user selectors must not carry this provenance marker.
         pinned.put(PRESERVE_BOUND_SCHEMA, Boolean.TRUE.toString());
         return pinned;
+    }
+
+    public static Map<String, String> withBoundSchema(Map<String, String> options, long schemaId) {
+        Map<String, String> bound = new HashMap<>(options);
+        if (schemaId >= 0 && preservesBoundSchema(options)) {
+            bound.put(BOUND_SCHEMA_ID, Long.toString(schemaId));
+        }
+        return bound;
     }
 
     public static boolean preservesBoundSchema(Map<String, String> options) {

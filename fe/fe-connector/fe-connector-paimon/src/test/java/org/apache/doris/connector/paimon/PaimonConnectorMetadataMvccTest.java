@@ -1082,8 +1082,11 @@ public class PaimonConnectorMetadataMvccTest {
         // assertions red.
         Assertions.assertEquals("b1", pinned.getBranchName(),
                 "the branch sentinel must route to withBranch (handle identity), not a scan option");
-        Assertions.assertTrue(pinned.getScanOptions().isEmpty(),
+        Assertions.assertFalse(pinned.getScanOptions().containsKey(CoreOptions.BRANCH.key()),
                 "a branch pin must NOT thread the sentinel as a scan-copy option");
+        Assertions.assertEquals("7", pinned.getScanOptions().get(CoreOptions.SCAN_SNAPSHOT_ID.key()),
+                "a branch pin must retain its resolved data fence after switching identity");
+        Assertions.assertTrue(PaimonScanParams.preservesBoundSchema(pinned.getScanOptions()));
         Assertions.assertNull(pinned.getPaimonTable(),
                 "withBranch must clear the transient base Table so the branch reloads");
     }

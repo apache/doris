@@ -54,17 +54,18 @@ suite("test_paimon_schema_only_snapshot_precision", "p0,external,paimon") {
     """
 
     try {
+        // Explicit NTZ makes this exercise predicate pushdown instead of LTZ residual filtering.
         spark_paimon_multi """
             create database if not exists paimon.${dbName};
             drop table if exists paimon.${dbName}.${tableName};
             create table paimon.${dbName}.${tableName} (
                 id int,
                 old_name string,
-                event_time timestamp
+                event_time timestamp_ntz
             ) using paimon
             tblproperties ('file.format'='parquet');
             insert into paimon.${dbName}.${tableName}
-                values (1, 'base', timestamp '2024-01-01 00:00:00.123456');
+                values (1, 'base', timestamp_ntz '2024-01-01 00:00:00.123456');
         """
         String dataSnapshotId = latestSnapshotId()
         spark_paimon_multi """

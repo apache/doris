@@ -345,7 +345,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         Table table = resolveTable(paimonHandle);
         Map<String, String> scanOptions = paimonHandle.getScanOptions();
         Table finalTable = table;
-        if (scanOptions != null && !scanOptions.isEmpty()) {
+        if (scanOptions != null && !scanOptions.isEmpty()
+                && !(paimonHandle.isSystemTable() && PaimonScanParams.preservesBoundSchema(scanOptions))) {
+            // Statement-fenced system wrappers are rebuilt below from their schema-bound source.
             if (table instanceof FileStoreTable
                     && PaimonScanParams.preservesBoundSchema(scanOptions)) {
                 // A statement fence owns data visibility, not schema time travel. Reusing Table.copy
@@ -1229,7 +1231,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (optionsAppliedToSource) {
             // Fallback snapshot translation consults each branch catalog, so options must be
             // resolved while both loaders are still present and only then made BE-safe.
-            preparedDataTable = (FileStoreTable) PaimonScanParams.applyOptions(
+            // Rebuild the backend wrapper with the same schema provenance used during binding and planning.
+            preparedDataTable = (FileStoreTable) PaimonReaderOptions.runtimeSafeSystemSource(
                     preparedDataTable, scanOptions);
         }
         FileStoreTable baseForBackend = dropCatalogLoader(preparedDataTable);
@@ -1417,9 +1420,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     private static FileStoreTable rebuildWithoutCatalogLoader(FileStoreTable branch) {
+        // The factory evaluates scan.snapshot-id and can rewind a schema-only ALTER. Restore
+        // the already-bound schema after removing the loader so JNI reads the planned field ids.
         return FileStoreTableFactory.createWithoutFallbackBranch(
                 branch.fileIO(), branch.location(), branch.schema(), new Options(),
-                CatalogEnvironment.empty());
+                CatalogEnvironment.empty()).copy(branch.schema());
     }
 
     /**
@@ -1446,14 +1451,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
         if (table instanceof ReadOptimizedTable) {
             FileStoreTable pinnedSource = handle.getSysBaseTable();
-            if (pinnedSource != null) {
-                // $ro reads the field ids of its embedded source; a catalog reload here can observe
-                // schema generation B while the wrapper still plans generation A's files. Relation scan
-                // options must also select this source, or historical splits get the latest dictionary.
-                return reapplyScanParams(
-                        pinnedSource, pinnedSource, false, handle.getScanOptions());
-            }
-            return reloadBaseTable(handle);
+            // A reloaded source still needs the bound schema and data selector; otherwise the
+            // native dictionary can disagree with the wrapper after either cache or handle reload.
+            return PaimonReaderOptions.runtimeSafeSystemSource(
+                    pinnedSource == null ? reloadBaseTable(handle) : pinnedSource, handle.getScanOptions());
         }
         return null;
     }

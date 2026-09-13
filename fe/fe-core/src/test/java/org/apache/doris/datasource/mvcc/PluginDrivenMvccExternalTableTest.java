@@ -568,6 +568,24 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
+    public void testLatestSnapshotCarriesConnectorBoundSchema() {
+        Fixture f = Fixture.timeTravel();
+        ConnectorMvccSnapshot snapshot = ConnectorMvccSnapshot.builder()
+                .snapshotId(PINNED_SNAPSHOT_ID).schemaId(Fixture.TT_SCHEMA_ID).build();
+        Mockito.when(f.metadata.beginQuerySnapshot(f.session, f.handle))
+                .thenReturn(Optional.of(snapshot));
+        Mockito.when(f.metadata.applySnapshot(f.session, f.handle, snapshot))
+                .thenReturn(f.pinnedHandle);
+
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot)
+                f.table.loadSnapshot(Optional.empty(), Optional.empty());
+
+        Assertions.assertNotNull(pin.getPinnedSchema());
+        Assertions.assertEquals("v1", pin.getPinnedSchema().getSchema().get(0).getName(),
+                "a connector's latest schema generation must survive the data fence materialization");
+    }
+
+    @Test
     public void testInitialLatestPartitionAccountingUsesPinnedHandle() {
         Fixture f = Fixture.partitioned();
         Mockito.when(f.metadata.listPartitions(

@@ -100,6 +100,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     // existing direct-construction tests compile unchanged; production goes through the 5-arg ctor.
     private final PaimonLatestSnapshotCache latestSnapshotCache;
 
+    // Metadata is statement-scoped: aliases sharing a data fence must also share one schema generation.
+    private final Map<PaimonTableHandle, Long> statementSchemaIds = new java.util.concurrent.ConcurrentHashMap<>();
+
     // PERF-06: cross-query DERIVED partition-view cache A (generic ConnectorMetadataCache), injected by the
     // owning PaimonConnector; null = no cross-query derived layer (the convenience/test ctors used by ~15
     // existing direct-construction tests pass null). Layered ABOVE the raw remote catalogOps.listPartitions
@@ -365,8 +368,12 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         PaimonTableHandle pinned = snapshot == null
                 ? paimonHandle
                 : (PaimonTableHandle) applySnapshot(session, paimonHandle, snapshot);
-        Table table = resolveTable(pinned);
         Map<String, String> scanOptions = pinned.getScanOptions();
+        if (PaimonScanParams.preservesBoundSchema(scanOptions)) {
+            // Schema-derived wrappers must be built over the bound source before exposing their fields.
+            return new PaimonScanPlanProvider(catalogProperties, catalogOps, context).resolveScanTable(pinned);
+        }
+        Table table = resolveTable(pinned);
         if (scanOptions != null && !scanOptions.isEmpty() && PaimonScanParams.isOptionsPin(scanOptions)) {
             return PaimonScanParams.applyOptions(table, scanOptions);
         }
@@ -577,7 +584,14 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         Identifier identifier = Identifier.create(paimonHandle.getDatabaseName(), paimonHandle.getTableName());
         long id = latestSnapshotCache.getOrLoad(identifier,
                 () -> catalogOps.latestSnapshotId(resolveTable(paimonHandle)).orElse(-1L));
-        return Optional.of(ConnectorMvccSnapshot.builder().snapshotId(id).build());
+        return Optional.of(ConnectorMvccSnapshot.builder().snapshotId(id)
+                .schemaId(statementSchemaId(paimonHandle, resolveTable(paimonHandle))).build());
+    }
+
+    private long statementSchemaId(PaimonTableHandle handle, Table table) {
+        return statementSchemaIds.computeIfAbsent(handle,
+                ignored -> catalogOps.latestSchema(table).map(PaimonCatalogOps.PaimonSchemaSnapshot::schemaId)
+                        .orElse(-1L));
     }
 
     @Override
@@ -619,11 +633,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      *       loads the branch as its OWN table (independent schema/snapshots, via the 3-arg branch
      *       Identifier through {@link PaimonTableHandle#withBranch}) and pins its LATEST snapshot —
      *       branches have NO in-branch time-travel (legacy {@code PaimonExternalTable} reads the
-     *       branch's {@code latestSnapshot()} only). Its schema id remains {@code -1} so binding uses
-     *       the branch's current schema, which can advance without a new data snapshot. The branch
-     *       identity is carried to
+     *       branch's {@code latestSnapshot()} only). The current schema id is captured independently
+     *       because it can advance without a data snapshot. The branch identity is carried to
      *       {@link #applySnapshot} via an internal sentinel ({@code CoreOptions.BRANCH} key, NOT a
-     *       scan-copy option); no {@code scan.snapshot-id} is pinned (the branch reads its own latest).
+     *       scan-copy option), together with the resolved data fence.
      *       An empty branch also pins {@code snapshotId=-1}; both empty and non-empty branches bind
      *       against the current branch schema.</li>
      * </ul>
@@ -735,13 +748,12 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 Table branchTable = resolveTable(paimonHandle.withBranch(branchName));
                 long snapshotId = catalogOps.latestSnapshotId(branchTable).orElse(-1L);
                 // A schema-only ALTER advances the branch schema without creating a data snapshot.
-                // Keep the data fence but bind the branch's current schema instead of that snapshot's old schema.
-                long schemaId = -1L;
+                // Bind the branch's exact current schema independently of its latest data snapshot.
+                long schemaId = statementSchemaId(paimonHandle.withBranch(branchName), branchTable);
                 // Carry the branch identity to applySnapshot via an internal sentinel
                 // (CoreOptions.BRANCH key). Branch is a handle-IDENTITY change, not a scan-copy
                 // option: applySnapshot reads this sentinel and routes it to handle.withBranch (it is
-                // never threaded into Table.copy). No scan.snapshot-id is pinned (the branch table
-                // natively reads its own latest).
+                // never threaded into Table.copy). The data fence is applied after changing identity.
                 return Optional.of(ConnectorMvccSnapshot.builder()
                         .snapshotId(snapshotId)
                         .schemaId(schemaId)
@@ -787,9 +799,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                         : pinnedSnapshotId(table, resolved);
                 // The statement fence pins data visibility, not schema time travel. Planning-only
                 // aliases must retain the latest-schema projection used by the plain relation.
-                long schemaId = usesStatementFence || pinnedId < 0
-                        ? -1L
-                        : catalogOps.snapshotSchemaId(table, pinnedId).orElse(-1L);
+                long schemaId = usesStatementFence
+                        ? statementSchemaId(paimonHandle, table)
+                        : pinnedId < 0 ? -1L : catalogOps.snapshotSchemaId(table, pinnedId).orElse(-1L);
                 // resolved is never empty for a startup selector; for a selector-free @options (e.g. only
                 // scan.manifest-parallelism) it is the user map verbatim, which applySnapshot still
                 // threads -- those keys tune HOW the scan runs, not WHICH version it reads.
@@ -933,38 +945,32 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 return paimonHandle;
             }
             PaimonScanParams.validateSystemTableOptions(snapshot.getProperties());
-            return paimonHandle.withScanOptions(snapshot.getProperties());
+            return paimonHandle.withScanOptions(PaimonScanParams.withBoundSchema(
+                    snapshot.getProperties(), snapshot.getSchemaId()));
         }
         if (snapshot != null) {
             String branch = snapshot.getProperties().get(CoreOptions.BRANCH.key());
             if (branch != null) {
-                // Branch time-travel is a handle-identity change (a different table load), not a scan
-                // option: route to withBranch (which clears the transient base Table so resolveTable
-                // reloads the branch). The branch reads its own latest, so no scan.snapshot-id is
-                // pinned. Detected BEFORE the generic properties path so the branch sentinel never
-                // becomes a scan-copy option.
-                return paimonHandle.withBranch(branch);
+                // Branch identity and data visibility are independent: switching tables must not
+                // discard the resolved positive or empty fence when a branch commits during planning.
+                return paimonHandle.withBranch(branch).withScanOptions(PaimonScanParams.withBoundSchema(
+                        PaimonScanParams.pinOptionsToSnapshot(Collections.emptyMap(), snapshot.getSnapshotId()),
+                        snapshot.getSchemaId()));
             }
             if (!snapshot.getProperties().isEmpty()) {
                 // Explicit time-travel: the connector already resolved the exact scan options
                 // (scan.snapshot-id OR scan.tag-name etc.) in resolveTimeTravel — thread them verbatim.
-                return paimonHandle.withScanOptions(snapshot.getProperties());
+                return paimonHandle.withScanOptions(PaimonScanParams.withBoundSchema(
+                        snapshot.getProperties(), snapshot.getSchemaId()));
             }
         }
         if (snapshot == null) {
             return paimonHandle;
         }
-        if (snapshot.getSnapshotId() < 0) {
-            // Empty latest is still a statement-scoped state. Carry only Doris' internal marker;
-            // Paimon's scan.snapshot-id=-1 would address a non-existent snapshot file.
-            return paimonHandle.withScanOptions(
-                    PaimonScanParams.pinOptionsToSnapshot(Collections.emptyMap(), -1L));
-        }
-        // The latest statement snapshot fences data only. Its schema was bound from the current table,
-        // which may be newer after a schema-only ALTER that created no data snapshot.
-        Map<String, String> scanOptions = PaimonScanParams.pinOptionsToSnapshot(
-                Collections.emptyMap(), snapshot.getSnapshotId());
-        return paimonHandle.withScanOptions(scanOptions);
+        // The latest statement fence owns both axes, even if no data snapshot exists yet.
+        return paimonHandle.withScanOptions(PaimonScanParams.withBoundSchema(
+                PaimonScanParams.pinOptionsToSnapshot(Collections.emptyMap(), snapshot.getSnapshotId()),
+                snapshot.getSchemaId()));
     }
 
     /**
@@ -1355,11 +1361,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      * and a new snapshot (data change, once the entry expires or REFRESH invalidates it) naturally mints a new key.
      *
      * <p><b>schemaId</b>: pinned {@code -1} ("unversioned" for that axis, matching
-     * {@link ConnectorTableKey}'s documented convention). Unlike iceberg, paimon's {@link PaimonTableHandle}
-     * carries no schemaId — {@code applySnapshot} threads only {@code scanOptions} (an opaque properties map;
-     * see its javadoc) onto the handle, and {@link #beginQuerySnapshot} (the common latest-pin path) never
-     * resolves a schemaId either (its {@code ConnectorMvccSnapshot} keeps the builder default {@code -1}). This
-     * is not a loss for THIS view: {@link #collectPartitions} derives its output from {@code partitionKeys}
+     * {@link ConnectorTableKey}'s documented convention). Statement-fenced handles bypass this cache.
+     * Unversioned partition views do not need a schema generation: {@link #collectPartitions} derives
+     * its output from {@code partitionKeys}
      * (fixed at handle-build time) and paimon's raw partition specs, and paimon partition columns are immutable
      * post-creation, so schema evolution (e.g. ADD COLUMN) does not change what this method computes.
      */
