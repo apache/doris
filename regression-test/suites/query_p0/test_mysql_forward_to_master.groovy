@@ -85,8 +85,8 @@ suite("test_mysql_forward_to_master", "docker") {
         //    result comes back shaped for the cursor the client asked for. A server-side prepared
         //    statement has to be prepared while forwarding is off (a forwarded COM_STMT_PREPARE
         //    is refused), so forwarding is switched on between PREPARE and EXECUTE.
-        String followerUrl = "jdbc:mysql://${follower.host}:${follower.queryPort}/${context.dbName}"
-                + "?useServerPrepStmts=true&useCursorFetch=true&emulateUnsupportedPstmts=false&socketTimeout=30000"
+        String followerUrl = "jdbc:mysql://${follower.host}:${follower.queryPort}/${context.dbName}" +
+                "?useServerPrepStmts=true&useCursorFetch=true&emulateUnsupportedPstmts=false&socketTimeout=30000"
         connect(context.config.jdbcUser, context.config.jdbcPassword, followerUrl) {
             def connection = context.getConnection()
             connection.createStatement().withCloseable { control ->
