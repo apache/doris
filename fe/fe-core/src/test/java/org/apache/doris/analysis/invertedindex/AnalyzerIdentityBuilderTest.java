@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -207,5 +208,14 @@ public class AnalyzerIdentityBuilderTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(IndexPolicy.PROP_TOKENIZER, tokenizer);
         return new IndexPolicy(id, name, IndexPolicyTypeEnum.ANALYZER, properties);
+    }
+
+    @Test
+    public void testBuiltinTokenizerIdentityIsCanonicalized() throws Exception {
+        Method resolve = AnalyzerIdentityBuilder.class.getDeclaredMethod(
+                "resolveComponentIdentity", String.class, IndexPolicyTypeEnum.class);
+        resolve.setAccessible(true);
+        Assertions.assertEquals("ik_smart",
+                resolve.invoke(null, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER));
     }
 }

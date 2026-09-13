@@ -185,6 +185,57 @@ TEST_F(IndexPolicyMgrTest, TestTokenFilterProcessing) {
     ASSERT_NE(emptyAnalyzer, nullptr);
 }
 
+TEST_F(IndexPolicyMgrTest, BuiltinTokenizerNamesAreCaseInsensitive) {
+    const char* doris_home = std::getenv("DORIS_HOME");
+    ASSERT_NE(doris_home, nullptr);
+    config::inverted_index_dict_path = std::string(doris_home) + "../../dict";
+
+    TIndexPolicy analyzer;
+    analyzer.id = 20;
+    analyzer.name = "uppercase_ik_analyzer";
+    analyzer.type = TIndexPolicyType::ANALYZER;
+    analyzer.properties["tokenizer"] = "IK_SMART";
+    mgr.apply_policy_changes({analyzer}, {});
+
+    auto built = mgr.get_policy_by_name(analyzer.name);
+    ASSERT_NE(built, nullptr);
+    auto reader = segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader({});
+    const std::string text = "我来到北京";
+    reader->init(text.data(), static_cast<int32_t>(text.size()), false);
+    auto terms = segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(reader,
+                                                                                       built.get());
+    ASSERT_FALSE(terms.empty());
+}
+
+TEST_F(IndexPolicyMgrTest, ExistingPolicyTakesPrecedenceOverNewBuiltinName) {
+    TIndexPolicy legacy_tokenizer;
+    legacy_tokenizer.id = 21;
+    legacy_tokenizer.name = "ik_smart";
+    legacy_tokenizer.type = TIndexPolicyType::TOKENIZER;
+    legacy_tokenizer.properties["type"] = "ngram";
+    legacy_tokenizer.properties["min_gram"] = "2";
+    legacy_tokenizer.properties["max_gram"] = "2";
+
+    TIndexPolicy analyzer;
+    analyzer.id = 22;
+    analyzer.name = "legacy_collision_analyzer";
+    analyzer.type = TIndexPolicyType::ANALYZER;
+    analyzer.properties["tokenizer"] = "IK_SMART";
+    mgr.apply_policy_changes({legacy_tokenizer, analyzer}, {});
+
+    auto built = mgr.get_policy_by_name(analyzer.name);
+    ASSERT_NE(built, nullptr);
+    auto reader = segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader({});
+    const std::string text = "abcd";
+    reader->init(text.data(), static_cast<int32_t>(text.size()), false);
+    auto terms = segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(reader,
+                                                                                       built.get());
+    ASSERT_EQ(terms.size(), 3);
+    EXPECT_EQ(terms[0].get_single_term(), "ab");
+    EXPECT_EQ(terms[1].get_single_term(), "bc");
+    EXPECT_EQ(terms[2].get_single_term(), "cd");
+}
+
 TEST_F(IndexPolicyMgrTest, AnalyzerProviderPreservesPurposeInsensitiveNormalizers) {
     auto builtin = mgr.get_analyzer_provider_by_name("lowercase");
     auto builtin_analyzer = builtin->get_analyzer();

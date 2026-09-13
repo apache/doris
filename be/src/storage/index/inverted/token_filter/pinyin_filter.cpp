@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <iostream>
+#include <utility>
 
 #include "common/exception.h"
 #include "common/logging.h"
@@ -121,6 +122,7 @@ void PinyinFilter::resetVariables() {
     first_letters_.clear();
     full_pinyin_letters_.clear();
     current_source_.clear();
+    current_runes_.clear();
     candidate_offset_ = 0;
     terms_filter_.clear();
     last_increment_position_ = 0;
@@ -190,7 +192,7 @@ bool PinyinFilter::readTerm(Token* token) {
 
         // Add candidate if not a single character when separate first letter is enabled
         if (!(config_->keepSeparateFirstLetter && fl.length() <= 1)) {
-            addCandidate(TermItem(fl, 0, static_cast<int>(fl.length()), 1));
+            addCandidate(TermItem(fl, 0, static_cast<int>(current_source_.length()), 1));
         }
     }
 
@@ -234,7 +236,7 @@ bool PinyinFilter::processCurrentToken() {
 
     // Convert to Unicode codepoints for processing
     std::vector<UChar32> source_codepoints;
-    convertToRunes(current_source_, source_codepoints);
+    current_runes_ = convertToRunes(current_source_, source_codepoints);
 
     if (source_codepoints.empty()) {
         return false;
@@ -421,8 +423,18 @@ void PinyinFilter::setTokenAttributes(Token* token, const std::string& term, int
                                       int end_offset, int position) {
     set_text(token, term);
 
-    token->setStartOffset(start_offset);
-    token->setEndOffset(end_offset);
+    int absolute_start = current_start_offset_;
+    int absolute_end = current_end_offset_;
+    const bool is_whole_token =
+            start_offset == 0 && std::cmp_equal(end_offset, current_source_.length());
+    if (!config_->ignorePinyinOffset && !is_whole_token && start_offset >= 0 && end_offset > 0 &&
+        std::cmp_less(start_offset, current_runes_.size()) &&
+        std::cmp_less_equal(end_offset, current_runes_.size())) {
+        absolute_start += current_runes_[start_offset].byte_start;
+        absolute_end = current_start_offset_ + current_runes_[end_offset - 1].byte_end;
+    }
+    token->setStartOffset(absolute_start);
+    token->setEndOffset(absolute_end);
 
     int offset = position - last_increment_position_;
     if (offset < 0) {

@@ -32,6 +32,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -266,6 +267,28 @@ public class PolicyValidatorTests {
     public void testIkTokenizersAreBuiltIn() {
         Assertions.assertTrue(IndexPolicy.BUILTIN_TOKENIZERS.contains("ik_smart"));
         Assertions.assertTrue(IndexPolicy.BUILTIN_TOKENIZERS.contains("ik_max_word"));
+    }
+
+    @Test
+    public void testNamedIkTokenizerPolicyValidation() throws Exception {
+        Method validate = IndexPolicyMgr.class.getDeclaredMethod(
+                "validateTokenizerProperties", Map.class);
+        validate.setAccessible(true);
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        Assertions.assertDoesNotThrow(() -> validate.invoke(manager, Map.of("type", "ik_smart")));
+        Assertions.assertDoesNotThrow(() -> validate.invoke(manager, Map.of("type", "ik_max_word")));
+    }
+
+    @Test
+    public void testExistingPolicyPrecedesBuiltinAfterReplay() throws Exception {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                42, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard")));
+        Method validate = IndexPolicyMgr.class.getDeclaredMethod(
+                "validatePolicyReference", String.class, IndexPolicyTypeEnum.class);
+        validate.setAccessible(true);
+        Assertions.assertDoesNotThrow(
+                () -> validate.invoke(manager, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER));
     }
 
     // StandardTokenizerValidator Tests

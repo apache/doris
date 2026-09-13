@@ -24,6 +24,7 @@ import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -154,43 +155,37 @@ public final class AnalyzerIdentityBuilder {
             return "";
         }
 
-        // Check if it's a built-in component
-        if (expectedType == IndexPolicyTypeEnum.TOKENIZER
-                && IndexPolicy.BUILTIN_TOKENIZERS.contains(name)) {
-            return name;
-        }
-
-        // For custom component, get its properties
+        // Existing named policies take precedence over built-ins for upgrade compatibility.
         try {
             Env env = Env.getCurrentEnv();
-            if (env == null || env.getIndexPolicyMgr() == null) {
-                return name;
+            if (env != null && env.getIndexPolicyMgr() != null) {
+                IndexPolicy policy = env.getIndexPolicyMgr().getPolicyByName(name);
+                if (policy != null && policy.getType() == expectedType) {
+                    if (policy.isInvalid()) {
+                        return "invalid-policy:" + policy.getId() + ":" + policy.getName();
+                    }
+                    Map<String, String> props = policy.getProperties();
+                    if (props != null && !props.isEmpty()) {
+                        TreeMap<String, String> sortedProps = new TreeMap<>(props);
+                        if (expectedType == IndexPolicyTypeEnum.TOKENIZER
+                                && "ngram".equals(sortedProps.get(IndexPolicy.PROP_TYPE))) {
+                            // This setting only limits policy creation; it does not change emitted tokens.
+                            sortedProps.remove(PROP_MAX_NGRAM_DIFF);
+                        }
+                        return sortedProps.toString();
+                    }
+                }
             }
-
-            IndexPolicy policy = env.getIndexPolicyMgr().getPolicyByName(name);
-            if (policy == null || policy.getType() != expectedType) {
-                return name;
-            }
-            if (policy.isInvalid()) {
-                return "invalid-policy:" + policy.getId() + ":" + policy.getName();
-            }
-
-            Map<String, String> props = policy.getProperties();
-            if (props == null || props.isEmpty()) {
-                return name;
-            }
-
-            // Build identity from sorted properties
-            TreeMap<String, String> sortedProps = new TreeMap<>(props);
-            if (expectedType == IndexPolicyTypeEnum.TOKENIZER
-                    && "ngram".equals(sortedProps.get(IndexPolicy.PROP_TYPE))) {
-                // This setting only limits policy creation; it does not change emitted tokens.
-                sortedProps.remove(PROP_MAX_NGRAM_DIFF);
-            }
-            return sortedProps.toString();
         } catch (RuntimeException e) {
-            return name;
+            // Fall through to built-in resolution or the original name.
         }
+
+        String normalizedName = name.toLowerCase(Locale.ROOT);
+        if (expectedType == IndexPolicyTypeEnum.TOKENIZER
+                && IndexPolicy.BUILTIN_TOKENIZERS.contains(normalizedName)) {
+            return normalizedName;
+        }
+        return name;
     }
 
     /**

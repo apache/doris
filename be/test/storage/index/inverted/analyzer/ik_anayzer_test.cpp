@@ -23,11 +23,13 @@
 #include <sstream>
 
 #include "core/arena.h"
+#include "storage/index/inverted/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/analyzer/ik/IKAnalyzer.h"
 #include "storage/index/inverted/analyzer/ik/cfg/Configuration.h"
 #include "storage/index/inverted/analyzer/ik/core/AnalyzeContext.h"
 #include "storage/index/inverted/analyzer/ik/core/IKSegmenter.h"
 #include "storage/index/inverted/analyzer/ik/core/Lexeme.h"
+#include "storage/index/inverted/tokenizer/ik/ik_tokenizer_factory.h"
 using namespace lucene::analysis;
 
 namespace doris::segment_v2 {
@@ -289,6 +291,101 @@ TEST_F(IKTokenizerTest, TestLargeInput) {
     }
     tokenize(largeText, datas, true);
     ASSERT_EQ(datas.size(), 7000);
+}
+
+TEST_F(IKTokenizerTest, TestOffsetsAcrossBufferRefill) {
+    std::string text;
+    for (int i = 0; i < 2000; ++i) {
+        text += "我 ";
+    }
+
+    IKAnalyzer analyzer;
+    analyzer.initDict("./be/dict/ik");
+    analyzer.setMode(true);
+    lucene::util::SStringReader<char> reader;
+    reader.init(text.data(), text.size(), false);
+    std::unique_ptr<TokenStream> stream(analyzer.tokenStream(L"", &reader));
+
+    Token token;
+    int token_index = 0;
+    while (stream->next(&token) != nullptr) {
+        ASSERT_EQ(token.startOffset(), token_index * 4);
+        ASSERT_EQ(token.endOffset(), token_index * 4 + 3);
+        ++token_index;
+    }
+    ASSERT_EQ(token_index, 2000);
+}
+
+TEST_F(IKTokenizerTest, TestLegacyAndCustomResetContracts) {
+    IKAnalyzer analyzer;
+    analyzer.initDict("./be/dict/ik");
+    analyzer.setMode(true);
+    const std::string text = "我来到北京";
+    lucene::util::SStringReader<char> legacy_reader;
+    legacy_reader.init(text.data(), text.size(), false);
+    std::unique_ptr<TokenStream> legacy_stream(analyzer.tokenStream(L"", &legacy_reader));
+    legacy_stream->reset();
+    Token token;
+    ASSERT_NE(legacy_stream->next(&token), nullptr);
+
+    inverted_index::IKTokenizerFactory factory(true);
+    factory.initialize({});
+    auto custom_tokenizer = factory.create();
+    auto custom_reader = std::make_shared<lucene::util::SStringReader<char>>();
+    custom_reader->init(text.data(), text.size(), false);
+    custom_tokenizer->set_reader(custom_reader);
+    custom_tokenizer->reset();
+    custom_tokenizer->reset();
+    ASSERT_NE(custom_tokenizer->next(&token), nullptr);
+}
+
+TEST_F(IKTokenizerTest, TestLegacyAndCustomArrayIndexWriterResetContracts) {
+    auto assert_indexed = [](lucene::analysis::Analyzer* analyzer, bool custom) {
+        auto dir = std::make_shared<lucene::store::RAMDirectory>();
+        lucene::index::IndexWriter writer(dir.get(), analyzer, true);
+        writer.setUseCompoundFile(false);
+
+        lucene::document::Document doc;
+        std::vector<inverted_index::ReaderPtr> readers;
+        const std::vector<std::string> values = {"我来到北京", "清华大学"};
+        for (const auto& value : values) {
+            int32_t field_config = lucene::document::Field::STORE_NO;
+            field_config |= lucene::document::Field::INDEX_NONORMS;
+            field_config |= lucene::document::Field::INDEX_TOKENIZED;
+            auto* field = _CLNEW lucene::document::Field(L"content", field_config);
+            field->setOmitTermFreqAndPositions(false);
+            auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+            reader->init(value.data(), value.size(), false);
+            TokenStream* stream =
+                    custom ? static_cast<inverted_index::CustomAnalyzer*>(analyzer)->tokenStream(
+                                     field->name(), reader)
+                           : analyzer->tokenStream(field->name(), reader.get());
+            field->setValue(stream, true);
+            doc.add(*field);
+            readers.emplace_back(std::move(reader));
+        }
+        ASSERT_NO_THROW(writer.addDocument(&doc));
+        writer.close();
+
+        auto* index_reader = lucene::index::IndexReader::open(dir.get());
+        lucene::index::Term beijing(L"content", L"北京");
+        lucene::index::Term university(L"content", L"清华大学");
+        EXPECT_EQ(index_reader->docFreq(&beijing), 1);
+        EXPECT_EQ(index_reader->docFreq(&university), 1);
+        index_reader->close();
+        _CLLDELETE(index_reader);
+    };
+
+    IKAnalyzer legacy_analyzer;
+    legacy_analyzer.initDict("./be/dict/ik");
+    legacy_analyzer.setMode(true);
+    assert_indexed(&legacy_analyzer, false);
+
+    inverted_index::CustomAnalyzerConfig::Builder builder;
+    builder.with_tokenizer_config("ik_smart", {});
+    auto custom_config = builder.build();
+    auto custom_analyzer = inverted_index::CustomAnalyzer::build_custom_analyzer(custom_config);
+    assert_indexed(custom_analyzer.get(), true);
 }
 
 TEST_F(IKTokenizerTest, TestBufferExhaustCritical) {

@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "CLucene.h"
@@ -151,6 +152,44 @@ TEST_F(PinyinFilterTest, TestTokenFilter_IKTokenizers) {
     EXPECT_NE(std::ranges::find(max_word_tokens, "qinghua"), max_word_tokens.end());
     EXPECT_NE(std::ranges::find(max_word_tokens, "大学"), max_word_tokens.end());
     EXPECT_NE(std::ranges::find(max_word_tokens, "daxue"), max_word_tokens.end());
+}
+
+TEST_F(PinyinFilterTest, TestIKSmartOffsetsRemainDocumentRelative) {
+    std::unordered_map<std::string, std::string> filter_config;
+    filter_config["keep_none_chinese"] = "false";
+    filter_config["keep_first_letter"] = "true";
+    filter_config["keep_full_pinyin"] = "false";
+    filter_config["keep_separate_first_letter"] = "false";
+    filter_config["keep_original"] = "true";
+    filter_config["keep_joined_full_pinyin"] = "true";
+    filter_config["ignore_pinyin_offset"] = "false";
+
+    auto tokenizer = createTokenizer("ik_smart", "我来到北京清华大学");
+    PinyinFilterFactory filter_factory;
+    filter_factory.initialize(Settings(filter_config));
+    auto filter = filter_factory.create(tokenizer);
+
+    const std::vector<std::tuple<std::string, int32_t, int32_t>> expected = {
+            {"我", 0, 3},
+            {"wo", 0, 3},
+            {"w", 0, 3},
+            {"来到", 3, 9},
+            {"laidao", 3, 9},
+            {"ld", 3, 9},
+            {"北京", 9, 15},
+            {"beijing", 9, 15},
+            {"bj", 9, 15},
+            {"清华大学", 15, 27},
+            {"qinghuadaxue", 15, 27},
+            {"qhdx", 15, 27}};
+    Token token;
+    for (const auto& [term, start, end] : expected) {
+        ASSERT_NE(filter->next(&token), nullptr);
+        EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), term);
+        EXPECT_EQ(token.startOffset(), start);
+        EXPECT_EQ(token.endOffset(), end);
+    }
+    EXPECT_EQ(filter->next(&token), nullptr);
 }
 
 TEST_F(PinyinFilterTest, TestTokenFilter_StandardAnalyzer_FullPinyin) {
