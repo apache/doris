@@ -121,6 +121,7 @@ import org.apache.iceberg.mapping.MappingUtil;
 import org.apache.iceberg.mapping.NameMapping;
 import org.apache.iceberg.mapping.NameMappingParser;
 import org.apache.iceberg.transforms.Transforms;
+import org.apache.iceberg.types.EdgeAlgorithm;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
@@ -742,9 +743,13 @@ public class IcebergUtils {
                         : ScalarType.createGeometryType(geometryCrs);
             case GEOGRAPHY:
                 Types.GeographyType geography = (Types.GeographyType) primitive;
+                String geographyCrs = geography.crs() == null
+                        ? Types.GeographyType.DEFAULT_CRS : geography.crs();
+                String geographyAlgorithm = geography.algorithm() == null
+                        ? EdgeAlgorithm.SPHERICAL.toString() : geography.algorithm().toString();
                 return ScalarType.createGeographyType(
-                        geography.crs(),
-                        geography.algorithm().toString());
+                        geographyCrs,
+                        geographyAlgorithm);
             case TIME:
                 return Type.UNSUPPORTED;
             default:
