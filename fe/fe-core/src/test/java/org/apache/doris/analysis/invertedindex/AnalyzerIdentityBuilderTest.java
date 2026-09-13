@@ -249,4 +249,36 @@ public class AnalyzerIdentityBuilderTest {
                     resolve.invoke(null, "named_ik", IndexPolicyTypeEnum.TOKENIZER));
         }
     }
+
+    @Test
+    public void testLegacyIkIdentityMatchesEquivalentCustomAnalyzer() {
+        IndexPolicyMgr policyMgr = Mockito.mock(IndexPolicyMgr.class);
+        Mockito.when(policyMgr.getPolicyByName("smart_analyzer")).thenReturn(new IndexPolicy(
+                1, "smart_analyzer", IndexPolicyTypeEnum.ANALYZER, Map.of("tokenizer", "ik_smart")));
+        Mockito.when(policyMgr.getPolicyByName("max_word_analyzer")).thenReturn(new IndexPolicy(
+                2, "max_word_analyzer", IndexPolicyTypeEnum.ANALYZER, Map.of("tokenizer", "ik_max_word")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            String customSmart = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("analyzer", "smart_analyzer"), "smart_analyzer", "none", "__default__", "none", null);
+            String customMaxWord = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("analyzer", "max_word_analyzer"), "max_word_analyzer", "none",
+                    "__default__", "none", null);
+
+            Assertions.assertEquals(customSmart, AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("parser", "ik"), "", "ik", "__default__", "none", null));
+            Assertions.assertEquals(customSmart, AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("parser", "ik", "parser_mode", "ik_smart"), "", "ik",
+                    "__default__", "none", null));
+            Assertions.assertEquals(customMaxWord, AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("parser", "ik", "parser_mode", "ik_max_word"), "", "ik",
+                    "__default__", "none", null));
+            Assertions.assertNotEquals(customSmart, AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("parser", "ik", "char_filter_type", "char_replace"), "", "ik",
+                    "__default__", "none", null));
+        }
+    }
 }
