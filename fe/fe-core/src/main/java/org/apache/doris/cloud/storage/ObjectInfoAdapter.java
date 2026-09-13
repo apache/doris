@@ -179,13 +179,21 @@ public class ObjectInfoAdapter {
 
     private static Map<String, String> buildAzureProps(ObjectInfo obj) {
         Map<String, String> props = new HashMap<>();
-        // Azure maps ak→accountName, sk→accountKey
+        // Azure maps ak to the account identifier, regardless of the authentication mode.
         putIfNotBlank(props, "azure.account_name", obj.getAk());
-        putIfNotBlank(props, "azure.account_key",  obj.getSk());
         putIfNotBlank(props, "azure.endpoint",     obj.getEndpoint());
         putIfNotBlank(props, "azure.container",    obj.getBucket());
-        // SAS token (populated after getStsToken)
-        putIfNotBlank(props, "azure.sas_token",    obj.getToken());
+        // A supplied SAS replaces the SharedKey credential; it is not an AWS-style session
+        // token that accompanies a key pair. Do not discard malformed nonempty tokens here:
+        // the Azure provider must reject them instead of falling back to the account key.
+        // This converts supplied credentials only; Azure getStsToken is not implemented.
+        if (obj.getToken() != null && !obj.getToken().isEmpty()) {
+            props.put("azure.auth_type", "SAS");
+            props.put("azure.sas_token", obj.getToken());
+        } else {
+            props.put("azure.auth_type", "SharedKey");
+            putIfNotBlank(props, "azure.account_key", obj.getSk());
+        }
         putIfNotBlank(props, STS_ROLE_NAME_KEY,    obj.getRoleName());
         putIfNotBlank(props, STS_ROLE_ARN_KEY,     obj.getArn());
         putIfNotBlank(props, STS_EXTERNAL_ID_KEY,  obj.getExternalId());

@@ -237,6 +237,26 @@ public class DefaultConnectorContextNormalizeUriTest {
                 restCtx.getBackendFileType("oss://bkt/warehouse/db/t/data", ossVendedToken()));
     }
 
+    @Test
+    public void azureVendedPathKeepsAccountAuthorityAndUsesS3Family() {
+        String accountHost = "account.dfs.core.windows.net";
+        Map<String, String> token = Map.of(
+                "adls.sas-token." + accountHost, "sv=2024-01-01&sig=temporary",
+                "adls.sas-token-expires-at-ms." + accountHost, "4102444800000");
+        DefaultConnectorContext restCtx = new DefaultConnectorContext("c", 1L);
+        UnaryOperator<String> normalizer = restCtx.newStorageUriNormalizer(token);
+
+        // The same binding contract serves data scans, Puffin/position-delete files and sink paths.
+        // This verifies routing and URI preservation, not remote file contents or DML execution.
+        for (String object : List.of("data.parquet", "data.orc", "deletion-vector.puffin",
+                "position-deletes.parquet", "new-data")) {
+            String path = "abfss://container@account.dfs.core.windows.net/table/" + object;
+            Assertions.assertEquals(path, restCtx.normalizeStorageUri(path, token));
+            Assertions.assertEquals(path, normalizer.apply(path));
+            Assertions.assertEquals(TFileType.FILE_S3.name(), restCtx.getBackendFileType(path, token));
+        }
+    }
+
     // ---- FIX-PERF-06: newStorageUriNormalizer hoists the (scan-invariant) token->storage-config
     //      derivation to ONCE per scan; every application must stay byte-identical to a per-call
     //      normalizeStorageUri(uri, token), across all four cases the per-call form covers. ----

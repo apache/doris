@@ -19,6 +19,7 @@ package org.apache.doris.datasource.split;
 
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.thrift.TFileType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -45,6 +46,7 @@ public class PluginDrivenSplit extends FileSplit {
                 scanRange.getHosts().toArray(new String[0]),
                 buildPartitionValues(scanRange));
         this.connectorScanRange = scanRange;
+        scanRange.getBackendFileType().ifPresent(fileType -> this.locationType = TFileType.valueOf(fileType));
         // FIX-A1: thread the connector's proportional split weight into the FileSplit scheduling fields so
         // FederationBackendPolicy distributes by size (legacy parity) instead of uniform standard() weight.
         // Set ONLY when the connector provides BOTH a weight (>= 0; 0 is a real weight) and a positive

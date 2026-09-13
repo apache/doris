@@ -19,6 +19,8 @@ package org.apache.doris.datasource.storage;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
+import org.apache.doris.filesystem.properties.BackendStorageKind;
+import org.apache.doris.filesystem.properties.BackendStorageProperties;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
@@ -27,6 +29,7 @@ import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.foundation.security.ExecutionAuthenticator;
 import org.apache.doris.fs.FileSystemPluginManager;
+import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.commons.lang3.StringUtils;
@@ -39,6 +42,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -49,9 +53,9 @@ import java.util.Set;
  * {@link FileSystemPluginManager#bindPrimary}/{@code bindAll}. Its public surface mirrors the
  * legacy typed storage-properties contract exactly — backend map, storage name, schemas, type
  * — so consumers can migrate mechanically. Building a hadoop {@code Configuration} is NOT part
- * of that surface: the one legacy consumer (the Azure OAuth2 backend map) is now served by
+ * of that surface: Azure backend parameters are emitted by
  * {@code AzureFileSystemProperties.toMap()} inside fe-filesystem-azure, which keeps fe-core
- * source hadoop-free.
+ * source hadoop-free and preserves the account authority for native reads.
  * Every known SPI-vs-fe-core drift from the master plan's §2.4 parity ledger is reconciled here
  * (or in the SPI implementation, where noted); each reconciliation carries a
  * "align fe-core" comment referencing the ledger item.</p>
@@ -160,6 +164,34 @@ public final class StorageAdapter {
             result.add(new StorageAdapter(binding, origProps));
         }
         return result;
+    }
+
+    /** Builds the remaining static bindings from the same raw snapshot used for vending. */
+    public static List<StorageAdapter> ofAllExcept(Map<String, String> origProps, Set<String> replacedProviders) {
+        List<FileSystemProperties> bindings =
+                manager().bindAllExcept(withHadoopConfigDir(origProps), replacedProviders);
+        List<StorageAdapter> result = new ArrayList<>(bindings.size());
+        for (FileSystemProperties binding : bindings) {
+            result.add(new StorageAdapter(binding, origProps));
+        }
+        return result;
+    }
+
+    /**
+     * Wraps provider-owned vended bindings directly, without serializing a backend map and rebinding it
+     * as catalog properties. Empty means the dialect was not recognized; invalid recognized credentials
+     * propagate instead of falling back to another identity.
+     */
+    public static Optional<List<StorageAdapter>> ofVended(Map<String, String> credentials,
+            Map<String, String> catalogProperties) {
+        return manager().bindVended(withHadoopConfigDir(credentials), withHadoopConfigDir(catalogProperties))
+                .map(bindings -> {
+                    List<StorageAdapter> result = new ArrayList<>(bindings.size());
+                    for (FileSystemProperties binding : bindings) {
+                        result.add(new StorageAdapter(binding, binding.rawProperties()));
+                    }
+                    return result;
+                });
     }
 
     /**
@@ -308,20 +340,11 @@ public final class StorageAdapter {
     /**
      * Legacy {@code HdfsProperties.isExplicitlyConfigured()}: {@code false} only for the
      * default-HDFS fallback binding that {@code bindAll}/legacy {@code createAll} auto-prepends
-     * when nothing HDFS-like matched. A binding whose own provider matches the raw props
-     * (explicit {@code fs.x.support} flag or guess heuristics) is explicit; non-HDFS types were
-     * always explicit in fe-core.
+     * when nothing HDFS-like matched. The provider records that origin when binding; callers
+     * must not rerun routing heuristics against raw properties to reconstruct it.
      */
     public boolean isExplicitlyConfigured() {
-        if (type != StorageTypeId.HDFS) {
-            return true;
-        }
-        for (FileSystemProvider provider : manager().getProviders()) {
-            if (providerKey.equalsIgnoreCase(provider.name())) {
-                return provider.supportsExplicit(origProps) || provider.supportsGuess(origProps);
-            }
-        }
-        return true;
+        return !spi.isSyntheticDefault();
     }
 
     /**
@@ -334,17 +357,14 @@ public final class StorageAdapter {
     }
 
     public String validateAndNormalizeUri(String uri) {
-        // Align fe-core AbstractS3CompatibleProperties/AzureProperties: the SPI S3/Azure typed
-        // props do not normalize URIs (compat schemes like cos:// must become s3:// before the
-        // path reaches BE or a concrete filesystem), so the facade owns the legacy logic.
+        // S3-compatible providers still use the fe-core compatibility normalization (cos/oss/obs
+        // aliases become s3://). Azure owns its URI handling in the provider so account@host
+        // authorities remain available to the native Azure client.
         if (spi instanceof S3CompatibleFileSystemProperties) {
             return StorageUriUtils.validateAndNormalizeS3Uri(uri,
                     ((S3CompatibleFileSystemProperties) spi).getUsePathStyle(),
                     forceParsingByStandardUriValue,
                     "OSS".equals(providerKey));
-        }
-        if ("AZURE".equals(providerKey)) {
-            return StorageUriUtils.validateAndNormalizeAzureUri(uri);
         }
         if (type == StorageTypeId.HDFS && StorageUriUtils.isJfsLocation(uri)) {
             // Align fe-core: the legacy HDFS typed class accepted {hdfs, viewfs, jfs} while the
@@ -356,14 +376,11 @@ public final class StorageAdapter {
     }
 
     public String validateAndGetUri(Map<String, String> loadProps) {
-        // Align fe-core: the S3/Azure legacy classes return the RAW uri value (no normalization)
-        // and throw when the map is empty or has no uri key; the SPI default would silently
-        // return null instead.
+        // Align fe-core: the S3 legacy class returns the RAW uri value (no normalization) and
+        // throws when the map is empty or has no uri key; the SPI default would silently return
+        // null instead. Azure's provider validates and preserves its URI directly.
         if (spi instanceof S3CompatibleFileSystemProperties) {
             return StorageUriUtils.validateAndGetS3Uri(loadProps);
-        }
-        if ("AZURE".equals(providerKey)) {
-            return StorageUriUtils.validateAndGetAzureUri(loadProps);
         }
         if (type == StorageTypeId.HDFS && loadProps != null) {
             // jfs leg of the HDFS binding (see validateAndNormalizeUri above): a single
@@ -422,21 +439,98 @@ public final class StorageAdapter {
     }
 
     /**
-     * Backend (BE) configuration map, key-for-key equal to the legacy typed classes plus the
+     * Backend (BE) configuration map. Hadoop-compatible views retain the
      * per-scheme {@code doris.fs.cache.key.<scheme>} entries identifying the credential set it was
-     * built from (see {@link FsCacheKeys}).
+     * built from (see {@link FsCacheKeys}); native views contain only their provider's wire properties.
      *
      * <p>The returned map is a defensive copy: the Broker/Local/Http branch of
      * {@link #computeBackendConfigProperties()} hands back the caller's own raw property map, which
      * must not gain the injected keys nor any caller's later edits.
+     * Credential validity is checked on every access, independently of the map cache.
      */
     public Map<String, String> getBackendConfigProperties() {
+        spi.validateForAccess();
         if (backendConfigProperties == null) {
             Map<String, String> props = new HashMap<>(computeBackendConfigProperties());
-            FsCacheKeys.putFsCacheKeys(props, spi);
+            if (spi.toBackendProperties().map(BackendStorageProperties::backendKind).orElse(null)
+                    != BackendStorageKind.NATIVE) {
+                FsCacheKeys.putFsCacheKeys(props, spi);
+            }
             backendConfigProperties = props;
         }
         return new HashMap<>(backendConfigProperties);
+    }
+
+    /** Selects a backend view from this binding, after URI validation and normalization. */
+    public BackendStorageProperties resolveBackendProperties(String normalizedUri) {
+        return spi.resolveBackendProperties(normalizedUri).orElseGet(() -> {
+            BackendStorageKind kind;
+            switch (type) {
+                case BROKER:
+                    kind = BackendStorageKind.BROKER;
+                    break;
+                case LOCAL:
+                    kind = BackendStorageKind.LOCAL;
+                    break;
+                case HTTP:
+                    kind = BackendStorageKind.NATIVE;
+                    break;
+                default:
+                    throw new IllegalStateException("Provider " + providerKey + " exposes no backend properties");
+            }
+            return new BackendStorageProperties() {
+                @Override
+                public BackendStorageKind backendKind() {
+                    return kind;
+                }
+
+                @Override
+                public Map<String, String> toMap() {
+                    return new HashMap<>(origProps);
+                }
+            };
+        });
+    }
+
+    /** Wire routing is engine-owned; the provider chooses the native/Hadoop view, not a URI guess. */
+    public TFileType getBackendFileType(BackendStorageKind kind) {
+        switch (kind) {
+            case S3_COMPATIBLE:
+                return TFileType.FILE_S3;
+            case HDFS:
+                return TFileType.FILE_HDFS;
+            case BROKER:
+                return TFileType.FILE_BROKER;
+            case LOCAL:
+                return TFileType.FILE_LOCAL;
+            case NATIVE:
+                // Azure retains the existing FILE_S3 transport and selects its client with provider=azure.
+                if (type == StorageTypeId.AZURE) {
+                    return TFileType.FILE_S3;
+                }
+                if (type == StorageTypeId.HTTP) {
+                    return TFileType.FILE_HTTP;
+                }
+                throw new IllegalStateException("No native BE reader registered for provider " + providerKey);
+            default:
+                throw new IllegalStateException("Unhandled backend storage kind: " + kind);
+        }
+    }
+
+    /** Emits only the selected view; native parameters never acquire Hadoop filesystem cache keys. */
+    public Map<String, String> getBackendConfigProperties(BackendStorageProperties view) {
+        if (view == spi.toBackendProperties().orElse(null)
+                || type == StorageTypeId.BROKER || type == StorageTypeId.LOCAL || type == StorageTypeId.HTTP) {
+            // Reuse the immutable default view's map and its access-time expiry check. Native
+            // scans call this once per file, so binding fingerprints must not be recomputed there.
+            return getBackendConfigProperties();
+        }
+        spi.validateForAccess();
+        Map<String, String> props = new HashMap<>(alignBackendConfigProperties(view.toMap()));
+        if (view.backendKind() != BackendStorageKind.NATIVE) {
+            FsCacheKeys.putFsCacheKeys(props, spi);
+        }
+        return props;
     }
 
     /**
@@ -455,14 +549,6 @@ public final class StorageAdapter {
             case HTTP:
                 // Align fe-core: Broker/Local/Http return the raw user properties verbatim.
                 return origProps;
-            case AZURE:
-                // Provider-owned, both auth types (the OAuth2 map is a hadoop Configuration dump
-                // built inside fe-filesystem-azure). Routed out here so it never reaches the
-                // S3-family alignment below, exactly as before.
-                return spi.toBackendProperties()
-                        .orElseThrow(() -> new IllegalStateException(
-                                "Provider " + providerKey + " exposes no backend properties"))
-                        .toMap();
             default:
                 break;
         }
@@ -470,6 +556,10 @@ public final class StorageAdapter {
                 .orElseThrow(() -> new IllegalStateException(
                         "Provider " + providerKey + " exposes no backend properties"))
                 .toMap();
+        return alignBackendConfigProperties(base);
+    }
+
+    private Map<String, String> alignBackendConfigProperties(Map<String, String> base) {
         if (spi instanceof S3CompatibleFileSystemProperties) {
             return alignS3FamilyBackendMap((S3CompatibleFileSystemProperties) spi, base);
         }
@@ -547,17 +637,19 @@ public final class StorageAdapter {
     }
 
     /**
-     * Align fe-core AzureProperties.initNormalizeAndCheckProps: the temporary fe-core-only
-     * restriction that OAuth2 is supported only for the Iceberg REST catalog. This check reads
-     * catalog-level keys the SPI never sees, so it stays in the facade.
+     * Align the Azure catalog restriction that OAuth2 is supported only for the Iceberg REST
+     * catalog. This check reads catalog-level keys the SPI never sees, so it stays in the facade.
      */
     private void checkAzureOauth2OnlyForIcebergRest() {
-        // Align fe-core AzureProperties exactly: the REST-only gate compared CASE-SENSITIVELY
-        // ("OAuth2".equals(...)) while the rest of the class used equalsIgnoreCase — so a
-        // lowercase "oauth2" slipped past this gate in legacy (and old images may carry it).
-        // Replicate the asymmetry; tightening it would break replay of such images.
-        if (!"AZURE".equals(providerKey)
-                || !"OAuth2".equals(origProps.getOrDefault("azure.auth_type", "SharedKey"))) {
+        if (!"AZURE".equals(providerKey)) {
+            return;
+        }
+        String authType = origProps.entrySet().stream()
+                .filter(entry -> "azure.auth_type".equalsIgnoreCase(entry.getKey()))
+                .map(Map.Entry::getValue)
+                .findFirst()
+                .orElse("SharedKey");
+        if (!"OAuth2".equalsIgnoreCase(authType)) {
             return;
         }
         boolean hasIcebergType = origProps.entrySet().stream()

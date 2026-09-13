@@ -17,6 +17,8 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.fs.FileSystemPluginManager;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -25,6 +27,25 @@ import java.util.Map;
 import java.util.Set;
 
 public class DatasourcePrintableMapTest {
+
+    @Test
+    public void testAzureWireSecretsStayMaskedIndependentlyOfInputAliases() {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        manager.loadBuiltins();
+        Map<String, String> properties = Map.of(
+                "AZURE_SAS_TOKEN", "sas-wire-test-secret", "AzUrE_sAs_ToKeN", "mixed-case-test-secret",
+                "azure.sas_token", "sas-input-test-secret", "AZURE_ACCOUNT_KEY", "shared-key-test-secret",
+                "AZURE_CLIENT_SECRET", "client-test-secret", "provider", "azure");
+
+        String rendered = new DatasourcePrintableMap<>(properties, "=", false, false, true).toString();
+
+        Assertions.assertFalse(rendered.contains("test-secret"));
+        Assertions.assertTrue(rendered.contains("provider = azure"));
+        for (String key : Set.of("AZURE_SAS_TOKEN", "AzUrE_sAs_ToKeN", "azure.sas_token",
+                "AZURE_ACCOUNT_KEY", "AZURE_CLIENT_SECRET")) {
+            Assertions.assertTrue(rendered.contains(key + " = " + DatasourcePrintableMap.PASSWORD_MASK));
+        }
+    }
 
     @Test
     public void testSensitiveKeysContainAliyunDLFProperties() {
