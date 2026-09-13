@@ -92,6 +92,9 @@ public final class IcebergSpatialWriteAnalyzer {
     }
 
     static void validateSpatialConversion(Type sourceType, ScalarType targetType, String columnName) {
+        if (sourceType.isNull()) {
+            return;
+        }
         if (!(sourceType instanceof ScalarType) || !((ScalarType) sourceType).isSpatialType()) {
             throw new AnalysisException("Iceberg spatial write cannot convert input column '" + columnName
                     + "' from " + sourceType.toSql() + " to " + targetType.toSql());

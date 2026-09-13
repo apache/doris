@@ -67,6 +67,11 @@ public class IcebergSpatialWriteAnalyzerTest {
     }
 
     @Test
+    public void testNullSourceIsAccepted() {
+        validate(Type.NULL, ScalarType.createGeometryType("OGC:CRS84"));
+    }
+
+    @Test
     public void testMergeValidationInspectsSourceBeforeTargetCast() {
         ScalarType targetType = ScalarType.createGeometryType("EPSG:4326");
         DataType targetDataType = DataType.fromCatalogType(targetType);

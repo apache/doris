@@ -503,6 +503,12 @@ public class IcebergUtilsTest {
         AnalysisException fileFormatException = Assert.assertThrows(AnalysisException.class,
                 () -> IcebergUtils.validateWriteSchema(ImmutableList.of(column), 3, FileFormat.ORC));
         Assert.assertTrue(fileFormatException.getMessage().contains("Parquet"));
+
+        Column nestedColumn = new Column("nested", new org.apache.doris.catalog.StructType(
+                new ArrayList<>(ImmutableList.of(new StructField("shape", geometry)))));
+        AnalysisException nestedException = Assert.assertThrows(AnalysisException.class,
+                () -> IcebergUtils.validateWriteSchema(ImmutableList.of(nestedColumn), 3, FileFormat.PARQUET));
+        Assert.assertTrue(nestedException.getMessage().contains("nested in complex types"));
     }
 
     @Test

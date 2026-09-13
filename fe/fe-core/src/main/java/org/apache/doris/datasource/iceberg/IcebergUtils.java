@@ -824,6 +824,13 @@ public class IcebergUtils {
         return false;
     }
 
+    private static boolean containsNestedSpatial(Type type) {
+        if (type.isScalarType()) {
+            return false;
+        }
+        return containsSpatial(type);
+    }
+
     public static void validateWriteSchema(Table table, List<Column> columns) {
         boolean writesVariant = columns.stream().anyMatch(column -> containsVariant(column.getType()));
         boolean writesSpatial = columns.stream().anyMatch(column -> containsSpatial(column.getType()));
@@ -868,6 +875,10 @@ public class IcebergUtils {
         boolean hasSpatial = columns.stream().anyMatch(column -> containsSpatial(column.getType()));
         if (!hasVariant && !hasSpatial) {
             return;
+        }
+        if (columns.stream().anyMatch(column -> containsNestedSpatial(column.getType()))) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "Iceberg writes do not support GEOMETRY or GEOGRAPHY nested in complex types");
         }
         if (hasVariant) {
             if (formatVersion < ICEBERG_VARIANT_MIN_VERSION) {
