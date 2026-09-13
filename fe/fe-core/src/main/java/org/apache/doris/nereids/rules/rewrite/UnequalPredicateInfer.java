@@ -448,7 +448,8 @@ public class UnequalPredicateInfer {
                     clear(chosen, left, right, type);
                 } else if (deduced[left][right] != type) {
                     keep[i] = true;
-                    set(deduced, left, right, Relation.EQ);
+                    // Preserve the relation of the retained predicate; an inequality is not an equality.
+                    set(deduced, left, right, type);
                     expandGraph(deduced, left, right);
                     if (type == Relation.EQ) {
                         expandGraph(deduced, right, left);
