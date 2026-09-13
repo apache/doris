@@ -26,6 +26,9 @@ namespace doris::segment_v2::inverted_index {
 
 class NGramTokenizerFactory : public TokenizerFactory {
 public:
+    // A configured range can emit one token per gram size at every input position.
+    static constexpr int32_t MAX_NGRAM_DIFF = 255;
+
     NGramTokenizerFactory() = default;
     ~NGramTokenizerFactory() override = default;
 

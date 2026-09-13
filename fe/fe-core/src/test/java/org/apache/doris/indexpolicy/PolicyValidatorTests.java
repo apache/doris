@@ -178,6 +178,28 @@ public class PolicyValidatorTests {
         Assertions.assertTrue(exception.getMessage().contains("non-negative integer"));
     }
 
+    @Test
+    public void testNGramValidator_RejectsExcessiveDifferenceLimit() {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> props = new HashMap<>();
+        props.put("max_ngram_diff", Integer.toString(NGramTokenizerValidator.MAX_NGRAM_DIFF + 1));
+
+        Exception exception = Assertions.assertThrows(DdlException.class,
+                () -> validator.validate(props));
+        Assertions.assertTrue(exception.getMessage().contains("less than or equal to 255"));
+    }
+
+    @Test
+    public void testNGramValidator_AcceptsDifferenceLimitBoundary() {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> props = new HashMap<>();
+        props.put("min_gram", "1");
+        props.put("max_gram", Integer.toString(NGramTokenizerValidator.MAX_NGRAM_DIFF + 1));
+        props.put("max_ngram_diff", Integer.toString(NGramTokenizerValidator.MAX_NGRAM_DIFF));
+
+        Assertions.assertDoesNotThrow(() -> validator.validate(props));
+    }
+
     // StandardTokenizerValidator Tests
     @Test
     public void testStandardTokenizerValidator_ValidProperties() throws Exception {

@@ -27,6 +27,9 @@ import java.util.Map;
 import java.util.Set;
 
 public class NGramTokenizerValidator extends BasePolicyValidator {
+    // A configured range can emit one token per gram size at every input position.
+    static final int MAX_NGRAM_DIFF = 255;
+
     private static final Set<String> ALLOWED_PROPS = ImmutableSet.of(
             "type", "min_gram", "max_gram", "max_ngram_diff", "token_chars", "custom_token_chars");
 
@@ -87,6 +90,9 @@ public class NGramTokenizerValidator extends BasePolicyValidator {
                 maxNgramDiff = Integer.parseInt(value);
                 if (maxNgramDiff < 0) {
                     throw new DdlException("max_ngram_diff must be greater than or equal to 0");
+                }
+                if (maxNgramDiff > MAX_NGRAM_DIFF) {
+                    throw new DdlException("max_ngram_diff must be less than or equal to " + MAX_NGRAM_DIFF);
                 }
             } catch (NumberFormatException e) {
                 throw new DdlException("max_ngram_diff must be a non-negative integer");

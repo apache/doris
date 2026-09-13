@@ -31,6 +31,11 @@ void NGramTokenizerFactory::initialize(const Settings& settings) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "max_ngram_diff must be greater than or equal to 0");
     }
+    if (max_ngram_diff > MAX_NGRAM_DIFF) {
+        throw Exception(
+                ErrorCode::INVALID_ARGUMENT,
+                "max_ngram_diff must be less than or equal to " + std::to_string(MAX_NGRAM_DIFF));
+    }
     int32_t ngram_diff = _max_gram - _min_gram;
     if (ngram_diff > max_ngram_diff) {
         throw Exception(
