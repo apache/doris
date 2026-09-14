@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
 #include <string>
 
 #include "core/data_type/data_type_date.h"
@@ -29,6 +30,7 @@
 #include "core/types.h"
 #include "core/value/time_value.h"
 #include "core/value/vdatetime_value.h"
+#include "exprs/function/date_time_transforms.h"
 #include "exprs/function/function_date_or_datetime_computation.h"
 #include "exprs/function/function_test_util.h"
 #include "util/timezone_utils.h"
@@ -239,6 +241,57 @@ TEST(VTimestampFunctionsTest, second_test) {
     };
 
     static_cast<void>(check_function<DataTypeInt8, true>(func_name, input_types, data_set));
+}
+
+TEST(VTimestampFunctionsTest, time_field_from_unixtime_boundary_test) {
+    using Function = FunctionTimeFieldFromUnixtime<HourFromUnixtimeImpl>;
+    TimezoneUtils::load_timezones_to_cache();
+    for (const auto& [zone, offset] :
+         std::vector<std::pair<std::string, int>> {{"UTC", 0},
+                                                   {"Asia/Shanghai", 8 * 3600},
+                                                   {"-08:00", -8 * 3600},
+                                                   {"+14:00", 14 * 3600}}) {
+        SCOPED_TRACE(zone);
+        cctz::time_zone time_zone;
+        ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(zone, time_zone));
+        int64_t last_second = 253402300799L - offset;
+        EXPECT_EQ(last_second, Function::get_max_timestamp(time_zone));
+        EXPECT_TRUE((FromUnixTimeImpl<false, true>::get_datetime_value(last_second, time_zone)
+                             .is_valid_date()));
+        EXPECT_FALSE((FromUnixTimeImpl<false, true>::get_datetime_value(last_second + 1, time_zone)
+                              .is_valid_date()));
+    }
+}
+
+TEST(VTimestampFunctionsTest, time_field_from_unixtime_execution_test) {
+    TimezoneUtils::load_timezones_to_cache();
+    const InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT};
+    const DataSet hours = {{{int64_t(253402243199)}, int8_t(15)},
+                           {{int64_t(253402243200)}, int8_t(16)},
+                           {{int64_t(253402271999)}, int8_t(23)},
+                           {{Null()}, Null()}};
+    EXPECT_TRUE(
+            (check_function<DataTypeInt8, true>("hour_from_unixtime", input_types, hours).ok()));
+    for (const auto* name : {"minute_from_unixtime", "second_from_unixtime"}) {
+        const DataSet fields = {{{int64_t(253402243199)}, int8_t(59)},
+                                {{int64_t(253402243200)}, int8_t(0)},
+                                {{int64_t(253402271999)}, int8_t(59)},
+                                {{Null()}, Null()}};
+        EXPECT_TRUE((check_function<DataTypeInt8, true>(name, input_types, fields).ok()));
+    }
+    const InputTypeSet decimal_types = {{PrimitiveType::TYPE_DECIMAL64, 6, 18}};
+    const DataSet fractions = {{{DECIMAL64(253402243200, 123456, 6)}, int32_t(123456)},
+                               {{DECIMAL64(253402271999, 999999, 6)}, int32_t(999999)}};
+    EXPECT_TRUE((check_function<DataTypeInt32, true>("microsecond_from_unixtime", decimal_types,
+                                                     fractions)
+                         .ok()));
+    for (int64_t seconds : {int64_t(253402272000), int64_t(-1), std::numeric_limits<int64_t>::min(),
+                            std::numeric_limits<int64_t>::max()}) {
+        const DataSet invalid = {{{seconds}, int8_t(0)}};
+        EXPECT_FALSE((check_function<DataTypeInt8, true>("hour_from_unixtime", input_types, invalid,
+                                                         -1, -1, true)
+                              .ok()));
+    }
 }
 
 TEST(VTimestampFunctionsTest, from_unix_test) {
