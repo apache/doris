@@ -218,24 +218,57 @@ void ColumnStruct::update_hash_with_value(size_t n, SipHash& hash) const {
     }
 }
 
+// `null_data` is the null map of an outer Nullable wrapping this struct. A NULL struct row
+// may still carry arbitrary payload in the field columns (e.g. produced by IF/CASE), so those
+// rows must be skipped here rather than hashed by their hidden payload. The field columns are
+// hashed with a null `null_data` because their own NULL semantics are handled by themselves.
 void ColumnStruct::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                             const uint8_t* __restrict null_data) const {
-    for (const auto& column : columns) {
-        column->update_xxHash_with_value(start, end, hash, nullptr);
+    if (null_data) {
+        for (size_t i = start; i < end; ++i) {
+            if (null_data[i] == 0) {
+                for (const auto& column : columns) {
+                    column->update_xxHash_with_value(i, i + 1, hash, nullptr);
+                }
+            }
+        }
+    } else {
+        for (const auto& column : columns) {
+            column->update_xxHash_with_value(start, end, hash, nullptr);
+        }
     }
 }
 
 void ColumnStruct::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                          const uint8_t* __restrict null_data) const {
-    for (const auto& column : columns) {
-        column->update_crc_with_value(start, end, hash, nullptr);
+    if (null_data) {
+        for (size_t i = start; i < end; ++i) {
+            if (null_data[i] == 0) {
+                for (const auto& column : columns) {
+                    column->update_crc_with_value(i, i + 1, hash, nullptr);
+                }
+            }
+        }
+    } else {
+        for (const auto& column : columns) {
+            column->update_crc_with_value(start, end, hash, nullptr);
+        }
     }
 }
 
 void ColumnStruct::update_hashes_with_value(uint64_t* __restrict hashes,
                                             const uint8_t* __restrict null_data) const {
-    for (const auto& column : columns) {
-        column->update_hashes_with_value(hashes, null_data);
+    auto s = size();
+    if (null_data) {
+        for (size_t i = 0; i < s; ++i) {
+            if (null_data[i] == 0) {
+                update_xxHash_with_value(i, i + 1, hashes[i], nullptr);
+            }
+        }
+    } else {
+        for (const auto& column : columns) {
+            column->update_hashes_with_value(hashes, nullptr);
+        }
     }
 }
 
@@ -259,15 +292,34 @@ void ColumnStruct::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveTy
 
 void ColumnStruct::update_crc32c_batch(uint32_t* __restrict hashes,
                                        const uint8_t* __restrict null_map) const {
-    for (const auto& column : columns) {
-        column->update_crc32c_batch(hashes, nullptr);
+    auto s = size();
+    if (null_map) {
+        for (size_t i = 0; i < s; ++i) {
+            if (null_map[i] == 0) {
+                update_crc32c_single(i, i + 1, hashes[i], nullptr);
+            }
+        }
+    } else {
+        for (const auto& column : columns) {
+            column->update_crc32c_batch(hashes, nullptr);
+        }
     }
 }
 
 void ColumnStruct::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
                                         const uint8_t* __restrict null_map) const {
-    for (const auto& column : columns) {
-        column->update_crc32c_single(start, end, hash, nullptr);
+    if (null_map) {
+        for (size_t i = start; i < end; ++i) {
+            if (null_map[i] == 0) {
+                for (const auto& column : columns) {
+                    column->update_crc32c_single(i, i + 1, hash, nullptr);
+                }
+            }
+        }
+    } else {
+        for (const auto& column : columns) {
+            column->update_crc32c_single(start, end, hash, nullptr);
+        }
     }
 }
 
