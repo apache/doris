@@ -152,8 +152,6 @@ TEST(TableStreamRecyclerTest, RecycleStreamDeletesOnlyOffsets) {
     txn->put(unrelated_key, "unrelated physical data");
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
-    const int recycle_round_before = g_bvar_recycler_instance_recycle_round.get(
-            {std::string(kInstanceId), "recycle_stream"});
     const int64_t recycle_total_before =
             g_bvar_recycler_instance_recycle_total_num_since_started.get(
                     {std::string(kInstanceId), "recycle_stream"});
@@ -172,12 +170,6 @@ TEST(TableStreamRecyclerTest, RecycleStreamDeletesOnlyOffsets) {
                                                kStreamDbId, kStreamId)),
               0);
     EXPECT_TRUE(key_exists(txn_kv.get(), unrelated_key));
-    EXPECT_EQ(g_bvar_recycler_instance_last_round_recycled_num.get(
-                      {std::string(kInstanceId), "recycle_stream"}),
-              6);
-    EXPECT_EQ(g_bvar_recycler_instance_recycle_round.get(
-                      {std::string(kInstanceId), "recycle_stream"}),
-              recycle_round_before + 1);
     EXPECT_EQ(g_bvar_recycler_instance_recycle_total_num_since_started.get(
                       {std::string(kInstanceId), "recycle_stream"}),
               recycle_total_before + 6);

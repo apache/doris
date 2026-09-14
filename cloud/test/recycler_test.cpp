@@ -69,7 +69,22 @@ using namespace doris;
 std::string instance_id = "instance_id_recycle_test";
 int64_t current_time = 0;
 static constexpr int64_t db_id = 1000;
-static RecyclerMetricsContext ctx;
+
+// Lazily-constructed shared metrics context for tests.
+//
+// RecyclerMetricsContext's constructor publishes to bvars, which in turn logs
+// via glog. A namespace-scope RecyclerMetricsContext would therefore run during
+// static initialization, before main() sets up glog and the cross-TU bvar
+// globals, causing a crash. This proxy has a trivial constructor and builds the
+// real context on first use (inside a running test), avoiding the static
+// initialization order fiasco while keeping call sites (`ctx`) unchanged.
+struct GlobalRecyclerMetricsContext {
+    operator RecyclerMetricsContext&() {
+        static RecyclerMetricsContext ctx(instance_id, "test");
+        return ctx;
+    }
+};
+static GlobalRecyclerMetricsContext ctx;
 
 namespace {
 
@@ -7378,7 +7393,7 @@ TEST(RecyclerTest, delete_partial_update_rowset_data_by_recycling_state) {
         ASSERT_EQ(accessor->put_file(segment, ""), 0);
         ASSERT_EQ(accessor->put_file(extra_segment, ""), 0);
 
-        RecyclerMetricsContext metrics_context;
+        RecyclerMetricsContext metrics_context(instance_id, "recycle_rowsets");
         ASSERT_EQ(recycler.delete_rowset_data(rowsets, type, metrics_context), 0);
         EXPECT_EQ(accessor->exists(segment), 1);
         EXPECT_EQ(accessor->exists(extra_segment),
@@ -7439,6 +7454,7 @@ TEST(RecyclerTest, delete_v2_inverted_index_with_segment_list) {
     }
 
     auto batch_rowset = create_rowset(std::string(resource_id), 10003, 10001, num_segments, schema);
+    batch_rowset.set_total_disk_size(17);
     for (auto segment_id : segment_ids) {
         batch_rowset.add_segment_ids(segment_id);
         ASSERT_EQ(accessor->put_file(segment_path(batch_rowset.tablet_id(),
@@ -7454,10 +7470,21 @@ TEST(RecyclerTest, delete_v2_inverted_index_with_segment_list) {
 
     std::map<std::string, doris::RowsetMetaCloudPB> rowsets;
     rowsets.emplace(batch_rowset.rowset_id_v2(), batch_rowset);
-    RecyclerMetricsContext metrics_context;
+    RecyclerMetricsContext metrics_context(instance_id, "test");
+    const auto total_num_before = g_bvar_recycler_instance_recycle_total_num_since_started.get(
+            {instance_id, "recycle_segment"});
+    const auto total_bytes_before = g_bvar_recycler_instance_recycle_total_bytes_since_started.get(
+            {instance_id, "recycle_segment"});
     ASSERT_EQ(recycler.delete_rowset_data(rowsets, RowsetRecyclingState::FORMAL_ROWSET,
                                           metrics_context),
               0);
+    // Cumulative metrics are updated by deletion, before publishing context metrics.
+    EXPECT_EQ(g_bvar_recycler_instance_recycle_total_num_since_started.get(
+                      {instance_id, "recycle_segment"}),
+              total_num_before + 2);
+    EXPECT_EQ(g_bvar_recycler_instance_recycle_total_bytes_since_started.get(
+                      {instance_id, "recycle_segment"}),
+              total_bytes_before + 17);
     for (auto segment_id : segment_ids) {
         EXPECT_EQ(accessor->exists(segment_path(batch_rowset.tablet_id(),
                                                 batch_rowset.rowset_id_v2(), segment_id)),
@@ -8858,8 +8885,148 @@ TEST(RecyclerTest, recycle_tablet_with_empty_resource_id_and_no_segments) {
                               std::make_shared<TxnLazyCommitter>(txn_kv));
     EXPECT_EQ(recycler.init(), 0);
 
-    RecyclerMetricsContext ctx;
+    RecyclerMetricsContext ctx("test_instance", "recycle_tablet");
     EXPECT_EQ(recycler.recycle_tablet(0, ctx), 0);
+}
+
+TEST(RecyclerTest, recycler_metrics_publish_last_round_and_reset_current_round) {
+    constexpr std::string_view metrics_instance_id = "metrics_last_round_test";
+    constexpr std::string_view metrics_operation_type = "recycle_tablet";
+    const auto total_num_before = g_bvar_recycler_instance_recycle_total_num_since_started.get(
+            {std::string(metrics_instance_id), std::string(metrics_operation_type)});
+
+    {
+        RecyclerMetricsContext metrics_context {std::string(metrics_instance_id),
+                                                std::string(metrics_operation_type)};
+        metrics_context.kv_scanned_num += 5;
+        metrics_context.kv_expired_num += 4;
+        metrics_context.kv_recycled_num += 3;
+        metrics_context.update_metrics();
+        metrics_context.update_metrics();
+        EXPECT_EQ(g_bvar_recycler_instance_recycle_total_num_since_started.get(
+                          {std::string(metrics_instance_id), std::string(metrics_operation_type)}),
+                  total_num_before);
+
+        EXPECT_EQ(g_bvar_recycler_instance_recycle_current_round_kv_scanned.get(
+                          {std::string(metrics_instance_id), std::string(metrics_operation_type)}),
+                  5);
+        EXPECT_EQ(g_bvar_recycler_instance_recycle_current_round_kv_expired.get(
+                          {std::string(metrics_instance_id), std::string(metrics_operation_type)}),
+                  4);
+        EXPECT_EQ(g_bvar_recycler_instance_recycle_current_round_kv_recycled.get(
+                          {std::string(metrics_instance_id), std::string(metrics_operation_type)}),
+                  3);
+        // Last-round counts include increments after the last periodic update.
+        metrics_context.kv_recycled_num += 1;
+    }
+
+    {
+        RecyclerResourceMetricsContext unused_context {std::string(metrics_instance_id),
+                                                       std::string(metrics_operation_type)};
+    }
+
+    EXPECT_EQ(g_bvar_recycler_instance_last_round_recycled_num.get(
+                      {std::string(metrics_instance_id), std::string(metrics_operation_type)}),
+              4);
+    EXPECT_EQ(g_bvar_recycler_instance_recycle_total_num_since_started.get(
+                      {std::string(metrics_instance_id), std::string(metrics_operation_type)}),
+              total_num_before);
+    EXPECT_EQ(g_bvar_recycler_instance_recycle_current_round_kv_scanned.get(
+                      {std::string(metrics_instance_id), std::string(metrics_operation_type)}),
+              0);
+    EXPECT_EQ(g_bvar_recycler_instance_recycle_current_round_kv_expired.get(
+                      {std::string(metrics_instance_id), std::string(metrics_operation_type)}),
+              0);
+    EXPECT_EQ(g_bvar_recycler_instance_recycle_current_round_kv_recycled.get(
+                      {std::string(metrics_instance_id), std::string(metrics_operation_type)}),
+              0);
+    EXPECT_EQ(g_bvar_recycler_instance_current_round_task_elapsed_ms.get(
+                      {std::string(metrics_instance_id), std::string(metrics_operation_type)}),
+              0);
+}
+
+TEST(RecyclerTest, recycler_resource_metrics_publish_each_round) {
+    const std::string instance_id = "resource_metrics_round_test";
+    const std::string resource_type = "recycle_segment";
+    const auto total_num_before = g_bvar_recycler_instance_recycle_total_num_since_started.get(
+            {instance_id, resource_type});
+    const auto total_bytes_before = g_bvar_recycler_instance_recycle_total_bytes_since_started.get(
+            {instance_id, resource_type});
+
+    RecyclerResourceMetricsContext metrics_context(instance_id, resource_type);
+    metrics_context.start_round();
+    metrics_context.recycled_num += 2;
+    metrics_context.recycled_bytes += 7;
+    metrics_context.update_metrics();
+    metrics_context.update_metrics();
+    EXPECT_EQ(g_bvar_recycler_instance_recycle_total_num_since_started.get(
+                      {instance_id, resource_type}),
+              total_num_before);
+    EXPECT_EQ(g_bvar_recycler_instance_recycle_total_bytes_since_started.get(
+                      {instance_id, resource_type}),
+              total_bytes_before);
+    EXPECT_EQ(g_bvar_recycler_instance_recycle_current_round_kv_recycled.get(
+                      {instance_id, resource_type}),
+              2);
+    EXPECT_EQ(g_bvar_recycler_instance_current_round_recycled_object_bytes.get(
+                      {instance_id, resource_type}),
+              7);
+
+    metrics_context.finish_round();
+    EXPECT_EQ(g_bvar_recycler_instance_last_round_recycled_num.get({instance_id, resource_type}),
+              2);
+    EXPECT_EQ(g_bvar_recycler_instance_last_round_recycled_bytes.get({instance_id, resource_type}),
+              7);
+    EXPECT_EQ(g_bvar_recycler_instance_recycle_total_num_since_started.get(
+                      {instance_id, resource_type}),
+              total_num_before);
+    EXPECT_EQ(g_bvar_recycler_instance_recycle_total_bytes_since_started.get(
+                      {instance_id, resource_type}),
+              total_bytes_before);
+    metrics_context.update_metrics();
+    EXPECT_EQ(g_bvar_recycler_instance_recycle_current_round_kv_recycled.get(
+                      {instance_id, resource_type}),
+              0);
+    EXPECT_EQ(g_bvar_recycler_instance_current_round_recycled_object_bytes.get(
+                      {instance_id, resource_type}),
+              0);
+    EXPECT_EQ(g_bvar_recycler_instance_current_round_task_elapsed_ms.get(
+                      {instance_id, resource_type}),
+              0);
+
+    metrics_context.start_round();
+    EXPECT_EQ(g_bvar_recycler_instance_recycle_current_round_kv_recycled.get(
+                      {instance_id, resource_type}),
+              0);
+    metrics_context.recycled_num += 1;
+    metrics_context.recycled_bytes += 2;
+    metrics_context.update_metrics();
+    EXPECT_EQ(g_bvar_recycler_instance_recycle_total_num_since_started.get(
+                      {instance_id, resource_type}),
+              total_num_before);
+    EXPECT_EQ(g_bvar_recycler_instance_recycle_total_bytes_since_started.get(
+                      {instance_id, resource_type}),
+              total_bytes_before);
+    metrics_context.finish_round();
+    EXPECT_EQ(g_bvar_recycler_instance_last_round_recycled_num.get({instance_id, resource_type}),
+              1);
+    EXPECT_EQ(g_bvar_recycler_instance_last_round_recycled_bytes.get({instance_id, resource_type}),
+              2);
+    EXPECT_EQ(g_bvar_recycler_instance_recycle_total_num_since_started.get(
+                      {instance_id, resource_type}),
+              total_num_before);
+    EXPECT_EQ(g_bvar_recycler_instance_recycle_total_bytes_since_started.get(
+                      {instance_id, resource_type}),
+              total_bytes_before);
+    EXPECT_EQ(g_bvar_recycler_instance_recycle_current_round_kv_recycled.get(
+                      {instance_id, resource_type}),
+              0);
+    EXPECT_EQ(g_bvar_recycler_instance_current_round_recycled_object_bytes.get(
+                      {instance_id, resource_type}),
+              0);
+    EXPECT_EQ(g_bvar_recycler_instance_current_round_task_elapsed_ms.get(
+                      {instance_id, resource_type}),
+              0);
 }
 
 TEST(RecyclerTest, recycle_tablet_with_resource_id_and_no_segments) {
@@ -8895,7 +9062,7 @@ TEST(RecyclerTest, recycle_tablet_with_resource_id_and_no_segments) {
     recycler.TEST_add_accessor("resource_id", accessor);
 
     EXPECT_EQ(accessor->exists("data/1234/orphan.dat"), 0);
-    RecyclerMetricsContext ctx;
+    RecyclerMetricsContext ctx("test_instance", "recycle_tablet");
     EXPECT_EQ(recycler.recycle_tablet(tablet_id, ctx), 0);
     EXPECT_EQ(accessor->exists("data/1234/orphan.dat"), 1);
 }
