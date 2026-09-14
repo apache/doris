@@ -164,9 +164,13 @@ mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_last_success_ts("recycler_
 // resource_id: unique identifier for the repository
 // status: status of the recycle task (submitted, completed, error)
 mBvarIntAdder g_bvar_recycler_vault_recycle_task_status("recycler_vault_recycle_task_status", {"instance_id", "resource_id", "status"});
-// current concurrency of vault delete task
-mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_recycle_duration(
-        "recycler_instance_current_round_recycle_duration", {"instance_id"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycled_num(
+        "recycler_instance_last_round_recycled_num", {"instance_id", "resource_type"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycled_bytes(
+        "recycler_instance_last_round_recycled_bytes", {"instance_id", "resource_type"});
+// Elapsed time in milliseconds for the instance's current recycle round.
+mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_elapsed_ms(
+        "recycler_instance_current_round_elapsed_ms", {"instance_id"});
 
 // Current round TxnKV statistics.
 mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_current_round_kv_scanned(
@@ -181,8 +185,8 @@ mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_current_round_kv_recycled(
 mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_recycled_object_bytes(
         "instance_current_round_recycled_object_bytes",
         {"instance_id", "task_type"});
-mBvarStatus<double> g_bvar_recycler_instance_current_round_recycle_duration_ms(
-        "recycler_instance_current_round_recycle_duration_ms", {"instance_id", "task_type"});
+mBvarStatus<double> g_bvar_recycler_instance_current_round_task_elapsed_ms(
+        "recycler_instance_current_round_task_elapsed_ms", {"instance_id", "task_type"});
 // total recycled num and bytes of resources since recycler started
 
         mBvarInt64Adder g_bvar_recycler_instance_recycle_total_num_since_started("recycler_instance_recycle_total_num_since_started", {"instance_id", "resource_type"});
