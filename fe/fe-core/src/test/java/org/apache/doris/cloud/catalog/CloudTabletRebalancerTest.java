@@ -304,4 +304,21 @@ public class CloudTabletRebalancerTest {
                     "compute_cluster_b", "cluster-b", CloudTabletRebalancer.StatType.PARTITION, 0L));
         }
     }
+
+    @Test
+    public void testStaleRouteSweepPreservedAcrossEmptyTopology() {
+        boolean saved = Config.enable_cloud_replica_stale_route_clean;
+        try {
+            Config.enable_cloud_replica_stale_route_clean = true;
+            TestRebalancer rebalancer = new TestRebalancer();
+
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(Set.of(1L)));
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(Set.of(1L)));
+            Assertions.assertFalse(rebalancer.staleRouteSweepNeeded(Set.of()));
+            Assertions.assertFalse(rebalancer.staleRouteSweepNeeded(Set.of()));
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(Set.of(2L)));
+        } finally {
+            Config.enable_cloud_replica_stale_route_clean = saved;
+        }
+    }
 }
