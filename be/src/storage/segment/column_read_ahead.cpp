@@ -23,9 +23,27 @@
 
 #include "common/cast_set.h"
 #include "common/logging.h"
+#include "io/fs/read_ahead_metrics.h"
 #include "runtime/runtime_profile.h"
 
 namespace doris::segment_v2 {
+
+void ColumnReadAheadPlan::reset(ColumnReadAhead* owner) {
+    column = owner;
+    new_pages.clear();
+    released_pages.clear();
+    window_discard_ns = 0;
+    current_batch_plan_ns = 0;
+    window_extend_ns = 0;
+}
+
+void ColumnReadAheadPlan::update_statistics(io::ReadAheadStatistics* statistics) const {
+    if (statistics != nullptr) {
+        COUNTER_UPDATE(&statistics->window_discard_time, window_discard_ns);
+        COUNTER_UPDATE(&statistics->current_batch_plan_time, current_batch_plan_ns);
+        COUNTER_UPDATE(&statistics->window_extend_time, window_extend_ns);
+    }
+}
 
 const ColumnReadAheadOptions& ColumnReadAheadContext::options(ColumnReadAheadRole role) const {
     return role == ColumnReadAheadRole::EAGER ? eager_options : lazy_options;
@@ -90,7 +108,7 @@ void ColumnReadAhead::plan(const rowid_t* current_rowids, size_t count,
     DORIS_CHECK(count > 0);
     DORIS_CHECK(output != nullptr);
     DCHECK(std::is_sorted(current_rowids, current_rowids + count));
-    _reset_plan(output);
+    output->reset(this);
     _select_candidate_pages(scan_rowids);
     _discard_passed_pages(_page_for_ordinal(current_rowids[_reverse ? count - 1 : 0]).page_index,
                           output);
@@ -107,15 +125,6 @@ void ColumnReadAhead::plan(const rowid_t* current_rowids, size_t count,
             begin = std::upper_bound(begin, end, page.last_ordinal);
         }
     }
-}
-
-void ColumnReadAhead::_reset_plan(ColumnReadAheadPlan* output) {
-    output->column = this;
-    output->new_pages.clear();
-    output->released_pages.clear();
-    output->window_discard_ns = 0;
-    output->current_batch_plan_ns = 0;
-    output->window_extend_ns = 0;
 }
 
 void ColumnReadAhead::_select_candidate_pages(const roaring::Roaring& scan_rowids) {
@@ -139,7 +148,7 @@ void ColumnReadAhead::start(const roaring::Roaring& scan_rowids, ColumnReadAhead
 void ColumnReadAhead::advance(int32_t page_index, ColumnReadAheadPlan* output) {
     DCHECK_GE(page_index, 0);
     DCHECK_LT(page_index, _pages.size());
-    _reset_plan(output);
+    output->reset(this);
     if (!_reverse) {
         _discard_passed_pages(page_index, output);
     } else if (page_index < _reverse_low_page_index) {
