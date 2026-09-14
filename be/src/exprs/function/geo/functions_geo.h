@@ -64,16 +64,30 @@ public:
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return Impl::NUM_ARGS; }
     bool is_variadic() const override { return false; }
-    bool use_default_implementation_for_nulls() const override { return false; }
-
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<ReturnType>());
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        RETURN_IF_ERROR(validate_spatial_wkb_inputs(block, arguments));
         return Impl::execute(block, arguments, result);
+    }
+};
+
+// Spatial WKB columns must remain visible to the implementation so it can validate the
+// serialized value before any file data is consumed.  Do not use this wrapper for legacy
+// geo functions or numeric constructors: their nullable arguments rely on the default
+// null propagation supplied by IFunction.
+template <typename Impl>
+class SpatialWkbGeoFunction : public GeoFunction<Impl> {
+public:
+    static FunctionPtr create() { return std::make_shared<SpatialWkbGeoFunction<Impl>>(); }
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        RETURN_IF_ERROR(validate_spatial_wkb_inputs(block, arguments));
+        return GeoFunction<Impl>::execute_impl(context, block, arguments, result, input_rows_count);
     }
 };
 
