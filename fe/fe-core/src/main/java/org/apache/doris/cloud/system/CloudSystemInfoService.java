@@ -265,6 +265,7 @@ public class CloudSystemInfoService extends SystemInfoService {
     // the group ID nor the BE names have changed.
     //
     // Reconcile name mappings for locally installed groups on every sync cycle.
+    // Callers must exclude records whose metadata reconciliation was rejected.
     // This does not reject stale snapshots; it restores the current mapping once
     // a later cycle applies current metadata from the meta service.
     public void refreshComputeGroupNames(Collection<Cloud.ClusterPB> remoteComputeGroups) {
@@ -458,7 +459,9 @@ public class CloudSystemInfoService extends SystemInfoService {
             LOG.info("remove compute group, id={}, name={}", computeGroupId, computeGroupName);
             computeGroupIdToComputeGroup.remove(computeGroupId);
             clusterIdToBackend.remove(computeGroupId);
-            clusterNameToId.remove(computeGroupName, computeGroupId);
+            // Earlier checkers could publish aliases from rejected renames. Remove every name
+            // still owned by this ID, without removing names already reused by another group.
+            clusterNameToId.entrySet().removeIf(entry -> computeGroupId.equals(entry.getValue()));
             invalidateCloudColocatePlacement(computeGroupId);
         } finally {
             wlock.unlock();

@@ -196,6 +196,77 @@ class CloudClusterCheckerTest {
         Assertions.assertNull(service.getComputeGroupById("new"));
     }
 
+    @Test
+    void testRejectedVirtualPolicyDoesNotPublishRenamedGroup() throws Exception {
+        assertRejectedVirtualRename(virtual("virtual", "renamed").toBuilder()
+                .clearClusterPolicy().build());
+    }
+
+    @Test
+    void testRejectedVirtualSubgroupsDoNotPublishRenamedGroup() throws Exception {
+        assertRejectedVirtualRename(virtual("virtual", "renamed").toBuilder()
+                .clearClusterNames().addClusterNames("active").build());
+    }
+
+    private void assertRejectedVirtualRename(Cloud.ClusterPB rejected) throws Exception {
+        Cloud.ClusterPB active = physical("active", "active", "127.0.0.1");
+        Cloud.ClusterPB standby = physical("standby", "standby", "127.0.0.2");
+        syncPhysical(active, standby);
+        syncInstance(active, standby, virtual("virtual", "original"));
+
+        syncInstance(active, standby, rejected);
+
+        Assertions.assertEquals("original", service.getComputeGroupById("virtual").getName());
+        Assertions.assertEquals("virtual", service.getCloudClusterIdByName("original"));
+        Assertions.assertNull(service.getCloudClusterIdByName("renamed"));
+
+        // The rejected record must not make the still-present group look obsolete.
+        // Once it actually disappears from MS, neither name may point to its removed ID.
+        syncInstance(active, standby);
+        Assertions.assertNull(service.getComputeGroupById("virtual"));
+        Assertions.assertNull(service.getCloudClusterIdByName("original"));
+        Assertions.assertNull(service.getCloudClusterIdByName("renamed"));
+    }
+
+    @Test
+    void testAcceptedVirtualRenamePublishesNewName() throws Exception {
+        Cloud.ClusterPB active = physical("active", "active", "127.0.0.1");
+        Cloud.ClusterPB standby = physical("standby", "standby", "127.0.0.2");
+        syncPhysical(active, standby);
+        syncInstance(active, standby, virtual("virtual", "original"));
+
+        syncInstance(active, standby, virtual("virtual", "renamed"));
+
+        Assertions.assertEquals("renamed", service.getComputeGroupById("virtual").getName());
+        Assertions.assertEquals("virtual", service.getCloudClusterIdByName("renamed"));
+        Assertions.assertNull(service.getCloudClusterIdByName("original"));
+    }
+
+    @Test
+    void testRejectedNewVirtualGroupDoesNotPublishName() {
+        syncInstance(virtual("virtual", "rejected").toBuilder().clearClusterPolicy().build());
+
+        Assertions.assertNull(service.getComputeGroupById("virtual"));
+        Assertions.assertNull(service.getCloudClusterIdByName("rejected"));
+    }
+
+    @Test
+    void testVirtualRemovalClearsStaleAliasesButKeepsReusedName() throws Exception {
+        Cloud.ClusterPB active = physical("active", "active", "127.0.0.1");
+        Cloud.ClusterPB standby = physical("standby", "standby", "127.0.0.2");
+        syncPhysical(active, standby);
+        syncInstance(active, standby, virtual("virtual", "reused"));
+        // Simulate an alias left by an earlier checker that refreshed a rejected rename.
+        service.addVirtualClusterInfoToMapsNoLock("virtual", "stale_alias");
+        syncPhysical(active, standby, physical("replacement", "reused", "127.0.0.3"));
+
+        syncInstance(active, standby);
+
+        Assertions.assertNull(service.getComputeGroupById("virtual"));
+        Assertions.assertNull(service.getCloudClusterIdByName("stale_alias"));
+        Assertions.assertEquals("replacement", service.getCloudClusterIdByName("reused"));
+    }
+
     private void syncPhysical(Cloud.ClusterPB... groups) throws Exception {
         Mockito.doReturn(Cloud.GetClusterResponse.newBuilder().setStatus(ok())
                 .addAllCluster(List.of(groups)).build()).when(service).getCloudCluster("", "", "");
@@ -230,7 +301,8 @@ class CloudClusterCheckerTest {
     private Cloud.ClusterPB virtual(String id, String name) {
         return Cloud.ClusterPB.newBuilder().setClusterId(id).setClusterName(name)
                 .setType(Cloud.ClusterPB.Type.VIRTUAL).addAllClusterNames(List.of("active", "standby"))
-                .setClusterPolicy(Cloud.ClusterPolicy.newBuilder().setActiveClusterName("active")
+                .setClusterPolicy(Cloud.ClusterPolicy.newBuilder().setType(Cloud.ClusterPolicy.PolicyType.ActiveStandby)
+                        .setActiveClusterName("active")
                         .addStandbyClusterNames("standby")).build();
     }
 }
