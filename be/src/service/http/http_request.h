@@ -92,6 +92,8 @@ public:
 
     void set_header(const std::string& key, const std::string& value) { _headers[key] = value; }
 
+    void set_uri(const std::string& uri) { _uri = uri; }
+
 private:
     SendReplyType _send_reply_type = REPLY_SYNC;
     HttpMethod _method;
