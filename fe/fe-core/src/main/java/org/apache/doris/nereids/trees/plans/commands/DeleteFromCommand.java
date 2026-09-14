@@ -302,6 +302,14 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         if (olapTable.getPartitionInfo().getType().equals(PartitionType.UNPARTITIONED)) {
             return Lists.newArrayList(olapTable.getPartitions());
         }
+        if (olapTable.getKeysType() != KeysType.UNIQUE_KEYS
+                && partitionNames.isEmpty()
+                && !scan.hasPartitionPredicate()
+                && !ConnectContext.get().getSessionVariable().isDeleteWithoutPartition()) {
+            throw new AnalysisException("This is a range or list partitioned table."
+                    + " You should specify partition in delete stmt,"
+                    + " or set delete_without_partition to true");
+        }
         List<Slot> partitionSlots = Lists.newArrayList();
         for (Column c : olapTable.getPartitionColumns()) {
             Slot partitionSlot = null;
