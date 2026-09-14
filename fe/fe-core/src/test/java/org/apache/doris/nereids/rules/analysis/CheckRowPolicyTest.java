@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTableWrapper;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -35,9 +36,12 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -50,6 +54,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanRewriter;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -77,6 +83,7 @@ public class CheckRowPolicyTest extends TestWithFeService {
     private static String tableName = "table1";
 
     private static String tableNameRanddomDist = "tableRandomDist";
+    private static String tableNameMow = "tableMow";
     private static String userName = "user1";
     private static String policyName = "policy1";
 
@@ -85,6 +92,7 @@ public class CheckRowPolicyTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         FeConstants.runningUnitTest = true;
+        Config.enable_feature_binlog = true;
         createDatabase(dbName);
         useDatabase(dbName);
         createTable("create table "
@@ -95,6 +103,13 @@ public class CheckRowPolicyTest extends TestWithFeService {
                 + tableNameRanddomDist
                 + " (k1 int, k2 int) AGGREGATE KEY(k1, k2) distributed by random buckets 1"
                 + " properties(\"replication_num\" = \"1\");");
+        createTable("create table "
+                + tableNameMow
+                + " (k1 int, k2 int) UNIQUE KEY(k1) distributed by hash(k1) buckets 1"
+                + " properties(\"replication_num\" = \"1\","
+                + " \"enable_unique_key_merge_on_write\" = \"true\","
+                + " \"binlog.enable\" = \"true\", \"binlog.format\" = \"ROW\","
+                + " \"binlog.need_historical_value\" = \"true\");");
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
         olapTable = (OlapTable) db.getTableOrAnalysisException(tableName);
 
@@ -120,15 +135,19 @@ public class CheckRowPolicyTest extends TestWithFeService {
         Mockito.doAnswer(invocation -> {
             String tbl = invocation.getArgument(3);
             Set<String> cols = invocation.getArgument(4);
-            if (!tbl.equalsIgnoreCase(tableNameRanddomDist)) {
+            boolean maskRandomDistribution = tbl.equalsIgnoreCase(tableNameRanddomDist);
+            boolean maskMowTimeTravel = tbl.equalsIgnoreCase(tableNameMow);
+            if (!maskRandomDistribution && !maskMowTimeTravel) {
                 return Collections.<String, DataMaskSpec>emptyMap();
             }
             Map<String, DataMaskSpec> masks = new LinkedHashMap<>();
             for (String col : cols) {
                 String column = col.toLowerCase(Locale.ROOT);
-                masks.put(column, new DataMaskSpec(
-                        String.format("custom policy: concat(%s, '_****_', %s)", column, column),
-                        String.format("concat(%s, '_****_', %s)", column, column)));
+                if (maskRandomDistribution || column.equalsIgnoreCase("k2")) {
+                    masks.put(column, new DataMaskSpec(
+                            String.format("custom policy: concat(%s, '_****_', %s)", column, column),
+                            String.format("concat(%s, '_****_', %s)", column, column)));
+                }
             }
             return masks;
         }).when(spyAcm).evalDataMaskPolicies(
@@ -345,6 +364,37 @@ public class CheckRowPolicyTest extends TestWithFeService {
                 CascadesContext.initContext(statementContext, relation, PhysicalProperties.GATHER));
 
         Assertions.assertEquals(Optional.of(predicate), policy.rowPolicyFilter);
+    }
+
+    @Test
+    public void mowTimeTravelBranchProjectionsPreserveDataMask() throws Exception {
+        useUser(userName);
+        connectContext.getState().setIsQuery(true);
+
+        Plan rewrittenPlan = PlanChecker.from(connectContext)
+                .analyze("select k1, k2 from " + tableNameMow + " for version as of 1001")
+                .rewrite()
+                .getPlan();
+        Set<LogicalUnion> unions = rewrittenPlan.collect(node -> node instanceof LogicalUnion);
+        Assertions.assertEquals(1, unions.size());
+
+        LogicalUnion union = unions.iterator().next();
+        Assertions.assertEquals(2, union.children().size());
+        for (Plan branch : union.children()) {
+            int maskedK2ProjectCount = 0;
+            Set<LogicalProject<?>> branchProjects = branch.collect(node -> node instanceof LogicalProject);
+            for (LogicalProject<?> project : branchProjects) {
+                for (NamedExpression namedExpression : project.getProjects()) {
+                    if (namedExpression.getName().equalsIgnoreCase("k2")
+                            && namedExpression instanceof Alias
+                            && !(((Alias) namedExpression).child() instanceof Slot)) {
+                        maskedK2ProjectCount++;
+                    }
+                }
+            }
+            Assertions.assertEquals(1, maskedK2ProjectCount,
+                    "each MOW time-travel branch must retain its k2 data mask");
+        }
     }
 
     private static class RenamedOlapTableWrapper extends OlapTableWrapper {

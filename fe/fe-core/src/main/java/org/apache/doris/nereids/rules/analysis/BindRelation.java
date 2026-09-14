@@ -59,6 +59,7 @@ import org.apache.doris.nereids.StatementContext.TableFrom;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.hint.LeadingHint;
@@ -596,16 +597,18 @@ public class BindRelation extends OneAnalysisRuleFactory {
     private LogicalPlan buildMowTimeTravelUnion(LogicalOlapScan baseScan, OlapTable olapTable,
             long targetTso, UnboundRelation unboundRelation, List<String> qualifier,
             List<Long> partIds, List<Long> tabletIds, CascadesContext cascadesContext) {
-        // union baseline = base visible columns (key + value); hidden cols are filtered out.
-        List<Slot> visibleOutput = baseScan.getOutput().stream()
+        // Use unbound visible columns so each branch projection binds after its policy is expanded.
+        // Otherwise the projections keep the scan's raw slots and can bypass data masking.
+        List<UnboundSlot> visibleOutput = baseScan.getOutput().stream()
                 .filter(slot -> !(slot instanceof SlotReference)
                         || ((SlotReference) slot).isVisible())
+                .map(slot -> new UnboundSlot(slot.getName()))
                 .collect(Collectors.toList());
 
         // left: base survived rows at t1 = delete_sign=0 AND commit_tso < targetTso, projected to visible.
         LogicalPlan left = checkAndAddDeleteSignFilter(
                 baseScan, ConnectContext.get(), olapTable, true, true);
-        left = projectFromOriginSlots(addCommitTsoFilter(left, targetTso, olapTable), visibleOutput);
+        left = projectFromUnboundSlots(addCommitTsoFilter(left, targetTso, olapTable), visibleOutput);
 
         // right: binlog MIN_DELTA over tso >= targetTso, keep UPDATE_BEFORE/DELETE rows (before image),
         // projected to the same visible schema. BE splits each change so UPDATE_BEFORE/DELETE rows
@@ -628,9 +631,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 new TableScanParams(TableScanParams.INCREMENTAL_READ, incrParams, Lists.newArrayList()));
 
         LogicalPlan right = checkAndAddChangeScanFilter(binlogScan, StreamScanType.MIN_DELTA, true, true);
-        right = projectFromOriginSlots(right, visibleOutput);
+        right = projectFromUnboundSlots(right, visibleOutput);
 
-        // both children are bound; BindExpression aligns by position and fills the union output.
+        // BindExpression binds both branch projections, aligns them by position, and fills the union output.
         // buildNewOutputs() rebuilds the union output slots with empty qualifiers, so wrap the union
         // in a subquery alias to restore the original catalog.db.table qualifier. Use the scan's
         // fully-qualified name (catalog.db.table) rather than the table-less qualifier, otherwise
@@ -1085,17 +1088,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
         return plan;
     }
 
-    private LogicalPlan projectFromOriginSlots(LogicalPlan plan, List<Slot> wantedSlots) {
-        Map<String, Slot> childSlotByName = new HashMap<>(plan.getOutput().size());
-        for (Slot slot : plan.getOutput()) {
-            childSlotByName.put(slot.getName(), slot);
-        }
+    private LogicalPlan projectFromUnboundSlots(LogicalPlan plan, List<UnboundSlot> wantedSlots) {
         List<NamedExpression> project = new ArrayList<>(wantedSlots.size());
-        for (Slot wanted : wantedSlots) {
-            Slot match = childSlotByName.get(wanted.getName());
-            Preconditions.checkArgument(match != null,
-                    "column %s not found in child output", wanted.getName());
-            project.add(new Alias(match, wanted.getName()));
+        for (UnboundSlot wanted : wantedSlots) {
+            project.add(new Alias(wanted, wanted.getName()));
         }
         return new LogicalProject<>(project, plan);
     }
