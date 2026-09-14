@@ -95,6 +95,15 @@ public:
             const TabletIndex* index_meta, const io::IOContext* io_ctx = nullptr,
             doris::snii::reader::LogicalIndexOpenMode open_mode =
                     doris::snii::reader::LogicalIndexOpenMode::kQuery) const;
+    // SNII only: opens one text logical index by its directory key.
+    Result<std::unique_ptr<doris::snii::reader::LogicalIndexReader>> open_snii_logical_index(
+            uint64_t index_id, std::string_view suffix, const io::IOContext* io_ctx,
+            doris::snii::reader::LogicalIndexOpenMode open_mode) const;
+    // SNII only: every entry of the container directory, text and blob kinds alike.
+    Result<std::vector<doris::snii::format::LogicalIndexMetadataRef>> snii_logical_indexes() const;
+    // SNII only: reads the CoreMetadata of one text logical index.
+    Status snii_core_metadata(uint64_t index_id, std::string_view suffix,
+                              doris::snii::format::CoreMetadata* out) const;
     // SNII only: builds the fully validated inheritance view of this container
     // for a BUILD INDEX rewrite. `segment_doc_count` is the segment's row count;
     // every kept logical index must agree with it.

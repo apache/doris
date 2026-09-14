@@ -70,11 +70,15 @@ public:
     Status collect(const IndexDiskUsageOptions& options, std::vector<IndexDiskUsageRecord>* out);
 
 private:
+    Status _collect_v1(const IndexDiskUsageOptions& options, std::vector<IndexDiskUsageRecord>* out);
     Status _collect_compound(const IndexDiskUsageOptions& options,
                              std::vector<IndexDiskUsageRecord>* out);
+    Status _collect_snii(const IndexDiskUsageOptions& options,
+                         std::vector<IndexDiskUsageRecord>* out);
 
     io::FileSystemSPtr _fs;
     std::string _index_path_prefix;
+    TabletSchemaSPtr _schema;
     InvertedIndexStorageFormatPB _format;
     int64_t _tablet_id;
 };
