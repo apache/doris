@@ -68,6 +68,60 @@ public class HiveConnectorMetadataPartitionPruningTest {
     private static final List<String> PART_KEYS = Arrays.asList("year", "month");
 
     @Test
+    public void testLocalFallbackPrunesIntegralValuesNumerically() {
+        // A quoted/API-created partition key is not a valid Hive filter identifier, so the connector falls back
+        // to the local prefilter - whose result IS the logical selected view. It must therefore compare INT
+        // values the way the typed pruner does: `p-x = 1` selects the partitions rendered as `1` AND `01`.
+        List<String> parts = Arrays.asList("p-x=1", "p-x=01", "p-x=2");
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                new FakeHmsClient(parts), HiveTestProperties.minimal(), new FakeConnectorContext());
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .partitionKeyNames(Collections.singletonList("p-x"))
+                .partitionKeyTypes(Collections.singletonMap("p-x", "INT"))
+                .build();
+
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(
+                null, handle, new ConnectorFilterConstraint(eq("p-x", "1")));
+
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals(Arrays.asList("p-x=1", "p-x=01"), prunedLocations(result));
+    }
+
+    @Test
+    public void testHmsFilterDeclinesReservedWordAndAllDigitPartitionKeys() {
+        // `date` is a valid partition key, but the metastore filter lexer tokenizes it as KW_DATE and an
+        // all-digit name as an IntegralLiteral, while a key operand must be an Identifier: the connector must
+        // decline the direct path (which could only fail and taint the pooled client) and prune locally.
+        for (String partKey : Arrays.asList("date", "20240101")) {
+            List<String> parts = Arrays.asList(partKey + "=2024-01-01", partKey + "=2023-01-01");
+            boolean[] filterAttempted = {false};
+            FakeHmsClient client = new FakeHmsClient(parts) {
+                @Override
+                public List<HmsPartitionInfo> listPartitionsByFilter(String dbName, String tableName,
+                        String filter) {
+                    filterAttempted[0] = true;
+                    return super.listPartitionsByFilter(dbName, tableName, filter);
+                }
+            };
+            HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                    client, HiveTestProperties.minimal(), new FakeConnectorContext());
+            HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                    .partitionKeyNames(Collections.singletonList(partKey))
+                    .partitionKeyTypes(Collections.singletonMap(partKey, "STRING"))
+                    .build();
+
+            Optional<FilterApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(
+                    null, handle, new ConnectorFilterConstraint(eq(partKey, "2024-01-01")));
+
+            Assertions.assertTrue(result.isPresent(), partKey);
+            Assertions.assertEquals(Collections.singletonList(partKey + "=2024-01-01"),
+                    prunedLocations(result), partKey);
+            Assertions.assertFalse(filterAttempted[0], partKey + " must not build an HMS filter");
+            Assertions.assertTrue(client.wasListPartitionNamesCalled(), partKey + " prunes locally");
+        }
+    }
+
+    @Test
     public void testEqOnPartitionColumnPrunes() {
         Optional<FilterApplicationResult<ConnectorTableHandle>> result =
                 applyFilter(partitionedHandle(), eq("year", "2024"));
