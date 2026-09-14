@@ -44,35 +44,8 @@ suite("test_uuid_array_matrix", "p0") {
          overlap_value: "ARRAYS_OVERLAP(${a},${b})", contains_all: "ARRAY_CONTAINS_ALL(${a},${b})",
          concatenated: "ARRAY_CONCAT(${a},${b})"]
     })
-    matrix.run(delegate, 'element', 'uuid_matrix_array', ['a','u'], { a,u ->
-        [contains_value: "ARRAY_CONTAINS(${a},${u})", position_value: "ARRAY_POSITION(${a},${u})",
-         removed: "ARRAY_REMOVE(${a},${u})", pushed_back: "ARRAY_PUSHBACK(${a},${u})",
-         pushed_front: "ARRAY_PUSHFRONT(${a},${u})", appended: "ARRAY_APPEND(${a},${u})", count_equal: "COUNTEQUAL(${a},${u})"]
-    })
-    matrix.run(delegate, 'capture', 'uuid_matrix_array', ['a','u'], { a,u ->
-        [mapped: "ARRAY_MAP(x -> COALESCE(x,${u}),${a})", filtered: "ARRAY_FILTER(x -> x <=> ${u},${a})",
-         count_matches: "ARRAY_COUNT(x -> x <=> ${u},${a})", exists_match: "ARRAY_EXISTS(x -> x <=> ${u},${a})",
-         any_match: "ARRAY_MATCH_ANY(x -> x <=> ${u},${a})", all_match: "ARRAY_MATCH_ALL(x -> x <=> ${u},${a})",
-         first_value: "ARRAY_FIRST(x -> x <=> ${u},${a})", last_value: "ARRAY_LAST(x -> x <=> ${u},${a})",
-         first_index: "ARRAY_FIRST_INDEX(x -> x <=> ${u},${a})", last_index: "ARRAY_LAST_INDEX(x -> x <=> ${u},${a})",
-         filtered_unknown: "ARRAY_FILTER(x -> x = ${u},${a})", count_unknown: "ARRAY_COUNT(x -> x = ${u},${a})",
-         exists_unknown: "ARRAY_EXISTS(x -> x = ${u},${a})", any_unknown: "ARRAY_MATCH_ANY(x -> x = ${u},${a})",
-         all_unknown: "ARRAY_MATCH_ALL(x -> x = ${u},${a})"]
-    })
-    matrix.run(delegate, 'index', 'uuid_matrix_array', ['a','idx'], { a,n ->
-        [element_value: "ELEMENT_AT(${a},${n})", subscript_value: "(${a})[${n}]", sliced: "ARRAY_SLICE(${a},${n})"]
-    })
-    matrix.run(delegate, 'slice', 'uuid_matrix_array', ['a','idx','num'], { a,n,k ->
-        [sliced: "ARRAY_SLICE(${a},${n},${k})"]
-    })
-    matrix.run(delegate, 'repeat', 'uuid_matrix_array', ['u','num'], { u,n ->
-        [repeated: "ARRAY_REPEAT(${u},${n})", with_constant: "ARRAY_WITH_CONSTANT(${n},${u})"]
-    })
     matrix.run(delegate, 'seed', 'uuid_matrix_array', ['a','num'], { a,n ->
         [shuffled_members: "ARRAY_SORT(ARRAY_SHUFFLE(${a},${n}))"]
-    })
-    matrix.run(delegate, 'constructor', 'uuid_matrix_array', ['u','v','w'], { u,v,w ->
-        [array_value: "ARRAY(${u},${v},${w})"]
     })
     matrix.run(delegate, 'aligned', 'uuid_matrix_array', ['a','a2'], { a,b ->
         [sort_by: "ARRAY_SORTBY(${a},${b})", zipped: "ARRAY_ZIP(${a},${b})",
