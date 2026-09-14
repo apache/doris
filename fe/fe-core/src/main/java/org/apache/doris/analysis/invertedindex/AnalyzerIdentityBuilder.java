@@ -47,6 +47,10 @@ public final class AnalyzerIdentityBuilder {
         }
 
         if (!Strings.isNullOrEmpty(preferredAnalyzer)) {
+            String builtinIkIdentity = resolveBuiltinIkAnalyzerIdentity(properties, preferredAnalyzer);
+            if (builtinIkIdentity != null) {
+                return builtinIkIdentity;
+            }
             // For custom analyzer/normalizer, resolve to underlying config to build identity
             return resolveAnalyzerIdentity(preferredAnalyzer, defaultAnalyzerKey, log);
         }
@@ -59,6 +63,22 @@ public final class AnalyzerIdentityBuilder {
             return legacyIkIdentity;
         }
         return parser;
+    }
+
+    private static String resolveBuiltinIkAnalyzerIdentity(
+            Map<String, String> properties, String analyzer) {
+        // BE defaults analyzer=ik to max-word mode. It is equivalent to the built-in
+        // ik_max_word tokenizer only when no index-level option changes its behavior.
+        if (!InvertedIndexProperties.INVERTED_INDEX_PARSER_IK.equalsIgnoreCase(analyzer.trim())
+                || !Strings.isNullOrEmpty(properties.get(
+                        InvertedIndexProperties.INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE))) {
+            return null;
+        }
+        String lowerCase = properties.get(InvertedIndexProperties.INVERTED_INDEX_PARSER_LOWERCASE_KEY);
+        if (!Strings.isNullOrEmpty(lowerCase) && !Boolean.TRUE.toString().equalsIgnoreCase(lowerCase)) {
+            return null;
+        }
+        return IndexPolicyTypeEnum.ANALYZER.name() + ":tokenizer=ik_max_word;";
     }
 
     private static String resolveLegacyIkIdentity(Map<String, String> properties, String parser) {
@@ -225,7 +245,7 @@ public final class AnalyzerIdentityBuilder {
         if (Strings.isNullOrEmpty(name)) {
             return null;
         }
-        String normalizedName = name.toLowerCase(Locale.ROOT);
+        String normalizedName = name.trim().toLowerCase(Locale.ROOT);
         if ((expectedType == IndexPolicyTypeEnum.TOKENIZER
                     && IndexPolicy.BUILTIN_TOKENIZERS.contains(normalizedName))
                 || (expectedType == IndexPolicyTypeEnum.TOKEN_FILTER

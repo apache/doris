@@ -217,6 +217,8 @@ public class AnalyzerIdentityBuilderTest {
         resolve.setAccessible(true);
         Assertions.assertEquals("ik_smart",
                 resolve.invoke(null, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER));
+        Assertions.assertEquals("ik_smart",
+                resolve.invoke(null, " IK_SMART ", IndexPolicyTypeEnum.TOKENIZER));
     }
 
     @Test
@@ -276,11 +278,19 @@ public class AnalyzerIdentityBuilderTest {
             Assertions.assertEquals(customMaxWord, AnalyzerIdentityBuilder.buildAnalyzerIdentity(
                     Map.of("parser", "ik", "parser_mode", "ik_max_word"), "", "ik",
                     "__default__", "none", null));
+            Assertions.assertEquals(customMaxWord, AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("analyzer", "ik"), "ik", "none", "__default__", "none", null));
             Assertions.assertNotEquals(customSmart, AnalyzerIdentityBuilder.buildAnalyzerIdentity(
                     Map.of("parser", "ik", "char_filter_type", "char_replace"), "", "ik",
                     "__default__", "none", null));
             Assertions.assertNotEquals(customSmart, AnalyzerIdentityBuilder.buildAnalyzerIdentity(
                     Map.of("parser", "ik", "lower_case", "false"), "", "ik",
+                    "__default__", "none", null));
+            Assertions.assertNotEquals(customMaxWord, AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("analyzer", "ik", "char_filter_type", "char_replace"), "ik", "none",
+                    "__default__", "none", null));
+            Assertions.assertNotEquals(customMaxWord, AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("analyzer", "ik", "lower_case", "false"), "ik", "none",
                     "__default__", "none", null));
         }
     }
