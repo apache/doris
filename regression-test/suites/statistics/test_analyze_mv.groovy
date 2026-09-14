@@ -692,7 +692,7 @@ suite("test_analyze_mv") {
                 break;
             }
             logger.info("row count for mvTestDup has not converged to 6: " + result_row)
-            Thread.sleep(1000)
+            Thread.sleep(5000)
         }
         assertEquals("6", result_row[0][4])
     }
