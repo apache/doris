@@ -147,8 +147,11 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
         return false;
     }
 
-    private boolean isLanceExternalSearch(PhysicalTVFRelation tvfRelation) {
-        String functionName = tvfRelation.getFunction().getName();
+    static boolean isLanceExternalSearch(Relation relation) {
+        if (!(relation instanceof PhysicalTVFRelation)) {
+            return false;
+        }
+        String functionName = ((PhysicalTVFRelation) relation).getFunction().getName();
         return VectorSearchTableValuedFunction.NAME.equals(functionName)
                 || FullTextSearchTableValuedFunction.NAME.equals(functionName);
     }

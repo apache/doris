@@ -23,11 +23,14 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.lance.Dataset;
 import org.lance.Fragment;
 import org.lance.index.Index;
 import org.lance.index.IndexDescription;
 import org.lance.schema.LanceField;
+import org.lance.schema.LanceSchema;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -38,6 +41,7 @@ import java.util.OptionalLong;
 
 /** Loads one fixed Lance dataset snapshot through the Lance Java SDK. */
 public final class LanceMetadataLoader {
+    private static final Logger LOG = LogManager.getLogger(LanceMetadataLoader.class);
     private static final long ALLOCATOR_LIMIT = 256L * 1024 * 1024;
 
     private LanceMetadataLoader() {
@@ -53,8 +57,10 @@ public final class LanceMetadataLoader {
             String datasetUri, List<StorageProperties> storageProperties)
             throws Exception {
         try (BufferAllocator allocator = new RootAllocator(ALLOCATOR_LIMIT)) {
-            return loadLatest(datasetUri,
-                    LanceStorageOptions.fromDorisStorageProperties(datasetUri, storageProperties), allocator);
+            // S3 TVFs do not plan FE index-segment groups; only the dataset snapshot is needed.
+            return loadInternal(datasetUri,
+                    LanceStorageOptions.fromDorisStorageProperties(datasetUri, storageProperties),
+                    OptionalLong.empty(), allocator, false, false);
         }
     }
 
@@ -64,19 +70,20 @@ public final class LanceMetadataLoader {
      * <p>Called by
      * {@link LanceExternalCatalog#loadTableMetadata(String, String, java.util.Optional)} when no
      * time-travel version is requested. Schema, version, and fragments are read from the same
-     * opened dataset snapshot.
+     * opened dataset snapshot, together with index coverage for fragment grouping. The known SDK
+     * schema-conversion failure disables scalar segment grouping for this snapshot only.
      */
     public static LanceTableMetadata loadLatest(String datasetUri,
             Map<String, String> lanceStorageOptions, BufferAllocator allocator) throws Exception {
         return loadInternal(
-                datasetUri, lanceStorageOptions, OptionalLong.empty(), allocator, false);
+                datasetUri, lanceStorageOptions, OptionalLong.empty(), allocator, true, true);
     }
 
-    /** Loads the latest fixed snapshot together with search-index segment coverage. */
-    public static LanceTableMetadata loadLatestWithIndexSegments(
-            String datasetUri, Map<String, String> lanceStorageOptions, BufferAllocator allocator) throws Exception {
+    /** Search-index planning requires field IDs; SDK schema conversion failures remain fatal. */
+    public static LanceTableMetadata loadLatestForSearch(String datasetUri,
+            Map<String, String> lanceStorageOptions, BufferAllocator allocator) throws Exception {
         return loadInternal(
-                datasetUri, lanceStorageOptions, OptionalLong.empty(), allocator, true);
+                datasetUri, lanceStorageOptions, OptionalLong.empty(), allocator, true, false);
     }
 
     /**
@@ -90,13 +97,13 @@ public final class LanceMetadataLoader {
             Map<String, String> lanceStorageOptions, long version, BufferAllocator allocator)
             throws Exception {
         return loadInternal(
-                datasetUri, lanceStorageOptions, OptionalLong.of(version), allocator, false);
+                datasetUri, lanceStorageOptions, OptionalLong.of(version), allocator, true, true);
     }
 
     /** Shared implementation for the latest-version and explicit-version public entry points. */
     private static LanceTableMetadata loadInternal(String datasetUri,
             Map<String, String> lanceStorageOptions, OptionalLong version,
-            BufferAllocator allocator, boolean loadIndexSegments) throws Exception {
+            BufferAllocator allocator, boolean includeIndexSegments, boolean allowSchemaFallback) throws Exception {
         try (Dataset dataset = Dataset.open().allocator(allocator).uri(datasetUri)
                 .readOptions(LanceReadOptions.build(lanceStorageOptions, version)).build()) {
             long resolvedVersion = dataset.version();
@@ -106,11 +113,13 @@ public final class LanceMetadataLoader {
                         Integer.toUnsignedLong(fragment.getId()), fragment.metadata().getNumRows(),
                         fragment.metadata().getPhysicalRows()));
             }
-            Map<String, Integer> lanceFieldIds = loadIndexSegments
-                    ? loadTopLevelFieldIds(dataset) : Collections.emptyMap();
-            List<LanceIndexSegmentInfo> indexSegments = loadIndexSegments
-                    ? loadSearchIndexSegments(dataset) : Collections.emptyList();
-            return loadIndexSegments
+            Map<String, Integer> lanceFieldIds = includeIndexSegments
+                    ? loadTopLevelFieldIds(dataset, allowSchemaFallback) : Collections.emptyMap();
+            // Index discovery still validates metadata when schema conversion prevents field-ID
+            // mapping. Only confirmed legacy indexes without details are omitted by the loader.
+            List<LanceIndexSegmentInfo> indexSegments = includeIndexSegments
+                    ? loadIndexSegments(dataset) : Collections.emptyList();
+            return includeIndexSegments
                     ? LanceTableMetadata.withIndexSegments(datasetUri, resolvedVersion,
                             dataset.getSchema(), fragments, lanceFieldIds,
                             indexSegments, lanceStorageOptions)
@@ -119,9 +128,28 @@ public final class LanceMetadataLoader {
         }
     }
 
-    private static Map<String, Integer> loadTopLevelFieldIds(Dataset dataset) {
+    private static Map<String, Integer> loadTopLevelFieldIds(Dataset dataset, boolean allowSchemaFallback) {
+        LanceSchema schema;
+        try {
+            schema = dataset.getLanceSchema();
+        } catch (IllegalArgumentException e) {
+            if (!allowSchemaFallback || !"ArrowSchema conversion error".equals(e.getMessage())) {
+                throw e;
+            }
+            // Lance v11's JNI converter cannot represent some types (notably Dictionary),
+            // even though getSchema() can import the dataset's Arrow schema. An empty field-ID
+            // map makes LanceScalarIndexPlanner choose fragment scans; filters still reach
+            // Lance. This does not add support for reading Dictionary values in Doris.
+            // Restrict the catch to the SDK call: invalid IDs and duplicate names below must
+            // remain errors. Legacy indexes without details are handled separately by the
+            // index loader; this schema workaround must not suppress other index errors.
+            LOG.warn("Lance SDK schema conversion failed at dataset version {}; "
+                    + "disabling FE scalar index segment planning for this snapshot: {}",
+                    dataset.version(), e.getMessage());
+            return Collections.emptyMap();
+        }
         Map<String, Integer> result = new LinkedHashMap<>();
-        for (LanceField field : dataset.getLanceSchema().fields()) {
+        for (LanceField field : schema.fields()) {
             if (field.getId() < 0) {
                 throw new IllegalStateException(
                         "Lance field '" + field.getName() + "' has invalid id " + field.getId());
@@ -134,13 +162,12 @@ public final class LanceMetadataLoader {
         return result;
     }
 
-    private static List<LanceIndexSegmentInfo> loadSearchIndexSegments(Dataset dataset) {
+    private static List<LanceIndexSegmentInfo> loadIndexSegments(Dataset dataset) {
         List<LanceIndexSegmentInfo> result = new ArrayList<>();
-        for (IndexDescription description : dataset.describeIndices()) {
+        for (IndexDescription description : LanceIndexMetadataLoader.describeUserIndexes(dataset)) {
             String metric = parseMetric(description.getDetailsJson());
             for (Index segment : description.getSegments()) {
-                if (segment.indexType() == null || (segment.indexType().getValue() < 100
-                        && segment.indexType() != org.lance.index.IndexType.INVERTED)) {
+                if (segment.indexType() == null) {
                     continue;
                 }
                 List<Long> fragmentIds = segment.fragments()
