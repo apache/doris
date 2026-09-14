@@ -156,6 +156,8 @@ public:
     void generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta,
                                             bool cloud_get_rowset_meta) const;
 
+    bool scan_expired_row_binlog_rowsets();
+
     virtual int64_t max_version_unlocked() const { return _tablet_meta->max_version().second; }
 
     static TabletSchemaSPtr tablet_schema_with_merged_max_schema_version(
@@ -354,6 +356,9 @@ public:
                                                                const CaptureRowsetOps& options);
 
 protected:
+    // Protected by the tablet header lock; discovery resumes after this version.
+    Version _row_binlog_ttl_scan_cursor {-1, -1};
+
     // Find the missed versions until the spec_version.
     //
     // for example:

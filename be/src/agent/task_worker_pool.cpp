@@ -1007,14 +1007,9 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.disable_auto_compaction) {
-            std::shared_lock rlock(tablet->get_header_lock());
-            tablet->tablet_meta()->mutable_tablet_schema()->set_disable_auto_compaction(
-                    tablet_meta_info.disable_auto_compaction);
-            for (auto& [_, rowset_meta] : tablet->tablet_meta()->all_mutable_rs_metas()) {
-                rowset_meta->tablet_schema()->set_disable_auto_compaction(
-                        tablet_meta_info.disable_auto_compaction);
-            }
-            tablet->tablet_schema_unlocked()->set_disable_auto_compaction(
+            std::unique_lock wlock(tablet->get_header_lock());
+            // Scheduling reads the tablet property; rowset schemas are shared and immutable.
+            tablet->tablet_meta()->set_disable_auto_compaction(
                     tablet_meta_info.disable_auto_compaction);
             need_to_save = true;
         }
@@ -2201,7 +2196,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
             for (auto [tablet_id, _] : succ_tablets) {
                 TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
                 if (tablet != nullptr) {
-                    if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
+                    if (!tablet->tablet_meta()->disable_auto_compaction()) {
                         tablet->published_count.fetch_add(1);
                         int64_t published_count = tablet->published_count.load();
                         int32_t max_version_config = tablet->max_version_config();

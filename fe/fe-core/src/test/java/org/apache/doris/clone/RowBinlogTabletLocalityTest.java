@@ -33,6 +33,7 @@ import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.TabletSchedulerDetailProcDir;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.ImmutableMap;
@@ -61,6 +62,7 @@ public class RowBinlogTabletLocalityTest {
         infoService = new SystemInfoService();
         for (long beId = 1; beId <= 5; beId++) {
             Backend backend = new Backend(beId, "127.0.0." + beId, 9050);
+            backend.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
             backend.setAlive(true);
             infoService.addBackend(backend);
         }

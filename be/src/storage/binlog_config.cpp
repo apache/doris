@@ -22,8 +22,25 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include "common/logging.h"
+#include "storage/binlog.h"
+#include "storage/rowset/rowset_meta.h"
 
 namespace doris {
+
+bool row_binlog_rowset_expired(const RowsetMeta& meta, int64_t cutoff) {
+    return cutoff >= 0 && meta.num_rows() > 0 && meta.has_commit_tso() &&
+           meta.commit_tso().start_tso() > 0 &&
+           meta.commit_tso().end_tso() >= meta.commit_tso().start_tso() &&
+           meta.commit_tso().end_tso() <= cutoff;
+}
+
+int64_t BinlogConfig::row_ttl_cutoff_tso(int64_t reference_tso) const {
+    if (!row_ttl_enabled() || reference_tso <= 0) {
+        return -1;
+    }
+    return doris::row_binlog_ttl_cutoff_tso(reference_tso, _effective_row_ttl_seconds);
+}
+
 BinlogConfig& BinlogConfig::operator=(const TBinlogConfig& config) {
     if (config.__isset.enable) {
         _enable = config.enable;
@@ -49,6 +66,13 @@ BinlogConfig& BinlogConfig::operator=(const TBinlogConfig& config) {
     if (config.__isset.need_historical_value) {
         _need_historical_value = config.need_historical_value;
     }
+    if (config.__isset.effective_row_ttl_seconds) {
+        _effective_row_ttl_seconds = config.effective_row_ttl_seconds;
+    } else if (config.__isset.row_ttl_enabled) {
+        _effective_row_ttl_seconds = config.row_ttl_enabled ? _ttl_seconds : -1;
+    } else if (config.__isset.ttl_seconds && _effective_row_ttl_seconds >= 0) {
+        _effective_row_ttl_seconds = _ttl_seconds;
+    }
     return *this;
 }
 
@@ -71,6 +95,13 @@ BinlogConfig& BinlogConfig::operator=(const BinlogConfigPB& config) {
     if (config.has_need_historical_value()) {
         _need_historical_value = config.need_historical_value();
     }
+    if (config.has_effective_row_ttl_seconds()) {
+        _effective_row_ttl_seconds = config.effective_row_ttl_seconds();
+    } else if (config.has_row_ttl_enabled()) {
+        _effective_row_ttl_seconds = config.row_ttl_enabled() ? _ttl_seconds : -1;
+    } else if (config.has_ttl_seconds() && _effective_row_ttl_seconds >= 0) {
+        _effective_row_ttl_seconds = _ttl_seconds;
+    }
     return *this;
 }
 
@@ -81,14 +112,16 @@ void BinlogConfig::to_pb(BinlogConfigPB* config_pb) const {
     config_pb->set_max_history_nums(_max_history_nums);
     config_pb->set_binlog_format(_binlog_format);
     config_pb->set_need_historical_value(_need_historical_value);
+    config_pb->set_row_ttl_enabled(_effective_row_ttl_seconds >= 0);
+    config_pb->set_effective_row_ttl_seconds(_effective_row_ttl_seconds);
 }
 
 std::string BinlogConfig::to_string() const {
     return fmt::format(
             "BinlogConfig enable: {}, ttl_seconds: {}, max_bytes: {}, max_history_nums: {}, "
-            "binlog_format: {}, need_historical_value: {}",
+            "binlog_format: {}, need_historical_value: {}, effective_row_ttl_seconds: {}",
             _enable, _ttl_seconds, _max_bytes, _max_history_nums, _binlog_format,
-            _need_historical_value);
+            _need_historical_value, _effective_row_ttl_seconds);
 }
 
 } // namespace doris

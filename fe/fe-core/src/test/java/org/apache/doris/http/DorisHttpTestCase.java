@@ -53,6 +53,7 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -222,12 +223,15 @@ public abstract class DorisHttpTestCase {
 
     private static void assignBackends() {
         Backend backend1 = new Backend(testBackendId1, "node-1", 9308);
+        backend1.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend1.setBePort(9300);
         backend1.setAlive(true);
         Backend backend2 = new Backend(testBackendId2, "node-2", 9308);
+        backend2.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend2.setBePort(9300);
         backend2.setAlive(true);
         Backend backend3 = new Backend(testBackendId3, "node-3", 9308);
+        backend3.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend3.setBePort(9300);
         backend3.setAlive(true);
         Env.getCurrentSystemInfo().addBackend(backend1);

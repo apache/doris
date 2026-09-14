@@ -17,6 +17,7 @@
 
 package org.apache.doris.system;
 
+import org.apache.doris.binlog.RowBinlogTtlDiscovery;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.ClientPool;
@@ -67,6 +68,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -80,6 +82,11 @@ public class HeartbeatMgr extends MasterDaemon {
     private SystemInfoService nodeMgr;
     private HeartbeatFlags heartbeatFlags;
     private final ExecutorService abortTxnExecutor;
+    private final ExecutorService rowBinlogTtlExecutor;
+    private final AtomicBoolean rowBinlogTtlRefreshPending = new AtomicBoolean();
+    private final RowBinlogTtlDiscovery rowBinlogTtlDiscovery = new RowBinlogTtlDiscovery();
+    private long lastRowBinlogTtlRefreshMs;
+
 
     private static volatile AtomicReference<TMasterInfo> masterInfo = new AtomicReference<>();
 
@@ -90,6 +97,8 @@ public class HeartbeatMgr extends MasterDaemon {
                 Config.heartbeat_mgr_blocking_queue_size, "heartbeat-mgr-pool", needRegisterMetric);
         this.abortTxnExecutor = ThreadPoolManager.newDaemonFixedThreadPool(1,
                 Config.heartbeat_mgr_blocking_queue_size, "abort-txn-executor", needRegisterMetric);
+        this.rowBinlogTtlExecutor = ThreadPoolManager.newDaemonFixedThreadPool(1, 1,
+                "row-binlog-ttl-reference", needRegisterMetric);
         this.heartbeatFlags = new HeartbeatFlags();
     }
 
@@ -109,6 +118,29 @@ public class HeartbeatMgr extends MasterDaemon {
         masterInfo.set(tMasterInfo);
     }
 
+    // Called by the dedicated refresh worker, never by a heartbeat sender. The CAS discards
+    // a result acquired across a master transition (setMaster replaces the object).
+    public static boolean refreshRowBinlogTtlReferenceTso() {
+        TMasterInfo before = masterInfo.get();
+        if (before == null || !Config.enable_feature_binlog) {
+            return false;
+        }
+        try {
+            RowTtlFeatureGate.ensureRowBinlogTtlSupported();
+            long tso = Env.getCurrentTSOService().getTSO();
+            if (tso <= 0) {
+                LOG.warn("Ignore non-positive row binlog TTL reference TSO: {}", tso);
+                return false;
+            }
+            TMasterInfo after = new TMasterInfo(before);
+            after.setRowBinlogTtlReferenceTso(Math.max(before.getRowBinlogTtlReferenceTso(), tso));
+            return masterInfo.compareAndSet(before, after);
+        } catch (UserException | RuntimeException e) {
+            LOG.warn("Failed to refresh row binlog TTL reference; keep previous boundary", e);
+            return false;
+        }
+    }
+
     /**
      * At each round:
      * 1. send heartbeat to all nodes
@@ -116,6 +148,19 @@ public class HeartbeatMgr extends MasterDaemon {
      */
     @Override
     protected void runAfterCatalogReady() {
+        long now = System.currentTimeMillis();
+        if (now - lastRowBinlogTtlRefreshMs >= 15000 && rowBinlogTtlRefreshPending.compareAndSet(false, true)) {
+            lastRowBinlogTtlRefreshMs = now;
+            rowBinlogTtlExecutor.submit(() -> {
+                try {
+                    if (Env.getCurrentEnv().isMaster() && refreshRowBinlogTtlReferenceTso()) {
+                        rowBinlogTtlDiscovery.discover();
+                    }
+                } finally {
+                    rowBinlogTtlRefreshPending.set(false);
+                }
+            });
+        }
         if (Config.isCloudMode() && masterInfo.get() != null) {
             masterInfo.get().setMetaServiceEndpoint(Config.meta_service_endpoint);
         }
@@ -328,6 +373,7 @@ public class HeartbeatMgr extends MasterDaemon {
                     backendInfo.setBrpcPort(4);
                     backendInfo.setArrowFlightSqlPort(8);
                     backendInfo.setVersion("test-1234");
+                    backendInfo.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
                     result = new THeartbeatResult();
                     result.setStatus(new TStatus(TStatusCode.OK));
                     result.setBackendInfo(backendInfo);
@@ -372,9 +418,12 @@ public class HeartbeatMgr extends MasterDaemon {
                         isShutDown = tBackendInfo.isIsShutdown();
                     }
                     long beMemory = tBackendInfo.isSetBeMem() ? tBackendInfo.getBeMem() : 0;
-                    return new BackendHbResponse(backendId, bePort, httpPort, brpcPort,
+                    BackendHbResponse response = new BackendHbResponse(backendId, bePort, httpPort, brpcPort,
                             System.currentTimeMillis(), beStartTime, version, nodeRole,
                             fragmentNum, lastFragmentUpdateTime, isShutDown, arrowFlightSqlPort, beMemory);
+                    response.setNodeFeatureFlags(tBackendInfo.isSetNodeFeatureFlags()
+                            ? tBackendInfo.getNodeFeatureFlags() : 0);
+                    return response;
                 } else {
                     return new BackendHbResponse(backendId, backend.getHost(), backend.getLastUpdateMs(),
                             result.getStatus().getErrorMsgs().isEmpty()
@@ -414,12 +463,15 @@ public class HeartbeatMgr extends MasterDaemon {
             if (fe.getHost().equals(selfNode.getHost())) {
                 // heartbeat to self
                 if (Env.getCurrentEnv().isReady()) {
-                    return new FrontendHbResponse(fe.getNodeName(), Config.query_port, Config.rpc_port,
+                    FrontendHbResponse response = new FrontendHbResponse(
+                            fe.getNodeName(), Config.query_port, Config.rpc_port,
                             Config.arrow_flight_sql_port, Env.getCurrentEnv().getMaxJournalId(),
                             System.currentTimeMillis(),
                             Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH,
                             ExecuteEnv.getInstance().getStartupTime(), ExecuteEnv.getInstance().getDiskInfos(),
                             ExecuteEnv.getInstance().getProcessUUID(), Config.local_resource_group);
+                    response.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
+                    return response;
                 } else {
                     return new FrontendHbResponse(fe.getNodeName(), "not ready");
                 }
@@ -439,11 +491,14 @@ public class HeartbeatMgr extends MasterDaemon {
                 TFrontendPingFrontendResult result = client.ping(request);
                 ok = true;
                 if (result.getStatus() == TFrontendPingFrontendStatusCode.OK) {
-                    return new FrontendHbResponse(fe.getNodeName(), result.getQueryPort(),
+                    FrontendHbResponse response = new FrontendHbResponse(fe.getNodeName(), result.getQueryPort(),
                             result.getRpcPort(), result.getArrowFlightSqlPort(), result.getReplayedJournalId(),
                             System.currentTimeMillis(), result.getVersion(), result.getLastStartupTime(),
                             FeDiskInfo.fromThrifts(result.getDiskInfos()), result.getProcessUUID(),
                             result.getLocalResourceGroup());
+                    response.setNodeFeatureFlags(result.isSetNodeFeatureFlags()
+                            ? result.getNodeFeatureFlags() : 0);
+                    return response;
                 } else {
                     return new FrontendHbResponse(fe.getNodeName(), result.getMsg());
                 }

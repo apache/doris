@@ -277,6 +277,9 @@ public class MetaServiceProxy {
                         case DEADLINE_EXCEEDED:
                             shouldRetry = tried <= Config.meta_service_rpc_timeout_retry_times;
                             break;
+                        case UNIMPLEMENTED:
+                            shouldRetry = "getMetaServiceCapability".equals(methodName);
+                            break;
                         default:
                             shouldRetry = false;
                     }
@@ -400,6 +403,13 @@ public class MetaServiceProxy {
     public Cloud.CreateTabletsResponse createTablets(Cloud.CreateTabletsRequest request) throws RpcException {
         return executeWithMetrics("createTablets", (client) -> client.createTablets(request),
                 Cloud.CreateTabletsResponse::getStatus);
+    }
+
+    public Cloud.GetMetaServiceCapabilityResponse getMetaServiceCapability(
+            Cloud.GetMetaServiceCapabilityRequest request) throws RpcException {
+        return executeWithMetrics("getMetaServiceCapability",
+                (client) -> client.getMetaServiceCapability(request),
+                Cloud.GetMetaServiceCapabilityResponse::getStatus);
     }
 
     public Cloud.UpdateTabletResponse updateTablet(Cloud.UpdateTabletRequest request) throws RpcException {

@@ -168,6 +168,11 @@ public:
                                  GetTableStreamOffsetResponse* response,
                                  ::google::protobuf::Closure* done) override;
 
+    void get_meta_service_capability(::google::protobuf::RpcController* controller,
+                                     const GetMetaServiceCapabilityRequest* request,
+                                     GetMetaServiceCapabilityResponse* response,
+                                     ::google::protobuf::Closure* done) override;
+
     void batch_get_version(::google::protobuf::RpcController* controller,
                            const GetVersionRequest* request, GetVersionResponse* response,
                            ::google::protobuf::Closure* done);
@@ -652,6 +657,14 @@ public:
                                  GetTableStreamOffsetResponse* response,
                                  ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_table_stream_offset, controller, request, response,
+                  done);
+    }
+
+    void get_meta_service_capability(::google::protobuf::RpcController* controller,
+                                     const GetMetaServiceCapabilityRequest* request,
+                                     GetMetaServiceCapabilityResponse* response,
+                                     ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::get_meta_service_capability, controller, request, response,
                   done);
     }
 

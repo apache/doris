@@ -24,6 +24,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.spi.BackendSelectionProvider;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.AfterEach;
@@ -671,6 +672,7 @@ class BackendSelectionManagerTest {
 
     private Backend availableBackend(long id) {
         Backend backend = new Backend(id, "127.0.0." + id, 9050);
+        backend.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend.setAlive(true);
         return backend;
     }

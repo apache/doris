@@ -52,6 +52,7 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.thrift.TStorageMedium;
@@ -137,6 +138,7 @@ public class InternalCatalogTest {
 
     private Backend createBackend(long backendId, String host) {
         Backend backend = new Backend(backendId, host, 9050);
+        backend.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         DiskInfo diskInfo = new DiskInfo("/path/to/disk1/");
         diskInfo.setAvailableCapacityB(2L << 40);
         diskInfo.setTotalCapacityB(2L << 40);

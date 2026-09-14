@@ -319,14 +319,15 @@ public class CloudRestoreJob extends RestoreJob {
 
     @Override
     protected DownloadTask createDownloadTask(long beId, long signature, long jobId, long dbId,
-                                              Map<String, String> srcToDest, FsBroker brokerAddr) {
+            Map<String, String> srcToDest, FsBroker brokerAddr, boolean rowTtlTask) {
         if (Strings.isNullOrEmpty(storageVaultId)) {
             storageVaultId = snapshotInfos.values().iterator().next().getStorageVaultId();
         }
         Preconditions.checkState(storageVaultId != null, "Storage vault ID cannot be null");
         return new DownloadTask(null, beId, signature, jobId, dbId, srcToDest,
             brokerAddr, repo.getFileSystemDescriptor().getBackendConfigProperties(),
-            repo.getFileSystemDescriptor().getThriftStorageType(), repo.getLocation(), storageVaultId);
+            repo.getFileSystemDescriptor().getThriftStorageType(), repo.getLocation(), storageVaultId,
+            rowTtlTask);
     }
 
     public void downloadLocalSnapshots() {
@@ -428,6 +429,9 @@ public class CloudRestoreJob extends RestoreJob {
                                     localTbl.getCompressionType(), localTbl.getStorageFormat(),
                                     localTbl.getStoragePolicy(),
                                     localTbl.isInMemory(), false, localTbl.getName(), localTbl.getTTLSeconds(),
+                                    localTbl.getRowTtlDurationMicros(),
+                                    localTbl.getRowTtlTimeZoneOffsetSeconds(),
+                                    true,
                                     !indexMeta.isRowBinlogIndex() && localTbl.getEnableUniqueKeyMergeOnWrite(),
                                     localTbl.storeRowColumn(),
                                     localTbl.getBaseSchemaVersion(), localTbl.getBinlogConfig(),

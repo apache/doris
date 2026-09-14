@@ -1124,6 +1124,41 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     auto stats = response->mutable_stats();
 
     CloneChainReader meta_reader(instance_id, resource_mgr);
+    if (compaction.has_row_binlog_ttl_seconds()) {
+        doris::TabletMetaCloudPB tablet_meta;
+        TxnErrorCode err;
+        if (is_versioned_read) {
+            err = meta_reader.get_tablet_meta(txn.get(), tablet_id, &tablet_meta, nullptr);
+        } else {
+            std::string value;
+            err = txn->get(
+                    meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id}),
+                    &value);
+            if (err == TxnErrorCode::TXN_OK && !tablet_meta.ParseFromString(value)) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = "failed to parse tablet metadata for ROW binlog TTL";
+                return;
+            }
+        }
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = "failed to read tablet metadata for ROW binlog TTL";
+            return;
+        }
+        const auto& config = tablet_meta.binlog_config();
+        int64_t ttl = -1;
+        if (config.has_effective_row_ttl_seconds()) {
+            ttl = config.effective_row_ttl_seconds();
+        } else if (config.row_ttl_enabled()) {
+            ttl = config.ttl_seconds();
+        }
+        if (!config.enable() || config.binlog_format() != doris::BinlogFormatPB::ROW || ttl < 0 ||
+            ttl != compaction.row_binlog_ttl_seconds()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "ROW binlog TTL changed during compaction; retry with current configuration";
+            return;
+        }
+    }
     TabletStats detached_stats;
     if (is_versioned_read) {
         // The compact stats = tablet stats, the load stats = detached stats

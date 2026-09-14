@@ -68,6 +68,7 @@ public class AlterReplicaTask extends AgentTask {
 
     private TQueryOptions queryOptions;
     private TQueryGlobals queryGlobals;
+    private final boolean rowTtlTask;
     /**
      * AlterReplicaTask constructor.
      *
@@ -94,12 +95,18 @@ public class AlterReplicaTask extends AgentTask {
         this.whereClause = whereClause;
         this.descTable = descTable;
         this.baseSchemaColumns = baseSchemaColumns;
+        this.rowTtlTask = baseSchemaColumns != null && baseSchemaColumns.stream().anyMatch(Column::isTtlColumn);
         this.objectPool = objectPool;
         this.expiration = expiration;
         this.vaultId = vaultId;
 
         this.queryOptions = queryOptions;
         this.queryGlobals = queryGlobals;
+    }
+
+    @Override
+    public boolean isRowTtlTask() {
+        return rowTtlTask;
     }
 
     public long getBaseTabletId() {

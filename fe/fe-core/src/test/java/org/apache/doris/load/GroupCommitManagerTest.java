@@ -23,6 +23,7 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.AfterEach;
@@ -181,6 +182,7 @@ public class GroupCommitManagerTest {
 
     private Backend createBackend(long id, String physicalCluster) {
         Backend backend = new Backend(id, "127.0.0.1", 9050);
+        backend.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend.setCloudClusterName(physicalCluster);
         backend.setAlive(true);
         return backend;

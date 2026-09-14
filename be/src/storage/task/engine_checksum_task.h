@@ -27,12 +27,16 @@
 
 namespace doris {
 class StorageEngine;
+class TabletSchema;
 
 // base class for storage engine
 // add "Engine" as task prefix to prevent duplicate name with agent task
 class EngineChecksumTask final : public EngineTask {
 public:
     Status execute() override;
+
+    static bool is_supported(const TabletSchema& tablet_schema);
+    static Status check_supported(const TabletSchema& tablet_schema, TTabletId tablet_id);
 
     EngineChecksumTask(StorageEngine& engine, TTabletId tablet_id, TSchemaHash schema_hash,
                        TVersion version, uint32_t* checksum);

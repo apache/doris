@@ -189,8 +189,7 @@ Status RowsetBuilder::check_tablet_version_count() {
     }
     // (TODO Refrain) Maybe we can use a configurable param instead of hardcoded values '100'.
     // max_version_config must > 100, otherwise silent errors will occur.
-    if ((!config::disable_auto_compaction &&
-         !_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) &&
+    if ((!config::disable_auto_compaction && !_tablet->tablet_meta()->disable_auto_compaction()) &&
         (version_count > max_version_config - 100) &&
         !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         // Trigger compaction
@@ -497,7 +496,9 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
                 table_schema_param->is_strict_mode(), table_schema_param->timestamp_ms(),
                 table_schema_param->nano_seconds(), table_schema_param->timezone(),
                 table_schema_param->auto_increment_coulumn(),
-                table_schema_param->sequence_map_col_uid(), _max_version_in_flush_phase));
+                table_schema_param->sequence_map_col_uid(), _max_version_in_flush_phase,
+                table_schema_param->row_ttl_source_column_uid(),
+                table_schema_param->row_ttl_source_column()));
     }
     return Status::OK();
 }

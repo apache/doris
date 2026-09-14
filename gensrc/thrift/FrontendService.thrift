@@ -885,6 +885,8 @@ struct TFrontendPingFrontendResult {
     9: optional i64 processUUID
     10: optional i32 arrowFlightSqlPort
     11: optional string localResourceGroup
+    // Bit set advertised by the FE. Missing on an old FE means no optional features.
+    12: optional i64 nodeFeatureFlags
 }
 
 struct TPropertyVal {
@@ -1370,6 +1372,11 @@ struct TGetMasterTokenResult {
     1: optional Status.TStatus status
     2: optional string token
     3: optional Types.TNetworkAddress master_address
+}
+
+struct TGetCurrentTsoResult {
+    1: required Status.TStatus status
+    2: optional i64 tso
 }
 
 typedef TGetBinlogRequest TGetBinlogLagRequest
@@ -2076,6 +2083,8 @@ service FrontendService {
     TGetTabletReplicaInfosResult getTabletReplicaInfos(1: TGetTabletReplicaInfosRequest request)
 
     TGetMasterTokenResult getMasterToken(1: TGetMasterTokenRequest request)
+
+    TGetCurrentTsoResult getCurrentTso()
 
     TGetBinlogLagResult getBinlogLag(1: TGetBinlogLagRequest request)
 

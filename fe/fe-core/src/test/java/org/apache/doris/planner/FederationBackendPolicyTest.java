@@ -27,6 +27,7 @@ import org.apache.doris.datasource.split.FileSplit;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.ArrayListMultimap;
@@ -72,12 +73,15 @@ public class FederationBackendPolicyTest {
         SystemInfoService service = new SystemInfoService();
 
         Backend backend1 = new Backend(10002L, "172.30.0.100", 9050);
+        backend1.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend1.setAlive(true);
         service.addBackend(backend1);
         Backend backend2 = new Backend(10003L, "172.30.0.106", 9050);
+        backend2.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend2.setAlive(true);
         service.addBackend(backend2);
         Backend backend3 = new Backend(10004L, "172.30.0.118", 9050);
+        backend3.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend3.setAlive(true);
         service.addBackend(backend3);
 
@@ -118,12 +122,15 @@ public class FederationBackendPolicyTest {
         SystemInfoService service = new SystemInfoService();
 
         Backend backend1 = new Backend(30002L, "172.30.0.100", 9050);
+        backend1.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend1.setAlive(true);
         service.addBackend(backend1);
         Backend backend2 = new Backend(30003L, "172.30.0.106", 9050);
+        backend2.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend2.setAlive(true);
         service.addBackend(backend2);
         Backend backend3 = new Backend(30004L, "172.30.0.118", 9050);
+        backend3.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend3.setAlive(true);
         service.addBackend(backend3);
 
@@ -191,12 +198,15 @@ public class FederationBackendPolicyTest {
         SystemInfoService service = new SystemInfoService();
 
         Backend backend1 = new Backend(10002L, "172.30.0.100", 9050);
+        backend1.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend1.setAlive(true);
         service.addBackend(backend1);
         Backend backend2 = new Backend(10003L, "172.30.0.106", 9050);
+        backend2.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend2.setAlive(true);
         service.addBackend(backend2);
         Backend backend3 = new Backend(10004L, "172.30.0.118", 9050);
+        backend3.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend3.setAlive(true);
         service.addBackend(backend3);
 
@@ -287,6 +297,7 @@ public class FederationBackendPolicyTest {
             } while (!backendIds.add(backendId));
 
             Backend backend = new Backend(backendId, ipAddress, 9050);
+            backend.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
             backend.setAlive(true);
             service.addBackend(backend);
         }
@@ -398,6 +409,7 @@ public class FederationBackendPolicyTest {
             } while (!backendIds.add(backendId));
 
             Backend backend = new Backend(backendId, ipAddress, 9050);
+            backend.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
             if (i % 2 == 0) {
                 ++aliveBackendNum;
                 backend.setAlive(true);
@@ -527,12 +539,15 @@ public class FederationBackendPolicyTest {
         SystemInfoService service = new SystemInfoService();
 
         Backend backend1 = new Backend(10002L, "172.30.0.100", 9050);
+        backend1.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend1.setAlive(true);
         service.addBackend(backend1);
         Backend backend2 = new Backend(10003L, "172.30.0.106", 9050);
+        backend2.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend2.setAlive(true);
         service.addBackend(backend2);
         Backend backend3 = new Backend(10004L, "172.30.0.118", 9050);
+        backend3.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend3.setAlive(true);
         service.addBackend(backend3);
 
@@ -615,6 +630,7 @@ public class FederationBackendPolicyTest {
             // add a node
             {
             Backend backend4 = new Backend(10004L, "172.30.0.128", 9050);
+            backend4.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
             backend4.setAlive(true);
             service.addBackend(backend4);
             int changed = 0;
@@ -691,12 +707,15 @@ public class FederationBackendPolicyTest {
         SystemInfoService service = new SystemInfoService();
 
         Backend backend1 = new Backend(1L, "172.30.0.100", 9050);
+        backend1.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend1.setAlive(true);
         service.addBackend(backend1);
         Backend backend2 = new Backend(2L, "172.30.0.106", 9050);
+        backend2.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend2.setAlive(true);
         service.addBackend(backend2);
         Backend backend3 = new Backend(3L, "172.30.0.118", 9050);
+        backend3.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend3.setAlive(true);
         service.addBackend(backend3);
 

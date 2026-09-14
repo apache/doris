@@ -26,6 +26,7 @@ import org.apache.doris.common.ThriftUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TAgentTaskRequest;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -109,6 +110,11 @@ public class AgentBoundedBatchTask extends AgentBatchTask {
                     if (backend == null) {
                         errMsg = String.format("backend %d is not found", backendId);
                         throw new RuntimeException(errMsg);
+                    }
+                    if ((backend.isNodeFeatureIncompatible()
+                            || !backend.supportsNodeFeature(NodeFeature.ROW_TTL))
+                            && tasks.stream().anyMatch(AgentBatchTask::isRowTtlTask)) {
+                        throw new IllegalStateException("backend " + backendId + " does not support Row TTL");
                     }
                     if (!backend.isAlive()) {
                         errMsg = String.format("backend %d is not alive", backendId);

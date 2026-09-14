@@ -28,6 +28,14 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
     def mowPartialTable = "changes_mow_partial"
     def mowBitmapTable = "changes_mow_bitmap"
     def incrTimeFormat = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+    // INCR bounds use the FE's published TSO time. The test runner's wall clock
+    // can already be in the next second while that time is still catching up.
+    def currentIncrTime = {
+        def physicalTime = Long.parseLong(sql("""
+            SELECT CURRENT_TSO_PHYSICAL_TIME FROM information_schema.tso_status
+        """)[0][0].toString())
+        incrTimeFormat.format(new Date(physicalTime))
+    }
 
     try {
         sql "DROP TABLE IF EXISTS ${dupTable}"
@@ -73,14 +81,14 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
         sql "INSERT INTO ${dupTable} VALUES (2, 20, 'b', 'x')"
         sql "sync"
         sleep(1200)
-        def dupT0 = incrTimeFormat.format(new Date())
+        def dupT0 = currentIncrTime()
         sleep(1200)
         sql "INSERT INTO ${dupTable} VALUES (3, 30, 'c', 'y')"
         sql "INSERT INTO ${dupTable} VALUES (4, 40, NULL, 'z')"
         sql "INSERT INTO ${dupTable} VALUES (3, 31, 'c2', NULL)"
         sql "sync"
         sleep(1200)
-        def dupT1 = incrTimeFormat.format(new Date())
+        def dupT1 = currentIncrTime()
         sleep(1200)
         sql "INSERT INTO ${dupTable} VALUES (5, 50, 'd', 'w')"
         sql "sync"
@@ -163,10 +171,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
 
         //  - CURRENT_TSO_PHYSICAL_TIME converted to an INCR timestamp is accepted.
         sleep(1200)
-        def currentTsoPhysicalTime = Long.parseLong(sql("""
-            SELECT CURRENT_TSO_PHYSICAL_TIME FROM information_schema.tso_status
-        """)[0][0].toString())
-        def currentTsoEnd = incrTimeFormat.format(new Date(currentTsoPhysicalTime))
+        def currentTsoEnd = currentIncrTime()
         order_qt_dup_full_cover """
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${dupTable}@incr('startTimestamp' = '1971-01-01 00:00:00',
@@ -242,7 +247,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
         sql "INSERT INTO ${mowTable} VALUES (3, 30, 'c')"
         sql "sync"
         sleep(1200)
-        def mowT0 = incrTimeFormat.format(new Date())
+        def mowT0 = currentIncrTime()
         sleep(1200)
 
         // key=1: three update rounds spread across rowsets.
@@ -263,7 +268,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
         sql "sync"
 
         sleep(1200)
-        def mowT1 = incrTimeFormat.format(new Date())
+        def mowT1 = currentIncrTime()
         sleep(1200)
         sql "INSERT INTO ${mowTable} VALUES (6, 60, 'f')"
         sql "sync"
@@ -413,10 +418,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
         // 2.9 CURRENT_TSO_PHYSICAL_TIME converted to an INCR timestamp covers
         //     all changes that were visible before it was captured.
         sleep(1200)
-        def mowCurrentTsoPhysicalTime = Long.parseLong(sql("""
-            SELECT CURRENT_TSO_PHYSICAL_TIME FROM information_schema.tso_status
-        """)[0][0].toString())
-        def mowCurrentTsoEnd = incrTimeFormat.format(new Date(mowCurrentTsoPhysicalTime))
+        def mowCurrentTsoEnd = currentIncrTime()
         order_qt_mow_full_cover """
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${mowTable}@incr('startTimestamp' = '1971-01-01 00:00:00',
@@ -468,7 +470,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
         """
         sql "sync"
         sleep(1200)
-        def seqT0 = incrTimeFormat.format(new Date())
+        def seqT0 = currentIncrTime()
         sleep(1200)
         // Out-of-order: smaller seq is physically rejected and is NOT recorded
         // by binlog. Final visible value should be (300, seq=10).
@@ -482,7 +484,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
         """
         sql "sync"
         sleep(1200)
-        def seqT1 = incrTimeFormat.format(new Date())
+        def seqT1 = currentIncrTime()
         sleep(1200)
 
         // 3.1 DETAIL only captures physically-applied writes. The out-of-order
@@ -534,7 +536,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
         sql "INSERT INTO ${mowPartialTable} VALUES (1, 10, 'a', 1000)"
         sql "sync"
         sleep(1200)
-        def partT0 = incrTimeFormat.format(new Date())
+        def partT0 = currentIncrTime()
         sleep(1200)
         sql "SET enable_unique_key_partial_update = true"
         sql "INSERT INTO ${mowPartialTable}(id, v1) VALUES (1, 11)"
@@ -543,7 +545,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
         sql "SET enable_unique_key_partial_update = false"
         sql "sync"
         sleep(1200)
-        def partT1 = incrTimeFormat.format(new Date())
+        def partT1 = currentIncrTime()
 
         // 4.1 DETAIL: 3 partial updates -> 6 raw binlog rows.
         order_qt_part_detail """
@@ -603,12 +605,12 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
         sql "INSERT INTO ${mowBitmapTable} VALUES (1, BITMAP_FROM_STRING('1,2'))"
         sql "sync"
         sleep(1200)
-        def bitmapT0 = incrTimeFormat.format(new Date())
+        def bitmapT0 = currentIncrTime()
         sleep(1200)
         sql "INSERT INTO ${mowBitmapTable} VALUES (1, BITMAP_FROM_STRING('3,4'))"
         sql "sync"
         sleep(1200)
-        def bitmapT1 = incrTimeFormat.format(new Date())
+        def bitmapT1 = currentIncrTime()
 
         order_qt_bitmap_min_delta """
             SELECT id, BITMAP_TO_STRING(b), __DORIS_BINLOG_OP__
@@ -622,12 +624,12 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
         // retain an equal-value UPDATE instead of failing the query or suppressing an unproven
         // no-op.
         sleep(1200)
-        def bitmapEqualT0 = incrTimeFormat.format(new Date())
+        def bitmapEqualT0 = currentIncrTime()
         sleep(1200)
         sql "INSERT INTO ${mowBitmapTable} VALUES (1, BITMAP_FROM_STRING('3,4'))"
         sql "sync"
         sleep(1200)
-        def bitmapEqualT1 = incrTimeFormat.format(new Date())
+        def bitmapEqualT1 = currentIncrTime()
 
         order_qt_bitmap_equal_min_delta """
             SELECT id, BITMAP_TO_STRING(b), __DORIS_BINLOG_OP__
