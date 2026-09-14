@@ -1530,7 +1530,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             Map<String, String> spec = partition.spec();
             // Both lists are driven by partitionKeys (the partition-COLUMN order), NOT Paimon's spec
             // iteration order, so index i aligns with the partition-column type i that fe-core
-            // (PluginDrivenMvccExternalTable.toListPartitionItem) zips them against.
+            // (PluginDrivenExternalTable.toListPartitionItem) zips them against.
             // Per-value SQL-NULL flags:
             List<Boolean> nullFlags = new ArrayList<>(partitionKeys.size());
             // Ordered rendered values, supplied so fe-core never parses values back out of the name:
@@ -1553,7 +1553,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 String rendered;
                 if (isNull) {
                     // Genuine NULL partition value. Supply isNull=true so the FE bridge
-                    // (PluginDrivenMvccExternalTable.toListPartitionItem) builds a typed NullLiteral and
+                    // (PluginDrivenExternalTable.toListPartitionItem) builds a typed NullLiteral and
                     // `col IS NULL` selects it (MTMV refresh materializes the null rows) — aligning prune with
                     // the native scan path, which already materializes it as SQL NULL from the typed Java-null.
                     // The name is still normalized to the Doris-canonical sentinel (partition-name identity is

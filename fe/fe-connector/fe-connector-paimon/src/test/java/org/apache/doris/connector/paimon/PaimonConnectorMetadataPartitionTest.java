@@ -530,7 +530,7 @@ public class PaimonConnectorMetadataPartitionTest {
 
         // WHY: name segments AND orderedValues MUST follow the partition-COLUMN order (source, part_str,
         // pass), never Paimon's spec map order, so value i lines up with the partition-column type i that
-        // fe-core (PluginDrivenMvccExternalTable.toListPartitionItem) zips them against.
+        // fe-core (PluginDrivenExternalTable.toListPartitionItem) zips them against.
         // MUTATION: iterating spec.entrySet() -> order becomes pass/part_str/source -> red.
         Assertions.assertEquals(
                 "source=dataset%2Fteam-a%2Fsegment-01/part_str=%2Fymd%3D20260721/pass=s1",
