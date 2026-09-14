@@ -37,7 +37,7 @@ import java.util.function.Supplier;
  * query-begin pin ({@link IcebergConnectorMetadata#beginQuerySnapshot}) reads the SAME snapshot until the
  * entry expires or is invalidated by {@code REFRESH TABLE}/{@code REFRESH CATALOG}.
  *
- * <p><b>Value carries snapshotId, schemaId, specId and the resolved-empty partition style.</b>
+ * <p><b>Value carries snapshotId, schemaId, specId, table identity and the resolved-empty partition style.</b>
  * {@code beginQuerySnapshot} pins the snapshot id <i>and</i> the LATEST schema id
  * ({@code table.schema().schemaId()} — not {@code currentSnapshot().schemaId()}, mirroring legacy
  * {@code IcebergUtils.getLatestIcebergSnapshot}). A schema-only {@code ALTER} bumps the latest schema id
@@ -55,11 +55,12 @@ import java.util.function.Supplier;
  */
 final class IcebergLatestSnapshotCache {
 
-    /** Immutable atomic pin for the latest snapshot/schema/spec and its resolved-empty partition style. */
+    /** Immutable atomic pin for the latest snapshot/schema/spec, table identity and empty partition style. */
     static final class CachedSnapshot {
         final long snapshotId;
         final long schemaId;
         final int specId;
+        final String tableIdentity;
         final ConnectorMvccPartitionView.Style emptyPartitionStyle;
 
         CachedSnapshot(long snapshotId, long schemaId) {
@@ -73,8 +74,14 @@ final class IcebergLatestSnapshotCache {
 
         CachedSnapshot(long snapshotId, long schemaId, int specId,
                 ConnectorMvccPartitionView.Style emptyPartitionStyle) {
+            this(snapshotId, schemaId, specId, emptyPartitionStyle, null);
+        }
+
+        CachedSnapshot(long snapshotId, long schemaId, int specId,
+                ConnectorMvccPartitionView.Style emptyPartitionStyle, String tableIdentity) {
             this.snapshotId = snapshotId;
             this.schemaId = schemaId;
+            this.tableIdentity = tableIdentity;
             this.specId = specId;
             this.emptyPartitionStyle = emptyPartitionStyle;
         }

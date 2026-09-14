@@ -102,7 +102,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     private final PaimonLatestSnapshotCache latestSnapshotCache;
 
     // Metadata is statement-scoped: aliases sharing a data fence must also share one schema generation.
-    private final Map<PaimonTableHandle, Long> statementSchemaIds = new java.util.concurrent.ConcurrentHashMap<>();
+    private final Map<PaimonTableHandle, Optional<PaimonCatalogOps.PaimonSchemaSnapshot>> statementSchemas =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     // PERF-06: cross-query DERIVED partition-view cache A (generic ConnectorMetadataCache), injected by the
     // owning PaimonConnector; null = no cross-query derived layer (the convenience/test ctors used by ~15
@@ -312,15 +313,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         // resolved table -- and its schemaAt read -- is byte-for-byte unchanged.
         PaimonTableHandle pinned = (PaimonTableHandle) applySnapshot(session, paimonHandle, snapshot);
         Table table = resolveTable(pinned);
-        // FIX-B-MC2: memoize the schemaAt schema-file read across queries. resolveTable + buildTableSchema
-        // still run every query (keeping the live coreOptions/properties current); only the schemaAt
-        // round-trip is skipped on a repeat. The memo is keyed by (pinned-handle-identity, schemaId) -- a
-        // pure function -- and owned by the per-catalog PaimonConnector. Key on the PINNED handle (which
-        // carries branchName in equals/hashCode) so a branch@schemaId and a base@same-schemaId cannot
-        // collide in this long-lived memo. resolveTable runs ONCE, outside the loader.
-        PaimonCatalogOps.PaimonSchemaSnapshot schema =
-                schemaAtMemo.getOrLoad(pinned, schemaId,
-                        () -> readSchemaAuthenticated(() -> catalogOps.schemaAt(table, schemaId)));
+        // Branch identity must be applied before consulting either statement or historical schemas.
+        PaimonCatalogOps.PaimonSchemaSnapshot schema = schemaForPin(pinned, table, schemaId);
         return buildTableSchema(
                 paimonHandle.getTableName(),
                 table,
@@ -603,10 +597,22 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     }
 
     private long statementSchemaId(PaimonTableHandle handle, Table table) {
-        return statementSchemaIds.computeIfAbsent(handle,
-                ignored -> readSchemaAuthenticated(() -> catalogOps.latestSchema(table))
-                        .map(PaimonCatalogOps.PaimonSchemaSnapshot::schemaId)
-                        .orElse(-1L));
+        return statementSchemas.computeIfAbsent(handle,
+                ignored -> readSchemaAuthenticated(() -> catalogOps.latestSchema(table)))
+                .map(PaimonCatalogOps.PaimonSchemaSnapshot::schemaId)
+                .orElse(-1L);
+    }
+
+    private PaimonCatalogOps.PaimonSchemaSnapshot schemaForPin(PaimonTableHandle handle, Table table, long schemaId) {
+        // External recreation can reuse a schema ID. Latest pins must retain the actual statement
+        // schema instead of consulting the name/ID-keyed historical memo from an earlier table.
+        Optional<PaimonCatalogOps.PaimonSchemaSnapshot> captured =
+                statementSchemas.getOrDefault(handle, Optional.empty());
+        if (captured.isPresent() && captured.get().schemaId() == schemaId) {
+            return captured.get();
+        }
+        return schemaAtMemo.getOrLoad(handle, schemaId,
+                () -> readSchemaAuthenticated(() -> catalogOps.schemaAt(table, schemaId)));
     }
 
     @Override
@@ -1221,9 +1227,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      * ({@link #getColumnHandles(ConnectorSession, ConnectorTableHandle)}) when there is no pinned
      * schema id (null snapshot or {@code schemaId < 0}).
      *
-     * <p>Keys the handles by the PINNED names via the SAME memoized {@link PaimonCatalogOps#schemaAt}
-     * read the at-snapshot {@link #getTableSchema(ConnectorSession, ConnectorTableHandle,
-     * ConnectorMvccSnapshot)} uses, so the handle names equal the pinned Doris schema the query slots
+     * <p>Keys handles by the same captured latest schema or memoized historical schema used by
+     * {@link #getTableSchema(ConnectorSession, ConnectorTableHandle, ConnectorMvccSnapshot)},
+     * so the handle names equal the pinned Doris schema the query slots
      * were bound to. Without this, a time-travel read across a RENAME would key the handles by the
      * latest names, the renamed column's pinned-name slot would miss the map and be silently dropped,
      * and the paimon field-id dict would omit that BE scan slot -&gt; BE StructNode out_of_range crash.</p>
@@ -1255,12 +1261,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         // version/tag/time pin only threads scan options resolveTable ignores -> table unchanged.
         PaimonTableHandle pinned = (PaimonTableHandle) applySnapshot(session, paimonHandle, snapshot);
         Table table = resolveTable(pinned);
-        // Key the memo on the PINNED handle (carries branchName in equals/hashCode): schemaAtMemo is
-        // per-catalog and long-lived, so keying on the base handle would let a branch@schemaId poison a
-        // later base@same-schemaId read (each has its own independently-evolved schema-<id>).
-        PaimonCatalogOps.PaimonSchemaSnapshot schema =
-                schemaAtMemo.getOrLoad(pinned, schemaId,
-                        () -> readSchemaAuthenticated(() -> catalogOps.schemaAt(table, schemaId)));
+        // Use the same captured schema as slot binding, including its branch identity.
+        PaimonCatalogOps.PaimonSchemaSnapshot schema = schemaForPin(pinned, table, schemaId);
         return buildColumnHandles(schema.fields(), true);
     }
 

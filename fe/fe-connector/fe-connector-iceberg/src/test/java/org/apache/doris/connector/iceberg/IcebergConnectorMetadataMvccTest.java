@@ -26,17 +26,24 @@ import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.StaticTableOperations;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
+import org.apache.iceberg.inmemory.InMemoryFileIO;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.util.JsonUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -254,14 +261,30 @@ public class IcebergConnectorMetadataMvccTest {
     }
 
     @Test
-    public void latestCacheHitFallsBackWhenRecreatedTableLacksPinnedSpec() {
+    public void latestCacheRejectsRecreatedTableWithMissingSpec() {
+        checkRecreatedTablePin(false, false);
+    }
+
+    @Test
+    public void latestCacheRejectsRecreatedTableWithReusedSpec() {
+        checkRecreatedTablePin(true, false);
+    }
+
+    @Test
+    public void latestCacheRejectsRecreatedTableWithReusedSchemaAndSpec() {
+        checkRecreatedTablePin(true, true);
+    }
+
+    private void checkRecreatedTablePin(boolean reuseSpec, boolean reuseSchema) {
         InMemoryCatalog catalog = new InMemoryCatalog();
         catalog.initialize("test", Collections.emptyMap());
         catalog.createNamespace(Namespace.of("db1"));
         TableIdentifier id = TableIdentifier.of("db1", "t1");
         Table original = catalog.createTable(id, PARTITIONED_SCHEMA,
                 PartitionSpec.builderFor(PARTITIONED_SCHEMA).day("ts").build());
-        original.updateSchema().renameColumn("ts", "old_ts").commit();
+        if (!reuseSchema) {
+            original.updateSchema().renameColumn("ts", "old_ts").commit();
+        }
         original.updateSpec().addField("id").commit();
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.table = original;
@@ -276,18 +299,54 @@ public class IcebergConnectorMetadataMvccTest {
                 Types.NestedField.optional(2, "new_ts", Types.TimestampType.withoutZone()));
         ops.table = catalog.createTable(id, replacementSchema,
                 PartitionSpec.builderFor(replacementSchema).day("new_ts").build());
+        if (reuseSpec) {
+            ops.table.updateSpec().addField("id").commit();
+            ops.table.updateSpec().removeField("new_ts_day").commit();
+            Assertions.assertEquals(2, ops.table.spec().specId());
+        }
         IcebergConnectorMetadata nextQuery = new IcebergConnectorMetadata(
                 ops, properties, new RecordingConnectorContext(), cache);
         ConnectorMvccSnapshot cached = nextQuery.beginQuerySnapshot(null, handle()).get();
         Assertions.assertEquals(first.getProperties(), cached.getProperties());
-        Assertions.assertFalse(ops.table.schemas().containsKey((int) cached.getSchemaId()));
-        Assertions.assertFalse(ops.table.specs().containsKey(1));
-        ConnectorTableSchema schema = nextQuery.getTableSchema(null, handle(), cached);
+        Assertions.assertEquals(reuseSchema, ops.table.schemas().containsKey((int) cached.getSchemaId()));
+        Assertions.assertEquals(reuseSpec, ops.table.specs().containsKey(1));
+        Assertions.assertTrue(Assertions.assertThrows(DorisConnectorException.class,
+                () -> nextQuery.getTableSchema(null, handle(), cached)).getMessage().contains("retry the statement"));
+        Assertions.assertThrows(DorisConnectorException.class, () -> nextQuery.getColumnHandles(null, handle(), cached));
+        // A failed statement must evict the old pin so a retry recovers without REFRESH TABLE.
+        ConnectorMvccSnapshot retry = nextQuery.beginQuerySnapshot(null, handle()).get();
+        Assertions.assertEquals(ops.table.schema().schemaId(), retry.getSchemaId());
+        Assertions.assertEquals(Integer.toString(ops.table.spec().specId()),
+                retry.getProperties().get("iceberg.partition.spec.id"));
+        ConnectorTableSchema schema = nextQuery.getTableSchema(null, handle(), retry);
         Assertions.assertTrue(columnNames(schema).contains("new_ts"));
-        Assertions.assertEquals("new_ts", schema.getProperties().get(ConnectorTableSchema.PARTITION_COLUMNS_KEY));
-        Assertions.assertEquals("PARTITION BY LIST (DAY(`new_ts`)) ()",
-                schema.getProperties().get(ConnectorTableSchema.SHOW_PARTITION_CLAUSE_KEY));
-        Assertions.assertTrue(nextQuery.getColumnHandles(null, handle(), cached).containsKey("new_ts"));
+        Assertions.assertEquals(reuseSpec ? "id" : "new_ts",
+                schema.getProperties().get(ConnectorTableSchema.PARTITION_COLUMNS_KEY));
+        Assertions.assertTrue(nextQuery.getColumnHandles(null, handle(), retry).containsKey("new_ts"));
+    }
+
+    @Test
+    public void latestCacheRejectsChangedUuidlessMetadata() throws Exception {
+        TableMetadata metadata = TableMetadata.newTableMetadata(SCHEMA_V0, PartitionSpec.unpartitioned(),
+                "s3://bucket/table", Collections.singletonMap("format-version", "1"));
+        ObjectNode json = (ObjectNode) JsonUtil.mapper().readTree(TableMetadataParser.toJson(metadata));
+        json.remove("table-uuid");
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = new BaseTable(new StaticTableOperations(
+                TableMetadataParser.fromJson("s3://bucket/table/metadata/first.json", json), new InMemoryFileIO()),
+                "db1.t1");
+        IcebergLatestSnapshotCache cache = new IcebergLatestSnapshotCache(100, 1000);
+        IcebergConnectorMetadata reader = new IcebergConnectorMetadata(ops,
+                IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext(), cache);
+        ConnectorMvccSnapshot pin = reader.beginQuerySnapshot(null, handle()).get();
+        Assertions.assertTrue(reader.getColumnHandles(null, handle(), pin).containsKey("id"));
+        // Without a UUID, even matching numeric IDs cannot justify crossing metadata-file identities.
+        ops.table = new BaseTable(new StaticTableOperations(
+                TableMetadataParser.fromJson("s3://bucket/table/metadata/replacement.json", json), new InMemoryFileIO()),
+                "db1.t1");
+        Assertions.assertThrows(DorisConnectorException.class, () -> reader.getTableSchema(null, handle(), pin));
+        ConnectorMvccSnapshot retry = reader.beginQuerySnapshot(null, handle()).get();
+        Assertions.assertTrue(reader.getColumnHandles(null, handle(), retry).containsKey("id"));
     }
 
     @Test

@@ -54,6 +54,7 @@ import org.apache.doris.thrift.TTableType;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.PartitionField;
@@ -64,6 +65,7 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
@@ -85,6 +87,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
@@ -113,6 +116,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     // Internal sentinel property carrying a tag/branch ref name from resolveTimeTravel to applySnapshot (the
     // typed ConnectorMvccSnapshot has snapshotId/schemaId carriers but no ref field). NOT a BE scan option.
     static final String REF_PROPERTY = "iceberg.scan.ref";
+    private static final String TABLE_IDENTITY_PROPERTY = "iceberg.table.identity";
     private static final String PARTITION_SPEC_ID_PROPERTY = "iceberg.partition.spec.id";
     private static final String EMPTY_PARTITION_STYLE_PROPERTY = "iceberg.empty.partition.style";
 
@@ -484,15 +488,41 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             return getTableSchema(session, handle);
         }
         Table table = loadTable(session, iceHandle);
+        validateSnapshotTable(iceHandle, table, snapshot);
         Schema schema = resolvePinnedSchema(table, snapshot);
         String specId = snapshot.getProperties().get(PARTITION_SPEC_ID_PROPERTY);
         PartitionSpec spec = specId == null ? table.spec() : table.specs().get(Integer.parseInt(specId));
         if (spec == null) {
-            // A warm pin can outlive an external drop/recreate and refer to a spec absent from
-            // the replacement table. Match the schema lookup's missing-history fallback.
+            // Keep the legacy missing-history fallback after checking the table identity.
             spec = table.spec();
         }
         return buildTableSchema(iceHandle.getTableName(), table, schema, spec, true);
+    }
+
+    private void validateSnapshotTable(IcebergTableHandle handle, Table table, ConnectorMvccSnapshot snapshot) {
+        String identity = snapshot.getProperties().get(TABLE_IDENTITY_PROPERTY);
+        if (identity != null && !identity.equals(tableIdentity(table))) {
+            // Numeric schema/spec IDs can be reused after recreation. Reject the entire old pin;
+            // replacing only its schema or spec would still mix the new table with an old data fence.
+            if (latestSnapshotCache != null) {
+                latestSnapshotCache.invalidate(TableIdentifier.of(handle.getDbName(), handle.getTableName()));
+            }
+            throw new DorisConnectorException("Iceberg table " + handle.getDbName() + "." + handle.getTableName()
+                    + " identity changed after its snapshot was cached; retry the statement");
+        }
+    }
+
+    private static String tableIdentity(Table table) {
+        if (table instanceof HasTableOperations) {
+            TableMetadata metadata = ((HasTableOperations) table).operations().current();
+            if (metadata.uuid() != null) {
+                return metadata.uuid();
+            }
+            // Legacy V1 metadata may lack a UUID. Only the exact metadata file can safely reuse its IDs.
+            return "metadata:" + Objects.requireNonNull(metadata.metadataFileLocation(),
+                    "Iceberg table metadata location is unavailable");
+        }
+        return Objects.requireNonNull(table.uuid(), "Iceberg table UUID is unavailable").toString();
     }
 
     private static Schema resolvePinnedSchema(Table table, ConnectorMvccSnapshot snapshot) {
@@ -767,6 +797,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             return getColumnHandles(session, handle);
         }
         Table table = loadTable(session, iceHandle);
+        validateSnapshotTable(iceHandle, table, snapshot);
         return buildColumnHandles(resolvePinnedSchema(table, snapshot), true);
     }
 
@@ -2130,6 +2161,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 : loadLatestSnapshotPin(session, iceHandle);
         ConnectorMvccSnapshot.Builder snapshot = ConnectorMvccSnapshot.builder()
                 .snapshotId(pin.snapshotId).schemaId(pin.schemaId);
+        if (pin.tableIdentity != null) {
+            snapshot.property(TABLE_IDENTITY_PROPERTY, pin.tableIdentity);
+        }
         if (pin.specId >= 0) {
             snapshot.property(PARTITION_SPEC_ID_PROPERTY, Integer.toString(pin.specId));
         }
@@ -2180,7 +2214,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 : ConnectorMvccPartitionView.Style.UNPARTITIONED;
         return new IcebergLatestSnapshotCache.CachedSnapshot(
                 current == null ? -1L : current.snapshotId(), table.schema().schemaId(),
-                table.spec().specId(), emptyPartitionStyle);
+                table.spec().specId(), emptyPartitionStyle, tableIdentity(table));
     }
 
     /**

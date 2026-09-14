@@ -69,6 +69,68 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 public class PaimonStatementSchemaTest {
+
+    @Test
+    public void latestSchemaSurvivesExternalRecreationWithReusedId(@TempDir Path warehouse) throws Exception {
+        checkExternalRecreation(warehouse, false);
+    }
+
+    @Test
+    public void latestSchemaAndDataSurviveExternalRecreationWithReusedIds(@TempDir Path warehouse) throws Exception {
+        checkExternalRecreation(warehouse, true);
+    }
+
+    private void checkExternalRecreation(Path warehouse, boolean withData) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder().column("old_name", DataTypes.INT()).build(), false);
+            if (withData) {
+                append((FileStoreTable) catalog.getTable(id), GenericRow.of(1));
+            }
+            PaimonCatalogOps ops = new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(catalog);
+            PaimonCatalogProperties props = PaimonCatalogProperties.of(Collections.emptyMap());
+            PaimonSchemaAtMemo memo = new PaimonSchemaAtMemo(1000);
+            PaimonLatestSnapshotCache cache = new PaimonLatestSnapshotCache(0, 1000);
+            PaimonTableHandle firstHandle = new PaimonTableHandle("db", "t",
+                    Collections.emptyList(), Collections.emptyList());
+            firstHandle.setPaimonTable(catalog.getTable(id));
+            PaimonConnectorMetadata first = new PaimonConnectorMetadata(
+                    ops, props, new RecordingConnectorContext(), memo, cache);
+            ConnectorMvccSnapshot oldPin = first.beginQuerySnapshot(null, firstHandle).get();
+            Assertions.assertEquals("old_name", first.getTableSchema(null, firstHandle, oldPin)
+                    .getColumns().get(0).getName());
+            // Warm the historical memo independently; latest reads must not reuse it after recreation.
+            new PaimonConnectorMetadata(ops, props, new RecordingConnectorContext(), memo, cache)
+                    .getTableSchema(null, firstHandle, oldPin);
+            Assertions.assertEquals(1, memo.size());
+            catalog.dropTable(id, false);
+            catalog.createTable(id, Schema.newBuilder().column("new_name", DataTypes.INT()).build(), false);
+            if (withData) {
+                append((FileStoreTable) catalog.getTable(id), GenericRow.of(2));
+            }
+            PaimonTableHandle secondHandle = new PaimonTableHandle("db", "t",
+                    Collections.emptyList(), Collections.emptyList());
+            secondHandle.setPaimonTable(catalog.getTable(id));
+            PaimonConnectorMetadata second = new PaimonConnectorMetadata(
+                    ops, props, new RecordingConnectorContext(), memo, cache);
+            ConnectorMvccSnapshot newPin = second.beginQuerySnapshot(null, secondHandle).get();
+            Assertions.assertEquals(oldPin.getSchemaId(), newPin.getSchemaId());
+            Assertions.assertEquals(oldPin.getSnapshotId(), newPin.getSnapshotId());
+            PaimonTableHandle pinned = (PaimonTableHandle) second.applySnapshot(null, secondHandle, newPin);
+            Table scan = new PaimonScanPlanProvider(props, ops).resolveScanTable(pinned);
+            Assertions.assertEquals("new_name", scan.rowType().getFieldNames().get(0));
+            if (withData) {
+                Assertions.assertEquals(Collections.singletonList(2), readIds((FileStoreTable) scan));
+            }
+            Assertions.assertTrue(second.getColumnHandles(null, secondHandle, newPin).containsKey("new_name"));
+            Assertions.assertFalse(second.getColumnHandles(null, secondHandle, newPin).containsKey("old_name"));
+            Assertions.assertEquals("new_name", second.getTableSchema(null, secondHandle, newPin)
+                    .getColumns().get(0).getName(), "Recreated latest metadata must match the scan table");
+        }
+    }
+
     @Test
     public void latestCacheHitCapturesSchemaInsideAuth(@TempDir Path warehouse) throws Exception {
         checkAuthenticatedSchemaRead(warehouse, "capture");
