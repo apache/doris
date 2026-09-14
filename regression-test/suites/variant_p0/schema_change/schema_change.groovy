@@ -17,6 +17,7 @@
 
 suite("regression_test_variant_schema_change", "variant_type"){
 
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def table_name = "variant_schema_change"
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """
@@ -49,7 +50,7 @@ suite("regression_test_variant_schema_change", "variant_type"){
 
     // sql "set experimental_enable_nereids_planner = true"
     // add, drop columns
-    sql """INSERT INTO ${table_name} SELECT *, '{"k1":1, "k2": "hello world", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]]}' FROM numbers("number" = "4096")"""
+    sql """INSERT INTO ${table_name} SELECT *, ${variantV2Function}('{"k1":1, "k2": "hello world", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]]}') FROM numbers("number" = "4096")"""
     sql "alter table ${table_name} add column v2 variant default null"
     sql """INSERT INTO ${table_name} SELECT k, v, v from ${table_name}"""
     sql "alter table ${table_name} drop column v2"
@@ -94,24 +95,24 @@ suite("regression_test_variant_schema_change", "variant_type"){
             DISTRIBUTED BY HASH(col0) BUCKETS 1 PROPERTIES ("replication_num" = "1", "disable_auto_compaction" = "false");
     """
 
-    sql """insert into t values (1, '{"a" : 1.0}')"""
-    sql """insert into t values (2, '{"a" : 111.1111}')"""
-    sql """insert into t values (3, '{"a" : "11111"}')"""
-    sql """insert into t values (4, '{"a" : 1111111111}')"""
-    sql """insert into t values (5, '{"a" : 1111.11111}')"""
-    sql """insert into t values (6, '{"a" : "11111"}')"""
-    sql """insert into t values (7, '{"a" : 11111.11111}')"""
+    sql """insert into t values (1, ${variantV2Function}('{"a" : 1.0}'))"""
+    sql """insert into t values (2, ${variantV2Function}('{"a" : 111.1111}'))"""
+    sql """insert into t values (3, ${variantV2Function}('{"a" : "11111"}'))"""
+    sql """insert into t values (4, ${variantV2Function}('{"a" : 1111111111}'))"""
+    sql """insert into t values (5, ${variantV2Function}('{"a" : 1111.11111}'))"""
+    sql """insert into t values (6, ${variantV2Function}('{"a" : "11111"}'))"""
+    sql """insert into t values (7, ${variantV2Function}('{"a" : 11111.11111}'))"""
     sql "alter table t modify column col1 variant;"
     wait_for_latest_op_on_table_finish("t", timeout)
     qt_sql "select col0, cast(col1 as json) from t order by col0 limit 3"
 
-    sql """insert into t values (1, '{"a" : 1.0}')"""
-    sql """insert into t values (2, '{"a" : 111.1111}')"""
-    sql """insert into t values (3, '{"a" : "11111"}')"""
-    sql """insert into t values (4, '{"a" : 1111111111}')"""
-    sql """insert into t values (5, '{"a" : 1111.11111}')"""
-    sql """insert into t values (6, '{"a" : "11111"}')"""
-    sql """insert into t values (7, '{"a" : 11111.11111}')"""
+    sql """insert into t values (1, ${variantV2Function}('{"a" : 1.0}'))"""
+    sql """insert into t values (2, ${variantV2Function}('{"a" : 111.1111}'))"""
+    sql """insert into t values (3, ${variantV2Function}('{"a" : "11111"}'))"""
+    sql """insert into t values (4, ${variantV2Function}('{"a" : 1111111111}'))"""
+    sql """insert into t values (5, ${variantV2Function}('{"a" : 1111.11111}'))"""
+    sql """insert into t values (6, ${variantV2Function}('{"a" : "11111"}'))"""
+    sql """insert into t values (7, ${variantV2Function}('{"a" : 11111.11111}'))"""
     trigger_and_wait_compaction("t", "cumulative", 1800)
     qt_sql "select col0, cast(col1 as json) from t order by col0 limit 3"
 }

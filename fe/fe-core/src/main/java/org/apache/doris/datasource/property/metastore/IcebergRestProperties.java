@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.metastore;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.datasource.property.common.IcebergAwsClientCredentialsProperties;
+import org.apache.doris.datasource.property.storage.OSSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.property.ConnectorProperty;
@@ -49,6 +50,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     private Map<String, String> icebergRestCatalogProperties;
     private S3Properties s3Properties;
+    private OSSProperties ossProperties;
 
     @Getter
     @ConnectorProperty(names = {"iceberg.rest.uri", "uri"},
@@ -214,7 +216,11 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
                 AwsCredentialsProviderMode.fromString(icebergRestCredentialsProviderType);
         buildRules().validate();
         if (shouldUseS3PropertiesForRestCredentials()) {
-            s3Properties = S3Properties.of(origProps);
+            if (isOssTables()) {
+                ossProperties = OSSProperties.of(origProps);
+            } else {
+                s3Properties = S3Properties.of(origProps);
+            }
         }
         initIcebergRestCatalogProperties();
     }
@@ -251,13 +257,19 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             }
         }
 
-        // When signing-name is glue or s3tables: require signing-region and sigv4-enabled
+        // SigV4-backed REST catalogs require a signing region and SigV4 to be enabled.
         rules.requireIf(icebergRestSigningName, "glue",
                 new String[] {icebergRestSigningRegion, icebergRestSigV4Enabled},
                 "Rest Catalog requires signing-region and sigv4-enabled set to true when signing-name is glue");
         rules.requireIf(icebergRestSigningName, "s3tables",
                 new String[] {icebergRestSigningRegion, icebergRestSigV4Enabled},
                 "Rest Catalog requires signing-region and sigv4-enabled set to true when signing-name is s3tables");
+        rules.requireIf(icebergRestSigningName, "osstables",
+                new String[] {icebergRestSigningRegion, icebergRestSigV4Enabled},
+                "Rest Catalog requires signing-region and sigv4-enabled set to true when signing-name is osstables");
+        rules.check(() -> shouldUseS3PropertiesForRestCredentials()
+                        && !"true".equalsIgnoreCase(icebergRestSigV4Enabled),
+                "Rest Catalog requires sigv4-enabled set to true when signing-name is " + icebergRestSigningName);
 
         rejectUnsupportedAwsAssumeRoleProperty(ICEBERG_REST_ROLE_ARN);
         rejectUnsupportedAwsAssumeRoleProperty(ICEBERG_REST_EXTERNAL_ID);
@@ -350,8 +362,14 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             icebergRestCatalogProperties.put("rest.signing-region", icebergRestSigningRegion);
 
             if (shouldUseS3PropertiesForRestCredentials()) {
-                IcebergAwsClientCredentialsProperties.putCredentialProviderProperties(
-                        icebergRestCatalogProperties, s3Properties);
+                if (isOssTables()) {
+                    IcebergAwsClientCredentialsProperties.putCredentialProviderProperties(
+                            icebergRestCatalogProperties, ossProperties.getAccessKey(), ossProperties.getSecretKey(),
+                            ossProperties.getSessionToken(), icebergRestCredentialsProviderMode);
+                } else {
+                    IcebergAwsClientCredentialsProperties.putCredentialProviderProperties(
+                            icebergRestCatalogProperties, s3Properties);
+                }
             } else {
                 IcebergAwsClientCredentialsProperties.putCredentialProviderProperties(
                         icebergRestCatalogProperties, icebergRestAccessKeyId,
@@ -362,7 +380,12 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     private boolean shouldUseS3PropertiesForRestCredentials() {
         return "glue".equals(icebergRestSigningName)
-                || "s3tables".equals(icebergRestSigningName);
+                || "s3tables".equals(icebergRestSigningName)
+                || "osstables".equals(icebergRestSigningName);
+    }
+
+    private boolean isOssTables() {
+        return "osstables".equals(icebergRestSigningName);
     }
 
     public Map<String, String> getIcebergRestCatalogProperties() {

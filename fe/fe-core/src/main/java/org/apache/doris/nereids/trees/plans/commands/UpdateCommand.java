@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
@@ -116,6 +117,11 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
                     nameParts, tableAlias, assignments, logicalQuery,
                     deleteCtx);
             icebergUpdateCommand.run(ctx, executor);
+            return;
+        }
+        if (table instanceof PaimonExternalTable) {
+            new PaimonUpdateCommand(nameParts, tableAlias, assignments, logicalQuery, cte)
+                    .run(ctx, executor);
             return;
         }
 
@@ -287,6 +293,10 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
             IcebergUpdateCommand icebergUpdateCommand = new IcebergUpdateCommand(
                     nameParts, tableAlias, assignments, logicalQuery, deleteCtx);
             return icebergUpdateCommand.getExplainPlan(ctx);
+        }
+        if (table instanceof PaimonExternalTable) {
+            return new PaimonUpdateCommand(nameParts, tableAlias, assignments, logicalQuery, cte)
+                    .getExplainPlan(ctx);
         }
         return completeQueryPlan(ctx, logicalQuery);
     }

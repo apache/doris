@@ -22,6 +22,7 @@ import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
@@ -41,8 +42,20 @@ import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
 
+import java.util.AbstractList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class StatementContextTest {
 
@@ -706,6 +719,373 @@ public class StatementContextTest {
             Mockito.verify(table, Mockito.never()).loadSnapshot(Mockito.any(), Mockito.any());
         } finally {
             statementContext.close();
+        }
+    }
+
+    @Test
+    public void testExternalScanTasksUseSingleFlight() throws Exception {
+        StatementContext statementContext = new StatementContext();
+        StatementContext.ExternalScanTaskCache cache = statementContext.getExternalScanTaskCache();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch loaderStarted = new CountDownLatch(1);
+        CountDownLatch waiterLookedUpKey = new CountDownLatch(1);
+        CountDownLatch releaseLoader = new CountDownLatch(1);
+        AtomicInteger loadCount = new AtomicInteger();
+        AtomicInteger hashCalls = new AtomicInteger();
+        ExternalScanTaskCacheKey<String> observedKey =
+                new ObservableScanTaskCacheKey("same-scan", hashCalls, waiterLookedUpKey);
+        try {
+            Future<List<String>> first = executor.submit(
+                    () -> cache.getOrLoad(observedKey, () -> {
+                        loadCount.incrementAndGet();
+                        loaderStarted.countDown();
+                        releaseLoader.await();
+                        return Collections.singletonList("task");
+                    }));
+            loaderStarted.await();
+            Future<List<String>> second = executor.submit(
+                    () -> cache.getOrLoad(observedKey, () -> {
+                        loadCount.incrementAndGet();
+                        return Collections.singletonList("duplicate");
+                    }));
+
+            waiterLookedUpKey.await();
+            releaseLoader.countDown();
+
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    Collections.singletonList("task"), first.get());
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    Collections.singletonList("task"), second.get());
+            org.junit.jupiter.api.Assertions.assertEquals(1, loadCount.get());
+        } finally {
+            executor.shutdownNow();
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testExternalScanTaskFailureCanRetry() throws Exception {
+        StatementContext statementContext = new StatementContext();
+        StatementContext.ExternalScanTaskCache cache = statementContext.getExternalScanTaskCache();
+        ExternalScanTaskCacheKey<String> key = new TestScanTaskCacheKey("retry");
+        AtomicInteger loadCount = new AtomicInteger();
+        try {
+            IllegalStateException failure = org.junit.jupiter.api.Assertions.assertThrows(
+                    IllegalStateException.class,
+                    () -> cache.getOrLoad(key, () -> {
+                        loadCount.incrementAndGet();
+                        throw new IllegalStateException("load failed");
+                    }));
+            org.junit.jupiter.api.Assertions.assertEquals("load failed", failure.getMessage());
+            List<String> tasks = cache.getOrLoad(key, () -> {
+                loadCount.incrementAndGet();
+                return Collections.singletonList("retry-task");
+            });
+
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    Collections.singletonList("retry-task"), tasks);
+            org.junit.jupiter.api.Assertions.assertEquals(2, loadCount.get());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testExternalScanTaskCacheDoesNotRetainTasksOverWeightBudget() throws Exception {
+        StatementContext statementContext = new StatementContext();
+        StatementContext.ExternalScanTaskCache cache = statementContext.getExternalScanTaskCache();
+        ExternalScanTaskCacheKey<String> retainedKey = new TestScanTaskCacheKey("retained");
+        ExternalScanTaskCacheKey<String> uncachedKey = new TestScanTaskCacheKey("uncached");
+        AtomicInteger retainedLoads = new AtomicInteger();
+        AtomicInteger uncachedLoads = new AtomicInteger();
+        try {
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    Collections.singletonList("abc"),
+                    cache.getOrLoad(retainedKey, () -> {
+                        retainedLoads.incrementAndGet();
+                        return Collections.singletonList("abc");
+                    }, tasks -> tasks.get(0).length(), 4));
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    Collections.singletonList("abc"),
+                    cache.getOrLoad(retainedKey, () -> {
+                        retainedLoads.incrementAndGet();
+                        return Collections.singletonList("duplicate");
+                    }, tasks -> tasks.get(0).length(), 4));
+
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    Collections.singletonList("de"),
+                    cache.getOrLoad(uncachedKey, () -> {
+                        uncachedLoads.incrementAndGet();
+                        return Collections.singletonList("de");
+                    }, tasks -> tasks.get(0).length(), 4));
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    Collections.singletonList("fg"),
+                    cache.getOrLoad(uncachedKey, () -> {
+                        uncachedLoads.incrementAndGet();
+                        return Collections.singletonList("fg");
+                    }, tasks -> tasks.get(0).length(), 4));
+
+            org.junit.jupiter.api.Assertions.assertEquals(1, retainedLoads.get());
+            org.junit.jupiter.api.Assertions.assertEquals(2, uncachedLoads.get());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testExternalScanTaskCacheReservesRemainingWeightBeforeLoading() throws Exception {
+        StatementContext statementContext = new StatementContext();
+        StatementContext.ExternalScanTaskCache cache = statementContext.getExternalScanTaskCache();
+        ExternalScanTaskCacheKey<String> firstKey = new TestScanTaskCacheKey("first");
+        ExternalScanTaskCacheKey<String> secondKey = new TestScanTaskCacheKey("second");
+        AtomicLong firstAllowance = new AtomicLong();
+        AtomicLong secondAllowance = new AtomicLong();
+        AtomicInteger secondLoads = new AtomicInteger();
+        try {
+            cache.getOrLoad(firstKey, allowance -> {
+                firstAllowance.set(allowance);
+                return Collections.singletonList("abc");
+            }, tasks -> tasks.get(0).length(),
+                    StatementContext.ExternalScanTaskCache.WeightBudget.PAIMON_SERIALIZED_BYTES,
+                    4, 4, true);
+            cache.getOrLoad(secondKey, allowance -> {
+                secondAllowance.set(allowance);
+                secondLoads.incrementAndGet();
+                return Collections.singletonList("d");
+            }, tasks -> tasks.get(0).length(),
+                    StatementContext.ExternalScanTaskCache.WeightBudget.PAIMON_SERIALIZED_BYTES,
+                    4, 4, true);
+            cache.getOrLoad(secondKey, allowance -> {
+                secondLoads.incrementAndGet();
+                return Collections.singletonList("e");
+            }, tasks -> tasks.get(0).length(),
+                    StatementContext.ExternalScanTaskCache.WeightBudget.PAIMON_SERIALIZED_BYTES,
+                    4, 4, true);
+
+            org.junit.jupiter.api.Assertions.assertEquals(4, firstAllowance.get());
+            org.junit.jupiter.api.Assertions.assertEquals(1, secondAllowance.get());
+            org.junit.jupiter.api.Assertions.assertEquals(1, secondLoads.get());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testExternalScanTaskCacheAdmitsConcurrentTaskLoadsByActualWeight() throws Exception {
+        StatementContext statementContext = new StatementContext();
+        StatementContext.ExternalScanTaskCache cache = statementContext.getExternalScanTaskCache();
+        ExternalScanTaskCacheKey<String> firstKey = new TestScanTaskCacheKey("first-task");
+        ExternalScanTaskCacheKey<String> secondKey = new TestScanTaskCacheKey("second-task");
+        CountDownLatch loadersStarted = new CountDownLatch(2);
+        CountDownLatch releaseLoaders = new CountDownLatch(1);
+        AtomicInteger loads = new AtomicInteger();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Callable<List<String>> loader = () -> {
+                loadersStarted.countDown();
+                releaseLoaders.await();
+                loads.incrementAndGet();
+                return Arrays.asList("a", "b");
+            };
+            Future<List<String>> first = executor.submit(() -> cache.getOrLoad(
+                    firstKey, ignored -> loader.call(), List::size,
+                    StatementContext.ExternalScanTaskCache.WeightBudget.TASK_COUNT,
+                    4, 4, false));
+            Future<List<String>> second = executor.submit(() -> cache.getOrLoad(
+                    secondKey, ignored -> loader.call(), List::size,
+                    StatementContext.ExternalScanTaskCache.WeightBudget.TASK_COUNT,
+                    4, 4, false));
+            org.junit.jupiter.api.Assertions.assertTrue(loadersStarted.await(10, TimeUnit.SECONDS));
+            releaseLoaders.countDown();
+            org.junit.jupiter.api.Assertions.assertEquals(Arrays.asList("a", "b"), first.get());
+            org.junit.jupiter.api.Assertions.assertEquals(Arrays.asList("a", "b"), second.get());
+
+            cache.getOrLoad(firstKey, () -> {
+                loads.incrementAndGet();
+                return Collections.singletonList("unexpected");
+            });
+            cache.getOrLoad(secondKey, () -> {
+                loads.incrementAndGet();
+                return Collections.singletonList("unexpected");
+            });
+            org.junit.jupiter.api.Assertions.assertEquals(2, loads.get());
+        } finally {
+            releaseLoaders.countDown();
+            executor.shutdownNow();
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testExternalScanTaskCopyFailureUnblocksWaiterAndCanRetry() throws Exception {
+        StatementContext statementContext = new StatementContext();
+        StatementContext.ExternalScanTaskCache cache = statementContext.getExternalScanTaskCache();
+        CountDownLatch waiterLookedUpKey = new CountDownLatch(1);
+        ExternalScanTaskCacheKey<String> key = new ObservableScanTaskCacheKey(
+                "copy-failure", new AtomicInteger(), waiterLookedUpKey);
+        CountDownLatch loaderStarted = new CountDownLatch(1);
+        CountDownLatch releaseLoader = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<List<String>> owner = executor.submit(() -> cache.getOrLoad(key, () -> {
+                loaderStarted.countDown();
+                releaseLoader.await();
+                return new FailingCopyList();
+            }));
+            org.junit.jupiter.api.Assertions.assertTrue(loaderStarted.await(10, TimeUnit.SECONDS));
+            Future<List<String>> waiter = executor.submit(() -> cache.getOrLoad(
+                    key, () -> Collections.singletonList("unexpected")));
+            org.junit.jupiter.api.Assertions.assertTrue(
+                    waiterLookedUpKey.await(10, TimeUnit.SECONDS));
+            releaseLoader.countDown();
+
+            org.junit.jupiter.api.Assertions.assertThrows(
+                    ExecutionException.class, () -> owner.get(10, TimeUnit.SECONDS));
+            org.junit.jupiter.api.Assertions.assertThrows(
+                    ExecutionException.class, () -> waiter.get(10, TimeUnit.SECONDS));
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    Collections.singletonList("retry"),
+                    cache.getOrLoad(key, () -> Collections.singletonList("retry")));
+        } finally {
+            releaseLoader.countDown();
+            executor.shutdownNow();
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testExternalScanTaskGenerationIsIsolatedByResetAndExecutionEnd() throws Exception {
+        StatementContext statementContext = new StatementContext();
+        CountDownLatch loaderStarted = new CountDownLatch(1);
+        CountDownLatch waiterLookedUpKey = new CountDownLatch(1);
+        CountDownLatch releaseLoader = new CountDownLatch(1);
+        AtomicInteger hashCalls = new AtomicInteger();
+        ExternalScanTaskCacheKey<String> key =
+                new ObservableScanTaskCacheKey("lifecycle", hashCalls, waiterLookedUpKey);
+        AtomicInteger loadCount = new AtomicInteger();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        StatementContext.ExternalScanTaskCache oldGeneration =
+                statementContext.getExternalScanTaskCache();
+        try {
+            Future<List<String>> oldOwner = executor.submit(
+                    () -> oldGeneration.getOrLoad(key, () -> {
+                        int loadNumber = loadCount.incrementAndGet();
+                        loaderStarted.countDown();
+                        releaseLoader.await();
+                        return Collections.singletonList("old-" + loadNumber);
+                    }));
+            loaderStarted.await();
+            Future<List<String>> oldWaiter = executor.submit(
+                    () -> oldGeneration.getOrLoad(key,
+                            () -> Collections.singletonList("duplicate")));
+            waiterLookedUpKey.await();
+
+            statementContext.resetMvccSnapshots();
+            StatementContext.ExternalScanTaskCache newGeneration =
+                    statementContext.getExternalScanTaskCache();
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    Collections.singletonList("new-2"),
+                    newGeneration.getOrLoad(key,
+                        () -> Collections.singletonList("new-" + loadCount.incrementAndGet())));
+            releaseLoader.countDown();
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    Collections.singletonList("old-1"), oldOwner.get());
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    Collections.singletonList("old-1"), oldWaiter.get());
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    Collections.singletonList("new-2"),
+                    newGeneration.getOrLoad(key,
+                            () -> Collections.singletonList("duplicate")));
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    Collections.singletonList("old-3"),
+                    oldGeneration.getOrLoad(key,
+                        () -> Collections.singletonList("old-" + loadCount.incrementAndGet())));
+
+            statementContext.clearExternalScanTasks();
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    Collections.singletonList("ended-4"),
+                    newGeneration.getOrLoad(key,
+                        () -> Collections.singletonList("ended-" + loadCount.incrementAndGet())));
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    Collections.singletonList("ended-5"),
+                    newGeneration.getOrLoad(key,
+                        () -> Collections.singletonList("ended-" + loadCount.incrementAndGet())));
+
+            org.junit.jupiter.api.Assertions.assertEquals(5, loadCount.get());
+        } finally {
+            executor.shutdownNow();
+            statementContext.close();
+        }
+    }
+
+    private static void assertFutureFailedWith(
+            Future<?> future, Class<? extends Throwable> causeType, String message) {
+        ExecutionException exception = org.junit.jupiter.api.Assertions.assertThrows(
+                ExecutionException.class, future::get);
+        org.junit.jupiter.api.Assertions.assertInstanceOf(causeType, exception.getCause());
+        org.junit.jupiter.api.Assertions.assertEquals(message, exception.getCause().getMessage());
+    }
+
+    private static final class TestScanTaskCacheKey implements ExternalScanTaskCacheKey<String> {
+        private final String value;
+
+        private TestScanTaskCacheKey(String value) {
+            this.value = value;
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            return object instanceof TestScanTaskCacheKey
+                    && value.equals(((TestScanTaskCacheKey) object).value);
+        }
+
+        @Override
+        public int hashCode() {
+            return value.hashCode();
+        }
+    }
+
+    private static final class FailingCopyList extends AbstractList<String> {
+        @Override
+        public String get(int index) {
+            return "task";
+        }
+
+        @Override
+        public int size() {
+            return 1;
+        }
+
+        @Override
+        public Object[] toArray() {
+            throw new AssertionError("injected immutable copy failure");
+        }
+    }
+
+    private static final class ObservableScanTaskCacheKey implements ExternalScanTaskCacheKey<String> {
+        private final String value;
+        private final AtomicInteger hashCalls;
+        private final CountDownLatch secondLookup;
+
+        private ObservableScanTaskCacheKey(
+                String value, AtomicInteger hashCalls, CountDownLatch secondLookup) {
+            this.value = value;
+            this.hashCalls = hashCalls;
+            this.secondLookup = secondLookup;
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            return object instanceof ObservableScanTaskCacheKey
+                    && value.equals(((ObservableScanTaskCacheKey) object).value);
+        }
+
+        @Override
+        public int hashCode() {
+            if (hashCalls.incrementAndGet() == 2) {
+                secondLookup.countDown();
+            }
+            return value.hashCode();
         }
     }
 

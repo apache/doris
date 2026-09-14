@@ -528,7 +528,10 @@ Status SegmentWriter::append_block_with_partial_content(const Block* block, size
     auto full_block = _tablet_schema->create_block();
     size_t input_id = 0;
     for (auto i : including_cids) {
-        full_block.replace_by_position(i, block->get_by_position(input_id++).column);
+        const auto& input_column = block->get_by_position(input_id++);
+        auto& full_column = full_block.get_by_position(i);
+        full_column.column = input_column.column;
+        full_column.type = input_column.type;
     }
 
     if (_opts.rowset_ctx->write_type != DataWriteType::TYPE_COMPACTION &&

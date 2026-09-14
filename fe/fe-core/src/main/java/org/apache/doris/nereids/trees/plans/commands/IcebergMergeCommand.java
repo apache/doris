@@ -29,6 +29,7 @@ import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergNereidsUtils;
 import org.apache.doris.datasource.iceberg.IcebergRowId;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
@@ -38,9 +39,9 @@ import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.LogicalPlanBuilderAssistant;
-import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -53,16 +54,17 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Explainable;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
+import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergMergeExecutor;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeMatchedClause;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeNotMatchedClause;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergMergeSink;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -72,7 +74,10 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.RelationUtil;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.PlanFragment;
@@ -81,6 +86,7 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -143,13 +149,18 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         }
         IcebergExternalTable icebergTable = (IcebergExternalTable) table;
         IcebergDmlCommandUtils.checkMergeMode(icebergTable);
+        IcebergWriteSchemaContext writeSchemaContext = IcebergWriteSchemaContext.create(
+                icebergTable, Optional.empty());
+        Optional<IcebergWriteSchemaContext> previousWriteSchemaContext =
+                IcebergDmlCommandUtils.installWriteSchemaContext(ctx, writeSchemaContext);
         long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
         ctx.setIcebergRowIdTargetTableId(icebergTable.getId());
         try {
-            LogicalPlan mergePlan = buildMergePlan(ctx, icebergTable);
-            executeMergePlan(ctx, executor, icebergTable, mergePlan);
+            LogicalPlan mergePlan = buildMergePlan(ctx, icebergTable, writeSchemaContext);
+            executeMergePlan(ctx, executor, icebergTable, mergePlan, writeSchemaContext);
         } finally {
             ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
+            IcebergDmlCommandUtils.restoreWriteSchemaContext(ctx, previousWriteSchemaContext);
         }
     }
 
@@ -162,12 +173,17 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         }
         IcebergExternalTable icebergTable = (IcebergExternalTable) table;
         IcebergDmlCommandUtils.checkMergeMode(icebergTable);
+        IcebergWriteSchemaContext writeSchemaContext = IcebergWriteSchemaContext.create(
+                icebergTable, Optional.empty());
+        Optional<IcebergWriteSchemaContext> previousWriteSchemaContext =
+                IcebergDmlCommandUtils.installWriteSchemaContext(ctx, writeSchemaContext);
         long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
         ctx.setIcebergRowIdTargetTableId(icebergTable.getId());
         try {
-            return buildMergePlan(ctx, icebergTable);
+            return buildMergePlan(ctx, icebergTable, writeSchemaContext);
         } finally {
             ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
+            IcebergDmlCommandUtils.restoreWriteSchemaContext(ctx, previousWriteSchemaContext);
         }
     }
 
@@ -196,13 +212,7 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         if (targetAlias.isPresent()) {
             targetPlan = new LogicalSubQueryAlias<>(targetAlias.get(), targetPlan);
         }
-        // Use INNER JOIN when there are no WHEN NOT MATCHED clauses, since unmatched
-        // source rows are not needed. This allows early filtering for better performance.
-        JoinType joinType = notMatchedClauses.isEmpty()
-                ? JoinType.INNER_JOIN : JoinType.LEFT_OUTER_JOIN;
-        return new LogicalJoin<>(joinType,
-                ImmutableList.of(), ImmutableList.of(onClause),
-                source, targetPlan, JoinReorderContext.EMPTY);
+        return MergeUtils.buildMergeJoin(targetPlan, source, onClause, !notMatchedClauses.isEmpty());
     }
 
     private NamedExpression generateBranchLabel(Expression rowIdExpr) {
@@ -254,13 +264,16 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
     }
 
     private List<Expression> buildUpdateProjection(MergeMatchedClause clause, Expression rowIdExpr,
-            List<Column> columns, ConnectContext ctx) {
+            List<Column> columns, ConnectContext ctx, IcebergWriteSchemaContext writeSchemaContext) {
         Map<String, Expression> colNameToExpression = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         for (EqualTo equalTo : clause.getAssignments()) {
             List<String> nameParts = ((UnboundSlot) equalTo.left()).getNameParts();
             UpdateCommand.checkAssignmentColumn(ctx, nameParts, targetNameParts, targetAlias.orElse(null));
             String columnName = nameParts.get(nameParts.size() - 1);
-            if (colNameToExpression.put(columnName, equalTo.right()) != null) {
+            Expression value = IcebergDmlCommandUtils.resolveDefaultReferences(
+                    equalTo.right(), writeSchemaContext,
+                    ctx, targetNameParts, targetAlias.orElse(null));
+            if (colNameToExpression.put(columnName, value) != null) {
                 throw new AnalysisException("Duplicate column name in update: " + columnName);
             }
         }
@@ -282,7 +295,9 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
                         + column.getName() + "' in table '" + getTargetTable(ctx).getName() + "' is not allowed.");
             }
             if (colNameToExpression.containsKey(column.getName())) {
-                projection.add(colNameToExpression.remove(column.getName()));
+                projection.add(new Cast(
+                        colNameToExpression.remove(column.getName()),
+                        DataType.fromCatalogType(column.getType())));
             } else {
                 List<String> nameParts = Lists.newArrayList(targetNameInPlan);
                 nameParts.add(column.getName());
@@ -297,7 +312,8 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
     }
 
     private List<Expression> buildInsertProjection(MergeNotMatchedClause clause,
-            List<Column> columns, ConnectContext ctx, DataType rowIdType) {
+            List<Column> columns, ConnectContext ctx, DataType rowIdType,
+            IcebergWriteSchemaContext writeSchemaContext) {
         Map<String, Expression> colNameToExpression = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         if (!clause.getColNames().isEmpty()) {
             if (clause.getColNames().size() != clause.getRow().size()) {
@@ -348,21 +364,14 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
                     value = rowItem.child(0);
                 }
             }
-            if (value == null) {
-                if (column.getDefaultValueSql() != null) {
-                    Expression unboundDefaultValue = new NereidsParser()
-                            .parseExpression(column.getDefaultValueSql());
-                    if (unboundDefaultValue instanceof UnboundAlias) {
-                        unboundDefaultValue = unboundDefaultValue.child(0);
-                    }
-                    value = unboundDefaultValue;
-                } else if (column.isAllowNull()) {
-                    value = new NullLiteral(DataType.fromCatalogType(column.getType()));
-                } else {
-                    throw new AnalysisException("Column has no default value, column=" + column.getName());
-                }
+            if (value == null || value instanceof DefaultValueSlot) {
+                value = writeSchemaContext.resolveWriteDefault(column);
+            } else {
+                value = IcebergDmlCommandUtils.resolveDefaultReferences(
+                        value, writeSchemaContext,
+                        ctx, targetNameParts, targetAlias.orElse(null));
             }
-            projection.add(value);
+            projection.add(new Cast(value, DataType.fromCatalogType(column.getType())));
         }
         if (!colNameToExpression.isEmpty()) {
             throw new AnalysisException("unknown column in target table: "
@@ -371,27 +380,68 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         return projection;
     }
 
-    private List<NamedExpression> generateFinalProjections(List<String> colNames,
-            List<List<Expression>> finalProjections) {
+    static List<NamedExpression> generateFinalProjections(List<String> colNames,
+            List<DataType> outputTypes, List<List<Expression>> finalProjections) {
         for (List<Expression> projection : finalProjections) {
-            if (projection.size() != finalProjections.get(0).size()) {
+            if (projection.size() != colNames.size()) {
                 throw new AnalysisException("Column count doesn't match each other");
             }
         }
+        Preconditions.checkState(colNames.size() == outputTypes.size()
+                        && colNames.size() == finalProjections.get(0).size(),
+                "Merge projection must match the pinned writer schema");
         List<NamedExpression> output = new ArrayList<>();
         for (int i = 0; i < finalProjections.get(0).size(); i++) {
-            Expression project = new NullLiteral();
+            DataType outputType = outputTypes.get(i);
+            Expression project = new NullLiteral(outputType);
             for (int j = 0; j < finalProjections.size(); j++) {
+                Expression branch = TypeCoercionUtils.castUnbound(
+                        finalProjections.get(j).get(i), outputType);
                 project = new If(new EqualTo(new UnboundSlot(BRANCH_LABEL), new IntegerLiteral(j)),
-                        finalProjections.get(j).get(i), project);
+                        branch, project);
             }
             output.add(new UnboundAlias(project, colNames.get(i)));
         }
         return output;
     }
 
+    /**
+     * Coerces each action independently before the action values are combined by IF. Without
+     * this, type coercion may choose a scalar common type for a Variant V2 value and a primitive
+     * value, losing non-scalar Variant data before the merge sink casts the final result.
+     */
+    @VisibleForTesting
+    static List<List<Expression>> coerceVariantActionProjections(
+            List<List<Expression>> actionProjections, List<Column> columns) {
+        int expectedProjectionSize = 2 + (int) columns.stream()
+                .filter(column -> column.isVisible() || IcebergUtils.isIcebergRowLineageColumn(column))
+                .count();
+        List<List<Expression>> coercedProjections = Lists.newArrayListWithCapacity(actionProjections.size());
+        for (List<Expression> projection : actionProjections) {
+            if (projection.size() != expectedProjectionSize) {
+                throw new AnalysisException("Iceberg merge action projection is not aligned with target columns");
+            }
+            List<Expression> coercedProjection = new ArrayList<>(projection);
+            int projectionIndex = 2;
+            for (Column column : columns) {
+                if (!column.isVisible() && !IcebergUtils.isIcebergRowLineageColumn(column)) {
+                    continue;
+                }
+                DataType targetType = DataType.fromCatalogType(column.getType());
+                if (column.isVisible() && VariantType.containsVariant(targetType)) {
+                    coercedProjection.set(projectionIndex,
+                            new Cast(coercedProjection.get(projectionIndex), targetType));
+                }
+                ++projectionIndex;
+            }
+            coercedProjections.add(coercedProjection);
+        }
+        return coercedProjections;
+    }
+
     private LogicalPlan buildMergeProjectPlan(ConnectContext ctx, IcebergExternalTable icebergTable,
-            List<Column> columns) {
+            IcebergWriteSchemaContext writeSchemaContext) {
+        List<Column> columns = writeSchemaContext.getMergeColumns();
 
         LogicalPlan plan = generateBasePlan();
         plan = injectRowIdColumn(plan, icebergTable);
@@ -423,24 +473,36 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
             if (clause.isDelete()) {
                 finalProjections.add(buildDeleteProjection(rowIdExpr, columns));
             } else {
-                finalProjections.add(buildUpdateProjection(clause, rowIdExpr, columns, ctx));
+                finalProjections.add(buildUpdateProjection(
+                        clause, rowIdExpr, columns, ctx, writeSchemaContext));
             }
         }
 
         DataType rowIdType = DataType.fromCatalogType(IcebergRowId.getRowIdType());
         for (MergeNotMatchedClause clause : notMatchedClauses) {
-            finalProjections.add(buildInsertProjection(clause, columns, ctx, rowIdType));
+            finalProjections.add(buildInsertProjection(
+                    clause, columns, ctx, rowIdType, writeSchemaContext));
+        }
+
+        boolean writesDataFiles = matchedClauses.stream().anyMatch(clause -> !clause.isDelete())
+                || !notMatchedClauses.isEmpty();
+        if (writesDataFiles) {
+            finalProjections = coerceVariantActionProjections(finalProjections, columns);
         }
 
         List<String> colNames = new ArrayList<>();
+        List<DataType> outputTypes = new ArrayList<>();
         colNames.add(IcebergMergeOperation.OPERATION_COLUMN);
+        outputTypes.add(TinyIntType.INSTANCE);
         colNames.add(Column.ICEBERG_ROWID_COL);
+        outputTypes.add(rowIdType);
         for (Column column : columns) {
             if (column.isVisible() || IcebergUtils.isIcebergRowLineageColumn(column)) {
                 colNames.add(column.getName());
+                outputTypes.add(DataType.fromCatalogType(column.getType()));
             }
         }
-        plan = new LogicalProject<>(generateFinalProjections(colNames, finalProjections), plan);
+        plan = new LogicalProject<>(generateFinalProjections(colNames, outputTypes, finalProjections), plan);
 
         if (cte.isPresent()) {
             plan = (LogicalPlan) cte.get().withChildren(plan);
@@ -448,16 +510,15 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         return plan;
     }
 
-    private LogicalPlan buildMergePlan(ConnectContext ctx, IcebergExternalTable icebergTable) {
+    private LogicalPlan buildMergePlan(ConnectContext ctx, IcebergExternalTable icebergTable,
+            IcebergWriteSchemaContext writeSchemaContext) {
         Optional<MvccSnapshot> targetSnapshot = ctx.getStatementContext()
                 .loadSnapshots(icebergTable, Optional.empty(), Optional.empty());
         Table targetIcebergTable = ((IcebergMvccSnapshot) targetSnapshot.orElseThrow(
                 () -> new AnalysisException("Iceberg merge target snapshot is not available")))
                 .getSnapshotCacheValue().getIcebergTable().orElseThrow(
                         () -> new AnalysisException("Iceberg merge target metadata is not available"));
-        // Bind projections and the sink from the same target generation retained for execution.
-        List<Column> targetSchema = icebergTable.getBaseSchema(targetSnapshot, true);
-        LogicalPlan projectPlan = buildMergeProjectPlan(ctx, icebergTable, targetSchema);
+        LogicalPlan projectPlan = buildMergeProjectPlan(ctx, icebergTable, writeSchemaContext);
 
         List<NamedExpression> outputExprs;
         if (!IcebergNereidsUtils.hasUnboundPlan(projectPlan)) {
@@ -474,7 +535,7 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
                 (IcebergExternalDatabase) icebergTable.getDatabase(),
                 icebergTable,
                 targetIcebergTable,
-                targetSchema,
+                writeSchemaContext.getMergeColumns(),
                 outputExprs,
                 deleteCtx,
                 matchedClauses.stream().anyMatch(clause -> !clause.isDelete())
@@ -482,12 +543,14 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
                 true,
                 Optional.empty(),
                 Optional.empty(),
+                Optional.of(writeSchemaContext),
                 projectPlan);
     }
 
     private boolean executeMergePlan(ConnectContext ctx, StmtExecutor executor,
                                      IcebergExternalTable icebergTable,
-                                     LogicalPlan logicalPlan) throws Exception {
+                                     LogicalPlan logicalPlan,
+                                     IcebergWriteSchemaContext writeSchemaContext) throws Exception {
         return executeWithExternalTableBatchModeDisabled(ctx, () -> {
             LogicalPlanAdapter logicalPlanAdapter =
                     new LogicalPlanAdapter(logicalPlan, ctx.getStatementContext());
@@ -505,10 +568,13 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
             boolean emptyInsert = childIsEmptyRelation(physicalSink);
             String label = String.format("iceberg_merge_into_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
 
-            IcebergMergeExecutor insertExecutor =
-                    new IcebergMergeExecutor(ctx, icebergTable,
-                            ((PhysicalIcebergMergeSink<?>) physicalSink).getTargetIcebergTable(),
-                            label, planner, emptyInsert, -1L);
+            IcebergInsertCommandContext icebergInsertContext = new IcebergInsertCommandContext();
+            icebergInsertContext.setWriteSchemaContext(Optional.of(writeSchemaContext));
+            Optional<InsertCommandContext> insertContext = Optional.of(icebergInsertContext);
+            IcebergMergeExecutor insertExecutor = new IcebergMergeExecutor(
+                    ctx, icebergTable,
+                    ((PhysicalIcebergMergeSink<?>) physicalSink).getTargetIcebergTable(),
+                    label, planner, insertContext, emptyInsert, -1L);
             insertExecutor.setConflictDetectionFilter(conflictFilter);
 
             if (insertExecutor.isEmptyInsert()) {

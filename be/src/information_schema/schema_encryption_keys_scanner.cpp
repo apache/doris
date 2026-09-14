@@ -161,12 +161,10 @@ Status SchemaEncryptionKeysScanner::_fill_block_impl(Block* block) {
                     }
                     break;
                 case 6:
-                    column_value = encryption_key.has_iv_base64() ? encryption_key.iv_base64() : "";
+                    column_value = encryption_key.has_iv_base64() ? "******" : "";
                     break;
                 case 7:
-                    column_value = encryption_key.has_ciphertext_base64()
-                                           ? encryption_key.ciphertext_base64()
-                                           : "";
+                    column_value = encryption_key.has_ciphertext_base64() ? "******" : "";
                     break;
                 }
 

@@ -68,6 +68,13 @@ public:
     size_t predict_next_rows();
 
     bool has_history() const { return _has_history; }
+    // Seed from a measured sibling/source estimate, not metadata, so the next prediction may skip
+    // the cold probe while this predictor remains single-threaded.
+    void seed_history(double bytes_per_row) {
+        DORIS_CHECK(bytes_per_row > 0);
+        _bytes_per_row = bytes_per_row;
+        _has_history = true;
+    }
 
 private:
     // EWMA weight for historical estimate (0.9) and current sample (0.1).

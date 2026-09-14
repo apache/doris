@@ -222,6 +222,7 @@ public class PropertyAnalyzer {
             "async_mv.query_rewrite.consistency_relaxed_tables";
     public static final String PROPERTIES_REFRESH_PARTITION_NUM = "refresh_partition_num";
     public static final String PROPERTIES_WORKLOAD_GROUP = "workload_group";
+    public static final String PROPERTIES_COMPUTE_GROUP = "compute_group";
     public static final String PROPERTIES_PARTITION_SYNC_LIMIT = "partition_sync_limit";
     public static final String PROPERTIES_PARTITION_TIME_UNIT = "partition_sync_time_unit";
     public static final String PROPERTIES_PARTITION_DATE_FORMAT = "partition_date_format";
@@ -1283,9 +1284,7 @@ public class PropertyAnalyzer {
             invertedIndexFileStorageFormat = properties.get(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
             properties.remove(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
         } else {
-            if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
-                return TInvertedIndexFileStorageFormat.V1;
-            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V2")) {
+            if (Config.inverted_index_storage_format.equalsIgnoreCase("V2")) {
                 return TInvertedIndexFileStorageFormat.V2;
             } else {
                 return TInvertedIndexFileStorageFormat.V3;
@@ -1293,15 +1292,15 @@ public class PropertyAnalyzer {
         }
 
         if (invertedIndexFileStorageFormat.equalsIgnoreCase("v1")) {
-            return TInvertedIndexFileStorageFormat.V1;
+            throw new AnalysisException(
+                    "Inverted index V1 is deprecated and no longer allowed for new index creation."
+                            + " Please use inverted index V2.");
         } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("v2")) {
             return TInvertedIndexFileStorageFormat.V2;
         } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("v3")) {
             return TInvertedIndexFileStorageFormat.V3;
         } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("default")) {
-            if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
-                return TInvertedIndexFileStorageFormat.V1;
-            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V2")) {
+            if (Config.inverted_index_storage_format.equalsIgnoreCase("V2")) {
                 return TInvertedIndexFileStorageFormat.V2;
             } else {
                 return TInvertedIndexFileStorageFormat.V3;

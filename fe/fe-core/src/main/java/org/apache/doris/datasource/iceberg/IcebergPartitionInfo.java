@@ -18,31 +18,55 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
 
-import com.google.common.collect.Maps;
-
+import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
 public class IcebergPartitionInfo {
+    // Each RangePartitionItem endpoint holds one LiteralExpr per partition column beyond the
+    // first (createPartitionKey fills the vacancy with an infinity literal): the MIN literal, its
+    // lazy supplier/lambda, children list and array, plus the key/type list slots (JOL: 224 bytes
+    // on a compressed-oops JVM). Calibrated in IcebergExternalMetaCacheTest.
+    private static final long RANGE_KEY_EXTRA_COLUMN_BYTES =
+            MetaCacheWeightUtils.estimatedObjectBytes(224L);
+    private static final long RANGE_ENDPOINTS_PER_ITEM = 2L;
+    // A merged-overlap alias group is a HashSet of the enclosed physical partition names; the
+    // names themselves are shared with the partition maps.
+    private static final long HASH_SET_BYTES = 24L;
+
     private final Map<String, PartitionItem> nameToPartitionItem;
     private final Map<String, IcebergPartition> nameToIcebergPartition;
     private final Map<String, Set<String>> nameToIcebergPartitionNames;
+    private final long retainedPayloadBytes;
 
     private static final IcebergPartitionInfo EMPTY = new IcebergPartitionInfo();
 
     private IcebergPartitionInfo() {
-        this.nameToPartitionItem = Maps.newHashMap();
-        this.nameToIcebergPartition = Maps.newHashMap();
-        this.nameToIcebergPartitionNames = Maps.newHashMap();
+        this.nameToPartitionItem = Collections.emptyMap();
+        this.nameToIcebergPartition = Collections.emptyMap();
+        this.nameToIcebergPartitionNames = Collections.emptyMap();
+        this.retainedPayloadBytes = 0L;
     }
 
     public IcebergPartitionInfo(Map<String, PartitionItem> nameToPartitionItem,
                                 Map<String, IcebergPartition> nameToIcebergPartition,
                                 Map<String, Set<String>> nameToIcebergPartitionNames) {
+        this(nameToPartitionItem, nameToIcebergPartition, nameToIcebergPartitionNames,
+                MetaCacheWeightUtils.saturatedAdd(
+                        retainedPayloadBytes(nameToPartitionItem, nameToIcebergPartition),
+                        partitionAliasBytes(nameToIcebergPartitionNames)));
+    }
+
+    public IcebergPartitionInfo(Map<String, PartitionItem> nameToPartitionItem,
+                                Map<String, IcebergPartition> nameToIcebergPartition,
+                                Map<String, Set<String>> nameToIcebergPartitionNames,
+                                long retainedPayloadBytes) {
         this.nameToPartitionItem = nameToPartitionItem;
         this.nameToIcebergPartition = nameToIcebergPartition;
         this.nameToIcebergPartitionNames = nameToIcebergPartitionNames;
+        this.retainedPayloadBytes = retainedPayloadBytes;
     }
 
     static IcebergPartitionInfo empty() {
@@ -55,6 +79,75 @@ public class IcebergPartitionInfo {
 
     public Map<String, IcebergPartition> getNameToIcebergPartition() {
         return nameToIcebergPartition;
+    }
+
+    Map<String, Set<String>> getNameToIcebergPartitionNames() {
+        return nameToIcebergPartitionNames;
+    }
+
+    public long getRetainedPayloadBytes() {
+        return retainedPayloadBytes;
+    }
+
+    private static long retainedPayloadBytes(
+            Map<String, PartitionItem> items, Map<String, IcebergPartition> partitions) {
+        if (partitions == null) {
+            return 0L;
+        }
+        long bytes = 0L;
+        for (IcebergPartition partition : partitions.values()) {
+            if (partition != null) {
+                bytes = MetaCacheWeightUtils.saturatedAdd(
+                        bytes, partition.getRetainedPayloadBytes());
+            }
+        }
+        if (items == null) {
+            return bytes;
+        }
+        // Range endpoints exist only for the Doris partitions that survived overlap merging.
+        for (String name : items.keySet()) {
+            IcebergPartition partition = partitions.get(name);
+            if (partition != null) {
+                bytes = MetaCacheWeightUtils.saturatedAdd(bytes, partitionItemColumnBytes(
+                        partition.getPartitionValues() == null
+                                ? 0 : partition.getPartitionValues().size()));
+            }
+        }
+        return bytes;
+    }
+
+    /**
+     * Retained bytes of the merged-overlap alias sets: every group keeps one HashSet with one
+     * node per enclosed physical partition name (the estimator's per-group constant covers only
+     * the outer map entry and the empty set object).
+     */
+    static long partitionAliasBytes(Map<String, Set<String>> nameToIcebergPartitionNames) {
+        if (nameToIcebergPartitionNames == null) {
+            return 0L;
+        }
+        long bytes = 0L;
+        for (Set<String> aliases : nameToIcebergPartitionNames.values()) {
+            bytes = MetaCacheWeightUtils.saturatedAdd(bytes, HASH_SET_BYTES);
+            bytes = MetaCacheWeightUtils.saturatedAdd(bytes,
+                    MetaCacheWeightUtils.estimatedHashMapBytes(aliases == null ? 0L : aliases.size()));
+        }
+        return bytes;
+    }
+
+    /**
+     * Structural bytes a partition item retains for every partition column beyond the first;
+     * the fixed per-partition constants of the estimator cover a single column. The width is
+     * taken from the loaded metadata generation, so a spec that grew after the related-table
+     * check was cached is still charged for its full width.
+     */
+    static long partitionItemColumnBytes(long partitionColumnCount) {
+        if (partitionColumnCount <= 1L) {
+            return 0L;
+        }
+        return MetaCacheWeightUtils.saturatedMultiply(
+                MetaCacheWeightUtils.saturatedMultiply(
+                        partitionColumnCount - 1L, RANGE_ENDPOINTS_PER_ITEM),
+                RANGE_KEY_EXTRA_COLUMN_BYTES);
     }
 
     public long getLatestSnapshotId(String partitionName) {

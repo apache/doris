@@ -634,6 +634,7 @@ enum TPaimonWriteBackendType {
 enum TPaimonWriteMode {
     APPEND = 0,
     OVERWRITE = 1,
+    CHANGELOG = 2,
 }
 
 struct TPaimonCommitMessage {

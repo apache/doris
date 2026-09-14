@@ -21,9 +21,11 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.CatalogFactory;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
@@ -37,6 +39,7 @@ import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.hive.HiveCatalog;
 import org.apache.paimon.schema.Schema;
+import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.DataField;
@@ -51,13 +54,17 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -134,6 +141,110 @@ public class PaimonMetadataOpsTest {
         Assert.assertEquals(0, table.partitionKeys().size());
         Assert.assertTrue(table.primaryKeys().contains("id"));
         Assert.assertEquals(1, table.primaryKeys().size());
+    }
+
+    @Test
+    public void testUpdateTablePropertiesPersistsAllOptions() throws Exception {
+        String tableName = getTableName();
+        Identifier identifier = new Identifier(dbName, tableName);
+        createTable("create table " + dbName + "." + tableName + " (id int) engine = paimon");
+
+        ExternalCatalog dorisCatalog = Mockito.mock(ExternalCatalog.class);
+        PaimonMetadataOps propertyOps = newMetadataOps(dorisCatalog, ops.getCatalog());
+        ExternalTable dorisTable = mockExternalTable(tableName);
+        Map<String, String> properties = new LinkedHashMap<>();
+        properties.put("snapshot.num-retained.min", "2");
+        properties.put("snapshot.num-retained.max", "5");
+
+        propertyOps.updateTableProperties(dorisTable, properties, 123L);
+
+        Map<String, String> actualOptions = ops.getCatalog().getTable(identifier).options();
+        Assert.assertEquals("2", actualOptions.get("snapshot.num-retained.min"));
+        Assert.assertEquals("5", actualOptions.get("snapshot.num-retained.max"));
+        Mockito.verify(dorisCatalog).getDbForReplay(dbName);
+    }
+
+    @Test
+    public void testUpdateTablePropertiesUsesOneAtomicAlter() throws Exception {
+        String tableName = getTableName();
+        Identifier identifier = new Identifier(dbName, tableName);
+        Catalog remoteCatalog = Mockito.mock(Catalog.class);
+        ExternalCatalog dorisCatalog = Mockito.mock(ExternalCatalog.class);
+        PaimonMetadataOps propertyOps = newMetadataOps(dorisCatalog, remoteCatalog);
+        Map<String, String> properties = new LinkedHashMap<>();
+        properties.put("snapshot.num-retained.min", "2");
+        properties.put("snapshot.num-retained.max", "5");
+
+        propertyOps.updateTableProperties(mockExternalTable(tableName), properties, 123L);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<SchemaChange>> changesCaptor = ArgumentCaptor.forClass(List.class);
+        Mockito.verify(remoteCatalog).alterTable(Mockito.eq(identifier), changesCaptor.capture(), Mockito.eq(false));
+        Assert.assertEquals(
+                java.util.Arrays.asList(
+                        SchemaChange.setOption("snapshot.num-retained.min", "2"),
+                        SchemaChange.setOption("snapshot.num-retained.max", "5")),
+                changesCaptor.getValue());
+    }
+
+    @Test
+    public void testUpdateTablePropertiesRejectsPathBeforeRemoteAlter() throws Exception {
+        String tableName = getTableName();
+        Catalog remoteCatalog = Mockito.mock(Catalog.class);
+        ExternalCatalog dorisCatalog = Mockito.mock(ExternalCatalog.class);
+        PaimonMetadataOps propertyOps = newMetadataOps(dorisCatalog, remoteCatalog);
+        Map<String, String> properties = new LinkedHashMap<>();
+        properties.put("snapshot.num-retained.max", "10");
+        properties.put("PATH", "s3://warehouse/relocated_table");
+
+        UserException exception = Assert.assertThrows(UserException.class,
+                () -> propertyOps.updateTableProperties(mockExternalTable(tableName), properties, 123L));
+
+        Assert.assertTrue(exception.getMessage().contains("Change path is not supported yet"));
+        Mockito.verify(remoteCatalog, Mockito.never())
+                .alterTable(Mockito.any(Identifier.class), Mockito.anyList(), Mockito.anyBoolean());
+        Mockito.verify(dorisCatalog, Mockito.never()).getDbForReplay(Mockito.anyString());
+    }
+
+    @Test
+    public void testUpdateTablePropertiesRejectsInvalidBatchAtomically() throws Exception {
+        String tableName = getTableName();
+        Identifier identifier = new Identifier(dbName, tableName);
+        createTable("create table " + dbName + "." + tableName
+                + " (id int not null, seq bigint) engine = paimon "
+                + "properties ('primary-key' = 'id', 'snapshot.num-retained.min' = '2', "
+                + "'snapshot.num-retained.max' = '5')");
+
+        ExternalCatalog dorisCatalog = Mockito.mock(ExternalCatalog.class);
+        PaimonMetadataOps propertyOps = newMetadataOps(dorisCatalog, ops.getCatalog());
+        Map<String, String> properties = new LinkedHashMap<>();
+        properties.put("fields.missing.sequence-group", "seq");
+        properties.put("snapshot.num-retained.max", "10");
+
+        UserException exception = Assert.assertThrows(UserException.class,
+                () -> propertyOps.updateTableProperties(mockExternalTable(tableName), properties, 123L));
+
+        Assert.assertTrue(exception.getMessage().toLowerCase().contains("missing"));
+        ops.getCatalog().invalidateTable(identifier);
+        Map<String, String> actualOptions = ops.getCatalog().getTable(identifier).options();
+        Assert.assertEquals("5", actualOptions.get("snapshot.num-retained.max"));
+        Assert.assertFalse(actualOptions.containsKey("fields.missing.sequence-group"));
+        Mockito.verify(dorisCatalog, Mockito.never()).getDbForReplay(Mockito.anyString());
+    }
+
+    private PaimonMetadataOps newMetadataOps(ExternalCatalog dorisCatalog, Catalog remoteCatalog) {
+        Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
+        });
+        return new PaimonMetadataOps(dorisCatalog, remoteCatalog);
+    }
+
+    private ExternalTable mockExternalTable(String tableName) {
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Mockito.when(dorisTable.getDbName()).thenReturn(dbName);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn(dbName);
+        Mockito.when(dorisTable.getName()).thenReturn(tableName);
+        Mockito.when(dorisTable.getRemoteName()).thenReturn(tableName);
+        return dorisTable;
     }
 
     @Test
@@ -357,5 +468,103 @@ public class PaimonMetadataOpsTest {
             Assert.assertTrue(t instanceof DdlException);
             Assert.assertTrue(t.getMessage().contains("database doesn't exist"));
         }
+    }
+
+    @Test
+    public void testCreateDatabaseWithPropertiesForSupportedCatalogs() throws Exception {
+        List<String> supportedCatalogTypes = Arrays.asList(
+                PaimonExternalCatalog.PAIMON_HMS,
+                PaimonExternalCatalog.PAIMON_JDBC,
+                PaimonExternalCatalog.PAIMON_REST,
+                PaimonExternalCatalog.PAIMON_DLF);
+        for (String catalogType : supportedCatalogTypes) {
+            String remoteDbName = catalogType + "_db";
+            Catalog remoteCatalog = Mockito.mock(Catalog.class);
+            PaimonExternalCatalog dorisCatalog = Mockito.mock(PaimonExternalCatalog.class);
+            Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
+            Mockito.when(dorisCatalog.getCatalogType()).thenReturn(catalogType);
+            Mockito.doThrow(new Catalog.DatabaseNotExistException(remoteDbName))
+                    .when(remoteCatalog).getDatabase(remoteDbName);
+            PaimonMetadataOps catalogOps = new PaimonMetadataOps(dorisCatalog, remoteCatalog);
+            HashMap<String, String> properties = Maps.newHashMap();
+            properties.put("owner", "doris");
+
+            Assert.assertFalse(catalogOps.createDbImpl(remoteDbName, false, properties));
+
+            Mockito.verify(remoteCatalog).createDatabase(remoteDbName, false, properties);
+        }
+    }
+
+    @Test
+    public void testCreateDatabaseWithLocationForSupportedCatalogs() throws Exception {
+        List<String> supportedCatalogTypes = Arrays.asList(
+                PaimonExternalCatalog.PAIMON_HMS,
+                PaimonExternalCatalog.PAIMON_DLF);
+        for (String catalogType : supportedCatalogTypes) {
+            String remoteDbName = catalogType + "_location_db";
+            Catalog remoteCatalog = Mockito.mock(Catalog.class);
+            PaimonExternalCatalog dorisCatalog = Mockito.mock(PaimonExternalCatalog.class);
+            Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
+            Mockito.when(dorisCatalog.getCatalogType()).thenReturn(catalogType);
+            Mockito.doThrow(new Catalog.DatabaseNotExistException(remoteDbName))
+                    .when(remoteCatalog).getDatabase(remoteDbName);
+            PaimonMetadataOps catalogOps = new PaimonMetadataOps(dorisCatalog, remoteCatalog);
+            HashMap<String, String> properties = Maps.newHashMap();
+            properties.put("location", "s3://warehouse/" + remoteDbName);
+
+            Assert.assertFalse(catalogOps.createDbImpl(remoteDbName, false, properties));
+
+            Mockito.verify(remoteCatalog).createDatabase(remoteDbName, false, properties);
+        }
+    }
+
+    @Test
+    public void testCreateDatabaseWithLocationForCatalogsThatIgnoreItIsRejected() throws Exception {
+        List<String> unsupportedCatalogTypes = Arrays.asList(
+                PaimonExternalCatalog.PAIMON_JDBC,
+                PaimonExternalCatalog.PAIMON_REST);
+        for (String catalogType : unsupportedCatalogTypes) {
+            String remoteDbName = catalogType + "_location_db";
+            Catalog remoteCatalog = Mockito.mock(Catalog.class);
+            PaimonExternalCatalog dorisCatalog = Mockito.mock(PaimonExternalCatalog.class);
+            Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
+            Mockito.when(dorisCatalog.getCatalogType()).thenReturn(catalogType);
+            Mockito.doThrow(new Catalog.DatabaseNotExistException(remoteDbName))
+                    .when(remoteCatalog).getDatabase(remoteDbName);
+            PaimonMetadataOps catalogOps = new PaimonMetadataOps(dorisCatalog, remoteCatalog);
+            HashMap<String, String> properties = Maps.newHashMap();
+            properties.put("location", "s3://warehouse/" + remoteDbName);
+
+            DdlException exception = Assert.assertThrows(
+                    DdlException.class,
+                    () -> catalogOps.createDbImpl(remoteDbName, false, properties));
+
+            Assert.assertTrue(exception.getMessage().contains(
+                    "database property 'location' for paimon catalog type: " + catalogType));
+            Mockito.verify(remoteCatalog, Mockito.never())
+                    .createDatabase(Mockito.anyString(), Mockito.anyBoolean(), Mockito.anyMap());
+        }
+    }
+
+    @Test
+    public void testCreateDatabaseWithPropertiesForFilesystemCatalogIsRejected() throws Exception {
+        String filesystemDbName = "filesystem_db";
+        Catalog remoteCatalog = Mockito.mock(Catalog.class);
+        PaimonExternalCatalog dorisCatalog = Mockito.mock(PaimonExternalCatalog.class);
+        Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
+        Mockito.when(dorisCatalog.getCatalogType()).thenReturn(PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        Mockito.doThrow(new Catalog.DatabaseNotExistException(filesystemDbName))
+                .when(remoteCatalog).getDatabase(filesystemDbName);
+        PaimonMetadataOps filesystemOps = new PaimonMetadataOps(dorisCatalog, remoteCatalog);
+        HashMap<String, String> properties = Maps.newHashMap();
+        properties.put("owner", "doris");
+
+        DdlException exception = Assert.assertThrows(
+                DdlException.class,
+                () -> filesystemOps.createDbImpl(filesystemDbName, false, properties));
+
+        Assert.assertTrue(exception.getMessage().contains("paimon catalog type: filesystem"));
+        Mockito.verify(remoteCatalog, Mockito.never())
+                .createDatabase(Mockito.anyString(), Mockito.anyBoolean(), Mockito.anyMap());
     }
 }

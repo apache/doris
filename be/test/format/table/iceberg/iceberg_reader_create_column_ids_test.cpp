@@ -184,6 +184,16 @@ protected:
         return -1; // Invalid field ID
     }
 
+    std::shared_ptr<TableSchemaChangeHelper::Node> create_table_info_node(
+            const std::vector<std::string>& column_names) {
+        auto root = std::make_shared<TableSchemaChangeHelper::StructNode>();
+        for (const auto& column_name : column_names) {
+            root->add_children(column_name, column_name,
+                               TableSchemaChangeHelper::ConstNode::get_instance());
+        }
+        return root;
+    }
+
     // Helper function to create tuple descriptor
     const TupleDescriptor* create_tuple_descriptor(
             DescriptorTbl** desc_tbl, ObjectPool& obj_pool, TDescriptorTable& t_desc_table,
@@ -829,7 +839,8 @@ protected:
             // actual_result = IcebergParquetReader::_create_column_ids_by_top_level_col_index(
             //         field_desc, tuple_descriptor);
         } else {
-            actual_result = IcebergParquetReader::_create_column_ids(field_desc, tuple_descriptor);
+            actual_result = IcebergParquetReader::_create_column_ids(
+                    field_desc, tuple_descriptor, create_table_info_node(table_column_names));
         }
 
         if (!should_skip_assertion) {
@@ -899,7 +910,8 @@ protected:
             // actual_result = IcebergOrcReader::_create_column_ids_by_top_level_col_index(
             //         orc_type, tuple_descriptor);
         } else {
-            actual_result = IcebergOrcReader::_create_column_ids(orc_type, tuple_descriptor);
+            actual_result = IcebergOrcReader::_create_column_ids(
+                    orc_type, tuple_descriptor, create_table_info_node(table_column_names));
         }
 
         if (!should_skip_assertion) {

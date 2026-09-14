@@ -130,6 +130,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughRepeat;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughSetOperation;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughSort;
+import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughVectorSearchTopN;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.PushDownJoinOtherCondition;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
@@ -172,6 +173,7 @@ public class RuleSet {
             new CreatePartitionTopNFromWindow(),
             new PushDownFilterThroughProject(),
             new PushDownFilterThroughSort(),
+            new PushDownFilterThroughVectorSearchTopN(),
             new PushDownJoinOtherCondition(),
             new PushDownFilterThroughJoin(),
             new PushDownExpressionsInHashCondition(),

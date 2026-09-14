@@ -273,7 +273,21 @@ public class MTMV extends OlapTable {
     public Map<String, String> alterMvProperties(Map<String, String> mvProperties) {
         writeMvLock();
         try {
+            boolean containsExcludedTriggerTables = mvProperties.containsKey(
+                    PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES);
+            Set<TableName> oldExcludedTriggerTables = containsExcludedTriggerTables
+                    ? parseExcludedTriggerTables()
+                    : Sets.newHashSet();
             this.mvProperties.putAll(mvProperties);
+            if (containsExcludedTriggerTables) {
+                Set<TableName> newExcludedTriggerTables = parseExcludedTriggerTables();
+                if (!oldExcludedTriggerTables.equals(newExcludedTriggerTables)) {
+                    // excluded_trigger_tables changes the refresh baseline semantics. Invalidate the old
+                    // snapshots so the next AUTO refresh rebuilds a complete baseline with the new rules.
+                    this.schemaChangeVersion++;
+                    this.refreshSnapshot = new MTMVRefreshSnapshot();
+                }
+            }
             return this.mvProperties;
         } finally {
             writeMvUnlock();
@@ -299,6 +313,24 @@ public class MTMV extends OlapTable {
             if (mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP) && !StringUtils
                     .isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP))) {
                 return Optional.of(mvProperties.get(PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP));
+            }
+            return Optional.empty();
+        } finally {
+            readMvUnlock();
+        }
+    }
+
+    /**
+     * The compute group explicitly declared on this MV, empty when the user did not declare one.
+     * An empty result keeps the existing implicit resolution (admin's group for auto refresh,
+     * the session's group for a manual REFRESH).
+     */
+    public Optional<String> getComputeGroup() {
+        readMvLock();
+        try {
+            if (mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_COMPUTE_GROUP) && !StringUtils
+                    .isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_COMPUTE_GROUP))) {
+                return Optional.of(mvProperties.get(PropertyAnalyzer.PROPERTIES_COMPUTE_GROUP));
             }
             return Optional.empty();
         } finally {
@@ -334,20 +366,24 @@ public class MTMV extends OlapTable {
     }
 
     public Set<TableName> getExcludedTriggerTables() {
-        Set<TableName> res = Sets.newHashSet();
         readMvLock();
         try {
-            if (StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES))) {
-                return res;
-            }
-            String[] split = mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES).split(",");
-            for (String alias : split) {
-                res.add(new TableName(alias));
-            }
-            return res;
+            return parseExcludedTriggerTables();
         } finally {
             readMvUnlock();
         }
+    }
+
+    private Set<TableName> parseExcludedTriggerTables() {
+        Set<TableName> res = Sets.newHashSet();
+        if (StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES))) {
+            return res;
+        }
+        String[] split = mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES).split(",");
+        for (String alias : split) {
+            res.add(new TableName(alias));
+        }
+        return res;
     }
 
     public Set<TableName> getQueryRewriteConsistencyRelaxedTables() {
@@ -435,6 +471,17 @@ public class MTMV extends OlapTable {
 
     public MTMVRefreshSnapshot getRefreshSnapshot() {
         return refreshSnapshot;
+    }
+
+    public boolean hasCompleteRefreshSnapshot() {
+        Set<String> partitionNames = getPartitionNames();
+        readMvLock();
+        try {
+            // A refresh baseline is complete only when every current MV partition has a snapshot.
+            return refreshSnapshot.getPartitionSnapshots().keySet().containsAll(partitionNames);
+        } finally {
+            readMvUnlock();
+        }
     }
 
     public long getSchemaChangeVersion() {

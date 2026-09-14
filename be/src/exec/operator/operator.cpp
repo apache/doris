@@ -938,13 +938,10 @@ template class AsyncWriterSink<doris::VJdbcTableWriter, JdbcTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VTabletWriter, OlapTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VTabletWriterV2, OlapTableSinkV2OperatorX>;
 template class AsyncWriterSink<doris::VHiveTableWriter, HiveTableSinkOperatorX>;
-template class AsyncWriterSink<doris::VIcebergTableWriter, IcebergTableSinkOperatorX>;
-template class AsyncWriterSink<doris::VIcebergTableWriter, SpillIcebergTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VIcebergDeleteSink, IcebergDeleteSinkOperatorX>;
 template class AsyncWriterSink<doris::VIcebergMergeSink, IcebergMergeSinkOperatorX>;
 template class AsyncWriterSink<doris::VMCTableWriter, MCTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VTVFTableWriter, TVFTableSinkOperatorX>;
-template class AsyncWriterSink<doris::PaimonTableWriter, PaimonTableSinkOperatorX>;
 
 #ifdef BE_TEST
 template class OperatorX<DummyOperatorLocalState>;

@@ -21,17 +21,28 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.fs.FileSystem;
 import org.apache.doris.fs.FileSystemProvider;
 import org.apache.doris.fs.LocalDfsFileSystem;
+import org.apache.doris.fs.obj.ObjStorage;
 import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.fs.remote.SwitchingFileSystem;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.THiveLocationParams;
+import org.apache.doris.thrift.THivePartitionUpdate;
+import org.apache.doris.thrift.TS3MPUPendingUpload;
 
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
 
+import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
@@ -181,6 +192,12 @@ public class HMSTransactionPathTest {
         }
     }
 
+    private static void setEmptyStagingDirectory(HMSTransaction tx) throws Exception {
+        Field stagingDirField = HMSTransaction.class.getDeclaredField("stagingDirectory");
+        stagingDirField.setAccessible(true);
+        stagingDirField.set(tx, java.util.Optional.empty());
+    }
+
     private static class FakeFileSystem implements FileSystem {
         private Status listDirectoriesStatus = Status.OK;
         private Status listFilesStatus = Status.OK;
@@ -258,5 +275,42 @@ public class HMSTransactionPathTest {
         public java.util.Map<String, String> getProperties() {
             return null;
         }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testRollbackAbortsPendingMpuBeforeCommitterCreated() throws Exception {
+        S3Client s3Client = Mockito.mock(S3Client.class);
+        ObjStorage<S3Client> storage = Mockito.mock(ObjStorage.class);
+        Mockito.when(storage.getClient()).thenReturn(s3Client);
+        S3FileSystem s3FileSystem = Mockito.mock(S3FileSystem.class);
+        Mockito.doReturn(storage).when(s3FileSystem).getObjStorage();
+        HMSTransaction tx = createTransaction(s3FileSystem);
+
+        TS3MPUPendingUpload mpu = new TS3MPUPendingUpload();
+        mpu.setBucket("test-bucket");
+        mpu.setKey("warehouse/table/data-0.parquet");
+        mpu.setUploadId("upload-id-1");
+
+        THiveLocationParams location = new THiveLocationParams();
+        location.setWritePath("s3://test-bucket/warehouse/table");
+
+        THivePartitionUpdate update = new THivePartitionUpdate();
+        update.setLocation(location);
+        update.setFileNames(Collections.emptyList());
+        update.setRowCount(0);
+        update.setFileSize(0);
+        update.setS3MpuPendingUploads(Collections.singletonList(mpu));
+        tx.updateHivePartitionUpdates(Collections.singletonList(update));
+        setEmptyStagingDirectory(tx);
+
+        tx.rollback();
+
+        ArgumentCaptor<AbortMultipartUploadRequest> request =
+                ArgumentCaptor.forClass(AbortMultipartUploadRequest.class);
+        Mockito.verify(s3Client).abortMultipartUpload(request.capture());
+        Assert.assertEquals("test-bucket", request.getValue().bucket());
+        Assert.assertEquals("warehouse/table/data-0.parquet", request.getValue().key());
+        Assert.assertEquals("upload-id-1", request.getValue().uploadId());
     }
 }

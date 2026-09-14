@@ -481,6 +481,14 @@ public class CascadesContext implements ScheduleContext {
         return this.statementContext.getConsumerIdToFilters();
     }
 
+    public void putConsumerIdToLimitRows(RelationId id, long rows) {
+        this.statementContext.getConsumerIdToLimitRows().merge(id, rows, Math::max);
+    }
+
+    public Map<RelationId, Long> getConsumerIdToLimitRows() {
+        return this.statementContext.getConsumerIdToLimitRows();
+    }
+
     public void addCTEConsumerGroup(CTEId cteId, Group g, Multimap<Slot, Slot> producerSlotToConsumerSlot) {
         List<Pair<Multimap<Slot, Slot>, Group>> consumerGroups =
                 this.statementContext.getCteIdToConsumerGroup().computeIfAbsent(cteId, k -> new ArrayList<>());

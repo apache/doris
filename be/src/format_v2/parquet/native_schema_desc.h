@@ -38,7 +38,10 @@ namespace doris::format::parquet {
 
 // Constant for unassigned column IDs
 constexpr uint64_t NATIVE_UNASSIGNED_COLUMN_ID = UINT64_MAX;
-constexpr size_t MAX_NATIVE_SCHEMA_DEPTH = 100;
+// Paimon and Iceberg cap automatic Variant shredding at 50 logical levels, but each nested array
+// can add three Parquet groups. 192 also covers Doris's nine enclosing nested-type levels while
+// keeping footer recursion bounded for untrusted files.
+constexpr size_t MAX_NATIVE_SCHEMA_DEPTH = 192;
 
 struct NativeFieldSchema {
     std::string name;

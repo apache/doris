@@ -29,9 +29,23 @@
 #include "format/parquet/arrow_memory_pool.h"
 #include "runtime/runtime_profile.h"
 
+namespace arrow {
+class Schema;
+}
+
 namespace doris {
 
+class ExternalSpillSession;
 class RuntimeState;
+
+extern const char* const PAIMON_JNI_WRITER_OPEN_SIGNATURE;
+
+struct PaimonJniWriterOpenMode {
+    jboolean overwrite;
+    jboolean changelog;
+
+    static PaimonJniWriterOpenMode from_write_mode(TPaimonWriteMode::type write_mode);
+};
 
 /// JNI backend that owns the Java PaimonJniWriter object and its JNI method
 /// handles. Creates lightweight JniPaimonWriter adapters that share this
@@ -44,6 +58,7 @@ class RuntimeState;
 /// common backend contract.
 class JniPaimonWriteBackend final : public IPaimonWriteBackend {
 public:
+    JniPaimonWriteBackend();
     ~JniPaimonWriteBackend() override;
 
     Status open(const TPaimonTableSink& sink, RuntimeState* state,
@@ -54,7 +69,6 @@ public:
 
 private:
     Status _check_jni_exception(JNIEnv* env, const std::string& method_name);
-    Status _load_writer_class(JNIEnv* env, jclass* writer_class);
     void _refresh_memory_profile();
 
     // JNI global references — live for the duration of this backend.
@@ -67,8 +81,9 @@ private:
     jmethodID _abort_id = nullptr;
     jmethodID _close_id = nullptr;
 
-    TPaimonTableSink _sink;
     std::unique_ptr<PaimonJniMemoryManager> _memory_manager;
+    std::shared_ptr<arrow::Schema> _arrow_schema;
+    std::unique_ptr<ExternalSpillSession> _spill_session;
     RuntimeProfile::Counter* _native_page_memory_limit = nullptr;
     RuntimeProfile::Counter* _native_page_memory_peak = nullptr;
     bool _opened = false;
@@ -76,23 +91,19 @@ private:
 
 /// Lightweight C++ adapter that delegates to the shared JNI backend.
 ///
-/// Owns the Arrow memory pool used for Block → Arrow IPC conversion.
+/// Owns the Arrow memory pool used for Block → Arrow RecordBatch conversion.
 /// Each JniPaimonWriter is created by JniPaimonWriteBackend::create_writer()
 /// and shares the backend's JNI method IDs and Java writer object reference.
 class JniPaimonWriter final : public IPaimonWriter {
 public:
     JniPaimonWriter(jobject jni_writer_obj, jmethodID write_id, jmethodID prepare_commit_id,
-                    jmethodID abort_id, std::unique_ptr<ArrowMemoryPool<>> arrow_pool,
-                    TPaimonTableSink sink);
+                    jmethodID abort_id, std::shared_ptr<arrow::Schema> arrow_schema);
 
     Status write(RuntimeState* state, Block& block) override;
     Status prepare_commit(std::vector<TPaimonCommitMessage>& messages) override;
     Status abort() override;
 
 private:
-    /// Convert Block → Arrow RecordBatch → IPC Stream, then pass to Java via JNI direct buffer.
-    Status _write_projected_block(RuntimeState* state, Block& block);
-
     // Shared JNI state (owned by JniPaimonWriteBackend, not this adapter).
     jobject _jni_writer_obj;
     jmethodID _write_id;
@@ -100,8 +111,8 @@ private:
     jmethodID _abort_id;
 
     // Arrow resources owned by this writer adapter.
-    std::unique_ptr<ArrowMemoryPool<>> _arrow_pool;
-    TPaimonTableSink _sink;
+    ArrowMemoryPool<> _arrow_pool;
+    std::shared_ptr<arrow::Schema> _arrow_schema;
 };
 
 } // namespace doris

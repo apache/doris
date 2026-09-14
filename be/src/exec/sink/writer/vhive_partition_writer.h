@@ -76,6 +76,8 @@ private:
 
 private:
     THivePartitionUpdate _build_partition_update();
+    bool _build_s3_mpu_pending_upload(TS3MPUPendingUpload* pending_upload);
+    void _add_s3_mpu_pending_upload_for_rollback();
 
     std::string _get_file_extension(TFileFormatType::type file_format_type,
                                     TFileCompressType::type write_compress_type);

@@ -167,11 +167,8 @@ public class DataTypeTest {
 
         VariantType v1 = new VariantType(100);
         VariantType anotherV1 = new VariantType(200);
-        VariantType v2 = v1.withComputeV2(true);
-        VariantType anotherV2 = anotherV1.withComputeV2(true);
         assertSafeCast(v1, new VariantType(100));
         assertSafeCast(v1, anotherV1);
-        assertSafeCast(v2, anotherV2);
     }
 
     @Test

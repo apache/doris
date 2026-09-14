@@ -216,8 +216,7 @@ public class TypeCoercionUtils {
             }
             return Optional.of(new StructType(newFields));
         } else if (input instanceof VariantType
-                && ((VariantType) input).isComputeV2()
-                && expected instanceof JsonType) {
+                && ((VariantType) input).isExecutionV2() && expected instanceof JsonType) {
             // JSON functions require users to make this representation change explicit.
             return Optional.empty();
         } else if (input instanceof VariantType && (expected.isNumericType() || expected.isStringLikeType())) {
@@ -1373,9 +1372,9 @@ public class TypeCoercionUtils {
         Expression right = comparisonPredicate.right();
 
         boolean leftIsVariantV2 = left.getDataType() instanceof VariantType
-                && ((VariantType) left.getDataType()).isComputeV2();
+                && ((VariantType) left.getDataType()).isExecutionV2();
         boolean rightIsVariantV2 = right.getDataType() instanceof VariantType
-                && ((VariantType) right.getDataType()).isComputeV2();
+                && ((VariantType) right.getDataType()).isExecutionV2();
         boolean isDirectVariantSubpathScalarComparison = leftIsVariantV2 != rightIsVariantV2
                 && ((leftIsVariantV2 && left instanceof ElementAt)
                         || (rightIsVariantV2 && right instanceof ElementAt));
@@ -2053,7 +2052,7 @@ public class TypeCoercionUtils {
         }
 
         if (t1 instanceof VariantType && t2 instanceof VariantType
-                && (((VariantType) t1).isComputeV2() || ((VariantType) t2).isComputeV2())) {
+                && (((VariantType) t1).isExecutionV2() || ((VariantType) t2).isExecutionV2())) {
             return findCommonVariantType((VariantType) t1, (VariantType) t2);
         }
 

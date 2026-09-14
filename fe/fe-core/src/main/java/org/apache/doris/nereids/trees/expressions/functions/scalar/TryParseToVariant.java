@@ -19,54 +19,62 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NeedSessionVarGuard;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Objects;
 
 /** Parse JSON text into a Variant value and return SQL NULL for input errors. */
 public class TryParseToVariant extends ScalarFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable, NeedSessionVarGuard {
+        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VariantType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT)
     );
 
+    private final VariantType returnType;
+
     public TryParseToVariant(Expression argument) {
-        super("try_parse_to_variant", argument);
+        this(argument, VariantType.INSTANCE);
     }
 
-    private TryParseToVariant(ScalarFunctionParams functionParams) {
+    public TryParseToVariant(Expression argument, VariantType returnType) {
+        super("try_parse_to_variant", argument);
+        this.returnType = returnType;
+    }
+
+    private TryParseToVariant(ScalarFunctionParams functionParams, VariantType returnType) {
         super(functionParams);
+        this.returnType = returnType;
     }
 
     @Override
     public TryParseToVariant withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new TryParseToVariant(getFunctionParams(children));
+        return new TryParseToVariant(getFunctionParams(children), returnType);
     }
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        return SIGNATURES;
+        return ImmutableList.of(FunctionSignature.ret(returnType).args(VarcharType.SYSTEM_DEFAULT));
     }
 
     @Override
-    public FunctionSignature computeSignature(FunctionSignature signature) {
-        ConnectContext connectContext = ConnectContext.get();
-        if (connectContext != null && connectContext.getSessionVariable().isEnableVariantV2()) {
-            return signature.withReturnType(VariantType.COMPUTE_V2_INSTANCE);
-        }
-        return signature;
+    protected boolean extraEquals(Expression that) {
+        return super.extraEquals(that) && returnType.equals(((TryParseToVariant) that).returnType);
+    }
+
+    @Override
+    public int computeHashCode() {
+        return Objects.hash(super.computeHashCode(), returnType);
     }
 
     @Override

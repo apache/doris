@@ -61,11 +61,13 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
-import java.util.IdentityHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -135,8 +137,8 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         // construct left and right aggFuncs and aliasMap
         List<AggregateFunction> leftFuncs = new ArrayList<>();
         List<AggregateFunction> rightFuncs = new ArrayList<>();
-        Map<AggregateFunction, Alias> leftAliasMap = new IdentityHashMap<>();
-        Map<AggregateFunction, Alias> rightAliasMap = new IdentityHashMap<>();
+        Map<AggregateFunction, Alias> leftAliasMap = new HashMap<>();
+        Map<AggregateFunction, Alias> rightAliasMap = new HashMap<>();
         for (AggregateFunction f : context.getAggFunctions()) {
             Set<Slot> inputs = f.getInputSlots();
             Alias a = context.getAliasMap().get(f);
@@ -198,7 +200,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     }
 
     private boolean isPassThroughHeavyJoin(Plan joinChild, PushDownAggContext context) {
-        if (context.isPassThroughHeavyJoin() || SessionVariable.getEagerAggregationMode() > 0) {
+        if (context.isPassThroughHeavyJoin()) {
             return true;
         } else {
             Statistics stats = joinChild.getStats();
@@ -405,7 +407,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
     private PushDownAggContext createContextFromProject(
             LogicalProject<? extends Plan> project,
-            PushDownAggContext context) {
+            PushDownAggContext context, Map<ExprId, ExprId> projectToChildExprIdMap) {
         /*
          * context: sum(a) groupBy(y+z as x, l)
          * proj: b+c as a, u+v as y, m+n as l
@@ -419,35 +421,38 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                             .stream().map(slot -> (SlotReference) slot).collect(Collectors.toList()));
         }
 
-        List<AggregateFunction> aggFunctions = new ArrayList<>();
-        Map<AggregateFunction, Alias> aliasMap = new IdentityHashMap<>();
+        Set<AggregateFunction> aggFunctions = new LinkedHashSet<>();
+        Map<AggregateFunction, Alias> aliasMap = new HashMap<>();
+        boolean newContainsNullToNonNull = context.hasCaseWhen;
         for (AggregateFunction aggFunc : context.getAggFunctions()) {
             AggregateFunction newAggFunc = (AggregateFunction) project.pushDownExpressionPastProject(aggFunc);
             Alias alias = context.getAliasMap().get(aggFunc);
-            aliasMap.put(newAggFunc, (Alias) alias.withChildren(newAggFunc));
+            Alias aliasForChild;
+            if (aliasMap.containsKey(newAggFunc)) {
+                aliasForChild = aliasMap.get(newAggFunc);
+            } else {
+                aliasForChild = (Alias) alias.withChildren(newAggFunc);
+                aliasMap.put(newAggFunc, aliasForChild);
+            }
+            projectToChildExprIdMap.put(alias.getExprId(), aliasForChild.getExprId());
             aggFunctions.add(newAggFunc);
-        }
-        // After pushing expressions past the project, the agg functions may now
-        // contain If/CaseWhen that were hidden behind slot references before.
-        // e.g. count(#slot) where #slot = if(cond, a, b) in the project.
-        // We must re-check and update hasCaseWhen accordingly.
-        boolean newHasCaseWhen = context.hasCaseWhen;
-        if (!newHasCaseWhen) {
-            for (AggregateFunction aggFunc : aggFunctions) {
-                if (aggFunc.children().stream().anyMatch(
-                        arg -> arg.anyMatch(e ->
-                                NullToNonNullFunction.canConvertNullToNonNull((Expression) e)))) {
-                    newHasCaseWhen = true;
-                    break;
-                }
+            // After pushing expressions past the project, the agg functions may now
+            // contain NullToNonNull expressions that were hidden behind slot references before.
+            // e.g. count(#slot) where #slot = coalesce(a, 0) in the project.
+            // We must re-check and update containsNullToNonNull accordingly.
+            if (!newContainsNullToNonNull
+                    && newAggFunc.children().stream().anyMatch(
+                            arg -> arg.anyMatch(e ->
+                            NullToNonNullFunction.canConvertNullToNonNull((Expression) e)))) {
+                newContainsNullToNonNull = true;
             }
         }
-        PushDownAggContext newContext = new PushDownAggContext(aggFunctions, groupKeys, aliasMap,
+
+        return new PushDownAggContext(ImmutableList.copyOf(aggFunctions), groupKeys, aliasMap,
                 context.getCascadesContext(), context.isPassThroughHeavyJoin(),
-                context.hasDecomposedAggIf, newHasCaseWhen,
+                context.hasDecomposedAggIf, newContainsNullToNonNull,
                 context.getBilateralState(), context.needOutputCount(), context.isPassThroughJoinOrUnion(),
                 context.isSmallBroadcastBottomJoin());
-        return newContext;
     }
 
     private boolean canPushThroughProject(LogicalProject<? extends Plan> project, PushDownAggContext context) {
@@ -557,7 +562,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             Plan child = union.children().get(idx);
             final int childIdx = idx;
             List<AggregateFunction> aggFunctionsForChild = new ArrayList<>();
-            IdentityHashMap<AggregateFunction, Alias> aliasMapForChild = new IdentityHashMap<>();
+            Map<AggregateFunction, Alias> aliasMapForChild = new HashMap<>();
             for (AggregateFunction func : context.getAggFunctions()) {
                 AggregateFunction newFunc = (AggregateFunction) union.pushDownExpressionPastSetOperator(func, childIdx);
                 aggFunctionsForChild.add(newFunc);
@@ -686,7 +691,8 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         if (!canPushThroughProject(project, context)) {
             return genAggregate(project, context);
         }
-        PushDownAggContext newContext = createContextFromProject(project, context);
+        Map<ExprId, ExprId> projectToChildExprIdMap = new HashMap<>();
+        PushDownAggContext newContext = createContextFromProject(project, context, projectToChildExprIdMap);
         if (newContext.aggFuncAndGroupKeyAllEmpty()) {
             return project;
         }
@@ -714,9 +720,19 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             BilateralState state = context.getBilateralState();
             for (AggregateFunction aggFunc : context.getAggFunctions()) {
                 Alias alias = context.getAliasMap().get(aggFunc);
-                NamedExpression namedExpression = state.getPushedAggFuncSlot(alias.getExprId());
-                newProjections.add(namedExpression.toSlot());
+                ExprId childExprId = projectToChildExprIdMap.get(alias.getExprId());
+                NamedExpression namedExpression = state.getPushedAggFuncSlot(childExprId);
+                NamedExpression output;
+                if (namedExpression.getExprId().equals(alias.getExprId())) {
+                    output = namedExpression.toSlot();
+                } else {
+                    output = (Alias) alias.withChildren(namedExpression.toSlot());
+                    state.registerAggFuncOutput(alias.getExprId(), output.toSlot(),
+                            state.isAggFuncActuallyPushed(childExprId));
+                }
+                newProjections.add(output);
             }
+
             for (SlotReference slot : context.getGroupKeys()) {
                 boolean valid = false;
                 for (NamedExpression ne : project.getProjects()) {
@@ -1302,9 +1318,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
 
         if (mode > 0) {
-            // when mode=1, any join is regarded as big join in order to
-            // push down aggregation through at least one join
-            return context.isPassThroughHeavyJoin();
+            return true;
         }
 
         if (!context.isPassThroughHeavyJoin() && !context.hasDecomposedAggIf) {

@@ -13,7 +13,7 @@
 4	40	insert-select
 
 -- !after_rows --
-5	50	overwrite
+6	60	merge-insert
 
 -- !after_snapshots --
-4
+7

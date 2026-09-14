@@ -17,6 +17,7 @@
 
 #include "format/table/iceberg/arrow_schema_util.h"
 
+#include <arrow/extension/parquet_variant.h>
 #include <arrow/type.h>
 #include <arrow/util/key_value_metadata.h>
 
@@ -83,6 +84,13 @@ Status ArrowSchemaUtil::convert_to(const iceberg::NestedField& field,
 
     case iceberg::TypeID::BINARY:
         arrow_type = arrow::binary();
+        break;
+
+    case iceberg::TypeID::VARIANT:
+        arrow_type = arrow::extension::variant(arrow::struct_({
+                arrow::field("metadata", arrow::binary(), false),
+                arrow::field("value", arrow::binary(), false),
+        }));
         break;
 
     case iceberg::TypeID::UUID:

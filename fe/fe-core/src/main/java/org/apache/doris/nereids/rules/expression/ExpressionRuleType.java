@@ -67,6 +67,7 @@ public enum ExpressionRuleType {
     NORMALIZE_ELEMENT_AT,
     TIMESTAMP_TO_ADD_TIME,
     TOPN_TO_MAX,
+    REWRITE_DEFAULT_EXPRESSION,
     ADD_SESSION_VAR_GUARD;
 
     public int type() {

@@ -110,18 +110,44 @@ public class MetaServiceClient {
         }
     }
 
+    // Resolve the status code returned by Meta Service (MS) for FE clients of different versions.
+    // Assuming MS is always the latest version, it sends both the meta-service error code and a code that
+    // older clients can decode:
+    //
+    //                              latest MS
+    //                 +---------------------------------------+
+    //                 | actual_code = meta-service error code |
+    //                 | code        = compatible code         |
+    //                 +----------------+----------------------+
+    //                                  |
+    //                    +-------------+-------------+
+    //                    |                           |
+    //          old FE without the             old FE with the
+    //          actual_code field              actual_code field
+    //                    |                           |
+    //          ignores actual_code            local enum recognizes
+    //          and reads code                 actual_code value?
+    //                                           /                  \
+    //                                         yes                  no
+    //                                         |                     |
+    //                                  use actual code      use code only when it
+    //                                                       is explicit and non-OK
+    //                                                                 |
+    //                                                          otherwise return
+    //                                                           UNDEFINED_ERR
+    //
+    // After MS adds an error code, an older actual_code-aware client may not have that enum value;
+    // Cloud.MetaServiceCode.forNumber returns null in this case. The non-OK fallback check is essential:
+    // if MS ignores or incorrectly converts the compatible code to OK, an unknown error must remain an
+    // error instead of becoming a false success.
     @SuppressWarnings("unchecked")
-    // Restore the exact status code from actual_code when this FE recognizes it.
-    // Otherwise, keep
-    // the legacy-compatible value in code so responses from a newer Meta Service
-    // remain readable.
     private static <Response> Response restoreActualCode(Response response) {
         if (!(response instanceof Message)) {
             return response;
         }
         Message message = (Message) response;
         Descriptors.FieldDescriptor statusField = message.getDescriptorForType().findFieldByName("status");
-        if (statusField == null || !message.hasField(statusField)) {
+        if (statusField == null) {
             return response;
         }
         Object statusObject = message.getField(statusField);
@@ -130,11 +156,22 @@ public class MetaServiceClient {
         }
         Cloud.MetaServiceResponseStatus status = (Cloud.MetaServiceResponseStatus) statusObject;
 
-        if (!status.hasActualCode()) {
-            return response;
+        Cloud.MetaServiceCode code;
+        if (status.hasActualCode()) {
+            code = Cloud.MetaServiceCode.forNumber(status.getActualCode());
+            if (code == null) {
+                if (status.hasCode() && status.getCode() != Cloud.MetaServiceCode.OK) {
+                    return response;
+                }
+                code = Cloud.MetaServiceCode.UNDEFINED_ERR;
+            }
+        } else {
+            if (status.hasCode()) {
+                return response;
+            }
+            code = Cloud.MetaServiceCode.UNDEFINED_ERR;
         }
-        Cloud.MetaServiceCode code = Cloud.MetaServiceCode.forNumber(status.getActualCode());
-        if (code == null || code == status.getCode()) {
+        if (status.hasCode() && code == status.getCode()) {
             return response;
         }
         Cloud.MetaServiceResponseStatus restoredStatus = status.toBuilder().setCode(code).build();

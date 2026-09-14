@@ -142,6 +142,12 @@ docker/thirdparties/docker-compose/*/*.yaml
 docker/thirdparties/docker-compose/*/*.env
 docker/thirdparties/docker-compose/*/cache/
 docker/thirdparties/docker-compose/*/scripts/SUCCESS
+# Rendered from the .tpl next to them by run-thirdparties-docker.sh, which substitutes
+# CONTAINER_UID; the templates are tracked, the rendered copies are not.
+docker/thirdparties/docker-compose/*/entrypoint.sh
+docker/thirdparties/docker-compose/*/scripts/entrypoint.sh
+# Left behind if lance_build_preinstalled_catalog.py fails while promoting a rebuild.
+docker/thirdparties/docker-compose/iceberg/scripts/preinstalled_data/lance.old/
 docker/runtime/be/resource/apache-doris/
 
 # other

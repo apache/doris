@@ -340,6 +340,9 @@ struct TIcebergFileDesc {
     // Only for format_version >= 3, the sequence number which last updated this file.
     11: optional i64 last_updated_sequence_number;
     12: optional string serialized_split;
+    // Historical schema fragments required by equality-delete keys attached to this exact split.
+    // Keeping this split-local preserves lazy batch planning without widening the query schema.
+    13: optional ExternalTableSchema.TSchema equality_delete_schema;
 }
 
 struct TPaimonDeletionFileDesc {
@@ -351,6 +354,7 @@ struct TPaimonDeletionFileDesc {
 enum TPaimonReaderType {
     PAIMON_NATIVE = 0,
     PAIMON_JNI = 1,
+    // Deprecated wire value kept during rolling upgrades. New plans never emit it.
     PAIMON_CPP = 2,
 }
 
@@ -475,13 +479,48 @@ struct TVectorSearchParams {
     5: optional TVectorMetric metric
 }
 
-// Logical parameters for one full-text query. `query` initially carries the backend query string;
-// richer structured query forms can be added as new fields without changing this basic contract.
+enum TFtsCoverageMode {
+    STRICT,
+    INDEX_ONLY
+}
+
+enum TFtsQueryType {
+    MATCH,
+    PHRASE
+}
+
+enum TFtsMatchOperator {
+    OR,
+    AND
+}
+
+// Logical parameters for one full-text query. MATCH combines analyzed terms with match_operator;
+// PHRASE searches the analyzed terms in order and permits phrase_slop intervening positions.
 struct TFullTextSearchParams {
     1: optional string column
     2: optional string query
     3: optional i64 top_k
     4: optional i64 offset
+    // STRICT requires the selected FTS index to cover the complete pinned snapshot. INDEX_ONLY
+    // searches and scores only fragments covered by committed FTS index segments.
+    5: optional TFtsCoverageMode coverage_mode
+    // Reserved for distributed FTS. Every BE may search a different index-segment subset, so
+    // statistics prepared independently on each BE would produce BM25 scores that are not
+    // comparable during the final TopK merge. The payload must be prepared once for the exact
+    // snapshot, logical FTS index, segment set, and query (including its final fuzzy vocabulary),
+    // then validated and installed unchanged on every BE scanner.
+    //
+    // Doris currently leaves this field unset and BE rejects a set value because Lance/lance-c
+    // does not yet provide the complete producer and consumer contract. Track the upstream work
+    // at https://github.com/lance-format/lance/issues/8937.
+    6: optional binary global_statistics
+    7: optional TFtsQueryType query_type
+    // MATCH-only parameters. max_fuzzy_distance is reserved as zero until the bundled Lance-C
+    // supports one canonical fuzzy vocabulary across all prepared index segments.
+    8: optional TFtsMatchOperator match_operator
+    9: optional i32 max_fuzzy_distance
+    // PHRASE-only parameter. Zero requires an exact phrase.
+    10: optional i32 phrase_slop
 }
 
 enum TSearchFilterFormat {
@@ -496,9 +535,9 @@ struct TSearchFilter {
     2: optional binary payload
 }
 
-// Lance-only vector search tuning. Logical query fields stay in TVectorSearchParams so another
-// provider, such as Paimon, can reuse the same request without depending on Lance options.
-struct TLanceVectorSearchOptions {
+// Optional vector search tuning. Logical query fields stay in TVectorSearchParams so providers
+// can reuse the same request and interpret the supported tuning fields independently.
+struct TVectorSearchOptions {
     1: optional i32 nprobes
     2: optional i32 refine_factor
     3: optional i32 ef
@@ -508,17 +547,17 @@ struct TLanceVectorSearchOptions {
 // The active union field identifies the logical search kind. A future hybrid field can contain both
 // vector and full-text subqueries plus its fusion parameters without changing either existing field.
 union TExternalSearchQuery {
-    1: TVectorSearchParams vector
-    2: TFullTextSearchParams full_text
+    1: TVectorSearchParams vector_search
+    2: TFullTextSearchParams full_text_search
 }
 
 // A provider-independent logical search request. Physical target information remains in the
 // provider FileDesc (for example, dataset_uri/version/fragment_ids in TLanceFileDesc).
 struct TExternalSearchRequest {
     1: optional i32 schema_version = 1
-    2: optional TExternalSearchQuery query
-    3: optional TSearchFilter filter
-    4: optional TLanceVectorSearchOptions lance_options
+    2: optional TExternalSearchQuery search_query
+    3: optional TSearchFilter search_filter
+    4: optional TVectorSearchOptions vector_search_options
 }
 
 // A catalog/S3 range reads fragments from a fixed snapshot. A local TVF range uses version zero
@@ -527,6 +566,33 @@ struct TLanceFileDesc {
     1: optional string dataset_uri
     2: optional list<i64> fragment_ids
     3: optional i64 version
+    // Per-split row limit pushed down from the query LIMIT. Each scanner returns at
+    // most this many rows; the upper LIMIT operator still enforces the global bound.
+    // Only set for ordinary scans whose predicates are fully pushed into Lance.
+    4: optional i64 limit
+    // Physical vector or FTS index segments assigned to this distributed search split. Each value
+    // is one UUID encoded as 16 bytes in RFC 4122 order. Unset for ordinary and vector
+    // unindexed-fragment scans.
+    5: optional list<binary> index_segment_uuids
+}
+
+struct TLanceScanParams {
+    // Serialized Substrait ExtendedExpression executed by the native Lance scanner. Set at
+    // ScanNode level so it is not serialized once per fragment split.
+    1: optional binary lance_substrait_filter
+    // Provider-independent search request. Set at ScanNode level so all ranges use the same logical
+    // query. Lance external search uses one range per fragment or physical index segment, and Doris
+    // merges the split-local candidates.
+    2: optional TExternalSearchRequest external_search_request
+    // Lance-native storage options, handed to lance-c untranslated. The namespace protocol treats
+    // storage_options as opaque configuration passed directly to Lance, so any key vocabulary the
+    // BE imposed here would drop options it does not happen to know - including credentials a
+    // namespace spelled with a different accepted alias, and every non-S3 provider's keys.
+    // Set at ScanNode level so credentials are not serialized once per fragment split.
+    // These are the initial options for the scan and are never refreshed: lance-c opens datasets
+    // with a static option set, so credentials that expire mid-scan are not re-vended. Renewal
+    // needs a refresh channel of its own, which this field is not.
+    3: optional map<string, string> lance_storage_options
 }
 
 struct TTableFormatFileDesc {
@@ -625,12 +691,8 @@ struct TFileScanRangeParams {
     34: optional i32 iceberg_scan_semantics_version
     // FE-generated identity for sharing a deserialized table across JNI scanners in one scan node.
     35: optional string serialized_table_cache_key
-    // Serialized Substrait ExtendedExpression executed by the native Lance scanner. Set at
-    // ScanNode level so it is not serialized once per fragment split.
-    36: optional binary lance_substrait_filter
-    // Provider-independent search request. Set at ScanNode level so all ranges use the same logical
-    // query. The first implementation uses one whole-dataset range for Lance vector search.
-    37: optional TExternalSearchRequest external_search_request
+    // 31-33 and 36 are used in master; do not allocate them in branch-4.1.
+    37: optional TLanceScanParams lance_scan_params
 }
 
 struct TFileRangeDesc {
@@ -663,6 +725,8 @@ struct TFileRangeDesc {
     // whether the value of columns_from_path is null
     15: optional list<bool> columns_from_path_is_null;
     16: optional bool file_cache_admission;
+    // FE's effective split target in bytes for BE-local physical split refinement.
+    17: optional i64 target_split_size;
 }
 
 struct TSplitSource {
@@ -791,6 +855,13 @@ struct TParquetMetadataParams {
   6: optional string bloom_literal
 }
 
+// Identifies a Lance table for read-only physical index entry inspection.
+struct TLanceIndexMetadataParams {
+  1: optional string catalog
+  2: optional string database
+  3: optional string table
+}
+
 struct TMetaScanRange {
   1: optional Types.TMetadataType metadata_type
   2: optional TIcebergMetadataParams iceberg_params // deprecated
@@ -811,6 +882,7 @@ struct TMetaScanRange {
   15: optional string serialized_table;
   16: optional list<string> serialized_splits;
   17: optional TParquetMetadataParams parquet_params;
+  18: optional TLanceIndexMetadataParams lance_index_params;
 }
 
 // Specification of an individual data range which is held in its entirety

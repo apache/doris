@@ -38,6 +38,7 @@
 #include "format/parquet/level_decoder.h"
 #include "format/parquet/schema_desc.h"
 #include "format/parquet/vparquet_column_chunk_reader.h"
+#include "format/table/iceberg_default_value.h"
 #include "io/fs/tracing_file_reader.h"
 #include "runtime/runtime_profile.h"
 
@@ -779,6 +780,7 @@ Status StructColumnReader::init(
         FieldSchema* field) {
     _field_schema = field;
     _child_readers = std::move(child_readers);
+    _nested_initial_default_values.clear();
     return Status::OK();
 }
 Status StructColumnReader::read_column_data(
@@ -984,12 +986,20 @@ Status StructColumnReader::read_column_data(
     // Fill truly missing columns (not in root_node) with null or default value
     for (auto idx : missing_column_idxs) {
         auto& doris_field = doris_struct.get_column_ptr(idx);
-        auto& doris_type = const_cast<DataTypePtr&>(doris_struct_type->get_element(idx));
-        DCHECK(doris_type->is_nullable());
-        doris_field = IColumn::mutate(std::move(doris_field));
-        auto mutable_column = doris_field->assert_mutable();
-        auto* nullable_column = static_cast<ColumnNullable*>(mutable_column.get());
-        nullable_column->insert_many_defaults(missing_column_sz);
+        auto& doris_type = doris_struct_type->get_element(idx);
+        const auto& doris_name = doris_struct_type->get_element_name(idx);
+        const auto* iceberg_field = root_node->get_missing_column_field(doris_name);
+        if (iceberg_field != nullptr) {
+            RETURN_IF_ERROR(iceberg::append_initial_default(
+                    *iceberg_field, doris_type, missing_column_sz, &_nested_initial_default_values,
+                    &doris_field, _ctz));
+        } else {
+            DCHECK(doris_type->is_nullable());
+            doris_field = IColumn::mutate(std::move(doris_field));
+            auto mutable_column = doris_field->assert_mutable();
+            auto* nullable_column = static_cast<ColumnNullable*>(mutable_column.get());
+            nullable_column->insert_many_defaults(missing_column_sz);
+        }
     }
 
     if (null_map_ptr != nullptr) {

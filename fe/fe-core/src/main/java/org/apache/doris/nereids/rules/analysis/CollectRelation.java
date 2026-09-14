@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPaimonTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
@@ -90,6 +91,9 @@ public class CollectRelation implements AnalysisRuleFactory {
                         .toRule(RuleType.COLLECT_TABLE_FROM_RELATION),
                 unboundLogicalSink()
                         .thenApply(this::collectFromUnboundSink)
+                        .toRule(RuleType.COLLECT_TABLE_FROM_SINK),
+                logicalPaimonTableSink()
+                        .thenApply(this::collectFromPaimonSink)
                         .toRule(RuleType.COLLECT_TABLE_FROM_SINK),
                 any().whenNot(UnboundRelation.class::isInstance)
                         .whenNot(UnboundTableSink.class::isInstance)
@@ -160,6 +164,12 @@ public class CollectRelation implements AnalysisRuleFactory {
             default:
                 throw new IllegalStateException("Insert target name is invalid.");
         }
+    }
+
+    private Plan collectFromPaimonSink(MatchingContext<LogicalPaimonTableSink<Plan>> ctx) {
+        collectFromUnboundRelation(ctx.cascadesContext, ctx.root.getTargetTable().getFullQualifiers(),
+                TableFrom.INSERT_TARGET, Optional.empty());
+        return null;
     }
 
     private Plan collectFromUnboundRelation(MatchingContext<UnboundRelation> ctx) {

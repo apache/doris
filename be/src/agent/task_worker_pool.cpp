@@ -499,11 +499,14 @@ void add_task_count(const TAgentTaskRequest& task, int n) {
     {
         ALTER_count << n;
         // cloud auto stop need sc jobs, a tablet's sc can also be considered a fragment
-        doris::g_fragment_executing_count << 1;
-        int64_t now = duration_cast<std::chrono::milliseconds>(
-                            std::chrono::system_clock::now().time_since_epoch())
-                            .count();
-        g_fragment_last_active_time.set_value(now);
+        if (n > 0) {
+            // only count fragment when task is actually starting
+            doris::g_fragment_executing_count << 1;
+            int64_t now = duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
+            g_fragment_last_active_time.set_value(now);
+        }
         return;
     }
     default:
@@ -1744,9 +1747,9 @@ void update_hdfs_resource(const TStorageResource& param, io::RemoteFileSystemSPt
 
     if (!existed_fs) {
         // No such FS instance on BE
-        auto res = io::HdfsFileSystem::create(
-                param.hdfs_storage_param, param.hdfs_storage_param.fs_name,
-                std::to_string(param.id), nullptr, std::move(root_path));
+        auto res = io::HdfsFileSystem::create(param.hdfs_storage_param,
+                                              param.hdfs_storage_param.fs_name,
+                                              std::to_string(param.id), std::move(root_path));
         if (!res.has_value()) {
             st = std::move(res).error();
         } else {
@@ -2574,17 +2577,30 @@ void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
 
 void clean_udf_cache_callback(const TAgentTaskRequest& req) {
     const auto& clean_req = req.clean_udf_cache_req;
+    if (clean_req.__isset.function_id && clean_req.function_id <= 0) {
+        LOG(WARNING) << "skip clean udf cache request with invalid function_id="
+                     << clean_req.function_id
+                     << ", function_signature=" << clean_req.function_signature;
+        return;
+    }
+    // Requests from old FEs do not set function_id and must keep signature-based cleanup.
+    const bool drop_by_function_id = clean_req.__isset.function_id;
 
     if (doris::config::enable_java_support) {
-        static_cast<void>(Jni::Util::clean_udf_class_load_cache(clean_req.function_signature));
+        WARN_IF_ERROR(
+                Jni::Util::clean_udf_class_load_cache(
+                        clean_req.function_signature,
+                        drop_by_function_id ? clean_req.function_id : 0),
+                fmt::format("failed to clean Java UDF cache, function_signature={}, function_id={}",
+                            clean_req.function_signature, clean_req.function_id));
     }
-
-    if (clean_req.__isset.function_id && clean_req.function_id > 0) {
+    if (drop_by_function_id) {
         UserFunctionCache::instance()->drop_function_cache(clean_req.function_id);
         PythonServerManager::instance().clear_udaf_state_cache(clean_req.function_id);
     }
 
-    LOG(INFO) << "clean udf cache finish: function_signature=" << clean_req.function_signature;
+    LOG(INFO) << "clean udf cache callback finish: function_signature="
+              << clean_req.function_signature << ", function_id=" << clean_req.function_id;
 }
 
 void report_index_policy_callback(const ClusterInfo* cluster_info) {

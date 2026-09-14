@@ -25,6 +25,7 @@ import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonTransaction;
 import org.apache.doris.datasource.paimon.PaimonWriteBinding;
 import org.apache.doris.datasource.paimon.PaimonWriteTarget;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.PaimonInsertCommandContext;
 import org.apache.doris.thrift.TDataSink;
@@ -50,11 +51,14 @@ import java.util.Set;
  * metadata, Hadoop authentication config, transaction identity, write mode,
  * and sink column names.
  *
- * v1: single-writer architecture; partition/bucket routing delegated to SDK.
+ * The upstream Exchange may establish concurrent HASH_FIXED writer ownership;
+ * partition and bucket handling inside each writer remains delegated to the SDK.
  */
 public class PaimonTableSink extends BaseExternalTableDataSink {
+    public static final String ROW_KIND_COLUMN = "__DORIS_PAIMON_ROW_KIND__";
     private final PaimonExternalTable targetTable;
     private final PaimonWriteTarget writeTarget;
+    private final DMLCommandType dmlCommandType;
     private List<Expr> outputExprs;
     private List<Column> cols;
 
@@ -63,10 +67,11 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
             add(TFileFormatType.FORMAT_PARQUET);
         }};
 
-    public PaimonTableSink(PaimonWriteTarget writeTarget) {
+    public PaimonTableSink(PaimonWriteTarget writeTarget, DMLCommandType dmlCommandType) {
         super();
         this.writeTarget = writeTarget;
         this.targetTable = writeTarget.getDorisTable();
+        this.dmlCommandType = dmlCommandType;
     }
 
     public void setCols(List<Column> cols) {
@@ -126,7 +131,9 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
         tSink.setSerializedTable(binding.getSerializedTable());
 
         tSink.setBackendType(TPaimonWriteBackendType.JNI);
-        if (ctx.isOverwrite()) {
+        if (isChangelogWrite()) {
+            tSink.setWriteMode(TPaimonWriteMode.CHANGELOG);
+        } else if (ctx.isOverwrite()) {
             tSink.setWriteMode(TPaimonWriteMode.OVERWRITE);
         } else {
             tSink.setWriteMode(TPaimonWriteMode.APPEND);
@@ -141,15 +148,25 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
     }
 
     private List<String> outputColumnNames() throws AnalysisException {
-        if (cols.size() != outputExprs.size()) {
+        int columnOffset = isChangelogWrite() ? 1 : 0;
+        if (cols.size() + columnOffset != outputExprs.size()) {
             throw new AnalysisException("Paimon sink output column size mismatch, columns="
                     + cols.size() + ", exprs=" + outputExprs.size());
         }
-        List<String> names = new ArrayList<>(cols.size());
+        List<String> names = new ArrayList<>(outputExprs.size());
+        if (isChangelogWrite()) {
+            names.add(ROW_KIND_COLUMN);
+        }
         for (Column col : cols) {
             names.add(col.getName());
         }
         return names;
+    }
+
+    private boolean isChangelogWrite() {
+        return dmlCommandType == DMLCommandType.UPDATE
+                || dmlCommandType == DMLCommandType.DELETE
+                || dmlCommandType == DMLCommandType.MERGE;
     }
 
 }

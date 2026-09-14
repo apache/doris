@@ -24,6 +24,112 @@ namespace doris {
 
 using apache::thrift::transport::TTransportException;
 
+Status SplitSourceConnector::get_next_split(bool* has_next, FileScanSplit* split) {
+    DORIS_CHECK(has_next != nullptr);
+    DORIS_CHECK(split != nullptr);
+    std::unique_lock lock(_split_lock);
+    while (true) {
+        *has_next = false;
+        if (_stopped) {
+            return Status::OK();
+        }
+        if (!_generated_splits.empty()) {
+            *split = std::move(_generated_splits.front());
+            _generated_splits.pop_front();
+            *has_next = true;
+            return Status::OK();
+        }
+        if (_source_exhausted) {
+            if (_active_source_splits.empty()) {
+                return Status::OK();
+            }
+            _split_ready.wait(lock);
+            continue;
+        }
+        if (_source_claim_in_progress) {
+            _split_ready.wait(lock);
+            continue;
+        }
+
+        TFileRangeDesc range;
+        bool has_source = false;
+        // Record the in-flight claim before dropping the queue lock, so another scanner cannot
+        // report raw EOS before this claim becomes an active source. The potentially blocking
+        // remote RPC must not hold the queue lock because a footer producer may publish children
+        // while that fetch is in flight.
+        _source_claim_in_progress = true;
+        lock.unlock();
+        const auto source_status = get_next(&has_source, &range);
+        lock.lock();
+        _source_claim_in_progress = false;
+        if (source_status.ok() && !has_source) {
+            // Both local exhaustion and an empty final remote batch are terminal. Remember EOS so
+            // parent waiters do not wake each other into repeated empty source fetches.
+            _source_exhausted = true;
+        }
+        _split_ready.notify_all();
+        RETURN_IF_ERROR(source_status);
+        if (_stopped) {
+            return Status::OK();
+        }
+        if (has_source) {
+            // A scanner reuses its output envelope across files. Reset child-only shared range and
+            // context state before installing a raw FE range, or materialization can read the
+            // previous child's file instead of this source.
+            *split = {};
+            split->range = std::move(range);
+            split->is_source_split = true;
+            split->source_split_id = _next_source_split_id++;
+            split->source_progress = std::make_shared<SourceSplitProgress>();
+            _active_source_splits.insert(split->source_split_id);
+            *has_next = true;
+            return Status::OK();
+        }
+        // A footer producer can publish children while the final remote fetch runs without the
+        // queue lock. Re-enter the queue checks before deciding EOS so the fetching scanner can
+        // claim those children even when no third scanner is waiting to be notified.
+    }
+}
+
+Status SplitSourceConnector::finish_source_split(const FileScanSplit& source_split,
+                                                 std::vector<FileScanSplit> generated_splits) {
+    if (!source_split.is_source_split || source_split.source_split_id == 0) {
+        return Status::InvalidArgument("Only an active source split can publish generated splits");
+    }
+    {
+        std::lock_guard lock(_split_lock);
+        if (_active_source_splits.erase(source_split.source_split_id) != 1) {
+            return Status::InvalidArgument("Source split {} is not active",
+                                           source_split.source_split_id);
+        }
+        if (!_stopped) {
+            if (!generated_splits.empty()) {
+                DORIS_CHECK(source_split.source_progress != nullptr);
+                source_split.source_progress->reset_for_children(generated_splits.size());
+            }
+            for (auto& split : generated_splits) {
+                split.is_source_split = false;
+                split.source_split_id = 0;
+                split.source_progress = source_split.source_progress;
+                _generated_splits.push_back(std::move(split));
+            }
+        }
+    }
+    _split_ready.notify_all();
+    return Status::OK();
+}
+
+void SplitSourceConnector::stop() {
+    {
+        std::lock_guard lock(_split_lock);
+        _stopped = true;
+        // Cancellation must release queued descriptors and footer contexts immediately; source
+        // producers finishing later will only retire their reservation without publishing work.
+        _generated_splits.clear();
+    }
+    _split_ready.notify_all();
+}
+
 Status LocalSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* range) {
     std::lock_guard<std::mutex> l(_range_lock);
     *has_next = false;

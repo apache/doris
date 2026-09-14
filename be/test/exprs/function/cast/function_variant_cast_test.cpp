@@ -39,7 +39,7 @@ namespace doris {
 static doris::Field construct_variant_map(
         const std::vector<std::pair<std::string, doris::Field>>& key_and_values) {
     doris::Field res = Field::create_field<TYPE_VARIANT>(VariantMap {});
-    auto& object = res.get<TYPE_VARIANT>();
+    auto& object = res.get<TYPE_VARIANT>().legacy_map();
     for (const auto& [k, v] : key_and_values) {
         PathInData path(k);
         object.try_emplace(path, v);

@@ -101,8 +101,8 @@ public class Count extends NotNullableAggregateFunction
     }
 
     static void checkLegacyVariantArgument(Expression argument, Expression function) {
-        DataType argumentType = argument.getDataType();
-        if (argumentType instanceof VariantType && !((VariantType) argumentType).isComputeV2()) {
+        if (argument.getDataType() instanceof VariantType
+                && !((VariantType) argument.getDataType()).isExecutionV2()) {
             throwDistinctArgumentException(function);
         }
     }

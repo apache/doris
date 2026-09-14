@@ -28,42 +28,38 @@ suite("iceberg_and_internal_nested_namespace", "p0,external,doris,external_docke
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String catalog_name = "iceberg_nested_namespace"
 
-    // Helper function to execute qt_sql with retry on NoSuchNamespaceException
-    // If exception occurs, refresh catalog and retry once
-    def qtWithRefreshRetry = { String tag, String sqlStmt, String res ->
-        def maxRetries = 2
-        def retryCount = 0
-        def success = false
-        
-        while (!success && retryCount < maxRetries) {
+    // Catalog property changes invalidate namespace metadata asynchronously. Retry only the
+    // transient namespace-visibility errors, and preserve the final failure for test correctness.
+    def sqlWithRefreshRetry = { String sqlStmt ->
+        def maxRetries = 3
+        for (def attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                // Use owner to access suite methods in closure
-                def actual_res = owner.sql("""${sqlStmt}""")
-                println(actual_res) 
-                if (res.equals(""))
-                    assertTrue(actual_res.size() == 0)
-                else {
-                    assertTrue(actual_res.size() > 0)
-                    assertEquals(res, actual_res[0][0])
-                }
-                success = true
+                return owner.sql("""${sqlStmt}""")
             } catch (Exception e) {
                 def errorMsg = e.getMessage()
-                if (errorMsg != null && (errorMsg.contains("NoSuchNamespaceException") || 
-                                         errorMsg.contains("Namespace does not exist"))) {
-                    logger.warn("Query failed with NoSuchNamespaceException, refreshing catalog and retrying... Attempt ${retryCount + 1}")
-                    retryCount++
-                    if (retryCount < maxRetries) {
-                        owner.sql("""refresh catalog ${catalog_name}""")
-                        sleep(500) // Sleep 500ms before retry
-                    } else {
-                        // log but not throw exception
-                        logger.error("Query failed after ${maxRetries} attempts: ${errorMsg}")
-                    }
-                } else {
-                    throw e // Rethrow if it's a different exception
+                def namespaceNotVisible = errorMsg != null &&
+                        (errorMsg.contains("NoSuchNamespaceException") ||
+                         errorMsg.contains("Namespace does not exist") ||
+                         errorMsg.contains("Unknown database"))
+                if (!namespaceNotVisible || attempt == maxRetries) {
+                    throw e
                 }
+                logger.warn("Namespace metadata is not visible yet; refreshing catalog before " +
+                        "retry ${attempt + 1}/${maxRetries}")
+                owner.sql("""refresh catalog ${catalog_name}""")
+                sleep(500)
             }
+        }
+    }
+
+    def qtWithRefreshRetry = { String tag, String sqlStmt, String res ->
+        def actual_res = sqlWithRefreshRetry(sqlStmt)
+        println(actual_res)
+        if (res.equals("")) {
+            assertTrue(actual_res.size() == 0)
+        } else {
+            assertTrue(actual_res.size() > 0)
+            assertEquals(res, actual_res[0][0])
         }
     }
 
@@ -115,8 +111,8 @@ suite("iceberg_and_internal_nested_namespace", "p0,external,doris,external_docke
     sql """alter catalog ${catalog_name} set properties("iceberg.rest.nested-namespace-enabled" = "true");"""
     sql """switch ${catalog_name}"""
     // can see the nested ns, with back quote
-    sql """show tables from `nested`;"""
-    sql """show tables from `nested.db1`;"""
+    sqlWithRefreshRetry("""show tables from `nested`;""")
+    sqlWithRefreshRetry("""show tables from `nested.db1`;""")
     test {
         sql """show tables from nested.db1"""
         exception """Unknown catalog 'nested'"""
@@ -137,8 +133,8 @@ suite("iceberg_and_internal_nested_namespace", "p0,external,doris,external_docke
     sql """alter catalog ${catalog_name} set properties("iceberg.rest.nested-namespace-enabled" = "true");"""
     sql """switch ${catalog_name}"""
     // can see the nested ns, with back quote
-    sql """show tables from `nested`;"""
-    sql """show tables from `nested.db1`;"""
+    sqlWithRefreshRetry("""show tables from `nested`;""")
+    sqlWithRefreshRetry("""show tables from `nested.db1`;""")
     test {
         sql """show tables from nested.db1"""
         exception """Unknown catalog 'nested'"""

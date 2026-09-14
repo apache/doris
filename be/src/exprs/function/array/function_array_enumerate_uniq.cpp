@@ -168,71 +168,20 @@ public:
             }
             auto nested_type =
                     assert_cast<const DataTypeArray&>(*src_column_type).get_nested_type();
-            switch (nested_type->get_primitive_type()) {
-            case TYPE_BOOLEAN:
-                _execute_number<ColumnUInt8>(data_columns, *offsets, null_map, dst_values);
-                break;
-            case TYPE_TINYINT:
-                _execute_number<ColumnInt8>(data_columns, *offsets, null_map, dst_values);
-                break;
-            case TYPE_SMALLINT:
-                _execute_number<ColumnInt16>(data_columns, *offsets, null_map, dst_values);
-                break;
-            case TYPE_INT:
-                _execute_number<ColumnInt32>(data_columns, *offsets, null_map, dst_values);
-                break;
-            case TYPE_BIGINT:
-                _execute_number<ColumnInt64>(data_columns, *offsets, null_map, dst_values);
-                break;
-            case TYPE_LARGEINT:
-                _execute_number<ColumnInt128>(data_columns, *offsets, null_map, dst_values);
-                break;
-            case TYPE_FLOAT:
-                _execute_number<ColumnFloat32>(data_columns, *offsets, null_map, dst_values);
-                break;
-            case TYPE_DOUBLE:
-                _execute_number<ColumnFloat64>(data_columns, *offsets, null_map, dst_values);
-                break;
-            case TYPE_DATE:
-                _execute_number<ColumnDate>(data_columns, *offsets, null_map, dst_values);
-                break;
-            case TYPE_DATEV2:
-                _execute_number<ColumnDateV2>(data_columns, *offsets, null_map, dst_values);
-                break;
-            case TYPE_DATETIME:
-                _execute_number<ColumnDateTime>(data_columns, *offsets, null_map, dst_values);
-                break;
-            case TYPE_DATETIMEV2:
-                _execute_number<ColumnDateTimeV2>(data_columns, *offsets, null_map, dst_values);
-                break;
-            case TYPE_DECIMAL32:
-                _execute_number<ColumnDecimal32>(data_columns, *offsets, null_map, dst_values);
-                break;
-            case TYPE_DECIMAL64:
-                _execute_number<ColumnDecimal64>(data_columns, *offsets, null_map, dst_values);
-                break;
-            case TYPE_DECIMAL128I:
-                _execute_number<ColumnDecimal128V3>(data_columns, *offsets, null_map, dst_values);
-                break;
-            case TYPE_DECIMALV2:
-                _execute_number<ColumnDecimal128V2>(data_columns, *offsets, null_map, dst_values);
-                break;
-            case TYPE_DECIMAL256:
-                _execute_number<ColumnDecimal256>(data_columns, *offsets, null_map, dst_values);
-                break;
-            case TYPE_IPV4:
-                _execute_number<ColumnIPv4>(data_columns, *offsets, null_map, dst_values);
-                break;
-            case TYPE_IPV6:
-                _execute_number<ColumnIPv6>(data_columns, *offsets, null_map, dst_values);
-                break;
-            case TYPE_CHAR:
-            case TYPE_VARCHAR:
-            case TYPE_STRING:
+
+            auto call = [&](const auto& type) -> bool {
+                using DispatchType = std::decay_t<decltype(type)>;
+                _execute_number<typename DispatchType::ColumnType>(data_columns, *offsets, null_map,
+                                                                   dst_values);
+                return true;
+            };
+
+            if (is_string_type(nested_type->get_primitive_type())) {
                 _execute_string(data_columns, *offsets, null_map, dst_values);
-                break;
-            default:
-                break;
+            } else if (!dispatch_switch_scalar(nested_type->get_primitive_type(), call)) {
+                return Status::RuntimeError(fmt::format(
+                        "execute failed or unsupported types for function {}({})", get_name(),
+                        block.get_by_position(arguments[0]).type->get_name()));
             }
         } else {
             _execute_by_hash<MethodSerialized<PHHashMap<StringRef, Int64>>, false>(

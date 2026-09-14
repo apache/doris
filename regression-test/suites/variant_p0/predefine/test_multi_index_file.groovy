@@ -15,7 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_variant_multi_index_file", "p0, nonConcurrent"){ 
+suite("test_variant_multi_index_file", "p0, nonConcurrent"){
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_common_expr_pushdown = true """
@@ -31,7 +32,7 @@ suite("test_variant_multi_index_file", "p0, nonConcurrent"){
         INDEX idx_a_d_2 (var) USING INVERTED
     ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
 
-    sql """insert into ${tableName} values(1, '{"string" : "hello", "int" : 1, "array_string" : ["hello"]}'), (2, '{"string" : "world", "int" : 2, "array_string" : ["world"]}'), (3, '{"string" : "hello", "int" : 3, "array_string" : ["hello"]}'), (4, '{"string" : "world", "int" : 4, "array_string" : ["world"]}'), (5, '{"string" : "hello", "int" : 5, "array_string" : ["hello"]}') """
+    sql """insert into ${tableName} values(1, ${variantV2Function}('{"string" : "hello", "int" : 1, "array_string" : ["hello"]}')), (2, ${variantV2Function}('{"string" : "world", "int" : 2, "array_string" : ["world"]}')), (3, ${variantV2Function}('{"string" : "hello", "int" : 3, "array_string" : ["hello"]}')), (4, ${variantV2Function}('{"string" : "world", "int" : 4, "array_string" : ["world"]}')), (5, ${variantV2Function}('{"string" : "hello", "int" : 5, "array_string" : ["hello"]}')) """
 
 
     def backendId_to_backendIP = [:]

@@ -55,7 +55,6 @@
 #include "exprs/function/function.h"
 #include "exprs/function/simple_function_factory.h"
 #include "util/simd/vstring_function.h"
-
 namespace doris {
 class FunctionContext;
 } // namespace doris

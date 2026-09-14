@@ -251,12 +251,19 @@ void collect_jsonb_value(BoundedJsonbCursor& cursor, Builder& builder, uint32_t 
 }
 
 template <typename Builder>
-void collect_jsonb_document(StringRef document, Builder& builder, uint32_t initial_depth = 0) {
+void collect_jsonb_document(StringRef document, Builder& builder, uint32_t initial_depth = 0,
+                            bool* root_is_null = nullptr) {
+    if (root_is_null != nullptr) {
+        *root_is_null = false;
+    }
     if (document.data == nullptr && document.size != 0) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "JSONB input has a null data pointer for {} bytes", document.size);
     }
     if (document.size == 0) {
+        if (root_is_null != nullptr) {
+            *root_is_null = true;
+        }
         builder.add_null();
         return;
     }
@@ -266,6 +273,10 @@ void collect_jsonb_document(StringRef document, Builder& builder, uint32_t initi
     if (version != JSONB_VER) {
         throw Exception(ErrorCode::CORRUPTION, "Unsupported JSONB version {}, expected {}", version,
                         JSONB_VER);
+    }
+    if (root_is_null != nullptr && document.size >= sizeof(uint8_t) * 2) {
+        *root_is_null =
+                static_cast<JsonbType>(static_cast<uint8_t>(document.data[1])) == JsonbType::T_Null;
     }
     collect_jsonb_value(cursor, builder, 0, initial_depth);
     if (!cursor.empty()) {
@@ -529,9 +540,10 @@ VariantBatchBuilder JsonbToVariantEncoder::finish_batch() {
     }
 }
 
-void jsonb_to_variant(StringRef document, VariantBatchBuilder::Row& row, uint32_t initial_depth) {
+void jsonb_to_variant(StringRef document, VariantBatchBuilder::Row& row, uint32_t initial_depth,
+                      bool* root_is_null) {
     try {
-        collect_jsonb_document(document, row, initial_depth);
+        collect_jsonb_document(document, row, initial_depth, root_is_null);
     } catch (...) {
         row.abort();
         throw;

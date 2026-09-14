@@ -16,6 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_escaped_chars", "p0"){
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def tableName = "variant_escape_chars"
 
     sql """ DROP TABLE IF EXISTS variant_escape_chars """
@@ -35,12 +36,12 @@ suite("regression_test_variant_escaped_chars", "p0"){
 
     sql """
         INSERT INTO variant_escape_chars VALUES
-        (1, '{"a" : 123, "b" : "test with escape \\\\" characters"}'),
-        (2, '{"a" : 456, "b" : "another test with escape \\\\\\\\ characters"}'),
-        (3, '{"a" : 789, "b" : "test with single quote \\\' characters"}'),
-        (4, '{"a" : 101112, "b" : "test with newline \\\\n characters"}'),
-        (5, '{"a" : 131415, "b" : "test with tab \\\\t characters"}'),
-        (6, '{"a" : 161718, "b" : "test with backslash \\\\b characters"}');
+        (1, ${variantV2Function}('{"a" : 123, "b" : "test with escape \\\\" characters"}')),
+        (2, ${variantV2Function}('{"a" : 456, "b" : "another test with escape \\\\\\\\ characters"}')),
+        (3, ${variantV2Function}('{"a" : 789, "b" : "test with single quote \\\' characters"}')),
+        (4, ${variantV2Function}('{"a" : 101112, "b" : "test with newline \\\\n characters"}')),
+        (5, ${variantV2Function}('{"a" : 131415, "b" : "test with tab \\\\t characters"}')),
+        (6, ${variantV2Function}('{"a" : 161718, "b" : "test with backslash \\\\b characters"}'));
     """
 
     // test json value with escaped characters
@@ -51,7 +52,7 @@ suite("regression_test_variant_escaped_chars", "p0"){
     sql """
         drop table if exists t01;
         create table t01(id int, b json, c json, d variant, e variant) properties ("replication_num" = "1");
-        insert into t01 values (1, '{"c_json":{"a":"a\\\\nb"}}', '{"c_json": {"quote":"\\\\"Helvetica tofu try-hard gluten-free gentrify leggings.\\\\" - Remington Trantow"}}', '{"c_json": {"quote":"\\\\"Helvetica tofu try-hard gluten-free gentrify leggings.\\\\" - Remington Trantow"}}', '{"c_json":{"a":"a\\\\nb"}}');
+        insert into t01 values (1, '{"c_json":{"a":"a\\\\nb"}}', '{"c_json": {"quote":"\\\\"Helvetica tofu try-hard gluten-free gentrify leggings.\\\\" - Remington Trantow"}}', ${variantV2Function}('{"c_json": {"quote":"\\\\"Helvetica tofu try-hard gluten-free gentrify leggings.\\\\" - Remington Trantow"}}'), ${variantV2Function}('{"c_json":{"a":"a\\\\nb"}}'));
     """
     qt_select """ SELECT * FROM t01 """
     qt_select """select json_extract(b, "\$.c_json"), e["c_json"] from t01;"""

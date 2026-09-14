@@ -24,12 +24,21 @@ import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
+import org.apache.doris.datasource.property.storage.OSSProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.Backend;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.CatalogProperties;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.GenericPartitionFieldSummary;
 import org.apache.iceberg.HistoryEntry;
 import org.apache.iceberg.ManifestContent;
@@ -77,6 +86,32 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class IcebergUtilsTest {
+    @Test
+    public void testSelectEffectiveStoragePropertiesPrefersOssOverGenericS3() throws UserException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("iceberg.rest.signing-name", "osstables");
+        properties.put("iceberg.rest.signing-region", "cn-beijing");
+        properties.put("oss.endpoint", "https://oss-cn-beijing.aliyuncs.com");
+        properties.put("oss.region", "cn-beijing");
+        properties.put("oss.access_key", "ak");
+        properties.put("oss.secret_key", "sk");
+
+        Map<StorageProperties.Type, StorageProperties> detected = new HashMap<>();
+        for (StorageProperties storageProperties : StorageProperties.createAll(properties)) {
+            detected.put(storageProperties.getType(), storageProperties);
+        }
+        Assert.assertTrue(detected.get(StorageProperties.Type.S3) instanceof S3Properties);
+        Assert.assertTrue(detected.get(StorageProperties.Type.OSS) instanceof OSSProperties);
+
+        Map<StorageProperties.Type, StorageProperties> selected =
+                IcebergUtils.selectEffectiveStorageProperties(detected);
+
+        Assert.assertFalse(selected.containsKey(StorageProperties.Type.S3));
+        Assert.assertTrue(selected.get(StorageProperties.Type.OSS) instanceof OSSProperties);
+        Assert.assertSame(selected.get(StorageProperties.Type.OSS),
+                LocationPath.of("s3://bucket/data.parquet", selected).getStorageProperties());
+    }
+
     @Test
     public void testSnapshotCacheFreezesSharedTableOperations() {
         Schema originalSchema = new Schema(
@@ -136,6 +171,23 @@ public class IcebergUtilsTest {
         Assert.assertFalse(nameMapping.isPresent());
         Assert.assertEquals(1, cacheValue.getIcebergTable().get().schema().columns().size());
         Mockito.verify(operations, Mockito.times(1)).current();
+    }
+
+    @Test
+    public void testMalformedNameMappingFallsBackToCurrentSchemaNames() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "name", Types.StringType.get()));
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.properties()).thenReturn(Collections.singletonMap(
+                TableProperties.DEFAULT_NAME_MAPPING, "{not valid json"));
+        Mockito.when(table.schema()).thenReturn(schema);
+
+        Optional<Map<Integer, List<String>>> mapping = IcebergUtils.getNameMapping(table);
+        Assert.assertTrue(mapping.isPresent());
+        Map<Integer, List<String>> fallback = mapping.get();
+        Assert.assertEquals(Collections.singletonList("id"), fallback.get(1));
+        Assert.assertEquals(Collections.singletonList("name"), fallback.get(2));
     }
 
     @Test
@@ -356,36 +408,193 @@ public class IcebergUtilsTest {
 
         Assert.assertTrue(type instanceof org.apache.doris.catalog.VariantType);
         Assert.assertTrue(((org.apache.doris.catalog.VariantType) type).isComputeV2());
+        Assert.assertEquals(Types.VariantType.get(), IcebergUtils.dorisTypeToIcebergType(type));
     }
 
     @Test
-    public void testIcebergWriteRejectsRootAndNestedVariant() {
+    public void testIcebergVariantDefaultsMustBeNull() {
+        Types.VariantType variantType = Types.VariantType.get();
+        Schema schema = new Schema(Types.NestedField.optional(1, "payload", variantType));
+
+        Assert.assertNull(IcebergUtils.parseIcebergLiteral(null, variantType));
+        Assert.assertTrue(IcebergUtils.getSerializedInitialDefaults(schema, false).isEmpty());
+
+        IllegalArgumentException ddlException = Assert.assertThrows(IllegalArgumentException.class,
+                () -> IcebergUtils.parseIcebergLiteral("{\"source\":\"ddl\"}", variantType));
+        Assert.assertTrue(ddlException.getMessage().contains("VARIANT default values must be NULL"));
+
+        Types.NestedField malformedField = Mockito.mock(Types.NestedField.class);
+        Mockito.when(malformedField.fieldId()).thenReturn(1);
+        Mockito.when(malformedField.type()).thenReturn(variantType);
+        Mockito.when(malformedField.initialDefault()).thenReturn("non-null-variant");
+        IllegalArgumentException readException = Assert.assertThrows(IllegalArgumentException.class,
+                () -> IcebergUtils.getSerializedInitialDefault(malformedField, false));
+        Assert.assertTrue(readException.getMessage().contains("VARIANT initial-default must be NULL"));
+    }
+
+    @Test
+    public void testIcebergVariantWriteCapabilityMatrix() {
         Type variant = IcebergUtils.icebergTypeToDorisType(Types.VariantType.get(), false, false);
-        for (Column column : ImmutableList.of(
-                new Column("payload", variant),
-                new Column("nested", new org.apache.doris.catalog.StructType(
-                        new ArrayList<>(ImmutableList.of(new StructField("payload", variant))))))) {
-            try {
-                IcebergUtils.validateWriteSchema(ImmutableList.of(column));
-                Assert.fail("Iceberg writes must be rejected until the writer supports Variant");
-            } catch (AnalysisException e) {
-                Assert.assertTrue(e.getMessage().contains("VARIANT"));
-                Assert.assertTrue(e.getMessage().contains("read-only"));
-            }
+        Column column = new Column("payload", variant);
+        IcebergUtils.validateWriteSchema(ImmutableList.of(column), 3, FileFormat.PARQUET);
+        try {
+            IcebergUtils.validateWriteSchema(ImmutableList.of(column), 2, FileFormat.PARQUET);
+            Assert.fail("Iceberg VARIANT writes must require format-version 3");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("format-version 3"));
         }
+        try {
+            IcebergUtils.validateWriteSchema(ImmutableList.of(column), 3, FileFormat.ORC);
+            Assert.fail("Iceberg VARIANT writes must require Parquet");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Parquet"));
+        }
+
+        Column nestedColumn = new Column("nested", new org.apache.doris.catalog.StructType(
+                new ArrayList<>(ImmutableList.of(new StructField("payload", variant)))));
+        IcebergUtils.validateWriteSchema(
+                ImmutableList.of(nestedColumn), 3, FileFormat.PARQUET);
     }
 
     @Test
-    public void testParseSchemaPreservesInitialDefault() {
+    public void testRejectVariantWritesWhenParquetShreddingIsEnabled() {
+        String shredVariantsProperty = "write.parquet.shred-variants";
+        Type variant = IcebergUtils.icebergTypeToDorisType(Types.VariantType.get(), false, false);
+        List<Column> variantColumns = ImmutableList.of(new Column("payload", variant));
+
+        IcebergUtils.validateVariantWriteProperties(variantColumns, Collections.emptyMap());
+        IcebergUtils.validateVariantWriteProperties(variantColumns,
+                ImmutableMap.of(shredVariantsProperty, "false"));
+
+        AnalysisException exception = Assert.assertThrows(AnalysisException.class,
+                () -> IcebergUtils.validateVariantWriteProperties(variantColumns,
+                        ImmutableMap.of(shredVariantsProperty, "true")));
+        Assert.assertTrue(exception.getMessage().contains("only unshredded Iceberg VARIANT writes"));
+        Assert.assertTrue(exception.getMessage().contains(shredVariantsProperty + "=false"));
+
+        IcebergUtils.validateVariantWriteProperties(
+                ImmutableList.of(new Column("id", Type.INT)),
+                ImmutableMap.of(shredVariantsProperty, "true"));
+    }
+
+    @Test
+    public void testEffectiveFileFormatPrecedenceForVariantDdl() {
+        Assert.assertEquals(FileFormat.PARQUET,
+                IcebergUtils.getEffectiveFileFormat(Collections.emptyMap(), Collections.emptyMap()));
+        Assert.assertEquals(FileFormat.ORC, IcebergUtils.getEffectiveFileFormat(
+                ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, "orc"), Collections.emptyMap()));
+        Assert.assertEquals(FileFormat.ORC, IcebergUtils.getEffectiveFileFormat(
+                Collections.emptyMap(), ImmutableMap.of(
+                        CatalogProperties.TABLE_DEFAULT_PREFIX + TableProperties.DEFAULT_FILE_FORMAT, "orc")));
+        Assert.assertEquals(FileFormat.PARQUET, IcebergUtils.getEffectiveFileFormat(
+                ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, "orc"), ImmutableMap.of(
+                        CatalogProperties.TABLE_OVERRIDE_PREFIX + TableProperties.DEFAULT_FILE_FORMAT,
+                        "parquet")));
+        // Iceberg persists catalog overrides under the standard key without removing the
+        // write-format alias. Match getFileFormat(Table): the alias still wins at runtime.
+        Assert.assertEquals(FileFormat.ORC, IcebergUtils.getEffectiveFileFormat(
+                ImmutableMap.of(IcebergUtils.WRITE_FORMAT, "orc"), ImmutableMap.of(
+                        CatalogProperties.TABLE_OVERRIDE_PREFIX + TableProperties.DEFAULT_FILE_FORMAT,
+                        "parquet")));
+        Assert.assertEquals(FileFormat.PARQUET, IcebergUtils.getEffectiveFileFormat(
+                ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, "orc"), ImmutableMap.of(
+                        CatalogProperties.TABLE_OVERRIDE_PREFIX + IcebergUtils.WRITE_FORMAT,
+                        "parquet")));
+        Assert.assertEquals(FileFormat.ORC, IcebergUtils.getEffectiveFileFormat(
+                Collections.emptyMap(), ImmutableMap.of(
+                        CatalogProperties.TABLE_DEFAULT_PREFIX + IcebergUtils.WRITE_FORMAT, "orc",
+                        CatalogProperties.TABLE_DEFAULT_PREFIX + TableProperties.DEFAULT_FILE_FORMAT,
+                        "parquet")));
+    }
+
+    @Test
+    public void testRejectSmoothUpgradeSourceBackendForVariantWrite() {
+        Type variant = IcebergUtils.icebergTypeToDorisType(Types.VariantType.get(), false, false);
+        List<Column> variantColumns = ImmutableList.of(new Column("payload", variant));
+
+        Backend currentBackend = Mockito.mock(Backend.class);
+        Mockito.when(currentBackend.isQueryAvailable()).thenReturn(true);
+        Backend smoothUpgradeSource = Mockito.mock(Backend.class);
+        Mockito.when(smoothUpgradeSource.isQueryAvailable()).thenReturn(true);
+        Mockito.when(smoothUpgradeSource.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(smoothUpgradeSource.getId()).thenReturn(10004L);
+
+        IcebergUtils.validateVariantWriteBackendCompatibility(
+                variantColumns, ImmutableList.of(currentBackend));
+        try {
+            IcebergUtils.validateVariantWriteBackendCompatibility(
+                    variantColumns, ImmutableList.of(currentBackend, smoothUpgradeSource));
+            Assert.fail("Variant writes must not be scheduled while an old backend is eligible");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("backend 10004 is a smooth upgrade source"));
+        }
+
+        // Unavailable old backends cannot receive the sink fragment and must not block writes.
+        Mockito.when(smoothUpgradeSource.isQueryAvailable()).thenReturn(false);
+        IcebergUtils.validateVariantWriteBackendCompatibility(
+                variantColumns, ImmutableList.of(currentBackend, smoothUpgradeSource));
+    }
+
+    @Test
+    public void testRejectSmoothUpgradeSourceBackendForOrcBinaryWrite() {
+        Schema binarySchema = new Schema(Types.NestedField.optional(1, "payload",
+                Types.StructType.of(
+                        Types.NestedField.optional(2, "uuid", Types.UUIDType.get()),
+                        Types.NestedField.optional(3, "fixed", Types.FixedType.ofLength(4)),
+                        Types.NestedField.optional(4, "binary", Types.BinaryType.get()))));
+        Backend currentBackend = Mockito.mock(Backend.class);
+        Mockito.when(currentBackend.isQueryAvailable()).thenReturn(true);
+        Backend smoothUpgradeSource = Mockito.mock(Backend.class);
+        Mockito.when(smoothUpgradeSource.isQueryAvailable()).thenReturn(true);
+        Mockito.when(smoothUpgradeSource.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(smoothUpgradeSource.getId()).thenReturn(10006L);
+
+        IcebergUtils.validateOrcBinaryWriteBackendCompatibility(
+                binarySchema, FileFormat.ORC, ImmutableList.of(currentBackend));
+        IcebergUtils.validateOrcBinaryWriteBackendCompatibility(
+                binarySchema, FileFormat.PARQUET,
+                ImmutableList.of(currentBackend, smoothUpgradeSource));
+        AnalysisException exception = Assert.assertThrows(AnalysisException.class,
+                () -> IcebergUtils.validateOrcBinaryWriteBackendCompatibility(
+                        binarySchema, FileFormat.ORC,
+                        ImmutableList.of(currentBackend, smoothUpgradeSource)));
+        Assert.assertTrue(exception.getMessage().contains(
+                "backend 10006 is a smooth upgrade source"));
+
+        Mockito.when(smoothUpgradeSource.isQueryAvailable()).thenReturn(false);
+        IcebergUtils.validateOrcBinaryWriteBackendCompatibility(
+                binarySchema, FileFormat.ORC,
+                ImmutableList.of(currentBackend, smoothUpgradeSource));
+    }
+
+    @Test
+    public void testIcebergVariantEnablesParquetMetricsCollection() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.properties()).thenReturn(ImmutableMap.of(
+                TableProperties.DEFAULT_FILE_FORMAT, "parquet"));
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "payload", Types.VariantType.get()));
+
+        Assert.assertTrue(IcebergUtils.shouldCollectColumnStats(table, schema));
+    }
+
+    @Test
+    public void testIcebergDefaultsStaySeparateFromDorisColumnDefault() {
         Schema schema = new Schema(
                 Types.NestedField.optional("added_column")
                         .withId(1)
                         .ofType(Types.IntegerType.get())
                         .withInitialDefault(7)
+                        .withWriteDefault(9)
                         .build(),
                 Types.NestedField.optional("added_timestamp")
                         .withId(2)
                         .ofType(Types.TimestampType.withoutZone())
+                        .withInitialDefault(1_704_067_200_123_456L)
+                        .build(),
+                Types.NestedField.optional("added_timestamptz")
+                        .withId(6)
+                        .ofType(Types.TimestampType.withZone())
                         .withInitialDefault(1_704_067_200_123_456L)
                         .build(),
                 Types.NestedField.optional("added_uuid")
@@ -406,15 +615,80 @@ public class IcebergUtilsTest {
 
         List<Column> columns = IcebergUtils.parseSchema(schema, true, false);
 
-        Assert.assertEquals("7", columns.get(0).getDefaultValue());
-        Assert.assertEquals("2024-01-01 00:00:00.123456", columns.get(1).getDefaultValue());
-        Assert.assertEquals("AAAAAAAAAAAAAAAAAAAAAA==", columns.get(2).getDefaultValue());
-        Assert.assertEquals("AAEC/w==", columns.get(3).getDefaultValue());
+        for (Column column : columns) {
+            Assert.assertNull(column.getDefaultValue());
+        }
+
+        Map<Integer, String> serializedDefaults =
+                IcebergUtils.getSerializedInitialDefaults(schema, false);
+        Assert.assertEquals("7", serializedDefaults.get(1));
+        Assert.assertEquals("2024-01-01 00:00:00.123456", serializedDefaults.get(2));
+        Assert.assertEquals("2024-01-01 00:00:00.123456+00:00", serializedDefaults.get(6));
+        Assert.assertEquals("AAAAAAAAAAAAAAAAAAAAAA==", serializedDefaults.get(3));
+        Assert.assertEquals("AAEC/w==", serializedDefaults.get(4));
+        Assert.assertEquals("AwIBAA==", serializedDefaults.get(5));
 
         Map<Integer, String> base64Defaults = IcebergUtils.getBase64EncodedInitialDefaults(schema);
         Assert.assertEquals("AAAAAAAAAAAAAAAAAAAAAA==", base64Defaults.get(3));
         Assert.assertEquals("AAEC/w==", base64Defaults.get(4));
         Assert.assertEquals("AwIBAA==", base64Defaults.get(5));
+    }
+
+    @Test
+    public void testLegacyTimestamptzMissingColumnExpressionUsesSessionTimeZone() {
+        Types.NestedField field = Types.NestedField.optional("event_time")
+                .withId(1)
+                .ofType(Types.TimestampType.withZone())
+                .withInitialDefault(1_737_162_123_654_321L)
+                .build();
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("Asia/Shanghai");
+        context.setThreadLocalInfo();
+        try {
+            Assert.assertEquals("2025-01-18 09:02:03.654321",
+                    IcebergUtils.getSerializedInitialDefaultForDorisExpression(field, false));
+            Assert.assertEquals("2025-01-18 01:02:03.654321+00:00",
+                    IcebergUtils.getSerializedInitialDefaultForDorisExpression(field, true));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testParseSchemaPreservesNestedInitialDefaultsAndRequiredness() {
+        Types.NestedField nestedInt = Types.NestedField.required("nested_int")
+                .withId(2)
+                .ofType(Types.IntegerType.get())
+                .withInitialDefault(17)
+                .build();
+        Types.NestedField nestedBinary = Types.NestedField.optional("nested_binary")
+                .withId(3)
+                .ofType(Types.BinaryType.get())
+                .withInitialDefault(ByteBuffer.wrap(new byte[] {0, 1, 2, (byte) 0xFF}))
+                .build();
+        Types.NestedField nestedUuidWithoutDefault = Types.NestedField.optional("nested_uuid")
+                .withId(4)
+                .ofType(Types.UUIDType.get())
+                .build();
+        Schema schema = new Schema(Types.NestedField.required("payload")
+                .withId(1)
+                .ofType(Types.StructType.of(nestedInt, nestedBinary, nestedUuidWithoutDefault))
+                .build());
+
+        List<Column> columns = IcebergUtils.parseSchema(schema, true, false);
+        Assert.assertTrue(columns.get(0).isAllowNull());
+        Assert.assertTrue(columns.get(0).getChildren().get(0).isAllowNull());
+        Assert.assertTrue(columns.get(0).getChildren().get(1).isAllowNull());
+        Assert.assertTrue(columns.get(0).getChildren().get(2).isAllowNull());
+        Assert.assertEquals(ImmutableSet.of(1, 2), IcebergUtils.getRequiredFieldIds(schema.columns()));
+
+        Map<Integer, String> defaults = IcebergUtils.getSerializedInitialDefaults(schema, false);
+        Assert.assertEquals("17", defaults.get(2));
+        Assert.assertEquals("AAEC/w==", defaults.get(3));
+        Assert.assertFalse(defaults.containsKey(4));
+        Assert.assertEquals(Collections.singleton(3),
+                IcebergUtils.getBase64EncodedInitialDefaults(schema).keySet());
+        Assert.assertEquals(ImmutableSet.of(3, 4), IcebergUtils.getBinaryLikeFieldIds(schema));
     }
 
     @Test
@@ -428,7 +702,8 @@ public class IcebergUtilsTest {
 
         List<Column> columns = IcebergUtils.parseSchema(schema, true, false);
 
-        Assert.assertEquals("7", columns.get(0).getChildren().get(0).getDefaultValue());
+        Assert.assertNull(columns.get(0).getChildren().get(0).getDefaultValue());
+        Assert.assertEquals("7", IcebergUtils.getSerializedInitialDefaults(schema, false).get(11));
     }
 
     @Test
@@ -749,6 +1024,10 @@ public class IcebergUtilsTest {
         Mockito.when(table.snapshot(3)).thenReturn(s3);
         Snapshot s4 = mockSnapshot(4, 1);
         Mockito.when(table.snapshot(4)).thenReturn(s4);
+        Snapshot s5 = mockSnapshot(5, 2);
+        Mockito.when(table.snapshot(5)).thenReturn(s5);
+        Snapshot s6 = mockSnapshot(6, 2);
+        Mockito.when(table.snapshot(6)).thenReturn(s6);
 
         // init history for snapshots
         List<HistoryEntry> history = new ArrayList<>();
@@ -756,6 +1035,8 @@ public class IcebergUtilsTest {
         history.add(mockHistory(2, "2025-05-01 22:34:56"));
         history.add(mockHistory(3, "2025-05-02 12:34:56"));
         history.add(mockHistory(4, "2025-05-03 12:34:56"));
+        history.add(mockHistory(5, LocalDateTime.of(2025, 5, 4, 12, 34, 56, 125_000_000)));
+        history.add(mockHistory(6, LocalDateTime.of(2025, 5, 4, 12, 34, 56, 526_000_000)));
         Mockito.when(table.history()).thenReturn(history);
 
         // create some refs
@@ -869,6 +1150,8 @@ public class IcebergUtilsTest {
         assertQuerySpecSnapshotByTimeOf(table, "2025-05-02 11:34:56", 2, 0, null);
         assertQuerySpecSnapshotByTimeOf(table, "2025-05-02 12:34:56", 3, 1, null);
         assertQuerySpecSnapshotByTimeOf(table, "2025-05-03 12:34:56", 4, 1, null);
+        assertQuerySpecSnapshotByTimeOf(table, "2025-05-04 12:34:56.125", 5, 2, null);
+        assertQuerySpecSnapshotByTimeOf(table, "2025-05-04 12:34:56.526000", 6, 2, null);
 
         // query invalid time format
         Assert.assertThrows(
@@ -891,11 +1174,13 @@ public class IcebergUtilsTest {
     }
 
     private HistoryEntry mockHistory(long snapshotId, String time) {
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        return mockHistory(snapshotId, LocalDateTime.parse(time, formatter));
+    }
+
+    private HistoryEntry mockHistory(long snapshotId, LocalDateTime dateTime) {
         HistoryEntry historyEntry = Mockito.mock(HistoryEntry.class);
         Mockito.when(historyEntry.snapshotId()).thenReturn(snapshotId);
-
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-        LocalDateTime dateTime = LocalDateTime.parse(time, formatter);
         long millis = dateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
 
         Mockito.when(historyEntry.timestampMillis()).thenReturn(millis);

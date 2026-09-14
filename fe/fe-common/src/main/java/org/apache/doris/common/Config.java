@@ -18,6 +18,7 @@
 package org.apache.doris.common;
 
 import java.io.File;
+import java.lang.reflect.Field;
 
 public class Config extends ConfigBase {
 
@@ -138,6 +139,11 @@ public class Config extends ConfigBase {
     @ConfField(description = {"是否压缩 FE 的 Audit 日志", "enable compression for FE audit log file"})
     public static boolean audit_log_enable_compress = false;
 
+    @ConfField(mutable = false,
+            description = "The local resource group passed when forwarding requests between frontend nodes. "
+                    + "An empty string means unset.")
+    public static String local_resource_group = "";
+
     @ConfField(description = {"启用的数据血缘插件列表，需要填写 LineagePlugin.name() 返回的名称，",
             "Active lineage plugins, need to fill in the name returned by LineagePlugin.name()"})
     public static String[] activate_lineage_plugin = {};
@@ -152,6 +158,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false,
             description = {"是否检查 table 锁泄漏", "Whether to check table lock leaky"})
     public static boolean check_table_lock_leaky = false;
+
+    @ConfField(mutable = false,
+            description = "Whether to enable replica filtering based on location resource tags. If disabled, "
+                    + "invalid compute groups are still rejected, but replicas are no longer filtered by the "
+                    + "user's location resource tag.")
+    public static boolean enable_resource_tag_location_check = true;
 
     @ConfField(mutable = true, masterOnly = false,
             description = {"PreparedStatement stmtId 起始位置，仅用于测试",
@@ -170,12 +182,13 @@ public class Config extends ConfigBase {
                     + "if the specified driver file path is not an absolute path, Doris will find jars from this path"})
     public static String jdbc_drivers_dir = EnvUtils.getDorisHome() + "/plugins/jdbc_drivers";
 
-    @ConfField(description = {"JDBC 驱动的安全路径。在创建 JDBC Catalog 时，允许使用的文件或者网络路径，可配置多个，使用分号分隔"
-            + "默认为 * 表示全部允许，如果设置为空也表示全部允许",
-            "The safe path of the JDBC driver. When creating a JDBC Catalog,"
-                    + "you can configure multiple files or network paths that are allowed to be used,"
-                    + "separated by semicolons"
-                    + "The default is * to allow all, if set to empty, also means to allow all"})
+    @ConfField(description = {
+            "JDBC 驱动的安全路径。在创建 JDBC Catalog 时，允许使用的文件或者网络路径，可配置多个，使用分号分隔。"
+                    + "默认为 * 表示全部允许，如果设置为空也表示全部允许。配置具体路径时会按路径组件匹配，拒绝路径遍历和前缀混淆。",
+            "The safe path of the JDBC driver. When creating a JDBC Catalog, you can configure multiple "
+                    + "allowed file or network paths separated by semicolons. The default is * to allow all; "
+                    + "if set to empty, it also means to allow all. When set to concrete paths, driver URLs "
+                    + "are matched structurally, so path traversal and prefix confusion are rejected."})
     public static String jdbc_driver_secure_path = "*";
 
     @ConfField(description = {"MySQL Jdbc Catalog mysql 不支持下推的函数",
@@ -192,8 +205,12 @@ public class Config extends ConfigBase {
                     + "these variables, it just needs to accept them without error."})
     public static String[] mysql_compat_var_whitelist = {};
 
-    @ConfField(mutable = true, masterOnly = true, description = {"强制 SQLServer Jdbc Catalog 加密为 false",
-            "Force SQLServer Jdbc Catalog encrypt to false"})
+    @ConfField(description = {
+            "强制 SQLServer Jdbc Catalog 加密为 false。该配置会禁用 SQLServer JDBC 传输加密，"
+                    + "因此只能通过 fe.conf 设置，不能在运行时修改。",
+            "Force SQLServer Jdbc Catalog encrypt to false. This is a security-sensitive switch that disables "
+                    + "SQLServer JDBC transport encryption, so it can only be set in fe.conf and is not "
+                    + "modifiable at runtime via ADMIN SET FRONTEND CONFIG."})
     public static boolean force_sqlserver_jdbc_encrypt_false = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
@@ -258,6 +275,11 @@ public class Config extends ConfigBase {
             "BDBJE 的日志滚动大小。当日志条目数超过这个值后，会触发日志滚动",
             "The log roll size of BDBJE. When the number of log entries exceeds this value, the log will be rolled"})
     public static int edit_log_roll_num = 50000;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "The maximum interval in seconds between edit log rolls in cloud mode. "
+                    + "A non-positive value disables time-based edit log rolling"})
+    public static int cloud_edit_log_roll_interval_second = 3600;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "批量 BDBJE 日志包含的最大条目数", "The max number of log entries for batching BDBJE"})
@@ -674,6 +696,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {"Load 成功所需的最小写入副本数。",
             "Minimal number of write successful replicas for load job."})
     public static short min_load_replica_num = -1;
+
+    @ConfField(mutable = true, masterOnly = true, description = "Minimum number of successfully written replicas "
+            + "required in each resource group for a load job.")
+    public static volatile String[] resource_group_load_success_quorum = {};
 
     @ConfField(description = {"load job 调度器的执行间隔，单位是秒。",
             "The interval of load job scheduler, in seconds."})
@@ -1171,6 +1197,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long tablet_schedule_high_priority_second = 30 * 60;
 
+    @ConfField(mutable = true, masterOnly = true,
+            description = "Whether optional backend selection policies may participate in repair clone source "
+                    + "selection. The default policy is a no-op and does not change repair behavior.")
+    public static boolean enable_repair_source_backend_selection = true;
+
     /**
      * publish version queue's size in be, report it to fe,
      * if publish task in be exceed direct_publish_limit_number,
@@ -1397,7 +1428,7 @@ public class Config extends ConfigBase {
     public static int streaming_pg_max_identifier_length = 63;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static int streaming_cdc_fetch_splits_batch_size = 100;
+    public static int streaming_cdc_fetch_splits_batch_size = 16;
 
     /**
      * the max timeout of get kafka meta.
@@ -2260,7 +2291,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 11;
+    public static int max_be_exec_version = 13;
 
     /**
      * Min data version of backends serialize block.
@@ -2461,6 +2492,11 @@ public class Config extends ConfigBase {
             "The auto refresh time of external meta cache."
     })
     public static long external_cache_refresh_time_minutes = 10; // 10 mins
+
+    @ConfField(mutable = false, masterOnly = false,
+            description = {"FE-wide maximum weight for managed external metadata caches. Supports byte units "
+                    + "or a percentage of the JVM max heap; 0 disables the global quota."})
+    public static String external_meta_cache_max_weight = "0";
 
     // Enable manual miss load for external meta cache to avoid blocking replayer on slow loaders.
     @ConfField(mutable = true, masterOnly = false,
@@ -2985,6 +3021,17 @@ public class Config extends ConfigBase {
             "Maximal number of connections of Arrow Flight Server per FE."})
     public static int arrow_flight_max_connections = 4096;
 
+    @ConfField(mutable = true, description = "Arrow Flight SQL only. A query that scans an external table in "
+            + "batch mode keeps its FE coordinator alive after GetFlightInfo, so the BE can keep fetching splits "
+            + "while the client pulls the results (DoGet); that coordinator is normally released when the "
+            + "session runs its next query or is closed. Most Flight clients never close a session, so the "
+            + "coordinator, and with it the query's workload group queue slot and its active_queries entry, "
+            + "would otherwise stay held until wait_timeout. If the session stays idle for longer than this "
+            + "many seconds after the query started, the coordinator is released anyway. The bound is never "
+            + "shorter than the query's own execution timeout, and the session itself is not killed "
+            + "(wait_timeout still governs that). 0 disables the bound.")
+    public static int arrow_flight_deferred_query_idle_timeout_second = 3600;
+
     @ConfField(mutable = true, masterOnly = true, description = {
         "Auto Buckets 中按照 partition size 去估算 bucket 数，存算一体 partition size 5G 估算一个 bucket，"
             + "但存算分离下 partition size 10G 估算一个 bucket。若配置小于 0，会在在代码中会自适应存算一体模式默认 5G，在存算分离默认 10G",
@@ -3211,12 +3258,6 @@ public class Config extends ConfigBase {
     })
     public static int http_sql_submitter_max_worker_threads = 2;
 
-    @ConfField(mutable = false, masterOnly = false, description = {
-        "http 请求处理/api/upload 任务的最大线程池。",
-        "The max number work threads of http upload submitter."
-    })
-    public static int http_load_submitter_max_worker_threads = 2;
-
     @ConfField(mutable = true, masterOnly = true, description = {
             "load label 个数阈值，超过该个数后，对于已经完成导入作业或者任务，"
             + "其 label 会被删除，被删除的 label 可以被重用。值为 -1 时，表示此阈值不生效。",
@@ -3260,10 +3301,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean fix_tablet_partition_id_eq_0 = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "倒排索引默认存储格式",
-            "Default storage format of inverted index, the default value is V3."
-    })
+    @ConfField(mutable = true, masterOnly = true,
+            callback = InvertedIndexStorageFormatValidator.RuntimeConfigHandler.class,
+            description = {
+                "倒排索引默认存储格式",
+                "Default storage format of inverted index, the default value is V3."
+            })
     public static String inverted_index_storage_format = "V3";
 
     @ConfField(mutable = true, masterOnly = true, description = {
@@ -3612,9 +3655,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int mow_calculate_delete_bitmap_retry_times = 10;
 
-    @ConfField(mutable = true, description = {"指定 S3 Load endpoint 白名单，举例：s3_load_endpoint_white_list=a,b,c",
-            "the white list for the s3 load endpoint, if it is empty, no white list will be set,"
-            + "for example: s3_load_endpoint_white_list=a,b,c"})
+    @ConfField(description = {
+            "指定 S3 Load endpoint 白名单。如果为空，则不设置白名单。只能通过 fe.conf 设置，并在重启后生效。"
+                    + "例如：s3_load_endpoint_white_list=a,b,c。",
+            "The allowlist for S3 load endpoints. If it is empty, no allowlist will be set. "
+                    + "For example: s3_load_endpoint_white_list=a,b,c. "
+                    + "This can only be set in fe.conf and takes effect after a restart; "
+                    + "it is intentionally not modifiable at runtime via ADMIN SET FRONTEND CONFIG."})
     public static String[] s3_load_endpoint_white_list = {};
 
     @ConfField(mutable = true, description = {
@@ -3660,10 +3707,13 @@ public class Config extends ConfigBase {
             ".dfs.core.cloudapi.de"
     };
 
-    @ConfField(mutable = true, description = {"指定 Jdbc driver url 白名单，举例：jdbc_driver_url_white_list=a,b,c",
-            "the white list for jdbc driver url, if it is empty, no white list will be set"
-            + "for example: jdbc_driver_url_white_list=a,b,c"
-    })
+    @ConfField(description = {
+            "指定 JDBC driver URL 白名单。如果为空，则不设置白名单。只能通过 fe.conf 设置，并在重启后生效。"
+                    + "例如：jdbc_driver_url_white_list=a,b,c。",
+            "The allowlist for JDBC driver URLs. If it is empty, no allowlist will be set. "
+                    + "For example: jdbc_driver_url_white_list=a,b,c. "
+                    + "This can only be set in fe.conf and takes effect after a restart; "
+                    + "it is intentionally not modifiable at runtime via ADMIN SET FRONTEND CONFIG."})
     public static String[] jdbc_driver_url_white_list = {};
 
     @ConfField(description = {"Stream_Load 导入时，label 被限制的最大长度",
@@ -3679,8 +3729,20 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int cloud_warm_up_timeout_second = 86400 * 30; // 30 days
 
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true,
+            callback = PositiveCloudWarmUpSchedulerIntervalConfHandler.class)
     public static int cloud_warm_up_job_scheduler_interval_millisecond = 1000; // 1 seconds
+
+    public static class PositiveCloudWarmUpSchedulerIntervalConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String value) throws Exception {
+            int parsedValue = Integer.parseInt(value.trim());
+            if (parsedValue <= 0) {
+                throw new ConfigException(field.getName() + " must be greater than 0");
+            }
+            field.setInt(null, parsedValue);
+        }
+    }
 
     @ConfField(mutable = true, masterOnly = true)
     public static long cloud_warm_up_job_max_bytes_per_batch = 21474836480L; // 20GB
@@ -3796,6 +3858,13 @@ public class Config extends ConfigBase {
             description = { "存算分离模式下，一个 BE 挂掉多长时间后，它的 tablet 彻底转移到其他 BE 上" })
     public static int rehash_tablet_after_be_dead_seconds = 3600;
 
+    @ConfField(mutable = true, masterOnly = false,
+            description = "Whether to drop the primary/secondary route entries of a CloudReplica whose backend no "
+                    + "longer exists, when loading the image and in the tablet rebalancer round. Those entries are "
+                    + "already ignored at query time (the replica is rehashed), so they only waste FE memory and "
+                    + "image size. Set to false to keep the legacy leaking behavior. Default is true.")
+    public static boolean enable_cloud_replica_stale_route_clean = true;
+
     @ConfField(mutable = false, masterOnly = true,
             description = {
                     "Whether to use rendezvous hashing for colocate bucket placement in cloud mode. "
@@ -3868,7 +3937,12 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, description = {
             "Whether to enable QPS rate limit for RPC requests to meta service."})
-    public static boolean meta_service_rpc_rate_limit_enabled = false;
+    public static boolean meta_service_rpc_rate_limit_enabled = true;
+
+    @ConfField(mutable = true, description = {
+            "Whether to only evaluate and report meta service RPC rate limits without waiting or rejecting requests. "
+                    + "This takes effect only when meta service RPC rate limiting is enabled."})
+    public static boolean meta_service_rpc_rate_limit_dry_run = true;
 
     @ConfField(mutable = true, description = {
             "Default QPS limit for each method (requests per second) in each cpu core, "
@@ -3997,8 +4071,10 @@ public class Config extends ConfigBase {
             "Whether to allow the use of inverted index v1 for variant"})
     public static boolean enable_inverted_index_v1_for_variant = false;
 
-    @ConfField(mutable = true, description = {"Prometheus 输出表维度指标的个数限制",
-            "Prometheus output table dimension metric count limit"})
+    @ConfField(mutable = true, description = "Whether to enable ColumnVariantV2 for Variant execution and storage.")
+    public static boolean enable_variant_v2 = false;
+
+    @ConfField(mutable = true, description = "Prometheus output table dimension metric count limit.")
     public static int prom_output_table_metrics_limit = 10000;
 
 

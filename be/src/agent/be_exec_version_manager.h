@@ -34,6 +34,7 @@ constexpr inline int USE_CONST_SERDE =
         8; // support const column in serialize/deserialize function: PR #41175
 constexpr inline int USE_NEW_FIXED_OBJECT_SERIALIZATION_VERSION = 10;
 constexpr inline int SUPPORT_ICEBERG_MERGE_CARDINALITY_VERSION = 11;
+constexpr inline int SUPPORT_EXTERNAL_TABLE_SINK_HASH_VERSION = 13;
 
 class BeExecVersionManager {
 public:

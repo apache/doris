@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -43,28 +44,34 @@ class VariantEqualityContextTest extends TestWithFeService {
 
     @Test
     void testLegacyVariantBehaviorIsPreservedWhenV2IsDisabled() {
-        connectContext.getSessionVariable().enableVariantV2 = false;
+        boolean originalEnableVariantV2 = Config.enable_variant_v2;
+        try {
+            Config.enable_variant_v2 = false;
 
-        assertRejected("SELECT v, COUNT(*) FROM t1 GROUP BY v", "Doris hll, bitmap");
-        assertRejected("SELECT DISTINCT v FROM t1", "Doris hll, bitmap");
-        assertRejected("SELECT COUNT(DISTINCT v) FROM t1", "COUNT DISTINCT");
-        assertRejected("SELECT v FROM t1 INTERSECT SELECT v FROM t2", "Doris hll, bitmap");
-        assertRejected("SELECT v FROM t1 EXCEPT SELECT v FROM t2", "Doris hll, bitmap");
-        assertRejected("SELECT v FROM t1 UNION SELECT v FROM t2", "Doris hll, bitmap");
+            assertRejected("SELECT v, COUNT(*) FROM t1 GROUP BY v", "Doris hll, bitmap");
+            assertRejected("SELECT DISTINCT v FROM t1", "Doris hll, bitmap");
+            assertRejected("SELECT COUNT(DISTINCT v) FROM t1", "COUNT DISTINCT");
+            assertRejected("SELECT v FROM t1 INTERSECT SELECT v FROM t2", "Doris hll, bitmap");
+            assertRejected("SELECT v FROM t1 EXCEPT SELECT v FROM t2", "Doris hll, bitmap");
+            assertRejected("SELECT v FROM t1 UNION SELECT v FROM t2", "Doris hll, bitmap");
 
-        assertAllAccepted(
-                "SELECT v = k FROM t1",
-                "SELECT v > k FROM t1",
-                "SELECT parse_to_variant('1') = 1",
-                "SELECT json_extract(v, '$') FROM t1",
-                "SELECT v FROM t1 UNION ALL SELECT v FROM t2",
-                "SELECT * FROM t1 JOIN t2 ON CAST(t1.v AS STRING) = CAST(t2.v AS STRING)",
-                "SELECT CAST(v AS STRING) = CAST(v AS STRING) FROM t1");
+            assertAllAccepted(
+                    "SELECT v = k FROM t1",
+                    "SELECT v > k FROM t1",
+                    "SELECT parse_to_variant('1') = 1",
+                    "SELECT json_extract(v, '$') FROM t1",
+                    "SELECT v FROM t1 UNION ALL SELECT v FROM t2",
+                    "SELECT * FROM t1 JOIN t2 ON CAST(t1.v AS STRING) = CAST(t2.v AS STRING)",
+                    "SELECT CAST(v AS STRING) = CAST(v AS STRING) FROM t1");
+        } finally {
+            Config.enable_variant_v2 = originalEnableVariantV2;
+        }
     }
 
     @Test
     void testVariantV2CanonicalHashContextsAndComparisonRestrictions() {
-        connectContext.getSessionVariable().enableVariantV2 = true;
+        boolean originalEnableVariantV2 = Config.enable_variant_v2;
+        Config.enable_variant_v2 = true;
         try {
             assertAllAccepted(
                     "SELECT parse_to_variant(CAST(k AS STRING)), COUNT(*) FROM t1 "
@@ -83,7 +90,7 @@ class VariantEqualityContextTest extends TestWithFeService {
             assertVariantComparisonRejected("SELECT parse_to_variant('1') <=> parse_to_variant('1.0')");
             assertVariantComparisonRejected("SELECT parse_to_variant(CAST(k AS STRING)) = k FROM t1");
         } finally {
-            connectContext.getSessionVariable().enableVariantV2 = false;
+            Config.enable_variant_v2 = originalEnableVariantV2;
         }
     }
 

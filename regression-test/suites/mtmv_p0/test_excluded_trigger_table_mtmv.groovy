@@ -65,7 +65,7 @@ suite("test_excluded_trigger_table_mtmv","mtmv") {
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
     waitingMTMVTaskFinishedByMvName(mvName)
-    // should not refresh
+    // should refresh because excluded_trigger_tables changed and refresh baseline should be rebuilt
     order_qt_true_table "SELECT * FROM ${mvName}"
 
     sql """
@@ -78,7 +78,7 @@ suite("test_excluded_trigger_table_mtmv","mtmv") {
          REFRESH MATERIALIZED VIEW ${mvName} AUTO
          """
     waitingMTMVTaskFinishedByMvName(mvName)
-     // should not refresh
+     // should refresh because excluded_trigger_tables changed and refresh baseline should be rebuilt
     order_qt_true_db_table "SELECT * FROM ${mvName}"
 
     sql """
@@ -91,7 +91,7 @@ suite("test_excluded_trigger_table_mtmv","mtmv") {
          REFRESH MATERIALIZED VIEW ${mvName} AUTO
          """
     waitingMTMVTaskFinishedByMvName(mvName)
-     // should not refresh
+     // should refresh because excluded_trigger_tables changed and refresh baseline should be rebuilt
     order_qt_true_ctl_db_table "SELECT * FROM ${mvName}"
 
     sql """

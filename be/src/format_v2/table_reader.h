@@ -60,6 +60,7 @@
 #include "format_v2/expr/cast.h"
 #include "format_v2/expr/delete_predicate.h"
 #include "format_v2/file_reader.h"
+#include "format_v2/file_scan_context.h"
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/schema_projection.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -89,6 +90,9 @@ struct ScanTask {
     virtual ~ScanTask() = default;
 
     std::unique_ptr<io::FileDescription> data_file;
+    std::shared_ptr<const FileContext> file_context;
+    int64_t format_split_id = -1;
+    int64_t format_split_id_end = -1;
 };
 
 struct ProjectedColumnBuildContext {
@@ -182,6 +186,13 @@ struct SplitReadOptions {
     ShardedKVCache* cache = nullptr;
     TFileRangeDesc current_range;
     FileFormat current_split_format = FileFormat::PARQUET;
+    std::shared_ptr<const FileContext> file_context;
+    // Generated physical children keep the FE source coordinates in the cache key so serial and
+    // refined scans address the same predicate bitmap.
+    std::optional<std::pair<int64_t, int64_t>> condition_cache_source_range;
+    std::shared_ptr<ConditionCacheSplitContext> condition_cache_split_context;
+    int64_t format_split_id = -1;
+    int64_t format_split_id_end = -1;
     std::optional<GlobalRowIdContext> global_rowid_context;
 };
 
@@ -229,12 +240,21 @@ public:
 
     // Refresh row-level predicates for an already prepared split. Physical readers that support
     // this operation decide the safe boundary at which the new immutable request becomes active.
-    virtual Status refresh_conjuncts(VExprContextSPtrs conjuncts);
+    // A supplied digest describes this exact conjunct snapshot for condition-cache isolation. RF
+    // completeness is monotonic within one split and enables safe COUNT(*) placeholder elision.
+    virtual Status refresh_conjuncts(VExprContextSPtrs conjuncts,
+                                     std::optional<uint64_t> condition_cache_digest = std::nullopt,
+                                     bool all_runtime_filters_applied = false);
 
     virtual bool current_split_pruned() const { return _current_split_pruned; }
     virtual bool current_split_uses_metadata_count() const {
         return _current_split_uses_metadata_count;
     }
+
+    // Refine a prepared source split into format-specific physical children. The default
+    // implementation currently handles native Parquet; wrappers dispatch to their active child.
+    virtual Status build_physical_splits(const FileScanSplit& source_split,
+                                         std::vector<FileScanSplit>* splits, bool* was_split);
 
     // Discard the active split after the caller decides an error is ignorable, for example a
     // stale external-table file listing that returns NOT_FOUND. The next prepare_split() must start
@@ -392,8 +412,13 @@ protected:
         _current_file_description->is_immutable = true;
     }
 
-    std::optional<ColumnDefinition> _find_current_table_column_by_field_id(int32_t field_id,
-                                                                           DataTypePtr type) const;
+    std::optional<ColumnDefinition> _find_table_column_by_field_id(
+            int32_t field_id, DataTypePtr type, bool include_historical_schemas) const;
+    std::optional<std::vector<ColumnDefinition>> _find_table_column_path_by_field_id(
+            int32_t field_id, DataTypePtr leaf_type, bool include_historical_schemas) const;
+    std::optional<std::vector<ColumnDefinition>> _find_table_column_identity_path_by_field_id(
+            int32_t field_id, bool include_historical_schemas) const;
+    virtual const schema::external::TSchema* _split_schema() const { return nullptr; }
 
     // Parse deletion vector information from table format specific file description.
     virtual Status _parse_deletion_vector_file(const TTableFormatFileDesc& t_desc,
@@ -452,6 +477,7 @@ protected:
         auto file_request = std::make_shared<FileScanRequest>();
         RETURN_IF_ERROR(_data_reader.column_mapper->create_scan_request(
                 _table_filters, _projected_columns, file_request.get(), _runtime_state));
+        file_request->predicate_snapshot_digest = _predicate_snapshot_digest;
         _constant_pruning_safe_filter_count =
                 std::min(_constant_pruning_safe_filter_count,
                          file_request->constant_pruning_safe_table_filter_count);
@@ -461,7 +487,6 @@ protected:
             RETURN_IF_ERROR(close_current_reader());
             return Status::OK();
         }
-        RETURN_IF_ERROR(validate_file_mapping(*_data_reader.column_mapper));
         // COUNT(*) has no semantic column argument, but Nereids retains a minimum-width scan slot
         // so the scan node still has an output tuple. Record only the current non-predicate file
         // columns before table-format hooks add row-position or equality-delete dependencies. This
@@ -476,10 +501,15 @@ protected:
             file_request->count_star_placeholder_columns.reserve(
                     file_request->non_predicate_columns.size());
             for (const auto& column : file_request->non_predicate_columns) {
-                file_request->count_star_placeholder_columns.push_back(column.column_id());
+                if (!file_request->is_residual_predicate_column(column.column_id())) {
+                    file_request->count_star_placeholder_columns.push_back(column.column_id());
+                }
             }
         }
         RETURN_IF_ERROR(customize_file_scan_request(file_request.get()));
+        RETURN_IF_ERROR(_data_reader.column_mapper->reconcile_scan_request_after_customization(
+                file_request.get()));
+        RETURN_IF_ERROR(validate_file_mapping(*_data_reader.column_mapper));
         RETURN_IF_ERROR(_open_local_filter_exprs(*file_request));
         _data_reader.file_block_layout.clear();
         _data_reader.block_template.clear();
@@ -1050,7 +1080,11 @@ protected:
         RETURN_IF_ERROR(_build_file_aggregate_request(_push_down_agg_type, &file_request));
         FileAggregateResult file_result;
         Status status;
-        {
+        if (_metadata_aggregate_result.has_value()) {
+            file_result = std::move(*_metadata_aggregate_result);
+            _metadata_aggregate_result.reset();
+            status = Status::OK();
+        } else {
             SCOPED_TIMER(_profile.file_reader_total_timer);
             SCOPED_TIMER(_profile.file_reader_aggregate_timer);
             status = _data_reader.reader->get_aggregate_result(file_request, &file_result);
@@ -1291,27 +1325,30 @@ protected:
         DORIS_CHECK(column->get() != nullptr);
         DORIS_CHECK(file_type != nullptr);
         DORIS_CHECK(table_type != nullptr);
-        if (file_type->equals(*table_type)) {
+        if (file_type->equals(*table_type) ||
+            remove_nullable(file_type)->equals(*remove_nullable(table_type))) {
             return Status::OK();
         }
 
         DataTypePtr input_type = file_type;
         // Cast wrappers unwrap nullable inputs according to the declared input type, so keep the
-        // root nullability of the declared type aligned with the actual column shape.
+        // root nullability of the declared input aligned with the actual column shape. When the
+        // runtime column is nullable, also keep the cast target nullable; the caller applies the
+        // table's final nullability after value conversion. Casting a nullable runtime column
+        // directly to a non-nullable target would pass ColumnNullable to CastToImpl.
         if ((*column)->is_nullable() && !input_type->is_nullable()) {
             input_type = make_nullable(input_type);
         } else if (!(*column)->is_nullable() && input_type->is_nullable()) {
             input_type = remove_nullable(input_type);
         }
+        DataTypePtr cast_type = table_type;
+        if ((*column)->is_nullable() && !cast_type->is_nullable()) {
+            cast_type = make_nullable(cast_type);
+        }
         Block cast_block;
         cast_block.insert({*column, input_type, column_name});
         auto slot_ref = VSlotRef::create_shared(0, 0, -1, input_type, column_name);
-        // Preserve the source null map through conversion; the caller validates and unwraps it
-        // against a required table field after the value conversion finishes.
-        const auto cast_target_type = input_type->is_nullable() && !table_type->is_nullable()
-                                              ? make_nullable(table_type)
-                                              : table_type;
-        auto cast_expr = Cast::create_shared(cast_target_type);
+        auto cast_expr = Cast::create_shared(cast_type);
         cast_expr->add_child(std::move(slot_ref));
         auto cast_ctx = VExprContext::create_shared(std::move(cast_expr));
         RowDescriptor row_desc;
@@ -1320,6 +1357,55 @@ protected:
         ColumnPtr cast_column;
         RETURN_IF_ERROR(cast_ctx->execute(&cast_block, cast_column));
         *column = std::move(cast_column);
+        return Status::OK();
+    }
+
+    Status _try_materialize_scalar_cast_with_runtime_nullability(const ColumnMapping& mapping,
+                                                                 const Block* current_block,
+                                                                 ColumnPtr* column,
+                                                                 bool* handled) const {
+        DORIS_CHECK(column != nullptr);
+        DORIS_CHECK(handled != nullptr);
+        *handled = false;
+        if (mapping.projection == nullptr || !mapping.file_local_id.has_value() ||
+            !mapping.child_mappings.empty()) {
+            return Status::OK();
+        }
+
+        const auto& root = mapping.projection->root();
+        if (root == nullptr || root->node_type() != TExprNodeType::CAST_EXPR) {
+            return Status::OK();
+        }
+        DORIS_CHECK(root->get_num_children() == 1);
+        const auto* slot = dynamic_cast<const VSlotRef*>(root->get_child(0).get());
+        DORIS_CHECK(slot != nullptr);
+        DORIS_CHECK(current_block != nullptr);
+        DORIS_CHECK(slot->column_id() >= 0);
+        DORIS_CHECK(cast_set<size_t>(slot->column_id()) < current_block->columns());
+        const auto& source = current_block->get_by_position(slot->column_id());
+        DORIS_CHECK(source.column.get() != nullptr);
+        DORIS_CHECK(slot->data_type() != nullptr);
+        DORIS_CHECK(mapping.table_type != nullptr);
+        const bool runtime_input_mismatch =
+                source.column->is_nullable() != slot->data_type()->is_nullable();
+        const bool nullable_input_to_required_table =
+                source.column->is_nullable() && !mapping.table_type->is_nullable();
+        if (!runtime_input_mismatch && !nullable_input_to_required_table) {
+            return Status::OK();
+        }
+
+        // File readers can return a nullable runtime column even when the physical schema marks the
+        // leaf required. A pre-built Cast binds to the declared file type and can therefore pass a
+        // ColumnNullable to a non-nullable CastToImpl. Rebuild only when that runtime shape differs
+        // from the declared input, or when a declared nullable file field maps to a required table
+        // field. Keep the cast target nullable while converting values, then let
+        // _align_column_nullability() reject an actual NULL before removing the wrapper.
+        ColumnPtr result_column = source.column;
+        RETURN_IF_ERROR(_cast_column_to_type(&result_column, slot->data_type(), mapping.table_type,
+                                             mapping.file_column_name));
+        RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type));
+        *column = _detach_column(std::move(result_column));
+        *handled = true;
         return Status::OK();
     }
 
@@ -1341,6 +1427,40 @@ protected:
         }
         RETURN_IF_ERROR(
                 _align_column_nullability(column, mapping.table_type, nullable_parent_null_map));
+        return Status::OK();
+    }
+
+    Status _materialize_default_or_missing_column(
+            const ColumnMapping& mapping, const Block* current_block, const size_t rows,
+            ColumnPtr* column, const NullMap* nullable_parent_null_map = nullptr) {
+        DORIS_CHECK(mapping.table_type != nullptr);
+        DORIS_CHECK(column != nullptr);
+        if (mapping.default_expr != nullptr) {
+            Block synthetic_block;
+            const Block* eval_block = current_block;
+            if (eval_block == nullptr || eval_block->rows() != rows) {
+                // Nested ARRAY/MAP children use element/entry cardinality rather than the root
+                // block's row count. Iceberg initial defaults are typed literals, so a synthetic
+                // block with the desired row count is sufficient and avoids a top-level
+                // ConstantMap dependency for nested mappings.
+                synthetic_block.insert(
+                        {mapping.table_type->create_column_const_with_default_value(rows),
+                         mapping.table_type, "__table_reader_nested_default_rows"});
+                eval_block = &synthetic_block;
+            }
+            ColumnWithTypeAndName result;
+            RETURN_IF_ERROR(_execute_default_expr_without_root_type_check(mapping.default_expr,
+                                                                          eval_block, &result));
+            ColumnPtr result_column = result.column;
+            RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type,
+                                                      nullable_parent_null_map));
+            *column = _detach_column(std::move(result_column));
+            return Status::OK();
+        }
+        ColumnPtr result_column = mapping.table_type->create_column_const_with_default_value(rows);
+        RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type,
+                                                  nullable_parent_null_map));
+        *column = _detach_column(std::move(result_column));
         return Status::OK();
     }
 
@@ -1366,6 +1486,12 @@ protected:
                     _materialize_complex_mapping_column(mapping, result_column, rows, column));
             return Status::OK();
         }
+        bool runtime_nullability_cast_handled = false;
+        RETURN_IF_ERROR(_try_materialize_scalar_cast_with_runtime_nullability(
+                mapping, current_block, column, &runtime_nullability_cast_handled));
+        if (runtime_nullability_cast_handled) {
+            return Status::OK();
+        }
         if (mapping.projection != nullptr) {
             int res_id;
             auto st = mapping.projection->execute(current_block, &res_id);
@@ -1388,31 +1514,7 @@ protected:
             }
             return Status::OK();
         }
-        if (mapping.default_expr != nullptr) {
-            if (current_block->rows() == rows) {
-                ColumnWithTypeAndName result;
-                RETURN_IF_ERROR(_execute_default_expr_without_root_type_check(
-                        mapping.default_expr, current_block, &result));
-                ColumnPtr result_column = result.column;
-                RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type));
-                *column = _detach_column(std::move(result_column));
-            } else {
-                DORIS_CHECK(mapping.constant_index.has_value());
-                Block eval_block;
-                eval_block.insert({mapping.table_type->create_column_const_with_default_value(rows),
-                                   mapping.table_type, "__table_reader_const_rows"});
-                ColumnWithTypeAndName result;
-                RETURN_IF_ERROR(_execute_default_expr_without_root_type_check(
-                        mapping.default_expr, &eval_block, &result));
-                ColumnPtr result_column = result.column;
-                RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type));
-                *column = _detach_column(std::move(result_column));
-            }
-            return Status::OK();
-        }
-        ColumnPtr result_column = mapping.table_type->create_column_const_with_default_value(rows);
-        *column = _detach_column(std::move(result_column));
-        return Status::OK();
+        return _materialize_default_or_missing_column(mapping, current_block, rows, column);
     }
 
     Status _materialize_complex_mapping_column(const ColumnMapping& mapping,
@@ -1585,14 +1687,10 @@ protected:
         for (const auto* child_mapping : table_ordered_children) {
             DORIS_CHECK(child_mapping != nullptr);
             if (!child_mapping->file_local_id.has_value()) {
-                ColumnPtr child_column =
-                        (child_mapping->initial_default_column
-                                 ? child_mapping->initial_default_column->clone_resized(rows)
-                                 : child_mapping->table_type
-                                           ->create_column_const_with_default_value(rows))
-                                ->convert_to_full_column_if_const();
-                RETURN_IF_ERROR(_align_column_nullability(&child_column, child_mapping->table_type,
-                                                          descendant_parent_null_map));
+                ColumnPtr child_column;
+                RETURN_IF_ERROR(_materialize_default_or_missing_column(
+                        *child_mapping, nullptr, rows, &child_column, descendant_parent_null_map));
+                child_column = child_column->convert_to_full_column_if_const();
                 child_columns.push_back(std::move(child_column));
                 continue;
             }
@@ -1760,17 +1858,25 @@ protected:
         return Status::OK();
     }
 
+    Status _open_mapping_expr_tree(const ColumnMapping& mapping, const RowDescriptor& row_desc) {
+        if (mapping.projection != nullptr) {
+            RETURN_IF_ERROR(mapping.projection->prepare(_runtime_state, row_desc));
+            RETURN_IF_ERROR(mapping.projection->open(_runtime_state));
+        }
+        if (mapping.default_expr != nullptr) {
+            RETURN_IF_ERROR(mapping.default_expr->prepare(_runtime_state, row_desc));
+            RETURN_IF_ERROR(mapping.default_expr->open(_runtime_state));
+        }
+        for (const auto& child_mapping : mapping.child_mappings) {
+            RETURN_IF_ERROR(_open_mapping_expr_tree(child_mapping, row_desc));
+        }
+        return Status::OK();
+    }
+
     Status _open_mapping_exprs() {
         RowDescriptor row_desc;
         for (const auto& mapping : _data_reader.column_mapper->mappings()) {
-            if (mapping.projection != nullptr) {
-                RETURN_IF_ERROR(mapping.projection->prepare(_runtime_state, row_desc));
-                RETURN_IF_ERROR(mapping.projection->open(_runtime_state));
-            }
-            if (mapping.default_expr != nullptr) {
-                RETURN_IF_ERROR(mapping.default_expr->prepare(_runtime_state, row_desc));
-                RETURN_IF_ERROR(mapping.default_expr->open(_runtime_state));
-            }
+            RETURN_IF_ERROR(_open_mapping_expr_tree(mapping, row_desc));
         }
         return Status::OK();
     }
@@ -1926,6 +2032,7 @@ protected:
     FileFormat _format;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;
     std::optional<std::vector<GlobalIndex>> _push_down_count_columns;
+    std::optional<uint64_t> _predicate_snapshot_digest;
     size_t _batch_size = 0;
     uint64_t _initial_condition_cache_digest = 0;
     uint64_t _condition_cache_digest = 0;
@@ -1936,6 +2043,11 @@ protected:
     segment_v2::ConditionCache::ExternalCacheKey _condition_cache_key;
     std::shared_ptr<std::vector<bool>> _condition_cache;
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
+    std::optional<std::pair<int64_t, int64_t>> _condition_cache_source_range;
+    std::shared_ptr<ConditionCacheSplitContext> _condition_cache_split_context;
+    bool _condition_cache_split_participating = false;
+    bool _condition_cache_split_invalid = false;
+    bool _condition_cache_initialized = false;
     int64_t _condition_cache_hit_count = 0;
     bool _current_reader_reached_eof = false;
     int64_t _remaining_table_level_count = -1;
@@ -1949,6 +2061,7 @@ protected:
     bool _all_runtime_filters_applied_for_split = true;
     std::optional<GlobalRowIdContext> _global_rowid_context;
     bool _aggregate_pushdown_tried = false;
+    std::optional<FileAggregateResult> _metadata_aggregate_result;
     bool _current_split_pruned = false;
     TableColumnMapperOptions _mapper_options;
 

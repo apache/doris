@@ -223,6 +223,17 @@ TEST(FunctionVariantParseTest, FunctionsAreRegistered) {
 
 TEST(FunctionVariantParseTest, ConfiguredVariantReturnTypeBuildsAndExecutes) {
     const DataTypePtr string_type = std::make_shared<DataTypeString>();
+    const DataTypePtr legacy_doc_mode_variant = std::make_shared<DataTypeVariant>(0, true);
+    ExecutionResult legacy_doc_mode =
+            execute_parse("parse_to_variant", make_strings({R"({"a":1})"}), string_type, 1,
+                          legacy_doc_mode_variant);
+    ASSERT_TRUE(legacy_doc_mode.status.ok()) << legacy_doc_mode.status.to_string();
+    const auto& legacy_doc_mode_column = assert_cast<const ColumnVariant&>(*legacy_doc_mode.output);
+    EXPECT_TRUE(legacy_doc_mode_column.enable_doc_mode());
+    EXPECT_EQ(legacy_doc_mode_column.get_subcolumns().size(), 1);
+    ASSERT_EQ(legacy_doc_mode_column.serialized_doc_value_column_offsets().size(), 1);
+    EXPECT_EQ(legacy_doc_mode_column.serialized_doc_value_column_offsets().back(), 1);
+
     const DataTypePtr max_subcolumns_variant = std::make_shared<DataTypeVariantV2>(2048, false);
     ExecutionResult result = execute_parse("parse_to_variant", make_strings({R"({"a":1})"}),
                                            string_type, 1, max_subcolumns_variant);

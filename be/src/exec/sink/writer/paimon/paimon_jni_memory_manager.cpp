@@ -18,6 +18,7 @@
 #include "exec/sink/writer/paimon/paimon_jni_memory_manager.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <mutex>
 #include <utility>
 #include <vector>
@@ -129,7 +130,7 @@ private:
     template <typename Function>
     auto with_resource_context(Function&& function)
             -> decltype(std::forward<Function>(function)()) {
-        // JNI normally re-enters on an attached async-writer thread.  Attach
+        // JNI normally re-enters on the attached blocking pipeline thread. Attach
         // Java-created threads explicitly too, so every allocation/free is
         // charged to the query rather than to an unrelated thread context.
         if (!pthread_context_ptr_init && bthread_self() == 0) {
@@ -162,7 +163,6 @@ private:
             for (const auto& [address, bytes] : allocations) {
                 _allocator.free(address, bytes);
             }
-            std::vector<std::pair<void*, size_t>>().swap(allocations);
         });
     }
 
@@ -220,8 +220,12 @@ jobject allocate_paimon_memory_page(JNIEnv* env, jclass, jlong manager_handle, j
     try {
         return manager->allocate_page(env, bytes);
     } catch (const std::exception& e) {
-        jclass exception_class = env->FindClass("java/lang/OutOfMemoryError");
-        env->ThrowNew(exception_class, e.what());
+        jclass exception_class = env->FindClass("java/lang/RuntimeException");
+        // Avoid dynamic allocation while reporting a failed allocation.
+        char message[1024];
+        std::snprintf(message, sizeof(message), "Paimon JNI native page allocation failed: %.900s",
+                      e.what());
+        env->ThrowNew(exception_class, message);
         env->DeleteLocalRef(exception_class);
         return nullptr;
     }
@@ -247,25 +251,29 @@ Status PaimonJniMemoryManager::create(RuntimeState* state,
                 "Paimon JNI writer cannot allocate native memory without QueryContext");
     }
 
-    // A query can create multiple local sink instances.  Divide its budget
-    // before applying the configured cap so one writer cannot consume the
-    // entire query allowance.
-    const int64_t writer_count = std::max<int64_t>(1, state->num_local_sink());
+    // Each task in this sink pipeline owns one Paimon writer. Use the task count produced by the
+    // BE pipeline builder rather than num_local_sink, which is an FE-provided field currently set
+    // only for OLAP sinks. This also reflects any local-exchange parallelism chosen by the BE.
+    const int64_t writer_count = std::max<int64_t>(1, state->task_num());
     const int64_t query_limit = state->query_mem_tracker()->limit();
     const int64_t query_share = query_limit > 0 ? query_limit / writer_count : query_limit;
+    // Paimon requests pages lazily, can flush/preempt owners inside its MemoryPoolFactory, and may
+    // retain allocated pages until writer close. Bound and account those actual page allocations.
+    // Arrow C Data keeps the batch body in Doris-owned buffers, so there is no separate Java Arrow
+    // body budget to subtract from this writer's Paimon page allowance.
     const int64_t configured_memory_limit = config::paimon_jni_writer_memory_pool_limit_bytes;
     const int64_t memory_limit = query_share > 0 ? std::min(query_share, configured_memory_limit)
                                                  : configured_memory_limit;
     if (memory_limit <= 0) {
         return Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(
                 "Paimon JNI writer has insufficient memory budget: query_limit={}, "
-                "local_sink_count={}, write_buffer_limit={}",
+                "sink_pipeline_task_count={}, write_buffer_limit={}",
                 PrettyPrinter::print_bytes(query_limit), writer_count,
                 PrettyPrinter::print_bytes(memory_limit));
     }
 
-    // ResourceContext is retained by Impl for the manager's whole lifetime;
-    // this is what keeps asynchronous JNI callbacks associated with the query.
+    // ResourceContext is retained by Impl for the manager's whole lifetime so JNI callbacks stay
+    // associated with the query even if Paimon invokes one from a Java-created thread.
     auto impl = std::make_unique<Impl>(state->get_query_ctx()->resource_ctx(), memory_limit);
     *manager = std::unique_ptr<PaimonJniMemoryManager>(new PaimonJniMemoryManager(std::move(impl)));
     return Status::OK();

@@ -14,7 +14,31 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_predefine_typed_to_sparse", "p0"){ 
+suite("predefined_typed_to_sparse", "p0,nonConcurrent") {
+    setFeConfigTemporary([enable_variant_v2: false]) {
+    assertFalse(getFeConfig("enable_variant_v2").toBoolean())
+    def variantV2Function = ""
+    def checkTypedArrays = { String table ->
+        qt_sql """select id, cast(var['array_decimal_1'] as array<decimalv3(26, 9)>),
+                    cast(var['array_ipv6_1'] as array<ipv6>) from ${table}
+                where arrays_overlap(cast(var['array_decimal_1'] as array<decimalv3(26, 9)>),
+                        array(cast(12345678901234567.123456789 as decimalv3(26, 9))))
+                  and arrays_overlap(cast(var['array_ipv6_1'] as array<ipv6>),
+                        array(cast('::1' as ipv6)))
+                order by id limit 10"""
+    }
+    def typedValues = """cast(var['array_decimal_1'] as array<decimalv3(26, 9)>),
+            cast(var['array_ipv6_1'] as array<ipv6>), cast(var['int_1'] as int),
+            cast(var['int_nested']['level1_num_1'] as int),
+            cast(var['int_nested']['level1_num_2'] as int), cast(var['string_1'] as string),
+            cast(var['string_1_nested']['message'] as string),
+            cast(var['string_1_nested']['metadata']['timestamp'] as string),
+            cast(var['string_1_nested']['metadata']['source'] as string),
+            cast(var['decimal_1'] as decimalv3(26, 9)), cast(var['datetime_1'] as datetime),
+            cast(var['datetimev2_1'] as datetimev2(6)), cast(var['date_1'] as date),
+            cast(var['datev2_1'] as datev2), cast(var['ipv4_1'] as ipv4),
+            cast(var['ipv6_1'] as ipv6), cast(var['largeint_1'] as largeint),
+            cast(var['char_1'] as text)"""
     sql """ set enable_common_expr_pushdown = true """
     sql """ set default_variant_enable_doc_mode = false """
     def count = new Random().nextInt(10) + 1
@@ -93,7 +117,7 @@ suite("test_predefine_typed_to_sparse", "p0"){
          INSERT INTO ${tableName} (`id`, `var`) VALUES
         (
             1,
-            '{
+            ${variantV2Function}('{
               "array_decimal_1": ["12345678901234567.123456789", "987.654321"],
               "array_ipv6_1": ["2001:0db8:85a3:0000:0000:8a2e:0370:7334", "::1"],
               "int_1": 42,
@@ -118,18 +142,20 @@ suite("test_predefine_typed_to_sparse", "p0"){
               "ipv6_1": "::1",
               "largeint_1": "12345678901234567890123456789012345678",
               "char_1": "short text"
-            }'
-        ); 
+            }')
+        );
     """
     for (int i = 1; i < 10; i++) {
       load_json_data.call(tableName, getS3Url() + "/regression/variant/schema_tmpt${i}.json")
     }
 
-    qt_sql """ select * from ${tableName} order by id limit 10 """
+    qt_loaded_rows """select * from ${tableName} order by id limit 10"""
+    checkTypedArrays(tableName)
 
     trigger_and_wait_compaction(tableName, "cumulative", 1800)
 
-    qt_sql """ select * from ${tableName} order by id limit 10"""
+    qt_loaded_rows """select * from ${tableName} order by id limit 10"""
+    checkTypedArrays(tableName)
 
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
@@ -175,7 +201,7 @@ suite("test_predefine_typed_to_sparse", "p0"){
           INSERT INTO ${tableName} (`id`, `var`) VALUES
           (
             ${i},
-              '{
+              ${variantV2Function}('{
                 "array_decimal_1": ["12345678901234567.123456789", "987.654321"],
                 "array_ipv6_1": ["2001:0db8:85a3:0000:0000:8a2e:0370:7334", "::1"],
                 "int_1": 42,
@@ -200,19 +226,22 @@ suite("test_predefine_typed_to_sparse", "p0"){
                 "ipv6_1": "::1",
                 "largeint_1": "12345678901234567890123456789012345678",
                 "char_1": "short text"
-              }'
-          ); 
+              }')
+          );
       """
     }
 
-    qt_sql """ select variant_type(var) from ${tableName} limit 1"""
-    qt_sql """ select * from ${tableName} order by id limit 10 """
-    qt_sql """ select var['array_decimal_1'], var['array_ipv6_1'], var['int_1'], var['int_nested'], var['string_1'], var['string_1_nested'], var['decimal_1'], var['datetime_1'], var['datetimev2_1'], var['date_1'], var['datev2_1'], var['ipv4_1'], var['ipv6_1'], var['largeint_1'], var['char_1'] from ${tableName} order by id """
+    qt_variant_type """select variant_type(var) from ${tableName} limit 1"""
+    checkTypedArrays(tableName)
+    qt_full_values """select * from ${tableName} order by id"""
+    qt_sql """select ${typedValues} from ${tableName} order by id"""
 
     trigger_and_wait_compaction(tableName, "cumulative", 1800)
 
-    qt_sql """ select variant_type(var) from ${tableName} limit 1"""
-    qt_sql """ select * from ${tableName} order by id limit 10"""
-    qt_sql """ select var['array_decimal_1'], var['array_ipv6_1'], var['int_1'], var['int_nested'], var['string_1'], var['string_1_nested'], var['decimal_1'], var['datetime_1'], var['datetimev2_1'], var['date_1'], var['datev2_1'], var['ipv4_1'], var['ipv6_1'], var['largeint_1'], var['char_1'] from ${tableName} order by id """
+    qt_variant_type """select variant_type(var) from ${tableName} limit 1"""
+    checkTypedArrays(tableName)
+    qt_full_values """select * from ${tableName} order by id"""
+    qt_sql """select ${typedValues} from ${tableName} order by id"""
 
+    }
 }

@@ -21,9 +21,11 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -34,6 +36,7 @@ import org.apache.doris.nereids.types.StringType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class NullSafeEqualToEqualTest extends ExpressionRewriteTestHelper {
@@ -110,6 +113,22 @@ class NullSafeEqualToEqualTest extends ExpressionRewriteTestHelper {
         IntegerLiteral a = new IntegerLiteral(0);
         IntegerLiteral b = new IntegerLiteral(1);
         assertRewrite(new NullSafeEqual(a, b), new EqualTo(a, b));
+    }
+
+    @Test
+    void testPreserveShortCircuitIf() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(NullSafeEqualToEqual.INSTANCE)
+        ));
+        SlotReference left = new SlotReference("a", StringType.INSTANCE, false);
+        SlotReference right = new SlotReference("b", StringType.INSTANCE, false);
+        ShortCircuitIf shortCircuitIf = new ShortCircuitIf(
+                new NullSafeEqual(left, right), IntegerLiteral.of(1), IntegerLiteral.of(0));
+
+        Expression rewritten = executor.rewrite(shortCircuitIf, context);
+
+        Assertions.assertInstanceOf(ShortCircuitIf.class, rewritten);
+        Assertions.assertInstanceOf(EqualTo.class, ((ShortCircuitIf) rewritten).getCondition());
     }
 
     @Test

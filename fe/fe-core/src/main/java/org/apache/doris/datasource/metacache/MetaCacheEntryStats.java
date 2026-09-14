@@ -51,6 +51,16 @@ public final class MetaCacheEntryStats {
     private final long lastLoadSuccessTimeMs;
     private final long lastLoadFailureTimeMs;
     private final String lastError;
+    private final boolean weightBounded;
+    private final long maxWeight;
+    private final long estimatedWeight;
+    private final long evictionWeight;
+    private final long weightAdmissionRejectedCount;
+    private final long catalogMaxWeight;
+    private final long catalogEstimatedWeight;
+    private final long globalMaxWeight;
+    private final long globalEstimatedWeight;
+    private final String lastWeightRejectReason;
 
     /**
      * Build an immutable stats snapshot.
@@ -74,7 +84,17 @@ public final class MetaCacheEntryStats {
             long invalidateCount,
             long lastLoadSuccessTimeMs,
             long lastLoadFailureTimeMs,
-            String lastError) {
+            String lastError,
+            boolean weightBounded,
+            long maxWeight,
+            long estimatedWeight,
+            long evictionWeight,
+            long weightAdmissionRejectedCount,
+            long catalogMaxWeight,
+            long catalogEstimatedWeight,
+            long globalMaxWeight,
+            long globalEstimatedWeight,
+            String lastWeightRejectReason) {
         this.configEnabled = configEnabled;
         this.effectiveEnabled = effectiveEnabled;
         this.autoRefresh = autoRefresh;
@@ -94,6 +114,16 @@ public final class MetaCacheEntryStats {
         this.lastLoadSuccessTimeMs = lastLoadSuccessTimeMs;
         this.lastLoadFailureTimeMs = lastLoadFailureTimeMs;
         this.lastError = Objects.requireNonNull(lastError, "lastError");
+        this.weightBounded = weightBounded;
+        this.maxWeight = maxWeight;
+        this.estimatedWeight = estimatedWeight;
+        this.evictionWeight = evictionWeight;
+        this.weightAdmissionRejectedCount = weightAdmissionRejectedCount;
+        this.catalogMaxWeight = catalogMaxWeight;
+        this.catalogEstimatedWeight = catalogEstimatedWeight;
+        this.globalMaxWeight = globalMaxWeight;
+        this.globalEstimatedWeight = globalEstimatedWeight;
+        this.lastWeightRejectReason = Objects.requireNonNull(lastWeightRejectReason, "lastWeightRejectReason");
     }
 
     public boolean isConfigEnabled() {
@@ -185,5 +215,45 @@ public final class MetaCacheEntryStats {
      */
     public String getLastError() {
         return lastError;
+    }
+
+    public boolean isWeightBounded() {
+        return weightBounded;
+    }
+
+    public long getMaxWeight() {
+        return maxWeight;
+    }
+
+    public long getEstimatedWeight() {
+        return estimatedWeight;
+    }
+
+    public long getEvictionWeight() {
+        return evictionWeight;
+    }
+
+    public long getWeightAdmissionRejectedCount() {
+        return weightAdmissionRejectedCount;
+    }
+
+    public long getCatalogMaxWeight() {
+        return catalogMaxWeight;
+    }
+
+    public long getCatalogEstimatedWeight() {
+        return catalogEstimatedWeight;
+    }
+
+    public long getGlobalMaxWeight() {
+        return globalMaxWeight;
+    }
+
+    public long getGlobalEstimatedWeight() {
+        return globalEstimatedWeight;
+    }
+
+    public String getLastWeightRejectReason() {
+        return lastWeightRejectReason;
     }
 }

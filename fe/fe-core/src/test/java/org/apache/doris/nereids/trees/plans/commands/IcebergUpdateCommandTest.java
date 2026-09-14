@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -105,7 +106,7 @@ public class IcebergUpdateCommandTest {
     }
 
     @Test
-    public void testMergeSinkRejectsVariantTargetSchema() {
+    public void testMergeSinkChecksVariantWriteCapability() {
         IcebergExternalDatabase database = Mockito.mock(IcebergExternalDatabase.class);
         IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
         Column variantColumn = new Column("payload", IcebergUtils.icebergTypeToDorisType(
@@ -115,7 +116,15 @@ public class IcebergUpdateCommandTest {
 
         // Satisfy the branch-4.1 sink invariants so the assertion exercises Variant write validation.
         org.apache.iceberg.Table icebergTable = Mockito.mock(org.apache.iceberg.Table.class);
+        Mockito.when(icebergTable.properties()).thenReturn(ImmutableMap.of("format-version", "2",
+                "write.format.default", "parquet"));
         Assertions.assertThrows(AnalysisException.class, () -> new LogicalIcebergMergeSink<>(
+                database, table, icebergTable, ImmutableList.of(variantColumn), ImmutableList.of(),
+                new DeleteCommandContext(), true, false,
+                java.util.Optional.empty(), java.util.Optional.empty(), child));
+        Mockito.when(icebergTable.properties()).thenReturn(ImmutableMap.of("format-version", "3",
+                "write.format.default", "parquet"));
+        Assertions.assertDoesNotThrow(() -> new LogicalIcebergMergeSink<>(
                 database, table, icebergTable, ImmutableList.of(variantColumn), ImmutableList.of(),
                 new DeleteCommandContext(), true, false,
                 java.util.Optional.empty(), java.util.Optional.empty(), child));

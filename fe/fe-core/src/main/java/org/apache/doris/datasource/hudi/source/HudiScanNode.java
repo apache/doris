@@ -30,8 +30,10 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalUtil;
+import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HivePartition;
@@ -40,7 +42,9 @@ import org.apache.doris.datasource.hudi.HudiPartitionUtils;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.DirectoryLister;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
@@ -52,6 +56,7 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.THudiFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -79,6 +84,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -105,6 +111,8 @@ public class HudiScanNode extends HiveScanNode {
     private String serdeLib;
     private List<String> columnNames;
     private List<String> columnTypes;
+    private List<String> partitionColumnNames;
+    private String storagePropertiesFingerprint;
 
     private boolean partitionInit = false;
     private HoodieTimeline timeline;
@@ -221,6 +229,11 @@ public class HudiScanNode extends HiveScanNode {
             HudiSchemaCacheValue hudiSchemaCacheValue = HudiUtils.getSchemaCacheValue(hmsTable, queryInstant);
             columnNames = hudiSchemaCacheValue.getSchema().stream().map(Column::getName).collect(Collectors.toList());
             columnTypes = hudiSchemaCacheValue.getColTypes();
+            partitionColumnNames = hmsTable.getPartitionColumns(relationSnapshot).stream()
+                    .map(Column::getName)
+                    .collect(Collectors.toList());
+            storagePropertiesFingerprint = StorageProperties.combinedFsCacheFingerprint(
+                    hmsTable.getStoragePropertiesMap().values());
 
             fsView = Env.getCurrentEnv()
                 .getExtMetaCacheMgr()
@@ -380,29 +393,70 @@ public class HudiScanNode extends HiveScanNode {
 
     private List<Split> getIncrementalSplits() {
         long startTime = System.currentTimeMillis();
-        if (canUseNativeReader()) {
-            List<Split> splits = incrementalRelation.collectSplits();
-            noLogsSplitNum.addAndGet(splits.size());
+        try {
+            if (canUseNativeReader()) {
+                List<Split> splits = incrementalRelation.collectSplits();
+                noLogsSplitNum.addAndGet(splits.size());
+                return splits;
+            }
+            Option<String[]> partitionColumns = hudiClient.getTableConfig().getPartitionFields();
+            List<String> partitionNames = partitionColumns.isPresent()
+                    ? Arrays.asList(partitionColumns.get()) : Collections.emptyList();
+            List<Split> splits = incrementalRelation.collectFileSlices().stream()
+                    .map(fileSlice -> generateHudiSplit(fileSlice,
+                            HudiPartitionUtils.parsePartitionValues(
+                                    partitionNames, fileSlice.getPartitionPath()),
+                            incrementalRelation.getEndTs()))
+                    .collect(Collectors.toList());
+            if (!sessionVariable.isForceJniScanner()) {
+                splits.stream()
+                        .map(split -> (HudiSplit) split)
+                        .filter(split -> split.getHudiDeltaLogs().isEmpty())
+                        .forEach(split -> noLogsSplitNum.incrementAndGet());
+            }
+            return splits;
+        } finally {
             if (getSummaryProfile() != null) {
                 getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
             }
-            return splits;
         }
-        Option<String[]> partitionColumns = hudiClient.getTableConfig().getPartitionFields();
-        List<String> partitionNames = partitionColumns.isPresent() ? Arrays.asList(partitionColumns.get())
-                : Collections.emptyList();
-        List<Split> splits = incrementalRelation.collectFileSlices().stream()
-                .map(fileSlice -> generateHudiSplit(fileSlice,
-                        HudiPartitionUtils.parsePartitionValues(partitionNames, fileSlice.getPartitionPath()),
-                        incrementalRelation.getEndTs()))
-                .collect(Collectors.toList());
-        if (getSummaryProfile() != null) {
-            getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
-        }
-        return splits;
     }
 
-    private void getPartitionSplits(HivePartition partition, List<Split> splits) throws IOException {
+    private void getPartitionSplits(HivePartition partition, List<Split> splits) throws Exception {
+        getPartitionSplits(partition, splits, true);
+    }
+
+    private void getPartitionSplits(
+            HivePartition partition, List<Split> splits, boolean useStatementCache) throws Exception {
+        List<HudiSplit> plannedSplits;
+        if (useStatementCache) {
+            HudiFileScanTaskCacheKey cacheKey = new HudiFileScanTaskCacheKey(
+                    hmsTable.getCatalog().getId(), hmsTable.getId(), queryInstant,
+                    canUseNativeReader(), sessionVariable.isEnableRuntimeFilterPartitionPrune(),
+                    basePath, inputFormat, serdeLib, columnNames, columnTypes,
+                    partitionColumnNames, storagePropertiesFingerprint, partition);
+            plannedSplits = getOrLoadExternalScanTasks(
+                    cacheKey, ignored -> planPartitionSplits(partition),
+                    FileQueryScanNode::externalScanTaskCount,
+                    StatementContext.ExternalScanTaskCache.WeightBudget.TASK_COUNT,
+                    maxRetainedExternalScanTasks, maxRetainedExternalScanTasks, false);
+        } else {
+            // Batch mode bounds FE memory by retaining only the partitions currently in flight.
+            // Do not keep completed partition task graphs until statement close.
+            plannedSplits = planPartitionSplits(partition);
+        }
+        for (HudiSplit plannedSplit : plannedSplits) {
+            HudiSplit split = copyHudiSplit(plannedSplit);
+            if (canUseNativeReader()
+                    || (!sessionVariable.isForceJniScanner() && split.getHudiDeltaLogs().isEmpty())) {
+                noLogsSplitNum.incrementAndGet();
+            }
+            splits.add(split);
+        }
+    }
+
+    private List<HudiSplit> planPartitionSplits(HivePartition partition) throws IOException {
+        List<HudiSplit> splits = new ArrayList<>();
         String partitionName;
         if (partition.isDummyPartition()) {
             partitionName = "";
@@ -412,12 +466,11 @@ public class HudiScanNode extends HiveScanNode {
         }
 
         final Map<String, String> partitionValues = sessionVariable.isEnableRuntimeFilterPartitionPrune()
-                ? HudiUtils.getPartitionInfoMap(hmsTable, partition)
+                ? HudiUtils.getPartitionInfoMap(partitionColumnNames, partition)
                 : null;
 
         if (canUseNativeReader()) {
             fsView.getLatestBaseFilesBeforeOrOn(partitionName, queryInstant).forEach(baseFile -> {
-                noLogsSplitNum.incrementAndGet();
                 String filePath = baseFile.getPath();
 
                 long fileSize = baseFile.getFileSize();
@@ -436,6 +489,7 @@ public class HudiScanNode extends HiveScanNode {
                     .forEach(fileSlice -> splits.add(
                             generateHudiSplit(fileSlice, partition.getPartitionValues(), queryInstant)));
         }
+        return splits;
     }
 
     private void getPartitionsSplits(List<HivePartition> partitions, List<Split> splits) {
@@ -523,7 +577,7 @@ public class HudiScanNode extends HiveScanNode {
                 CompletableFuture.runAsync(() -> {
                     try {
                         List<Split> allFiles = Lists.newArrayList();
-                        getPartitionSplits(partition, allFiles);
+                        getPartitionSplits(partition, allFiles, false);
                         if (allFiles.size() > numSplitsPerPartition.get()) {
                             numSplitsPerPartition.set(allFiles.size());
                         }
@@ -581,10 +635,6 @@ public class HudiScanNode extends HiveScanNode {
         List<String> logs = fileSlice.getLogFiles().map(HoodieLogFile::getPath)
                 .map(StoragePath::toString)
                 .collect(Collectors.toList());
-        if (logs.isEmpty() && !sessionVariable.isForceJniScanner()) {
-            noLogsSplitNum.incrementAndGet();
-        }
-
         // no base file, use log file to parse file type
         String agencyPath = filePath.isEmpty() ? logs.get(0) : filePath;
         LocationPath locationPath = LocationPath.of(agencyPath, hmsTable.getStoragePropertiesMap());
@@ -600,6 +650,119 @@ public class HudiScanNode extends HiveScanNode {
         split.setHudiColumnTypes(columnTypes);
         split.setInstantTime(queryInstant);
         return split;
+    }
+
+    @VisibleForTesting
+    static HudiSplit copyHudiSplit(HudiSplit sourceSplit) {
+        HudiSplit copy = new HudiSplit(
+                sourceSplit.getPath(),
+                sourceSplit.getStart(),
+                sourceSplit.getLength(),
+                sourceSplit.getFileLength(),
+                Arrays.copyOf(sourceSplit.getHosts(), sourceSplit.getHosts().length),
+                copyList(sourceSplit.getPartitionValues()));
+        copy.setModificationTime(sourceSplit.getModificationTime());
+        copy.setTableFormatType(sourceSplit.getTableFormatType());
+        copy.setAlternativeHosts(copyList(sourceSplit.getAlternativeHosts()));
+        copy.selfSplitWeight = sourceSplit.selfSplitWeight;
+        copy.setTargetSplitSize(sourceSplit.getTargetSplitSize());
+        copy.setInstantTime(sourceSplit.getInstantTime());
+        copy.setSerde(sourceSplit.getSerde());
+        copy.setInputFormat(sourceSplit.getInputFormat());
+        copy.setBasePath(sourceSplit.getBasePath());
+        copy.setDataFilePath(sourceSplit.getDataFilePath());
+        copy.setHudiDeltaLogs(copyList(sourceSplit.getHudiDeltaLogs()));
+        copy.setHudiColumnNames(copyList(sourceSplit.getHudiColumnNames()));
+        copy.setHudiColumnTypes(copyList(sourceSplit.getHudiColumnTypes()));
+        copy.setNestedFields(copyList(sourceSplit.getNestedFields()));
+        copy.setHudiPartitionValues(sourceSplit.getHudiPartitionValues() == null
+                ? null : new HashMap<>(sourceSplit.getHudiPartitionValues()));
+        return copy;
+    }
+
+    private static <T> List<T> copyList(List<T> values) {
+        return values == null ? null : new ArrayList<>(values);
+    }
+
+    private static final class HudiFileScanTaskCacheKey
+            implements ExternalScanTaskCacheKey<HudiSplit> {
+        private final long catalogId;
+        private final long tableId;
+        private final String queryInstant;
+        private final boolean nativeReader;
+        private final boolean runtimePartitionPrune;
+        private final String basePath;
+        private final String tableInputFormat;
+        private final String serdeLib;
+        private final List<String> columnNames;
+        private final List<String> columnTypes;
+        private final List<String> partitionColumnNames;
+        private final String storagePropertiesFingerprint;
+        private final String inputFormat;
+        private final String path;
+        private final List<String> partitionValues;
+
+        private HudiFileScanTaskCacheKey(
+                long catalogId, long tableId, String queryInstant, boolean nativeReader,
+                boolean runtimePartitionPrune, String basePath, String tableInputFormat,
+                String serdeLib, List<String> columnNames, List<String> columnTypes,
+                List<String> partitionColumnNames, String storagePropertiesFingerprint, HivePartition partition) {
+            this.catalogId = catalogId;
+            this.tableId = tableId;
+            this.queryInstant = queryInstant;
+            this.nativeReader = nativeReader;
+            this.runtimePartitionPrune = runtimePartitionPrune;
+            this.basePath = basePath;
+            this.tableInputFormat = tableInputFormat;
+            this.serdeLib = serdeLib;
+            this.columnNames = immutableCopy(columnNames);
+            this.columnTypes = immutableCopy(columnTypes);
+            this.partitionColumnNames = immutableCopy(partitionColumnNames);
+            this.storagePropertiesFingerprint = storagePropertiesFingerprint;
+            this.inputFormat = partition.getInputFormat();
+            this.path = partition.getPath();
+            this.partitionValues = partition.getPartitionValues() == null
+                    ? null : Collections.unmodifiableList(new ArrayList<>(partition.getPartitionValues()));
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (this == object) {
+                return true;
+            }
+            if (!(object instanceof HudiFileScanTaskCacheKey)) {
+                return false;
+            }
+            HudiFileScanTaskCacheKey that = (HudiFileScanTaskCacheKey) object;
+            return catalogId == that.catalogId
+                    && tableId == that.tableId
+                    && nativeReader == that.nativeReader
+                    && runtimePartitionPrune == that.runtimePartitionPrune
+                    && Objects.equals(queryInstant, that.queryInstant)
+                    && Objects.equals(basePath, that.basePath)
+                    && Objects.equals(tableInputFormat, that.tableInputFormat)
+                    && Objects.equals(serdeLib, that.serdeLib)
+                    && Objects.equals(columnNames, that.columnNames)
+                    && Objects.equals(columnTypes, that.columnTypes)
+                    && Objects.equals(partitionColumnNames, that.partitionColumnNames)
+                    && Objects.equals(storagePropertiesFingerprint, that.storagePropertiesFingerprint)
+                    && Objects.equals(inputFormat, that.inputFormat)
+                    && Objects.equals(path, that.path)
+                    && Objects.equals(partitionValues, that.partitionValues);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(
+                    catalogId, tableId, queryInstant, nativeReader, runtimePartitionPrune,
+                    basePath, tableInputFormat, serdeLib, columnNames, columnTypes,
+                    partitionColumnNames, storagePropertiesFingerprint, inputFormat, path, partitionValues);
+        }
+
+        private static <T> List<T> immutableCopy(List<T> values) {
+            return values == null
+                    ? null : Collections.unmodifiableList(new ArrayList<>(values));
+        }
     }
 
     @Override

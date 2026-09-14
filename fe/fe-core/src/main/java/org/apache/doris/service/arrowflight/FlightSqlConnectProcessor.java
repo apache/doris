@@ -146,11 +146,11 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
                 }
                 endpointLoc.setResultPublicAccessAddr(resultPublicAccessAddr);
                 if (pResult.hasSchema() && pResult.getSchema().size() > 0) {
-                    RootAllocator rootAllocator = new RootAllocator(Integer.MAX_VALUE);
-                    ArrowStreamReader arrowStreamReader = new ArrowStreamReader(
-                            new ByteArrayInputStream(pResult.getSchema().toByteArray()), rootAllocator);
-                    try {
+                    try (RootAllocator rootAllocator = new RootAllocator(Integer.MAX_VALUE);
+                            ArrowStreamReader arrowStreamReader = new ArrowStreamReader(
+                                    new ByteArrayInputStream(pResult.getSchema().toByteArray()), rootAllocator)) {
                         Schema schema;
+                        // SchemaRoot belongs to ArrowStreamReader, it will be released when ArrowStreamReader is closed
                         VectorSchemaRoot root = arrowStreamReader.getVectorSchemaRoot();
                         List<FieldVector> fieldVectors = root.getFieldVectors();
                         if (fieldVectors.size() != resultOutputExprs.size()) {
@@ -196,11 +196,21 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
     @Override
     public void close() throws Exception {
         ctx.setCommand(MysqlCommand.COM_SLEEP);
+        // An external-table scan in batch mode keeps its coordinator alive past GetFlightInfo
+        // (registered as a deferred executor on the ConnectContext) so the BE can still fetch its
+        // splits during DoGet. Do NOT finalize those here; they are finalized when the next query
+        // starts, when the connection is torn down, or by the idle reaper in
+        // ConnectContext.checkTimeout. Every other executor (local results, results the BE buffers
+        // on its own, or a query that already failed) is finalized now. See #62259 and #67503.
         for (StmtExecutor asynExecutor : returnResultFromRemoteExecutor) {
-            asynExecutor.finalizeQuery();
+            if (!asynExecutor.isDeferredForArrowFlight()) {
+                asynExecutor.finalizeQuery();
+            }
         }
         returnResultFromRemoteExecutor.clear();
-        executor.finalizeQuery();
+        if (executor != null && !executor.isDeferredForArrowFlight()) {
+            executor.finalizeQuery();
+        }
         ctx.clear();
         ConnectContext.remove();
     }

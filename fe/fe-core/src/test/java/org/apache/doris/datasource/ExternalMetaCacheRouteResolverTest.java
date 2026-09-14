@@ -33,6 +33,7 @@ import mockit.Mock;
 import mockit.MockUp;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -40,6 +41,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ExternalMetaCacheRouteResolverTest {
 
@@ -49,6 +56,124 @@ public class ExternalMetaCacheRouteResolverTest {
         Assert.assertEquals("hive", metaCacheMgr.engine("hms").engine());
         Assert.assertEquals("doris", metaCacheMgr.engine("External_Doris").engine());
         Assert.assertEquals("maxcompute", metaCacheMgr.engine("max_compute").engine());
+    }
+
+    @Test
+    public void testCatalogCachePropertiesRejectUnknownEngineEntryAndAliasNamespace() {
+        ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
+        Map<String, String> properties = new HashMap<>();
+        HMSExternalCatalog catalog = new HMSExternalCatalog(
+                1L, "hms", null, Collections.emptyMap(), "");
+
+        properties.put("meta.cache.hvie.partition_values.capacity", "10");
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> metaCacheMgr.validateCatalogCacheProperties(catalog, properties));
+        properties.clear();
+
+        properties.put("meta.cache.hms.partition_values.capacity", "10");
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> metaCacheMgr.validateCatalogCacheProperties(catalog, properties));
+        properties.clear();
+
+        properties.put("meta.cache.hive.partiton_values.capacity", "10");
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> metaCacheMgr.validateCatalogCacheProperties(catalog, properties));
+    }
+
+    @Test
+    public void testCatalogCachePropertiesRejectEngineNotRoutedByCatalogType() {
+        ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
+        Map<String, String> properties = Collections.singletonMap(
+                "meta.cache.hive.partition_values.capacity", "10");
+        PaimonExternalCatalog catalog = new PaimonExternalCatalog(
+                1L, "paimon", null, Collections.emptyMap(), "");
+
+        IllegalArgumentException exception = Assert.assertThrows(IllegalArgumentException.class,
+                () -> metaCacheMgr.validateCatalogCacheProperties(catalog, properties));
+        Assert.assertTrue(exception.getMessage().contains("not supported by catalog type"));
+    }
+
+    @Test
+    public void testCatalogCachePropertyUpdateIgnoresPersistedLegacyKeys() {
+        ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
+        HMSExternalCatalog catalog = new HMSExternalCatalog(
+                1L, "hms", null, Collections.emptyMap(), "");
+        Map<String, String> persisted = new HashMap<>();
+        // Legacy keys admitted by image/replay: a typo, an unknown engine namespace and an
+        // option that is valid but stale relative to the update below.
+        persisted.put("meta.cache.hive.partiton_values.capacity", "10");
+        persisted.put("meta.cache.hvie.partition_values.capacity", "10");
+        persisted.put("meta.cache.max-weight", "64MB");
+        persisted.put("meta.cache.hive.partition_values.max-weight", "16MB");
+
+        // The persisted map is not valid as a whole ...
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> metaCacheMgr.validateCatalogCacheProperties(catalog, persisted));
+        // ... but runtime only honors the sane subset, so an unrelated ALTER passes ...
+        metaCacheMgr.validateEffectiveCatalogCacheProperties(catalog, persisted);
+        metaCacheMgr.validateCatalogCachePropertyUpdate(catalog, persisted,
+                Collections.singletonMap("meta.cache.hive.partition_values.capacity", "20"));
+        // ... while newly supplied keys stay strict, alone and against the honored hierarchy.
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> metaCacheMgr.validateCatalogCachePropertyUpdate(catalog, persisted,
+                        Collections.singletonMap("meta.cache.hive.partiton_values.enable", "true")));
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> metaCacheMgr.validateCatalogCachePropertyUpdate(catalog, persisted,
+                        Collections.singletonMap("meta.cache.hive.partition_values.max-weight", "128MB")));
+    }
+
+    @Test
+    public void testPropertyNotificationToleratesUnknownEngineNamespace() {
+        long catalogId = 15L;
+        HMSExternalCatalog catalog = new HMSExternalCatalog(
+                catalogId, "hms", null, Collections.emptyMap(), "");
+        mockCurrentCatalog(catalogId, catalog);
+        Map<String, String> replayedProperties = new HashMap<>();
+        replayedProperties.put("meta.cache.hvie.partition_values.capacity", "10");
+        replayedProperties.put("meta.cache.hive.partition_values.capacity", "10");
+
+        // Edit-log replay publishes persisted properties without DDL validation; an unknown
+        // legacy namespace must be ignored instead of aborting the replay.
+        catalog.notifyPropertiesUpdated(replayedProperties);
+    }
+
+    @Test
+    public void testLookupRepreparesCatalogRetiredByConcurrentPolicyChange() {
+        ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
+        long catalogId = 16L;
+        HMSExternalCatalog catalog = new HMSExternalCatalog(
+                catalogId, "hms", null, Collections.emptyMap(), "");
+        mockCurrentCatalog(catalogId, catalog);
+        ExternalMetaCache hive = metaCacheMgr.hive(catalogId);
+        Assert.assertTrue(hive.isCatalogInitialized(catalogId));
+
+        // A cache-policy ALTER retires the group after the caller captured the engine ...
+        metaCacheMgr.removeCatalog(catalogId);
+        Assert.assertFalse(hive.isCatalogInitialized(catalogId));
+
+        // ... and the pending lookup re-prepares the catalog instead of failing.
+        hive.checkCatalogInitialized(catalogId);
+        Assert.assertTrue(hive.isCatalogInitialized(catalogId));
+        metaCacheMgr.removeCatalog(catalogId);
+
+        // A catalog that was really dropped is not re-created by a stale lookup.
+        mockCurrentCatalog(catalogId, null);
+        Assert.assertThrows(IllegalStateException.class, () -> hive.checkCatalogInitialized(catalogId));
+        Assert.assertFalse(hive.isCatalogInitialized(catalogId));
+    }
+
+    @Test
+    public void testRuntimePreparationIgnoresInvalidPersistedCacheProperties() {
+        ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
+        Map<String, String> properties = new HashMap<>();
+        properties.put("meta.cache.max-weight", "1.5GB");
+        properties.put("meta.cache.hive.partition_values.enable", "1");
+        properties.put("meta.cache.hive.partiton_values.capacity", "10");
+
+        metaCacheMgr.prepareCatalogByEngine(101L, "hive", properties);
+
+        Assert.assertFalse(metaCacheMgr.getCatalogCacheStats(101L).isEmpty());
+        metaCacheMgr.removeCatalog(101L);
     }
 
     @Test
@@ -108,6 +233,83 @@ public class ExternalMetaCacheRouteResolverTest {
         metaCacheMgr.prepareCatalogByEngine(catalogId, "hive");
 
         Assert.assertEquals(0, hive.initCatalogCalls);
+    }
+
+    @Test
+    public void testPreparedEngineUsesLockFreeFastPath() throws Exception {
+        RecordingExternalMetaCache hive = new RecordingExternalMetaCache(
+                "hive", Collections.singletonList("hms"), catalog -> true);
+        ExternalMetaCacheMgr metaCacheMgr = newManagerWithCaches(hive);
+        long catalogId = 12L;
+        HMSExternalCatalog catalog = new HMSExternalCatalog(
+                catalogId, "hms", null, Collections.emptyMap(), "");
+        mockCurrentCatalog(catalogId, catalog);
+
+        metaCacheMgr.prepareCatalogByEngine(catalogId, "hive");
+        metaCacheMgr.prepareCatalogByEngine(catalogId, "hive");
+
+        Assert.assertEquals(1, hive.initCatalogCalls);
+    }
+
+    @Test
+    public void testCatalogRemovalFencesInFlightFirstInitialization() throws Exception {
+        CountDownLatch initializationEntered = new CountDownLatch(1);
+        CountDownLatch releaseInitialization = new CountDownLatch(1);
+        BlockingRecordingExternalMetaCache hive = new BlockingRecordingExternalMetaCache(
+                "hive", initializationEntered, releaseInitialization);
+        ExternalMetaCacheMgr metaCacheMgr = newManagerWithCaches(hive);
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        long catalogId = 13L;
+        Map<String, String> oldProperties = Collections.singletonMap("generation", "old");
+        Map<String, String> newProperties = Collections.singletonMap("generation", "new");
+        try {
+            Future<?> initialization = workers.submit(
+                    () -> metaCacheMgr.prepareCatalogByEngine(catalogId, "hive", oldProperties));
+            Assert.assertTrue(initializationEntered.await(3L, TimeUnit.SECONDS));
+
+            CountDownLatch removalStarted = new CountDownLatch(1);
+            Future<?> removal = workers.submit(() -> {
+                removalStarted.countDown();
+                metaCacheMgr.removeCatalogByEngine(catalogId, "hive");
+            });
+            Assert.assertTrue(removalStarted.await(3L, TimeUnit.SECONDS));
+            Assert.assertFalse("removal must wait for the property snapshot publication", removal.isDone());
+
+            releaseInitialization.countDown();
+            initialization.get(3L, TimeUnit.SECONDS);
+            removal.get(3L, TimeUnit.SECONDS);
+            Assert.assertFalse(hive.isCatalogInitialized(catalogId));
+
+            metaCacheMgr.prepareCatalogByEngine(catalogId, "hive", newProperties);
+            Assert.assertEquals("new", hive.lastCatalogProperties.get("generation"));
+            Assert.assertTrue(hive.isCatalogInitialized(catalogId));
+        } finally {
+            releaseInitialization.countDown();
+            workers.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testRollbackRetiresGroupInitializedFromRejectedCandidate() throws Exception {
+        RecordingExternalMetaCache hive = new RecordingExternalMetaCache(
+                "hive", Collections.singletonList("hms"), catalog -> catalog instanceof HMSExternalCatalog);
+        RecordingExternalMetaCache hudi = new RecordingExternalMetaCache(
+                "hudi", Collections.emptyList(), catalog -> catalog instanceof HMSExternalCatalog);
+        RecordingExternalMetaCache iceberg = new RecordingExternalMetaCache(
+                "iceberg", Collections.emptyList(), catalog -> catalog instanceof HMSExternalCatalog);
+        ExternalMetaCacheMgr metaCacheMgr = newManagerWithCaches(hive, hudi, iceberg);
+        long catalogId = 14L;
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        Mockito.when(catalog.getId()).thenReturn(catalogId);
+        mockCurrentCatalog(catalogId, catalog);
+        hive.initializedCatalogIds.add(catalogId);
+        Map<String, String> oldProperties = Collections.singletonMap("generation", "old");
+
+        metaCacheMgr.rollbackCatalogProperties(catalog, oldProperties);
+
+        Mockito.verify(catalog).rollBackCatalogProps(oldProperties);
+        Assert.assertFalse(hive.isCatalogInitialized(catalogId));
+        Assert.assertEquals(1, hive.invalidateCatalogCalls);
     }
 
     @Test
@@ -371,6 +573,37 @@ public class ExternalMetaCacheRouteResolverTest {
         public <K, V> MetaCacheEntry<K, V> entry(long catalogId, String entryName, Class<K> keyType, Class<V> valueType) {
             entryCalls++;
             throw new IllegalStateException("catalog " + catalogId + " is not initialized");
+        }
+    }
+
+    private static final class BlockingRecordingExternalMetaCache extends RecordingExternalMetaCache {
+        private final CountDownLatch initializationEntered;
+        private final CountDownLatch releaseInitialization;
+        private final AtomicBoolean blockNextInitialization = new AtomicBoolean(true);
+        private Map<String, String> lastCatalogProperties = Collections.emptyMap();
+
+        private BlockingRecordingExternalMetaCache(String engine,
+                CountDownLatch initializationEntered, CountDownLatch releaseInitialization) {
+            super(engine, Collections.emptyList(), catalog -> true);
+            this.initializationEntered = initializationEntered;
+            this.releaseInitialization = releaseInitialization;
+        }
+
+        @Override
+        public void initCatalog(long catalogId, Map<String, String> catalogProperties) {
+            if (blockNextInitialization.compareAndSet(true, false)) {
+                initializationEntered.countDown();
+                try {
+                    if (!releaseInitialization.await(3L, TimeUnit.SECONDS)) {
+                        throw new AssertionError("timed out waiting to publish catalog initialization");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(e);
+                }
+            }
+            lastCatalogProperties = new HashMap<>(catalogProperties);
+            super.initCatalog(catalogId, catalogProperties);
         }
     }
 }

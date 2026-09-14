@@ -422,6 +422,9 @@ public class OperationType {
     public static final short OP_CREATE_ROLE_MAPPING = 496;
     public static final short OP_DROP_ROLE_MAPPING = 497;
 
+    // lance index job 500 ~ 509
+    public static final short OP_LANCE_INDEX_JOB_UPSERT = 500;
+
     // For cloud.
     public static final short OP_UPDATE_CLOUD_REPLICA = 1000;
     @Deprecated

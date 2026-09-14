@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
@@ -34,6 +35,8 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+
+import java.util.Optional;
 
 /**
  * explain command.
@@ -99,6 +102,8 @@ public class ExplainCommand extends Command implements NoForward {
 
         long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
         boolean resetTargetTableId = false;
+        Optional<IcebergWriteSchemaContext> previousWriteSchemaContext = Optional.empty();
+        boolean resetWriteSchemaContext = false;
         if (explainPlan instanceof LogicalIcebergDeleteSink) {
             if (previousTargetTableId < 0) {
                 ctx.setIcebergRowIdTargetTableId(
@@ -106,10 +111,15 @@ public class ExplainCommand extends Command implements NoForward {
                 resetTargetTableId = true;
             }
         } else if (explainPlan instanceof LogicalIcebergMergeSink) {
+            LogicalIcebergMergeSink<?> mergeSink = (LogicalIcebergMergeSink<?>) explainPlan;
             if (previousTargetTableId < 0) {
-                ctx.setIcebergRowIdTargetTableId(
-                        ((LogicalIcebergMergeSink<?>) explainPlan).getTargetTable().getId());
+                ctx.setIcebergRowIdTargetTableId(mergeSink.getTargetTable().getId());
                 resetTargetTableId = true;
+            }
+            if (mergeSink.getWriteSchemaContext().isPresent()) {
+                previousWriteSchemaContext = IcebergDmlCommandUtils.installWriteSchemaContext(
+                        ctx, mergeSink.getWriteSchemaContext().get());
+                resetWriteSchemaContext = true;
             }
         }
         try {
@@ -135,6 +145,10 @@ public class ExplainCommand extends Command implements NoForward {
         } finally {
             if (resetTargetTableId) {
                 ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
+            }
+            if (resetWriteSchemaContext) {
+                IcebergDmlCommandUtils.restoreWriteSchemaContext(
+                        ctx, previousWriteSchemaContext);
             }
         }
     }

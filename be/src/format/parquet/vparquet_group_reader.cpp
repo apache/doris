@@ -849,6 +849,11 @@ Status RowGroupReader::_fill_partition_columns(
 Status RowGroupReader::_fill_missing_columns(
         Block* block, size_t rows,
         const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
+    // Row-id fetch appends batches to one Block. Its final EOF probe has no new rows and must not
+    // evaluate a default expression that replaces an already accumulated missing column.
+    if (rows == 0) {
+        return Status::OK();
+    }
     for (const auto& kv : missing_columns) {
         uint32_t block_pos = 0;
         RETURN_IF_ERROR(_get_block_column_pos(*block, kv.first, &block_pos));
@@ -864,12 +869,15 @@ Status RowGroupReader::_fill_missing_columns(
             ColumnPtr result_column_ptr;
             // PT1 => dest primitive type
             RETURN_IF_ERROR(ctx->execute(block, result_column_ptr));
+            // Row-id fetch appends several batches into one Block, so this column must end up
+            // holding the rows it already carries plus the rows this batch produced. Sizing by
+            // `rows` alone truncates the accumulated column; `block->rows()` cannot be used either
+            // because the first column of _src_block_ptr may not be filled by the reader.
+            const size_t filled_rows = block->get_by_position(block_pos).column->size();
             if (result_column_ptr->use_count() == 1) {
-                // call resize because the first column of _src_block_ptr may not be filled by reader,
-                // so _src_block_ptr->rows() may return wrong result, cause the column created by `ctx->execute()`
-                // has only one row.
+                // call resize because the column created by `ctx->execute()` has only one row.
                 auto mutable_column = IColumn::mutate(std::move(result_column_ptr));
-                mutable_column->resize(rows);
+                mutable_column->resize(filled_rows + rows);
                 result_column_ptr = std::move(mutable_column);
                 // result_column_ptr maybe a ColumnConst, convert it to a normal column
                 result_column_ptr = result_column_ptr->convert_to_full_column_if_const();

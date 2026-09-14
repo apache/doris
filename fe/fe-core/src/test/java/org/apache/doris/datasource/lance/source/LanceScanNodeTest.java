@@ -19,32 +19,72 @@ package org.apache.doris.datasource.lance.source;
 
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.lance.LanceFragmentInfo;
+import org.apache.doris.datasource.lance.LanceIndexSegmentInfo;
 import org.apache.doris.datasource.lance.LanceTableMetadata;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
+import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TExternalSearchQuery;
+import org.apache.doris.thrift.TExternalSearchRequest;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFtsCoverageMode;
+import org.apache.doris.thrift.TFtsMatchOperator;
+import org.apache.doris.thrift.TFtsQueryType;
+import org.apache.doris.thrift.TFullTextSearchParams;
+import org.apache.doris.thrift.TPushAggOp;
+import org.apache.doris.thrift.TVectorMetric;
+import org.apache.doris.thrift.TVectorSearchOptions;
+import org.apache.doris.thrift.TVectorSearchParams;
 
+import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.Assert;
 import org.junit.Test;
+import org.lance.index.IndexType;
+import org.mockito.Mockito;
 
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 
 public class LanceScanNodeTest {
 
+    // Verifies additional Lance encodings cannot run on a smooth-upgrade source BE.
+    @Test
+    public void testAdditionalTypesRejectSmoothUpgradeSourceBackend() throws Exception {
+        Backend currentBackend = Mockito.mock(Backend.class);
+        Backend smoothUpgradeSource = Mockito.mock(Backend.class);
+        Mockito.when(smoothUpgradeSource.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(smoothUpgradeSource.getId()).thenReturn(10001L);
+
+        LanceScanNode.checkAdditionalTypeBackendCompatibility(
+                true, Arrays.asList(currentBackend));
+        LanceScanNode.checkAdditionalTypeBackendCompatibility(
+                false, Arrays.asList(currentBackend, smoothUpgradeSource));
+        UserException exception = Assert.assertThrows(UserException.class,
+                () -> LanceScanNode.checkAdditionalTypeBackendCompatibility(
+                        true, Arrays.asList(currentBackend, smoothUpgradeSource)));
+
+        Assert.assertTrue(exception.getMessage().contains("10001"));
+    }
+
     @Test
     public void testFragmentRowsDetermineSplitWeights() throws Exception {
-        LanceTableMetadata metadata = new LanceTableMetadata(
+        LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
                 "s3://bucket/table.lance",
                 42,
                 new Schema(Collections.emptyList()),
                 Arrays.asList(
-                        new LanceTableMetadata.LanceFragmentInfo(7, 1000, 1000),
-                        new LanceTableMetadata.LanceFragmentInfo(11, 250, 250),
-                        new LanceTableMetadata.LanceFragmentInfo(13, 0, 0)),
+                        new LanceFragmentInfo(7, 1000, 1000),
+                        new LanceFragmentInfo(11, 250, 250),
+                        new LanceFragmentInfo(13, 0, 0)),
                 Collections.emptyMap());
         LanceScanNode node = newNode();
         setMetadata(node, metadata);
@@ -63,13 +103,13 @@ public class LanceScanNodeTest {
         // row count is only 10. The pinned BE legacy reader still scans all physical rows, so
         // both fragments must keep the standard weight instead of underweighting the
         // tombstone-heavy one to the minimum.
-        LanceTableMetadata metadata = new LanceTableMetadata(
+        LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
                 "s3://bucket/table.lance",
                 42,
                 new Schema(Collections.emptyList()),
                 Arrays.asList(
-                        new LanceTableMetadata.LanceFragmentInfo(7, 1000, 1000),
-                        new LanceTableMetadata.LanceFragmentInfo(11, 10, 1000)),
+                        new LanceFragmentInfo(7, 1000, 1000),
+                        new LanceFragmentInfo(11, 10, 1000)),
                 Collections.emptyMap());
         LanceScanNode node = newNode();
         setMetadata(node, metadata);
@@ -81,13 +121,395 @@ public class LanceScanNodeTest {
         assertSplit(splits.get(1), 11, 1000, 100);
     }
 
+    @Test
+    public void testCountSplitsPinVersionAndKeepFallbackRangesDisjoint() throws Exception {
+        LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
+                "s3://bucket/table.lance",
+                42,
+                new Schema(Collections.emptyList()),
+                Arrays.asList(
+                        new LanceFragmentInfo(7, 6000, 6001),
+                        new LanceFragmentInfo(11, 5000, 5001),
+                        new LanceFragmentInfo(13, 4000, 4001)),
+                Collections.emptyMap());
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.parallelExecInstanceNum = 1;
+        LanceScanNode node = newNode(sessionVariable);
+        setMetadata(node, metadata);
+        node.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+        node.setPushDownCountSlotIds(Collections.emptyList());
+
+        List<Split> splits = node.getSplits(2);
+
+        Assert.assertEquals(2, splits.size());
+        assertCountRange(node, splits.get(0), Arrays.asList(7L, 13L), 10_000);
+        assertCountRange(node, splits.get(1), Collections.singletonList(11L), 5_000);
+    }
+
+    @Test
+    public void testExternalSearchUsesFragmentSplits() throws Exception {
+        LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
+                "s3://bucket/table.lance",
+                42,
+                new Schema(Collections.emptyList()),
+                Arrays.asList(
+                        new LanceFragmentInfo(7, 1000, 1000),
+                        new LanceFragmentInfo(11, 250, 250)),
+                Collections.emptyMap());
+        TExternalSearchRequest request = vectorSearchRequest(5, 2);
+        LanceScanNode node = newSearchNode(metadata, request);
+
+        List<Split> splits = node.getSplits(2);
+
+        Assert.assertEquals(2, splits.size());
+        assertSplit(splits.get(0), 7, 1000, 100);
+        assertSplit(splits.get(1), 11, 1000, 25);
+        TFileRangeDesc range = new TFileRangeDesc();
+        node.setScanParams(range, splits.get(1));
+        Assert.assertEquals(Collections.singletonList(11L), range.getTableFormatParams()
+                .getLanceParams().getFragmentIds());
+        Assert.assertEquals(42L, range.getTableFormatParams().getLanceParams().getVersion());
+    }
+
+    @Test
+    public void testExternalSearchRejectsNonPositiveSnapshotVersionInFrontend() {
+        LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
+                "s3://bucket/table.lance",
+                0,
+                new Schema(Collections.emptyList()),
+                Collections.singletonList(new LanceFragmentInfo(7, 1000, 1000)),
+                Collections.emptyMap());
+        LanceScanNode node = newSearchNode(metadata, vectorSearchRequest(5, 0));
+
+        UserException exception = Assert.assertThrows(UserException.class,
+                () -> node.getSplits(1));
+
+        Assert.assertTrue(exception.getMessage().contains("fixed positive dataset version"));
+    }
+
+    @Test
+    public void testExternalSearchUsesFragmentRowsForSplitWeights() throws Exception {
+        LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
+                "s3://bucket/table.lance",
+                42,
+                new Schema(Collections.emptyList()),
+                Arrays.asList(
+                        new LanceFragmentInfo(7, 1000, 1000),
+                        new LanceFragmentInfo(11, 250, 250),
+                        new LanceFragmentInfo(13, 800, 800),
+                        new LanceFragmentInfo(17, 100, 100)),
+                Collections.emptyMap());
+        LanceScanNode node = newSearchNode(metadata, vectorSearchRequest(5, 0));
+
+        List<Split> splits = node.getSplits(3);
+
+        Assert.assertEquals(4, splits.size());
+        assertSplit(splits.get(0), 7, 1000, 100);
+        assertSplit(splits.get(1), 11, 1000, 25);
+        assertSplit(splits.get(2), 13, 1000, 80);
+        assertSplit(splits.get(3), 17, 1000, 10);
+        TFileRangeDesc range = new TFileRangeDesc();
+        node.setScanParams(range, splits.get(0));
+        Assert.assertEquals(Collections.singletonList(7L),
+                range.getTableFormatParams().getLanceParams().getFragmentIds());
+    }
+
+    @Test
+    public void testExternalSearchUsesOneSplitPerFragmentRegardlessOfBackendCount() throws Exception {
+        LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
+                "s3://bucket/table.lance",
+                42,
+                new Schema(Collections.emptyList()),
+                Arrays.asList(
+                        new LanceFragmentInfo(1, 8, 8),
+                        new LanceFragmentInfo(2, 7, 7),
+                        new LanceFragmentInfo(3, 6, 6),
+                        new LanceFragmentInfo(4, 5, 5)),
+                Collections.emptyMap());
+        LanceScanNode node = newSearchNode(metadata, vectorSearchRequest(5, 0));
+
+        List<Split> splits = node.getSplits(2);
+
+        Assert.assertEquals(4, splits.size());
+        assertSplit(splits.get(0), 1, 8, 100);
+        assertSplit(splits.get(1), 2, 8, 88);
+        assertSplit(splits.get(2), 3, 8, 75);
+        assertSplit(splits.get(3), 4, 8, 63);
+    }
+
+    @Test
+    public void testExternalSearchUsesOneSplitPerIndexSegmentAndKeepsUnindexedFragments()
+            throws Exception {
+        UUID firstSegment = UUID.fromString("11111111-2222-3333-4444-555555555555");
+        UUID secondSegment = UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
+                "s3://bucket/table.lance",
+                42,
+                vectorSchema(),
+                Arrays.asList(
+                        new LanceFragmentInfo(1, 8, 8),
+                        new LanceFragmentInfo(2, 7, 7),
+                        new LanceFragmentInfo(3, 6, 6),
+                        new LanceFragmentInfo(4, 5, 5),
+                        new LanceFragmentInfo(5, 4, 4)),
+                Collections.singletonMap("vector", 9),
+                Arrays.asList(
+                        new LanceIndexSegmentInfo(firstSegment, "vector_idx",
+                                Collections.singletonList(9), Arrays.asList(1L, 2L),
+                                IndexType.VECTOR, "L2"),
+                        new LanceIndexSegmentInfo(secondSegment, "vector_idx",
+                                Collections.singletonList(9), Arrays.asList(3L, 4L),
+                                IndexType.VECTOR, "L2")),
+                Collections.emptyMap());
+        LanceScanNode node = newSearchNode(metadata, vectorSearchRequest(5, 0));
+
+        List<Split> splits = node.getSplits(3);
+
+        Assert.assertEquals(3, splits.size());
+        assertIndexSplit(splits.get(0), firstSegment, Arrays.asList(1L, 2L), 15, 100);
+        assertIndexSplit(splits.get(1), secondSegment, Arrays.asList(3L, 4L), 15, 74);
+        assertSplit(splits.get(2), 5, 15, 27);
+
+        TFileRangeDesc range = new TFileRangeDesc();
+        node.setScanParams(range, splits.get(0));
+        Assert.assertEquals(Arrays.asList(1L, 2L),
+                range.getTableFormatParams().getLanceParams().getFragmentIds());
+        ByteBuffer encodedUuid = range.getTableFormatParams().getLanceParams()
+                .getIndexSegmentUuids().get(0).duplicate();
+        Assert.assertEquals(firstSegment.getMostSignificantBits(), encodedUuid.getLong());
+        Assert.assertEquals(firstSegment.getLeastSignificantBits(), encodedUuid.getLong());
+    }
+
+    @Test
+    public void testExternalSearchUseIndexFalseKeepsFragmentSplits() throws Exception {
+        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
+                "s3://bucket/table.lance",
+                42,
+                vectorSchema(),
+                Arrays.asList(
+                        new LanceFragmentInfo(1, 8, 8),
+                        new LanceFragmentInfo(2, 7, 7)),
+                Collections.emptyMap(),
+                Collections.singletonList(
+                        new LanceIndexSegmentInfo(UUID.randomUUID(), "vector_idx",
+                                Collections.singletonList(9), Arrays.asList(1L, 2L),
+                                IndexType.VECTOR, "L2")),
+                Collections.emptyMap());
+        TExternalSearchRequest request = vectorSearchRequest(5, 0);
+        request.setVectorSearchOptions(new TVectorSearchOptions().setUseIndex(false));
+        LanceScanNode node = newSearchNode(metadata, request);
+
+        List<Split> splits = node.getSplits(2);
+
+        Assert.assertEquals(2, splits.size());
+        assertSplit(splits.get(0), 1, 8, 100);
+        assertSplit(splits.get(1), 2, 8, 88);
+    }
+
+    @Test
+    public void testFullTextSearchUsesOneSplitPerCommittedIndexSegment() throws Exception {
+        UUID firstSegment = UUID.fromString("11111111-2222-3333-4444-555555555555");
+        UUID secondSegment = UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
+                "s3://bucket/table.lance",
+                42,
+                fullTextSchema(),
+                Arrays.asList(
+                        new LanceFragmentInfo(1, 8, 8),
+                        new LanceFragmentInfo(2, 7, 7),
+                        new LanceFragmentInfo(3, 6, 6)),
+                Collections.singletonMap("body", 7),
+                Arrays.asList(
+                        new LanceIndexSegmentInfo(firstSegment, "body_fts",
+                                Collections.singletonList(7), Arrays.asList(1L, 2L),
+                                IndexType.INVERTED, null),
+                        new LanceIndexSegmentInfo(secondSegment, "body_fts",
+                                Collections.singletonList(7), Collections.singletonList(3L),
+                                IndexType.INVERTED, null)),
+                Collections.emptyMap());
+        TExternalSearchRequest request = fullTextSearchRequest(
+                5, 2, TFtsCoverageMode.STRICT);
+        LanceScanNode node = newSearchNode(metadata, request);
+
+        List<Split> splits = node.getSplits(8);
+
+        Assert.assertEquals(2, splits.size());
+        assertIndexSplit(splits.get(0), firstSegment, Arrays.asList(1L, 2L), 15, 100);
+        assertIndexSplit(splits.get(1), secondSegment, Collections.singletonList(3L), 15, 40);
+
+        TFileRangeDesc range = new TFileRangeDesc();
+        node.setScanParams(range, splits.get(1));
+        Assert.assertEquals(Collections.singletonList(3L), range.getTableFormatParams()
+                .getLanceParams().getFragmentIds());
+        ByteBuffer encodedUuid = range.getTableFormatParams().getLanceParams()
+                .getIndexSegmentUuids().get(0).duplicate();
+        Assert.assertEquals(secondSegment.getMostSignificantBits(), encodedUuid.getLong());
+        Assert.assertEquals(secondSegment.getLeastSignificantBits(), encodedUuid.getLong());
+
+        TExternalSearchRequest splitRequest = node.createSplitSearchRequest();
+        Assert.assertEquals(7,
+                splitRequest.getSearchQuery().getFullTextSearch().getTopK());
+        Assert.assertEquals(0,
+                splitRequest.getSearchQuery().getFullTextSearch().getOffset());
+        Assert.assertEquals(5, request.getSearchQuery().getFullTextSearch().getTopK());
+        Assert.assertEquals(2, request.getSearchQuery().getFullTextSearch().getOffset());
+        Assert.assertEquals(TFtsQueryType.MATCH,
+                splitRequest.getSearchQuery().getFullTextSearch().getQueryType());
+        Assert.assertEquals(TFtsMatchOperator.OR,
+                splitRequest.getSearchQuery().getFullTextSearch().getMatchOperator());
+        Assert.assertEquals(0,
+                splitRequest.getSearchQuery().getFullTextSearch().getMaxFuzzyDistance());
+    }
+
+    @Test
+    public void testFullTextSplitRequestPreservesPhraseQuery() {
+        TExternalSearchRequest logicalRequest = phraseSearchRequest(5, 2, 1);
+        LanceScanNode node = LanceScanNode.forExternalSearch(
+                new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), null,
+                null, -1, logicalRequest, new SessionVariable());
+
+        TExternalSearchRequest splitRequest = node.createSplitSearchRequest();
+
+        TFullTextSearchParams splitFullText =
+                splitRequest.getSearchQuery().getFullTextSearch();
+        Assert.assertEquals(7, splitFullText.getTopK());
+        Assert.assertEquals(0, splitFullText.getOffset());
+        Assert.assertEquals(TFtsQueryType.PHRASE, splitFullText.getQueryType());
+        Assert.assertEquals(1, splitFullText.getPhraseSlop());
+        Assert.assertFalse(splitFullText.isSetMatchOperator());
+        Assert.assertFalse(splitFullText.isSetMaxFuzzyDistance());
+
+        TFullTextSearchParams logicalFullText =
+                logicalRequest.getSearchQuery().getFullTextSearch();
+        Assert.assertEquals(5, logicalFullText.getTopK());
+        Assert.assertEquals(2, logicalFullText.getOffset());
+    }
+
+    @Test
+    public void testFullTextSearchCoverageModesHandleUnindexedFragments() throws Exception {
+        UUID segment = UUID.fromString("11111111-2222-3333-4444-555555555555");
+        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
+                "s3://bucket/table.lance",
+                42,
+                fullTextSchema(),
+                Arrays.asList(
+                        new LanceFragmentInfo(1, 8, 8),
+                        new LanceFragmentInfo(2, 7, 7),
+                        new LanceFragmentInfo(3, 6, 6)),
+                Collections.singletonMap("body", 7),
+                Collections.singletonList(
+                        new LanceIndexSegmentInfo(segment, "body_fts",
+                                Collections.singletonList(7), Arrays.asList(1L, 2L),
+                                IndexType.INVERTED, null)),
+                Collections.emptyMap());
+
+        LanceScanNode strictNode = newSearchNode(metadata,
+                fullTextSearchRequest(10, 0, TFtsCoverageMode.STRICT));
+        UserException strictFailure = Assert.assertThrows(UserException.class,
+                () -> strictNode.getSplits(2));
+        Assert.assertTrue(strictFailure.getMessage().contains("1 unindexed fragments"));
+
+        LanceScanNode indexOnlyNode = newSearchNode(metadata,
+                fullTextSearchRequest(10, 0, TFtsCoverageMode.INDEX_ONLY));
+        List<Split> indexOnlySplits = indexOnlyNode.getSplits(2);
+        Assert.assertEquals(1, indexOnlySplits.size());
+        assertIndexSplit(indexOnlySplits.get(0), segment, Arrays.asList(1L, 2L), 15, 100);
+    }
+
+    @Test
+    public void testExternalSearchFallsBackToFragmentSplitsForMetricMismatch() throws Exception {
+        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
+                "s3://bucket/table.lance",
+                42,
+                vectorSchema(),
+                Arrays.asList(
+                        new LanceFragmentInfo(1, 8, 8),
+                        new LanceFragmentInfo(2, 7, 7)),
+                Collections.singletonMap("vector", 9),
+                Collections.singletonList(
+                        new LanceIndexSegmentInfo(UUID.randomUUID(), "vector_idx",
+                                Collections.singletonList(9), Arrays.asList(1L, 2L),
+                                IndexType.VECTOR, "L2")),
+                Collections.emptyMap());
+        TExternalSearchRequest request = vectorSearchRequest(5, 0);
+        request.getSearchQuery().getVectorSearch().setMetric(TVectorMetric.COSINE);
+        LanceScanNode node = newSearchNode(metadata, request);
+
+        List<Split> splits = node.getSplits(2);
+
+        Assert.assertEquals(2, splits.size());
+        assertSplit(splits.get(0), 1, 8, 100);
+        assertSplit(splits.get(1), 2, 8, 88);
+    }
+
+    @Test
+    public void testExternalSearchRejectsMissingFieldIdForIndexSegmentPlanning() {
+        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
+                "s3://bucket/table.lance",
+                42,
+                vectorSchema(),
+                Collections.singletonList(new LanceFragmentInfo(1, 8, 8)),
+                Collections.emptyMap(),
+                Collections.singletonList(
+                        new LanceIndexSegmentInfo(UUID.randomUUID(), "vector_idx",
+                                Collections.singletonList(9), Collections.singletonList(1L),
+                                IndexType.VECTOR, "L2")),
+                Collections.emptyMap());
+        LanceScanNode node = newSearchNode(metadata, vectorSearchRequest(5, 0));
+
+        UserException exception = Assert.assertThrows(UserException.class,
+                () -> node.getSplits(1));
+
+        Assert.assertTrue(exception.getMessage().contains("has no field ID"));
+    }
+
+    @Test
+    public void testSplitSearchRetainsTopKPlusOffsetCandidates() {
+        TExternalSearchRequest logicalRequest = vectorSearchRequest(5, 2);
+        LanceScanNode node = LanceScanNode.forExternalSearch(
+                new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), null,
+                null, -1, logicalRequest, new SessionVariable());
+
+        TExternalSearchRequest splitRequest = node.createSplitSearchRequest();
+
+        Assert.assertEquals(7, splitRequest.getSearchQuery().getVectorSearch().getTopK());
+        Assert.assertEquals(0, splitRequest.getSearchQuery().getVectorSearch().getOffset());
+        Assert.assertEquals(5, logicalRequest.getSearchQuery().getVectorSearch().getTopK());
+        Assert.assertEquals(2, logicalRequest.getSearchQuery().getVectorSearch().getOffset());
+    }
+
+    @Test
+    public void testLanceSplitRejectsInvalidRangeFieldsInFrontend() {
+        assertInvalidSplit(() -> LanceSplit.forFragment("", 42, 1, 1),
+                "Lance dataset URI must not be empty");
+        assertInvalidSplit(() -> LanceSplit.forFragment("s3://bucket/table.lance", -1, 1, 1),
+                "Lance dataset version must be non-negative");
+        assertInvalidSplit(() -> LanceSplit.forFragment("s3://bucket/table.lance", 42, -1, 1),
+                "Lance fragment id must be non-negative");
+    }
+
     private static LanceScanNode newNode() {
+        return newNode(new SessionVariable());
+    }
+
+    private static LanceScanNode newNode(SessionVariable sessionVariable) {
         return new LanceScanNode(
                 new PlanNodeId(0),
                 new TupleDescriptor(new TupleId(0)),
                 false,
-                new SessionVariable(),
+                sessionVariable,
                 ScanContext.EMPTY);
+    }
+
+    private static LanceScanNode newSearchNode(
+            LanceTableMetadata metadata, TExternalSearchRequest request) {
+        String searchColumn = request.getSearchQuery().isSetVectorSearch()
+                ? request.getSearchQuery().getVectorSearch().getColumn()
+                : request.getSearchQuery().getFullTextSearch().getColumn();
+        int searchFieldId = metadata.getLanceFieldId(searchColumn).orElse(-1);
+        return LanceScanNode.forExternalSearch(
+                new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), null,
+                metadata, searchFieldId, request, new SessionVariable());
     }
 
     private static void setMetadata(LanceScanNode node, LanceTableMetadata metadata) throws Exception {
@@ -98,8 +520,88 @@ public class LanceScanNodeTest {
 
     private static void assertSplit(Split split, long fragmentId, long targetRows, long weight) {
         LanceSplit lanceSplit = (LanceSplit) split;
-        Assert.assertEquals(fragmentId, lanceSplit.getFragmentId());
+        Assert.assertEquals(Collections.singletonList(fragmentId), lanceSplit.getFragmentIds());
+        Assert.assertTrue(lanceSplit.getIndexSegmentUuids().isEmpty());
         Assert.assertEquals(targetRows, lanceSplit.getTargetSplitSize().longValue());
         Assert.assertEquals(weight, lanceSplit.getSplitWeight().getRawValue());
+    }
+
+    private static void assertIndexSplit(Split split, UUID segmentUuid, List<Long> fragmentIds,
+            long targetRows, long weight) {
+        LanceSplit lanceSplit = (LanceSplit) split;
+        Assert.assertEquals(fragmentIds, lanceSplit.getFragmentIds());
+        Assert.assertEquals(Collections.singletonList(segmentUuid), lanceSplit.getIndexSegmentUuids());
+        Assert.assertEquals(targetRows, lanceSplit.getTargetSplitSize().longValue());
+        Assert.assertEquals(weight, lanceSplit.getSplitWeight().getRawValue());
+    }
+
+    private static void assertCountRange(
+            LanceScanNode node, Split split, List<Long> fragmentIds, long rowCount) {
+        LanceSplit lanceSplit = (LanceSplit) split;
+        Assert.assertEquals(fragmentIds, lanceSplit.getFragmentIds());
+        Assert.assertEquals(rowCount, lanceSplit.getTableLevelRowCount());
+
+        TFileRangeDesc range = new TFileRangeDesc();
+        node.setScanParams(range, split);
+        Assert.assertEquals(42L, range.getTableFormatParams().getLanceParams().getVersion());
+        Assert.assertEquals(fragmentIds,
+                range.getTableFormatParams().getLanceParams().getFragmentIds());
+        Assert.assertEquals(rowCount, range.getTableFormatParams().getTableLevelRowCount());
+    }
+
+    private static Schema vectorSchema() {
+        return new Schema(Collections.singletonList(
+                Field.nullable("vector", ArrowType.Utf8.INSTANCE)));
+    }
+
+    private static Schema fullTextSchema() {
+        return new Schema(Collections.singletonList(
+                Field.nullable("body", ArrowType.Utf8.INSTANCE)));
+    }
+
+    private static void assertInvalidSplit(Runnable action, String expectedMessage) {
+        try {
+            action.run();
+            Assert.fail("Expected IllegalArgumentException");
+        } catch (IllegalArgumentException e) {
+            Assert.assertEquals(expectedMessage, e.getMessage());
+        }
+    }
+
+    private static TExternalSearchRequest vectorSearchRequest(long topK, long offset) {
+        TVectorSearchParams vector = new TVectorSearchParams()
+                .setColumn("vector")
+                .setTopK(topK)
+                .setOffset(offset);
+        return new TExternalSearchRequest()
+                .setSearchQuery(TExternalSearchQuery.vector_search(vector));
+    }
+
+    private static TExternalSearchRequest fullTextSearchRequest(
+            long topK, long offset, TFtsCoverageMode coverageMode) {
+        TFullTextSearchParams fullText = new TFullTextSearchParams()
+                .setColumn("body")
+                .setQuery("lance")
+                .setTopK(topK)
+                .setOffset(offset)
+                .setCoverageMode(coverageMode)
+                .setQueryType(TFtsQueryType.MATCH)
+                .setMatchOperator(TFtsMatchOperator.OR)
+                .setMaxFuzzyDistance(0);
+        return new TExternalSearchRequest()
+                .setSearchQuery(TExternalSearchQuery.full_text_search(fullText));
+    }
+
+    private static TExternalSearchRequest phraseSearchRequest(long topK, long offset, int slop) {
+        TFullTextSearchParams fullText = new TFullTextSearchParams()
+                .setColumn("body")
+                .setQuery("lance search")
+                .setTopK(topK)
+                .setOffset(offset)
+                .setCoverageMode(TFtsCoverageMode.STRICT)
+                .setQueryType(TFtsQueryType.PHRASE)
+                .setPhraseSlop(slop);
+        return new TExternalSearchRequest()
+                .setSearchQuery(TExternalSearchQuery.full_text_search(fullText));
     }
 }

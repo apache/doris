@@ -121,7 +121,7 @@ Status VariantStreamingCompactionWriter::_append_input_from_raw(const uint8_t** 
                                                                 size_t num_rows,
                                                                 const uint8_t* outer_null_map) {
     const auto* column = reinterpret_cast<const VariantColumnData*>(*ptr);
-    const auto& src = *reinterpret_cast<const ColumnVariant*>(column->column_data);
+    const auto& src = assert_cast<const ColumnVariant&>(*column->column_data);
     RETURN_IF_ERROR(src.sanitize());
     return _append_input(src, column->row_pos, num_rows, outer_null_map);
 }

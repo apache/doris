@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
+import org.apache.doris.nereids.trees.plans.commands.info.PaimonRowChangeSpec;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.base.Preconditions;
@@ -31,6 +32,7 @@ import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -39,12 +41,13 @@ import java.util.Optional;
 public class UnboundPaimonTableSink<CHILD_TYPE extends Plan>
         extends UnboundBaseExternalTableSink<CHILD_TYPE> {
     private final Map<String, Expression> staticPartitionKeyValues;
+    private final Optional<PaimonRowChangeSpec> rowChangeSpec;
 
     public UnboundPaimonTableSink(List<String> nameParts, List<String> colNames,
                                    List<String> hints, List<String> partitions,
                                    CHILD_TYPE child) {
         this(nameParts, colNames, hints, partitions, DMLCommandType.NONE,
-                Optional.empty(), Optional.empty(), child, null);
+                Optional.empty(), Optional.empty(), child, null, Optional.empty());
     }
 
     public UnboundPaimonTableSink(List<String> nameParts,
@@ -56,7 +59,7 @@ public class UnboundPaimonTableSink<CHILD_TYPE extends Plan>
                                    Optional<LogicalProperties> logicalProperties,
                                    CHILD_TYPE child) {
         this(nameParts, colNames, hints, partitions, dmlCommandType,
-                groupExpression, logicalProperties, child, null);
+                groupExpression, logicalProperties, child, null, Optional.empty());
     }
 
     public UnboundPaimonTableSink(List<String> nameParts,
@@ -68,11 +71,34 @@ public class UnboundPaimonTableSink<CHILD_TYPE extends Plan>
                                    Optional<LogicalProperties> logicalProperties,
                                    CHILD_TYPE child,
                                    Map<String, Expression> staticPartitionKeyValues) {
+        this(nameParts, colNames, hints, partitions, dmlCommandType, groupExpression,
+                logicalProperties, child, staticPartitionKeyValues, Optional.empty());
+    }
+
+    /** Create an unbound Paimon row-change sink. */
+    public UnboundPaimonTableSink(List<String> nameParts,
+            CHILD_TYPE child, PaimonRowChangeSpec rowChangeSpec) {
+        this(nameParts, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
+                rowChangeSpec.getDmlCommandType(), Optional.empty(), Optional.empty(), child, null,
+                Optional.of(rowChangeSpec));
+    }
+
+    private UnboundPaimonTableSink(List<String> nameParts,
+                                   List<String> colNames,
+                                   List<String> hints,
+                                   List<String> partitions,
+                                   DMLCommandType dmlCommandType,
+                                   Optional<GroupExpression> groupExpression,
+                                   Optional<LogicalProperties> logicalProperties,
+                                   CHILD_TYPE child,
+                                   Map<String, Expression> staticPartitionKeyValues,
+                                   Optional<PaimonRowChangeSpec> rowChangeSpec) {
         super(nameParts, PlanType.LOGICAL_UNBOUND_PAIMON_TABLE_SINK, ImmutableList.of(),
                 groupExpression, logicalProperties, colNames, dmlCommandType, child,
                 hints, partitions);
         this.staticPartitionKeyValues = staticPartitionKeyValues == null
                 ? ImmutableMap.of() : ImmutableMap.copyOf(staticPartitionKeyValues);
+        this.rowChangeSpec = rowChangeSpec;
     }
 
     public Map<String, Expression> getStaticPartitionKeyValues() {
@@ -83,13 +109,34 @@ public class UnboundPaimonTableSink<CHILD_TYPE extends Plan>
         return !staticPartitionKeyValues.isEmpty();
     }
 
+    public Optional<PaimonRowChangeSpec> getRowChangeSpec() {
+        return rowChangeSpec;
+    }
+
+    @Override
+    public List<? extends Expression> getExpressions() {
+        return rowChangeSpec.isPresent()
+                ? rowChangeSpec.get().getExpressions() : super.getExpressions();
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        return super.equals(other)
+                && Objects.equals(rowChangeSpec, ((UnboundPaimonTableSink<?>) other).rowChangeSpec);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), rowChangeSpec);
+    }
+
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "UnboundPaimonTableSink only accepts one child");
         return new UnboundPaimonTableSink<>(nameParts, colNames, hints, partitions,
                 dmlCommandType, groupExpression, Optional.empty(), children.get(0),
-                staticPartitionKeyValues);
+                staticPartitionKeyValues, rowChangeSpec);
     }
 
     @Override
@@ -101,7 +148,7 @@ public class UnboundPaimonTableSink<CHILD_TYPE extends Plan>
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new UnboundPaimonTableSink<>(nameParts, colNames, hints, partitions,
                 dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child(),
-                staticPartitionKeyValues);
+                staticPartitionKeyValues, rowChangeSpec);
     }
 
     @Override
@@ -109,6 +156,6 @@ public class UnboundPaimonTableSink<CHILD_TYPE extends Plan>
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new UnboundPaimonTableSink<>(nameParts, colNames, hints, partitions,
                 dmlCommandType, groupExpression, logicalProperties, children.get(0),
-                staticPartitionKeyValues);
+                staticPartitionKeyValues, rowChangeSpec);
     }
 }

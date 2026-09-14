@@ -62,9 +62,6 @@ public class FlightSqlConnectContext extends ConnectContext {
 
     @Override
     protected void closeChannel() {
-        if (flightSqlChannel != null) {
-            flightSqlChannel.close();
-        }
         connectScheduler.getFlightSqlConnectPoolMgr().unregisterConnection(this);
     }
 

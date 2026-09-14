@@ -68,4 +68,56 @@ suite('cte-runtime-filter') {
         from cte a
         join cte_runtime_filter_table b on a.user_id=b.user_id ;
         '''
+
+    sql '''
+    drop table if exists cte_runtime_filter_shared_probe;
+    create table cte_runtime_filter_shared_probe (
+        pk int not null
+    ) ENGINE=OLAP
+    DUPLICATE KEY(pk)
+    DISTRIBUTED BY HASH(pk) BUCKETS 1
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+    );
+
+    insert into cte_runtime_filter_shared_probe values (4), (11);
+
+    drop table if exists cte_runtime_filter_shared_build;
+    create table cte_runtime_filter_shared_build (
+        pk bigint not null
+    ) ENGINE=OLAP
+    DUPLICATE KEY(pk)
+    DISTRIBUTED BY HASH(pk) BUCKETS 1
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+    );
+
+    insert into cte_runtime_filter_shared_build values (10);
+
+    set enable_nereids_planner=true;
+    set enable_fallback_to_original_planner=false;
+    set inline_cte_referenced_threshold=0;
+    set disable_join_reorder=true;
+    set enable_runtime_filter_prune=false;
+    set runtime_filter_mode=global;
+    set runtime_filter_wait_infinitely=true;
+    set runtime_filter_type=2;
+    '''
+
+    def sharedCteRuntimeFilterSql = '''
+        with probe as (
+            select pk from cte_runtime_filter_shared_probe
+        )
+        select count(*)
+        from probe p1
+        cross join probe p2
+        join cte_runtime_filter_shared_build b
+            on cast(p1.pk as bigint) + 6 = b.pk
+            and cast(p2.pk as bigint) - 1 = b.pk
+    '''
+    assertEquals([[1L]], sql(sharedCteRuntimeFilterSql))
+
+    sql "set runtime_filter_type=''"
+    assertEquals([[1L]], sql(sharedCteRuntimeFilterSql))
+    sql "set runtime_filter_wait_infinitely=false"
 }

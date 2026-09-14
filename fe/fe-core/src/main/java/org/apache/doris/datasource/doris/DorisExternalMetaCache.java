@@ -26,6 +26,7 @@ import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
 import org.apache.doris.datasource.metacache.CacheSpec;
+import org.apache.doris.datasource.metacache.ExternalMetaCacheBudgetManager;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
 import org.apache.doris.datasource.metacache.MetaCacheEntryInvalidation;
@@ -72,7 +73,11 @@ public class DorisExternalMetaCache extends AbstractExternalMetaCache {
     private final EntryHandle<SchemaCacheKey, SchemaCacheValue> schemaEntry;
 
     public DorisExternalMetaCache(ExecutorService refreshExecutor) {
-        super(ENGINE, refreshExecutor);
+        this(refreshExecutor, new ExternalMetaCacheBudgetManager(java.util.OptionalLong.empty()));
+    }
+
+    public DorisExternalMetaCache(ExecutorService refreshExecutor, ExternalMetaCacheBudgetManager budgetManager) {
+        super(ENGINE, refreshExecutor, budgetManager);
         backendsEntry = registerEntry(MetaCacheEntryDef.contextualOnly(
                 ENTRY_BACKENDS,
                 String.class,

@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.types.IntegerType;
@@ -292,6 +293,23 @@ class NestedCaseWhenCondToLiteralTest extends ExpressionRewriteTestHelper {
 
         // after rewrite, the condition literals should clear
         Assertions.assertEquals(Maps.newHashMap(), replacer.conditionLiterals);
+    }
+
+    @Test
+    void testPreserveShortCircuitIf() {
+        SlotReference slot = new SlotReference("a", IntegerType.INSTANCE);
+        Expression condition = new GreaterThan(slot, IntegerLiteral.of(1));
+        ShortCircuitIf nestedIf = new ShortCircuitIf(
+                condition, IntegerLiteral.of(1), IntegerLiteral.of(0));
+        If outerIf = new If(condition, nestedIf, IntegerLiteral.of(-1));
+
+        Expression rewritten = outerIf.accept(
+                new NestedCaseWhenCondToLiteral.NestedCondReplacer(), null);
+        Expression rewrittenNestedIf = ((If) rewritten).getTrueValue();
+
+        Assertions.assertInstanceOf(ShortCircuitIf.class, rewrittenNestedIf);
+        Assertions.assertEquals(BooleanLiteral.TRUE,
+                ((ShortCircuitIf) rewrittenNestedIf).getCondition());
     }
 
     private static class TestNestedCondReplacer extends NestedCaseWhenCondToLiteral.NestedCondReplacer {

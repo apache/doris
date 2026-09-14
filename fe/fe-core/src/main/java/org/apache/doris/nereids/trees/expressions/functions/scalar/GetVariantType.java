@@ -63,6 +63,16 @@ public class GetVariantType extends ScalarFunction
     }
 
     @Override
+    public FunctionSignature computeSignature(FunctionSignature signature) {
+        if (child(0).getDataType() instanceof VariantType) {
+            // The compute marker selects the physical column ABI. variant_type does not provide a
+            // V2-to-V1 bridge, so its resolved argument must retain the child's representation.
+            signature = signature.withArgumentType(0, child(0).getDataType());
+        }
+        return super.computeSignature(signature);
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitGetVariantType(this, context);
     }

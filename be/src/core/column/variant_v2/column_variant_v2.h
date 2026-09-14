@@ -114,6 +114,34 @@ public:
         std::span<const uint32_t> value_offsets;
     };
 
+    // Scoped adapter for repeated encoded-row appends. It builds one hash index over destination
+    // metadata ids and reuses it across calls, while the destination column continues to own all
+    // copied bytes. Input rows must not borrow metadata or value bytes from the destination,
+    // including its shredded materialization; use insert_range_from() for that case. Do not mutate
+    // or destroy the destination while this adapter is alive.
+    class EncodedRowsAppender {
+    public:
+        ~EncodedRowsAppender();
+
+        EncodedRowsAppender(const EncodedRowsAppender&) = delete;
+        EncodedRowsAppender& operator=(const EncodedRowsAppender&) = delete;
+        EncodedRowsAppender(EncodedRowsAppender&&) noexcept;
+        EncodedRowsAppender& operator=(EncodedRowsAppender&&) = delete;
+
+        void append(std::span<const VariantRef> rows);
+
+#ifdef BE_TEST
+        size_t metadata_comparisons_for_test() const noexcept;
+#endif
+
+    private:
+        friend class ColumnVariantV2;
+        explicit EncodedRowsAppender(ColumnVariantV2& column);
+
+        struct Impl;
+        std::unique_ptr<Impl> _impl;
+    };
+
     // Borrowed immutable adapter for whole-column E/T readers. The source column owns every
     // referenced column, type, and byte; any structural mutation invalidates this view. Encoded
     // bytes have already been validated at their insertion or deserialization boundary.
@@ -183,6 +211,10 @@ public:
     // metadata blob. Input buffers must not alias this column; use insert_range_from for that case.
     void insert_encoded_rows(const EncodedDataView& data);
 
+    // Reuse one appender when encoded rows arrive in bounded batches so destination metadata is
+    // indexed once for the full import rather than scanned again for every batch.
+    EncodedRowsAppender create_encoded_rows_appender();
+
     // Direct trusted codec adapter. VariantBatchBuilder already produces canonical metadata,
     // validated values, and ColumnString-compatible uint32 offsets, so this path copies its buffers
     // without validating the encoded tree a second time.
@@ -249,6 +281,8 @@ private:
     ColumnVariantV2();
     ColumnVariantV2(const ColumnVariantV2& other);
 
+    void _append_prevalidated_encoded_data(const EncodedDataView& data);
+    uint32_t _append_metadata(StringRef metadata);
     uint32_t _find_or_insert_metadata(StringRef metadata);
     void _replace_shredded_state_with(const ColumnVariantV2& replacement);
     void _ensure_serialized();

@@ -86,6 +86,11 @@ private:
                                            TFetchSchemaTableDataRequest* request);
     Status _build_partition_values_metadata_request(const TMetaScanRange& meta_scan_range,
                                                     TFetchSchemaTableDataRequest* request);
+    // Pure request assembly, kept static so unit tests can exercise it without
+    // constructing a full Scanner/RuntimeState graph.
+    static Status _build_lance_index_entries_metadata_request(
+            const TMetaScanRange& meta_scan_range, const TUserIdentity& user_identity,
+            TFetchSchemaTableDataRequest* request);
     bool _meta_eos;
     TupleId _tuple_id;
     TUserIdentity _user_identity;

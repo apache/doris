@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecMerge;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -56,6 +57,7 @@ import java.util.TreeMap;
 public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
     private final DeleteCommandContext deleteContext;
     private final boolean writesDataFiles;
+    private final Optional<IcebergWriteSchemaContext> writeSchemaContext;
     private final boolean requireMergeCardinalityCheck;
     private final Table targetIcebergTable;
 
@@ -76,7 +78,7 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
         this(database, targetTable, targetIcebergTable, cols, outputExprs, deleteContext,
                 writesDataFiles, requireMergeCardinalityCheck,
                 groupExpression, logicalProperties,
-                PhysicalProperties.GATHER, null, child);
+                PhysicalProperties.GATHER, null, Optional.empty(), child);
     }
 
     /**
@@ -95,11 +97,34 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
                                     PhysicalProperties physicalProperties,
                                     Statistics statistics,
                                     CHILD_TYPE child) {
+        this(database, targetTable, targetIcebergTable, cols, outputExprs,
+                deleteContext, writesDataFiles, requireMergeCardinalityCheck,
+                groupExpression, logicalProperties,
+                physicalProperties, statistics, Optional.empty(), child);
+    }
+
+    /** Constructor with a statement-pinned Iceberg write schema. */
+    public PhysicalIcebergMergeSink(IcebergExternalDatabase database,
+                                    IcebergExternalTable targetTable,
+                                    Table targetIcebergTable,
+                                    List<Column> cols,
+                                    List<NamedExpression> outputExprs,
+                                    DeleteCommandContext deleteContext,
+                                    boolean writesDataFiles,
+                                    boolean requireMergeCardinalityCheck,
+                                    Optional<GroupExpression> groupExpression,
+                                    LogicalProperties logicalProperties,
+                                    PhysicalProperties physicalProperties,
+                                    Statistics statistics,
+                                    Optional<IcebergWriteSchemaContext> writeSchemaContext,
+                                    CHILD_TYPE child) {
         super(PlanType.PHYSICAL_ICEBERG_MERGE_SINK, database, targetTable, cols, outputExprs, groupExpression,
                 logicalProperties, physicalProperties, statistics, child);
         this.deleteContext = Objects.requireNonNull(
                 deleteContext, "deleteContext != null in PhysicalIcebergMergeSink");
         this.writesDataFiles = writesDataFiles;
+        this.writeSchemaContext = Objects.requireNonNull(
+                writeSchemaContext, "writeSchemaContext should not be null");
         this.requireMergeCardinalityCheck = requireMergeCardinalityCheck;
         this.targetIcebergTable = Objects.requireNonNull(
                 targetIcebergTable, "targetIcebergTable != null in PhysicalIcebergMergeSink");
@@ -111,6 +136,10 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
 
     public boolean isWritesDataFiles() {
         return writesDataFiles;
+    }
+
+    public Optional<IcebergWriteSchemaContext> getWriteSchemaContext() {
+        return writeSchemaContext;
     }
 
     public boolean isRequireMergeCardinalityCheck() {
@@ -128,7 +157,7 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
                 targetIcebergTable, cols, outputExprs, deleteContext, writesDataFiles,
                 requireMergeCardinalityCheck,
                 groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, children.get(0));
+                getLogicalProperties(), physicalProperties, statistics, writeSchemaContext, children.get(0));
     }
 
     @Override
@@ -142,7 +171,8 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable,
                 targetIcebergTable, cols, outputExprs, deleteContext, writesDataFiles,
                 requireMergeCardinalityCheck,
-                groupExpression, getLogicalProperties(), child());
+                groupExpression, getLogicalProperties(), PhysicalProperties.GATHER, null,
+                writeSchemaContext, child());
     }
 
     @Override
@@ -152,7 +182,8 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable,
                 targetIcebergTable, cols, outputExprs, deleteContext, writesDataFiles,
                 requireMergeCardinalityCheck,
-                groupExpression, logicalProperties.get(), children.get(0));
+                groupExpression, logicalProperties.get(), PhysicalProperties.GATHER, null,
+                writeSchemaContext, children.get(0));
     }
 
     @Override
@@ -162,7 +193,7 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
                 targetIcebergTable, cols, outputExprs, deleteContext, writesDataFiles,
                 requireMergeCardinalityCheck,
                 groupExpression, getLogicalProperties(),
-                physicalProperties, statistics, child());
+                physicalProperties, statistics, writeSchemaContext, child());
     }
 
     @Override
@@ -180,13 +211,14 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
         return Objects.equals(deleteContext, that.deleteContext)
                 && writesDataFiles == that.writesDataFiles
                 && requireMergeCardinalityCheck == that.requireMergeCardinalityCheck
-                && Objects.equals(targetIcebergTable, that.targetIcebergTable);
+                && Objects.equals(targetIcebergTable, that.targetIcebergTable)
+                && Objects.equals(writeSchemaContext, that.writeSchemaContext);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(super.hashCode(), deleteContext, targetIcebergTable, writesDataFiles,
-                requireMergeCardinalityCheck);
+                requireMergeCardinalityCheck, writeSchemaContext);
     }
 
     /**
@@ -233,14 +265,20 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
         List<DistributionSpecMerge.IcebergPartitionField> insertPartitionFields = new ArrayList<>();
         Integer partitionSpecId = null;
         // Distribution and writer serialization must read the same retained spec/schema.
-        List<Column> partitionColumns = getRetainedPartitionColumns();
+        PartitionSpec partitionSpec = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getPartitionSpec)
+                .orElse(targetIcebergTable.spec());
+        Schema partitionSchema = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getSchema)
+                .orElse(targetIcebergTable.schema());
+        List<Column> partitionColumns = getRetainedPartitionColumns(partitionSpec, partitionSchema);
         Map<String, ExprId> columnExprIdMap = buildColumnExprIdMap(outputSlots, nameToExprId);
         boolean insertExprsOk = false;
         if (!partitionColumns.isEmpty()) {
             insertExprsOk = buildInsertPartitionExprIds(insertPartitionExprIds, partitionColumns, columnExprIdMap);
         }
         InsertPartitionFieldResult fieldResult = buildInsertPartitionFields(
-                insertPartitionFields, targetIcebergTable, columnExprIdMap);
+                insertPartitionFields, partitionSpec, partitionSchema, columnExprIdMap);
         boolean insertFieldsOk = fieldResult.success;
         boolean hasNonIdentity = fieldResult.hasNonIdentity;
         if (insertFieldsOk) {
@@ -316,13 +354,12 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
 
     private InsertPartitionFieldResult buildInsertPartitionFields(
             List<DistributionSpecMerge.IcebergPartitionField> insertPartitionFields,
-            Table table,
+            PartitionSpec spec,
+            Schema schema,
             Map<String, ExprId> columnExprIdMap) {
-        PartitionSpec spec = table.spec();
         if (spec == null || !spec.isPartitioned()) {
             return new InsertPartitionFieldResult(false, false, null);
         }
-        Schema schema = table.schema();
         boolean hasNonIdentity = false;
         for (PartitionField field : spec.fields()) {
             if (!field.transform().isIdentity()) {
@@ -355,14 +392,13 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
         return new InsertPartitionFieldResult(true, hasNonIdentity, spec.specId());
     }
 
-    private List<Column> getRetainedPartitionColumns() {
+    private List<Column> getRetainedPartitionColumns(PartitionSpec partitionSpec, Schema schema) {
         Map<String, Column> columnsByName = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         for (Column column : cols) {
             columnsByName.put(column.getName(), column);
         }
         List<Column> partitionColumns = new ArrayList<>();
-        Schema schema = targetIcebergTable.schema();
-        for (PartitionField field : targetIcebergTable.spec().fields()) {
+        for (PartitionField field : partitionSpec.fields()) {
             // Transformed fields are encoded through insertPartitionFields; treating their source
             // columns as identity keys would route rows by a different partitioning invariant.
             if (!field.transform().isIdentity()) {

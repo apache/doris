@@ -17,6 +17,8 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
+import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
 
 import com.google.common.base.Preconditions;
@@ -65,7 +67,8 @@ public class VariantType extends ScalarType {
     @SerializedName(value = "enableNestedGroup")
     private final boolean enableNestedGroup;
 
-    // Execution-only physical representation. It must never be persisted in table metadata.
+    // Execution-only physical representation for external Parquet Variant. It must never be
+    // persisted in Doris table metadata.
     private transient boolean computeV2;
 
     private Map<String, String> properties = Maps.newHashMap();
@@ -232,15 +235,11 @@ public class VariantType extends ScalarType {
     @Override
     public void toThrift(TTypeDesc container) {
         super.toThrift(container);
+        TScalarType scalarType = container.getTypes().get(container.getTypes().size() - 1).scalar_type;
         // set the count
-        container.getTypes().get(container.getTypes().size() - 1)
-                .scalar_type.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
-        container.getTypes().get(container.getTypes().size() - 1)
-                .scalar_type.setVariantEnableDocMode(enableVariantDocMode);
-        if (computeV2) {
-            container.getTypes().get(container.getTypes().size() - 1)
-                    .scalar_type.setVariantIsV2(true);
-        }
+        scalarType.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
+        scalarType.setVariantEnableDocMode(enableVariantDocMode);
+        scalarType.setVariantIsV2(Config.enable_variant_v2 || computeV2);
     }
 
     @Override
@@ -317,4 +316,5 @@ public class VariantType extends ScalarType {
     public boolean isComputeV2() {
         return computeV2;
     }
+
 }

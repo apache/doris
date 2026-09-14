@@ -18,6 +18,7 @@
 #include "format/table/iceberg/arrow_schema_util.h"
 
 #include <arrow/api.h>
+#include <arrow/extension/parquet_variant.h>
 #include <arrow/io/api.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
@@ -27,6 +28,7 @@
 #include <parquet/arrow/writer.h>
 #include <parquet/schema.h>
 
+#include "core/assert_cast.h"
 #include "format/table/iceberg/schema.h"
 #include "format/table/iceberg/schema_parser.h"
 #include "io/fs/local_file_system.h"
@@ -250,6 +252,101 @@ TEST(ArrowSchemaUtilTest, test_binary_field_types) {
     auto uuid_type = std::static_pointer_cast<arrow::FixedSizeBinaryType>(fields[3]->type());
     EXPECT_EQ(16, uuid_type->byte_width());
     EXPECT_EQ("uuid", fields[3]->metadata()->Get("originalType").ValueUnsafe());
+}
+
+TEST(ArrowSchemaUtilTest, test_variant_field) {
+    std::vector<NestedField> nested_fields;
+    nested_fields.emplace_back(true, 21, "payload", std::make_unique<VariantType>(), std::nullopt);
+    Schema schema(1, std::move(nested_fields));
+
+    std::vector<std::shared_ptr<arrow::Field>> fields;
+    Status st = ArrowSchemaUtil::convert(&schema, "utc", fields);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(1, fields.size());
+    EXPECT_EQ("21", fields[0]->metadata()->Get(pfid).ValueUnsafe());
+    ASSERT_EQ(arrow::Type::EXTENSION, fields[0]->type()->id());
+
+    const auto& extension = static_cast<const arrow::ExtensionType&>(*fields[0]->type());
+    EXPECT_EQ("arrow.parquet.variant", extension.extension_name());
+    ASSERT_EQ(arrow::Type::STRUCT, extension.storage_type()->id());
+    ASSERT_EQ(2, extension.storage_type()->num_fields());
+    EXPECT_EQ("metadata", extension.storage_type()->field(0)->name());
+    EXPECT_EQ(arrow::Type::BINARY, extension.storage_type()->field(0)->type()->id());
+    EXPECT_FALSE(extension.storage_type()->field(0)->nullable());
+    EXPECT_FALSE(extension.storage_type()->field(0)->HasMetadata());
+    EXPECT_EQ("value", extension.storage_type()->field(1)->name());
+    EXPECT_EQ(arrow::Type::BINARY, extension.storage_type()->field(1)->type()->id());
+    EXPECT_FALSE(extension.storage_type()->field(1)->nullable());
+    EXPECT_FALSE(extension.storage_type()->field(1)->HasMetadata());
+}
+
+TEST(ArrowSchemaUtilTest, test_nested_variant_fields) {
+    const std::string schema_json = R"({
+        "type": "struct",
+        "fields": [
+            {
+                "id": 10,
+                "name": "info",
+                "required": false,
+                "type": {
+                    "type": "struct",
+                    "fields": [
+                        {"id": 11, "name": "payload", "required": false, "type": "variant"}
+                    ]
+                }
+            },
+            {
+                "id": 20,
+                "name": "events",
+                "required": false,
+                "type": {
+                    "type": "list",
+                    "element-id": 21,
+                    "element": "variant",
+                    "element-required": false
+                }
+            },
+            {
+                "id": 30,
+                "name": "attrs",
+                "required": false,
+                "type": {
+                    "type": "map",
+                    "key-id": 31,
+                    "key": "string",
+                    "value-id": 32,
+                    "value": "variant",
+                    "value-required": false
+                }
+            }
+        ]
+    })";
+    std::unique_ptr<Schema> schema = SchemaParser::from_json(schema_json);
+
+    std::vector<std::shared_ptr<arrow::Field>> fields;
+    Status status = ArrowSchemaUtil::convert(schema.get(), "UTC", fields);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(3, fields.size());
+
+    const auto& info = assert_cast<const arrow::StructType&>(*fields[0]->type());
+    ASSERT_EQ(arrow::Type::EXTENSION, info.field(0)->type()->id());
+    EXPECT_EQ("11", info.field(0)->metadata()->Get(pfid).ValueUnsafe());
+
+    const auto& events = assert_cast<const arrow::ListType&>(*fields[1]->type());
+    ASSERT_EQ(arrow::Type::EXTENSION, events.value_type()->id());
+    EXPECT_EQ("21", events.value_field()->metadata()->Get(pfid).ValueUnsafe());
+
+    const auto& attrs = assert_cast<const arrow::MapType&>(*fields[2]->type());
+    ASSERT_EQ(arrow::Type::EXTENSION, attrs.item_type()->id());
+    EXPECT_EQ("32", attrs.item_field()->metadata()->Get(pfid).ValueUnsafe());
+
+    for (const auto& variant_type :
+         {info.field(0)->type(), events.value_type(), attrs.item_type()}) {
+        const auto& extension = static_cast<const arrow::ExtensionType&>(*variant_type);
+        EXPECT_EQ("arrow.parquet.variant", extension.extension_name());
+        EXPECT_EQ("struct<metadata: binary not null, value: binary not null>",
+                  extension.storage_type()->ToString());
+    }
 }
 
 TEST(ArrowSchemaUtilTest, test_parquet_filed_id) {

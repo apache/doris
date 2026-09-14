@@ -138,6 +138,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     private void cleanupRemovedCatalog(RemovedCatalog removedCatalog) {
+        cleanupRemovedCatalog(removedCatalog, true);
+    }
+
+    private void cleanupRemovedCatalog(RemovedCatalog removedCatalog, boolean permanentRemoval) {
         if (removedCatalog == null) {
             return;
         }
@@ -147,7 +151,14 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (ctx != null) {
             ctx.removeLastDBOfCatalog(removedCatalog.catalogName);
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalog(removedCatalog.catalogId);
+        if (permanentRemoval) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogPermanently(removedCatalog.catalogId);
+        } else {
+            // A rename re-adds the same catalog id afterwards: engine side state such as the
+            // Hive statement-scoped generation counters must survive, or a statement planned
+            // across the rename could reuse stale file tasks under a restarted generation.
+            Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalog(removedCatalog.catalogId);
+        }
         Env.getCurrentEnv().getQueryStats().clear(removedCatalog.catalogId);
         LOG.info("Removed catalog with id {}, name {}", removedCatalog.catalogId, removedCatalog.catalogName);
     }
@@ -333,7 +344,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
-        cleanupRemovedCatalog(removedCatalog);
+        cleanupRemovedCatalog(removedCatalog, false);
         if (removedCatalog == null) {
             throw new IllegalStateException("No catalog found with name: " + catalogName);
         }
@@ -539,6 +550,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         try {
             if (!isReplay && catalog instanceof ExternalCatalog) {
                 ((ExternalCatalog) catalog).checkProperties();
+                validateSuppliedCacheProperties((ExternalCatalog) catalog, catalog.getProperties());
             }
             Map<String, String> props = catalog.getProperties();
             if (props.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
@@ -580,7 +592,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
-        cleanupRemovedCatalog(removedCatalog);
+        cleanupRemovedCatalog(removedCatalog, false);
 
         if (removedCatalog == null) {
             throw new IllegalStateException("No catalog found with id: " + log.getCatalogId());
@@ -623,6 +635,40 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
 
+    /** CREATE: every supplied external meta cache property is validated strictly. */
+    private static void validateSuppliedCacheProperties(ExternalCatalog catalog, Map<String, String> properties)
+            throws DdlException {
+        Env currentEnv = Env.getCurrentEnv();
+        ExternalMetaCacheMgr cacheMgr = currentEnv == null ? null : currentEnv.getExtMetaCacheMgr();
+        if (cacheMgr == null) {
+            return;
+        }
+        try {
+            cacheMgr.validateCatalogCacheProperties(catalog, properties);
+        } catch (IllegalArgumentException e) {
+            throw new DdlException(e.getMessage());
+        }
+    }
+
+    /**
+     * ALTER: newly supplied external meta cache properties are validated strictly, persisted
+     * ones only as runtime honors them, so a legacy key cannot block an unrelated update.
+     */
+    private static void validateSuppliedCacheProperties(ExternalCatalog catalog,
+            Map<String, String> persistedProperties, Map<String, String> updatedProperties)
+            throws DdlException {
+        Env currentEnv = Env.getCurrentEnv();
+        ExternalMetaCacheMgr cacheMgr = currentEnv == null ? null : currentEnv.getExtMetaCacheMgr();
+        if (cacheMgr == null) {
+            return;
+        }
+        try {
+            cacheMgr.validateCatalogCachePropertyUpdate(catalog, persistedProperties, updatedProperties);
+        } catch (IllegalArgumentException e) {
+            throw new DdlException(e.getMessage());
+        }
+    }
+
     /**
      * Reply for alter catalog props event.
      */
@@ -632,43 +678,86 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         try {
             CatalogIf catalog = idToCatalog.get(log.getCatalogId());
             if (catalog instanceof ExternalCatalog) {
-                Map<String, String> newProps = log.getNewProps();
-                if (!isReplay) {
-                    boolean tentativelyMutated = false;
-                    try {
-                        ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
-                        boolean validatedWithoutMutation = externalCatalog.validatePropertiesBeforeUpdate(
-                                oldProperties, newProps);
-                        if (!validatedWithoutMutation) {
-                            externalCatalog.tryModifyCatalogProps(newProps);
-                            tentativelyMutated = true;
-                            externalCatalog.checkProperties();
+                // The tentative property window (legacy validators mutate the live CatalogProperty
+                // before commit/rollback) must be invisible to a concurrent lazy cache-group
+                // initialization of a sibling engine, or budget creation can observe the candidate
+                // catalog max-weight while another engine's group still pins the committed one.
+                // The lifecycle stripe is reentrant, so nested rollback/removal re-enters safely.
+                try {
+                    Env.getCurrentEnv().getExtMetaCacheMgr().withCatalogLifecycleLock(catalog.getId(), () -> {
+                        try {
+                            alterExternalCatalogPropsFenced((ExternalCatalog) catalog, log,
+                                    oldProperties, isReplay);
+                        } catch (DdlException e) {
+                            throw new IllegalStateException(e);
                         }
-                    } catch (Exception validationException) {
-                        // Only legacy validators publish a tentative candidate. Detached validators
-                        // leave the live CatalogProperty untouched while concurrent initialization runs.
-                        if (oldProperties != null && tentativelyMutated) {
-                            ((ExternalCatalog) catalog).rollBackCatalogProps(oldProperties);
-                        }
-                        if (validationException instanceof DdlException) {
-                            throw (DdlException) validationException;
-                        }
-                        throw new DdlException("Invalid catalog properties: "
-                                + validationException.getMessage(), validationException);
+                        return null;
+                    });
+                } catch (IllegalStateException e) {
+                    if (e.getCause() instanceof DdlException) {
+                        throw (DdlException) e.getCause();
                     }
-                } else {
-                    ((ExternalCatalog) catalog).tryModifyCatalogProps(newProps);
+                    throw e;
                 }
-                if (newProps.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
-                    long catalogId = catalog.getId();
-                    Integer metadataRefreshIntervalSec = Integer.valueOf(newProps.get(METADATA_REFRESH_INTERVAL_SEC));
-                    Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
-                    Env.getCurrentEnv().getRefreshManager().addToRefreshMap(catalogId, sec);
-                }
+            } else {
+                catalog.modifyCatalogProps(log.getNewProps());
             }
-            catalog.modifyCatalogProps(log.getNewProps());
         } finally {
             writeUnlock();
+        }
+    }
+
+    private void alterExternalCatalogPropsFenced(ExternalCatalog externalCatalog, CatalogLog log,
+            Map<String, String> oldProperties, boolean isReplay) throws DdlException {
+        Map<String, String> newProps = log.getNewProps();
+        if (!isReplay) {
+            boolean tentativelyMutated = false;
+            try {
+                validateSuppliedCacheProperties(externalCatalog, oldProperties, newProps);
+                boolean validatedWithoutMutation = externalCatalog.validatePropertiesBeforeUpdate(
+                        oldProperties, newProps);
+                if (!validatedWithoutMutation) {
+                    externalCatalog.tryModifyCatalogProps(newProps);
+                    tentativelyMutated = true;
+                    externalCatalog.checkProperties();
+                }
+            } catch (Exception validationException) {
+                // Only legacy validators publish a tentative candidate. Detached validators
+                // leave the live CatalogProperty untouched while concurrent initialization runs.
+                if (oldProperties != null && tentativelyMutated) {
+                    Env currentEnv = Env.getCurrentEnv();
+                    ExternalMetaCacheMgr cacheMgr = currentEnv == null
+                            ? null : currentEnv.getExtMetaCacheMgr();
+                    if (cacheMgr == null) {
+                        externalCatalog.rollBackCatalogProps(oldProperties);
+                    } else {
+                        cacheMgr.rollbackCatalogProperties(externalCatalog, oldProperties);
+                    }
+                }
+                if (validationException instanceof DdlException) {
+                    throw (DdlException) validationException;
+                }
+                throw new DdlException("Invalid catalog properties: "
+                        + validationException.getMessage(), validationException);
+            }
+        } else {
+            externalCatalog.tryModifyCatalogProps(newProps);
+        }
+        if (newProps.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
+            long catalogId = externalCatalog.getId();
+            Integer metadataRefreshIntervalSec = Integer.valueOf(newProps.get(METADATA_REFRESH_INTERVAL_SEC));
+            Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
+            Env.getCurrentEnv().getRefreshManager().addToRefreshMap(catalogId, sec);
+        }
+        externalCatalog.modifyCatalogProps(newProps);
+        // The commit reset the catalog's execution context and closed its SDK resources. Cached
+        // base generations and projections are bound to the replaced context; retire them now so
+        // the next statement loads a generation the planning fences accept, instead of retrying
+        // against an unplannable cached generation until managed refresh.
+        Env currentEnv = Env.getCurrentEnv();
+        ExternalMetaCacheMgr cacheMgr = currentEnv == null ? null : currentEnv.getExtMetaCacheMgr();
+        if (cacheMgr != null) {
+            cacheMgr.onCatalogOperationalContextChanged(externalCatalog.getId());
         }
     }
 

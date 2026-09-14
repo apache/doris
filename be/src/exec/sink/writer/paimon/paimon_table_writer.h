@@ -20,11 +20,9 @@
 #include <gen_cpp/DataSinks_types.h>
 
 #include <memory>
-#include <string>
 
 #include "common/status.h"
 #include "core/block/block.h"
-#include "exec/sink/writer/async_result_writer.h"
 #include "exec/sink/writer/paimon/paimon_write_backend.h"
 #include "exprs/vexpr_fwd.h"
 #include "runtime/runtime_profile.h"
@@ -46,13 +44,13 @@ class RuntimeState;
 ///
 /// Architecture:
 ///   PaimonTableSinkOperatorX
-///     │  sink_impl() → AsyncWriterSink::sink()  (no routing)
+///     │  sink_impl() → PaimonTableWriter::write()  (synchronous, no routing)
 ///     ▼
 ///   PaimonTableWriter (one per LocalState / pipeline instance)
 ///     │  owns IPaimonWriteBackend (JNI or FFI)
 ///     │    └─ create_writer() → IPaimonWriter
 ///     │  write()
-///     │    → JNI backend: Block → Arrow IPC → Java Paimon SDK
+///     │    → JNI backend: Block → Arrow C Data → Java Paimon SDK
 ///     │    → FFI backend: Block → Rust writer (future)
 ///     │    → selected SDK owns row normalization, routing, buffering,
 ///     │      file writing, and compaction
@@ -64,22 +62,23 @@ class RuntimeState;
 ///          → collect TPaimonCommitMessage[] (DPCM-framed serialized messages)
 ///          → RuntimeState::add_paimon_commit_messages()
 ///          → RPC to FE Coordinator → PaimonTransaction
-class PaimonTableWriter final : public AsyncResultWriter {
+class PaimonTableWriter final {
 public:
-    PaimonTableWriter(TDataSink t_sink, const VExprContextSPtrs& output_exprs,
-                      std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep);
+    PaimonTableWriter(TDataSink t_sink, const VExprContextSPtrs& output_exprs);
 
-    ~PaimonTableWriter() override = default;
+    ~PaimonTableWriter() = default;
 
-    Status open(RuntimeState* state, RuntimeProfile* profile) override;
+    Status open(RuntimeState* state, RuntimeProfile* profile);
 
-    Status write(RuntimeState* state, Block& block) override;
+    Status write(RuntimeState* state, Block& block);
 
-    Status close(Status status) override;
+    Status close(Status status);
 
 private:
     TDataSink _t_sink;
+    const VExprContextSPtrs& _output_expr_ctxs;
     RuntimeState* _state = nullptr;
+    int64_t _written_rows = 0;
 
     // Backend owns the JNI/FFI connection and creates the writer adapter.
     // Both are scoped to this PaimonTableWriter (one per LocalState).

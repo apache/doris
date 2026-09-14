@@ -126,7 +126,7 @@ public class Backend implements Writable {
     // the locationTag is also saved in tagMap, use a single field here to avoid
     // creating this everytime we get it.
     @SerializedName(value = "locationTag", alternate = {"tag"})
-    private Tag locationTag = Tag.DEFAULT_BACKEND_TAG;
+    private volatile Tag locationTag = Tag.DEFAULT_BACKEND_TAG;
 
     @SerializedName("nodeRole")
     private Tag nodeRoleTag = Tag.DEFAULT_NODE_ROLE_TAG;
@@ -1138,4 +1138,3 @@ public class Backend implements Writable {
     }
 
 }
-

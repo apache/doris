@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.analysis.RedirectStatus;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
@@ -35,19 +37,22 @@ import java.util.List;
  * logic of InsertIntoTableCommand to maximize code reuse.
  */
 public class InsertIntoDictionaryCommand extends InsertIntoTableCommand {
+    private final Database database;
     private final Dictionary dictionary;
 
     /**
      * Constructor for InsertIntoDictionaryCommand.
      *
      * @param baseCommand The base InsertIntoTableCommand to copy from
+     * @param database The retained owner of the target dictionary
      * @param dictionary The target dictionary to insert into
      * @param adaptiveLoad see DictionaryManager.submitDataLoad
      * @throws AnalysisException if the logical query is not a valid sink
      */
-    public InsertIntoDictionaryCommand(InsertIntoTableCommand baseCommand, Dictionary dictionary,
+    public InsertIntoDictionaryCommand(InsertIntoTableCommand baseCommand, Database database, Dictionary dictionary,
             boolean adaptiveLoad) {
         super(baseCommand, PlanType.INSERT_INTO_DICTIONARY_COMMAND);
+        this.database = database;
         this.dictionary = dictionary;
 
         // Change sink type from olap table(need check) to dictionary
@@ -57,7 +62,7 @@ public class InsertIntoDictionaryCommand extends InsertIntoTableCommand {
         }
 
         UnboundTableSink<?> sink = (UnboundTableSink<?>) logicalQuery;
-        UnboundDictionarySink<?> newSink = UnboundTableSinkCreator.createUnboundDictionarySink(dictionary,
+        UnboundDictionarySink<?> newSink = UnboundTableSinkCreator.createUnboundDictionarySink(database, dictionary,
                 (LogicalPlan) sink.child(0), adaptiveLoad);
         setLogicalQuery(newSink);
         setOriginLogicalQuery(newSink);
@@ -71,7 +76,15 @@ public class InsertIntoDictionaryCommand extends InsertIntoTableCommand {
 
     @Override
     protected TableIf getTargetTableIf(ConnectContext ctx, List<String> qualifiedTargetTableName) {
+        if (!ctx.getEnv().getDictionaryManager().isCurrentDictionary(database, dictionary)) {
+            throw new AnalysisException("Dictionary " + dictionary.getName() + " has been dropped");
+        }
         return dictionary;
+    }
+
+    @Override
+    protected DatabaseIf<?> getTargetDatabase(TableIf targetTable) {
+        return database;
     }
 
     public Dictionary getDictionary() {

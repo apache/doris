@@ -78,6 +78,15 @@ public abstract class AbstractLanceProperties extends MetastoreProperties {
     public abstract LanceNamespace createNamespace(
             BufferAllocator allocator, Map<String, String> javaStorageOptions);
 
+    /**
+     * The URL whose storage the namespace client reads itself, which decides how its options have
+     * to be spelled. Empty when it reads none: a REST namespace is reached over HTTP and ignores
+     * the options entirely.
+     */
+    public String getNamespaceStorageUri() {
+        return "";
+    }
+
     protected abstract void validateCatalogProperties();
 
     public String getNamespaceParent() {

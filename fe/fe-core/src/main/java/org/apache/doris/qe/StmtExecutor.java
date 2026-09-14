@@ -190,6 +190,14 @@ public class StmtExecutor {
 
     @Setter
     private volatile Coordinator coord = null;
+    // Arrow Flight SQL: when true, this query's coordinator is kept alive past GetFlightInfo and
+    // is finalized later by ConnectContext (see #62259), so the eager close in executeAndSendResult
+    // is skipped.
+    private volatile boolean deferredForArrowFlight = false;
+    // The execution timeout in effect when the coordinator was deferred. Captured at that moment
+    // because per-statement SET_VAR values are reverted at the end of execute(), so reading
+    // ConnectContext.getExecTimeoutS() later would report the session value instead.
+    private volatile int deferredExecTimeoutS = -1;
     private MasterOpExecutor masterOpExecutor = null;
     private RedirectStatus redirectStatus = null;
     private Planner planner;
@@ -334,6 +342,14 @@ public class StmtExecutor {
         builder.defaultCatalog(context.getCurrentCatalog().getName());
         builder.defaultDb(context.getDatabase());
         builder.workloadGroup(context.getWorkloadGroupName());
+        String queryBackendSelection = context.getBackendSelectionProfile().getQuerySummary();
+        if (queryBackendSelection != null) {
+            builder.queryBackendSelection(queryBackendSelection);
+        }
+        String loadBackendSelection = context.getBackendSelectionProfile().getLoadSummary();
+        if (loadBackendSelection != null) {
+            builder.loadBackendSelection(loadBackendSelection);
+        }
         builder.sqlStatement(originStmt == null ? "" : originStmt.originStmt);
         builder.isCached(isCached ? "Yes" : "No");
 
@@ -384,7 +400,8 @@ public class StmtExecutor {
 
         // this is a query stmt, but this non-master FE can not read, forward it to master
         if (isQuery() && !Env.getCurrentEnv().isMaster()
-                && (!Env.getCurrentEnv().canRead() || debugForwardAllQueries() || Config.force_forward_all_queries)) {
+                && (!Env.getCurrentEnv().canRead() || debugForwardAllQueries() || Config.force_forward_all_queries
+                        || context.getSessionVariable().isForceForwardAllQueries())) {
             return true;
         }
 
@@ -668,6 +685,8 @@ public class StmtExecutor {
                         scanNode.getSelectedPartitionNum(),
                         scanNode.getSelectedSplitNum(),
                         scanNode.getCardinality(),
+                        scanNode.isPartitionedTable(),
+                        scanNode.hasPartitionPredicate(),
                         context.getQualifiedUser());
 
             }
@@ -959,6 +978,38 @@ public class StmtExecutor {
         // for the profile before unregisterQuery().
         updateProfile(true);
         QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
+    }
+
+    public boolean isDeferredForArrowFlight() {
+        return deferredForArrowFlight;
+    }
+
+    // Execution timeout (seconds) the deferred query was run with; -1 when the query is not deferred.
+    public int getDeferredExecTimeoutS() {
+        return deferredExecTimeoutS;
+    }
+
+    // Keep this query's coordinator alive past GetFlightInfo (see the gate in executeAndSendResult)
+    // and hand it to the ConnectContext, which finalizes it later. Records the execution timeout in
+    // effect right now: it floors the idle reaper's bound and must be the value the query actually
+    // ran with, not the session value left behind after SET_VAR hints are reverted.
+    void deferForArrowFlight() {
+        deferredForArrowFlight = true;
+        deferredExecTimeoutS = context.getExecTimeoutS();
+        context.addFlightSqlDeferredExecutor(this);
+    }
+
+    // Finalize an Arrow Flight query whose coordinator was kept alive across the
+    // GetFlightInfo -> DoGet phases: close the coordinator (releasing external-table batch
+    // SplitSources and the query queue slot) and then unregister the query. See #62259.
+    public void finalizeArrowFlightQuery() {
+        try {
+            if (coord != null) {
+                coord.close();
+            }
+        } finally {
+            finalizeQuery();
+        }
     }
 
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
@@ -1320,6 +1371,12 @@ public class StmtExecutor {
             LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) parsedStmt;
             LogicalPlan logicalPlan = logicalPlanAdapter.getLogicalPlan();
             if (logicalPlan instanceof org.apache.doris.nereids.trees.plans.algebra.SqlCache) {
+                // sendCachedValues replays MySQL protocol packets, so it needs a MysqlChannel.
+                // ConnectProcessor.executeQuery only looks the sql cache up for a MySQL connection,
+                // so a cached plan must never reach another protocol here.
+                Preconditions.checkState(channel != null,
+                        "sql cache can only be replayed on a MySQL connection, but connect type is %s",
+                        context.getConnectType());
                 NereidsPlanner nereidsPlanner = (NereidsPlanner) planner;
                 PhysicalSqlCache physicalSqlCache = (PhysicalSqlCache) nereidsPlanner.getPhysicalPlan();
                 sendCachedValues(channel, physicalSqlCache.getCacheValues(), logicalPlanAdapter, false, true);
@@ -1397,6 +1454,22 @@ public class StmtExecutor {
             if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
                 Preconditions.checkState(!context.isReturnResultFromLocal());
                 profile.getSummaryProfile().setTempStartTime();
+                // The client pulls the results from the BE later (DoGet). Only an external-table
+                // scan in batch mode still needs the coordinator after this point: the BE fetches
+                // its splits lazily from the split source the coordinator holds, so closing the
+                // coordinator here would release that source too early and break DoGet (#62259).
+                // Such a coordinator is closed later by ConnectContext: on the session's next
+                // query, on teardown, or by the idle reaper in checkTimeout. The trade-off is that
+                // its query queue slot and query registration stay held until then. Every other
+                // query closes its coordinator in the finally block below and releases both right
+                // away, the BE buffering its results independently of the coordinator (#67503).
+                // A short-circuit point query is the one case with a different coordBase, and it
+                // can no longer reach here: it has no Arrow result on either side, so
+                // LogicalResultSinkToShortCircuitPointQuery keeps Arrow Flight SQL on the normal
+                // execution path (#67368).
+                if (coordBase == coord && coord.hasBatchSplitSource()) {
+                    deferForArrowFlight();
+                }
                 return;
             }
 
@@ -1512,7 +1585,12 @@ public class StmtExecutor {
             this.coord = null;
             throw e;
         } finally {
-            coordBase.close();
+            // For deferred Arrow Flight queries the coordinator is closed later by ConnectContext
+            // (next query / connection teardown), so the BE can still fetch splits during DoGet.
+            // See #62259.
+            if (!deferredForArrowFlight) {
+                coordBase.close();
+            }
         }
     }
 
@@ -1868,6 +1946,9 @@ public class StmtExecutor {
                 if (item != null && !item.equals(FeConstants.null_string)) {
                     Column col = metaData.getColumn(i);
                     switch (col.getType().getPrimitiveType()) {
+                        case BOOLEAN:
+                            serializer.writeInt1(parseBooleanResultValue(item));
+                            break;
                         case INT:
                             serializer.writeInt4(Integer.parseInt(item));
                             break;
@@ -1898,6 +1979,16 @@ public class StmtExecutor {
             }
             context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
+    }
+
+    private static int parseBooleanResultValue(String item) {
+        if ("1".equals(item) || "true".equalsIgnoreCase(item)) {
+            return 1;
+        }
+        if ("0".equals(item) || "false".equalsIgnoreCase(item)) {
+            return 0;
+        }
+        throw new IllegalArgumentException("Invalid boolean result value: " + item);
     }
 
     public void handleExplainPlanProcessStmt(List<PlanProcess> result) throws IOException {

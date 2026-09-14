@@ -26,9 +26,11 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.FileSplitter;
@@ -46,6 +48,7 @@ import org.apache.doris.datasource.hive.HiveTransaction;
 import org.apache.doris.datasource.hive.source.HiveSplit.HiveSplitCreator;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.fs.DirectoryLister;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -66,7 +69,6 @@ import org.apache.doris.thrift.TTransactionalHiveDesc;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import lombok.Setter;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.logging.log4j.LogManager;
@@ -78,6 +80,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -93,7 +96,6 @@ public class HiveScanNode extends FileQueryScanNode {
     private HiveTransaction hiveTransaction = null;
 
     // will only be set in Nereids, for lagency planner, it should be null
-    @Setter
     protected SelectedPartitions selectedPartitions = null;
 
     private DirectoryLister directoryLister;
@@ -125,6 +127,11 @@ public class HiveScanNode extends FileQueryScanNode {
         hmsTable = (HMSExternalTable) desc.getTable();
         brokerName = hmsTable.getCatalog().bindBrokerName();
         this.directoryLister = directoryLister;
+    }
+
+    public void setSelectedPartitions(SelectedPartitions selectedPartitions) {
+        this.selectedPartitions = selectedPartitions;
+        setHasPartitionPredicate(selectedPartitions != null && selectedPartitions.hasPartitionPredicate);
     }
 
     @Override
@@ -320,8 +327,31 @@ public class HiveScanNode extends FileQueryScanNode {
             }
         } else {
             boolean withCache = Config.max_external_file_cache_num > 0;
-            fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1,
-                    directoryLister, hmsTable);
+            if (isBatchMode || !withCache) {
+                // Batch mode bounds FE memory by retaining only the partitions currently in flight.
+                // Keeping every completed partition in the statement cache would materialize the
+                // full scan again and defeat that bound. When the global file cache is disabled,
+                // statement retention must not become an uncapped replacement for that memory fence.
+                fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1,
+                        directoryLister, hmsTable);
+            } else {
+                List<FileCacheValue> currentFileCaches = cache.getFilesByPartitions(partitions, true,
+                        partitions.size() > 1, directoryLister, hmsTable);
+                HiveFileScanTaskCacheKey cacheKey = new HiveFileScanTaskCacheKey(
+                        hmsTable.getCatalog().getId(), hmsTable.getId(), partitions,
+                        cache.getFileCacheInvalidationGeneration(hmsTable.getCatalog().getId()), currentFileCaches);
+                try {
+                    fileCaches = getOrLoadExternalScanTasks(cacheKey,
+                            ignored -> currentFileCaches,
+                            this::retainedHiveFileCount,
+                            StatementContext.ExternalScanTaskCache.WeightBudget.TASK_COUNT,
+                            maxRetainedExternalScanTasks, maxRetainedExternalScanTasks, false);
+                } catch (IOException | UserException e) {
+                    throw e;
+                } catch (Exception e) {
+                    throw new IOException("Failed to list Hive files", e);
+                }
+            }
         }
         if (!isBatchMode && getSummaryProfile() != null) {
             getSummaryProfile().addExternalTableGetPartitionFilesTime(System.currentTimeMillis() - startTime);
@@ -375,36 +405,49 @@ public class HiveScanNode extends FileQueryScanNode {
         }
     }
 
-    private long determineTargetFileSplitSize(List<FileCacheValue> fileCaches,
-            boolean isBatchMode) {
-        if (sessionVariable.getFileSplitSize() > 0) {
-            return sessionVariable.getFileSplitSize();
-        }
-        /** Hive batch split mode will return 0. and <code>FileSplitter</code>
-         *  will determine file split size.
-         */
-        if (isBatchMode) {
-            return 0;
-        }
-        long result = sessionVariable.getMaxInitialSplitSize();
-        long totalFileSize = 0;
-        boolean exceedInitialThreshold = false;
-        for (HiveExternalMetaCache.FileCacheValue fileCacheValue : fileCaches) {
-            if (fileCacheValue.getFiles() == null) {
-                continue;
-            }
-            for (HiveExternalMetaCache.HiveFileStatus status : fileCacheValue.getFiles()) {
-                totalFileSize += status.getLength();
-                if (!exceedInitialThreshold
-                        && totalFileSize >= sessionVariable.getMaxSplitSize()
-                                * sessionVariable.getMaxInitialSplitNum()) {
-                    exceedInitialThreshold = true;
+    private long retainedHiveFileCount(List<FileCacheValue> fileCaches) {
+        long fileCount = fileCaches.size();
+        for (FileCacheValue fileCache : fileCaches) {
+            if (fileCache.getFiles() != null) {
+                fileCount += fileCache.getFiles().size();
+                if (fileCount > maxRetainedExternalScanTasks) {
+                    return maxRetainedExternalScanTasks + 1;
                 }
             }
         }
-        result = exceedInitialThreshold ? sessionVariable.getMaxSplitSize() : result;
-        result = applyMaxFileSplitNumLimit(result, totalFileSize);
-        return result;
+        return Math.max(1, fileCount);
+    }
+
+    private long determineTargetFileSplitSize(List<FileCacheValue> fileCaches,
+            boolean isBatchMode) throws UserException {
+        long fallbackSize;
+        if (sessionVariable.getFileSplitSize() > 0) {
+            fallbackSize = sessionVariable.getFileSplitSize();
+        } else if (isBatchMode) {
+            // Hive batch split mode returns 0 so FileSplitter determines the legacy split size.
+            fallbackSize = 0;
+        } else {
+            long totalFileSize = 0;
+            boolean exceedInitialThreshold = false;
+            for (HiveExternalMetaCache.FileCacheValue fileCacheValue : fileCaches) {
+                if (fileCacheValue.getFiles() == null) {
+                    continue;
+                }
+                for (HiveExternalMetaCache.HiveFileStatus status : fileCacheValue.getFiles()) {
+                    totalFileSize += status.getLength();
+                    if (!exceedInitialThreshold
+                            && totalFileSize >= sessionVariable.getMaxSplitSize()
+                                    * sessionVariable.getMaxInitialSplitNum()) {
+                        exceedInitialThreshold = true;
+                    }
+                }
+            }
+            fallbackSize = exceedInitialThreshold
+                    ? sessionVariable.getMaxSplitSize() : sessionVariable.getMaxInitialSplitSize();
+            fallbackSize = applyMaxFileSplitNumLimit(fallbackSize, totalFileSize);
+        }
+        boolean supportsBeSplit = !hmsTable.isHiveTransactionalTable() && !isTableLevelCountStarPushdown();
+        return selectFeSplitSizeForBe(fallbackSize, getFileFormatType(), supportsBeSplit);
     }
 
     private void splitAllFiles(List<Split> allFiles,
@@ -424,14 +467,12 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     private List<HiveExternalMetaCache.HiveFileStatus> selectFiles(List<FileCacheValue> inputCacheValue) {
-        List<HiveExternalMetaCache.HiveFileStatus> fileList = Lists.newArrayList();
+        List<Pair<HiveExternalMetaCache.HiveFileStatus, FileCacheValue>> filesWithCacheValue =
+                Lists.newArrayList();
         long totalSize = 0;
         for (FileCacheValue value : inputCacheValue) {
             for (HiveExternalMetaCache.HiveFileStatus file : value.getFiles()) {
-                file.setSplittable(value.isSplittable());
-                file.setPartitionValues(value.getPartitionValues());
-                file.setAcidInfo(value.getAcidInfo());
-                fileList.add(file);
+                filesWithCacheValue.add(Pair.of(file, value));
                 totalSize += file.getLength();
             }
         }
@@ -446,16 +487,108 @@ public class HiveScanNode extends FileQueryScanNode {
             sampleSize = estimatedRowSize * tableSample.getSampleValue();
         }
         long selectedSize = 0;
-        Collections.shuffle(fileList, new Random(tableSample.getSeek()));
-        int index = 0;
-        for (HiveExternalMetaCache.HiveFileStatus file : fileList) {
+        Collections.shuffle(filesWithCacheValue, new Random(tableSample.getSeek()));
+        List<HiveExternalMetaCache.HiveFileStatus> selectedFiles = Lists.newArrayList();
+        for (Pair<HiveExternalMetaCache.HiveFileStatus, FileCacheValue> fileWithCacheValue
+                : filesWithCacheValue) {
+            HiveExternalMetaCache.HiveFileStatus file = fileWithCacheValue.first;
+            selectedFiles.add(copyFileStatus(file, fileWithCacheValue.second));
             selectedSize += file.getLength();
-            index += 1;
             if (selectedSize >= sampleSize) {
                 break;
             }
         }
-        return fileList.subList(0, index);
+        return selectedFiles;
+    }
+
+    private HiveExternalMetaCache.HiveFileStatus copyFileStatus(
+            HiveExternalMetaCache.HiveFileStatus file, FileCacheValue cacheValue) {
+        HiveExternalMetaCache.HiveFileStatus copy = new HiveExternalMetaCache.HiveFileStatus();
+        copy.setBlockLocations(file.getBlockLocations());
+        copy.setPath(file.getPath());
+        copy.setLength(file.getLength());
+        copy.setBlockSize(file.getBlockSize());
+        copy.setModificationTime(file.getModificationTime());
+        copy.setSplittable(cacheValue.isSplittable());
+        copy.setPartitionValues(cacheValue.getPartitionValues());
+        copy.setAcidInfo(cacheValue.getAcidInfo());
+        return copy;
+    }
+
+    private static final class HiveFileScanTaskCacheKey
+            implements ExternalScanTaskCacheKey<FileCacheValue> {
+        private final long catalogId;
+        private final long tableId;
+        private final List<HivePartitionCacheKey> partitions;
+        private final long fileCacheInvalidationGeneration;
+        private final List<Long> fileCacheValueGenerations;
+
+        private HiveFileScanTaskCacheKey(long catalogId, long tableId, List<HivePartition> partitions,
+                long fileCacheInvalidationGeneration, List<FileCacheValue> fileCaches) {
+            this.catalogId = catalogId;
+            this.tableId = tableId;
+            this.partitions = partitions.stream()
+                    .map(HivePartitionCacheKey::new)
+                    .collect(Collectors.toList());
+            this.fileCacheInvalidationGeneration = fileCacheInvalidationGeneration;
+            this.fileCacheValueGenerations = fileCaches.stream()
+                    .map(FileCacheValue::getCacheGeneration)
+                    .collect(Collectors.toList());
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (this == object) {
+                return true;
+            }
+            if (!(object instanceof HiveFileScanTaskCacheKey)) {
+                return false;
+            }
+            HiveFileScanTaskCacheKey that = (HiveFileScanTaskCacheKey) object;
+            return catalogId == that.catalogId
+                    && tableId == that.tableId
+                    && fileCacheInvalidationGeneration == that.fileCacheInvalidationGeneration
+                    && fileCacheValueGenerations.equals(that.fileCacheValueGenerations)
+                    && partitions.equals(that.partitions);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(catalogId, tableId, partitions, fileCacheInvalidationGeneration,
+                    fileCacheValueGenerations);
+        }
+    }
+
+    private static final class HivePartitionCacheKey {
+        private final String inputFormat;
+        private final String path;
+        private final List<String> partitionValues;
+
+        private HivePartitionCacheKey(HivePartition partition) {
+            this.inputFormat = partition.getInputFormat();
+            this.path = partition.getPath();
+            this.partitionValues = partition.getPartitionValues() == null
+                    ? null : Collections.unmodifiableList(new ArrayList<>(partition.getPartitionValues()));
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (this == object) {
+                return true;
+            }
+            if (!(object instanceof HivePartitionCacheKey)) {
+                return false;
+            }
+            HivePartitionCacheKey that = (HivePartitionCacheKey) object;
+            return Objects.equals(inputFormat, that.inputFormat)
+                    && Objects.equals(path, that.path)
+                    && Objects.equals(partitionValues, that.partitionValues);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(inputFormat, path, partitionValues);
+        }
     }
 
     private List<FileCacheValue> getFileSplitByTransaction(HiveExternalMetaCache cache, List<HivePartition> partitions,

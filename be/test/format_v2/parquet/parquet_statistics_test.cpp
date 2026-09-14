@@ -1992,8 +1992,8 @@ TEST(NativeParquetStatisticsTest, ShreddedVariantTypedValueDrivesPageFiltering) 
                         .ok());
     EXPECT_EQ(selected_row_groups, std::vector<int>({0}));
 
-    // Object residual keys are disjoint from shredded fields, so an unrelated root residual must
-    // not disable statistics for a complete nested field.
+    // An unrelated root residual is outside the demand-driven leaf projection and does not disable
+    // typed statistics for a complete terminal field.
     footer_only_metadata = metadata;
     footer_only_metadata.row_groups[0].columns[3].meta_data.statistics.__set_max_value(
             encode_int32(2));

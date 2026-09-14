@@ -84,6 +84,7 @@ import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysShortCircuit;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
@@ -786,6 +787,9 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         // create catalog FunctionCallExpr without analyze again
         functionCallExpr = new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
         functionCallExpr.setNullableFromNereids(function.nullable());
+        if (function instanceof AlwaysShortCircuit) {
+            functionCallExpr.setForceShortCircuitEvaluation(true);
+        }
         return functionCallExpr;
     }
 

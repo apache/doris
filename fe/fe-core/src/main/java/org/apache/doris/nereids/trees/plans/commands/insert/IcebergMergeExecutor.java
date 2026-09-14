@@ -50,7 +50,22 @@ public class IcebergMergeExecutor extends BaseExternalTableInsertExecutor {
             Table targetIcebergTable,
             String labelName, NereidsPlanner planner,
             boolean emptyInsert, long jobId) {
-        super(ctx, table, labelName, planner, Optional.empty(), emptyInsert, jobId);
+        this(ctx, table, targetIcebergTable, labelName, planner,
+                Optional.empty(), emptyInsert, jobId);
+    }
+
+    /** Constructor carrying the schema pinned for UPDATE or MERGE. */
+    public IcebergMergeExecutor(ConnectContext ctx, IcebergExternalTable table,
+            String labelName, NereidsPlanner planner,
+            Optional<InsertCommandContext> insertCtx, boolean emptyInsert, long jobId) {
+        this(ctx, table, table.getIcebergTable(), labelName, planner, insertCtx, emptyInsert, jobId);
+    }
+
+    /** Constructor carrying both retained target metadata and the statement-pinned schema. */
+    public IcebergMergeExecutor(ConnectContext ctx, IcebergExternalTable table,
+            Table targetIcebergTable, String labelName, NereidsPlanner planner,
+            Optional<InsertCommandContext> insertCtx, boolean emptyInsert, long jobId) {
+        super(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId);
         this.nereidsPlanner = planner;
         this.targetIcebergTable = targetIcebergTable;
     }
@@ -77,7 +92,7 @@ public class IcebergMergeExecutor extends BaseExternalTableInsertExecutor {
     @Override
     protected void beforeExec() throws UserException {
         IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
-        transaction.beginMerge((IcebergExternalTable) table, targetIcebergTable);
+        transaction.beginMerge((IcebergExternalTable) table, targetIcebergTable, insertCtx);
         transaction.setRewrittenDeleteFilesByReferencedDataFile(
                 rewritableDeletePlan.getDeleteFilesByReferencedDataFile());
         if (conflictDetectionFilter.isPresent()) {

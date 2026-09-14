@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "format_v2/file_scan_context.h"
 #include "format_v2/parquet/native_schema_desc.h"
 #include "io/fs/file_reader.h"
 #include "util/obj_lru_cache.h"
@@ -43,6 +44,7 @@ class RuntimeProfile;
 namespace doris::format::parquet {
 
 struct NativeParquetPageIndex;
+class ParquetAdaptiveContext;
 
 // V2-owned footer/schema tree. Production planning and decoding consume this object directly;
 // Arrow metadata is intentionally not materialized from the serialized footer.
@@ -54,12 +56,28 @@ public:
     Status init_schema(bool enable_mapping_varbinary, bool enable_mapping_timestamp_tz);
     const tparquet::FileMetaData& to_thrift() const { return _metadata; }
     const NativeFieldDescriptor& schema() const { return _schema; }
-    size_t get_mem_size() const { return _parsed_size; }
+    const std::vector<int64_t>& row_group_first_rows() const { return _row_group_first_rows; }
+    size_t get_mem_size() const {
+        return _parsed_size + _row_group_first_rows.capacity() * sizeof(int64_t);
+    }
 
 private:
     tparquet::FileMetaData _metadata;
     NativeFieldDescriptor _schema;
+    std::vector<int64_t> _row_group_first_rows;
     size_t _parsed_size = 0;
+};
+
+// Physical children of one parent split share immutable footer metadata and synchronized adaptive
+// hints. Every ParquetReader still owns its file, page-index, merge-reader, and row-group state.
+struct ParquetSharedFileContext final : public FileContext {
+    std::string file_identity;
+    bool has_stable_identity = false;
+    const NativeParquetMetadata* metadata = nullptr;
+    std::unique_ptr<NativeParquetMetadata> metadata_owner;
+    ObjLRUCache::CacheHandle metadata_cache_handle;
+    // Predicate-keyed adaptive state is shared only by children of one parent split.
+    std::shared_ptr<ParquetAdaptiveContext> adaptive_scan_context;
 };
 
 struct ParquetPageCacheRange {
@@ -130,11 +148,10 @@ struct ParquetFileContext {
     // large chunks and in-memory files keep native_file.
     io::FileReaderSPtr native_row_group_file;
     io::IOContext* native_io_ctx = nullptr;
-    // V2-owned Thrift footer/schema used to construct native page/encoding readers. A cache hit is
-    // owned by native_meta_cache_handle; a miss without cache is owned by native_metadata_owner.
+    // V2-owned Thrift footer/schema used to construct native page/encoding readers. The shared
+    // parent context owns either the parsed value or its process-cache handle.
     const NativeParquetMetadata* native_metadata = nullptr;
-    std::unique_ptr<NativeParquetMetadata> native_metadata_owner;
-    ObjLRUCache::CacheHandle native_meta_cache_handle;
+    std::shared_ptr<const ParquetSharedFileContext> shared_file_context;
     int64_t native_footer_read_calls = 0;
     int64_t native_footer_cache_hits = 0;
     bool native_page_cache_enabled = false;
@@ -145,7 +162,9 @@ struct ParquetFileContext {
 
     Status open(io::FileReaderSPtr input_file_reader, io::IOContext* io_ctx, bool enable_page_cache,
                 const io::FileDescription& file_description,
-                bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false);
+                bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false,
+                std::shared_ptr<const FileContext> file_context = nullptr);
+    bool can_refine_physical_splits() const;
     Status load_native_offset_indexes(
             int row_group_id, const std::unordered_set<int>& leaf_column_ids,
             std::unordered_map<int, tparquet::OffsetIndex>* offset_indexes) const;

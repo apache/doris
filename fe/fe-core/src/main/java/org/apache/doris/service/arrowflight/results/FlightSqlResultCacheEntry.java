@@ -42,7 +42,7 @@ public final class FlightSqlResultCacheEntry implements AutoCloseable {
 
     @Override
     public void close() throws Exception {
-        vectorSchemaRoot.clear();
+        vectorSchemaRoot.close();
     }
 
     @Override

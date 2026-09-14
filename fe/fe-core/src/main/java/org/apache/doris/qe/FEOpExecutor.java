@@ -164,6 +164,7 @@ public class FEOpExecutor {
         // node ident
         params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
         params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
+        params.setConnectingFeLocalResourceGroup(Config.local_resource_group);
         params.setSql(originStmt.originStmt);
         params.setStmtIdx(originStmt.idx);
         params.setUser(ctx.getQualifiedUser());
@@ -302,6 +303,7 @@ public class FEOpExecutor {
                                         + "`query_timeout`/`insert_timeout`")
                         .put(TTransportException.END_OF_FILE, "EOF")
                         .put(TTransportException.CORRUPTED_DATA, "Corrupted data")
+                        .put(TTransportException.MESSAGE_SIZE_LIMIT, "Message size exceeds limit")
                         .build();
 
         private final String msg;

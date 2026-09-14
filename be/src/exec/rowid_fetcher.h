@@ -22,8 +22,10 @@
 #include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/internal_service.pb.h>
 
+#include <map>
 #include <memory>
 #include <semaphore>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -36,6 +38,7 @@
 namespace doris {
 
 class DorisNodesInfo;
+class RuntimeProfile;
 class RuntimeState;
 class TupleDescriptor;
 namespace io {
@@ -100,6 +103,10 @@ public:
     static const std::string InitReaderAvgTimeProfile;
     static const std::string GetBlockAvgTimeProfile;
     static const std::string FileReadLinesProfile;
+    static const std::string LanceDatasetOpenTimeProfile;
+    static const std::string LanceRowIdTakeReadTimeProfile;
+    static const std::string LanceArrowToDorisBlockTimeProfile;
+    static const std::string LanceRowIdFetchTotalTimeProfile;
     static const std::string TopNLazyMaterializationSecondPhaseLocalIOCount;
     static const std::string TopNLazyMaterializationSecondPhaseLocalIOBytes;
     static const std::string TopNLazyMaterializationSecondPhaseRemoteIOCount;
@@ -142,8 +149,16 @@ private:
             Block& result_block, PRuntimeProfileTree* pprofile, int64_t* init_reader_avg_ms,
             int64_t* get_block_avg_ms, size_t* scan_range_cnt);
 
+    static Status read_lance_rows_by_row_ids(const TFileRangeDesc& scan_range_desc,
+                                             const std::vector<uint64_t>& row_ids,
+                                             const std::vector<SlotDescriptor>& slots,
+                                             RuntimeState* runtime_state,
+                                             RuntimeProfile* runtime_profile,
+                                             const TFileScanRangeParams& scan_params, Block* block,
+                                             ExternalFetchStatistics* fetch_statistics);
+
     static Status read_external_row_from_file_mapping(
-            size_t idx, const std::multimap<segment_v2::rowid_t, size_t>& row_ids,
+            size_t idx, const std::multimap<uint64_t, size_t>& row_ids,
             const std::shared_ptr<FileMapping>& file_mapping,
             const std::vector<SlotDescriptor>& slots, const TUniqueId& query_id,
             const std::shared_ptr<RuntimeState>& runtime_state, std::vector<Block>& scan_blocks,
@@ -151,13 +166,12 @@ private:
             std::vector<ExternalFetchStatistics>& fetch_statistics,
             const TFileScanRangeParams& rpc_scan_params,
             const std::unordered_map<std::string, int>& colname_to_slot_id,
-            std::atomic<int>& producer_count, size_t scan_rows_count,
-            std::counting_semaphore<>& semaphore, std::condition_variable& cv, std::mutex& mtx,
             TupleDescriptor& tuple_desc);
 
     struct ExternalFetchStatistics {
         int64_t init_reader_ms = 0;
         int64_t get_block_ms = 0;
+        std::map<std::string, int64_t> lance_fetch_times_ns;
         std::string file_read_bytes;
         std::string file_read_times;
     };

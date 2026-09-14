@@ -46,6 +46,7 @@ public class LogicalIcebergMergeSinkToPhysicalIcebergMergeSink extends OneImplem
                     sink.getLogicalProperties(),
                     null,
                     null,
+                    sink.getWriteSchemaContext(),
                     sink.child());
         }).toRule(RuleType.LOGICAL_ICEBERG_MERGE_SINK_TO_PHYSICAL_ICEBERG_MERGE_SINK_RULE);
     }

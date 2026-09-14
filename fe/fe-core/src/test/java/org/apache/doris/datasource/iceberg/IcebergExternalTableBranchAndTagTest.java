@@ -92,9 +92,11 @@ public class IcebergExternalTableBranchAndTagTest {
         Mockito.doReturn(db).when(catalog).getDbNullable(Mockito.any());
         Mockito.doReturn(dorisTable).when(db).getTableNullable(Mockito.any());
 
-        // mock IcebergUtils.getIcebergTable to return our test icebergTable
+        // Mock writable access used by branch and tag mutations.
         mockedIcebergUtils = Mockito.mockStatic(IcebergUtils.class);
-        mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(Mockito.any()))
+        mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.any()))
+                .thenReturn(icebergTable);
+        mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.any(), Mockito.any()))
                 .thenReturn(icebergTable);
 
         // mock Env.getCurrentEnv().getEditLog().logBranchOrTag(info) to do nothing

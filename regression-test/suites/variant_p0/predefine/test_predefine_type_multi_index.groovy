@@ -15,7 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_variant_predefine_type_multi_index", "p0"){ 
+suite("test_variant_predefine_type_multi_index", "p0"){
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_common_expr_pushdown = true """
@@ -34,11 +35,11 @@ suite("test_variant_predefine_type_multi_index", "p0"){
         INDEX idx_a_d_2 (var) USING INVERTED PROPERTIES("field_pattern"="path.string") COMMENT ''
     ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
 
-    sql """insert into ${tableName} values(1, '{"path" : {"int" : 123, "decimal" : 123.123456789012, "string" : "hello"}}'),
-                                          (2, '{"path" : {"int" : 456, "decimal" : 456.456789123456, "string" : "world"}}'),
-                                          (3, '{"path" : {"int" : 789, "decimal" : 789.789123456789, "string" : "hello"}}'),
-                                          (4, '{"path" : {"int" : 100, "decimal" : 100.100123456789, "string" : "world"}}'),
-                                          (5, '{"path" : {"int" : 111, "decimal" : 111.111111111111, "string" : "hello"}}')"""
+    sql """insert into ${tableName} values(1, ${variantV2Function}('{"path" : {"int" : 123, "decimal" : 123.123456789012, "string" : "hello"}}')),
+                                          (2, ${variantV2Function}('{"path" : {"int" : 456, "decimal" : 456.456789123456, "string" : "world"}}')),
+                                          (3, ${variantV2Function}('{"path" : {"int" : 789, "decimal" : 789.789123456789, "string" : "hello"}}')),
+                                          (4, ${variantV2Function}('{"path" : {"int" : 100, "decimal" : 100.100123456789, "string" : "world"}}')),
+                                          (5, ${variantV2Function}('{"path" : {"int" : 111, "decimal" : 111.111111111111, "string" : "hello"}}'))"""
 
     sql """ set profile_level = 2"""
     sql """ set inverted_index_skip_threshold = 0 """
@@ -49,7 +50,7 @@ suite("test_variant_predefine_type_multi_index", "p0"){
     qt_sql """ select count() from ${tableName} where var['path']['string'] = 'hello' """
 
     for (int i = 0; i < 10; i++) {
-        sql """ insert into ${tableName} values(1, '{"path" : {"int" : 123, "decimal" : 123.123456789012, "string" : "hello"}}') """
+        sql """ insert into ${tableName} values(1, ${variantV2Function}('{"path" : {"int" : 123, "decimal" : 123.123456789012, "string" : "hello"}}')) """
     }
 
     trigger_and_wait_compaction(tableName, "cumulative", 1800)

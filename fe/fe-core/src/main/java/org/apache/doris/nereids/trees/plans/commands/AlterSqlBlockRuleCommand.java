@@ -28,8 +28,6 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
-import org.apache.commons.lang3.StringUtils;
-
 import java.util.Map;
 
 /**
@@ -50,7 +48,7 @@ public class AlterSqlBlockRuleCommand extends SqlBlockRuleCommand {
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         Env.getCurrentEnv().getSqlBlockRuleMgr().alterSqlBlockRule(new SqlBlockRule(ruleName,
                     sql, sqlHash, partitionNum,
-                    tabletNum, cardinality, global, enable));
+                    tabletNum, cardinality, requirePartitionFilter, global, enable));
     }
 
     @Override
@@ -70,10 +68,13 @@ public class AlterSqlBlockRuleCommand extends SqlBlockRuleCommand {
         String partitionNumString = properties.get(SCANNED_PARTITION_NUM);
         String tabletNumString = properties.get(SCANNED_TABLET_NUM);
         String cardinalityString = properties.get(SCANNED_CARDINALITY);
+        this.requirePartitionFilter = Util.getOptionalBooleanProperty(
+                properties, REQUIRE_PARTITION_FILTER_PROPERTY);
 
         SqlBlockUtil.checkSqlAndSqlHashSetBoth(sql, sqlHash);
         SqlBlockUtil.checkSqlAndLimitationsSetBoth(sql, sqlHash,
-                partitionNumString, tabletNumString, cardinalityString);
+                partitionNumString, tabletNumString, cardinalityString,
+                Boolean.TRUE.equals(requirePartitionFilter));
         this.partitionNum = Util.getLongPropertyOrDefault(partitionNumString, SqlBlockRuleCommand.LONG_NOT_SET, null,
                 SCANNED_PARTITION_NUM + " should be a long");
         this.tabletNum = Util.getLongPropertyOrDefault(tabletNumString, SqlBlockRuleCommand.LONG_NOT_SET, null,
@@ -81,9 +82,7 @@ public class AlterSqlBlockRuleCommand extends SqlBlockRuleCommand {
         this.cardinality = Util.getLongPropertyOrDefault(cardinalityString, SqlBlockRuleCommand.LONG_NOT_SET, null,
                 SCANNED_CARDINALITY + " should be a long");
         // allow null, represents no modification
-        String globalStr = properties.get(GLOBAL_PROPERTY);
-        this.global = StringUtils.isNotEmpty(globalStr) ? Boolean.parseBoolean(globalStr) : null;
-        String enableStr = properties.get(ENABLE_PROPERTY);
-        this.enable = StringUtils.isNotEmpty(enableStr) ? Boolean.parseBoolean(enableStr) : null;
+        this.global = Util.getOptionalBooleanProperty(properties, GLOBAL_PROPERTY);
+        this.enable = Util.getOptionalBooleanProperty(properties, ENABLE_PROPERTY);
     }
 }

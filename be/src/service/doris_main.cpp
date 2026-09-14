@@ -508,7 +508,7 @@ int main(int argc, char** argv) {
         exit(-1);
     }
     // add logger for thrift internal
-    apache::thrift::GlobalOutput.setOutputFunction(doris::thrift_output);
+    apache::thrift::TOutput::instance().setOutputFunction(doris::thrift_output);
 
     Status status = Status::OK();
     if (doris::config::enable_java_support) {

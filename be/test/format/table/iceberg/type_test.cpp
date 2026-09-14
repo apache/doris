@@ -40,6 +40,12 @@ TEST(BinaryTypeTest, to_string) {
     EXPECT_EQ(binary_type.type_id(), TypeID::BINARY);
 }
 
+TEST(VariantTypeTest, to_string) {
+    VariantType variant_type;
+    EXPECT_EQ(variant_type.to_string(), "variant");
+    EXPECT_EQ(variant_type.type_id(), TypeID::VARIANT);
+}
+
 TEST(FixedTypeTest, to_string) {
     FixedType fixed_type(16);
     EXPECT_EQ(fixed_type.to_string(), "fixed[16]");
@@ -123,6 +129,7 @@ TEST(PrimitiveTypesTest, from_primitive_string) {
     EXPECT_EQ(Types::from_primitive_string("string")->type_id(), TypeID::STRING);
     EXPECT_EQ(Types::from_primitive_string("uuid")->type_id(), TypeID::UUID);
     EXPECT_EQ(Types::from_primitive_string("binary")->type_id(), TypeID::BINARY);
+    EXPECT_EQ(Types::from_primitive_string("variant")->type_id(), TypeID::VARIANT);
     EXPECT_EQ(Types::from_primitive_string("fixed[16]")->type_id(), TypeID::FIXED);
     EXPECT_EQ(Types::from_primitive_string("decimal(10, 2)")->type_id(), TypeID::DECIMAL);
 }

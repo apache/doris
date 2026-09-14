@@ -2,6 +2,10 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20260901
+
+- Modified: thrift 0.16.0 -> 0.24.0
+
 ## 20260429
 
 - Added: timsort (cpp-TimSort 3.x.y)

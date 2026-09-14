@@ -1,0 +1,239 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.job.executor;
+
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalScanTaskCacheKey;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.job.common.TaskStatus;
+import org.apache.doris.job.extensions.insert.InsertTask;
+import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.job.task.AbstractTask;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.qe.ConnectContext;
+
+import org.junit.Assert;
+import org.junit.Test;
+import org.mockito.Mockito;
+
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+
+public class TaskProcessorTest {
+    @Test
+    public void testReleaseExternalScanTasksAfterInsertTask() throws Exception {
+        assertReleaseExternalScanTasks(true);
+    }
+
+    @Test
+    public void testReleaseExternalScanTasksAfterMTMVTask() throws Exception {
+        assertReleaseExternalScanTasks(false);
+    }
+
+    @Test
+    public void testRemoveContextWhenStatementCloseFails() {
+        TaskProcessor taskProcessor = new TaskProcessor(1, 1, Thread::new);
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setStatementContext(new StatementContext() {
+            @Override
+            public void close() {
+                throw new RuntimeException("injected close failure");
+            }
+        });
+        connectContext.setThreadLocalInfo();
+        try {
+            Deencapsulation.invoke(taskProcessor, "closeTaskContext");
+            Assert.fail("closeTaskContext should propagate the close failure");
+        } catch (RuntimeException e) {
+            Assert.assertEquals("injected close failure", e.getMessage());
+        } finally {
+            Assert.assertNull(ConnectContext.get());
+            taskProcessor.shutdown();
+        }
+    }
+
+    @Test
+    public void testReleaseEveryMTMVExecutionContext() throws Exception {
+        AtomicInteger loadCount = new AtomicInteger();
+        ExternalScanTaskCacheKey<String> cacheKey = new TestExternalScanTaskCacheKey();
+        MTMVTask task = new MTMVTask();
+        try {
+            for (int i = 0; i < 2; i++) {
+                ConnectContext connectContext = new ConnectContext();
+                connectContext.setThreadLocalInfo();
+                StatementContext statementContext = new StatementContext();
+                connectContext.setStatementContext(statementContext);
+                statementContext.getExternalScanTaskCache().getOrLoad(
+                        cacheKey,
+                        () -> Collections.singletonList("task-" + loadCount.incrementAndGet()));
+
+                Deencapsulation.invoke(task, "closeExecutionContext", connectContext);
+                Assert.assertNull(ConnectContext.get());
+                statementContext.getExternalScanTaskCache().getOrLoad(
+                        cacheKey,
+                        () -> Collections.singletonList("reloaded-" + loadCount.incrementAndGet()));
+            }
+            Assert.assertEquals(4, loadCount.get());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testRestorePinnedSnapshotBetweenMTMVChunks() {
+        MTMVTask task = new MTMVTask();
+        ConnectContext taskContext = new ConnectContext();
+        StatementContext taskStatementContext = new StatementContext();
+        taskContext.setStatementContext(taskStatementContext);
+        taskContext.setThreadLocalInfo();
+
+        MvccTable table = Mockito.mock(MvccTable.class);
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        Mockito.when(table.getName()).thenReturn("external_table");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(database.getFullName()).thenReturn("external_db");
+        Mockito.when(catalog.getName()).thenReturn("external_catalog");
+        MvccSnapshot pinnedSnapshot = Mockito.mock(MvccSnapshot.class);
+        Map<MvccTableInfo, MvccSnapshot> snapshots = new HashMap<>();
+        snapshots.put(new MvccTableInfo(table), pinnedSnapshot);
+        Deencapsulation.setField(task, "snapshots", snapshots);
+        Deencapsulation.invoke(task, "installTaskSnapshots", taskStatementContext);
+
+        try {
+            for (int i = 0; i < 2; i++) {
+                ConnectContext executionContext = new ConnectContext();
+                executionContext.setStatementContext(new StatementContext());
+                executionContext.setThreadLocalInfo();
+
+                Deencapsulation.invoke(task, "closeExecutionContext", executionContext, taskContext);
+
+                Assert.assertSame(taskContext, ConnectContext.get());
+                Assert.assertSame(pinnedSnapshot,
+                        MvccUtil.getSnapshotFromContext(table).orElse(null));
+            }
+        } finally {
+            taskStatementContext.close();
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testCreateMTMVTaskContextInstallsStatementContext() {
+        MTMVTask task = new MTMVTask();
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Mockito.when(mtmv.getSessionVariables()).thenReturn(Collections.emptyMap());
+        Deencapsulation.setField(task, "mtmv", mtmv);
+
+        ConnectContext taskContext = Deencapsulation.invoke(task, "createTaskContext");
+        try {
+            Assert.assertSame(taskContext, ConnectContext.get());
+            Assert.assertNotNull(taskContext.getStatementContext());
+        } finally {
+            taskContext.getStatementContext().close();
+            ConnectContext.remove();
+        }
+    }
+
+    private void assertReleaseExternalScanTasks(boolean insertTask) throws Exception {
+        AtomicInteger loadCount = new AtomicInteger();
+        AtomicReference<StatementContext> statementContext = new AtomicReference<>();
+        CountDownLatch workerReused = new CountDownLatch(1);
+        ExternalScanTaskCacheKey<String> cacheKey = new TestExternalScanTaskCacheKey();
+        TaskProcessor taskProcessor = new TaskProcessor(1, 1, Thread::new);
+        try {
+            AbstractTask externalTask;
+            if (insertTask) {
+                externalTask = new InsertTask("external-insert", null, null, null) {
+                    @Override
+                    public void runTask() {
+                        installExternalScanTaskContext(statementContext, cacheKey, loadCount);
+                    }
+                };
+            } else {
+                externalTask = new MTMVTask() {
+                    @Override
+                    public void runTask() {
+                        installExternalScanTaskContext(statementContext, cacheKey, loadCount);
+                    }
+                };
+            }
+            externalTask.setStatus(TaskStatus.PENDING);
+            externalTask.setTaskId(1L);
+
+            Assert.assertTrue(taskProcessor.addTask(externalTask));
+
+            AbstractTask nextTask = new InsertTask("next-task", null, null, null) {
+                @Override
+                public void runTask() {
+                    Assert.assertNull(ConnectContext.get());
+                    workerReused.countDown();
+                }
+            };
+            nextTask.setStatus(TaskStatus.PENDING);
+            nextTask.setTaskId(2L);
+            Assert.assertTrue(taskProcessor.addTask(nextTask));
+            Assert.assertTrue(workerReused.await(10, TimeUnit.SECONDS));
+
+            StatementContext completedStatementContext = statementContext.get();
+            Assert.assertNotNull(completedStatementContext);
+            completedStatementContext.getExternalScanTaskCache().getOrLoad(
+                    cacheKey, () -> {
+                        loadCount.incrementAndGet();
+                        return Collections.singletonList("reloaded");
+                    });
+            Assert.assertEquals(2, loadCount.get());
+        } finally {
+            taskProcessor.shutdown();
+        }
+    }
+
+    private static void installExternalScanTaskContext(AtomicReference<StatementContext> statementContextReference,
+            ExternalScanTaskCacheKey<String> cacheKey, AtomicInteger loadCount) {
+        ConnectContext connectContext = new ConnectContext();
+        StatementContext statementContext = new StatementContext();
+        connectContext.setStatementContext(statementContext);
+        connectContext.setThreadLocalInfo();
+        statementContextReference.set(statementContext);
+        try {
+            statementContext.getExternalScanTaskCache().getOrLoad(
+                    cacheKey,
+                    () -> {
+                        loadCount.incrementAndGet();
+                        return Collections.singletonList("external-task");
+                    });
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static final class TestExternalScanTaskCacheKey implements ExternalScanTaskCacheKey<String> {
+    }
+}

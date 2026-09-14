@@ -75,6 +75,10 @@ public class SqlBlockRule implements Writable, GsonPostProcessable {
     @SerializedName(value = "enable")
     private Boolean enable;
 
+    // whether partitioned table scans require partition filters
+    @SerializedName(value = "requirePartitionFilter")
+    private Boolean requirePartitionFilter;
+
     private Pattern sqlPattern;
     private Histogram tryBlockHistogram;
     private LongCounterMetric blockCount;
@@ -83,13 +87,14 @@ public class SqlBlockRule implements Writable, GsonPostProcessable {
      * Create SqlBlockRule.
      **/
     public SqlBlockRule(String name, String sql, String sqlHash, Long partitionNum, Long tabletNum, Long cardinality,
-            Boolean global, Boolean enable) {
+            Boolean requirePartitionFilter, Boolean global, Boolean enable) {
         this.name = name;
         this.sql = sql;
         this.sqlHash = sqlHash;
         this.partitionNum = partitionNum;
         this.tabletNum = tabletNum;
         this.cardinality = cardinality;
+        this.requirePartitionFilter = requirePartitionFilter;
         this.global = global;
         this.enable = enable;
         if (StringUtils.isNotEmpty(sql)) {
@@ -103,6 +108,7 @@ public class SqlBlockRule implements Writable, GsonPostProcessable {
     public SqlBlockRule() {
         this.tryBlockHistogram = new Histogram(new SlidingWindowReservoir(1000));
         this.blockCount = new LongCounterMetric("blocks", MetricUnit.ROWS, "");
+        this.requirePartitionFilter = false;
     }
 
     public String getName() {
@@ -141,6 +147,10 @@ public class SqlBlockRule implements Writable, GsonPostProcessable {
         return enable;
     }
 
+    public Boolean getRequirePartitionFilter() {
+        return requirePartitionFilter;
+    }
+
     public void setSql(String sql) {
         this.sql = sql;
     }
@@ -173,6 +183,10 @@ public class SqlBlockRule implements Writable, GsonPostProcessable {
         this.enable = enable;
     }
 
+    public void setRequirePartitionFilter(Boolean requirePartitionFilter) {
+        this.requirePartitionFilter = requirePartitionFilter;
+    }
+
     /**
      * Show SqlBlockRule info.
      **/
@@ -181,7 +195,11 @@ public class SqlBlockRule implements Writable, GsonPostProcessable {
                 this.partitionNum == null ? "0" : Long.toString(this.partitionNum),
                 this.tabletNum == null ? "0" : Long.toString(this.tabletNum),
                 this.cardinality == null ? "0" : Long.toString(this.cardinality), String.valueOf(this.global),
-                String.valueOf(this.enable));
+                String.valueOf(this.enable), toShowBoolean(this.requirePartitionFilter));
+    }
+
+    private static String toShowBoolean(Boolean value) {
+        return Boolean.TRUE.equals(value) ? "1" : "0";
     }
 
     public Histogram getTryBlockHistogram() {
@@ -210,6 +228,9 @@ public class SqlBlockRule implements Writable, GsonPostProcessable {
         if (StringUtils.isNotEmpty(this.getSql()) && !SqlBlockUtil.STRING_DEFAULT.equals(
                 this.getSql())) {
             this.setSqlPattern(Pattern.compile(this.getSql()));
+        }
+        if (this.getRequirePartitionFilter() == null) {
+            this.setRequirePartitionFilter(false);
         }
     }
 }

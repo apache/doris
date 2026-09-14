@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -35,7 +36,9 @@ import org.apache.doris.nereids.types.VariantType;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
+import org.junit.After;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mockito;
 
@@ -44,28 +47,37 @@ import java.util.Map;
 import java.util.TreeMap;
 
 public class PaimonVariantWriteAnalyzerTest {
+    private boolean originalEnableVariantV2;
+
+    @Before
+    public void saveVariantV2Config() {
+        originalEnableVariantV2 = Config.enable_variant_v2;
+    }
+
+    @After
+    public void restoreVariantV2Config() {
+        Config.enable_variant_v2 = originalEnableVariantV2;
+    }
 
     @Test
     public void testDisabledVariantV2IsRejectedDuringAnalysis() throws Exception {
         PaimonWriteTarget target = createTarget(
                 DataTypes.FIELD(0, "payload", DataTypes.VARIANT()));
 
+        Config.enable_variant_v2 = false;
         AnalysisException exception = Assert.assertThrows(
                 AnalysisException.class,
-                () -> validate(target, VariantType.COMPUTE_V2_INSTANCE, false));
+                () -> validate(target, VariantType.COMPUTE_V2_INSTANCE));
         Assert.assertTrue(exception.getMessage().contains("enable_variant_v2=true"));
     }
 
     @Test
-    public void testLegacyVariantInputIsRejectedDuringAnalysis() throws Exception {
+    public void testNativeVariantInputUsesGlobalV2Policy() throws Exception {
         PaimonWriteTarget target = createTarget(
                 DataTypes.FIELD(0, "payload", DataTypes.VARIANT()));
 
-        AnalysisException exception = Assert.assertThrows(
-                AnalysisException.class,
-                () -> validate(target, VariantType.INSTANCE, true));
-        Assert.assertTrue(exception.getMessage().contains("Variant V1"));
-        Assert.assertTrue(exception.getMessage().contains("payload"));
+        Config.enable_variant_v2 = true;
+        validate(target, VariantType.INSTANCE);
     }
 
     @Test
@@ -73,43 +85,44 @@ public class PaimonVariantWriteAnalyzerTest {
         PaimonWriteTarget target = createTarget(
                 DataTypes.FIELD(0, "payload", DataTypes.VARIANT()));
 
+        Config.enable_variant_v2 = true;
         PaimonVariantWriteAnalyzer.validate(
                 target,
                 Collections.singletonList(target.getColumn("payload")),
-                outputs("payload", VariantType.COMPUTE_V2_INSTANCE),
-                true);
+                outputs("payload", VariantType.COMPUTE_V2_INSTANCE));
     }
 
     @Test
     public void testInlineCoercionPreservesValuesBeforeCommonTypeResolution() {
         Alias integerValue = new Alias(new IntegerLiteral(1), "payload");
+        Config.enable_variant_v2 = true;
         Assert.assertEquals(
                 VariantType.COMPUTE_V2_INSTANCE,
                 PaimonVariantWriteAnalyzer.resolveInlineCoercionTarget(
-                        VariantType.INSTANCE, integerValue, true).get());
+                        VariantType.INSTANCE, integerValue).get());
+        Config.enable_variant_v2 = false;
         Assert.assertFalse(PaimonVariantWriteAnalyzer.resolveInlineCoercionTarget(
-                VariantType.INSTANCE, integerValue, false).isPresent());
+                VariantType.INSTANCE, integerValue).isPresent());
 
+        Config.enable_variant_v2 = true;
         Alias variantValue = new Alias(
                 new Cast(new StringLiteral("{}"), VariantType.INSTANCE), "payload");
         Assert.assertFalse(PaimonVariantWriteAnalyzer.resolveInlineCoercionTarget(
-                VariantType.INSTANCE, variantValue, true).isPresent());
+                VariantType.INSTANCE, variantValue).isPresent());
 
         Assert.assertEquals(
                 ArrayType.of(VariantType.COMPUTE_V2_INSTANCE),
                 PaimonVariantWriteAnalyzer.resolveInlineCoercionTarget(
-                        ArrayType.of(VariantType.INSTANCE), integerValue, true).get());
+                        ArrayType.of(VariantType.INSTANCE), integerValue).get());
     }
 
     @Test
-    public void testNestedLegacyVariantInputIsRejected() throws Exception {
+    public void testNestedNativeVariantInputUsesGlobalV2Policy() throws Exception {
         PaimonWriteTarget target = createTarget(
                 DataTypes.FIELD(0, "payload", DataTypes.ARRAY(DataTypes.VARIANT())));
 
-        AnalysisException exception = Assert.assertThrows(
-                AnalysisException.class,
-                () -> validate(target, ArrayType.of(VariantType.INSTANCE), true));
-        Assert.assertTrue(exception.getMessage().contains("payload[]"));
+        Config.enable_variant_v2 = true;
+        validate(target, ArrayType.of(VariantType.INSTANCE));
     }
 
     @Test
@@ -117,7 +130,8 @@ public class PaimonVariantWriteAnalyzerTest {
         PaimonWriteTarget target = createTarget(
                 DataTypes.FIELD(0, "payload", DataTypes.STRING()));
 
-        validate(target, org.apache.doris.nereids.types.StringType.INSTANCE, false);
+        Config.enable_variant_v2 = false;
+        validate(target, org.apache.doris.nereids.types.StringType.INSTANCE);
     }
 
     @Test
@@ -127,29 +141,23 @@ public class PaimonVariantWriteAnalyzerTest {
                 DataTypes.FIELD(1, "payload", DataTypes.VARIANT()));
         Column id = target.getColumn("id");
 
+        Config.enable_variant_v2 = false;
         PaimonVariantWriteAnalyzer.validate(
                 target,
                 Collections.singletonList(id),
-                outputs("id", IntegerType.INSTANCE),
-                false);
+                outputs("id", IntegerType.INSTANCE));
     }
 
     @Test
-    public void testLegacyVariantNestedInShapeChangingSourceIsRejected() throws Exception {
+    public void testSupportedV2ShapeChangingSourcesAreAccepted() throws Exception {
+        Config.enable_variant_v2 = true;
         PaimonWriteTarget scalarTarget = createTarget(
                 DataTypes.FIELD(0, "payload", DataTypes.VARIANT()));
-        AnalysisException arraySourceException = Assert.assertThrows(
-                AnalysisException.class,
-                () -> validate(
-                        scalarTarget, ArrayType.of(VariantType.INSTANCE), true));
-        Assert.assertTrue(arraySourceException.getMessage().contains("payload[]"));
+        validate(scalarTarget, ArrayType.of(VariantType.INSTANCE));
 
         PaimonWriteTarget arrayTarget = createTarget(
                 DataTypes.FIELD(0, "payload", DataTypes.ARRAY(DataTypes.VARIANT())));
-        AnalysisException scalarSourceException = Assert.assertThrows(
-                AnalysisException.class,
-                () -> validate(arrayTarget, VariantType.INSTANCE, true));
-        Assert.assertTrue(scalarSourceException.getMessage().contains("payload"));
+        validate(arrayTarget, VariantType.INSTANCE);
     }
 
     @Test
@@ -157,27 +165,26 @@ public class PaimonVariantWriteAnalyzerTest {
         PaimonWriteTarget target = createTarget(
                 DataTypes.FIELD(0, "payload", DataTypes.VARIANT()));
 
+        Config.enable_variant_v2 = true;
         AnalysisException mapException = Assert.assertThrows(
                 AnalysisException.class,
                 () -> validate(
-                        target, MapType.of(StringType.INSTANCE, IntegerType.INSTANCE), true));
+                        target, MapType.of(StringType.INSTANCE, IntegerType.INSTANCE)));
         Assert.assertTrue(mapException.getMessage().contains("MAP"));
 
         AnalysisException timeException = Assert.assertThrows(
                 AnalysisException.class,
-                () -> validate(target, TimeV2Type.MAX, true));
+                () -> validate(target, TimeV2Type.MAX));
         Assert.assertTrue(timeException.getMessage().contains("TIME"));
     }
 
-    private static void validate(
-            PaimonWriteTarget target, DataType sourceType, boolean enableVariantV2)
+    private static void validate(PaimonWriteTarget target, DataType sourceType)
             throws AnalysisException {
         Column column = target.getSchema().get(0);
         PaimonVariantWriteAnalyzer.validate(
                 target,
                 Collections.singletonList(column),
-                outputs(column.getName(), sourceType),
-                enableVariantV2);
+                outputs(column.getName(), sourceType));
     }
 
     private static Map<String, NamedExpression> outputs(String name, DataType dataType) {

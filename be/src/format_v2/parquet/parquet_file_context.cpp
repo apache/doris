@@ -27,6 +27,7 @@
 #include "common/cast_set.h"
 #include "common/check.h"
 #include "common/config.h"
+#include "format_v2/parquet/parquet_scan.h"
 #include "format_v2/parquet/parquet_statistics.h"
 #include "format_v2/parquet/reader/native/column_chunk_reader.h"
 #include "io/cache/cached_remote_file_reader.h"
@@ -47,7 +48,9 @@ namespace doris::format::parquet {
 constexpr size_t V2_PARQUET_FOOTER_SIZE = 8;
 
 NativeParquetMetadata::NativeParquetMetadata(tparquet::FileMetaData metadata, size_t parsed_size)
-        : _metadata(std::move(metadata)), _parsed_size(parsed_size) {
+        : _metadata(std::move(metadata)),
+          _row_group_first_rows(_metadata.row_groups.size()),
+          _parsed_size(parsed_size) {
     ExecEnv::GetInstance()->parquet_meta_tracker()->consume(get_mem_size());
 }
 
@@ -63,12 +66,20 @@ Status NativeParquetMetadata::init_schema(bool enable_mapping_varbinary,
     // Native readers address projected leaves by stable DFS IDs. Assign them only on the private
     // v2 schema object so v1's cached schema lifecycle and numbering remain untouched.
     _schema.assign_ids();
+    int64_t next_first_row = 0;
     for (size_t row_group_idx = 0; row_group_idx < _metadata.row_groups.size(); ++row_group_idx) {
         const auto& row_group = _metadata.row_groups[row_group_idx];
         if (row_group.num_rows < 0) {
             return Status::Corruption("Parquet row group {} has negative row count {}",
                                       row_group_idx, row_group.num_rows);
         }
+        if (row_group.num_rows > std::numeric_limits<int64_t>::max() - next_first_row) {
+            return Status::Corruption("Parquet row counts overflow at row group {}", row_group_idx);
+        }
+        // Generated children share this immutable prefix through the footer context. Recomputing
+        // all prefixes in every exact-row-group child would turn R-way refinement into O(R^2).
+        _row_group_first_rows[row_group_idx] = next_first_row;
+        next_first_row += row_group.num_rows;
         if (row_group.columns.size() != _schema.physical_fields_size()) {
             // All v2 planners index chunks by the native DFS leaf order, so validate cardinality
             // once before any projection, prefetch, or decoder can perform indexed access.
@@ -269,9 +280,17 @@ std::string build_page_cache_file_key(const io::FileReader& file_reader,
 
 } // namespace
 
+bool ParquetFileContext::can_refine_physical_splits() const {
+    // InMemoryFileReader lazily owns one whole-file buffer per reader. Publishing children would
+    // reload and copy that complete HTTP object once per child, so keep its initialized reader.
+    return native_file != nullptr &&
+           typeid_cast<io::InMemoryFileReader*>(native_file.get()) == nullptr;
+}
+
 Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOContext* io_ctx,
                                 bool enable_page_cache, const io::FileDescription& file_description,
-                                bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary) {
+                                bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary,
+                                std::shared_ptr<const FileContext> file_context) {
     DORIS_CHECK(input_file_reader != nullptr);
     contains_variant = false;
     if (detail::should_stage_small_http_file(input_file_reader->path().native(),
@@ -299,24 +318,61 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
         meta_cache_key.push_back(static_cast<char>(enable_mapping_varbinary));
         meta_cache_key.push_back(static_cast<char>(enable_mapping_timestamp_tz));
     }
-    size_t native_footer_size = 0;
-    if (has_stable_meta_cache_identity && meta_cache != nullptr && meta_cache->enabled() &&
-        meta_cache->lookup(meta_cache_key, &native_meta_cache_handle)) {
-        native_metadata = native_meta_cache_handle.data<NativeParquetMetadata>();
-        ++native_footer_cache_hits;
-    } else {
-        RETURN_IF_ERROR(parse_native_parquet_footer(
-                native_file, &native_metadata_owner, &native_footer_size, io_ctx,
-                enable_mapping_varbinary, enable_mapping_timestamp_tz));
-        ++native_footer_read_calls;
-        if (has_stable_meta_cache_identity && meta_cache != nullptr && meta_cache->enabled()) {
-            meta_cache->insert(meta_cache_key, native_metadata_owner.release(),
-                               &native_meta_cache_handle);
-            native_metadata = native_meta_cache_handle.data<NativeParquetMetadata>();
+    // A child must never consume a context from another physical file. Normalize optional FE
+    // identity fields with reader values before validating the parent-provided context.
+    const int64_t identity_mtime =
+            file_description.mtime != 0 ? file_description.mtime : native_file->mtime();
+    const int64_t identity_file_size = file_description.file_size >= 0
+                                               ? file_description.file_size
+                                               : cast_set<int64_t>(native_file->size());
+    const auto identity_path = native_file->path().native();
+    const std::string file_identity = fmt::format(
+            "fs[{}]={}::path[{}]={}::mtime={}::size={}::immutable={}::varbinary={}::timestamp_tz={"
+            "}",
+            file_description.fs_name.size(), file_description.fs_name, identity_path.size(),
+            identity_path, identity_mtime, identity_file_size, file_description.is_immutable,
+            enable_mapping_varbinary, enable_mapping_timestamp_tz);
+    auto load_context = [&](std::shared_ptr<const FileContext>* result) -> Status {
+        auto loaded = std::make_shared<ParquetSharedFileContext>();
+        loaded->adaptive_scan_context = std::make_shared<ParquetAdaptiveContext>();
+        loaded->file_identity = file_identity;
+        loaded->has_stable_identity = has_stable_meta_cache_identity;
+        if (has_stable_meta_cache_identity && meta_cache != nullptr && meta_cache->enabled() &&
+            meta_cache->lookup(meta_cache_key, &loaded->metadata_cache_handle)) {
+            loaded->metadata = loaded->metadata_cache_handle.data<NativeParquetMetadata>();
+            ++native_footer_cache_hits;
         } else {
-            native_metadata = native_metadata_owner.get();
+            size_t native_footer_size = 0;
+            RETURN_IF_ERROR(parse_native_parquet_footer(
+                    native_file, &loaded->metadata_owner, &native_footer_size, io_ctx,
+                    enable_mapping_varbinary, enable_mapping_timestamp_tz));
+            ++native_footer_read_calls;
+            if (has_stable_meta_cache_identity && meta_cache != nullptr && meta_cache->enabled()) {
+                meta_cache->insert(meta_cache_key, loaded->metadata_owner.release(),
+                                   &loaded->metadata_cache_handle);
+                loaded->metadata = loaded->metadata_cache_handle.data<NativeParquetMetadata>();
+            } else {
+                loaded->metadata = loaded->metadata_owner.get();
+            }
         }
+        DORIS_CHECK(loaded->metadata != nullptr);
+        *result = std::move(loaded);
+        return Status::OK();
+    };
+
+    std::shared_ptr<const FileContext> resolved_context = std::move(file_context);
+    if (resolved_context == nullptr) {
+        RETURN_IF_ERROR(load_context(&resolved_context));
     }
+    shared_file_context =
+            std::dynamic_pointer_cast<const ParquetSharedFileContext>(resolved_context);
+    if (shared_file_context == nullptr) {
+        return Status::InvalidArgument("Parquet split has an incompatible file context");
+    }
+    if (shared_file_context->file_identity != file_identity) {
+        return Status::InvalidArgument("Parquet split file context does not match file identity");
+    }
+    native_metadata = shared_file_context->metadata;
     DORIS_CHECK(native_metadata != nullptr);
 
     auto page_cache_file_key = build_page_cache_file_key(*native_file, file_description);
@@ -597,8 +653,7 @@ Status ParquetFileContext::close() {
     }
     native_row_group_file.reset();
     native_metadata = nullptr;
-    native_metadata_owner.reset();
-    native_meta_cache_handle = {};
+    shared_file_context.reset();
     native_file.reset();
     native_io_ctx = nullptr;
     native_page_cache_enabled = false;

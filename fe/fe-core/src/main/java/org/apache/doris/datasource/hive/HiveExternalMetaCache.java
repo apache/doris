@@ -42,8 +42,12 @@ import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
 import org.apache.doris.datasource.metacache.CacheSpec;
+import org.apache.doris.datasource.metacache.ExternalMetaCacheBudgetManager;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
+import org.apache.doris.datasource.metacache.MetaCacheSizeEstimate;
+import org.apache.doris.datasource.metacache.MetaCacheSizeEstimator;
+import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
 import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.fs.FileSystemCache;
 import org.apache.doris.fs.FileSystemDirectoryLister;
@@ -59,10 +63,12 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Streams;
 import lombok.Data;
+import lombok.Getter;
 import org.apache.hadoop.fs.BlockLocation;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.metastore.api.Partition;
@@ -78,9 +84,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 /**
@@ -108,6 +116,7 @@ import java.util.stream.Collectors;
  */
 public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     private static final Logger LOG = LogManager.getLogger(HiveExternalMetaCache.class);
+    private static final int PARTITION_EVENT_REPLACE_MAX_RETRIES = 8;
 
     public static final String ENGINE = "hive";
     public static final String ENTRY_SCHEMA = "schema";
@@ -119,6 +128,16 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     public static final String ERR_CACHE_INCONSISTENCY = "ERR_CACHE_INCONSISTENCY: ";
 
     private final ExecutorService fileListingExecutor;
+    // Per-catalog counters that let statement-scoped Hive scan reuse observe global file-cache
+    // version changes. ADVANCE when the global file cache is invalidated (invalidateCatalog /
+    // invalidateDb / invalidateTable / invalidatePartitions) or replaced (loadFileCacheValue),
+    // so a later alias in the same statement builds a different statement key and re-lists instead
+    // of reusing a stale FileCacheValue. Do NOT advance in paths that only read or refresh
+    // metadata without replacing file entries (e.g. schema-only reloads), or the statement cache
+    // would be invalidated for no data change. Both maps are pruned on terminal catalog removal
+    // (invalidateCatalog), because catalog ids are never reused.
+    private final Map<Long, AtomicLong> fileCacheInvalidationGenerations = new ConcurrentHashMap<>();
+    private final Map<Long, AtomicLong> fileCacheValueGenerations = new ConcurrentHashMap<>();
 
     private final EntryHandle<SchemaCacheKey, SchemaCacheValue> schemaEntry;
     private final EntryHandle<PartitionValueCacheKey, HivePartitionValues> partitionValuesEntry;
@@ -127,7 +146,12 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     private final PartitionCacheCoordinator partitionCacheCoordinator = new PartitionCacheCoordinator();
 
     public HiveExternalMetaCache(ExecutorService refreshExecutor, ExecutorService fileListingExecutor) {
-        super(ENGINE, refreshExecutor);
+        this(refreshExecutor, fileListingExecutor, new ExternalMetaCacheBudgetManager(java.util.OptionalLong.empty()));
+    }
+
+    public HiveExternalMetaCache(ExecutorService refreshExecutor, ExecutorService fileListingExecutor,
+            ExternalMetaCacheBudgetManager budgetManager) {
+        super(ENGINE, refreshExecutor, budgetManager);
         this.fileListingExecutor = fileListingExecutor;
 
         schemaEntry = registerEntry(MetaCacheEntryDef.of(
@@ -144,7 +168,8 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                 CacheSpec.of(
                         true,
                         Config.external_cache_expire_time_seconds_after_access,
-                        Config.max_hive_partition_table_cache_num)));
+                        Config.max_hive_partition_table_cache_num))
+                .withSizeEstimator((key, value) -> value.prepareForCachePublication(key)));
         partitionEntry = registerEntry(MetaCacheEntryDef.of(
                 ENTRY_PARTITION,
                 PartitionCacheKey.class,
@@ -170,30 +195,88 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         return Collections.singleton("hms");
     }
 
-    public void refreshCatalog(long catalogId) {
-        invalidateCatalog(catalogId);
-        CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
-        Map<String, String> catalogProperties = catalog == null || catalog.getProperties() == null
-                ? Maps.newHashMap()
-                : Maps.newHashMap(catalog.getProperties());
-        initCatalog(catalogId, catalogProperties);
+    @Override
+    public void invalidateCatalog(long catalogId) {
+        super.invalidateCatalog(catalogId);
+        advanceFileCacheInvalidationGeneration(catalogId);
+        // A cache-policy ALTER rebuilds the catalog's cache group under the SAME catalog id, so
+        // the generation counters must stay monotonic: statement-scoped file-task keys embed
+        // these numbers, and restarting them at zero would let a statement planned before the
+        // rebuild reuse stale file tasks afterwards. Permanent drops release the counters
+        // through onCatalogPermanentlyRemoved.
+    }
+
+    @Override
+    public void onCatalogPermanentlyRemoved(long catalogId) {
+        // The id is never reused; without this, create/use/drop churn would accumulate counter
+        // map nodes for the FE lifetime. In-flight scans cannot recreate the records because
+        // the counter helpers only allocate while the catalog's entry group exists.
+        fileCacheInvalidationGenerations.remove(catalogId);
+        fileCacheValueGenerations.remove(catalogId);
+    }
+
+    @Override
+    public void invalidateCatalogEntries(long catalogId) {
+        super.invalidateCatalogEntries(catalogId);
+        advanceFileCacheInvalidationGeneration(catalogId);
     }
 
     @Override
     public void invalidateDb(long catalogId, String dbName) {
-        schemaEntry.get(catalogId).invalidateIf(key -> matchDb(key.getNameMapping(), dbName));
-        partitionValuesEntry.get(catalogId).invalidateIf(key -> matchDb(key.getNameMapping(), dbName));
-        partitionEntry.get(catalogId).invalidateIf(key -> matchDb(key.getNameMapping(), dbName));
-        fileEntry.get(catalogId).invalidateAll();
+        // Invalidation must never re-prepare a retired catalog group; absent means nothing to do.
+        invalidateIfInitialized(schemaEntry, catalogId, key -> matchDb(key.getNameMapping(), dbName));
+        invalidateIfInitialized(partitionValuesEntry, catalogId, key -> matchDb(key.getNameMapping(), dbName));
+        invalidateIfInitialized(partitionEntry, catalogId, key -> matchDb(key.getNameMapping(), dbName));
+        MetaCacheEntry<FileCacheKey, FileCacheValue> files = fileEntry.getIfInitialized(catalogId);
+        if (files != null) {
+            files.invalidateAll();
+        }
+        advanceFileCacheInvalidationGeneration(catalogId);
+    }
+
+    private <K, V> void invalidateIfInitialized(
+            EntryHandle<K, V> handle, long catalogId, java.util.function.Predicate<K> predicate) {
+        MetaCacheEntry<K, V> entry = handle.getIfInitialized(catalogId);
+        if (entry != null) {
+            entry.invalidateIf(predicate);
+        }
     }
 
     @Override
     public void invalidateTable(long catalogId, String dbName, String tableName) {
-        schemaEntry.get(catalogId).invalidateIf(key -> matchTable(key.getNameMapping(), dbName, tableName));
-        partitionValuesEntry.get(catalogId).invalidateIf(key -> matchTable(key.getNameMapping(), dbName, tableName));
-        partitionEntry.get(catalogId).invalidateIf(key -> matchTable(key.getNameMapping(), dbName, tableName));
+        // See invalidateDb: absent groups must not be re-prepared by an HMS event thread.
+        invalidateIfInitialized(schemaEntry, catalogId, key -> matchTable(key.getNameMapping(), dbName, tableName));
+        invalidateIfInitialized(partitionValuesEntry, catalogId,
+                key -> matchTable(key.getNameMapping(), dbName, tableName));
+        invalidateIfInitialized(partitionEntry, catalogId,
+                key -> matchTable(key.getNameMapping(), dbName, tableName));
         long tableId = Util.genIdByName(dbName, tableName);
-        fileEntry.get(catalogId).invalidateIf(key -> key.isSameTable(tableId));
+        invalidateIfInitialized(fileEntry, catalogId, key -> key.isSameTable(tableId));
+        advanceFileCacheInvalidationGeneration(catalogId);
+    }
+
+    public long getFileCacheInvalidationGeneration(long catalogId) {
+        AtomicLong generation = fileCacheInvalidationGenerations.get(catalogId);
+        return generation == null ? 0L : generation.get();
+    }
+
+    private void advanceFileCacheInvalidationGeneration(long catalogId) {
+        AtomicLong generation = fileCacheInvalidationGenerations.get(catalogId);
+        if (generation == null) {
+            if (fileEntry.getIfInitialized(catalogId) == null) {
+                // Never allocate for a catalog whose entry group is gone (permanently dropped):
+                // there is nothing cached whose staleness a new counter could fence.
+                return;
+            }
+            generation = fileCacheInvalidationGenerations.computeIfAbsent(
+                    catalogId, ignored -> new AtomicLong());
+            if (fileEntry.getIfInitialized(catalogId) == null) {
+                // A permanent drop raced the creation; the id is never reused, so drop the record.
+                fileCacheInvalidationGenerations.remove(catalogId, generation);
+                return;
+            }
+        }
+        generation.incrementAndGet();
     }
 
     @Override
@@ -209,12 +292,14 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         }
 
         HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
-        if (hmsCatalog.getDbNullable(dbName) == null
-                || !(hmsCatalog.getDbNullable(dbName).getTableNullable(tableName) instanceof HMSExternalTable)) {
+        // Fetch once: the db can be dropped between checks on the HMS event thread.
+        org.apache.doris.datasource.ExternalDatabase<?> db = hmsCatalog.getDbNullable(dbName);
+        Object tableCandidate = db == null ? null : db.getTableNullable(tableName);
+        if (!(tableCandidate instanceof HMSExternalTable)) {
             invalidateTable(catalogId, dbName, tableName);
             return;
         }
-        HMSExternalTable hmsTable = (HMSExternalTable) hmsCatalog.getDbNullable(dbName).getTableNullable(tableName);
+        HMSExternalTable hmsTable = (HMSExternalTable) tableCandidate;
 
         for (String partition : partitions) {
             invalidatePartitionCache(hmsTable, partition);
@@ -270,7 +355,20 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     private FileCacheValue loadFileCacheValue(FileCacheKey key) {
-        return loadFiles(key, new FileSystemDirectoryLister(), null);
+        FileCacheValue value = loadFiles(key, new FileSystemDirectoryLister(), null);
+        AtomicLong generation = fileCacheValueGenerations.get(key.catalogId);
+        if (generation == null && fileEntry.getIfInitialized(key.catalogId) != null) {
+            generation = fileCacheValueGenerations.computeIfAbsent(
+                    key.catalogId, ignored -> new AtomicLong());
+            if (fileEntry.getIfInitialized(key.catalogId) == null) {
+                // A permanent drop raced the creation; the id is never reused.
+                fileCacheValueGenerations.remove(key.catalogId, generation);
+                generation = null;
+            }
+        }
+        // A stale in-flight load after a permanent drop must not recreate the counter record.
+        value.setCacheGeneration(generation == null ? 0L : generation.incrementAndGet());
+        return value;
     }
 
     private HMSExternalCatalog hmsCatalog(long catalogId) {
@@ -292,9 +390,13 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
 
         Map<Long, PartitionItem> idToPartitionItem = Maps.newHashMapWithExpectedSize(partitionNames.size());
         BiMap<String, Long> partitionNameToIdMap = HashBiMap.create(partitionNames.size());
+        long partitionNamePayloadBytes = 0L;
         String localDbName = nameMapping.getLocalDbName();
         String localTblName = nameMapping.getLocalTblName();
         for (String partitionName : partitionNames) {
+            partitionNamePayloadBytes = MetaCacheWeightUtils.saturatedAdd(
+                    partitionNamePayloadBytes,
+                    MetaCacheWeightUtils.estimatedStringPayloadBytes(partitionName));
             long partitionId = Util.genIdByName(catalog.getName(), localDbName, localTblName, partitionName);
             ListPartitionItem listPartitionItem = toListPartitionItem(partitionName, key.types, catalog.getName());
             idToPartitionItem.put(partitionId, listPartitionItem);
@@ -302,7 +404,15 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         }
 
         Map<Long, List<String>> partitionValuesMap = ListPartitionPrunerV2.getPartitionValuesMap(idToPartitionItem);
-        return new HivePartitionValues(idToPartitionItem, partitionNameToIdMap, partitionValuesMap);
+        HivePartitionValues partitionValues =
+                new HivePartitionValues(idToPartitionItem, partitionNameToIdMap, partitionValuesMap,
+                        partitionNamePayloadBytes, key.types == null ? 0 : key.types.size());
+        preparePartitionValuesForPublication(partitionValues);
+        return partitionValues;
+    }
+
+    private void preparePartitionValuesForPublication(HivePartitionValues partitionValues) {
+        partitionValues.rebuildSortedPartitionRangesForPublication();
     }
 
     private ListPartitionItem toListPartitionItem(String partitionName, List<Type> types, String catalogName) {
@@ -578,6 +688,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         if (fileEntry != null) {
             long tableId = Util.genIdByName(nameMapping.getLocalDbName(), nameMapping.getLocalTblName());
             fileEntry.invalidateIf(k -> k.isSameTable(tableId));
+            advanceFileCacheInvalidationGeneration(catalogId);
         }
     }
 
@@ -635,7 +746,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             List<String> values = HiveUtil.toPartitionValues(partitionName);
 
             PartitionCacheKey partKey = new PartitionCacheKey(nameMapping, values);
-            HivePartition partition = partitionEntry.getIfPresent(partKey);
+            HivePartition partition = partitionEntry.peekIfPresent(partKey);
             if (partition == null) {
                 // Partition metadata cache miss: the exact FileCacheKey cannot be rebuilt here because it
                 // needs the partition path and input format carried by HivePartition. Invalidate this
@@ -645,12 +756,14 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                 // location, forcing needless re-listing. The exact-key path below (taken when the partition
                 // is cached) already clears a listing regardless of which table id populated it.
                 fileEntry.invalidateIf(k -> k.isSameTable(tableId) && Objects.equals(k.getPartitionValues(), values));
+                advanceFileCacheInvalidationGeneration(catalogId);
                 partitionEntry.invalidateKey(partKey);
                 return;
             }
 
             fileEntry.invalidateKey(new FileCacheKey(nameMapping.getCtlId(), tableId, partition.getPath(),
                     null, partition.getPartitionValues()));
+            advanceFileCacheInvalidationGeneration(catalogId);
             partitionEntry.invalidateKey(partKey);
         }
 
@@ -715,41 +828,64 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             }
 
             PartitionValueCacheKey key = new PartitionValueCacheKey(nameMapping, partitionColumnTypes);
-            HivePartitionValues partitionValues = partitionValuesEntry.getIfPresent(key);
-            if (partitionValues == null) {
-                return;
-            }
-
-            HivePartitionValues copy = partitionValues.copy();
-            Map<Long, PartitionItem> idToPartitionItemBefore = copy.getIdToPartitionItem();
-            Map<String, Long> partitionNameToIdMapBefore = copy.getPartitionNameToIdMap();
-            Map<Long, PartitionItem> idToPartitionItem = new HashMap<>();
-
             HMSExternalCatalog catalog = hmsCatalog(catalogId);
             String localDbName = nameMapping.getLocalDbName();
             String localTblName = nameMapping.getLocalTblName();
-            for (String partitionName : partitionNames) {
-                if (partitionNameToIdMapBefore.containsKey(partitionName)) {
-                    LOG.info("addPartitionsCache partitionName:[{}] has exist in table:[{}]",
-                            partitionName, localTblName);
+            for (int attempt = 0; attempt < PARTITION_EVENT_REPLACE_MAX_RETRIES; attempt++) {
+                HivePartitionValues current = partitionValuesEntry.peekIfPresent(key);
+                if (current == null) {
+                    // Fence a concurrent miss load that may have read HMS before this event.
+                    partitionValuesEntry.invalidateKey(key);
+                    return;
+                }
+
+                HivePartitionValues copy = current.mutableCopy();
+                Map<Long, PartitionItem> allItems = copy.getIdToPartitionItem();
+                Map<String, Long> allNames = copy.getPartitionNameToIdMap();
+                Map<Long, PartitionItem> addedItems = new HashMap<>();
+                for (String partitionName : partitionNames) {
+                    if (allNames.containsKey(partitionName)) {
+                        if (attempt == 0) {
+                            LOG.info("addPartitionsCache partitionName:[{}] has exist in table:[{}]",
+                                    partitionName, localTblName);
+                        }
+                        continue;
+                    }
+                    long partitionId = Util.genIdByName(
+                            catalog.getName(), localDbName, localTblName, partitionName);
+                    ListPartitionItem item = toListPartitionItem(partitionName, key.types, catalog.getName());
+                    allItems.put(partitionId, item);
+                    addedItems.put(partitionId, item);
+                    allNames.put(partitionName, partitionId);
+                    copy.addPartitionNamePayload(partitionName);
+                }
+                if (addedItems.isEmpty()) {
+                    // Even a replay/no-op event must fence a refresh that started before the event.
+                    // Otherwise that refresh could replace this already-correct graph with stale HMS data.
+                    if (partitionValuesEntry.fenceInFlightLoadIfSame(key, current)) {
+                        return;
+                    }
                     continue;
                 }
-                long partitionId = Util.genIdByName(catalog.getName(), localDbName, localTblName, partitionName);
-                ListPartitionItem listPartitionItem = toListPartitionItem(partitionName, key.types, catalog.getName());
-                idToPartitionItemBefore.put(partitionId, listPartitionItem);
-                idToPartitionItem.put(partitionId, listPartitionItem);
-                partitionNameToIdMapBefore.put(partitionName, partitionId);
-            }
+                copy.getPartitionValuesMap().putAll(
+                        ListPartitionPrunerV2.getPartitionValuesMap(addedItems));
+                preparePartitionValuesForPublication(copy);
 
-            Map<Long, List<String>> partitionValuesMapBefore = copy.getPartitionValuesMap();
-            Map<Long, List<String>> partitionValuesMap = ListPartitionPrunerV2.getPartitionValuesMap(idToPartitionItem);
-            partitionValuesMapBefore.putAll(partitionValuesMap);
-            copy.rebuildSortedPartitionRanges();
-
-            HivePartitionValues partitionValuesCur = partitionValuesEntry.getIfPresent(key);
-            if (partitionValuesCur == partitionValues) {
-                partitionValuesEntry.put(key, copy);
+                MetaCacheEntry.ReplaceResult result = partitionValuesEntry.tryReplace(key, current, copy);
+                if (result == MetaCacheEntry.ReplaceResult.REPLACED
+                        || result == MetaCacheEntry.ReplaceResult.DISABLED) {
+                    return;
+                }
+                if (result == MetaCacheEntry.ReplaceResult.REJECTED
+                        && partitionValuesEntry.invalidateKeyIfSame(key, current)) {
+                    LOG.warn("Invalidated stale partition-values cache after add event was rejected: {}", key);
+                    return;
+                }
             }
+            // Repeated conflicts mean we cannot prove the cached graph contains this event. Force
+            // the next reader to rebuild it from HMS rather than retaining a possibly stale value.
+            partitionValuesEntry.invalidateKey(key);
+            LOG.warn("Invalidated partition-values cache after repeated add-event conflicts: {}", key);
         }
 
         private void dropPartitionsCache(ExternalTable dorisTable,
@@ -765,41 +901,63 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             }
 
             PartitionValueCacheKey key = new PartitionValueCacheKey(nameMapping, null);
-            HivePartitionValues partitionValues = partitionValuesEntry.getIfPresent(key);
-            if (partitionValues == null) {
-                return;
-            }
-
-            HivePartitionValues copy = partitionValues.copy();
-            Map<String, Long> partitionNameToIdMapBefore = copy.getPartitionNameToIdMap();
-            Map<Long, PartitionItem> idToPartitionItemBefore = copy.getIdToPartitionItem();
-            Map<Long, List<String>> partitionValuesMap = copy.getPartitionValuesMap();
-
-            for (String partitionName : partitionNames) {
-                if (!partitionNameToIdMapBefore.containsKey(partitionName)) {
-                    LOG.info("dropPartitionsCache partitionName:[{}] not exist in table:[{}]",
-                            partitionName, nameMapping.getFullLocalName());
-                    continue;
-                }
-                Long partitionId = partitionNameToIdMapBefore.remove(partitionName);
-                idToPartitionItemBefore.remove(partitionId);
-                partitionValuesMap.remove(partitionId);
-
-                if (invalidPartitionCache) {
+            if (invalidPartitionCache) {
+                for (String partitionName : partitionNames) {
                     invalidatePartitionCache(nameMapping, partitionName);
                 }
             }
 
-            copy.rebuildSortedPartitionRanges();
-            HivePartitionValues partitionValuesCur = partitionValuesEntry.getIfPresent(key);
-            if (partitionValuesCur == partitionValues) {
-                partitionValuesEntry.put(key, copy);
+            for (int attempt = 0; attempt < PARTITION_EVENT_REPLACE_MAX_RETRIES; attempt++) {
+                HivePartitionValues current = partitionValuesEntry.peekIfPresent(key);
+                if (current == null) {
+                    // Fence a concurrent miss load that may have read HMS before this event.
+                    partitionValuesEntry.invalidateKey(key);
+                    return;
+                }
+                HivePartitionValues copy = current.mutableCopy();
+                Map<String, Long> allNames = copy.getPartitionNameToIdMap();
+                Map<Long, PartitionItem> allItems = copy.getIdToPartitionItem();
+                Map<Long, List<String>> allValues = copy.getPartitionValuesMap();
+                boolean changed = false;
+                for (String partitionName : partitionNames) {
+                    Long partitionId = allNames.remove(partitionName);
+                    if (partitionId == null) {
+                        LOG.info("dropPartitionsCache partitionName:[{}] not exist in table:[{}]",
+                                partitionName, nameMapping.getFullLocalName());
+                        continue;
+                    }
+                    allItems.remove(partitionId);
+                    allValues.remove(partitionId);
+                    copy.removePartitionNamePayload(partitionName);
+                    changed = true;
+                }
+                if (!changed) {
+                    // See the add-event no-op path: event ordering still has to win over an older refresh.
+                    if (partitionValuesEntry.fenceInFlightLoadIfSame(key, current)) {
+                        return;
+                    }
+                    continue;
+                }
+                preparePartitionValuesForPublication(copy);
+                MetaCacheEntry.ReplaceResult result = partitionValuesEntry.tryReplace(key, current, copy);
+                if (result == MetaCacheEntry.ReplaceResult.REPLACED
+                        || result == MetaCacheEntry.ReplaceResult.DISABLED) {
+                    return;
+                }
+                if (result == MetaCacheEntry.ReplaceResult.REJECTED
+                        && partitionValuesEntry.invalidateKeyIfSame(key, current)) {
+                    LOG.warn("Invalidated stale partition-values cache after drop event was rejected: {}", key);
+                    return;
+                }
             }
+            partitionValuesEntry.invalidateKey(key);
+            LOG.warn("Invalidated partition-values cache after repeated drop-event conflicts: {}", key);
         }
     }
 
     @VisibleForTesting
     public void putPartitionValuesCacheForTest(PartitionValueCacheKey key, HivePartitionValues values) {
+        preparePartitionValuesForPublication(values);
         partitionValuesEntry.get(key.getNameMapping().getCtlId()).put(key, values);
     }
 
@@ -842,15 +1000,19 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     /**
      * The key of hive partition values cache.
      */
-    @Data
+    @Getter
     public static class PartitionValueCacheKey {
-        private NameMapping nameMapping;
+        private final NameMapping nameMapping;
         // Not part of cache identity.
-        private List<Type> types;
+        private final List<Type> types;
 
         public PartitionValueCacheKey(NameMapping nameMapping, List<Type> types) {
             this.nameMapping = nameMapping;
-            this.types = types;
+            this.types = types == null ? null : ImmutableList.copyOf(types);
+        }
+
+        int retainedTypeCount() {
+            return types == null ? 0 : types.size();
         }
 
         @Override
@@ -980,6 +1142,11 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     @Data
     public static class FileCacheValue {
         private final List<HiveFileStatus> files = Lists.newArrayList();
+        // Monotonic per-catalog load counter stamped by loadFileCacheValue. Statement scan-reuse
+        // keys include this value so an automatic refresh, TTL expiry reload, or capacity-eviction
+        // reload of the global entry produces a different key and cannot be reused by an earlier
+        // alias in the same statement.
+        private long cacheGeneration;
         private boolean isSplittable;
         protected List<String> partitionValues;
         private AcidInfo acidInfo;
@@ -1037,7 +1204,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         AcidInfo acidInfo;
     }
 
-    @Data
+    @Getter
     public static class HivePartitionValues {
         private BiMap<String, Long> partitionNameToIdMap;
         private Map<Long, PartitionItem> idToPartitionItem;
@@ -1045,6 +1212,12 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
 
         // Sorted partition ranges for binary search filtering.
         private SortedPartitionRanges<String> sortedPartitionRanges;
+        // Prepared once after construction/update; the cache weigher only reads this value.
+        private transient volatile MetaCacheSizeEstimate sizeEstimate;
+        // Maintained while the metadata is already being loaded or updated. Admission only reads it.
+        private long partitionNamePayloadBytes;
+        private int partitionColumnCount;
+        private transient boolean sortedPartitionRangesPrepared;
 
         public HivePartitionValues() {
         }
@@ -1052,22 +1225,101 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         public HivePartitionValues(Map<Long, PartitionItem> idToPartitionItem,
                 BiMap<String, Long> partitionNameToIdMap,
                 Map<Long, List<String>> partitionValuesMap) {
+            this(idToPartitionItem, partitionNameToIdMap, partitionValuesMap,
+                    countPartitionNamePayloadBytes(partitionNameToIdMap),
+                    inferPartitionColumnCount(partitionValuesMap));
+        }
+
+        HivePartitionValues(Map<Long, PartitionItem> idToPartitionItem,
+                BiMap<String, Long> partitionNameToIdMap,
+                Map<Long, List<String>> partitionValuesMap,
+                long partitionNamePayloadBytes,
+                int partitionColumnCount) {
             this.idToPartitionItem = idToPartitionItem;
             this.partitionNameToIdMap = partitionNameToIdMap;
             this.partitionValuesMap = partitionValuesMap;
-            this.sortedPartitionRanges = buildSortedPartitionRanges();
+            this.partitionNamePayloadBytes = partitionNamePayloadBytes;
+            this.partitionColumnCount = partitionColumnCount;
         }
 
-        public HivePartitionValues copy() {
+        HivePartitionValues mutableCopy() {
             HivePartitionValues copy = new HivePartitionValues();
-            copy.setPartitionNameToIdMap(partitionNameToIdMap == null ? null : HashBiMap.create(partitionNameToIdMap));
-            copy.setIdToPartitionItem(idToPartitionItem == null ? null : Maps.newHashMap(idToPartitionItem));
-            copy.setPartitionValuesMap(partitionValuesMap == null ? null : Maps.newHashMap(partitionValuesMap));
+            copy.partitionNameToIdMap = partitionNameToIdMap == null ? null : HashBiMap.create(partitionNameToIdMap);
+            copy.idToPartitionItem = idToPartitionItem == null ? null : Maps.newHashMap(idToPartitionItem);
+            copy.partitionValuesMap = partitionValuesMap == null ? null : Maps.newHashMap(partitionValuesMap);
+            copy.partitionNamePayloadBytes = partitionNamePayloadBytes;
+            copy.partitionColumnCount = partitionColumnCount;
             return copy;
         }
 
-        public void rebuildSortedPartitionRanges() {
-            this.sortedPartitionRanges = buildSortedPartitionRanges();
+        /** Compatibility hook for tests and benchmarks; publication uses copy-on-write updates. */
+        void sealForPublication() {
+            if (!sortedPartitionRangesPrepared) {
+                rebuildSortedPartitionRangesForPublication();
+            }
+        }
+
+        void rebuildSortedPartitionRangesForPublication() {
+            sortedPartitionRanges = buildSortedPartitionRanges();
+            sortedPartitionRangesPrepared = true;
+        }
+
+        MetaCacheSizeEstimate prepareForCachePublication(PartitionValueCacheKey key) {
+            if (sizeEstimate == null) {
+                sizeEstimate = MetaCacheSizeEstimator.estimateSafely(
+                        "hive_partition_values_preparation_failed", () -> {
+                            prepareSizeEstimate(key);
+                            return getSizeEstimate();
+                        });
+            }
+            return sizeEstimate;
+        }
+
+        public MetaCacheSizeEstimate getSizeEstimate() {
+            MetaCacheSizeEstimate result = sizeEstimate;
+            return result == null ? MetaCacheSizeEstimate.incomplete("estimate_not_prepared") : result;
+        }
+
+        void prepareSizeEstimate(PartitionValueCacheKey key) {
+            sizeEstimate = HiveCacheSizeEstimator.estimatePartitionValuesEntry(key, this);
+        }
+
+        long getPartitionNamePayloadBytes() {
+            return partitionNamePayloadBytes;
+        }
+
+        int getPartitionColumnCount() {
+            return partitionColumnCount;
+        }
+
+        private void addPartitionNamePayload(String partitionName) {
+            partitionNamePayloadBytes = MetaCacheWeightUtils.saturatedAdd(
+                    partitionNamePayloadBytes,
+                    MetaCacheWeightUtils.estimatedStringPayloadBytes(partitionName));
+        }
+
+        private void removePartitionNamePayload(String partitionName) {
+            partitionNamePayloadBytes = Math.max(0L, partitionNamePayloadBytes
+                    - MetaCacheWeightUtils.estimatedStringPayloadBytes(partitionName));
+        }
+
+        private static long countPartitionNamePayloadBytes(BiMap<String, Long> names) {
+            long payloadBytes = 0L;
+            if (names != null) {
+                for (String name : names.keySet()) {
+                    payloadBytes = MetaCacheWeightUtils.saturatedAdd(
+                            payloadBytes, MetaCacheWeightUtils.estimatedStringPayloadBytes(name));
+                }
+            }
+            return payloadBytes;
+        }
+
+        private static int inferPartitionColumnCount(Map<Long, List<String>> values) {
+            if (values == null || values.isEmpty()) {
+                return 0;
+            }
+            List<String> first = values.values().iterator().next();
+            return first == null ? 0 : first.size();
         }
 
         public java.util.Optional<SortedPartitionRanges<String>> getSortedPartitionRanges() {

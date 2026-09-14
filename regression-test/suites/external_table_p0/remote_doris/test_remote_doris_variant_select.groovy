@@ -111,9 +111,9 @@ suite("test_remote_doris_variant_select", "p0,external,doris,external_docker,ext
         sql """
             select * from `${catalog_arrow_name}`.`${db_name}`.`test_remote_doris_variant_select_t` order by id
         """
-        // check exception message contains
-        exception "External Variant is supported only for Parquet files in FileScannerV2; "
-                + "file format ARROW is not supported"
+        // Keep the concatenation inside one DSL argument; a leading '+' starts a unary expression.
+        exception("External Variant is supported only for Parquet files in FileScannerV2; "
+                + "file format ARROW is not supported")
     }
 
     qt_sql """

@@ -249,4 +249,29 @@ public class AbstractPaimonPropertiesTest {
         Assertions.assertEquals(
                 "7", testProps.getCatalogOptionsMap().get("table-default.scan.snapshot-id"));
     }
+
+    @Test
+    public void testWeightGovernanceDisablesSdkMetadataCacheUnlessUserConfigured() {
+        // Doris weight governance owns retention: Paimon's own CachingCatalog would retain
+        // snapshot/statistics/manifest caches outside the budget, so it is disabled by default.
+        Map<String, String> props = new HashMap<>();
+        props.put("warehouse", "file:///tmp/warehouse");
+        TestPaimonProperties governed = new TestPaimonProperties(props);
+        governed.setDisableSdkMetadataCacheByDefault(true);
+        governed.buildCatalogOptions();
+        Assertions.assertEquals("false", governed.getCatalogOptionsMap().get("cache-enabled"));
+
+        // An explicit user choice wins over the default.
+        Map<String, String> userProps = new HashMap<>(props);
+        userProps.put("paimon.cache-enabled", "true");
+        TestPaimonProperties userConfigured = new TestPaimonProperties(userProps);
+        userConfigured.setDisableSdkMetadataCacheByDefault(true);
+        userConfigured.buildCatalogOptions();
+        Assertions.assertEquals("true", userConfigured.getCatalogOptionsMap().get("cache-enabled"));
+
+        // Without weight governance the SDK default stays untouched.
+        TestPaimonProperties ungoverned = new TestPaimonProperties(new HashMap<>(props));
+        ungoverned.buildCatalogOptions();
+        Assertions.assertFalse(ungoverned.getCatalogOptionsMap().containsKey("cache-enabled"));
+    }
 }

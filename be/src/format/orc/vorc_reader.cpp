@@ -81,6 +81,7 @@
 #include "exprs/vin_predicate.h"
 #include "exprs/vruntimefilter_wrapper.h"
 #include "format/orc/orc_file_reader.h"
+#include "format/table/iceberg_default_value.h"
 #include "format/table/iceberg_reader.h"
 #include "format/table/partition_column_filler.h"
 #include "format/table/transactional_hive_common.h"
@@ -559,6 +560,7 @@ Status OrcReader::init_reader(
 
     RETURN_IF_ERROR(_create_file_reader());
     RETURN_IF_ERROR(_init_read_columns());
+    _nested_initial_default_values.clear();
     return Status::OK();
 }
 
@@ -1564,12 +1566,16 @@ Status OrcReader::_fill_missing_columns(
             // PT1 => dest primitive type
             ColumnPtr result_column_ptr;
             RETURN_IF_ERROR(ctx->execute(block, result_column_ptr));
+            // Row-id fetch appends several batches into one Block, so this column must end up
+            // holding the rows it already carries plus the rows this batch produced. Sizing by
+            // `rows` alone truncates the accumulated column; `block->rows()` cannot be used either
+            // because the first column of _src_block_ptr may not be filled by the reader.
+            const size_t filled_rows =
+                    block->get_by_position((*_col_name_to_block_idx)[kv.first]).column->size();
             if (result_column_ptr->use_count() == 1) {
-                // call resize because the first column of _src_block_ptr may not be filled by reader,
-                // so _src_block_ptr->rows() may return wrong result, cause the column created by `ctx->execute()`
-                // has only one row.
+                // call resize because the column created by `ctx->execute()` has only one row.
                 auto mutable_column = IColumn::mutate(std::move(result_column_ptr));
-                mutable_column->resize(rows);
+                mutable_column->resize(filled_rows + rows);
                 result_column_ptr = std::move(mutable_column);
                 // result_column_ptr maybe a ColumnConst, convert it to a normal column
                 result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
@@ -2290,7 +2296,8 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         const auto* orc_struct = dynamic_cast<const orc::StructVectorBatch*>(cvb);
         auto& doris_struct = static_cast<ColumnStruct&>(*data_column);
         std::map<int, int> read_fields;
-        std::set<int> missing_fields;
+        std::set<int> schema_missing_fields;
+        std::set<int> projected_out_fields;
         const auto* doris_struct_type =
                 assert_cast<const DataTypeStruct*>(remove_nullable(data_type).get());
 
@@ -2305,7 +2312,7 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         for (int i = 0; i < doris_struct.tuple_size(); ++i) {
             const auto& table_column_name = doris_struct_type->get_name_by_position(i);
             if (!root_node->children_column_exists(table_column_name)) {
-                missing_fields.insert(i);
+                schema_missing_fields.insert(i);
                 continue;
             }
             const auto& file_column_name = root_node->children_file_column_name(table_column_name);
@@ -2321,25 +2328,45 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
                            << "], table_column: " << table_column_name
                            << ", file_column: " << file_column_name_lower;
             } else {
-                missing_fields.insert(i);
-                VLOG_DEBUG << "[OrcReader] Missing field: doris_field[" << i
+                projected_out_fields.insert(i);
+                VLOG_DEBUG << "[OrcReader] Projected-out field: doris_field[" << i
                            << "], table_column: " << table_column_name
                            << ", file_column: " << file_column_name_lower
-                           << " (not found in ORC file)";
+                           << " (not found in projected ORC type)";
             }
         }
 
-        for (int missing_field : missing_fields) {
-            ColumnPtr& doris_field = doris_struct.get_column_ptr(missing_field);
-            if (!doris_field->is_nullable()) {
-                return Status::InternalError(
-                        "Child field of '{}' is not nullable, but is missing in orc file",
-                        col_name);
-            }
+        // The selected ORC type can omit physical struct children that were not requested. They
+        // still exist in the file schema, so they must not be treated as Iceberg schema-evolution
+        // misses. Append placeholders only to keep every ColumnStruct child at the same size; the
+        // projected-out values are never exposed to the query.
+        for (int projected_out_field : projected_out_fields) {
+            ColumnPtr& doris_field = doris_struct.get_column_ptr(projected_out_field);
             auto mutable_field = IColumn::mutate(std::move(doris_field));
-            reinterpret_cast<ColumnNullable*>(mutable_field.get())
-                    ->insert_many_defaults(num_values);
+            mutable_field->insert_many_defaults(num_values);
             doris_field = std::move(mutable_field);
+        }
+
+        for (int missing_field : schema_missing_fields) {
+            ColumnPtr& doris_field = doris_struct.get_column_ptr(missing_field);
+            const auto& doris_name = doris_struct_type->get_name_by_position(missing_field);
+            const auto& doris_type = doris_struct_type->get_element(missing_field);
+            const auto* iceberg_field = root_node->get_missing_column_field(doris_name);
+            if (iceberg_field != nullptr) {
+                RETURN_IF_ERROR(iceberg::append_initial_default(
+                        *iceberg_field, doris_type, num_values, &_nested_initial_default_values,
+                        &doris_field, &_state->timezone_obj()));
+            } else {
+                if (!doris_field->is_nullable()) {
+                    return Status::InternalError(
+                            "Child field of '{}' is not nullable, but is missing in orc file",
+                            col_name);
+                }
+                auto mutable_field = IColumn::mutate(std::move(doris_field));
+                reinterpret_cast<ColumnNullable*>(mutable_field.get())
+                        ->insert_many_defaults(num_values);
+                doris_field = std::move(mutable_field);
+            }
         }
 
         for (auto read_field : read_fields) {
@@ -2353,7 +2380,7 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
                     field_name, doris_field, doris_type,
                     root_node->get_children_node(
                             doris_struct_type->get_name_by_position(read_field.first)),
-                    orc_type, orc_field, num_values));
+                    orc_type, orc_field, num_values, orc_struct));
         }
         return Status::OK();
     }
@@ -2368,7 +2395,8 @@ template <bool is_filter>
 Status OrcReader::_orc_column_to_doris_column(
         const std::string& col_name, ColumnPtr& doris_column, const DataTypePtr& data_type,
         std::shared_ptr<TableSchemaChangeHelper::Node> root_node, const orc::Type* orc_column_type,
-        const orc::ColumnVectorBatch* cvb, size_t num_values) {
+        const orc::ColumnVectorBatch* cvb, size_t num_values,
+        const orc::ColumnVectorBatch* parent_cvb) {
     DataTypePtr resolved_type;
     ColumnPtr resolved_column;
     MutableColumnPtr data_column;
@@ -2422,8 +2450,18 @@ Status OrcReader::_orc_column_to_doris_column(
             fill_orc_null_map(nullable_column, cvb, num_values);
         } else {
             if (cvb->hasNulls) {
-                return Status::InternalError("Not nullable column {} has null values in orc file",
-                                             col_name);
+                if (parent_cvb == nullptr || !parent_cvb->hasNulls) {
+                    return Status::InternalError(
+                            "Not nullable column {} has null values in orc file", col_name);
+                }
+                DORIS_CHECK_GE(parent_cvb->capacity, num_values);
+                DORIS_CHECK_GE(cvb->capacity, num_values);
+                for (size_t i = 0; i < num_values; ++i) {
+                    if (!cvb->notNull[i] && parent_cvb->notNull[i]) {
+                        return Status::InternalError(
+                                "Not nullable column {} has null values in orc file", col_name);
+                    }
+                }
             }
             data_column = std::move(mutable_resolved_column);
         }

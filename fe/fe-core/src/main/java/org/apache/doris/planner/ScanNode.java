@@ -72,6 +72,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -99,6 +100,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     protected long selectedPartitionNum = 0;
     protected int selectedSplitNum = 0;
+    private boolean hasPartitionPredicate = false;
 
     // create a mapping between output slot's id and project expr
     Map<SlotId, Expr> outputSlotToProjectExpr = new HashMap<>();
@@ -110,9 +112,9 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     protected List<Column> columns;
 
     // Save the id of backends which this scan node will be executed on.
-    // This is also important for local shuffle logic.
+    // Iteration order is part of the semantics for point-query and selection-sensitive consumers.
     // Now only OlapScanNode and FileQueryScanNode implement this.
-    protected HashSet<Long> scanBackendIds = new HashSet<>();
+    protected Set<Long> scanBackendIds = new LinkedHashSet<>();
     // Immutable scan context used for evolving scan-related metadata.
     protected final ScanContext scanContext;
 
@@ -136,6 +138,17 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     public TupleDescriptor getTupleDesc() {
         return desc;
+    }
+
+    /**
+     * Whether this scan hands out its splits lazily through a batch {@link SplitSource} that the
+     * BE fetches from the FE while it is scanning (external-table batch mode, see
+     * {@link SplitGenerator#isBatchMode()}). Such a scan needs its coordinator alive until the BE
+     * has finished scanning, even after the FE is done dispatching the query: closing the
+     * coordinator releases the split source ({@link #stop()}) and the BE's next split fetch fails.
+     */
+    public boolean hasBatchSplitSource() {
+        return splitAssignment != null;
     }
 
     protected abstract void createScanRangeLocations() throws UserException;
@@ -204,6 +217,33 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     public TableIf getTableIf() {
         return desc.getTable();
+    }
+
+    public boolean isPartitionedTable() {
+        return getTableIf() != null && getTableIf().isPartitionedTable();
+    }
+
+    public boolean hasPartitionPredicate() {
+        return hasPartitionPredicate;
+    }
+
+    public void setHasPartitionPredicate(boolean hasPartitionPredicate) {
+        this.hasPartitionPredicate = hasPartitionPredicate;
+    }
+
+    static boolean containsPartitionPredicate(List<Column> partitionColumns, TupleDescriptor tupleDescriptor,
+            List<Expr> conjuncts, PartitionInfo partitionInfo) {
+        for (Column partitionColumn : partitionColumns) {
+            SlotDescriptor slotDescriptor = tupleDescriptor.getColumnSlot(partitionColumn.getName());
+            if (slotDescriptor == null) {
+                continue;
+            }
+            if (createPartitionFilter(slotDescriptor, conjuncts, partitionInfo) != null
+                    || createColumnRange(slotDescriptor, conjuncts, partitionInfo).hasFilter()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static ColumnRange createColumnRange(SlotDescriptor desc,
@@ -353,7 +393,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         }
     }
 
-    private PartitionColumnFilter createPartitionFilter(SlotDescriptor desc, List<Expr> conjuncts,
+    protected static PartitionColumnFilter createPartitionFilter(SlotDescriptor desc, List<Expr> conjuncts,
             PartitionInfo partitionsInfo) {
         PartitionColumnFilter partitionColumnFilter = null;
         for (Expr expr : conjuncts) {

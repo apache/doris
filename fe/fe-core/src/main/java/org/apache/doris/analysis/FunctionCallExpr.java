@@ -78,6 +78,13 @@ public class FunctionCallExpr extends Expr {
     // this field is set by nereids, so we would not get arg types by the children.
     private Optional<List<Type>> argTypesForNereids = Optional.empty();
 
+    // Planner-generated control flow may require SQL branch semantics independently of session state.
+    private boolean forceShortCircuitEvaluation = false;
+
+    public void setForceShortCircuitEvaluation(boolean forceShortCircuitEvaluation) {
+        this.forceShortCircuitEvaluation = forceShortCircuitEvaluation;
+    }
+
     public void setAggFnParams(FunctionParams aggFnParams) {
         this.aggFnParams = aggFnParams;
     }
@@ -214,6 +221,7 @@ public class FunctionCallExpr extends Expr {
         // Just inherit the function object from 'e'.
         fn = e.fn;
         this.isMergeAggFn = e.isMergeAggFn;
+        this.forceShortCircuitEvaluation = e.forceShortCircuitEvaluation;
         if (params.exprs() != null) {
             children.addAll(params.exprs());
         }
@@ -236,6 +244,7 @@ public class FunctionCallExpr extends Expr {
         this.isMergeAggFn = other.isMergeAggFn;
         fn = other.fn;
         this.isTableFnCall = other.isTableFnCall;
+        this.forceShortCircuitEvaluation = other.forceShortCircuitEvaluation;
     }
 
     public static int computeJsonDataType(Type type) {
@@ -303,7 +312,8 @@ public class FunctionCallExpr extends Expr {
         }
         return /*opcode == o.opcode && aggOp == o.aggOp &&*/ fnName.equals(o.fnName)
                 && fnParams.isDistinct() == o.fnParams.isDistinct()
-                && fnParams.isStar() == o.fnParams.isStar();
+                && fnParams.isStar() == o.fnParams.isStar()
+                && forceShortCircuitEvaluation == o.forceShortCircuitEvaluation;
     }
 
     private String paramsToSql() {
@@ -639,7 +649,9 @@ public class FunctionCallExpr extends Expr {
             msg.node_type = TExprNodeType.FUNCTION_CALL;
         }
 
-        if (ConnectContext.get() != null) {
+        if (forceShortCircuitEvaluation) {
+            msg.setShortCircuitEvaluation(true);
+        } else if (ConnectContext.get() != null) {
             msg.setShortCircuitEvaluation(ConnectContext.get().getSessionVariable().isShortCircuitEvaluation());
         }
     }
@@ -757,6 +769,7 @@ public class FunctionCallExpr extends Expr {
         int result = super.hashCode();
         result = 31 * result + Objects.hashCode(opcode);
         result = 31 * result + Objects.hashCode(fnName);
+        result = 31 * result + Objects.hashCode(forceShortCircuitEvaluation);
         return result;
     }
 

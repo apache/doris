@@ -22,6 +22,7 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
@@ -50,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseErrorToNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseErrorToValue;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TryParseToVariant;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
@@ -63,6 +65,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPreFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
@@ -187,9 +190,7 @@ public class NereidsLoadUtils {
                 if (exprMapColumnNames.contains(colName)) {
                     castScanProjects.add(slotReference);
                 } else {
-                    castScanProjects.add(new Alias(
-                            TypeCoercionUtils.castIfNotSameType(slotReference, DataType.fromCatalogType(col.getType())),
-                            colName));
+                    castScanProjects.add(new Alias(castScanSlotForLoad(slotReference, col), colName));
                 }
             } else {
                 castScanProjects.add(slotReference);
@@ -310,6 +311,11 @@ public class NereidsLoadUtils {
                                 newProjects.add(
                                         new Alias(new JsonbParseErrorToValue(realExpr), expression.getName()));
                             }
+                        } else if (shouldParseVariantForLoad(expression, column)) {
+                            Expression realExpr = expression instanceof Alias ? ((Alias) expression).child()
+                                    : expression;
+                            newProjects.add(new Alias(new TryParseToVariant(realExpr,
+                                    (VariantType) DataType.fromCatalogType(column.getType())), expression.getName()));
                         } else {
                             newProjects.add(expression);
                         }
@@ -321,6 +327,21 @@ public class NereidsLoadUtils {
                 return new LogicalProject(newProjects, project.child());
             }).toRule(RuleType.REWRITE_LOAD_PROJECT_FOR_STREAM_LOAD);
         }
+    }
+
+    private static Expression castScanSlotForLoad(Expression expression, Column targetColumn) {
+        if (shouldParseVariantForLoad(expression, targetColumn)) {
+            return new TryParseToVariant(expression,
+                    (VariantType) DataType.fromCatalogType(targetColumn.getType()));
+        }
+        return TypeCoercionUtils.castIfNotSameType(
+                expression, DataType.fromCatalogType(targetColumn.getType()));
+    }
+
+    private static boolean shouldParseVariantForLoad(Expression expression, Column targetColumn) {
+        return Config.enable_variant_v2
+                && targetColumn.getType().isVariantType()
+                && expression.getDataType().isStringLikeType();
     }
 
     /** AddPostFilter

@@ -35,6 +35,7 @@ public class ClearContextStatus implements CustomRewriter {
         jobContext.getCascadesContext().getStatementContext().getRewrittenCteProducer().clear();
         jobContext.getCascadesContext().getStatementContext().getCteIdToOutputIds().clear();
         jobContext.getCascadesContext().getStatementContext().getConsumerIdToFilters().clear();
+        jobContext.getCascadesContext().getStatementContext().getConsumerIdToLimitRows().clear();
         return plan;
     }
 }

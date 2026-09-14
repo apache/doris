@@ -567,6 +567,64 @@ class FilterEstimationTest {
         Assertions.assertEquals(1000 * 7.0 / 10.0, estimated.getRowCount());
     }
 
+    // a not in (1, 2, ..., 10)
+    // a belongs to [1, 10], ndv = 10, the options cover the whole ndv
+    // [in rows] is over-estimated as full coverage, so [not in rows] falls back to a default coefficient
+    // instead of being estimated as 0 (see visitNot).
+    @Test
+    public void testNotInFullCoverage() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        ArrayList<Expression> options = new ArrayList<>();
+        for (int i = 1; i <= 10; i++) {
+            options.add(new IntegerLiteral(i));
+        }
+        InPredicate inPredicate = new InPredicate(a, options);
+        Not not = new Not(inPredicate);
+        Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(10)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(1)
+                .setMinExpr(new IntLiteral(1))
+                .setMaxValue(10)
+                .setMaxExpr(new IntLiteral(10));
+        slotToColumnStat.put(a, builder.build());
+        Statistics stat = new Statistics(1000, slotToColumnStat);
+        FilterEstimation filterEstimation = new FilterEstimation();
+        Statistics estimated = filterEstimation.estimate(not, stat);
+        Assertions.assertEquals(1000 * (1 - FilterEstimation.DEFAULT_IN_COEFFICIENT),
+                estimated.getRowCount(), 0.01);
+    }
+
+    // a not in (1, 2, ..., 9)
+    // a belongs to [1, 10], ndv = 10, the options cover 9/10 of the ndv
+    // [not in rows] should still be estimated as [total rows] - [in rows] without fall back
+    @Test
+    public void testNotInAlmostFullCoverage() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        ArrayList<Expression> options = new ArrayList<>();
+        for (int i = 1; i <= 9; i++) {
+            options.add(new IntegerLiteral(i));
+        }
+        InPredicate inPredicate = new InPredicate(a, options);
+        Not not = new Not(inPredicate);
+        Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(10)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(1)
+                .setMinExpr(new IntLiteral(1))
+                .setMaxValue(10)
+                .setMaxExpr(new IntLiteral(10));
+        slotToColumnStat.put(a, builder.build());
+        Statistics stat = new Statistics(1000, slotToColumnStat);
+        FilterEstimation filterEstimation = new FilterEstimation();
+        Statistics estimated = filterEstimation.estimate(not, stat);
+        Assertions.assertEquals(1000 * 1.0 / 10.0, estimated.getRowCount(), 0.01);
+    }
+
     // c>100
     // a is primary-key, a.ndv is reduced
     // b is normal, b.ndv is smaller: newNdv = ndv * (1 - Math.pow(1 - selectivity, rowCount / ndv));

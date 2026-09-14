@@ -32,7 +32,7 @@ all: ${GEN_OBJECTS} ${OBJECTS}
 $(shell mkdir -p ${BUILD_DIR}/gen_java)
 
 THRIFT_CPP_ARGS = -I ${CURDIR} -I ${BUILD_DIR}/thrift/ --gen cpp:moveable_types,no_skeleton -out ${BUILD_DIR}/gen_cpp --allow-64bit-consts -strict
-THRIFT_JAVA_ARGS = -I ${CURDIR} -I ${BUILD_DIR}/thrift/ --gen java:fullcamel -out ${BUILD_DIR}/gen_java --allow-64bit-consts -strict
+THRIFT_JAVA_ARGS = -I ${CURDIR} -I ${BUILD_DIR}/thrift/ --gen java:fullcamel,generated_annotations=suppress -out ${BUILD_DIR}/gen_java --allow-64bit-consts -strict
 
 ${BUILD_DIR}/gen_cpp:
 	mkdir -p $@

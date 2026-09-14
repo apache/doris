@@ -111,6 +111,16 @@ BvarLatencyRecorderWithTag g_bvar_ms_list_snapshot("ms", "list_snapshot");
 BvarLatencyRecorderWithTag g_bvar_ms_clone_instance("ms", "clone_instance");
 BvarLatencyRecorderWithTag g_bvar_ms_compact_snapshot("ms", "compact_snapshot");
 BvarLatencyRecorderWithTag g_bvar_ms_update_packed_file_info("ms", "update_packed_file_info");
+bvar::Adder<int64_t> g_bvar_ms_rate_limit_trigger_fdb_cluster(
+        "ms", "rate_limit_trigger_fdb_cluster");
+bvar::Adder<int64_t> g_bvar_ms_rate_limit_trigger_fdb_client_thread(
+        "ms", "rate_limit_trigger_fdb_client_thread");
+bvar::Adder<int64_t> g_bvar_ms_rate_limit_trigger_ms_resource(
+        "ms", "rate_limit_trigger_ms_resource");
+bvar::Adder<int64_t> g_bvar_ms_rate_limit_trigger_test_injection(
+        "ms", "rate_limit_trigger_test_injection");
+bvar::Status<int64_t> g_bvar_ms_cpu_usage_percent("ms_process_cpu_usage_percent", -1);
+bvar::Status<int64_t> g_bvar_ms_memory_usage_percent("ms_process_memory_usage_percent", -1);
 bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_update_delete_bitmap_fail_counter_minute("ms", "update_delete_bitmap_fail", &g_bvar_update_delete_bitmap_fail_counter, 60);
 bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;

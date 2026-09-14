@@ -24,6 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -32,7 +33,6 @@ import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.LogicalPlanBuilderAssistant;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
@@ -48,17 +48,16 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Explainable;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.commands.IcebergMergeCommand;
+import org.apache.doris.nereids.trees.plans.commands.PaimonMergeCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -137,6 +136,11 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
                     source, onClause, matchedClauses, notMatchedClauses).run(ctx, executor);
             return;
         }
+        if (table instanceof PaimonExternalTable) {
+            new PaimonMergeCommand(targetNameParts, targetAlias, cte,
+                    source, onClause, matchedClauses, notMatchedClauses).run(ctx, executor);
+            return;
+        }
         new InsertIntoTableCommand(completeQueryPlan(ctx), Optional.empty(), Optional.empty(),
                 Optional.empty(), true, Optional.empty()).run(ctx, executor);
     }
@@ -151,6 +155,10 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
         TableIf table = getTargetTableIf(ctx);
         if (table instanceof IcebergExternalTable) {
             return new IcebergMergeCommand(targetNameParts, targetAlias, cte,
+                    source, onClause, matchedClauses, notMatchedClauses).getExplainPlan(ctx);
+        }
+        if (table instanceof PaimonExternalTable) {
+            return new PaimonMergeCommand(targetNameParts, targetAlias, cte,
                     source, onClause, matchedClauses, notMatchedClauses).getExplainPlan(ctx);
         }
         return completeQueryPlan(ctx);
@@ -175,7 +183,7 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
     }
 
     /**
-     * generate target right outer join source.
+     * generate target (inner | right outer) join source, see {@link MergeUtils#buildMergeJoin}.
      */
     private LogicalPlan generateBasePlan() {
         LogicalPlan plan = LogicalPlanBuilderAssistant.withCheckPolicy(
@@ -187,9 +195,7 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
         if (targetAlias.isPresent()) {
             plan = new LogicalSubQueryAlias<>(targetAlias.get(), plan);
         }
-        return new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
-                ImmutableList.of(), ImmutableList.of(onClause),
-                source, plan, JoinReorderContext.EMPTY);
+        return MergeUtils.buildMergeJoin(plan, source, onClause, !notMatchedClauses.isEmpty());
     }
 
     /**

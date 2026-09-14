@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.VariableAnnotation;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -41,6 +42,7 @@ import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints;
 import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints.Action;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.VariableMgr.VarAttr;
+import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.thrift.TGroupCommitMode;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TQueryOptions;
@@ -113,6 +115,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SQL_MODE = "sql_mode";
     public static final String WORKLOAD_VARIABLE = "workload_group";
     public static final String RESOURCE_VARIABLE = "resource_group";
+    public static final String PREFERRED_BACKEND_SELECTION_KEY = "preferred_backend_selection_key";
+    public static final String BACKEND_SELECTION_MODE = "backend_selection_mode";
+    public static final String ENABLE_LOAD_BACKEND_SELECTION = "enable_load_backend_selection";
     public static final String AUTO_COMMIT = "autocommit";
     public static final String TX_ISOLATION = "tx_isolation";
     public static final String TX_READ_ONLY = "tx_read_only";
@@ -203,6 +208,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SKIP_PRUNE_PREDICATE = "skip_prune_predicate";
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
     public static final String ENABLE_HIVE_SQL_CACHE = "enable_hive_sql_cache";
+    public static final String ENABLE_EXTERNAL_SCAN_TASK_REUSE = "enable_external_scan_task_reuse";
     public static final String ENABLE_QUERY_CACHE = "enable_query_cache";
     public static final String QUERY_CACHE_FORCE_REFRESH = "query_cache_force_refresh";
     public static final String QUERY_CACHE_ENTRY_MAX_BYTES = "query_cache_entry_max_bytes";
@@ -213,6 +219,8 @@ public class SessionVariable implements Serializable, Writable {
 
     // if set to true, some of stmt will be forwarded to master FE to get result
     public static final String FORWARD_TO_MASTER = "forward_to_master";
+    // if set to true, all queries of this session will be forwarded to master FE
+    public static final String FORCE_FORWARD_ALL_QUERIES = "force_forward_all_queries";
     // user can set instance num after exchange, no need to be equal to nums of before exchange
     public static final String PARALLEL_EXCHANGE_INSTANCE_NUM = "parallel_exchange_instance_num";
     public static final String SHOW_HIDDEN_COLUMNS = "show_hidden_columns";
@@ -370,6 +378,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_LOCAL_SHUFFLE = "enable_local_shuffle";
 
     public static final String FORCE_TO_LOCAL_SHUFFLE = "force_to_local_shuffle";
+
+    public static final String BUCKET_SHUFFLE_DOWNGRADE_RATIO = "bucket_shuffle_downgrade_ratio";
 
     public static final String ENABLE_LOCAL_MERGE_SORT = "enable_local_merge_sort";
 
@@ -567,6 +577,10 @@ public class SessionVariable implements Serializable, Writable {
 
     // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
     public static final String FILE_SPLIT_SIZE = "file_split_size";
+
+    public static final String FILE_SPLIT_SIZE_ON_FE = "file_split_size_on_fe";
+
+    public static final String FILE_SPLIT_SIZE_ON_BE = "file_split_size_on_be";
 
     public static final String MAX_INITIAL_FILE_SPLIT_SIZE = "max_initial_file_split_size";
 
@@ -798,8 +812,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
-    public static final String ENABLE_PAIMON_CPP_READER = "enable_paimon_cpp_reader";
-
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
     public static final String FETCH_ALL_FE_FOR_SYSTEM_TABLE = "fetch_all_fe_for_system_table";
@@ -855,8 +867,6 @@ public class SessionVariable implements Serializable, Writable {
     // Default is false, which means do not flatten nested when create table.
     @Deprecated
     public static final String ENABLE_VARIANT_FLATTEN_NESTED = "enable_variant_flatten_nested";
-    public static final String ENABLE_VARIANT_V2 = "enable_variant_v2";
-
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
     public static final String COMPUTE_GROUP = "compute_group";
@@ -1130,7 +1140,8 @@ public class SessionVariable implements Serializable, Writable {
             "FileScanNode 扫描数据的最大并发，默认为 16", "The max threads to read data of FileScanNode, default 16"})
     public int maxFileScannersConcurrency = 16;
 
-    @VariableMgr.VarAttr(name = ENABLE_FILE_SCANNER_V2, needForward = true, fuzzy = true, description = {
+    // Fuzzy regression tests only cover the default FileScannerV2 path.
+    @VariableMgr.VarAttr(name = ENABLE_FILE_SCANNER_V2, needForward = true, description = {
             "开启后 FileScanNode 会在支持的查询场景使用 FileScannerV2，默认开启",
             "When enabled, FileScanNode uses FileScannerV2 for supported query scans. Enabled by default."})
     public boolean enableFileScannerV2 = true;
@@ -1244,6 +1255,29 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = RESOURCE_VARIABLE)
     public String resourceGroup = "";
+
+    @VariableMgr.VarAttr(name = PREFERRED_BACKEND_SELECTION_KEY, needForward = true,
+            checker = "checkPreferredBackendSelectionKey",
+            description = {"当前会话首选的后端选择键。默认空字符串表示未提供选择偏好。",
+                    "The preferred backend selection key for the current session. The default empty string "
+                            + "means no selection preference is provided."})
+    public String preferredBackendSelectionKey = "";
+
+    @VariableMgr.VarAttr(name = BACKEND_SELECTION_MODE, needForward = true,
+            checker = "checkBackendSelectionMode",
+            setter = "setBackendSelectionMode",
+            options = {"prefer", "require", "default"},
+            description = {"可选后端选择策略的模式。默认策略为空操作，不改变副本或后端选择行为。",
+                    "Backend selection mode for optional policies. The default policy is a no-op and does "
+                            + "not change replica or backend selection behavior. `require` is available only when the "
+                            + "extension declares support. Supported values are `prefer`, `require`, and `default`."})
+    public String backendSelectionMode = "prefer";
+
+    @VariableMgr.VarAttr(name = ENABLE_LOAD_BACKEND_SELECTION, needForward = true,
+            description = {"是否允许可选后端选择策略参与导入调度。默认策略为空操作，不改变导入行为。",
+                    "Whether optional backend selection policies may participate in load scheduling. "
+                            + "The default policy is a no-op and does not change load behavior."})
+    public boolean enableLoadBackendSelection = false;
 
     // this is used to make mysql client happy
     // autocommit is actually a boolean value, but @@autocommit is type of BIGINT.
@@ -1439,6 +1473,7 @@ public class SessionVariable implements Serializable, Writable {
         NONE,
         IGNORE_JNI,
         IGNORE_NATIVE,
+        // Deprecated compatibility value. It behaves like NONE because no C++ splits are emitted.
         IGNORE_PAIMON_CPP
     }
 
@@ -1530,6 +1565,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_HIVE_SQL_CACHE, fuzzy = false)
     public boolean enableHiveSqlCache = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_EXTERNAL_SCAN_TASK_REUSE, needForward = true, description = {
+            "是否复用同一语句中相同外表扫描节点生成的 split。",
+            "Whether to reuse splits generated by equivalent external table scan nodes within one statement."
+    })
+    public boolean enableExternalScanTaskReuse = true;
+
     @VariableMgr.VarAttr(name = ENABLE_QUERY_CACHE)
     public boolean enableQueryCache = false;
 
@@ -1550,6 +1591,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = FORWARD_TO_MASTER)
     public boolean forwardToMaster = true;
+
+    @VariableMgr.VarAttr(name = FORCE_FORWARD_ALL_QUERIES)
+    public boolean forceForwardAllQueries = false;
 
     @VariableMgr.VarAttr(name = USE_V2_ROLLUP)
     public boolean useV2Rollup = false;
@@ -1664,6 +1708,15 @@ public class SessionVariable implements Serializable, Writable {
                 description = {"是否在 pipelineX 引擎上强制开启 local shuffle 优化",
                         "Whether to force to local shuffle on pipelineX engine."})
     private boolean forceToLocalShuffle = false;
+
+    @VariableMgr.VarAttr(
+            name = BUCKET_SHUFFLE_DOWNGRADE_RATIO, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+            description = {"当一侧基表总桶数小于总实例数的该倍数时, 放弃bucket shuffle join降级为shuffle join。"
+                    + "小于等于0时永不降级。默认0.8保持原有行为",
+                    "Downgrade bucket shuffle join to shuffle join when the base table side's total"
+                    + " bucket count is less than total instance count times this ratio. Values <= 0"
+                    + " never downgrade. Default 0.8 keeps the original behavior."}, needForward = true)
+    private double bucketShuffleDowngradeRatio = 0.8;
 
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_MERGE_SORT)
     private boolean enableLocalMergeSort = true;
@@ -1947,7 +2000,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_INFER_PREDICATE)
     private boolean enableInferPredicate = true;
 
-    @VariableMgr.VarAttr(name = RETURN_OBJECT_DATA_AS_BINARY)
+    // Forwarded to the BE as a query option and read by the MySQL result writer: when it is false
+    // the object types (HLL / BITMAP / QUANTILE_STATE) are serialized as NULL instead of their raw
+    // bytes. It therefore changes the result rows the sql cache stores, and must take part in the
+    // cache key, otherwise a session that turns it on replays the NULLs cached by a session that
+    // had it off. It only affects execution, not the plan, so it does not force forwarding.
+    @VariableMgr.VarAttr(name = RETURN_OBJECT_DATA_AS_BINARY, affectQueryResultInExecution = true)
     private boolean returnObjectDataAsBinary = false;
 
     @VariableMgr.VarAttr(name = BLOCK_ENCRYPTION_MODE, affectQueryResultInPlan = true)
@@ -2515,6 +2573,17 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
     public long fileSplitSize = 0;
 
+    @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE_ON_FE, needForward = true, description = {
+            "支持 BE 细粒度切分时，FE 粗粒度文件分片的目标大小，单位为字节，默认为 512MB",
+            "Target size in bytes for FE coarse-grained file splits when BE refinement is supported. "
+                    + "The default is 512MB."})
+    public long fileSplitSizeOnFe = 512L * 1024L * 1024L;
+
+    @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE_ON_BE, needForward = true, description = {
+            "BE 上细粒度文件分片的目标大小，单位为字节，默认为 64MB",
+            "Target size in bytes for fine-grained file splits on BE. The default is 64MB."})
+    public long fileSplitSizeOnBe = 64L * 1024L * 1024L;
+
     @VariableMgr.VarAttr(
             name = MAX_INITIAL_FILE_SPLIT_SIZE,
             description = {"对于每个 table scan，最大文件分片初始大小。"
@@ -3013,11 +3082,6 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true,
             description = {"强制使用 jni 方式读取外表", "Force the use of jni mode to read external table"})
     private boolean forceJniScanner = false;
-
-    @VariableMgr.VarAttr(name = ENABLE_PAIMON_CPP_READER,
-            fuzzy = true,
-            description = {"Paimon 非原生文件读取使用 paimon-cpp", "Use paimon-cpp for non-native Paimon reads"})
-    private boolean enablePaimonCppReader = false;
 
     @VariableMgr.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
             fuzzy = true,
@@ -3664,18 +3728,6 @@ public class SessionVariable implements Serializable, Writable {
     public int defaultVariantMaxSubcolumnsCount = 2048;
 
     @VariableMgr.VarAttr(
-            name = ENABLE_VARIANT_V2,
-            needForward = true,
-            affectQueryResultInPlan = true,
-            varType = VariableAnnotation.EXPERIMENTAL,
-            description = {
-                    "是否对纯计算表达式启用 ColumnVariantV2，默认关闭。",
-                    "Whether to enable ColumnVariantV2 for compute expressions. The default is false."
-            }
-    )
-    public boolean enableVariantV2 = false;
-
-    @VariableMgr.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
             needForward = true,
             fuzzy = true
@@ -3783,10 +3835,9 @@ public class SessionVariable implements Serializable, Writable {
         this.useSerialExchange = random.nextBoolean();
         this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
         this.enableExprZonemapFilter = Config.pull_request_id % 2 == 0;
-        // Randomize the external file scanner engine (FileScannerV2 vs the legacy V1 path). Kept
-        // here rather than in setFuzzyForCatalog() so it also runs in the external regression
-        // pipeline, which enables fuzzy sessions with fuzzy_test_type=p1 (not "external").
-        this.enableFileScannerV2 = random.nextBoolean();
+        // Fuzzy sessions must exercise the production-default V2 path consistently. Dedicated
+        // compatibility cases can still select the legacy scanner explicitly after initialization.
+        this.enableFileScannerV2 = true;
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableStreamingAggHashJoinForcePassthrough = random.nextBoolean();
         this.enableLocalExchangeBeforeAgg = random.nextBoolean();
@@ -3950,8 +4001,6 @@ public class SessionVariable implements Serializable, Writable {
 
         // jni
         this.forceJniScanner = random.nextBoolean();
-        this.enablePaimonCppReader = random.nextBoolean();
-
         // statistics
         this.fetchHiveRowCountSync = random.nextBoolean();
 
@@ -4442,8 +4491,61 @@ public class SessionVariable implements Serializable, Writable {
         return resourceGroup;
     }
 
+    public String getPreferredBackendSelectionKey() {
+        return preferredBackendSelectionKey;
+    }
+
+    public String getBackendSelectionMode() {
+        return backendSelectionMode;
+    }
+
+    public boolean isEnableLoadBackendSelection() {
+        return enableLoadBackendSelection;
+    }
+
     public void setResourceGroup(String resourceGroup) {
         this.resourceGroup = resourceGroup;
+    }
+
+    public void checkPreferredBackendSelectionKey(String preferredBackendSelectionKey) {
+        if (Strings.isNullOrEmpty(preferredBackendSelectionKey)) {
+            return;
+        }
+        try {
+            FeNameFormat.checkCommonName(PREFERRED_BACKEND_SELECTION_KEY, preferredBackendSelectionKey);
+        } catch (Exception e) {
+            LOG.warn("preferred_backend_selection_key value is invalid, the invalid value is {}",
+                    preferredBackendSelectionKey, e);
+            throw new UnsupportedOperationException(
+                    "preferred_backend_selection_key value is invalid, the invalid value is "
+                            + preferredBackendSelectionKey);
+        }
+    }
+
+    public void checkBackendSelectionMode(String backendSelectionMode) {
+        String normalized = Strings.nullToEmpty(backendSelectionMode).toLowerCase(Locale.ROOT);
+        if (!"prefer".equals(normalized)
+                && !"require".equals(normalized)
+                && !"default".equals(normalized)) {
+            LOG.warn("backend_selection_mode value is invalid, the invalid value is {}",
+                    backendSelectionMode);
+            throw new UnsupportedOperationException(
+                    "backend_selection_mode value is invalid, the invalid value is "
+                            + backendSelectionMode
+                            + ", supported values are prefer, require and default");
+        }
+        if ("require".equals(normalized) && Config.isCloudMode()) {
+            throw new UnsupportedOperationException(
+                    "Required backend selection is not supported in cloud mode");
+        }
+        if ("require".equals(normalized) && !BackendSelectionManager.supportsRequiredSelection()) {
+            throw new UnsupportedOperationException(
+                    "Backend selection provider does not support required backend selection");
+        }
+    }
+
+    public void setBackendSelectionMode(String backendSelectionMode) {
+        this.backendSelectionMode = Strings.nullToEmpty(backendSelectionMode).toLowerCase(Locale.ROOT);
     }
 
     public boolean isDisableFileCache() {
@@ -4654,6 +4756,10 @@ public class SessionVariable implements Serializable, Writable {
         return forwardToMaster;
     }
 
+    public boolean isForceForwardAllQueries() {
+        return forceForwardAllQueries;
+    }
+
     public boolean isUseV2Rollup() {
         return useV2Rollup;
     }
@@ -4861,6 +4967,22 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setFileSplitSize(long fileSplitSize) {
         this.fileSplitSize = fileSplitSize;
+    }
+
+    public long getFileSplitSizeOnFe() {
+        return fileSplitSizeOnFe;
+    }
+
+    public void setFileSplitSizeOnFe(long fileSplitSizeOnFe) {
+        this.fileSplitSizeOnFe = fileSplitSizeOnFe;
+    }
+
+    public long getFileSplitSizeOnBe() {
+        return fileSplitSizeOnBe;
+    }
+
+    public void setFileSplitSizeOnBe(long fileSplitSizeOnBe) {
+        this.fileSplitSizeOnBe = fileSplitSizeOnBe;
     }
 
     public long getMaxInitialSplitSize() {
@@ -5672,7 +5794,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableParquetFilePageCache(enableParquetFilePageCache);
         tResult.setEnableOrcFilterByMinMax(enableOrcFilterByMinMax);
         tResult.setEnableExprZonemapFilter(enableExprZonemapFilter);
-        tResult.setEnablePaimonCppReader(enablePaimonCppReader);
         tResult.setFilePresignedUrlTtlSeconds(filePresignedUrlTtlSeconds);
         tResult.setCheckOrcInitSargsSuccess(checkOrcInitSargsSuccess);
 
@@ -6469,10 +6590,6 @@ public class SessionVariable implements Serializable, Writable {
         return forceJniScanner;
     }
 
-    public boolean isEnablePaimonCppReader() {
-        return enablePaimonCppReader;
-    }
-
     public String getIgnoreSplitType() {
         return ignoreSplitType;
     }
@@ -6496,10 +6613,6 @@ public class SessionVariable implements Serializable, Writable {
         forceJniScanner = force;
     }
 
-    public void setEnablePaimonCppReader(boolean enable) {
-        enablePaimonCppReader = enable;
-    }
-
     public boolean isEnableCountPushDownForExternalTable() {
         return enableCountPushDownForExternalTable;
     }
@@ -6510,6 +6623,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setForceToLocalShuffle(boolean forceToLocalShuffle) {
         this.forceToLocalShuffle = forceToLocalShuffle;
+    }
+
+    public double getBucketShuffleDowngradeRatio() {
+        return bucketShuffleDowngradeRatio;
+    }
+
+    public void setBucketShuffleDowngradeRatio(double bucketShuffleDowngradeRatio) {
+        this.bucketShuffleDowngradeRatio = bucketShuffleDowngradeRatio;
     }
 
     public boolean isFetchAllFeForSystemTable() {
@@ -6566,10 +6687,6 @@ public class SessionVariable implements Serializable, Writable {
     @Deprecated
     public boolean getEnableVariantFlattenNested() {
         return enableVariantFlattenNested;
-    }
-
-    public boolean isEnableVariantV2() {
-        return enableVariantV2;
     }
 
     public void setProfileLevel(String profileLevel) {

@@ -30,6 +30,8 @@ public class AccessPathInfo {
     public static final String ACCESS_ALL = "*";
     public static final String ACCESS_MAP_KEYS = "KEYS";
     public static final String ACCESS_MAP_VALUES = "VALUES";
+    public static final String ACCESS_OFFSET = "OFFSET";
+    public static final String ACCESS_NULL = "NULL";
 
     private DataType prunedType;
     // allAccessPaths is used to record all access path include predicate access path and non-predicate access path,

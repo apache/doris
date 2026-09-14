@@ -23,6 +23,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -32,6 +33,7 @@ import org.apache.doris.thrift.TIcebergTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.Table;
@@ -44,9 +46,6 @@ import java.util.Optional;
 public class IcebergSysExternalTable extends ExternalTable {
     private final IcebergExternalTable sourceTable;
     private final String sysTableType;
-    private volatile Table sysIcebergTable;
-    private volatile List<Column> fullSchema;
-    private volatile SchemaCacheValue schemaCacheValue;
 
     public IcebergSysExternalTable(IcebergExternalTable sourceTable, String sysTableType) {
         super(generateSysTableId(sourceTable.getId(), sysTableType),
@@ -100,24 +99,62 @@ public class IcebergSysExternalTable extends ExternalTable {
     }
 
     public Table getSysIcebergTable() {
-        if (sysIcebergTable == null) {
-            synchronized (this) {
-                if (sysIcebergTable == null) {
-                    Table baseTable = sourceTable.getIcebergTable();
-                    MetadataTableType tableType = MetadataTableType.from(sysTableType);
-                    if (tableType == null) {
-                        throw new IllegalArgumentException("Unknown iceberg system table type: " + sysTableType);
-                    }
-                    sysIcebergTable = MetadataTableUtils.createMetadataTableInstance(baseTable, tableType);
-                }
+        MetadataTableType tableType = MetadataTableType.from(sysTableType);
+        if (tableType == null) {
+            throw new IllegalArgumentException("Unknown iceberg system table type: " + sysTableType);
+        }
+        // Metadata tables capture their base operations. Keep them statement-local so exact
+        // previousFiles/history state and stale-generation retry never leak into this table object.
+        return MetadataTableUtils.createMetadataTableInstance(resolveBaseTable(), tableType);
+    }
+
+    /**
+     * The base generation this statement binds the metadata table to. Snapshot-selectable
+     * metadata tables derive both their scan and their schema from the source relation's frozen
+     * snapshot (the same generation IcebergScanNode scans), so analysis and execution cannot see
+     * different partition specs or schemas when the table entry refreshes mid-statement. Static
+     * metadata tables and statements without a bound snapshot read the latest generation.
+     *
+     * <p>The statement snapshot is looked up by source table (like the scan node's fallback);
+     * a statement that time-travels the same table under several relations resolves the default
+     * or, if ambiguous, the latest generation for the schema.
+     */
+    @VisibleForTesting
+    Table resolveBaseTable() {
+        if (bindsToStatementGeneration()) {
+            Optional<Table> frozenTable = MvccUtil.getSnapshotFromContext(sourceTable)
+                    .filter(IcebergMvccSnapshot.class::isInstance)
+                    .map(IcebergMvccSnapshot.class::cast)
+                    .flatMap(snapshot -> snapshot.getSnapshotCacheValue().getIcebergTable());
+            if (frozenTable.isPresent()) {
+                return frozenTable.get();
             }
         }
-        return sysIcebergTable;
+        return IcebergUtils.getQueryScopedIcebergTable(sourceTable);
+    }
+
+    /**
+     * Snapshot selection and base-generation binding are separate concerns: ALL_* file/entry
+     * tables ignore a selected snapshot id, but Iceberg still derives their schemas from the
+     * current source schema and unified partition type, so analysis and the scan must read one
+     * statement-local generation or a concurrent schema/spec refresh could pair analyzed slots
+     * with a different scan table. Only static metadata tables whose schemas never depend on
+     * the source schema keep reading the latest generation.
+     */
+    private boolean bindsToStatementGeneration() {
+        if (supportsSnapshotSelection()) {
+            return true;
+        }
+        MetadataTableType tableType = MetadataTableType.from(sysTableType);
+        return tableType == MetadataTableType.ALL_DATA_FILES
+                || tableType == MetadataTableType.ALL_DELETE_FILES
+                || tableType == MetadataTableType.ALL_FILES
+                || tableType == MetadataTableType.ALL_ENTRIES;
     }
 
     @Override
     public List<Column> getFullSchema() {
-        return getOrCreateSchemaCacheValue().getSchema();
+        return loadSchemaCacheValue().getSchema();
     }
 
     @Override
@@ -156,12 +193,12 @@ public class IcebergSysExternalTable extends ExternalTable {
 
     @Override
     public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
-        return Optional.of(getOrCreateSchemaCacheValue());
+        return Optional.of(loadSchemaCacheValue());
     }
 
     @Override
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
-        return Optional.of(getOrCreateSchemaCacheValue());
+        return Optional.of(loadSchemaCacheValue());
     }
 
     @Override
@@ -178,19 +215,12 @@ public class IcebergSysExternalTable extends ExternalTable {
         return sourceTableId ^ (sysTableType.hashCode() * 31L);
     }
 
-    private SchemaCacheValue getOrCreateSchemaCacheValue() {
-        if (schemaCacheValue == null) {
-            synchronized (this) {
-                if (schemaCacheValue == null) {
-                    if (fullSchema == null) {
-                        fullSchema = IcebergUtils.parseSchema(getSysIcebergTable().schema(),
-                                getCatalog().getEnableMappingVarbinary(),
-                                getCatalog().getEnableMappingTimestampTz());
-                    }
-                    schemaCacheValue = new SchemaCacheValue(fullSchema);
-                }
-            }
-        }
-        return schemaCacheValue;
+    private SchemaCacheValue loadSchemaCacheValue() {
+        // Metadata-table schemas may change after source schema or partition-spec evolution.
+        // Resolve the schema from the statement's bound generation instead of permanently pairing
+        // this long-lived system-table object with its first observed generation.
+        return new SchemaCacheValue(IcebergUtils.parseSchema(getSysIcebergTable().schema(),
+                getCatalog().getEnableMappingVarbinary(),
+                getCatalog().getEnableMappingTimestampTz()));
     }
 }

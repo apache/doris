@@ -225,6 +225,9 @@ protected:
         _old_small_file_count_threshold = config::packed_file_small_file_count_threshold;
         _old_deploy_mode = config::deploy_mode;
         _old_cloud_id = config::cloud_unique_id;
+        _old_enable_file_cache = config::enable_file_cache;
+        _old_enable_file_cache_write_from_s3_file_writer =
+                config::enable_file_cache_write_from_s3_file_writer;
 
         config::packed_file_size_threshold_bytes = 1024;
         config::small_file_threshold_bytes = 1024;
@@ -233,6 +236,7 @@ protected:
         config::packed_file_small_file_count_threshold = 100;
         config::deploy_mode.clear();
         config::cloud_unique_id.clear();
+        config::enable_file_cache_write_from_s3_file_writer = true;
 
         file_system = std::make_shared<MockFileSystem>();
         manager = std::make_unique<PackedFileManager>();
@@ -255,6 +259,9 @@ protected:
         config::packed_file_small_file_count_threshold = _old_small_file_count_threshold;
         config::deploy_mode = _old_deploy_mode;
         config::cloud_unique_id = _old_cloud_id;
+        config::enable_file_cache = _old_enable_file_cache;
+        config::enable_file_cache_write_from_s3_file_writer =
+                _old_enable_file_cache_write_from_s3_file_writer;
     }
 
     PackedAppendContext default_append_info() const {
@@ -277,6 +284,8 @@ private:
     int64_t _old_small_file_count_threshold = 0;
     std::string _old_deploy_mode;
     std::string _old_cloud_id;
+    bool _old_enable_file_cache = false;
+    bool _old_enable_file_cache_write_from_s3_file_writer = true;
     std::string _resource_id = "test_resource";
     int64_t _tablet_id = 12345;
     std::string _rowset_id = "rowset_1";
@@ -312,6 +321,22 @@ TEST_F(PackedFileManagerTest, AppendSmallFileSuccess) {
     EXPECT_EQ(it->second.rowset_id, info.rowset_id);
     EXPECT_EQ(it->second.resource_id, info.resource_id);
     EXPECT_EQ(it->second.txn_id, info.txn_id);
+}
+
+TEST_F(PackedFileManagerTest, DisableFileCacheWriteFromS3FileWriter) {
+    config::enable_file_cache = true;
+    config::enable_file_cache_write_from_s3_file_writer = false;
+
+    auto writer = file_system->last_writer();
+    ASSERT_NE(writer, nullptr);
+    std::string payload = "abc";
+    Slice slice(payload);
+
+    auto info = default_append_info();
+    ASSERT_TRUE(info.write_file_cache);
+    EXPECT_TRUE(manager->append_small_file("s/no_cache", slice, info).ok());
+    EXPECT_EQ(writer->append_calls(), 1);
+    EXPECT_EQ(writer->bytes_appended(), payload.size());
 }
 
 TEST_F(PackedFileManagerTest, AppendFailsWithoutTxnId) {

@@ -329,6 +329,12 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
                     .build());
         }
 
+        // A Cloud Broker Load retry starts a new pending task. Clear the previous attempt's
+        // transaction id so beginTxn() does not blindly reuse a transaction that was aborted.
+        // If aborting failed and the old transaction is still PREPARE, beginTxn() will resolve
+        // the label conflict and adopt the transaction only after verifying that it belongs to this job.
+        transactionId = 0;
+
         // cancel all running coordinators, so that the scheduler's worker thread will be released
         for (TUniqueId loadId : loadIds) {
             Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(loadId);

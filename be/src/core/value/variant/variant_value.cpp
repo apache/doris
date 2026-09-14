@@ -368,7 +368,14 @@ uint32_t VariantRef::num_elements() const {
     return _container_layout(type).count;
 }
 
-uint32_t VariantRef::_object_field_id(const ContainerLayout& layout, uint32_t index) const {
+VariantRef::ObjectView VariantRef::object_view() const {
+    ContainerLayout layout = _container_layout(VariantBasicType::OBJECT);
+    const uint32_t dictionary_size = layout.count == 0 ? 0 : metadata.dict_size();
+    return ObjectView(*this, layout, dictionary_size);
+}
+
+uint32_t VariantRef::_object_field_id(const ContainerLayout& layout, uint32_t index,
+                                      const uint32_t* dictionary_size) const {
     if (index >= layout.count) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Variant object index {} is out of range [0, {})", index, layout.count);
@@ -376,10 +383,12 @@ uint32_t VariantRef::_object_field_id(const ContainerLayout& layout, uint32_t in
     const auto field_id = static_cast<uint32_t>(read_unsigned(
             value.data + layout.ids_offset + static_cast<size_t>(index) * layout.id_width,
             layout.id_width));
-    if (field_id >= metadata.dict_size()) {
+    const uint32_t metadata_dictionary_size =
+            dictionary_size != nullptr ? *dictionary_size : metadata.dict_size();
+    if (field_id >= metadata_dictionary_size) {
         throw Exception(ErrorCode::CORRUPTION,
                         "Variant object field id {} is outside metadata dictionary of size {}",
-                        field_id, metadata.dict_size());
+                        field_id, metadata_dictionary_size);
     }
     return field_id;
 }
@@ -427,6 +436,14 @@ VariantRef VariantRef::object_value_at(uint32_t index, uint32_t* field_id_out) c
     return _container_value_at(layout, index, false);
 }
 
+VariantRef VariantRef::ObjectView::value_at(uint32_t index, uint32_t* field_id_out) const {
+    const uint32_t field_id = _value._object_field_id(_layout, index, &_dictionary_size);
+    if (field_id_out != nullptr) {
+        *field_id_out = field_id;
+    }
+    return _value._container_value_at(_layout, index, false);
+}
+
 VariantRef VariantRef::array_at(uint32_t index) const {
     return _container_value_at(_container_layout(VariantBasicType::ARRAY), index, true);
 }
@@ -452,24 +469,35 @@ bool VariantRef::object_find_by_id(uint32_t field_id, VariantRef* out) const {
 
 bool VariantRef::_object_find_by_id(const ContainerLayout& layout, uint32_t field_id,
                                     VariantRef* out) const {
+    const uint32_t dictionary_size = metadata.dict_size();
+    if (field_id >= dictionary_size) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant metadata dictionary id {} is out of range [0, {})", field_id,
+                        dictionary_size);
+    }
+    const bool strings_are_sorted = metadata.sorted_strings();
+    // Besides supplying the key for unsorted dictionaries, this preserves the public lookup
+    // contract's validation of the requested dictionary entry for sorted dictionaries.
     const StringRef target_key = metadata.key_at(field_id);
     uint32_t begin = 0;
     uint32_t end = layout.count;
     while (begin < end) {
         const uint32_t middle = begin + (end - begin) / 2;
-        const uint32_t middle_id = _object_field_id(layout, middle);
-        const int comparison = metadata.sorted_strings()
-                                       ? (middle_id > field_id) - (middle_id < field_id)
-                                       : metadata.key_at(middle_id).compare(target_key);
+        const uint32_t middle_id = _object_field_id(layout, middle, &dictionary_size);
+        const int comparison = strings_are_sorted ? (middle_id > field_id) - (middle_id < field_id)
+                                                  : metadata.key_at(middle_id).compare(target_key);
         if (comparison < 0) {
             begin = middle + 1;
         } else {
             end = middle;
         }
     }
-    if (begin == layout.count || _object_field_id(layout, begin) != field_id) {
-        if (!metadata.sorted_strings() && begin < layout.count &&
-            metadata.key_at(_object_field_id(layout, begin)) == target_key) {
+    if (begin == layout.count) {
+        return false;
+    }
+    const uint32_t found_id = _object_field_id(layout, begin, &dictionary_size);
+    if (found_id != field_id) {
+        if (!strings_are_sorted && metadata.key_at(found_id) == target_key) {
             *out = _container_value_at(layout, begin, false);
             return true;
         }

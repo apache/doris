@@ -17,14 +17,31 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.pattern.GeneratedPlanPatterns;
 import org.apache.doris.nereids.rules.RulePromise;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 class BindExpressionTest extends TestWithFeService implements GeneratedPlanPatterns {
 
@@ -123,6 +140,40 @@ class BindExpressionTest extends TestWithFeService implements GeneratedPlanPatte
                 .analyze(sql)
                 .nonMatch(any()
                         .when(e -> e.getExpressions().stream().anyMatch(Expression::hasUnbound)));
+    }
+
+    @Test
+    void testIcebergMergeUsesPositionForQuotedOperationTargetColumn() {
+        List<NamedExpression> output = ImmutableList.of(
+                new Alias(new TinyIntLiteral((byte) 3), IcebergMergeOperation.OPERATION_COLUMN),
+                new SlotReference(Column.ICEBERG_ROWID_COL, StringType.INSTANCE),
+                new Alias(new IntegerLiteral(7), IcebergMergeOperation.OPERATION_COLUMN));
+        List<Column> columns = ImmutableList.of(
+                new Column(IcebergMergeOperation.OPERATION_COLUMN, PrimitiveType.SMALLINT));
+
+        List<NamedExpression> coerced = BindExpression.coerceIcebergMergeOutput(
+                columns, output, true);
+
+        Assertions.assertEquals(3, coerced.size());
+        Assertions.assertEquals(SmallIntType.INSTANCE, coerced.get(2).getDataType());
+        Assertions.assertEquals(IcebergMergeOperation.OPERATION_COLUMN, coerced.get(2).getName());
+    }
+
+    @Test
+    void testIcebergMergeChecksLegacyVariantInQuotedOperationTargetColumn() {
+        List<NamedExpression> output = ImmutableList.of(
+                new Alias(new TinyIntLiteral((byte) 3), IcebergMergeOperation.OPERATION_COLUMN),
+                new SlotReference(Column.ICEBERG_ROWID_COL, StringType.INSTANCE),
+                new SlotReference(IcebergMergeOperation.OPERATION_COLUMN, VariantType.INSTANCE));
+        List<Column> columns = ImmutableList.of(new Column(
+                IcebergMergeOperation.OPERATION_COLUMN,
+                IcebergUtils.icebergTypeToDorisType(
+                        org.apache.iceberg.types.Types.VariantType.get(), false, false)));
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> BindExpression.coerceIcebergMergeOutput(columns, output, true));
+        Assertions.assertTrue(exception.getMessage().contains("legacy Doris VARIANT"));
+        Assertions.assertTrue(exception.getMessage().contains("operation"));
     }
 
     @Test

@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
+#include <map>
 #include <memory>
 #include <optional>
 #include <set>
@@ -47,59 +48,17 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vin_predicate.h"
 #include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
 #include "format_v2/column_mapper_nested.h"
 #include "format_v2/expr/cast.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/schema_projection.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/Exprs_types.h"
-#include "util/url_coding.h"
 
 namespace doris::format {
 
 namespace {
-
-Status build_initial_default_column(const ColumnDefinition& column, ColumnPtr* value) {
-    DORIS_CHECK(value != nullptr);
-    *value = nullptr;
-    if (!column.initial_default_value.has_value()) {
-        return Status::OK();
-    }
-    const auto nested_type = remove_nullable(column.type);
-    Field parsed;
-    if (column.initial_default_value_is_base64 ||
-        nested_type->get_primitive_type() == TYPE_VARBINARY) {
-        std::string decoded;
-        if (!base64_decode(*column.initial_default_value, &decoded)) {
-            return Status::InvalidArgument("Invalid Base64 Iceberg initial default for field {}",
-                                           column.name);
-        }
-        parsed = nested_type->get_primitive_type() == TYPE_VARBINARY
-                         ? Field::create_field<TYPE_VARBINARY>(StringView(decoded))
-                         : Field::create_field<TYPE_STRING>(decoded);
-        // Variable-width Fields borrow their input. Materialize while decoded is alive so the
-        // resulting column owns the payload before it crosses a mapping/literal boundary.
-        *value = column.type->create_column_const(1, parsed);
-        return Status::OK();
-    } else {
-        RETURN_IF_ERROR(
-                nested_type->get_serde()->from_fe_string(*column.initial_default_value, parsed));
-    }
-    *value = column.type->create_column_const(1, parsed);
-    return Status::OK();
-}
-
-Status build_initial_default_literal(const ColumnDefinition& column, VExprContextSPtr* literal) {
-    DORIS_CHECK(literal != nullptr);
-    ColumnPtr owned_value;
-    RETURN_IF_ERROR(build_initial_default_column(column, &owned_value));
-    DORIS_CHECK(static_cast<bool>(owned_value));
-    Field value;
-    owned_value->get(0, value);
-    // VLiteral copies the borrowed Field into its own column while owned_value is still alive.
-    *literal = VExprContext::create_shared(VLiteral::create_shared(column.type, value));
-    return Status::OK();
-}
 
 bool has_shared_descendant_field_id(const ColumnDefinition& table, const ColumnDefinition& file) {
     const auto& table_children =
@@ -286,6 +245,56 @@ std::string field_debug_string(const Field& field) {
     return out.str();
 }
 
+void remap_localized_slot_positions(const VExprSPtr& expr,
+                                    const std::map<size_t, size_t>& position_remap,
+                                    std::set<const VExpr*>* visited) {
+    if (expr == nullptr || !visited->insert(expr.get()).second) {
+        return;
+    }
+    if (auto* slot = dynamic_cast<VSlotRef*>(expr.get());
+        slot != nullptr && slot->column_id() >= 0) {
+        const auto remap = position_remap.find(static_cast<size_t>(slot->column_id()));
+        DORIS_CHECK(remap != position_remap.end()) << slot->column_id();
+        slot->set_column_id(static_cast<int>(remap->second));
+    }
+    for (const auto& child : expr->children()) {
+        remap_localized_slot_positions(child, position_remap, visited);
+    }
+    remap_localized_slot_positions(expr->get_impl(), position_remap, visited);
+}
+
+void compact_file_block_positions(FileScanRequest* request) {
+    std::set<size_t> occupied_positions;
+    for (const auto& [_, position] : request->local_positions) {
+        occupied_positions.insert(position.value());
+    }
+    for (const auto& [_, position] : request->non_predicate_positions) {
+        occupied_positions.insert(position.value());
+    }
+
+    std::map<size_t, size_t> position_remap;
+    size_t dense_position = 0;
+    for (size_t old_position : occupied_positions) {
+        position_remap.emplace(old_position, dense_position++);
+    }
+    for (auto& [_, position] : request->local_positions) {
+        position = LocalIndex(position_remap.at(position.value()));
+    }
+    for (auto& [_, position] : request->non_predicate_positions) {
+        position = LocalIndex(position_remap.at(position.value()));
+    }
+
+    // Slot refs were localized before predicate demotion removed duplicate file-block positions;
+    // remap them with the compacted layout so residual predicates keep reading the same columns.
+    std::set<const VExpr*> visited;
+    for (const auto& conjunct : request->conjuncts) {
+        remap_localized_slot_positions(conjunct->root(), position_remap, &visited);
+    }
+    for (const auto& conjunct : request->delete_conjuncts) {
+        remap_localized_slot_positions(conjunct->root(), position_remap, &visited);
+    }
+}
+
 template <typename T, typename Formatter>
 std::string join_debug_strings(const std::vector<T>& values, Formatter formatter) {
     std::ostringstream out;
@@ -305,6 +314,31 @@ std::string join_debug_strings(const std::vector<T>& values, Formatter formatter
 const ColumnDefinition* find_column_by_name(const ColumnDefinition& table_column,
                                             const std::vector<ColumnDefinition>& file_schema) {
     return matcher_for_mode(TableColumnMappingMode::BY_NAME).find(table_column, file_schema);
+}
+
+const ColumnDefinition* find_column_by_field_id(const ColumnDefinition& table_column,
+                                                const std::vector<ColumnDefinition>& file_schema,
+                                                bool allow_idless_complex_wrapper_projection) {
+    const auto* matched =
+            matcher_for_mode(TableColumnMappingMode::BY_FIELD_ID).find(table_column, file_schema);
+    if (matched != nullptr || !allow_idless_complex_wrapper_projection ||
+        table_column.children.empty()) {
+        return matched;
+    }
+    const ColumnDefinition* wrapper = nullptr;
+    for (const auto& candidate : file_schema) {
+        if (candidate.has_identifier_field_id() || candidate.children.empty() ||
+            !has_shared_descendant_field_id(table_column, candidate)) {
+            continue;
+        }
+        if (wrapper != nullptr) {
+            return nullptr;
+        }
+        wrapper = &candidate;
+    }
+    // Iceberg Parquet's PruneColumns retains an ID-less complex wrapper when a nested field ID is
+    // selected. Descendant IDs, not aliases, identify that wrapper; ambiguity remains unmapped.
+    return wrapper;
 }
 
 const Field* find_partition_value(const ColumnDefinition& table_column,
@@ -397,6 +431,7 @@ static bool is_binary_comparison_predicate(const VExprSPtr& expr) {
 std::string TableColumnMapperOptions::debug_string() const {
     std::ostringstream out;
     out << "TableColumnMapperOptions{mode=" << mapping_mode_to_string(mode)
+        << ", reject_missing_required_field=" << reject_missing_required_field
         << ", allow_idless_complex_wrapper_projection=" << allow_idless_complex_wrapper_projection
         << ", enable_row_lineage_virtual_columns=" << enable_row_lineage_virtual_columns << "}";
     return out.str();
@@ -415,7 +450,13 @@ std::string ColumnDefinition::debug_string() const {
         << join_debug_strings(identity_children,
                               [](const ColumnDefinition& child) { return child.debug_string(); })
         << ", has_default_expr=" << (default_expr != nullptr)
-        << ", is_partition_key=" << is_partition_key << "}";
+        << ", has_initial_default=" << initial_default_value.has_value() << ", is_optional=";
+    if (is_optional.has_value()) {
+        out << *is_optional;
+    } else {
+        out << "unknown";
+    }
+    out << ", is_partition_key=" << is_partition_key << "}";
     return out.str();
 }
 
@@ -1875,27 +1916,15 @@ static const ColumnDefinition* find_file_child_by_name(
     return child_it == children.end() ? nullptr : &*child_it;
 }
 
-static bool variant_leaf_type_preserves_physical_identity(const ColumnDefinition& leaf) {
+static bool variant_leaf_is_projectable_scalar(const ColumnDefinition& leaf) {
     if (!leaf.children.empty() || leaf.type == nullptr) {
         return false;
     }
-    // ColumnDefinition does not transport Parquet's raw-binary/UUID and timestamp-unit tags.
-    // Limit direct leaves to identities fully described by the Doris scalar type; every ambiguous
-    // identity must retain the complete wrapper so reconstruction can inspect its physical schema.
-    switch (remove_nullable(leaf.type)->get_primitive_type()) {
-    case TYPE_BOOLEAN:
-    case TYPE_TINYINT:
-    case TYPE_SMALLINT:
-    case TYPE_INT:
-    case TYPE_BIGINT:
-    case TYPE_FLOAT:
-    case TYPE_DOUBLE:
-    case TYPE_DECIMAL128I:
-    case TYPE_DATEV2:
-        return true;
-    default:
-        return false;
-    }
+    // Physical identity - raw binary versus UTF-8, UUID, timestamp units - is resolved by the
+    // reader from ParquetColumnSchema::type_descriptor, which the projected schema copies verbatim.
+    // The mapper only decides which columns to read, so every scalar leaf is projectable. Complex
+    // leaves keep the complete wrapper because reconstruction still needs their full shape.
+    return !is_complex_type(remove_nullable(leaf.type)->get_primitive_type());
 }
 
 static bool build_variant_leaf_path_projection(const ColumnMapping& mapping,
@@ -1919,6 +1948,15 @@ static bool build_variant_leaf_path_projection(const ColumnMapping& mapping,
         return false;
     }
     *root_projection = LocalColumnIndex::partial_local(*mapping.file_local_id);
+    // Decoding a residual needs the root key dictionary. The root `value` itself stays unprojected:
+    // it holds every unshredded field, so reading it would give back all the pruned I/O. Shredding
+    // keeps a present typed object's residual keys disjoint from its shredded fields, and a null
+    // typed object means the value is not an object, so the requested path is absent either way.
+    const auto* root_metadata = find_file_child_by_name(mapping.original_file_children, "metadata");
+    if (root_metadata == nullptr) {
+        return false;
+    }
+    root_projection->children.push_back(LocalColumnIndex::local(root_metadata->file_local_id()));
     const auto* root_typed = find_file_child_by_name(mapping.original_file_children, "typed_value");
     if (root_typed == nullptr || root_typed->children.empty() || root_typed->type == nullptr ||
         remove_nullable(root_typed->type)->get_primitive_type() != TYPE_STRUCT) {
@@ -1945,8 +1983,15 @@ static bool build_variant_leaf_path_projection(const ColumnMapping& mapping,
         if (leaf) {
             // Only primitive typed values can be returned as a direct vector. Complex shredded
             // values still need their wrapper shape and therefore keep the full Variant fallback.
-            if (!variant_leaf_type_preserves_physical_identity(*typed)) {
+            if (!variant_leaf_is_projectable_scalar(*typed)) {
                 return false;
+            }
+            // The residual beside the leaf carries the rows whose value did not match the shredded
+            // type. Reading it lets the reader merge those rows instead of rejecting the batch.
+            if (const auto* residual = find_file_child_by_name(wrapper->children, "value");
+                residual != nullptr) {
+                current_projection->children.push_back(
+                        LocalColumnIndex::local(residual->file_local_id()));
             }
             typed_projection.project_all_children = true;
         } else if (typed->type == nullptr ||
@@ -2028,6 +2073,20 @@ static const LocalColumnIndex* find_scan_projection(
                 return projection.column_id() == file_column_id;
             });
     return projection_it == scan_columns.end() ? nullptr : &*projection_it;
+}
+
+static bool same_projected_file_shape(const std::vector<ColumnDefinition>& lhs,
+                                      const std::vector<ColumnDefinition>& rhs) {
+    if (lhs.size() != rhs.size()) {
+        return false;
+    }
+    for (size_t index = 0; index < lhs.size(); ++index) {
+        if (lhs[index].local_id != rhs[index].local_id ||
+            !same_projected_file_shape(lhs[index].children, rhs[index].children)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 // Apply the final scan projection of one root file column back to its ColumnMapping. This updates
@@ -2204,15 +2263,17 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
         // Doris internal Iceberg row locator is never a physical Iceberg data column. It is built
         // from file path, row position and partition metadata for delete/update/merge.
         mapping->virtual_column_type = TableVirtualColumnType::ICEBERG_ROWID;
-    } else if (table_column.initial_default_value.has_value()) {
-        VExprContextSPtr initial_default;
-        RETURN_IF_ERROR(build_initial_default_literal(table_column, &initial_default));
-        // Iceberg metadata is the authoritative logical value for files written before the field
-        // existed; the generic FE expression may still contain its Base64 transport text.
-        _set_constant_mapping(mapping, std::move(initial_default));
     } else if (table_column.default_expr != nullptr) {
-        // Missing schema-evolution column with an explicit default expression.
+        // Table-format readers build typed default expressions before mapping. Keep that typed
+        // expression authoritative over the raw transport metadata, which cannot represent complex
+        // defaults safely in this table-format-neutral layer.
         _set_constant_mapping(mapping, table_column.default_expr);
+    } else if (table_column.initial_default_value.has_value()) {
+        return Status::InvalidArgument(
+                "Missing typed initial-default expression for table field '{}'", table_column.name);
+    } else if (_options.reject_missing_required_field && table_column.is_optional.has_value() &&
+               !*table_column.is_optional) {
+        return Status::InvalidArgument("Missing required field: {}", table_column.name);
     } else {
         if (table_column.is_partition_key) {
             return Status::InvalidArgument(
@@ -2359,6 +2420,7 @@ Status TableColumnMapper::create_scan_request(
     }
     file_request->non_predicate_positions.clear();
     file_request->conjuncts.clear();
+    file_request->residual_predicate_columns.clear();
     file_request->metadata_pruning_safe_conjunct_count = 0;
     file_request->constant_pruning_safe_table_filter_count = 0;
     file_request->delete_conjuncts.clear();
@@ -2429,6 +2491,36 @@ Status TableColumnMapper::create_scan_request(
                 << mapping.file_column_name;
         rebuild_projection(&mapping, file_request->non_predicate_position(local_id));
     }
+    return Status::OK();
+}
+
+Status TableColumnMapper::reconcile_scan_request_after_customization(
+        FileScanRequest* file_request) {
+    DORIS_CHECK(file_request != nullptr);
+    bool output_shape_changed = false;
+    for (auto& mapping : _mappings) {
+        if (!mapping.file_local_id.has_value() ||
+            !file_request->local_positions.contains(LocalColumnId(*mapping.file_local_id))) {
+            continue;
+        }
+        const auto previous_file_type = mapping.file_type;
+        const auto previous_file_children = mapping.projected_file_children;
+        RETURN_IF_ERROR(apply_scan_projection_to_mapping_file_type(*file_request, &mapping));
+        output_shape_changed |=
+                previous_file_type == nullptr || mapping.file_type == nullptr ||
+                !previous_file_type->equals(*mapping.file_type) ||
+                !same_projected_file_shape(previous_file_children, mapping.projected_file_children);
+        rebuild_projection(&mapping, file_request->non_predicate_position(
+                                             LocalColumnId(*mapping.file_local_id)));
+    }
+    if (output_shape_changed) {
+        // Localized conjuncts embed nested child ordinals from the pre-hook projection. Scanner
+        // still evaluates the original table conjuncts, so discard stale file-local copies rather
+        // than allowing a late equality-delete dependency to reinterpret another child.
+        file_request->conjuncts.clear();
+        file_request->metadata_pruning_safe_conjunct_count = 0;
+    }
+    RETURN_IF_ERROR(_build_filter_entries(*file_request));
     return Status::OK();
 }
 
@@ -2629,6 +2721,26 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
         }
     }
 
+    for (size_t table_filter_idx = 0; table_filter_idx < table_filters.size(); ++table_filter_idx) {
+        if (localized_table_filters[table_filter_idx]) {
+            continue;
+        }
+        for (const auto global_index : table_filters[table_filter_idx].global_indices) {
+            const auto* mapping = _find_filter_mapping(global_index);
+            if (mapping == nullptr || !mapping->file_local_id.has_value()) {
+                continue;
+            }
+            const auto local_id = LocalColumnId(*mapping->file_local_id);
+            if (std::ranges::find(file_request->residual_predicate_columns, local_id) ==
+                file_request->residual_predicate_columns.end()) {
+                // Scanner re-evaluates every table predicate after materialization. A predicate
+                // that could not be localized therefore proves its input is semantic data, not a
+                // disposable COUNT(*) carrier.
+                file_request->residual_predicate_columns.push_back(local_id);
+            }
+        }
+    }
+
     // Candidate columns are added before expression rewriting because their file-block positions
     // are needed to localize slot refs. If rewriting rejects every filter that references a visible
     // column, merge any independent output/filter subtrees and move the result to the lazy
@@ -2666,6 +2778,17 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
         FileScanRequestBuilder builder(file_request);
         RETURN_IF_ERROR(builder.add_non_predicate_column(std::move(demoted_projection)));
     }
+    // Predicate demotion can widen a nested projection after mappings were localized. Reapply the
+    // final shape so TableReader interprets the same child ordinals that FileReader returns.
+    for (auto& mapping : _mappings) {
+        if (mapping.file_local_id.has_value() &&
+            file_request->local_positions.contains(LocalColumnId(*mapping.file_local_id))) {
+            RETURN_IF_ERROR(apply_scan_projection_to_mapping_file_type(*file_request, &mapping));
+        }
+    }
+    // Final readers allocate a dense file block, so every retained slot must follow the same compaction.
+    compact_file_block_positions(file_request);
+    RETURN_IF_ERROR(_build_filter_entries(*file_request));
     return Status::OK();
 }
 
@@ -2678,25 +2801,11 @@ const ColumnDefinition* TableColumnMapper::_find_file_field(
         });
         return field_it == file_schema.end() ? nullptr : &*field_it;
     }
-    const auto* matched = matcher_for_mode(_options.mode).find(table_column, file_schema);
-    if (matched != nullptr || _options.mode != TableColumnMappingMode::BY_FIELD_ID ||
-        !_options.allow_idless_complex_wrapper_projection || table_column.children.empty()) {
-        return matched;
+    if (_options.mode == TableColumnMappingMode::BY_FIELD_ID) {
+        return find_column_by_field_id(table_column, file_schema,
+                                       _options.allow_idless_complex_wrapper_projection);
     }
-    const ColumnDefinition* wrapper = nullptr;
-    for (const auto& candidate : file_schema) {
-        if (candidate.has_identifier_field_id() || candidate.children.empty() ||
-            !has_shared_descendant_field_id(table_column, candidate)) {
-            continue;
-        }
-        if (wrapper != nullptr) {
-            return nullptr;
-        }
-        wrapper = &candidate;
-    }
-    // Iceberg Parquet's PruneColumns retains an ID-less complex wrapper when a nested field ID is
-    // selected. Descendant IDs, not aliases, identify that wrapper; ambiguity remains unmapped.
-    return wrapper;
+    return matcher_for_mode(_options.mode).find(table_column, file_schema);
 }
 
 Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_column,
@@ -2763,17 +2872,24 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
                 }
             }
             if (file_child == nullptr) {
+                if (table_child.default_expr == nullptr &&
+                    table_child.initial_default_value.has_value()) {
+                    return Status::InvalidArgument(
+                            "Missing typed initial-default expression for table field '{}'",
+                            table_child.name);
+                }
+                if (_options.reject_missing_required_field && table_child.is_optional.has_value() &&
+                    !*table_child.is_optional && table_child.default_expr == nullptr) {
+                    return Status::InvalidArgument("Missing required field: {}", table_child.name);
+                }
                 ColumnMapping child_mapping;
                 child_mapping.table_column_name = table_child.name;
                 child_mapping.file_column_name = table_child.name;
                 child_mapping.table_type = table_child.type;
                 child_mapping.file_type = table_child.type;
                 child_mapping.variant_access_paths = table_child.variant_access_paths;
+                child_mapping.default_expr = table_child.default_expr;
                 child_mapping.filter_conversion = FilterConversionType::FINALIZE_ONLY;
-                // A missing nested field still has its Iceberg initial-default value in every row
-                // written before the field was added; carry it into recursive materialization.
-                RETURN_IF_ERROR(build_initial_default_column(
-                        table_child, &child_mapping.initial_default_column));
                 mapping->child_mappings.push_back(std::move(child_mapping));
                 continue;
             }
@@ -2790,8 +2906,8 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
                     &mapping->projected_file_children, &mapping->file_type));
             DCHECK(mapping->table_type != nullptr);
             mapping->is_trivial = mapping_can_use_file_column_directly(*mapping);
-            mapping->filter_conversion = projected_filter_conversion(*mapping);
         }
+        mapping->filter_conversion = projected_filter_conversion(*mapping);
     }
     return Status::OK();
 }

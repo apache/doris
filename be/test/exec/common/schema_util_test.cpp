@@ -22,6 +22,7 @@
 #include <string>
 #include <string_view>
 
+#include "core/column/column_decimal.h"
 #include "core/column/column_nothing.h"
 #include "core/column/column_variant.h"
 #include "core/data_type/data_type_array.h"
@@ -34,6 +35,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_time.h"
 #include "core/data_type/data_type_variant.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type_serde/data_type_jsonb_serde.h"
 #include "exec/common/variant_util.h"
 #include "storage/rowset/beta_rowset.h"
@@ -762,6 +764,41 @@ TEST_F(SchemaUtilTest, TestGetColumnByType) {
             variant_util::get_column_by_type(nullable_type, "nullable_col", ext_info);
     EXPECT_TRUE(nullable_column.is_nullable());
     EXPECT_EQ(nullable_column.type(), FieldType::OLAP_FIELD_TYPE_INT);
+
+    // V1 and V2 share the storage attributes; only the transient compute destination differs.
+    auto variant_v1_column = variant_util::get_column_by_type(
+            make_nullable(std::make_shared<DataTypeVariant>(10, true)), "variant_v1", ext_info);
+    auto variant_v2_column = variant_util::get_column_by_type(
+            make_nullable(std::make_shared<DataTypeVariantV2>(10, true)), "variant_v2", ext_info);
+    for (const auto* variant_column : {&variant_v1_column, &variant_v2_column}) {
+        EXPECT_TRUE(variant_column->is_nullable());
+        EXPECT_EQ(variant_column->type(), FieldType::OLAP_FIELD_TYPE_VARIANT);
+        EXPECT_EQ(variant_column->variant_max_subcolumns_count(), 10);
+        EXPECT_TRUE(variant_column->variant_enable_doc_mode());
+        EXPECT_EQ(variant_column->parent_unique_id(), 2);
+        EXPECT_EQ(variant_column->path_info_ptr()->get_path(), "test.path");
+    }
+    EXPECT_FALSE(variant_v1_column.variant_is_v2());
+    EXPECT_TRUE(variant_v2_column.variant_is_v2());
+}
+
+TEST_F(SchemaUtilTest, VariantV2MarkerIsTransientAcrossSchemaCopy) {
+    TabletColumn variant_column;
+    variant_column.set_name("v");
+    variant_column.set_unique_id(1);
+    variant_column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    variant_column.set_is_nullable(true);
+    variant_column.set_variant_is_v2(true);
+
+    TabletSchema source;
+    source.append_column(std::move(variant_column));
+    ASSERT_EQ(source.num_columns(), 1);
+    EXPECT_TRUE(source.column(0).variant_is_v2());
+
+    TabletSchema copied;
+    copied.copy_from(source);
+    ASSERT_EQ(copied.num_columns(), 1);
+    EXPECT_FALSE(copied.column(0).variant_is_v2());
 }
 
 //TEST_F(SchemaUtilTest, TestGetSortedSubcolumns) {
@@ -947,6 +984,20 @@ TEST_F(SchemaUtilTest, TestCastColumnWithExecuteFailure) {
     EXPECT_EQ(result->size(), 2);
     // TODO(lihangyu): ARRAY<IPv4> -> JSONB, the result will throw exception
     // EXPECT_EQ(result->get_data_at(0).size, 26);
+}
+
+TEST_F(SchemaUtilTest, TestCastColumnPropagatesVariantV2Failure) {
+    auto decimal_type = std::make_shared<DataTypeDecimal256>(76, 2);
+    auto decimal_column = ColumnDecimal256::create(0, 2);
+    decimal_column->insert_value(Decimal256 {wide::Int256(12345)});
+    ColumnWithTypeAndName source {decimal_column->get_ptr(), decimal_type, "decimal256"};
+
+    ColumnPtr result;
+    const Status status =
+            variant_util::cast_column(source, std::make_shared<DataTypeVariantV2>(), &result);
+
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+    EXPECT_NE(status.to_string().find("to Variant V2 is not supported"), std::string::npos);
 }
 
 TEST_F(SchemaUtilTest, TestGetColumnByTypeEdgeCases) {

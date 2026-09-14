@@ -34,20 +34,20 @@
 
 struct LanceBatch;
 struct LanceDataset;
+struct LanceFtsQueryContext;
 struct LanceScanner;
 
+namespace doris {
+class ShardedKVCache;
+}
+
 namespace arrow {
+class Array;
+class RecordBatch;
 class Schema;
 } // namespace arrow
 
 namespace doris::format::lance {
-
-// Convert every top-level field without discarding unsupported columns. Malformed schemas still
-// return an error and leave both output vectors unchanged. DataTypeNothing is the local sentinel
-// for a valid Arrow field whose logical type Doris does not support.
-Status convert_arrow_schema_to_doris(const std::shared_ptr<arrow::Schema>& arrow_schema,
-                                     std::vector<std::string>* column_names,
-                                     std::vector<DataTypePtr>* column_types);
 
 // A FORMAT_LANCE table reader. Unlike file formats such as Parquet, a Lance split is not a
 // physical-file range. It either selects fragments from a fixed snapshot or scans the whole
@@ -65,6 +65,11 @@ public:
     Status init(TableReadOptions&& options) override;
     Status prepare_split(const SplitReadOptions& options) override;
     Status get_block(Block* block, bool* eos) override;
+    // Fetch top-level projected columns by native Lance row IDs from one fixed dataset snapshot.
+    // Input order and duplicates are preserved by lance-c. Missing rows are rejected because row
+    // IDs produced by phase one must still exist in the same snapshot during materialization.
+    Status read_by_row_ids(const TFileRangeDesc& range, const std::vector<uint64_t>& row_ids,
+                           Block* block);
     Status abort_split() override;
     Status close() override;
 
@@ -76,26 +81,58 @@ private:
         bool operator==(const DatasetKey&) const = default;
     };
 
-    Status _validate_range(const TFileRangeDesc& range) const;
+    Status _resolve_search_kind();
     Status _validate_external_search_request() const;
+    Status _ensure_dataset_open(const TFileRangeDesc& range, bool prepare_fts_context = true);
     Status _open_dataset(const DatasetKey& key);
+    Status _prepare_fts_query_context();
     Status _open_scanner(const TFileRangeDesc& range);
-    Status _configure_vector_search(LanceScanner* scanner) const;
+    Status _configure_normal_scan(LanceScanner* scanner, const TLanceFileDesc& lance_params) const;
+    Status _configure_vector_search(LanceScanner* scanner,
+                                    const TLanceFileDesc& lance_params) const;
+    Status _configure_full_text_search(LanceScanner* scanner,
+                                       const TLanceFileDesc& lance_params) const;
+    // Keep lance-c's anonymous statistics typedef out of this header. _open_scanner installs the
+    // strongly typed C callback adapter before forwarding the borrowed value here.
+    static void _collect_scan_statistics(void* callback_ctx, const void* opaque_statistics);
     void _close_scanner();
     void _close_dataset();
-    Status _fill_block_from_arrow(LanceBatch* batch, Block* block, size_t* rows);
-    static std::vector<std::string> _storage_options(const TFileScanRangeParams* scan_params);
-    DatasetKey _dataset_key(const TFileRangeDesc& range) const;
-    static Status _lance_error(std::string_view operation);
+    Status _fill_block_from_lance_batch(LanceBatch* batch, Block* block, size_t* rows);
+    Status _fill_block_from_record_batch(const std::shared_ptr<arrow::RecordBatch>& record_batch,
+                                         Block* block, size_t* rows);
+    Status _append_global_row_ids(const std::shared_ptr<arrow::Array>& row_ids,
+                                  MutableColumnPtr& output_column) const;
+    Status _dataset_key(const TFileRangeDesc& range, DatasetKey* key) const;
 
     LanceDataset* _dataset = nullptr;
+    std::shared_ptr<arrow::Schema> _dataset_schema;
     LanceScanner* _scanner = nullptr;
+    ShardedKVCache* _runtime_filter_cache = nullptr;
     std::optional<DatasetKey> _opened_dataset_key;
     std::unordered_map<std::string, size_t> _output_name_to_idx;
+    std::optional<size_t> _global_rowid_output_idx;
     cctz::time_zone _ctz;
     size_t _scanner_batch_size = 0;
-    bool _vector_search = false;
-    bool _search_split_prepared = false;
+    RuntimeProfile::Counter* _planned_index_segment_count = nullptr;
+    RuntimeProfile::Counter* _planned_indexed_fragment_count = nullptr;
+    RuntimeProfile::Counter* _planned_flat_search_fragment_count = nullptr;
+    RuntimeProfile::Counter* _dataset_open_time = nullptr;
+    RuntimeProfile::Counter* _scanner_configure_time = nullptr;
+    RuntimeProfile::Counter* _runtime_filter_sql_time = nullptr;
+    RuntimeProfile::Counter* _scanner_read_time = nullptr;
+    RuntimeProfile::Counter* _arrow_to_doris_block_time = nullptr;
+    RuntimeProfile::Counter* _row_id_take_read_time = nullptr;
+    RuntimeProfile::Counter* _row_id_fetch_total_time = nullptr;
+    RuntimeProfile::Counter* _execution_iops = nullptr;
+    RuntimeProfile::Counter* _execution_requests = nullptr;
+    RuntimeProfile::Counter* _execution_bytes_read = nullptr;
+    RuntimeProfile::Counter* _index_partition_cache_miss_loads = nullptr;
+    RuntimeProfile::Counter* _index_comparisons = nullptr;
+    std::unordered_map<std::string_view, RuntimeProfile::Counter*> _lance_count_metrics;
+    std::unordered_map<std::string_view, RuntimeProfile::Counter*> _lance_time_metrics;
+    LanceFtsQueryContext* _fts_query_context = nullptr;
+    enum class SearchKind { NORMAL, VECTOR, FULL_TEXT };
+    SearchKind _search_kind = SearchKind::NORMAL;
     bool _eof = false;
 };
 

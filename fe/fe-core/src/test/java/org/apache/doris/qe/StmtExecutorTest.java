@@ -29,6 +29,8 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.ConnectContext.ConnectType;
+import org.apache.doris.thrift.TQueryOptions;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -36,6 +38,8 @@ import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import org.mockito.invocation.InvocationOnMock;
+import org.mockito.stubbing.Answer;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -67,6 +71,73 @@ public class StmtExecutorTest extends TestWithFeService {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
         Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+    }
+
+    // The deferral gate (#67503): a coordinator is kept alive past GetFlightInfo only when the BE
+    // still fetches splits from it (Coordinator.hasBatchSplitSource), and the execution timeout it
+    // ran with is frozen at that moment. SET_VAR hint values are reverted when execute() ends, so
+    // the idle reaper must not read the session value later.
+    @Test
+    public void testDeferForArrowFlightFreezesExecTimeoutInEffect() throws Exception {
+        int savedQueryTimeout = connectContext.getSessionVariable().getQueryTimeoutS();
+        int savedIdleTimeout = Config.arrow_flight_deferred_query_idle_timeout_second;
+        connectContext.setQueryId(new TUniqueId(0x67503L, 0x1L));
+        try {
+            Config.arrow_flight_deferred_query_idle_timeout_second = 1;
+            connectContext.getSessionVariable().setQueryTimeoutS(1234);
+            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
+            Assertions.assertFalse(stmtExecutor.isDeferredForArrowFlight());
+            Assertions.assertEquals(-1, stmtExecutor.getDeferredExecTimeoutS());
+
+            stmtExecutor.deferForArrowFlight();
+
+            Assertions.assertTrue(stmtExecutor.isDeferredForArrowFlight());
+            Assertions.assertEquals(1234, stmtExecutor.getDeferredExecTimeoutS());
+            // the reaper's bound is floored at the frozen value ...
+            Assertions.assertEquals(1234L, connectContext.getFlightSqlDeferredExecutorsIdleTimeoutS());
+            // ... even after the session value moved on, as it does when a SET_VAR hint is reverted
+            connectContext.getSessionVariable().setQueryTimeoutS(5);
+            Assertions.assertEquals(1234, stmtExecutor.getDeferredExecTimeoutS());
+            Assertions.assertEquals(1234L, connectContext.getFlightSqlDeferredExecutorsIdleTimeoutS());
+        } finally {
+            connectContext.closeFlightSqlDeferredExecutors();
+            connectContext.getSessionVariable().setQueryTimeoutS(savedQueryTimeout);
+            Config.arrow_flight_deferred_query_idle_timeout_second = savedIdleTimeout;
+        }
+    }
+
+    // Arrow Flight SQL keeps a query's coordinator alive across GetFlightInfo -> DoGet (see #62259);
+    // it is released later by finalizeArrowFlightQuery(), which closes the coordinator and then
+    // unregisters the query. The close and the unregister must be independent: if coord.close()
+    // throws, the query registration must still be released (the try/finally), otherwise the query
+    // leaks in QeProcessorImpl forever. The thrown error is expected to propagate to the caller
+    // (ConnectContext.closeFlightSqlDeferredExecutors), which catches and logs it.
+    @Test
+    public void testFinalizeArrowFlightQueryUnregistersQueryEvenIfCoordCloseThrows() throws Exception {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
+        TUniqueId queryId = new TUniqueId(0x6226259L, 0x62259L);
+        connectContext.setQueryId(queryId);
+
+        Coordinator coord = Mockito.mock(Coordinator.class);
+        Mockito.when(coord.getQueryOptions()).thenReturn(new TQueryOptions());
+        Mockito.doThrow(new RuntimeException("coord close failed")).when(coord).close();
+        stmtExecutor.setCoord(coord);
+
+        // Simulate the in-flight query whose results DoGet is still pulling.
+        QeProcessorImpl.INSTANCE.registerQuery(queryId, new QeProcessorImpl.QueryInfo(coord));
+        Assert.assertNotNull(QeProcessorImpl.INSTANCE.getCoordinator(queryId));
+
+        try {
+            stmtExecutor.finalizeArrowFlightQuery();
+            Assert.fail("expected coord.close() failure to propagate after the query is unregistered");
+        } catch (RuntimeException e) {
+            Assert.assertEquals("coord close failed", e.getMessage());
+        }
+
+        // The coordinator close was attempted (releases SplitSource + query queue slot) ...
+        Mockito.verify(coord).close();
+        // ... and despite it failing, the query registration was still released (no leak).
+        Assert.assertNull(QeProcessorImpl.INSTANCE.getCoordinator(queryId));
     }
 
     @Test
@@ -220,18 +291,21 @@ public class StmtExecutorTest extends TestWithFeService {
         columns.add(new Column());
         ResultSet resultSet = new CommonResultSet(new CommonResultSetMetaData(columns), rows);
         AtomicInteger i = new AtomicInteger();
-        Mockito.doAnswer(invocation -> {
-            byte[] expected0 = new byte[]{-5, 4, 114, 111, 119, 49};
-            byte[] expected1 = new byte[]{4, 49, 50, 51, 52, 4, 114, 111, 119, 50};
-            ByteBuffer buffer = invocation.getArgument(0);
-            if (i.get() == 0) {
-                Assertions.assertArrayEquals(expected0, buffer.array());
-                i.getAndIncrement();
-            } else if (i.get() == 1) {
-                Assertions.assertArrayEquals(expected1, buffer.array());
-                i.getAndIncrement();
+        Mockito.doAnswer(new Answer<Void>() {
+            @Override
+            public Void answer(InvocationOnMock invocation) {
+                byte[] expected0 = new byte[] {-5, 4, 114, 111, 119, 49};
+                byte[] expected1 = new byte[] {4, 49, 50, 51, 52, 4, 114, 111, 119, 50};
+                ByteBuffer buffer = invocation.getArgument(0);
+                if (i.get() == 0) {
+                    Assertions.assertArrayEquals(expected0, buffer.array());
+                    i.getAndIncrement();
+                } else if (i.get() == 1) {
+                    Assertions.assertArrayEquals(expected1, buffer.array());
+                    i.getAndIncrement();
+                }
+                return null;
             }
-            return null;
         }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
 
         StmtExecutor executor = new StmtExecutor(mockCtx, stmt, false);
@@ -264,18 +338,62 @@ public class StmtExecutorTest extends TestWithFeService {
         columns.add(new Column("col2", PrimitiveType.DATETIMEV2));
         ResultSet resultSet = new CommonResultSet(new CommonResultSetMetaData(columns), rows);
         AtomicInteger i = new AtomicInteger();
-        Mockito.doAnswer(invocation -> {
-            byte[] expected0 = new byte[] {0, 4, 7, -23, 7, 1, 1, 1, 2, 3};
-            byte[] expected1 = new byte[] {0, 0, -46, 4, 0, 0, 0, 0, 0, 0, 11, -23, 7, 1, 1, 1, 2, 3, 64, -30, 1, 0};
-            ByteBuffer buffer = invocation.getArgument(0);
-            if (i.get() == 0) {
-                Assertions.assertArrayEquals(expected0, buffer.array());
-                i.getAndIncrement();
-            } else if (i.get() == 1) {
-                Assertions.assertArrayEquals(expected1, buffer.array());
-                i.getAndIncrement();
+        Mockito.doAnswer(new Answer<Void>() {
+            @Override
+            public Void answer(InvocationOnMock invocation) {
+                byte[] expected0 = new byte[] {0, 4, 7, -23, 7, 1, 1, 1, 2, 3};
+                byte[] expected1 = new byte[] {0, 0, -46, 4, 0, 0, 0, 0, 0, 0, 11, -23, 7, 1, 1, 1, 2, 3,
+                        64, -30, 1, 0};
+                ByteBuffer buffer = invocation.getArgument(0);
+                if (i.get() == 0) {
+                    Assertions.assertArrayEquals(expected0, buffer.array());
+                    i.getAndIncrement();
+                } else if (i.get() == 1) {
+                    Assertions.assertArrayEquals(expected1, buffer.array());
+                    i.getAndIncrement();
+                }
+                return null;
             }
-            return null;
+        }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
+
+        StmtExecutor executor = new StmtExecutor(mockCtx, stmt, false);
+        executor.sendBinaryResultRow(resultSet);
+    }
+
+    @Test
+    public void testSendBinaryBooleanResultRow() throws IOException {
+        ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
+        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
+        Mockito.when(mockCtx.getConnectType()).thenReturn(ConnectType.MYSQL);
+        Mockito.when(mockCtx.getMysqlChannel()).thenReturn(channel);
+        MysqlSerializer mysqlSerializer = MysqlSerializer.newInstance();
+        Mockito.when(channel.getSerializer()).thenReturn(mysqlSerializer);
+        SessionVariable sessionVariable = VariableMgr.newSessionVariable();
+        Mockito.when(mockCtx.getSessionVariable()).thenReturn(sessionVariable);
+        OriginStatement stmt = new OriginStatement("", 1);
+
+        List<List<String>> rows = Lists.newArrayList();
+        rows.add(Lists.newArrayList("false"));
+        rows.add(Lists.newArrayList("1"));
+        List<Column> columns = Lists.newArrayList();
+        columns.add(new Column("col1", PrimitiveType.BOOLEAN));
+        ResultSet resultSet = new CommonResultSet(new CommonResultSetMetaData(columns), rows);
+        AtomicInteger i = new AtomicInteger();
+        Mockito.doAnswer(new Answer<Void>() {
+            @Override
+            public Void answer(InvocationOnMock invocation) {
+                byte[] expected0 = new byte[] {0, 0, 0};
+                byte[] expected1 = new byte[] {0, 0, 1};
+                ByteBuffer buffer = invocation.getArgument(0);
+                if (i.get() == 0) {
+                    Assertions.assertArrayEquals(expected0, buffer.array());
+                    i.getAndIncrement();
+                } else if (i.get() == 1) {
+                    Assertions.assertArrayEquals(expected1, buffer.array());
+                    i.getAndIncrement();
+                }
+                return null;
+            }
         }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
 
         StmtExecutor executor = new StmtExecutor(mockCtx, stmt, false);

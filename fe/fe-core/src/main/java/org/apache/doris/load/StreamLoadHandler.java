@@ -36,6 +36,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.ThriftLogHelper;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.nereids.load.NereidsCloudStreamLoadPlanner;
 import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
@@ -119,7 +120,7 @@ public class StreamLoadHandler {
         }
 
         if (LOG.isDebugEnabled()) {
-            LOG.debug("stream load put request: {}", request);
+            LOG.debug("stream load put request: {}", ThriftLogHelper.requestForLog(request));
         }
         // create connect context
         ConnectContext ctx = new ConnectContext();

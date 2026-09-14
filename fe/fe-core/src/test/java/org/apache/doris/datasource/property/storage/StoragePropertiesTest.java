@@ -70,6 +70,24 @@ public class StoragePropertiesTest {
                 "OSS should be detected via guessIsMe when no explicit fs.xx.support is set");
     }
 
+    @Test
+    public void testOssTablesPropertiesKeepS3AndOssProvidersAvailable() throws UserException {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.signing-name", "osstables");
+        props.put("iceberg.rest.signing-region", "cn-beijing");
+        props.put("oss.endpoint", "https://oss-cn-beijing.aliyuncs.com");
+        props.put("oss.region", "cn-beijing");
+        props.put("oss.access_key", "ak");
+        props.put("oss.secret_key", "sk");
+
+        List<StorageProperties> all = StorageProperties.createAll(props);
+        List<Class<?>> types = toTypeList(all);
+
+        Assertions.assertTrue(types.contains(OSSProperties.class));
+        Assertions.assertTrue(types.contains(S3Properties.class),
+                "Global storage detection must keep S3 available when OSS is also configured");
+    }
+
     /**
      * When no {@code fs.xx.support} flag is set, an S3 endpoint containing
      * "amazonaws.com" should be detected as S3 via guessIsMe.

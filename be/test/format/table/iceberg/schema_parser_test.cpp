@@ -49,6 +49,18 @@ const std::string valid_struct_json = R"({
     ]
 })";
 
+const std::string variant_struct_json = R"({
+    "type": "struct",
+    "fields": [
+        {
+            "id": 30,
+            "name": "payload",
+            "type": "variant",
+            "required": false
+        }
+    ]
+})";
+
 const std::string invalid_json = R"({
     "type": "struct",
     "fields": [
@@ -200,6 +212,13 @@ TEST(SchemaParserTest, parse_valid_struct) {
     EXPECT_EQ(age_field->field_name(), "age");
     EXPECT_EQ(age_field->is_optional(), true);
     EXPECT_EQ(age_field->field_type()->as_primitive_type()->to_string(), "int");
+}
+
+TEST(SchemaParserTest, parse_variant) {
+    std::unique_ptr<Schema> schema = SchemaParser::from_json(variant_struct_json);
+    ASSERT_NE(schema, nullptr);
+    ASSERT_NE(schema->find_field(30), nullptr);
+    EXPECT_EQ(schema->find_field(30)->field_type()->type_id(), TypeID::VARIANT);
 }
 
 //TEST(SchemaParserTest, parse_invalid_json) {

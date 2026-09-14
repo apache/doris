@@ -61,9 +61,18 @@ public:
         int64_t scan_bytes_from_remote_storage = 0;
     };
 
+    struct FileReaderProfileDeltas {
+        int64_t read_bytes = 0;
+        int64_t read_calls = 0;
+        int64_t read_time_ns = 0;
+    };
+
+    enum class IgnoredSplitStatus { NONE, NOT_FOUND, EMPTY };
+
     enum class UncachedReaderBytesStorage { LOCAL, REMOTE, NONE };
 
     static bool is_supported(const TFileScanRangeParams& params, const TFileRangeDesc& range);
+    static bool can_refine_source_split(const TFileRangeDesc& range);
 #ifdef BE_TEST
     FileScannerV2(RuntimeState* state, RuntimeProfile* profile,
                   std::unique_ptr<format::TableReader> table_reader);
@@ -87,6 +96,27 @@ public:
             int64_t* last_bytes_read_from_remote);
     static void TEST_report_file_cache_profile(
             RuntimeProfile* profile, const io::FileCacheStatistics& file_cache_statistics);
+    static int64_t TEST_cumulative_profile_delta(int64_t current, int64_t* reported) {
+        return _cumulative_profile_delta(current, reported);
+    }
+    static FileReaderProfileDeltas TEST_collect_file_reader_profile_deltas(
+            const io::FileReaderStats& stats, int64_t* reported_bytes, int64_t* reported_calls,
+            int64_t* reported_time) {
+        return _collect_file_reader_profile_deltas(stats, reported_bytes, reported_calls,
+                                                   reported_time);
+    }
+    static IgnoredSplitStatus TEST_classify_ignored_split_status(const Status& status,
+                                                                 bool ignore_not_found,
+                                                                 bool stopped) {
+        return _classify_ignored_split_status(status, ignore_not_found, stopped);
+    }
+    static bool TEST_can_refine_source_split(const TFileRangeDesc& range) {
+        return can_refine_source_split(range);
+    }
+    static bool TEST_should_refine_source_split(const TFileRangeDesc& range,
+                                                int constructed_scanners) {
+        return _should_refine_source_split(range, constructed_scanners);
+    }
     static bool TEST_should_skip_not_found(const Status& status, bool ignore_not_found);
     static bool TEST_should_skip_empty(const Status& status, bool stopped);
     static Status TEST_contextualize_output_filter_status(Status status,
@@ -97,6 +127,10 @@ public:
                                                     bool current_split_uses_metadata_count) {
         return _should_run_adaptive_batch_size(predictor_initialized,
                                                current_split_uses_metadata_count);
+    }
+    static void TEST_update_file_counter(RuntimeProfile::Counter* counter,
+                                         const FileScanSplit& split) {
+        _update_file_counter(counter, split);
     }
 #endif
 
@@ -124,6 +158,8 @@ private:
     static Status _validate_scan_range(const TFileScanRangeParams& params,
                                        const TFileRangeDesc& range);
     Status _get_next_scan_range(bool* has_next);
+    Status _retire_current_source_split(std::vector<FileScanSplit> generated_splits = {});
+    Status _complete_current_split();
     TFileFormatType::type _get_current_format_type() const;
     Status _init_io_ctx();
     Status _init_expr_ctxes();
@@ -135,8 +171,16 @@ private:
                                        std::map<std::string, Field> partition_values);
     static bool _should_skip_not_found(const Status& status, bool ignore_not_found);
     static bool _should_skip_empty(const Status& status, bool stopped);
+    static IgnoredSplitStatus _classify_ignored_split_status(const Status& status,
+                                                             bool ignore_not_found, bool stopped);
     static Status _contextualize_output_filter_status(Status status,
                                                       TFileFormatType::type format_type);
+    static bool _should_refine_source_split(const TFileRangeDesc& range, int constructed_scanners);
+    static int64_t _cumulative_profile_delta(int64_t current, int64_t* reported);
+    static void _update_file_counter(RuntimeProfile::Counter* counter, const FileScanSplit& split);
+    static FileReaderProfileDeltas _collect_file_reader_profile_deltas(
+            const io::FileReaderStats& stats, int64_t* reported_bytes, int64_t* reported_calls,
+            int64_t* reported_time);
     bool _should_enable_file_meta_cache() const;
     std::optional<format::GlobalRowIdContext> _create_global_rowid_context(
             const TFileRangeDesc& range) const;
@@ -181,6 +225,7 @@ private:
     bool _has_prepared_split = false;
     int _table_reader_rf_num = 0;
     TFileRangeDesc _current_range;
+    FileScanSplit _current_split;
     std::string _current_range_path;
 
     std::unique_ptr<format::TableReader> _table_reader;
@@ -200,6 +245,7 @@ private:
     std::unique_ptr<io::FileReaderStats> _file_reader_stats;
     std::shared_ptr<io::IOContext> _io_ctx;
     ShardedKVCache* _kv_cache = nullptr;
+    int _constructed_scanners = 1;
 
     RuntimeProfile::Counter* _scanner_total_timer = nullptr;
     RuntimeProfile::Counter* _init_timer = nullptr;
@@ -227,6 +273,9 @@ private:
     int64_t _last_bytes_read_from_local = 0;
     int64_t _last_bytes_read_from_remote = 0;
     int64_t _reported_io_read_time = 0;
+    int64_t _reported_file_read_bytes = 0;
+    int64_t _reported_file_read_calls = 0;
+    int64_t _reported_file_read_time = 0;
 };
 
 } // namespace doris

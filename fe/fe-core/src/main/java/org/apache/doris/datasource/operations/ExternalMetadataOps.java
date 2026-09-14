@@ -294,6 +294,20 @@ public interface ExternalMetadataOps {
     }
 
     /**
+     * update properties for external table
+     *
+     * @param dorisTable external table
+     * @param properties properties to update
+     * @param updateTime update time used to refresh FE metadata
+     * @throws UserException if the update fails
+     */
+    default void updateTableProperties(ExternalTable dorisTable, Map<String, String> properties, long updateTime)
+            throws UserException {
+        throw new UnsupportedOperationException(
+                "Update table properties operation is not supported for this table type.");
+    }
+
+    /**
      * update column for external table
      *
      * @param dorisTable

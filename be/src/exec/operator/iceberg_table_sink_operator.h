@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include "exec/operator/operator.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 
@@ -25,21 +27,26 @@ namespace doris {
 
 class IcebergTableSinkOperatorX;
 
-class IcebergTableSinkLocalState final
-        : public AsyncWriterSink<VIcebergTableWriter, IcebergTableSinkOperatorX> {
+class IcebergTableSinkLocalState final : public PipelineXSinkLocalState<FakeSharedState> {
 public:
-    using Base = AsyncWriterSink<VIcebergTableWriter, IcebergTableSinkOperatorX>;
+    using Base = PipelineXSinkLocalState<FakeSharedState>;
     using Parent = IcebergTableSinkOperatorX;
     ENABLE_FACTORY_CREATOR(IcebergTableSinkLocalState);
     IcebergTableSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state) {};
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-    Status open(RuntimeState* state) override {
-        SCOPED_TIMER(exec_time_counter());
-        SCOPED_TIMER(_open_timer);
-        return Base::open(state);
-    }
+    Status open(RuntimeState* state) override;
+    Status sink(RuntimeState* state, Block* block, bool eos);
+    Status close(RuntimeState* state, Status exec_status) override;
+
+    [[nodiscard]] bool is_blockable() const override { return true; }
+
+private:
     friend class IcebergTableSinkOperatorX;
+    friend class IcebergTableSinkOperatorTest;
+
+    VExprContextSPtrs _output_vexpr_ctxs;
+    std::unique_ptr<VIcebergTableWriter> _writer;
 };
 
 class IcebergTableSinkOperatorX final : public DataSinkOperatorX<IcebergTableSinkLocalState> {
@@ -74,9 +81,6 @@ public:
 
 private:
     friend class IcebergTableSinkLocalState;
-    template <typename Writer, typename Parent>
-        requires(std::is_base_of_v<AsyncResultWriter, Writer>)
-    friend class AsyncWriterSink;
     const RowDescriptor& _row_desc;
     VExprContextSPtrs _output_vexpr_ctxs;
     const std::vector<TExpr>& _t_output_expr;

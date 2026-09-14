@@ -20,19 +20,15 @@
 #include <stdint.h>
 
 #include <algorithm>
-#include <filesystem>
-#include <ostream>
 #include <utility>
 
 #include "bvar/latency_recorder.h"
 #include "bvar/reducer.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
 #include "io/hdfs_util.h"
-#include "runtime/file_scan_profile.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "service/backend_options.h"
@@ -62,49 +58,24 @@ Result<FileHandleCache::Accessor> get_file(const hdfsFS& fs, const Path& file, i
 } // namespace
 
 Result<FileReaderSPtr> HdfsFileReader::create(Path full_path, const hdfsFS& fs, std::string fs_name,
-                                              const FileReaderOptions& opts,
-                                              RuntimeProfile* profile) {
+                                              const FileReaderOptions& opts) {
     auto path = convert_path(full_path, fs_name);
     return get_file(fs, path, opts.mtime, opts.file_size).transform([&](auto&& accessor) {
         return std::make_shared<HdfsFileReader>(std::move(path), std::move(fs_name),
-                                                std::move(accessor), profile, opts.mtime);
+                                                std::move(accessor), opts.mtime);
     });
 }
 
 HdfsFileReader::HdfsFileReader(Path path, std::string fs_name, FileHandleCache::Accessor accessor,
-                               RuntimeProfile* profile, int64_t mtime)
+                               int64_t mtime)
         : _path(std::move(path)),
           _fs_name(std::move(fs_name)),
           _accessor(std::move(accessor)),
-          _profile(profile),
           _mtime(mtime) {
     _handle = _accessor.get();
 
     DorisMetrics::instance()->hdfs_file_open_reading->increment(1);
     DorisMetrics::instance()->hdfs_file_reader_total->increment(1);
-    if (_profile != nullptr && is_hdfs(_fs_name)) {
-#ifdef USE_HADOOP_HDFS
-        const char* hdfs_profile_name = "HdfsIO";
-        _total_read_time =
-                ADD_CHILD_TIMER(_profile, hdfs_profile_name,
-                                file_scan_profile::parent_or_root(_profile, file_scan_profile::IO));
-        _hdfs_profile.total_bytes_read =
-                ADD_CHILD_COUNTER(_profile, "TotalBytesRead", TUnit::BYTES, hdfs_profile_name);
-        _hdfs_profile.total_local_bytes_read =
-                ADD_CHILD_COUNTER(_profile, "TotalLocalBytesRead", TUnit::BYTES, hdfs_profile_name);
-        _hdfs_profile.total_short_circuit_bytes_read = ADD_CHILD_COUNTER(
-                _profile, "TotalShortCircuitBytesRead", TUnit::BYTES, hdfs_profile_name);
-        _hdfs_profile.total_total_zero_copy_bytes_read = ADD_CHILD_COUNTER(
-                _profile, "TotalZeroCopyBytesRead", TUnit::BYTES, hdfs_profile_name);
-
-        _hdfs_profile.total_hedged_read =
-                ADD_CHILD_COUNTER(_profile, "TotalHedgedRead", TUnit::UNIT, hdfs_profile_name);
-        _hdfs_profile.hedged_read_in_cur_thread = ADD_CHILD_COUNTER(
-                _profile, "HedgedReadInCurThread", TUnit::UNIT, hdfs_profile_name);
-        _hdfs_profile.hedged_read_wins =
-                ADD_CHILD_COUNTER(_profile, "HedgedReadWins", TUnit::UNIT, hdfs_profile_name);
-#endif
-    }
 }
 
 HdfsFileReader::~HdfsFileReader() {
@@ -121,7 +92,6 @@ Status HdfsFileReader::close() {
 
 Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                     const IOContext* io_ctx) {
-    SCOPED_TIMER(_total_read_time);
     auto st = do_read_at_impl(offset, result, bytes_read, io_ctx);
     if (!st.ok()) {
         _handle = nullptr;
@@ -253,47 +223,6 @@ Status HdfsFileReader::do_read_at_impl(size_t offset, Slice result, size_t* byte
 }
 #endif
 
-void HdfsFileReader::_collect_profile_before_close() {
-    if (_profile != nullptr && is_hdfs(_fs_name)) {
-#ifdef USE_HADOOP_HDFS
-        if (_handle == nullptr) [[unlikely]] {
-            return;
-        }
-
-        struct hdfsReadStatistics* hdfs_statistics = nullptr;
-        auto r = hdfsFileGetReadStatistics(_handle->file(), &hdfs_statistics);
-        if (r != 0) {
-            LOG(WARNING) << "Failed to run hdfsFileGetReadStatistics(): " << r
-                         << ", name node: " << _fs_name;
-            return;
-        }
-        COUNTER_UPDATE(_hdfs_profile.total_bytes_read, hdfs_statistics->totalBytesRead);
-        COUNTER_UPDATE(_hdfs_profile.total_local_bytes_read, hdfs_statistics->totalLocalBytesRead);
-        COUNTER_UPDATE(_hdfs_profile.total_short_circuit_bytes_read,
-                       hdfs_statistics->totalShortCircuitBytesRead);
-        COUNTER_UPDATE(_hdfs_profile.total_total_zero_copy_bytes_read,
-                       hdfs_statistics->totalZeroCopyBytesRead);
-        hdfsFileFreeReadStatistics(hdfs_statistics);
-
-        struct hdfsHedgedReadMetrics* hdfs_hedged_read_statistics = nullptr;
-        r = hdfsGetHedgedReadMetrics(_handle->fs(), &hdfs_hedged_read_statistics);
-        if (r != 0) {
-            LOG(WARNING) << "Failed to run hdfsGetHedgedReadMetrics(): " << r
-                         << ", name node: " << _fs_name;
-            return;
-        }
-
-        COUNTER_UPDATE(_hdfs_profile.total_hedged_read, hdfs_hedged_read_statistics->hedgedReadOps);
-        COUNTER_UPDATE(_hdfs_profile.hedged_read_in_cur_thread,
-                       hdfs_hedged_read_statistics->hedgedReadOpsInCurThread);
-        COUNTER_UPDATE(_hdfs_profile.hedged_read_wins,
-                       hdfs_hedged_read_statistics->hedgedReadOpsWin);
-
-        hdfsFreeHedgedReadMetrics(hdfs_hedged_read_statistics);
-        hdfsFileClearReadStatistics(_handle->file());
-#endif
-    }
-}
 #include "common/compile_check_end.h"
 
 } // namespace doris::io

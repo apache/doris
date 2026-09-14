@@ -49,8 +49,10 @@ final class DorisMemorySegmentPool extends AbstractMemorySegmentPool {
         ByteBuffer buffer =
                 PaimonJniWriter.allocatePaimonMemoryPage(nativeMemoryManager, pageSize);
         if (buffer == null) {
-            throw new OutOfMemoryError(
-                    "Doris failed to allocate a native Paimon memory page of " + pageSize + " bytes");
+            // Native allocation failures are raised as JNI exceptions. A bare null therefore
+            // indicates a broken callback contract rather than a Paimon pool-capacity signal.
+            throw new IllegalStateException(
+                    "Doris returned no native Paimon memory page of " + pageSize + " bytes");
         }
         return MemorySegment.wrapOffHeapMemory(buffer);
     }

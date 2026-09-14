@@ -39,8 +39,8 @@ public:
     DataTypeTimeStampTz() = default;
     DataTypeTimeStampTz(UInt32 scale) : _scale(scale) {}
     bool equals(const IDataType& rhs) const override {
-        return rhs.get_primitive_type() == PrimitiveType::TYPE_TIMESTAMPTZ &&
-               _scale == rhs.get_scale();
+        return typeid(rhs) == typeid(*this) &&
+               _scale == static_cast<const DataTypeTimeStampTz&>(rhs)._scale;
     }
     bool equals_ignore_precision(const IDataType& rhs) const override {
         return rhs.get_primitive_type() == PrimitiveType::TYPE_TIMESTAMPTZ;

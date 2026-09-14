@@ -22,7 +22,10 @@ suite("test_iceberg_varbinary", "p0,external,doris,external_docker,external_dock
         logger.info("disable iceberg test.")
         return
     }
-    sql "SET ENABLE_VARIANT_V2=true"
+    // Iceberg VARIANT carries the external computeV2 physical marker and must work with either
+    // native Doris VARIANT mode selected by the cluster's FE config.
+    logger.info("run Iceberg VARIANT with FE enable_variant_v2={}",
+            getFeConfig("enable_variant_v2"))
 
     String catalog_name_no_mapping = "test_iceberg_no_mapping"
     String catalog_name_with_mapping = "test_iceberg_with_mapping"

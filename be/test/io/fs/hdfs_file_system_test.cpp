@@ -28,6 +28,13 @@ namespace doris {
 
 static constexpr std::string_view test_dir = "ut_dir/hdfs_test";
 
+TEST(HdfsFileSystemTest, RejectsCacheBlockSizeNotDividingHdfsBatch) {
+    EXPECT_TRUE(io::validate_hdfs_write_batch_buffer_size(1, 1024 * 1024).ok());
+    EXPECT_TRUE(io::validate_hdfs_write_batch_buffer_size(1, 256 * 1024).ok());
+    EXPECT_FALSE(io::validate_hdfs_write_batch_buffer_size(1, 640 * 1024).ok());
+    EXPECT_FALSE(io::validate_hdfs_write_batch_buffer_size(1, 2 * 1024 * 1024).ok());
+}
+
 TEST(HdfsFileSystemTest, Write) {
     Status st;
     const auto& local_fs = io::global_local_filesystem();
