@@ -46,6 +46,9 @@
 #include "service/http/action/compaction_profile_action.h"
 #include "service/http/action/compaction_score_action.h"
 #include "service/http/action/config_action.h"
+#ifdef LLVM_PROFILE
+#include "service/http/action/coverage_action.h"
+#endif
 #include "service/http/action/debug_point_action.h"
 #include "service/http/action/delete_bitmap_action.h"
 #include "service/http/action/dictionary_status_action.h"
@@ -285,6 +288,15 @@ Status HttpService::start() {
     // shrink memory for starting co-exist process during upgrade
     ShrinkMemAction* shrink_mem_action = _pool.add(new ShrinkMemAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/shrink_mem", shrink_mem_action);
+
+#ifdef LLVM_PROFILE
+    auto* coverage_reset_action = _pool.add(new CoverageResetAction(_env));
+    _ev_http_server->register_handler(HttpMethod::POST, "/api/coverage/reset",
+                                      coverage_reset_action);
+
+    auto* coverage_dump_action = _pool.add(new CoverageDumpAction(_env));
+    _ev_http_server->register_handler(HttpMethod::POST, "/api/coverage/dump", coverage_dump_action);
+#endif
 
 #ifndef BE_TEST
     auto& engine = _env->storage_engine();
