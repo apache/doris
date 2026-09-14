@@ -56,19 +56,25 @@ import java.nio.charset.StandardCharsets;
  * {@code ERR_LANCE_INDEX_JOB_RESOLUTION_INCOMPLETE}: nothing is written, nothing is released,
  * and the operator fixes the cause and retries the same statement.
  *
- * <p>Orphan branches (design section 7.1 step 1): a fully orphaned job (catalog gone) has no
- * credentials to read with and nothing to invalidate, so it is released directly after global
- * ADMIN authorization; a half-orphan (catalog alive, persisted db/table no longer resolvable)
- * skips the authoritative read and refreshes with {@code ignoreIfNotExists=true} as a
- * best-effort invalidation. A non-null exception while resolving the target is never an
- * orphan verdict — it is treated as a refresh failure so the fence is kept when "table gone"
- * cannot be told apart from "network down".
+ * <p>Target resolution (design section 7.1 step 1) is three-valued. RESOLVED means the
+ * persisted names resolve and the catalog's current durable dataset locator still matches
+ * the job's — the same revalidation SHOW LANCE INDEX JOBS applies, so a repointed dataset
+ * reusing the same names never turns a stale name into table-level authorization. MISSING
+ * means the catalog, database or table is verifiably absent, or the locator positively
+ * points at a different dataset: that is the orphan family — a full orphan (catalog gone)
+ * has no credentials to read with and nothing to invalidate, so it is released directly
+ * after global ADMIN authorization, while a half-orphan skips the authoritative read and
+ * refreshes with {@code ignoreIfNotExists=true} as a best-effort invalidation. FAILED means
+ * a resolution that errors out, or a locator that cannot be resolved right now: never an
+ * orphan verdict — after ADMIN authorization the statement fails with the typed 5105 so the
+ * fence is kept when "table gone" cannot be told apart from "network down". SHOW fails the
+ * same uncertainty closed by hiding the row; RESOLVE fails it closed by not releasing.
  *
  * <p>Non-disclosure (design section 8): the job is loaded first and authorized against its
  * persisted target — table-level ALTER when the target resolves, global ADMIN otherwise — and
  * a missing job and an unauthorized job share the same fixed ERR_LANCE_INDEX_JOB_NOT_FOUND
- * response naming only the job id. The 5104 state rejection is only visible to an already
- * authorized caller.
+ * response naming only the job id. The 5104 state rejection and the 5105 resolution failure
+ * are only visible to an already authorized caller.
  *
  * <p>Success returns an OK packet carrying one warning row with {@link #LATE_COMMIT_WARNING},
  * the same text persisted as the job's durable {@code forceWarning}: the old worker may still
@@ -112,18 +118,27 @@ public class ResolveLanceIndexJobCommand extends Command implements ForwardWithS
         if (job == null) {
             throw notFound();
         }
-        // 2. Authorize against the persisted target before any state is revealed: table-level
-        //    ALTER when the target resolves, global ADMIN for an orphan or half-orphan.
+        // 2. Resolve and authorize against the persisted target before any state is revealed:
+        //    table-level ALTER when the target resolves, global ADMIN for the orphan family
+        //    and for a target whose resolution failed outright.
         CatalogMgr catalogMgr = env.getCatalogMgr();
         CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog = catalogMgr.getCatalog(job.getCatalogId());
-        boolean targetResolves = ShowLanceIndexJobsCommand.targetResolves(catalog, job);
-        boolean authorized = targetResolves
+        TargetResolution resolution = resolveTarget(catalog, job);
+        boolean authorized = resolution == TargetResolution.RESOLVED
                 ? env.getAccessManager().checkTblPriv(ctx, catalog.getName(), job.getDbName(), job.getTableName(),
                         PrivPredicate.ALTER)
                 : env.getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN);
         if (!authorized) {
             throw notFound();
         }
+        if (resolution == TargetResolution.FAILED) {
+            // Never an orphan verdict: "table gone" cannot be told apart from "network down",
+            // so nothing is released and nothing beyond the typed error is disclosed; the
+            // operator fixes the cause and retries the same statement (design 7.1 step 4).
+            throw incompleteResolution("the persisted target could not be resolved with current catalog"
+                    + " metadata; see fe.log for the cause");
+        }
+        boolean targetResolves = resolution == TargetResolution.RESOLVED;
         // 3. Idempotent replay: a retry returns the existing release record (section 7.1).
         if (job.isForceReleased()) {
             ctx.getState().setOk(0, 1, LATE_COMMIT_WARNING);
@@ -250,6 +265,65 @@ public class ResolveLanceIndexJobCommand extends Command implements ForwardWithS
         } catch (Exception e) {
             throw incompleteResolution(e.getMessage());
         }
+    }
+
+    /**
+     * The three-way verdict on the job's persisted target. Deliberately not SHOW's
+     * {@code targetResolves}: SHOW must keep listing through provider outages, so it folds
+     * every failed resolution into its orphan rule; RESOLVE takes a durable action on the
+     * verdict and only releases on positive evidence, so a failed resolution stays its own
+     * outcome here.
+     */
+    private enum TargetResolution {
+        /** Names resolve and the catalog's current durable locator still matches the job's. */
+        RESOLVED,
+        /** Catalog, database or table verifiably absent, or the locator positively repointed. */
+        MISSING,
+        /** Resolution errored out, or the locator cannot be resolved right now. */
+        FAILED
+    }
+
+    /**
+     * Resolves the persisted target once, up front, distinguishing "verifiably gone" (the
+     * orphan family, releasable under global ADMIN) from "could not tell" (fail with 5105,
+     * keep the fence). The locator leg mirrors {@link ShowLanceIndexJobsCommand}: a null
+     * current locator means the provider is unreachable or the names no longer resolve
+     * remotely, which is absence of evidence either way — it fails closed here instead of
+     * granting the half-orphan release path.
+     */
+    static TargetResolution resolveTarget(CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog,
+            LanceIndexJob job) {
+        if (catalog == null) {
+            return TargetResolution.MISSING;
+        }
+        DatabaseIf<? extends TableIf> db;
+        try {
+            db = catalog.getDbNullable(job.getDbName());
+        } catch (RuntimeException e) {
+            return TargetResolution.FAILED;
+        }
+        if (db == null) {
+            return TargetResolution.MISSING;
+        }
+        TableIf table;
+        try {
+            table = db.getTableNullable(job.getTableName());
+        } catch (RuntimeException e) {
+            return TargetResolution.FAILED;
+        }
+        if (table == null) {
+            return TargetResolution.MISSING;
+        }
+        if (!(catalog instanceof LanceExternalCatalog)) {
+            return TargetResolution.RESOLVED;
+        }
+        String currentLocator = ((LanceExternalCatalog) catalog).resolveCurrentIndexJobLocator(
+                job.getDbName(), job.getTableName());
+        if (currentLocator == null) {
+            return TargetResolution.FAILED;
+        }
+        return currentLocator.equals(job.getNormalizedLocator())
+                ? TargetResolution.RESOLVED : TargetResolution.MISSING;
     }
 
     private AnalysisException notFound() {
