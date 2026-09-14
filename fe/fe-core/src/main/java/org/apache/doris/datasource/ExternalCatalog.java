@@ -575,18 +575,9 @@ public abstract class ExternalCatalog
 
         List<Pair<String, String>> remoteToLocalPairs = Lists.newArrayList();
 
-        allDatabases = allDatabases.stream().filter(dbName -> {
-            if (!dbName.equals(InfoSchemaDb.DATABASE_NAME) && !dbName.equals(MysqlDb.DATABASE_NAME)) {
-                // Exclude database map take effect with higher priority over include database map
-                if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(dbName)) {
-                    return false;
-                }
-                if (!includeDatabaseMap.isEmpty() && !includeDatabaseMap.containsKey(dbName)) {
-                    return false;
-                }
-            }
-            return true;
-        }).collect(Collectors.toList());
+        allDatabases = allDatabases.stream()
+                .filter(dbName -> isDatabaseAllowedByFilter(dbName, includeDatabaseMap, excludeDatabaseMap))
+                .collect(Collectors.toList());
 
         for (String remoteDbName : allDatabases) {
             String localDbName = fromRemoteDatabaseName(remoteDbName);
@@ -629,6 +620,22 @@ public abstract class ExternalCatalog
         }
 
         return remoteToLocalPairs;
+    }
+
+    protected boolean isDatabaseAllowedByFilter(String dbName) {
+        return isDatabaseAllowedByFilter(dbName, getIncludeDatabaseMap(), getExcludeDatabaseMap());
+    }
+
+    private boolean isDatabaseAllowedByFilter(String dbName, Map<String, Boolean> includeDatabaseMap,
+            Map<String, Boolean> excludeDatabaseMap) {
+        if (dbName.equals(InfoSchemaDb.DATABASE_NAME) || dbName.equals(MysqlDb.DATABASE_NAME)) {
+            return true;
+        }
+        // Exclude database map takes precedence over include database map.
+        if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(dbName)) {
+            return false;
+        }
+        return includeDatabaseMap.isEmpty() || includeDatabaseMap.containsKey(dbName);
     }
 
     private void updateLowerCaseToDatabaseName(List<Pair<String, String>> names) {
