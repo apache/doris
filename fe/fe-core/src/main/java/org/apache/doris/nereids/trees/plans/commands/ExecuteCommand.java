@@ -131,10 +131,12 @@ public class ExecuteCommand extends Command {
         if (logicalPlan instanceof InsertIntoTableCommand
                 || logicalPlan instanceof InsertOverwriteTableCommand
                 || logicalPlan instanceof UpdateCommand) {
-            ctx.getStatementContext().setIsInsert(true);
+            statementContext.setIsInsert(true);
         }
-        LogicalPlanAdapter planAdapter = new LogicalPlanAdapter(
-                logicalPlan, executor.getContext().getStatementContext());
+        LogicalPlanAdapter planAdapter = new LogicalPlanAdapter(logicalPlan, statementContext);
+        // Point the executor (and its ConnectContext) at the fresh per-execution context so the
+        // following execution/result-sending uses it instead of the previous execution's context.
+        executor.setStatementContext(statementContext);
         executor.setParsedStmt(planAdapter);
         boolean hasShortCircuitContext = preparedStmtCtx.shortCircuitQueryContext.isPresent();
         boolean shortCircuitContextReusable = hasShortCircuitContext
