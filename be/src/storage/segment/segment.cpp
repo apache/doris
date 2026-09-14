@@ -145,8 +145,9 @@ Status build_segment_zonemap_context(Segment* segment, const ReadSchema& schema,
 
 // Whether to force MIN/MAX onto the zone map when its bound is not a value the data holds now: a
 // cut string bound, or one covering rows a delete predicate removed. Statistics collection sets it.
+// MIN/MAX is the only aggregate this can force, because it is the only one that reads the bounds.
 bool pushdown_zonemap_minmax_forced(const StorageReadOptions& read_options) {
-    return read_options.runtime_state == nullptr ||
+    return read_options.push_down_agg_type_opt == TPushAggOp::MINMAX &&
            read_options.runtime_state->query_options().force_pushdown_zonemap_minmax;
 }
 
@@ -524,10 +525,10 @@ Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& re
         RETURN_IF_ERROR(load_index(read_options.stats, &read_options.io_ctx));
     }
 
-    // Statistics collection takes the zone map bounds as they are, so it skips both checks below:
-    // a delete predicate leaves them covering rows that are gone, and a cut bound is a prefix.
-    const bool forced = pushdown_zonemap_minmax_forced(read_options);
+    // COUNT and MIX report the segment row count, which a delete predicate makes wrong whatever
+    // the zone map bounds hold, so they keep the guard below even when the switch is on.
     const auto agg = read_options.push_down_agg_type_opt;
+    const bool forced = pushdown_zonemap_minmax_forced(read_options);
     bool use_statistics_iterator =
             agg != TPushAggOp::NONE && agg != TPushAggOp::COUNT_ON_INDEX &&
             (forced || read_options.delete_condition_predicates->num_of_column_predicate() == 0);

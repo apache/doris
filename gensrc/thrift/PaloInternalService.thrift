@@ -538,8 +538,8 @@ struct TQueryOptions {
   // the data holds right now: a string bound cut at 512 bytes is a prefix, and any bound still
   // covers rows a delete predicate removed. Statistics collection sets it; every other query
   // reads the data instead.
-  // Defaults to true because an old FE never sends this field, and true is what BE did before.
-  1006: optional bool force_pushdown_zonemap_minmax = true
+  // Defaults to false because an old FE never sends this field, and BE checked both cases before.
+  1006: optional bool force_pushdown_zonemap_minmax = false
 }
 
 

@@ -5047,10 +5047,6 @@ public class SessionVariable implements Serializable, Writable {
         this.enablePushDownMinMaxOnUnique = enablePushDownMinMaxOnUnique;
     }
 
-    public boolean isForcePushDownZonemapMinMax() {
-        return forcePushDownZonemapMinMax;
-    }
-
     public String getEnableMorValuePredicatePushdownTables() {
         return enableMorValuePredicatePushdownTables;
     }
