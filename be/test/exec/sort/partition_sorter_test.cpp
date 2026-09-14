@@ -32,6 +32,7 @@
 #include "common/object_pool.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "exec/common/partition_sort_utils.h"
 #include "exec/sort/heap_sorter.h"
 #include "exec/sort/sorter.h"
 #include "exec/sort/topn_sorter.h"
@@ -190,6 +191,33 @@ TEST_F(PartitionSorterTest, test_partition_sorter_RANK) {
 
 struct PartitionSorterRankTest : PartitionSorterTest,
                                  testing::WithParamInterface<TopNAlgorithm::type> {
+    std::unique_ptr<PartitionBlocks> create_partition_blocks() {
+        _state._batch_size = PARTITION_SORT_ROWS_THRESHOLD;
+        auto sort_info = std::make_shared<PartitionSortInfo>(
+                &ordering_expr_ctxs, -1, 0, &pool, is_asc_order, nulls_first, *row_desc, &_state,
+                &_profile, false, 1, GetParam(), TPartTopNPhase::TWO_PHASE_LOCAL);
+        return std::make_unique<PartitionBlocks>(std::move(sort_info), true);
+    }
+
+    void append_rows(PartitionBlocks& partition, const std::vector<int64_t>& values) {
+        auto block = ColumnHelper::create_block<DataTypeInt64>(values);
+        for (size_t i = 0; i < values.size(); ++i) {
+            partition.add_row_idx(i);
+        }
+        ASSERT_TRUE(partition.append_block_by_selector(&block, false).ok());
+    }
+
+    void check_retained_rows(const PartitionBlocks& partition, size_t rows, int64_t value) {
+        size_t retained_rows = 0;
+        for (const auto& block : partition._blocks) {
+            retained_rows += block->rows();
+            EXPECT_TRUE(ColumnHelper::block_equal(
+                    *block, ColumnHelper::create_block<DataTypeInt64>(
+                                    std::vector<int64_t>(block->rows(), value))));
+        }
+        EXPECT_EQ(retained_rows, rows);
+    }
+
     void check_output(int64_t limit, const std::vector<std::vector<int64_t>>& inputs,
                       const std::vector<int64_t>& expected) {
         _state._batch_size = 4;
@@ -262,6 +290,50 @@ TEST_P(PartitionSorterRankTest, ShortBoundaryGroupAcrossBatches) {
 TEST_P(PartitionSorterRankTest, ExhaustInputBelowLimit) {
     check_output(10, {{0, 1, 2}, {0, 1}}, {0, 0, 1, 1, 2});
     check_output(10, {}, {});
+}
+
+TEST_P(PartitionSorterRankTest, IntermediatePruningAmortizesRetainedPeers) {
+    auto partition = create_partition_blocks();
+    const size_t input_batches = 16;
+    const size_t batch_rows = PARTITION_SORT_ROWS_THRESHOLD;
+    size_t pruning_passes = 0;
+    size_t processed_rows = 0;
+    for (size_t batch = 1; batch <= input_batches; ++batch) {
+        ASSERT_NO_FATAL_FAILURE(append_rows(*partition, std::vector<int64_t>(batch_rows, 0)));
+        if (partition->_current_input_rows == 0) {
+            ++pruning_passes;
+            processed_rows += batch * batch_rows;
+        }
+    }
+    // With no rows pruned, only the prefixes of 1, 2, 4, 8 and 16 batches are processed.
+    EXPECT_EQ(pruning_passes, 5);
+    EXPECT_LT(processed_rows, 2 * input_batches * batch_rows);
+    check_retained_rows(*partition, input_batches * batch_rows, 0);
+}
+
+TEST_P(PartitionSorterRankTest, IntermediatePruningResumesAfterPeersShrink) {
+    auto partition = create_partition_blocks();
+    const size_t batch_rows = PARTITION_SORT_ROWS_THRESHOLD;
+    for (size_t batch = 0; batch < 4; ++batch) {
+        ASSERT_NO_FATAL_FAILURE(append_rows(*partition, std::vector<int64_t>(batch_rows, 0)));
+    }
+    check_retained_rows(*partition, 4 * batch_rows, 0);
+
+    // A better key eliminates the retained peer group on the next pruning pass.
+    auto values = std::vector<int64_t>(batch_rows, 0);
+    values.front() = -1;
+    ASSERT_NO_FATAL_FAILURE(append_rows(*partition, values));
+    for (size_t batch = 1; batch < 4; ++batch) {
+        ASSERT_NO_FATAL_FAILURE(append_rows(*partition, std::vector<int64_t>(batch_rows, 0)));
+    }
+    check_retained_rows(*partition, 1, -1);
+
+    // Once few rows are retained, one base interval must trigger pruning again.
+    ASSERT_NO_FATAL_FAILURE(append_rows(*partition, std::vector<int64_t>(batch_rows - 1, -2)));
+    EXPECT_EQ(partition->_current_input_rows, batch_rows - 1);
+    ASSERT_NO_FATAL_FAILURE(append_rows(*partition, {-2}));
+    EXPECT_EQ(partition->_current_input_rows, 0);
+    check_retained_rows(*partition, batch_rows, -2);
 }
 
 INSTANTIATE_TEST_SUITE_P(RankAlgorithms, PartitionSorterRankTest,
