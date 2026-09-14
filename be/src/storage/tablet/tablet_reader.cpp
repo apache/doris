@@ -96,26 +96,27 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     bool is_lower_key_included = _keys_param.start_key_include;
     bool is_upper_key_included = _keys_param.end_key_include;
 
+    DORIS_CHECK_EQ(_keys_param.start_keys.size(), _keys_param.end_keys.size());
     for (int i = 0; i < _keys_param.start_keys.size(); ++i) {
-        // lower bound
-        RowCursor& start_key = _keys_param.start_keys[i];
-        RowCursor& end_key = _keys_param.end_keys[i];
-
-        if (!is_lower_key_included) {
-            if (compare_row_key(start_key, end_key) >= 0) {
-                VLOG_NOTICE << "return EOF when lower key not include"
-                            << ", start_key=" << start_key.to_string()
-                            << ", end_key=" << end_key.to_string();
-                eof = true;
-                break;
-            }
-        } else {
-            if (compare_row_key(start_key, end_key) > 0) {
-                VLOG_NOTICE << "return EOF when lower key include="
-                            << ", start_key=" << start_key.to_string()
-                            << ", end_key=" << end_key.to_string();
-                eof = true;
-                break;
+        const auto& start_key = _keys_param.start_keys[i];
+        const auto& end_key = _keys_param.end_keys[i];
+        if (start_key.has_value() && end_key.has_value()) {
+            if (!is_lower_key_included) {
+                if (compare_row_key(*start_key, *end_key) >= 0) {
+                    VLOG_NOTICE << "return EOF when lower key not include"
+                                << ", start_key=" << start_key->to_string()
+                                << ", end_key=" << end_key->to_string();
+                    eof = true;
+                    break;
+                }
+            } else {
+                if (compare_row_key(*start_key, *end_key) > 0) {
+                    VLOG_NOTICE << "return EOF when lower key include="
+                                << ", start_key=" << start_key->to_string()
+                                << ", end_key=" << end_key->to_string();
+                    eof = true;
+                    break;
+                }
             }
         }
 
@@ -250,6 +251,11 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
 
 Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_keys_param_timer_ns);
+    if (read_params.start_key.size() != read_params.end_key.size()) {
+        return Status::Error<INVALID_ARGUMENT>(
+                "The number of start keys does not equal the number of end keys: {} vs {}",
+                read_params.start_key.size(), read_params.end_key.size());
+    }
     if (read_params.start_key.empty()) {
         return Status::OK();
     }
@@ -258,10 +264,16 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
     _keys_param.end_key_include = read_params.end_key_include;
 
     size_t start_key_size = read_params.start_key.size();
-    //_keys_param.start_keys.resize(start_key_size);
-    std::vector<RowCursor>(start_key_size).swap(_keys_param.start_keys);
+    std::vector<std::optional<RowCursor>>(start_key_size).swap(_keys_param.start_keys);
 
-    size_t scan_key_size = read_params.start_key.front().size();
+    const OlapTuple* first_key =
+            read_params.start_key.front().has_value() ? &*read_params.start_key.front()
+            : read_params.end_key.front().has_value() ? &*read_params.end_key.front()
+                                                      : nullptr;
+    if (first_key == nullptr) {
+        return Status::Error<INVALID_ARGUMENT>("A key range must have at least one bound");
+    }
+    size_t scan_key_size = first_key->size();
     if (scan_key_size > _tablet_schema->num_columns()) {
         return Status::Error<INVALID_ARGUMENT>(
                 "Input param are invalid. Column count is bigger than num_columns of schema. "
@@ -270,13 +282,17 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
     }
 
     for (size_t i = 0; i < start_key_size; ++i) {
-        if (read_params.start_key[i].size() != scan_key_size) {
+        if (!read_params.start_key[i].has_value()) {
+            continue;
+        }
+        if (read_params.start_key[i]->size() != scan_key_size) {
             return Status::Error<INVALID_ARGUMENT>(
                     "The start_key.at({}).size={}, not equals the scan_key_size={}", i,
-                    read_params.start_key[i].size(), scan_key_size);
+                    read_params.start_key[i]->size(), scan_key_size);
         }
 
-        Status res = _keys_param.start_keys[i].init(_tablet_schema, read_params.start_key[i]);
+        auto& start_key = _keys_param.start_keys[i].emplace();
+        Status res = start_key.init(_tablet_schema, *read_params.start_key[i]);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
             return res;
@@ -284,19 +300,28 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
     }
 
     size_t end_key_size = read_params.end_key.size();
-    //_keys_param.end_keys.resize(end_key_size);
-    std::vector<RowCursor>(end_key_size).swap(_keys_param.end_keys);
+    std::vector<std::optional<RowCursor>>(end_key_size).swap(_keys_param.end_keys);
     for (size_t i = 0; i < end_key_size; ++i) {
-        if (read_params.end_key[i].size() != scan_key_size) {
+        if (!read_params.end_key[i].has_value()) {
+            continue;
+        }
+        if (read_params.end_key[i]->size() != scan_key_size) {
             return Status::Error<INVALID_ARGUMENT>(
                     "The end_key.at({}).size={}, not equals the scan_key_size={}", i,
-                    read_params.end_key[i].size(), scan_key_size);
+                    read_params.end_key[i]->size(), scan_key_size);
         }
 
-        Status res = _keys_param.end_keys[i].init(_tablet_schema, read_params.end_key[i]);
+        auto& end_key = _keys_param.end_keys[i].emplace();
+        Status res = end_key.init(_tablet_schema, *read_params.end_key[i]);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
             return res;
+        }
+    }
+
+    for (size_t i = 0; i < start_key_size; ++i) {
+        if (!_keys_param.start_keys[i].has_value() && !_keys_param.end_keys[i].has_value()) {
+            return Status::Error<INVALID_ARGUMENT>("Key range {} has no bounds", i);
         }
     }
 

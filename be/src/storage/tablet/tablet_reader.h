@@ -24,6 +24,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <unordered_set>
@@ -87,8 +88,8 @@ inline int compare_row_key(const RowCursor& lhs, const RowCursor& rhs) {
 
 class TabletReader {
     struct KeysParam {
-        std::vector<RowCursor> start_keys;
-        std::vector<RowCursor> end_keys;
+        std::vector<std::optional<RowCursor>> start_keys;
+        std::vector<std::optional<RowCursor>> end_keys;
         bool start_key_include = false;
         bool end_key_include = false;
     };
@@ -135,8 +136,9 @@ public:
         bool use_page_cache = false;
         Version version = Version(-1, 0);
 
-        std::vector<OlapTuple> start_key;
-        std::vector<OlapTuple> end_key;
+        // The vectors are range-aligned; nullopt represents an unbounded endpoint.
+        std::vector<std::optional<OlapTuple>> start_key;
+        std::vector<std::optional<OlapTuple>> end_key;
         bool start_key_include = false;
         bool end_key_include = false;
 
