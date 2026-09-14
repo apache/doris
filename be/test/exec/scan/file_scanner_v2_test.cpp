@@ -908,7 +908,14 @@ TEST(FileScannerV2Test, PaimonRustSplitUsesV2Scanner) {
     EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
 
     // Regression guard: PAIMON_CPP splits must remain on the V1 fallback.
-    EXPECT_FALSE(FileScannerV2::is_supported(params, paimon_cpp_jni_range()));
+    auto cpp_range = range_with_format("paimon", TFileFormatType::FORMAT_JNI);
+    {
+        TPaimonFileDesc cpp_paimon_params;
+        cpp_paimon_params.__set_reader_type(TPaimonReaderType::PAIMON_CPP);
+        cpp_paimon_params.__set_file_format("parquet");
+        cpp_range.table_format_params.__set_paimon_params(std::move(cpp_paimon_params));
+    }
+    EXPECT_FALSE(FileScannerV2::is_supported(params, cpp_range));
 }
 
 TEST(FileScannerV2Test, IcebergDeleteSplitKeepsInitialScannerCountCap) {
