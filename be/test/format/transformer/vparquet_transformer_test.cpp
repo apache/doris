@@ -55,8 +55,7 @@
 namespace doris {
 namespace {
 
-Status write_variant_file(const std::string& path, const Block& block,
-                          TParquetVariantEncoding::type variant_encoding) {
+Status write_variant_file(const std::string& path, const Block& block) {
     const auto fs = io::global_local_filesystem();
     io::FileWriterPtr file_writer;
     RETURN_IF_ERROR(fs->create_file(path, &file_writer));
@@ -70,7 +69,6 @@ Status write_variant_file(const std::string& path, const Block& block,
             .parquet_version = TParquetVersion::PARQUET_1_0,
             .parquet_disable_dictionary = true,
             .enable_int96_timestamps = false,
-            .variant_encoding = variant_encoding,
     };
     VParquetTransformer transformer(&state, file_writer.get(), output_exprs,
                                     std::vector<std::string> {"v"}, false, options);
@@ -199,51 +197,14 @@ std::vector<tparquet::SchemaElement> variant_schema(std::vector<std::string> lea
     return schema;
 }
 
-TEST(VParquetTransformerTest, VariantV2WritesJsonTextByDefault) {
-    const std::string path =
-            "./vparquet_transformer_json_" + UniqueId::gen_uid().to_string() + ".parquet";
-    const auto fs = io::global_local_filesystem();
-    DEFER(static_cast<void>(fs->delete_file(path)));
-
-    JsonStringToVariantEncoder encoder({.max_json_key_length = 255,
-                                        .throw_on_invalid_json = true,
-                                        .check_duplicate_json_path = false});
-    constexpr std::string_view JSON = R"({"a":1})";
-    encoder.add_json({JSON.data(), JSON.size()});
-    auto values = ColumnVariantV2::create();
-    values->insert_encoded_batch(encoder.finish_batch());
-    Block block;
-    block.insert({std::move(values), std::make_shared<DataTypeVariantV2>(), "v"});
-
-    ASSERT_TRUE(write_variant_file(path, block, TParquetVariantEncoding::JSON).ok());
-    const auto metadata = parquet_metadata(path);
-    const auto& root =
-            assert_cast<const ::parquet::schema::GroupNode&>(*metadata->schema()->schema_root());
-    ASSERT_TRUE(root.field(0)->is_primitive());
-    EXPECT_TRUE(root.field(0)->logical_type()->is_string());
-
-    const auto table = read_arrow_table(path);
-    ASSERT_EQ(table->num_rows(), 1);
-    const auto strings = std::static_pointer_cast<arrow::StringArray>(table->column(0)->chunk(0));
-    EXPECT_EQ(strings->GetView(0), JSON);
-
-    // A JSON text column is still read back as a plain string by the load reader.
-    const Block read_back = read_with_doris_reader(path);
-    EXPECT_EQ(read_back.get_by_position(0).type->get_name(), "Nullable(String)");
-    const auto& strings_read_back =
-            assert_cast<const ColumnNullable&>(*read_back.get_by_position(0).column);
-    EXPECT_EQ(strings_read_back.get_nested_column().get_data_at(0),
-              StringRef(JSON.data(), JSON.size()));
-}
-
-TEST(VParquetTransformerTest, VariantV2WritesParquetVariantLogicalType) {
+TEST(VParquetTransformerTest, VariantWritesParquetVariantLogicalType) {
     const std::string path =
             "./vparquet_transformer_variant_" + UniqueId::gen_uid().to_string() + ".parquet";
     const auto fs = io::global_local_filesystem();
     DEFER(static_cast<void>(fs->delete_file(path)));
 
     const Block block = sample_block();
-    ASSERT_TRUE(write_variant_file(path, block, TParquetVariantEncoding::VARIANT).ok());
+    ASSERT_TRUE(write_variant_file(path, block).ok());
 
     const auto metadata = parquet_metadata(path);
     const auto& root =
@@ -273,7 +234,7 @@ TEST(VParquetTransformerTest, DorisLoadReaderReadsParquetVariantBack) {
     DEFER(static_cast<void>(fs->delete_file(path)));
 
     const Block block = sample_block();
-    ASSERT_TRUE(write_variant_file(path, block, TParquetVariantEncoding::VARIANT).ok());
+    ASSERT_TRUE(write_variant_file(path, block).ok());
 
     const Block read_back = read_with_doris_reader(path);
     const auto& column = read_back.get_by_position(0);

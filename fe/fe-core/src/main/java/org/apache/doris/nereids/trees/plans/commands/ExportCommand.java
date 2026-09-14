@@ -94,7 +94,6 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
             .add(PropertyAnalyzer.PROPERTIES_TIMEOUT)
             .add("format")
             .add(ParquetFileFormatProperties.ENABLE_INT96_TIMESTAMPS)
-            .add(ParquetFileFormatProperties.PARQUET_PROP_PREFIX + ParquetFileFormatProperties.PARQUET_VARIANT_ENCODING)
             .add(OutFileClause.PROP_WITH_BOM)
             .add(COMPRESS_TYPE)
             .build();
@@ -299,13 +298,6 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
             ParquetFileFormatProperties.parseEnableInt96Timestamps(enableInt96Timestamps);
         }
         exportJob.setEnableInt96Timestamps(enableInt96Timestamps);
-
-        String parquetVariantEncoding = fileProperties.get(
-                ParquetFileFormatProperties.PARQUET_PROP_PREFIX + ParquetFileFormatProperties.PARQUET_VARIANT_ENCODING);
-        if (parquetVariantEncoding != null) {
-            ParquetFileFormatProperties.parseVariantEncoding(parquetVariantEncoding);
-        }
-        exportJob.setParquetVariantEncoding(parquetVariantEncoding);
 
         // set withBom
         exportJob.setWithBom(fileProperties.getOrDefault(OutFileClause.PROP_WITH_BOM, "false"));

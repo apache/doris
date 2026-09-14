@@ -401,9 +401,6 @@ void encode_variant_range(const ParquetColumnSchema& schema, const IColumn& wrap
                           bool require_metadata, ColumnVariantV2& variants) {
     try {
         VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = end - begin});
-        // Writers repeat one dictionary for many rows (dictionary encoded pages), so each
-        // distinct metadata blob is validated once instead of once per row.
-        StringRef validated_metadata;
         for (size_t row = begin; row < end; ++row) {
             auto output_row = builder.begin_row();
             if (outer_nullable != nullptr && outer_nullable->get_null_map_data()[row] != 0) {
@@ -422,10 +419,7 @@ void encode_variant_range(const ParquetColumnSchema& schema, const IColumn& wrap
                 }
                 const StringRef metadata_bytes = metadata_cell.column->get_data_at(row);
                 metadata = {metadata_bytes.data, metadata_bytes.size};
-                if (metadata_bytes != validated_metadata) {
-                    metadata.validate();
-                    validated_metadata = metadata_bytes;
-                }
+                metadata.validate();
             } else if (require_metadata) {
                 throw Exception(ErrorCode::CORRUPTION, "Parquet Variant {} has no root metadata",
                                 schema.name);

@@ -421,10 +421,7 @@ public class BindSink implements AnalysisRuleFactory {
                     // do not process explicitly use DEFAULT value here:
                     // insert into table t values(DEFAULT)
                     && !(columnToChildOutput.get(column) instanceof DefaultValueSlot)) {
-                // The same coercion as the final projection, so a compute-only Variant V2 source
-                // (external readers, file table valued functions) reaches a legacy Variant column
-                // through JSONB instead of a direct cast.
-                Alias output = new Alias(coerceSinkExpression(
+                Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
                         columnToChildOutput.get(column), DataType.fromCatalogType(column.getType())),
                         column.getName());
                 columnToOutput.put(column.getName(), output);

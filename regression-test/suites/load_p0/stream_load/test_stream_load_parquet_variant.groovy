@@ -16,39 +16,37 @@
 // under the License.
 
 // Stream loads a Parquet file whose column uses the Parquet VARIANT logical type
-// (written by Doris with "parquet.variant_encoding" = "variant") into a Variant V2 column.
+// (written by a Doris OUTFILE) into a Variant column.
 suite("test_stream_load_parquet_variant", "p0") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
-        sql "DROP TABLE IF EXISTS test_stream_load_parquet_variant"
-        sql """
-            CREATE TABLE test_stream_load_parquet_variant (
-                id INT NOT NULL,
-                v VARIANT NULL
-            ) ENGINE=OLAP
-            DUPLICATE KEY(id)
-            DISTRIBUTED BY HASH(id) BUCKETS 1
-            PROPERTIES ("replication_num" = "1")
-        """
-        streamLoad {
-            table "test_stream_load_parquet_variant"
-            set 'format', 'parquet'
-            file 'test_parquet_variant_encoding.parquet'
-            time 10000
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(9, json.NumberTotalRows)
-                assertEquals(9, json.NumberLoadedRows)
+    sql "DROP TABLE IF EXISTS test_stream_load_parquet_variant"
+    sql """
+        CREATE TABLE test_stream_load_parquet_variant (
+            id INT NOT NULL,
+            v VARIANT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    streamLoad {
+        table "test_stream_load_parquet_variant"
+        set 'format', 'parquet'
+        file 'test_parquet_variant.parquet'
+        time 10000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
             }
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(9, json.NumberTotalRows)
+            assertEquals(9, json.NumberLoadedRows)
         }
-        sql "sync"
-        qt_select """
-            select id, v, cast(v['name'] as string) as name, cast(v['nested']['zip'] as int) as zip,
-                   variant_type(v) as type
-            from test_stream_load_parquet_variant order by id
-        """
     }
+    sql "sync"
+    qt_select """
+        select id, v, cast(v['name'] as string) as name, cast(v['nested']['zip'] as int) as zip,
+               variant_type(v) as type
+        from test_stream_load_parquet_variant order by id
+    """
 }

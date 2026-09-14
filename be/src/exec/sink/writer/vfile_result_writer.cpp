@@ -142,8 +142,7 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
                 _state, _file_writer_impl.get(), _vec_output_expr_ctxs, _file_opts->parquet_schemas,
                 _output_object_data,
                 {_file_opts->parquet_commpression_type, _file_opts->parquet_version,
-                 _file_opts->parquert_disable_dictionary, _file_opts->enable_int96_timestamps,
-                 _file_opts->parquet_variant_encoding}));
+                 _file_opts->parquert_disable_dictionary, _file_opts->enable_int96_timestamps}));
         break;
     case TFileFormatType::FORMAT_ORC:
         _vfile_writer.reset(new VOrcTransformer(

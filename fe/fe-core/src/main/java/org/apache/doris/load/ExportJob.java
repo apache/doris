@@ -126,8 +126,6 @@ public class ExportJob implements Writable {
     private String format;
     @SerializedName("enableInt96Timestamps")
     private String enableInt96Timestamps;
-    @SerializedName("parquetVariantEncoding")
-    private String parquetVariantEncoding;
     @SerializedName("timeoutSecond")
     private int timeoutSecond;
     @SerializedName("maxFileSize")
@@ -492,11 +490,6 @@ public class ExportJob implements Writable {
         if (enableInt96Timestamps != null) {
             outfileProperties.put(ParquetFileFormatProperties.ENABLE_INT96_TIMESTAMPS,
                     enableInt96Timestamps);
-        }
-
-        if (parquetVariantEncoding != null) {
-            outfileProperties.put(ParquetFileFormatProperties.PARQUET_PROP_PREFIX
-                    + ParquetFileFormatProperties.PARQUET_VARIANT_ENCODING, parquetVariantEncoding);
         }
 
         if (!maxFileSize.isEmpty()) {

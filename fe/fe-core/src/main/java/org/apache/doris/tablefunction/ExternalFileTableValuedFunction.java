@@ -44,7 +44,6 @@ import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.connector.converter.ConnectorComputeVariantType;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.TextFileFormatProperties;
@@ -437,12 +436,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 parsedNodes += fieldType.value();
             }
             type = new StructType(fields);
-        } else if (tPrimitiveType == TPrimitiveType.VARIANT && typeNode.getVariantIsV2()) {
-            // File readers decode a native VARIANT column (e.g. the Parquet VARIANT logical type) into
-            // ColumnVariantV2 whatever the storage format switch says, so the scan slot has to carry
-            // the execution-only V2 marker like the connector schemas do.
-            type = new ConnectorComputeVariantType();
-            parsedNodes = 1;
         } else if (tPrimitiveType == TPrimitiveType.VARIANT) {
             // Preserve VARIANT-specific properties from PTypeNode, especially variant_max_subcolumns_count.
             int maxSubcolumns = typeNode.getVariantMaxSubcolumnsCount();

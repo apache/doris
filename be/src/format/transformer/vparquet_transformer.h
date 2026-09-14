@@ -82,8 +82,6 @@ struct ParquetFileOptions {
     TParquetVersion::type parquet_version;
     bool parquet_disable_dictionary = false;
     bool enable_int96_timestamps = false;
-    // JSON writes VARIANT columns as UTF-8 JSON text; VARIANT writes the Parquet VARIANT logical type.
-    TParquetVariantEncoding::type variant_encoding = TParquetVariantEncoding::JSON;
 };
 
 // a wrapper of parquet output stream

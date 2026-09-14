@@ -37,7 +37,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "core/data_type/data_type_nullable.h"
-#include "core/data_type/data_type_variant_v2.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format/arrow/arrow_block_convertor.h"
@@ -61,20 +60,6 @@ std::shared_ptr<arrow::DataType> parquet_variant_arrow_type() {
             arrow::field("value", arrow::binary(), false),
     }));
     return type;
-}
-
-// The Parquet VARIANT logical type is written straight from the ColumnVariantV2 encoding, so it
-// needs Variant V2 execution; the legacy Variant column keeps the UTF-8 JSON representation.
-Status parquet_variant_output_type(const DataTypePtr& output_type,
-                                   std::shared_ptr<arrow::DataType>* type) {
-    if (dynamic_cast<const DataTypeVariantV2*>(remove_nullable(output_type).get()) == nullptr) {
-        return Status::NotSupported(
-                "parquet.variant_encoding=variant requires Variant V2 execution (FE config "
-                "enable_variant_v2); use parquet.variant_encoding=json for legacy Variant "
-                "columns");
-    }
-    *type = parquet_variant_arrow_type();
-    return Status::OK();
 }
 
 } // namespace
@@ -268,9 +253,10 @@ Status VParquetTransformer::_parse_schema() {
         for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
             std::shared_ptr<arrow::DataType> type;
             const DataTypePtr& output_type = _output_vexpr_ctxs[i]->root()->data_type();
-            if (_parquet_options.variant_encoding == TParquetVariantEncoding::VARIANT &&
-                remove_nullable(output_type)->get_primitive_type() == TYPE_VARIANT) {
-                RETURN_IF_ERROR(parquet_variant_output_type(output_type, &type));
+            if (remove_nullable(output_type)->get_primitive_type() == TYPE_VARIANT) {
+                // Variant is written as the Parquet VARIANT logical type: the ColumnVariantV2
+                // metadata/value bytes are the Parquet Variant encoding already.
+                type = parquet_variant_arrow_type();
             } else {
                 RETURN_IF_ERROR(convert_to_arrow_type(output_type, &type, _state->timezone()));
             }

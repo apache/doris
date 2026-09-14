@@ -24,7 +24,6 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
@@ -379,11 +378,11 @@ public class NereidsLoadScanProvider {
                                 + " for " + fileFormatType + " load");
                     }
                     slotColumn = new Column(realColName, tblColumn.getType(), true);
-                } else if (fileFormatType == TFileFormatType.FORMAT_PARQUET && Config.enable_variant_v2
+                } else if (fileFormatType == TFileFormatType.FORMAT_PARQUET
                         && tblColumn != null && tblColumn.getType().isVariantType()) {
                     // Parquet is the only load format that carries a native VARIANT column (the Parquet
-                    // VARIANT logical type). A Variant V2 slot lets the scanner hand the encoded values
-                    // over as they are; JSON string columns are still parsed on the BE side.
+                    // VARIANT logical type). A Variant slot lets the scanner hand the encoded values over
+                    // as they are; a JSON string column is still parsed on the BE side.
                     slotColumn = new Column(realColName, tblColumn.getType(), true);
                 } else {
                     if (fileGroupInfo.getUniqueKeyUpdateMode() == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS
