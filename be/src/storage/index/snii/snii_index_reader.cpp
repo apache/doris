@@ -701,13 +701,16 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
         parse_phrase_slop(&plain_analysis_str, &query_info);
     }
-    // An analyzed query (MATCH_*) on a gram-family index is exact only when the query is cut
-    // by the very scheme that cut the segment. The segment's scheme is persisted -- a density
+    // An analyzed query (MATCH_*, and EQUAL on a tokenized reader, which is how SEARCH's TERM
+    // and EXACT clauses arrive) on a gram-family index is exact only when the query is cut by
+    // the very scheme that cut the segment. The segment's scheme is persisted -- a density
     // solved from its own rows, or the scheme of a policy that has since been recreated --
     // while the analyzer here is the current one. Where they differ the scalar predicate and
     // the index would disagree, so such a query is skipped once the segment is open, and it
     // is never cached: the cache key does not tell the two schemes apart.
-    const bool analyzed_query = analyzes_query_terms(query_type) &&
+    const bool analyzed_query = (analyzes_query_terms(query_type) ||
+                                 (query_type == InvertedIndexQueryType::EQUAL_QUERY &&
+                                  _reader_type == InvertedIndexReaderType::FULLTEXT)) &&
                                 (analyzer_ctx == nullptr || analyzer_ctx->requires_analysis());
     std::optional<segment_v2::gram::GramScheme> current_gram_scheme;
     if (analyzed_query) {

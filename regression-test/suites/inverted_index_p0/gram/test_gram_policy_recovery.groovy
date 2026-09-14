@@ -107,6 +107,17 @@ suite("test_gram_policy_recovery", "p0") {
             WHERE msg MATCH_REGEXP '^abcd\$'""")
     }
 
+    // SEARCH TERM and EXACT reach the index as EQUAL, cut by the current (dense4) analyzer, and
+    // SEARCH has no scalar predicate to fall back on, so it cannot step aside the way MATCH does.
+    // A gram index refuses SEARCH instead of answering from the recovered dense3 dictionary.
+    sql "SET enable_inverted_index_query=true"
+    ["msg:abcdef", "msg:EXACT(abcdef)"].each { dsl ->
+        test {
+            sql "SELECT id FROM test_gram_policy_recovery WHERE search('${dsl}')"
+            exception "gram index"
+        }
+    }
+
     // This writer sees dense4, while the recovered rowset retains its dense3 dictionary.
     // Disable automatic compaction above so both physical schemes remain present together.
     sql """INSERT INTO test_gram_policy_recovery VALUES

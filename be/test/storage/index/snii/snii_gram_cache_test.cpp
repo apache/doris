@@ -502,10 +502,13 @@ TEST_F(SniiGramCacheTest, AnalyzedQueriesDeclineWhenTheAnalyzerNoLongerCutsGrams
     ASSERT_FALSE(
             _policy_mgr.get_analyzer_provider_by_name(analyzer.name)->gram_scheme().has_value());
 
+    // EQUAL is how SEARCH's TERM and EXACT clauses reach a tokenized reader; its value is cut
+    // by the analyzer just like a MATCH value.
     for (const auto& [pattern, type] : std::vector<std::pair<std::string, InvertedIndexQueryType>> {
                  {"abcdef", InvertedIndexQueryType::MATCH_ANY_QUERY},
                  {"abcdef", InvertedIndexQueryType::MATCH_ALL_QUERY},
-                 {"^ab$", InvertedIndexQueryType::MATCH_REGEXP_QUERY}}) {
+                 {"^ab$", InvertedIndexQueryType::MATCH_REGEXP_QUERY},
+                 {"abcdef", InvertedIndexQueryType::EQUAL_QUERY}}) {
         SCOPED_TRACE(query_type_to_string(type));
         const std::vector<GramCacheRequest> requests {{_readers[0], pattern, type}};
         for (size_t attempt = 0; attempt < 2; ++attempt) {

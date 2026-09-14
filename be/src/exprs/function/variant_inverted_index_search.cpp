@@ -215,6 +215,17 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
                 "selected reader is null for field '{}'", field_name);
     }
 
+    // A gram index only accelerates LIKE / REGEXP. SEARCH cuts its value with the current
+    // analyzer and has no row fallback, while a gram segment was cut by the scheme it recorded --
+    // for a sparse index, a density solved from its own rows -- so a gram answer to SEARCH could
+    // silently miss rows. Refuse it outright instead of returning such a bitmap.
+    if (inverted_reader->is_gram_family()) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "SEARCH cannot use gram index '{}' on field '{}': a gram index only accelerates "
+                "LIKE and REGEXP",
+                inverted_reader->get_index_meta().index_name(), field_name);
+    }
+
     FieldReaderBinding resolved;
     resolved.logical_field_name = field_name;
     resolved.stored_field_name = stored_field_name;
