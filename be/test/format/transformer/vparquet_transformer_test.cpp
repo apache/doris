@@ -24,6 +24,7 @@
 #include <parquet/arrow/reader.h>
 #include <parquet/schema.h>
 
+#include <optional>
 #include <string_view>
 
 #include "core/block/block.h"
@@ -35,6 +36,7 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_variant_v2.h"
+#include "exec/sink/writer/vhive_partition_writer.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "format/table/iceberg/iceberg_arrow_write_converter.h"
 #include "format/table/iceberg/schema_parser.h"
@@ -224,6 +226,63 @@ TEST_F(VParquetTransformerTest, WritesInt96DatetimeUsingWriterTimezone) {
     }
     // Hive-compatible INT96 encodes the UTC instant for the writer's local DATETIMEV2 value.
     EXPECT_EQ(1681920000123456LL, epoch_micros);
+}
+
+TEST_F(VParquetTransformerTest, HiveInt96HonorsCatalogTimezoneContract) {
+    auto datetime_type = DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6);
+    VExprContextSPtrs output_exprs = MockSlotRef::create_mock_contexts(DataTypes {datetime_type});
+    const std::map<std::string, std::string> hadoop_conf;
+    // The insert session must not override either a named catalog zone or explicit wall-clock mode.
+    for (const auto& [catalog_zone, expected_micros] :
+         std::vector<std::pair<std::optional<std::string>, int64_t>> {
+                 {std::nullopt, 1681920000123456LL},
+                 {"", 1681948800123456LL},
+                 {"UTC", 1681948800123456LL},
+                 {"+05:45", 1681928100123456LL},
+                 {"America/Los_Angeles", 1681974000123456LL}}) {
+        SCOPED_TRACE(catalog_zone.value_or("legacy"));
+        TDataSink sink;
+        if (catalog_zone.has_value()) {
+            sink.hive_table_sink.__set_hive_parquet_time_zone(*catalog_zone);
+        }
+        RuntimeState state;
+        state.set_timezone("Asia/Shanghai");
+        const std::string file_name = "hive_int96_" + UniqueId::gen_uid().to_string();
+        VHivePartitionWriter writer(sink, "", TUpdateMode::APPEND, output_exprs, {"local_time"},
+                                    {".", ".", ".", TFileType::FILE_LOCAL, {}}, file_name, 0,
+                                    TFileFormatType::FORMAT_PARQUET, TFileCompressType::PLAIN,
+                                    nullptr, hadoop_conf);
+        _file_path = "./" + file_name + "-0.parquet";
+        ASSERT_TRUE(writer.open(&state, nullptr).ok());
+        DateV2Value<DateTimeV2ValueType> datetime;
+        const std::string format = "%Y-%m-%d %H:%i:%s.%f";
+        const std::string value = "2023-04-20 00:00:00.123456";
+        ASSERT_TRUE(datetime.from_date_format_str(format.data(), format.size(), value.data(),
+                                                  value.size()));
+        auto column = ColumnDateTimeV2::create();
+        column->insert_value(datetime);
+        Block block;
+        block.insert(ColumnWithTypeAndName(std::move(column), datetime_type, "local_time"));
+        ASSERT_TRUE(writer.write(block).ok());
+        ASSERT_TRUE(writer.close(Status::OK()).ok());
+        auto physical_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+        EXPECT_EQ(::parquet::Type::INT96,
+                  physical_reader->metadata()->schema()->Column(0)->physical_type());
+        auto input = arrow::io::ReadableFile::Open(_file_path);
+        ASSERT_TRUE(input.ok()) << input.status();
+        auto reader = ::parquet::arrow::OpenFile(*input, arrow::default_memory_pool());
+        ASSERT_TRUE(reader.ok()) << reader.status();
+        std::shared_ptr<arrow::Table> table;
+        ASSERT_TRUE((*reader)->ReadTable(&table).ok());
+        ASSERT_EQ(1, table->num_rows());
+        const auto& timestamp =
+                assert_cast<const arrow::TimestampArray&>(*table->column(0)->chunk(0));
+        const auto& type = assert_cast<const arrow::TimestampType&>(*timestamp.type());
+        EXPECT_EQ(expected_micros,
+                  timestamp.Value(0) / (type.unit() == arrow::TimeUnit::NANO ? 1000 : 1));
+        EXPECT_EQ("Asia/Shanghai", state.timezone());
+        ASSERT_TRUE(_fs->delete_file(_file_path).ok());
+    }
 }
 
 TEST_F(VParquetTransformerTest, WritesNestedIcebergVariant) {

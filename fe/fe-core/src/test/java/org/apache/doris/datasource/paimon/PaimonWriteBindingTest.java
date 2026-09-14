@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.qe.ConnectContext;
 
 import org.apache.paimon.CoreOptions;
@@ -175,6 +176,20 @@ public class PaimonWriteBindingTest {
                 previousContext.setThreadLocalInfo();
             }
         }
+    }
+
+    @Test
+    public void testStaticLtzPartitionAcceptsInstantWriteBoundary() throws Exception {
+        FileStoreTable table = mockPartitionTable(Collections.emptyMap(),
+                DataTypes.FIELD(0, "part", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6)));
+        TimestampTzLiteral literal = new TimestampTzLiteral("2023-11-05 09:30:00.123456+00:00");
+        Map<String, String> resolved = PaimonWriteBinding.resolveStaticPartition(
+                table, Collections.singletonMap("part", literal.getDataType().toCatalogDataType()),
+                Collections.singletonMap("part", literal), true);
+        String expected = literal.toJavaDateType().atZone(ZoneId.of("UTC"))
+                .withZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime()
+                .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME).replace('T', ' ');
+        Assert.assertEquals(expected, resolved.get("part"));
     }
 
     private static FileStoreTable mockPartitionTable(
