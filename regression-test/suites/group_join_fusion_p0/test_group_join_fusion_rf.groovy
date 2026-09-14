@@ -73,6 +73,11 @@ suite("test_group_join_fusion_rf") {
     sql "ANALYZE TABLE gj_rf_left WITH SYNC"
     sql "ANALYZE TABLE gj_rf_right WITH SYNC"
 
+    // Spill disables GroupJoin fusion by design (the fused operator cannot spill) and the
+    // P0 pipeline runs every session with fuzzy session variables, where enable_spill is
+    // randomized, so pin it to keep the fused plan deterministic.
+    sql "SET enable_spill = false"
+
     def query = """
         SELECT l.k1, COUNT(*) AS cnt, SUM(r.v) AS total_v
         FROM gj_rf_left l
