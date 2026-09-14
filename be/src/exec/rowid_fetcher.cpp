@@ -1042,6 +1042,12 @@ Status RowIdStorageReader::read_doris_format_row(
                 iterator_item.storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
                 iterator_item.storage_read_options.io_ctx.file_cache_miss_policy =
                         file_cache_miss_policy;
+                // A rowid fetch bypasses TabletReader, so copy the rowset context it would have
+                // supplied. For example, a rowset with commit_tso=100 must expose 100 through
+                // __DORIS_COMMIT_TSO_COL__ instead of its on-disk placeholder 0.
+                iterator_item.storage_read_options.tablet_schema = tablet->tablet_schema();
+                iterator_item.storage_read_options.version = rowset->version();
+                iterator_item.storage_read_options.commit_tso = rowset->commit_tso();
             }
             set_slot_access_paths(slots[x], full_read_schema, iterator_item.storage_read_options);
             RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
