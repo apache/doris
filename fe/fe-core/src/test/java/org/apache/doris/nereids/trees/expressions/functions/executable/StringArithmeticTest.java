@@ -17,9 +17,14 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.ExpressionEvaluator;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlDecode;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 
 import org.junit.jupiter.api.Assertions;
@@ -73,5 +78,25 @@ class StringArithmeticTest {
                 new TimeStampNsLiteral("1970-01-01 00:00:00.000000002"));
 
         Assertions.assertEquals(2, result.getValue());
+    }
+
+    @Test
+    void testUrlDecodeDoesNotFoldInvalidUtf8() {
+        String[] invalidUtf8Values = {"%80", "%C0%AF", "%E0%80%80", "%ED%A0%80", "%FF"};
+        for (String value : invalidUtf8Values) {
+            UrlDecode urlDecode = new UrlDecode(new StringLiteral(value));
+            Assertions.assertSame(urlDecode, ExpressionEvaluator.INSTANCE.eval(urlDecode), value);
+        }
+    }
+
+    @Test
+    void testUrlDecodeStillFoldsValidUtf8() {
+        assertUrlDecodeValue("%E4%B8%AD+text", "中 text");
+        assertUrlDecodeValue("%EF%BF%BD", "�");
+    }
+
+    private void assertUrlDecodeValue(String encoded, String expected) {
+        Expression result = ExpressionEvaluator.INSTANCE.eval(new UrlDecode(new StringLiteral(encoded)));
+        Assertions.assertEquals(expected, ((StringLikeLiteral) result).getValue());
     }
 }
