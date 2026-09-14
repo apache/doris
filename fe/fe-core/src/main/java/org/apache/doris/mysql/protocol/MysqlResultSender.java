@@ -138,7 +138,7 @@ public class MysqlResultSender implements ResultSender {
         channel().sendOnePacket(row);
     }
 
-    /** Clears the send flag and whatever the previous statement left in the send buffer. */
+    /** Clears the send flag and whatever a failed attempt of the query left in the send buffer. */
     @Override
     public void reset() {
         channel().reset();

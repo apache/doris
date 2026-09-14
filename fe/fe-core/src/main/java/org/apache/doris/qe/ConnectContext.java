@@ -903,19 +903,12 @@ public class ConnectContext {
         return FlightProtocolAdapter.of(this).getEndpointsLocations();
     }
 
-    public void clearFlightSqlEndpointsLocations() {
-        FlightProtocolAdapter.of(this).clearEndpointsLocations();
-    }
-
-    public void setReturnResultFromLocal(boolean returnResultFromLocal) {
-        FlightProtocolAdapter.of(this).setReturnResultFromLocal(returnResultFromLocal);
-    }
-
-    // A MySQL connection always sends its result from this frontend; only an Arrow Flight SQL
-    // session may leave a query's result on the backend for the client to pull.
+    /**
+     * Whether the result of the statement being executed comes from this frontend, or is left
+     * on the backends for the client to pull; see {@link ProtocolAdapter#returnsResultFromLocal}.
+     */
     public boolean isReturnResultFromLocal() {
-        return !(protocolAdapter instanceof FlightProtocolAdapter)
-                || ((FlightProtocolAdapter) protocolAdapter).isReturnResultFromLocal();
+        return protocolAdapter.returnsResultFromLocal(this);
     }
 
     // The bearer token of an Arrow Flight SQL session, null for any other connection.
@@ -1509,7 +1502,7 @@ public class ConnectContext {
     }
 
     public boolean supportHandleByFe() {
-        return !getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL) && getCommand() != MysqlCommand.COM_STMT_EXECUTE;
+        return protocolAdapter.supportsFeSideResult() && getCommand() != MysqlCommand.COM_STMT_EXECUTE;
     }
 
     public void setCloudCluster(String cluster) {
