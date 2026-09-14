@@ -718,12 +718,16 @@ struct DateTimeFloorCeilCore {
                         calc_origin.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATETIMEV2;
             }
             if constexpr (Flag::Unit == WEEK) {
+                constexpr int64_t MICROSECONDS_PER_SECOND = 1'000'000;
+                const auto microseconds_since_week_start = [](const auto& value) {
+                    return (value.daynr() % 7 * 24 * 3600 + value.hour() * 3600 +
+                            value.minute() * 60 + value.second()) *
+                                   MICROSECONDS_PER_SECOND +
+                           static_cast<int64_t>(value.microsecond());
+                };
                 diff = calc_arg.daynr() / 7 - calc_origin.daynr() / 7;
-                trivial_part_ts_arg = calc_arg.daynr() % 7 * 24 * 3600 + calc_arg.hour() * 3600 +
-                                      calc_arg.minute() * 60 + calc_arg.second();
-                trivial_part_ts_res = calc_origin.daynr() % 7 * 24 * 3600 +
-                                      calc_origin.hour() * 3600 + calc_origin.minute() * 60 +
-                                      calc_origin.second();
+                trivial_part_ts_arg = microseconds_since_week_start(calc_arg);
+                trivial_part_ts_res = microseconds_since_week_start(calc_origin);
             }
             if constexpr (Flag::Unit == DAY) {
                 diff = calc_arg.daynr() - calc_origin.daynr();
