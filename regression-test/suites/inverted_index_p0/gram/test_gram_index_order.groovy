@@ -34,6 +34,7 @@ suite("test_gram_index_order", "p0") {
     def likeTbl = "t_gram_order_like"
     def gramPhraseTbl = "t_gram_order_phrase_gram"
     def englishPhraseTbl = "t_gram_order_phrase_english"
+    def gramOnlyTbl = "t_gram_order_search_gram"
 
     // An analyzer reaches BE asynchronously over the heartbeat; wait until BE can use it.
     def waitAnalyzerInstalled = { String name ->
@@ -212,10 +213,39 @@ suite("test_gram_index_order", "p0") {
         }
     }
 
+    // 3) SEARCH is never answered by a gram index. A gram index only accelerates LIKE / REGEXP: a
+    // SEARCH value is cut by the current analyzer while a sparse segment records the density it
+    // solved for itself, and SEARCH has no row fallback, so a gram answer could silently miss
+    // rows. A binding that lands on a gram index is refused with a clear error; one that lands on
+    // an ordinary tokenized index -- the english index declared first above -- keeps working.
+    sql "SET enable_inverted_index_query=true"
+    sql "DROP TABLE IF EXISTS ${gramOnlyTbl}"
+    sql """
+        CREATE TABLE ${gramOnlyTbl} (
+            id INT,
+            msg VARCHAR(512),
+            INDEX idx_msg_gram (msg) USING INVERTED PROPERTIES ("analyzer" = "${sparseAna}")
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "disable_auto_compaction" = "true",
+            "inverted_index_storage_format" = "SNII"
+        )
+    """
+    sql """INSERT INTO ${gramOnlyTbl} VALUES (1, 'context deadline exceeded'), (2, 'request ok')"""
+    sql "sync"
+    test {
+        sql "SELECT id FROM ${gramOnlyTbl} WHERE search('msg:deadline')"
+        exception "gram index"
+    }
+    assertEquals([10], idsOf("SELECT id FROM ${likeTbl} WHERE search('msg:deadline')".toString()))
+
     sql "SET enable_inverted_index_query=true"
     // The policies live cluster-wide and the cluster is shared, so a suite that leaves
     // its own behind eats into the instance-wide policy limit for everyone else.
-    [likeTbl, gramPhraseTbl, englishPhraseTbl].each { sql "DROP TABLE IF EXISTS ${it}" }
+    [likeTbl, gramPhraseTbl, englishPhraseTbl, gramOnlyTbl].each { sql "DROP TABLE IF EXISTS ${it}" }
     sql "DROP INVERTED INDEX ANALYZER IF EXISTS ${sparseAna}"
     sql "DROP INVERTED INDEX ANALYZER IF EXISTS ${positionalAna}"
     sql "DROP INVERTED INDEX TOKENIZER IF EXISTS ${sparseTok}"
