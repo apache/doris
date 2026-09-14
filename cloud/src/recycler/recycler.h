@@ -163,12 +163,9 @@ public:
 
     class MetricValue {
     public:
-        MetricValue(RecyclerMetricsContext* context, MetricType type)
-                : context_(context), type_(type) {}
-
+        // Concurrent workers only update atomics. Batch boundaries publish their snapshots.
         MetricValue& operator+=(uint64_t delta) {
-            value_.fetch_add(delta);
-            context_->put(type_, value_.load());
+            value_.fetch_add(delta, std::memory_order_relaxed);
             return *this;
         }
 
@@ -177,27 +174,15 @@ public:
             return *this;
         }
 
-        uint64_t operator++(int) {
-            auto old_value = value_.fetch_add(1);
-            context_->put(type_, value_.load());
-            return old_value;
-        }
+        uint64_t operator++(int) { return value_.fetch_add(1, std::memory_order_relaxed); }
 
-        void reset() {
-            value_.store(0);
-            context_->put(type_, 0);
-        }
+        void reset() { value_.store(0, std::memory_order_relaxed); }
 
-        void set(uint64_t v) {
-            value_.store(v);
-            context_->put(type_, v);
-        }
+        void set(uint64_t v) { value_.store(v, std::memory_order_relaxed); }
 
-        uint64_t value() const { return value_.load(); }
+        uint64_t value() const { return value_.load(std::memory_order_relaxed); }
 
     private:
-        RecyclerMetricsContext* context_;
-        MetricType type_;
         std::atomic_ullong value_ = 0;
     };
 
@@ -207,11 +192,51 @@ public:
             : operation_type(std::move(operation_type)),
               instance_id(std::move(instance_id)),
               start_time_(std::chrono::steady_clock::now()) {
-        reset_current_round_metrics();
+        reset();
     }
 
-    ~RecyclerMetricsContext() {
-        update_elapsed_time();
+    // Each context has one publisher; workers may update its MetricValues concurrently.
+    void update_metrics() {
+        auto cost = duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
+                                                             start_time_)
+                            .count();
+        g_bvar_recycler_instance_current_round_task_elapsed_ms.put({instance_id, operation_type},
+                                                                   cost);
+        put(MetricType::SCANNED_NUM, kv_scanned_num.value());
+        put(MetricType::EXPIRED_NUM, kv_expired_num.value());
+        put(MetricType::RECYCLED_NUM, kv_recycled_num.value());
+        put(MetricType::RECYCLED_BYTES, kv_recycled_bytes.value());
+    }
+
+    ~RecyclerMetricsContext() { finish(); }
+
+    MetricValue kv_scanned_num;
+    MetricValue kv_expired_num;
+    MetricValue kv_recycled_num;
+    MetricValue kv_recycled_bytes;
+
+    std::string operation_type;
+    std::string instance_id;
+
+private:
+    std::chrono::steady_clock::time_point start_time_;
+
+    void reset() {
+        start_time_ = std::chrono::steady_clock::now();
+        kv_scanned_num.reset();
+        kv_expired_num.reset();
+        kv_recycled_num.reset();
+        kv_recycled_bytes.reset();
+        put(MetricType::SCANNED_NUM, 0);
+        put(MetricType::EXPIRED_NUM, 0);
+        put(MetricType::RECYCLED_NUM, 0);
+        put(MetricType::RECYCLED_BYTES, 0);
+        g_bvar_recycler_instance_current_round_task_elapsed_ms.put({instance_id, operation_type},
+                                                                   0);
+    }
+
+    void finish() {
+        update_metrics();
         if (auto num = kv_recycled_num.value(); num > 0) {
             g_bvar_recycler_instance_recycle_total_num_since_started.put(
                     {instance_id, operation_type}, static_cast<int64_t>(num));
@@ -220,39 +245,14 @@ public:
             g_bvar_recycler_instance_recycle_total_bytes_since_started.put(
                     {instance_id, operation_type}, static_cast<int64_t>(bytes));
         }
-    }
-
-    MetricValue kv_scanned_num {this, MetricType::SCANNED_NUM};
-    MetricValue kv_expired_num {this, MetricType::EXPIRED_NUM};
-    MetricValue kv_recycled_num {this, MetricType::RECYCLED_NUM};
-    MetricValue kv_recycled_bytes {this, MetricType::RECYCLED_BYTES};
-
-    std::string operation_type;
-    std::string instance_id;
-
-    void reset_current_round_metrics() {
-        start_time_ = std::chrono::steady_clock::now();
-        kv_scanned_num.reset();
-        kv_expired_num.reset();
-        kv_recycled_num.reset();
-        kv_recycled_bytes.reset();
-        g_bvar_recycler_instance_current_round_recycle_duration_ms.put(
-                {instance_id, operation_type}, 0);
-    }
-
-private:
-    std::chrono::steady_clock::time_point start_time_;
-
-    void update_elapsed_time() {
-        auto cost = duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
-                                                             start_time_)
-                            .count();
-        g_bvar_recycler_instance_current_round_recycle_duration_ms.put(
-                {instance_id, operation_type}, cost);
+        g_bvar_recycler_instance_last_round_recycled_num.put(
+                {instance_id, operation_type}, static_cast<int64_t>(kv_recycled_num.value()));
+        g_bvar_recycler_instance_last_round_recycled_bytes.put(
+                {instance_id, operation_type}, static_cast<int64_t>(kv_recycled_bytes.value()));
+        reset();
     }
 
     void put(MetricType type, uint64_t value) {
-        update_elapsed_time();
         switch (type) {
         case MetricType::SCANNED_NUM:
             g_bvar_recycler_instance_recycle_current_round_kv_scanned.put(
@@ -682,7 +682,8 @@ private:
 
     void submit_recycle_prepare_rowsets_job(SimpleThreadPool& worker_pool,
                                             std::vector<std::string> rowset_keys_to_abort,
-                                            std::atomic_long* num_recycled);
+                                            std::atomic_long* num_recycled,
+                                            RecyclerMetricsContext* metrics_context);
 
     void submit_recycle_tmp_rowsets_job(SimpleThreadPool& worker_pool,
                                         std::vector<std::string> rowset_keys_to_abort,
