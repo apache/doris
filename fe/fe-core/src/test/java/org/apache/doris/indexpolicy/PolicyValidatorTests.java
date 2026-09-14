@@ -72,6 +72,12 @@ public class PolicyValidatorTests {
         return IndexPolicy.read(new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
     }
 
+    private static IndexPolicyMgr roundTrip(IndexPolicyMgr manager) throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        manager.write(new DataOutputStream(bytes));
+        return IndexPolicyMgr.read(new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
+    }
+
     // @ParameterizedTest
     // @ValueSource(strings = {"yes", "no", "1", "0"})
     // public void testAsciiFoldingValidator_InvalidBooleanValue(String value) {
@@ -306,6 +312,52 @@ public class PolicyValidatorTests {
         } finally {
             Locale.setDefault(originalLocale);
         }
+    }
+
+    @Test
+    public void testReplayDropPreservesSurvivingLocaleCollision() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        IndexPolicy older = new IndexPolicy(
+                1, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard"));
+        IndexPolicy newer = new IndexPolicy(
+                2, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "keyword"));
+
+        manager.replayCreateIndexPolicy(older);
+        manager.replayCreateIndexPolicy(newer);
+        manager.replayDropIndexPolicy(new DropIndexPolicyLog(older.getId()));
+
+        Assertions.assertEquals(newer.getId(), manager.getPolicyByName("IK_SMART").getId());
+    }
+
+    @Test
+    public void testReplayDropRestoresOlderLocaleCollision() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        IndexPolicy older = new IndexPolicy(
+                1, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard"));
+        IndexPolicy newer = new IndexPolicy(
+                2, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "keyword"));
+
+        manager.replayCreateIndexPolicy(older);
+        manager.replayCreateIndexPolicy(newer);
+        manager.replayDropIndexPolicy(new DropIndexPolicyLog(newer.getId()));
+
+        Assertions.assertEquals(older.getId(), manager.getPolicyByName("ik_smart").getId());
+    }
+
+    @Test
+    public void testImageRebuildSelectsNewestLocaleCollisionDeterministically() throws Exception {
+        long newerId = 1L << 32;
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        IndexPolicy newer = new IndexPolicy(
+                newerId, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "keyword"));
+        IndexPolicy older = new IndexPolicy(
+                1, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard"));
+
+        manager.replayCreateIndexPolicy(newer);
+        manager.replayCreateIndexPolicy(older);
+        IndexPolicyMgr restored = roundTrip(manager);
+
+        Assertions.assertEquals(newerId, restored.getPolicyByName("IK_SMART").getId());
     }
 
     // StandardTokenizerValidator Tests

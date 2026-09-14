@@ -81,6 +81,36 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         lock.readLock().unlock();
     }
 
+    // Legacy metadata may contain names that collide after locale-independent normalization.
+    // Policy IDs are allocated monotonically, so the higher ID reproduces the latest definition.
+    // Callers must hold the write lock.
+    private void registerPolicyNameLocked(IndexPolicy indexPolicy) {
+        String normalizedName = normalizeKey(indexPolicy.getName());
+        IndexPolicy current = nameToIndexPolicy.get(normalizedName);
+        if (current == null || indexPolicy.getId() > current.getId()) {
+            nameToIndexPolicy.put(normalizedName, indexPolicy);
+        }
+        if (current != null && current.getId() != indexPolicy.getId()) {
+            LOG.warn("Index policies '{}' (id={}) and '{}' (id={}) have the same normalized name; "
+                            + "using the policy with the higher ID for name lookup",
+                    current.getName(), current.getId(), indexPolicy.getName(), indexPolicy.getId());
+        }
+    }
+
+    private void unregisterPolicyNameLocked(IndexPolicy indexPolicy) {
+        String normalizedName = normalizeKey(indexPolicy.getName());
+        IndexPolicy current = nameToIndexPolicy.get(normalizedName);
+        if (current == null || current.getId() != indexPolicy.getId()) {
+            return;
+        }
+        nameToIndexPolicy.remove(normalizedName);
+        for (IndexPolicy remaining : idToIndexPolicy.values()) {
+            if (normalizedName.equals(normalizeKey(remaining.getName()))) {
+                registerPolicyNameLocked(remaining);
+            }
+        }
+    }
+
     public List<IndexPolicy> getCopiedIndexPolicies() {
         List<IndexPolicy> copiedPolicies = Lists.newArrayList();
         readLock();
@@ -219,9 +249,8 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                 throw new DdlException("Index policy number cannot exceed 100");
             }
 
-            // Store with normalized key for case-insensitive lookup
-            nameToIndexPolicy.put(normalizedName, indexPolicy);
             idToIndexPolicy.put(indexPolicy.getId(), indexPolicy);
+            registerPolicyNameLocked(indexPolicy);
             Env.getCurrentEnv().getEditLog().logCreateIndexPolicy(indexPolicy);
         } finally {
             writeUnlock();
@@ -498,7 +527,7 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             }
             long id = policyToDrop.getId();
             idToIndexPolicy.remove(id);
-            nameToIndexPolicy.remove(normalizedName);
+            unregisterPolicyNameLocked(policyToDrop);
             Env.getCurrentEnv().getEditLog().logDropIndexPolicy(new DropIndexPolicyLog(id));
         } finally {
             writeUnlock();
@@ -643,8 +672,7 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         try {
             warnIfUnsupported(indexPolicy);
             idToIndexPolicy.put(indexPolicy.getId(), indexPolicy);
-            // Store with normalized key for case-insensitive lookup
-            nameToIndexPolicy.put(normalizeKey(indexPolicy.getName()), indexPolicy);
+            registerPolicyNameLocked(indexPolicy);
             LOG.debug("Replayed index policy: id={}, name={}",
                     indexPolicy.getId(), indexPolicy.getName());
         } finally {
@@ -661,7 +689,7 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             }
             IndexPolicy indexPolicy = idToIndexPolicy.get(id);
             idToIndexPolicy.remove(id);
-            nameToIndexPolicy.remove(normalizeKey(indexPolicy.getName()));
+            unregisterPolicyNameLocked(indexPolicy);
             LOG.debug("Replayed drop index policy: {}", indexPolicy.getName());
         } finally {
             writeUnlock();
@@ -682,13 +710,17 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() throws IOException {
-        // Store with normalized key for case-insensitive lookup
-        nameToIndexPolicy.clear();
-        idToIndexPolicy.forEach(
-                (id, indexPolicy) -> {
-                    warnIfUnsupported(indexPolicy);
-                    nameToIndexPolicy.put(normalizeKey(indexPolicy.getName()), indexPolicy);
-                });
+        writeLock();
+        try {
+            nameToIndexPolicy.clear();
+            idToIndexPolicy.forEach(
+                    (id, indexPolicy) -> {
+                        warnIfUnsupported(indexPolicy);
+                        registerPolicyNameLocked(indexPolicy);
+                    });
+        } finally {
+            writeUnlock();
+        }
     }
 
     private static void warnIfUnsupported(IndexPolicy indexPolicy) {

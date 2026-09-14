@@ -21,14 +21,20 @@ suite("test_ik_custom_analyzer", "p0") {
     def maxWordAnalyzer = "test_ik_max_word_pinyin_analyzer"
     def smartOnlyAnalyzer = "test_ik_smart_only_analyzer"
     def maxWordOnlyAnalyzer = "test_ik_max_word_only_analyzer"
+    def paddedSmartOnlyAnalyzer = "test_ik_padded_smart_only_analyzer"
 
     sql "DROP TABLE IF EXISTS test_ik_custom_analyzer"
     sql "DROP TABLE IF EXISTS test_ik_legacy_custom_alter"
     sql "DROP TABLE IF EXISTS test_ik_legacy_custom_create"
+    sql "DROP TABLE IF EXISTS test_ik_builtin_custom_alter"
+    sql "DROP TABLE IF EXISTS test_ik_builtin_custom_create"
+    sql "DROP TABLE IF EXISTS test_ik_padded_custom_alter"
+    sql "DROP TABLE IF EXISTS test_ik_padded_custom_create"
     try_sql "DROP INVERTED INDEX ANALYZER IF EXISTS ${smartAnalyzer}"
     try_sql "DROP INVERTED INDEX ANALYZER IF EXISTS ${maxWordAnalyzer}"
     try_sql "DROP INVERTED INDEX ANALYZER IF EXISTS ${smartOnlyAnalyzer}"
     try_sql "DROP INVERTED INDEX ANALYZER IF EXISTS ${maxWordOnlyAnalyzer}"
+    try_sql "DROP INVERTED INDEX ANALYZER IF EXISTS ${paddedSmartOnlyAnalyzer}"
     try_sql "DROP INVERTED INDEX TOKEN_FILTER IF EXISTS ${pinyinFilter}"
 
     sql """
@@ -65,6 +71,10 @@ suite("test_ik_custom_analyzer", "p0") {
         CREATE INVERTED INDEX ANALYZER IF NOT EXISTS ${maxWordOnlyAnalyzer}
         PROPERTIES ("tokenizer" = "ik_max_word")
     """
+    sql """
+        CREATE INVERTED INDEX ANALYZER IF NOT EXISTS ${paddedSmartOnlyAnalyzer}
+        PROPERTIES ("tokenizer" = " IK_SMART ")
+    """
 
     def waitAnalyzerReady = { analyzerName ->
         int maxRetry = 30
@@ -85,6 +95,7 @@ suite("test_ik_custom_analyzer", "p0") {
     waitAnalyzerReady(maxWordAnalyzer)
     waitAnalyzerReady(smartOnlyAnalyzer)
     waitAnalyzerReady(maxWordOnlyAnalyzer)
+    waitAnalyzerReady(paddedSmartOnlyAnalyzer)
 
     test {
         sql """
@@ -115,6 +126,70 @@ suite("test_ik_custom_analyzer", "p0") {
             ALTER TABLE test_ik_legacy_custom_alter
             ADD INDEX idx_custom (content) USING INVERTED
                 PROPERTIES("analyzer" = "${maxWordOnlyAnalyzer}")
+        """
+        exception "already exists"
+    }
+
+    test {
+        sql """
+            CREATE TABLE test_ik_builtin_custom_create (
+                id INT,
+                content STRING,
+                INDEX idx_builtin (content) USING INVERTED PROPERTIES("analyzer" = "ik"),
+                INDEX idx_custom (content) USING INVERTED PROPERTIES("analyzer" = "${maxWordOnlyAnalyzer}")
+            ) DUPLICATE KEY(id)
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+        """
+        exception "cannot have multiple inverted indexes"
+    }
+
+    sql """
+        CREATE TABLE test_ik_builtin_custom_alter (
+            id INT,
+            content STRING,
+            INDEX idx_builtin (content) USING INVERTED PROPERTIES("analyzer" = "ik")
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    test {
+        sql """
+            ALTER TABLE test_ik_builtin_custom_alter
+            ADD INDEX idx_custom (content) USING INVERTED
+                PROPERTIES("analyzer" = "${maxWordOnlyAnalyzer}")
+        """
+        exception "already exists"
+    }
+
+    test {
+        sql """
+            CREATE TABLE test_ik_padded_custom_create (
+                id INT,
+                content STRING,
+                INDEX idx_plain (content) USING INVERTED PROPERTIES("analyzer" = "${smartOnlyAnalyzer}"),
+                INDEX idx_padded (content) USING INVERTED PROPERTIES("analyzer" = "${paddedSmartOnlyAnalyzer}")
+            ) DUPLICATE KEY(id)
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+        """
+        exception "cannot have multiple inverted indexes"
+    }
+
+    sql """
+        CREATE TABLE test_ik_padded_custom_alter (
+            id INT,
+            content STRING,
+            INDEX idx_plain (content) USING INVERTED PROPERTIES("analyzer" = "${smartOnlyAnalyzer}")
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    test {
+        sql """
+            ALTER TABLE test_ik_padded_custom_alter
+            ADD INDEX idx_padded (content) USING INVERTED
+                PROPERTIES("analyzer" = "${paddedSmartOnlyAnalyzer}")
         """
         exception "already exists"
     }
