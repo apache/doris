@@ -18,6 +18,7 @@
 #pragma once
 
 #include <benchmark/benchmark.h>
+#include <fmt/format.h>
 #include <rapidjson/document.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -27,14 +28,17 @@
 #include <cerrno>
 #include <charconv>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -51,6 +55,7 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/cache_manager.h"
+#include "runtime/thread_context.h"
 #include "storage/cache/page_cache.h"
 #include "storage/compaction/cumulative_compaction.h"
 #include "storage/data_dir.h"
@@ -65,12 +70,16 @@
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/schema.h"
 #include "storage/segment/segment_loader.h"
+#include "storage/segment/vertical_segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_column_object_pool.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_cache.h"
+#include "util/defer_op.h"
+#include "util/random.h"
+#include "util/stopwatch.hpp"
 
 namespace doris::variant_segment_benchmark {
 namespace {
@@ -920,6 +929,370 @@ void BM_VariantCumulativeCompaction(benchmark::State& state, CompactionScenario 
             result.validation_statistics.variant_subtree_hierarchical_iter_count;
 }
 
+// Sparse import workload. Each row carries a Poisson(20) subset, clipped to [5, 60], of 2,000 keys.
+// A key's value kind is fixed by its index: 50% BIGINT, 25% short strings, 10% doubles, 5%
+// booleans, 5% BIGINT arrays of 1-4 elements, and 5% {"x": BIGINT, "y": string} objects. This is
+// the distribution of the dataset used for end-to-end JSON and Parquet VARIANT import measurements.
+// NoArrays replaces the array kind with BIGINT so that per-array type inference is isolated. JSON
+// generation and parse_to_variant are excluded; the timed region is VerticalSegmentWriter init,
+// append, and finalize, which shreds every value through the Variant path builders.
+constexpr uint32_t SPARSE_IMPORT_WORKLOAD_REVISION = 1;
+constexpr uint32_t SPARSE_IMPORT_KEYS = 2'000;
+constexpr uint32_t SPARSE_IMPORT_MEAN_KEYS = 20;
+constexpr uint32_t SPARSE_IMPORT_MIN_KEYS = 5;
+constexpr uint32_t SPARSE_IMPORT_MAX_KEYS = 60;
+constexpr uint32_t SPARSE_IMPORT_ROWS_PER_SEGMENT = 125'000;
+constexpr int32_t SPARSE_IMPORT_MAX_SUBCOLUMNS = 2'048;
+constexpr uint32_t SPARSE_IMPORT_SEED = 20'260'914;
+constexpr std::array<std::string_view, 20> SPARSE_IMPORT_WORDS {
+        "alpha", "beta", "gamma",   "delta", "epsilon", "zeta",  "eta",   "theta", "iota", "kappa",
+        "lambda", "mu", "nu", "xi", "omicron", "pi", "rho", "sigma", "tau", "upsilon"};
+
+struct SparseImportScenario {
+    std::string_view name;
+    bool arrays;
+    uint32_t writers;
+};
+
+struct SparseImportResult {
+    uint64_t input_json_bytes = 0;
+    uint64_t segment_bytes = 0;
+    uint64_t init_ns = 0;
+    uint64_t append_ns = 0;
+    uint64_t finalize_ns = 0;
+    uint64_t cpu_ns = 0;
+    uint32_t segments = 0;
+};
+
+double sparse_import_unit(Random* rng) {
+    return static_cast<double>(rng->Next()) / 2147483647.0;
+}
+
+uint32_t sparse_import_key_count(Random* rng) {
+    // Knuth's Poisson sampler, as in the NDJSON generator for the end-to-end dataset.
+    const double limit = std::exp(-static_cast<double>(SPARSE_IMPORT_MEAN_KEYS));
+    uint32_t count = 0;
+    double product = 1.0;
+    do {
+        ++count;
+        product *= sparse_import_unit(rng);
+    } while (product > limit);
+    return std::clamp(count - 1, SPARSE_IMPORT_MIN_KEYS, SPARSE_IMPORT_MAX_KEYS);
+}
+
+void append_sparse_import_value(uint32_t key, bool arrays, Random* rng, std::string* json) {
+    const uint32_t bucket = key % 20;
+    const auto out = std::back_inserter(*json);
+    if (bucket < 10 || (bucket == 18 && !arrays)) {
+        fmt::format_to(out, "{}", static_cast<int64_t>(rng->Uniform(2'000'001)) - 1'000'000);
+    } else if (bucket < 15) {
+        fmt::format_to(out, "\"{}_{}\"",
+                       SPARSE_IMPORT_WORDS[rng->Uniform(static_cast<int>(SPARSE_IMPORT_WORDS.size()))],
+                       rng->Uniform(100'000));
+    } else if (bucket < 17) {
+        fmt::format_to(out, "{:.4f}", sparse_import_unit(rng) * 2e6 - 1e6);
+    } else if (bucket < 18) {
+        json->append(rng->OneIn(2) ? "true" : "false");
+    } else if (bucket < 19) {
+        const uint32_t elements = 1 + rng->Uniform(4);
+        json->push_back('[');
+        for (uint32_t element = 0; element < elements; ++element) {
+            if (element != 0) {
+                json->push_back(',');
+            }
+            fmt::format_to(out, "{}", rng->Uniform(1'001));
+        }
+        json->push_back(']');
+    } else {
+        fmt::format_to(out, "{{\"x\":{},\"y\":\"{}\"}}", rng->Uniform(1'001),
+                       SPARSE_IMPORT_WORDS[rng->Uniform(static_cast<int>(SPARSE_IMPORT_WORDS.size()))]);
+    }
+}
+
+std::string make_sparse_import_json(bool arrays, Random* rng) {
+    std::array<uint32_t, SPARSE_IMPORT_MAX_KEYS> keys {};
+    const uint32_t count = sparse_import_key_count(rng);
+    for (uint32_t picked = 0; picked < count;) {
+        const uint32_t key = rng->Uniform(static_cast<int>(SPARSE_IMPORT_KEYS));
+        if (std::find(keys.begin(), keys.begin() + picked, key) == keys.begin() + picked) {
+            keys[picked++] = key;
+        }
+    }
+    std::sort(keys.begin(), keys.begin() + count);
+
+    std::string json;
+    json.reserve(512);
+    json.push_back('{');
+    for (uint32_t index = 0; index < count; ++index) {
+        if (index != 0) {
+            json.push_back(',');
+        }
+        fmt::format_to(std::back_inserter(json), "\"k{:04d}\":", keys[index]);
+        append_sparse_import_value(keys[index], arrays, rng, &json);
+    }
+    json.push_back('}');
+    return json;
+}
+
+TabletSchemaSPtr make_sparse_import_schema() {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    schema_pb.set_num_short_key_columns(1);
+
+    auto* key = schema_pb.add_column();
+    key->set_unique_id(KEY_UID);
+    key->set_name("k");
+    key->set_type("BIGINT");
+    key->set_is_key(true);
+    key->set_is_nullable(false);
+
+    // Table defaults: 2,048 materialized subcolumns, one sparse bucket, no Doc Mode.
+    auto* variant = schema_pb.add_column();
+    variant->set_unique_id(ROOT_UID);
+    variant->set_name(std::string(ROOT_NAME));
+    variant->set_type("VARIANT");
+    variant->set_is_key(false);
+    variant->set_is_nullable(false);
+    variant->set_variant_max_subcolumns_count(SPARSE_IMPORT_MAX_SUBCOLUMNS);
+    variant->set_variant_enable_doc_mode(false);
+
+    auto schema = std::make_shared<TabletSchema>();
+    schema->init_from_pb(schema_pb);
+    schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3);
+    return schema;
+}
+
+Status make_sparse_import_block(bool arrays, uint32_t first_row, uint32_t rows, Random* rng,
+                                Block* block, uint64_t* json_bytes) {
+    auto keys = ColumnInt64::create();
+    auto raw_json = ColumnString::create();
+    keys->reserve(rows);
+    raw_json->reserve(rows);
+    for (uint32_t local = 0; local < rows; ++local) {
+        const std::string json = make_sparse_import_json(arrays, rng);
+        keys->insert_value(first_row + local);
+        raw_json->insert_data(json.data(), json.size());
+        *json_bytes += json.size();
+    }
+
+    ColumnPtr values;
+    DataTypePtr value_type;
+    const LayoutConfig layout {.name = "SparseImport",
+                               .max_subcolumns = SPARSE_IMPORT_MAX_SUBCOLUMNS,
+                               .doc_mode = false};
+    RETURN_IF_ERROR(parse_json_batch(std::move(raw_json), layout, rows, &values, &value_type));
+    block->insert({std::move(keys), std::make_shared<DataTypeInt64>(), "k"});
+    block->insert({std::move(values), std::move(value_type), std::string(ROOT_NAME)});
+    return Status::OK();
+}
+
+template <typename Call>
+Status timed_sparse_import_call(SparseImportResult* result, uint64_t* phase_ns, Call&& call) {
+    MonotonicStopWatch wall;
+    ThreadCpuStopWatch cpu;
+    wall.start();
+    cpu.start();
+    Status status = call();
+    *phase_ns += wall.elapsed_time();
+    result->cpu_ns += cpu.elapsed_time();
+    return status;
+}
+
+// Each writer owns pre-parsed batches grouped by segment. Keys increase within a segment.
+using SparseImportSegments = std::vector<std::vector<Block>>;
+
+Status make_sparse_import_input(bool arrays, uint32_t writer, uint32_t rows,
+                                SparseImportSegments* segments, uint64_t* json_bytes) {
+    Random rng(SPARSE_IMPORT_SEED + writer);
+    for (uint32_t segment_begin = 0; segment_begin < rows;
+         segment_begin += SPARSE_IMPORT_ROWS_PER_SEGMENT) {
+        const uint32_t segment_rows = std::min(SPARSE_IMPORT_ROWS_PER_SEGMENT, rows - segment_begin);
+        auto& batches = segments->emplace_back();
+        for (uint32_t offset = 0; offset < segment_rows; offset += BATCH_ROWS) {
+            Block block;
+            RETURN_IF_ERROR(make_sparse_import_block(arrays, segment_begin + offset,
+                                                     std::min(BATCH_ROWS, segment_rows - offset),
+                                                     &rng, &block, json_bytes));
+            batches.push_back(std::move(block));
+        }
+    }
+    return Status::OK();
+}
+
+Status write_sparse_import_segments(const TabletSchemaSPtr& schema, const std::string& directory,
+                                    uint32_t writer, const SparseImportSegments& segments,
+                                    SparseImportResult* result) {
+    for (size_t segment_index = 0; segment_index < segments.size(); ++segment_index) {
+        const auto segment_id = static_cast<uint32_t>(writer * 10'000 + segment_index);
+        uint32_t segment_rows = 0;
+        for (const Block& block : segments[segment_index]) {
+            segment_rows += static_cast<uint32_t>(block.rows());
+        }
+        io::FileWriterPtr file_writer;
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_file(
+                directory + "/" + std::to_string(segment_id) + ".dat", &file_writer));
+        RowsetWriterContext rowset_context;
+        rowset_context.write_type = DataWriteType::TYPE_DIRECT;
+        rowset_context.tablet_schema = schema;
+        rowset_context.tablet_path = directory;
+
+        segment_v2::VerticalSegmentWriterOptions options;
+        options.num_rows_per_block = BATCH_ROWS;
+        options.max_rows_per_segment = SPARSE_IMPORT_ROWS_PER_SEGMENT;
+        options.compression_type = CompressionTypePB::LZ4;
+        options.rowset_ctx = &rowset_context;
+        options.write_type = DataWriteType::TYPE_DIRECT;
+        segment_v2::VerticalSegmentWriter segment_writer(file_writer.get(), segment_id, schema,
+                                                         nullptr, nullptr, options, nullptr);
+        RETURN_IF_ERROR(timed_sparse_import_call(result, &result->init_ns,
+                                                 [&]() { return segment_writer.init(); }));
+        for (const Block& block : segments[segment_index]) {
+            RETURN_IF_ERROR(timed_sparse_import_call(result, &result->append_ns, [&]() {
+                return segment_writer.append_block(&block, 0, block.rows());
+            }));
+        }
+
+        uint64_t segment_bytes = 0;
+        uint64_t index_bytes = 0;
+        RETURN_IF_ERROR(timed_sparse_import_call(result, &result->finalize_ns, [&]() {
+            RETURN_IF_ERROR(segment_writer.finalize_columns(&index_bytes));
+            return segment_writer.finalize_footer(&segment_bytes);
+        }));
+        if (segment_writer.row_count() != segment_rows) {
+            return Status::InternalError("Sparse import segment {} wrote {} rows, expected {}",
+                                         segment_id, segment_writer.row_count(), segment_rows);
+        }
+        result->segment_bytes += segment_bytes;
+        ++result->segments;
+    }
+    return Status::OK();
+}
+
+// Input generation and parsing are untimed. The writers then run concurrently, as memtable flushes
+// of several tablets do, so process-wide shared state (for example reference counts of static data
+// types) is contended the way it is during a real import.
+Status run_sparse_import(const SparseImportScenario& scenario, uint32_t total_rows,
+                         SparseImportResult* result, uint64_t* concurrent_wall_ns) {
+    DORIS_CHECK(result != nullptr);
+    DORIS_CHECK(concurrent_wall_ns != nullptr);
+    DORIS_CHECK_GT(scenario.writers, 0);
+    ensure_variant_compaction_runtime();
+    const std::string directory =
+            benchmark_root() + "/doris_variant_sparse_import_benchmark_" + std::to_string(getpid());
+    RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(directory));
+    RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(directory));
+    Defer cleanup {[&]() {
+        WARN_IF_ERROR(io::global_local_filesystem()->delete_directory(directory),
+                      "Failed to clean Variant sparse import benchmark directory");
+    }};
+
+    const TabletSchemaSPtr schema = make_sparse_import_schema();
+    std::vector<SparseImportSegments> inputs(scenario.writers);
+    for (uint32_t writer = 0; writer < scenario.writers; ++writer) {
+        const uint32_t rows = total_rows / scenario.writers +
+                              (writer + 1 == scenario.writers ? total_rows % scenario.writers : 0);
+        RETURN_IF_ERROR(make_sparse_import_input(scenario.arrays, writer, rows, &inputs[writer],
+                                                 &result->input_json_bytes));
+    }
+
+    std::vector<SparseImportResult> writer_results(scenario.writers);
+    std::vector<Status> statuses(scenario.writers);
+    std::vector<std::thread> threads;
+    threads.reserve(scenario.writers);
+    MonotonicStopWatch wall;
+    wall.start();
+    for (uint32_t writer = 0; writer < scenario.writers; ++writer) {
+        threads.emplace_back([&, writer]() {
+            SCOPED_INIT_THREAD_CONTEXT();
+            try {
+                statuses[writer] = write_sparse_import_segments(
+                        schema, directory, writer, inputs[writer], &writer_results[writer]);
+            } catch (const Exception& exception) {
+                statuses[writer] = exception.to_status();
+            }
+        });
+    }
+    for (std::thread& thread : threads) {
+        thread.join();
+    }
+    *concurrent_wall_ns = wall.elapsed_time();
+
+    for (uint32_t writer = 0; writer < scenario.writers; ++writer) {
+        RETURN_IF_ERROR(statuses[writer]);
+        const SparseImportResult& part = writer_results[writer];
+        result->segment_bytes += part.segment_bytes;
+        result->init_ns += part.init_ns;
+        result->append_ns += part.append_ns;
+        result->finalize_ns += part.finalize_ns;
+        result->cpu_ns += part.cpu_ns;
+        result->segments += part.segments;
+    }
+    return Status::OK();
+}
+
+void BM_VariantSparseImport(benchmark::State& state, SparseImportScenario scenario) {
+    const uint32_t rows = configured_rows();
+    SparseImportResult result;
+    uint64_t concurrent_wall_ns = 0;
+    bool completed = false;
+    for (auto _ : state) {
+        benchmark::DoNotOptimize(_);
+        result = SparseImportResult {};
+        if (!benchmark_status(state,
+                              run_sparse_import(scenario, rows, &result, &concurrent_wall_ns))) {
+            break;
+        }
+        state.SetIterationTime(static_cast<double>(concurrent_wall_ns) / 1e9);
+        completed = true;
+    }
+    if (!completed) {
+        return;
+    }
+
+    const auto per_row = [&](uint64_t value) { return static_cast<double>(value) / rows; };
+    state.SetItemsProcessed(static_cast<int64_t>(rows) * state.iterations());
+    state.counters["sparse_import_workload_revision"] = SPARSE_IMPORT_WORKLOAD_REVISION;
+    state.counters["rows_per_run"] = rows;
+    state.counters["rows_per_segment"] = SPARSE_IMPORT_ROWS_PER_SEGMENT;
+    state.counters["batch_rows"] = BATCH_ROWS;
+    state.counters["writers"] = scenario.writers;
+    state.counters["segments"] = result.segments;
+    state.counters["array_values"] = scenario.arrays;
+    state.counters["concurrent_wall_ns_per_row"] = per_row(concurrent_wall_ns);
+    state.counters["writer_wall_ns_per_row"] =
+            per_row(result.init_ns + result.append_ns + result.finalize_ns);
+    state.counters["append_ns_per_row"] = per_row(result.append_ns);
+    state.counters["finalize_ns_per_row"] = per_row(result.finalize_ns);
+    state.counters["cpu_ns_per_row"] = per_row(result.cpu_ns);
+    state.counters["cpu_s_per_1m_rows"] = per_row(result.cpu_ns) * 1e6 / 1e9;
+    state.counters["input_json_bytes_per_row"] = per_row(result.input_json_bytes);
+    state.counters["segment_bytes_per_row"] = per_row(result.segment_bytes);
+}
+
+bool register_variant_sparse_import_benchmarks() {
+    constexpr std::array<SparseImportScenario, 4> scenarios {{
+            {.name = "MixedTypes/Writers1", .arrays = true, .writers = 1},
+            {.name = "NoArrays/Writers1", .arrays = false, .writers = 1},
+            {.name = "MixedTypes/Writers8", .arrays = true, .writers = 8},
+            {.name = "NoArrays/Writers8", .arrays = false, .writers = 8},
+    }};
+    constexpr uint32_t SAMPLES = 5;
+    for (const SparseImportScenario scenario : scenarios) {
+        for (uint32_t sample = 1; sample <= SAMPLES; ++sample) {
+            const std::string name = "BM_VariantSparseImport/" + std::string(scenario.name) +
+                                     "/sample" + std::to_string(sample);
+            benchmark::RegisterBenchmark(name,
+                                         [scenario](benchmark::State& state) {
+                                             BM_VariantSparseImport(state, scenario);
+                                         })
+                    ->Unit(benchmark::kMillisecond)
+                    ->Iterations(1)
+                    ->UseManualTime();
+        }
+    }
+    return true;
+}
+
 bool register_variant_compaction_benchmarks() {
     constexpr std::array<CompactionScenario, 7> scenarios {{
             {.layout = VariantLayout::SPARSE16,
@@ -972,6 +1345,8 @@ bool register_variant_compaction_benchmarks() {
 
 inline const bool VARIANT_COMPACTION_BENCHMARKS_REGISTERED =
         register_variant_compaction_benchmarks();
+inline const bool VARIANT_SPARSE_IMPORT_BENCHMARKS_REGISTERED =
+        register_variant_sparse_import_benchmarks();
 
 } // namespace
 } // namespace doris::variant_segment_benchmark
