@@ -19,6 +19,7 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.JobContext;
@@ -63,7 +64,11 @@ public class ChildrenPropertiesRegulatorTest {
     @BeforeEach
     public void setUp() {
         mockedJobContext = Mockito.mock(JobContext.class);
-        Mockito.when(mockedJobContext.getCascadesContext()).thenReturn(Mockito.mock(CascadesContext.class));
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setStatementContext(new StatementContext(connectContext, null));
+        CascadesContext cascadesContext = Mockito.mock(CascadesContext.class);
+        Mockito.when(cascadesContext.getConnectContext()).thenReturn(connectContext);
+        Mockito.when(mockedJobContext.getCascadesContext()).thenReturn(cascadesContext);
     }
 
     @Test
