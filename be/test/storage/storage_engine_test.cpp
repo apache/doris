@@ -27,14 +27,17 @@
 #include <filesystem>
 #include <memory>
 #include <string_view>
+#include <thread>
 #include <unordered_map>
 
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "storage/data_dir.h"
+#include "storage/delete/calc_delete_bitmap_executor.h"
 #include "storage/tablet/tablet_manager.h"
 #include "storage/tablet/tablet_meta_manager.h"
+#include "util/defer_op.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -67,6 +70,43 @@ public:
     std::string _engine_data_path;
     std::unique_ptr<DataDir> _data_dir;
 };
+
+TEST_F(StorageEngineTest, TestAdaptiveDeleteBitmapRegistration) {
+    const bool original_enable = config::enable_adaptive_flush_threads;
+    Defer restore_config = [&] { config::enable_adaptive_flush_threads = original_enable; };
+    config::enable_adaptive_flush_threads = true;
+    _storage_engine->_calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
+    _storage_engine->_calc_delete_bitmap_executor->init("TestTabletDeleteBitmap", 4);
+    _storage_engine->_calc_delete_bitmap_executor_for_load =
+            std::make_unique<CalcDeleteBitmapExecutor>();
+    _storage_engine->_calc_delete_bitmap_executor_for_load->init("TestLoadDeleteBitmap", 3);
+    auto* controller = _storage_engine->adaptive_thread_controller();
+    Defer stop = [&] { controller->stop(); };
+
+    config::enable_adaptive_flush_threads = false;
+    _storage_engine->_start_adaptive_thread_controller();
+    EXPECT_EQ(controller->get_current_threads("calc_delete_bitmap"), 0);
+    EXPECT_EQ(controller->get_current_threads("calc_delete_bitmap_for_load"), 0);
+
+    config::enable_adaptive_flush_threads = true;
+    _storage_engine->_start_adaptive_thread_controller();
+    int num_cpus = std::thread::hardware_concurrency();
+    if (num_cpus <= 0) num_cpus = 1;
+    const int expected_max = num_cpus * config::max_flush_thread_num_per_cpu;
+    const int expected_min =
+            std::max(1, static_cast<int>(num_cpus * config::min_flush_thread_num_per_cpu));
+    for (const auto* name : {"calc_delete_bitmap", "calc_delete_bitmap_for_load"}) {
+        EXPECT_EQ(controller->get_current_threads(name), expected_max);
+        const auto& group = controller->_pool_groups.at(name);
+        EXPECT_EQ(group.get_min_threads(), expected_min);
+        EXPECT_EQ(group.pools.front()->min_threads(), expected_min);
+        EXPECT_EQ(group.pools.front()->max_threads(), expected_max);
+    }
+    EXPECT_EQ(controller->_pool_groups.at("calc_delete_bitmap").pools.front(),
+              _storage_engine->_calc_delete_bitmap_executor->thread_pool());
+    EXPECT_EQ(controller->_pool_groups.at("calc_delete_bitmap_for_load").pools.front(),
+              _storage_engine->_calc_delete_bitmap_executor_for_load->thread_pool());
+}
 
 TEST_F(StorageEngineTest, TestBrokenDisk) {
     std::string path = config::custom_config_dir + "/be_custom.conf";

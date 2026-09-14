@@ -866,7 +866,7 @@ DEFINE_mInt32(max_flush_thread_num_per_cpu, "4");
 // minimum flush threads per cpu when adaptive flush is enabled (default 0.5)
 DEFINE_mDouble(min_flush_thread_num_per_cpu, "0.5");
 
-// Whether to enable adaptive flush thread adjustment
+// Whether to enable adaptive flush and delete bitmap thread adjustment
 DEFINE_mBool(enable_adaptive_flush_threads, "true");
 
 // Whether to block writes when one table has too many pending flush memtables on this BE.

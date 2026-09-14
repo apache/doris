@@ -110,6 +110,8 @@ public:
 
     std::unique_ptr<CalcDeleteBitmapToken> create_token();
 
+    ThreadPool* thread_pool() { return _thread_pool.get(); }
+
 private:
     std::unique_ptr<ThreadPool> _thread_pool;
 };
