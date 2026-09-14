@@ -42,20 +42,16 @@ bool add_overflows(size_t left, size_t right) {
     return right > std::numeric_limits<size_t>::max() - left;
 }
 
-bool is_terminal(FileRangeRead::State state) {
-    return state == FileRangeRead::State::READY || state == FileRangeRead::State::FAILED ||
-           state == FileRangeRead::State::CANCELLED;
-}
+} // namespace
 
-FileRangeReadSubmitResult rejected(FileRangeReadRejectReason reason, Status status = Status::OK()) {
+FileRangeReadSubmitResult FileRangeReadSubmitResult::rejected(FileRangeReadRejectReason reason,
+                                                              Status status) {
     return FileRangeReadSubmitResult {
             .reads = {},
             .reject_reason = reason,
             .status = std::move(status),
     };
 }
-
-} // namespace
 
 FileRangeReadBudget::FileRangeReadBudget(size_t max_bytes) : _max_bytes(max_bytes) {
     DORIS_CHECK(_max_bytes > 0);
@@ -203,12 +199,16 @@ Status FileRangeRead::create(FileRange range, std::shared_ptr<MemTrackerLimiter>
     return Status::OK();
 }
 
+bool FileRangeRead::_is_terminal(State state) {
+    return state == State::READY || state == State::FAILED || state == State::CANCELLED;
+}
+
 Status FileRangeRead::wait(bool* ready_on_entry) {
     std::unique_lock lock(_mutex);
     if (ready_on_entry != nullptr) {
         *ready_on_entry = _state == State::READY;
     }
-    _cv.wait(lock, [this]() { return is_terminal(_state); });
+    _cv.wait(lock, [this]() { return _is_terminal(_state); });
     return _status;
 }
 
@@ -216,7 +216,7 @@ void FileRangeRead::request_cancel() {
     bool publish_cancelled = false;
     {
         std::lock_guard lock(_mutex);
-        if (is_terminal(_state)) {
+        if (_is_terminal(_state)) {
             return;
         }
         _cancel_requested = true;
@@ -301,7 +301,7 @@ void FileRangeRead::_publish_from_running(State state, Status status, FileRangeR
     {
         std::lock_guard lock(_mutex);
         DORIS_CHECK(_state == State::RUNNING);
-        DORIS_CHECK(is_terminal(state));
+        DORIS_CHECK(_is_terminal(state));
         if (_cancel_requested) {
             state = State::CANCELLED;
             status = Status::Cancelled("asynchronous file range read cancelled");
@@ -404,7 +404,7 @@ FileRangeReadSubmitResult FileRangeReadScheduler::try_submit(
                 COUNTER_UPDATE(&io_context.statistics->be_budget_rejected_batches, 1);
             }
         }
-        return rejected(reason, std::move(status));
+        return FileRangeReadSubmitResult::rejected(reason, std::move(status));
     };
     size_t total_bytes = 0;
     Status validation_status = _validate_request(ranges, reader, context, &total_bytes);

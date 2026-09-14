@@ -632,7 +632,6 @@ private:
     Status _init_read_ahead(const ColumnReadAheadRequest& request);
     // Run before PageIO so both buffered reads and Page Cache hits advance the scan window.
     void _advance_read_ahead(int32_t page_index);
-    void _record_read_ahead_plan(const ColumnReadAheadPlan& plan);
     void _trigger_prefetch_if_eligible(ordinal_t ord);
 
     std::shared_ptr<ColumnReader> _reader = nullptr;

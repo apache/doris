@@ -2848,7 +2848,7 @@ Status FileColumnIterator::prepare_read_ahead(const ColumnReadAheadRequest& requ
         _read_ahead->plan(request.current_rowids, request.current_rowid_count, *request.scan_rowids,
                           &plan);
     }
-    _record_read_ahead_plan(plan);
+    plan.update_statistics(statistics);
     if (!plan.empty()) {
         plans->push_back(std::move(plan));
     }
@@ -2862,21 +2862,12 @@ void FileColumnIterator::_advance_read_ahead(int32_t page_index) {
         SCOPED_TIMER(statistics != nullptr ? &statistics->column_plan_time : nullptr);
         SCOPED_TIMER(statistics != nullptr ? &statistics->page_advance_time : nullptr);
         _read_ahead->advance(page_index, &plan);
-        _record_read_ahead_plan(plan);
+        plan.update_statistics(statistics);
     }
     if (!plan.empty()) {
         std::vector<ColumnReadAheadPlan> plans;
         plans.push_back(std::move(plan));
         static_cast<void>(_read_ahead_segment->apply_plans(std::move(plans)));
-    }
-}
-
-void FileColumnIterator::_record_read_ahead_plan(const ColumnReadAheadPlan& plan) {
-    // Include window maintenance even when no pages enter or leave the window.
-    if (auto* statistics = _opts.stats->read_ahead_stats.get(); statistics != nullptr) {
-        COUNTER_UPDATE(&statistics->window_discard_time, plan.window_discard_ns);
-        COUNTER_UPDATE(&statistics->current_batch_plan_time, plan.current_batch_plan_ns);
-        COUNTER_UPDATE(&statistics->window_extend_time, plan.window_extend_ns);
     }
 }
 

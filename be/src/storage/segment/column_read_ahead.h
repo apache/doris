@@ -28,6 +28,10 @@
 #include "io/fs/file_range_coalescer.h"
 #include "storage/segment/common.h"
 
+namespace doris::io {
+struct ReadAheadStatistics;
+}
+
 namespace doris::segment_v2 {
 
 struct ColumnReadAheadOptions {
@@ -65,6 +69,10 @@ struct ColumnReadAheadPlan {
     int64_t current_batch_plan_ns {0};
     int64_t window_extend_ns {0};
 
+    /// Reuse this plan for another call, retaining the page vectors' allocated capacity.
+    void reset(ColumnReadAhead* owner);
+    /// Accumulate per-call timings even for an empty plan; statistics may be absent.
+    void update_statistics(io::ReadAheadStatistics* statistics) const;
     bool empty() const { return new_pages.empty() && released_pages.empty(); }
 };
 
@@ -143,7 +151,6 @@ private:
 
     const ColumnReadAheadPage& _page_for_ordinal(rowid_t ordinal) const;
     void _select_candidate_pages(const roaring::Roaring& scan_rowids);
-    void _reset_plan(ColumnReadAheadPlan* output);
     void _plan_page(int32_t page_index, ColumnReadAheadPlan* output);
     /// Add one page only if the window has not already seen it.
     void _add_page(const ColumnReadAheadPage& page, ColumnReadAheadPlan* output);

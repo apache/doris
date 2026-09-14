@@ -187,6 +187,7 @@ private:
                          std::shared_ptr<FileRangeRead>* output,
                          std::shared_ptr<ReadAheadStatistics> statistics = nullptr);
 
+    static bool _is_terminal(State state);
     bool _mark_running();
     bool _is_cancel_requested() const;
     void _publish_ready(FileRangeReadStats stats);
@@ -222,6 +223,8 @@ struct FileRangeReadSubmitResult {
     FileRangeReadRejectReason reject_reason {FileRangeReadRejectReason::NONE};
     Status status;
 
+    static FileRangeReadSubmitResult rejected(FileRangeReadRejectReason reason,
+                                              Status status = Status::OK());
     bool accepted() const {
         return reject_reason == FileRangeReadRejectReason::NONE && status.ok();
     }
