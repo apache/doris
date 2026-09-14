@@ -38,7 +38,6 @@ import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
@@ -371,7 +370,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             // aggregate is eligible for translator fusion (correctness + data-volume
             // gates are enforced by ChildrenPropertiesRegulator), apply a discount
             // to prefer this path over two-phase aggregation.
-            if (aggregate.getAggMode() == AggMode.INPUT_TO_RESULT
+            if (AggregateUtils.isFullyFinalizedOnePhaseAgg(aggregate)
                     && AggregateUtils.isBucketedHashAggEnabled(
                         aggregate.getGroupByExpressions().size())) {
                 rowCost *= BUCKETED_AGG_COST_DISCOUNT;

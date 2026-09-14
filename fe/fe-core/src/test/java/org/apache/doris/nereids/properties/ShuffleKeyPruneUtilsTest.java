@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
@@ -30,13 +31,17 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.model.ColumnStatisticBuilder;
 import org.apache.doris.statistics.model.Statistics;
+import org.apache.doris.statistics.model.StatisticsBuilder;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -45,6 +50,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Unit tests for {@link ShuffleKeyPruneUtils}.
@@ -71,6 +77,8 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
         slotF = new SlotReference(new ExprId(5), "f", IntegerType.INSTANCE, true, ImmutableList.of());
         connectContext = Mockito.spy(connectContext);
         Mockito.doReturn(INSTANCE_NUM).when(connectContext).getTotalInstanceNum();
+        connectContext.getSessionVariable().setBeNumberForTest(INSTANCE_NUM);
+        connectContext.getSessionVariable().parallelPipelineTaskNum = 1;
     }
 
     private static Statistics statsWithDefaultNdv(Expression... slots) {
@@ -99,7 +107,7 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
                 ImmutableList.of(slotA, slotB, slotC, slotD, slotE, slotF), false);
         Statistics childStatsWithoutColumns = new Statistics(ROW_COUNT, new HashMap<>());
 
-        Optional<List<Expression>> result = ShuffleKeyPruneUtils.selectBestShuffleKeyForAgg(agg,
+        Optional<List<ExprId>> result = selectBestShuffleKeyForAgg(agg,
                 agg.getGroupByExpressions(), childStatsWithoutColumns, connectContext);
 
         Assertions.assertFalse(result.isPresent());
@@ -111,11 +119,11 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
                 ImmutableList.of(slotA, slotB, slotC, slotD, slotE, slotF), false);
         Statistics stats = statsWithDefaultNdv(slotA, slotB, slotC, slotD, slotE, slotF);
 
-        Optional<List<Expression>> result = ShuffleKeyPruneUtils.selectBestShuffleKeyForAgg(agg,
+        Optional<List<ExprId>> result = selectBestShuffleKeyForAgg(agg,
                 agg.getGroupByExpressions(), stats, connectContext);
 
         Assertions.assertTrue(result.isPresent());
-        Assertions.assertInstanceOf(SlotReference.class, result.get().get(0));
+        Assertions.assertEquals(ImmutableList.of(slotA.getExprId()), result.get());
     }
 
     @Test
@@ -123,7 +131,7 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
         PhysicalHashAggregate<PhysicalEmptyRelation> agg = createAgg(ImmutableList.of(slotA), false);
         Statistics stats = statsWithDefaultNdv(slotA);
 
-        Optional<List<Expression>> result = ShuffleKeyPruneUtils.selectBestShuffleKeyForAgg(agg,
+        Optional<List<ExprId>> result = selectBestShuffleKeyForAgg(agg,
                 ImmutableList.of(slotA), stats, connectContext);
 
         Assertions.assertFalse(result.isPresent());
@@ -165,6 +173,477 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
         return new Statistics(rowCount, map);
     }
 
+    private static ConnectContext connectContextWithExecutionInstanceNum(int instanceNum) {
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        SessionVariable sessionVariable = Mockito.mock(SessionVariable.class);
+        Mockito.when(context.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(sessionVariable.getBeNumberForTest()).thenReturn(instanceNum);
+        Mockito.when(sessionVariable.resolveCloudClusterName(context)).thenReturn("");
+        Mockito.when(sessionVariable.getParallelExecInstanceNum("")).thenReturn(1);
+        return context;
+    }
+
+    // ===== Tests for known skew detection =====
+
+    @Test
+    void testKnownSkewOnSingleHotValueKey() {
+        SlotReference key = new SlotReference("key", IntegerType.INSTANCE);
+        Statistics statistics = new StatisticsBuilder()
+                .setRowCount(10000)
+                .putColumnStatistics(key, new ColumnStatisticBuilder(10000)
+                        .setNdv(2000)
+                        .setHotValues(ImmutableMap.of(Literal.of(1), 0.2f))
+                        .build())
+                .build();
+
+        Assertions.assertTrue(ShuffleKeyPruneUtils.hasKnownSkewForOnePhaseAgg(
+                ImmutableList.of(key), statistics, 3));
+    }
+
+    @Test
+    void testKnownSkewOnSingleNullKey() {
+        SlotReference key = new SlotReference("key", IntegerType.INSTANCE);
+        Statistics statistics = new StatisticsBuilder()
+                .setRowCount(10000)
+                .putColumnStatistics(key, new ColumnStatisticBuilder(10000)
+                        .setNdv(2000)
+                        .setNumNulls(5000)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .build();
+
+        Assertions.assertTrue(ShuffleKeyPruneUtils.hasKnownSkewForOnePhaseAgg(
+                ImmutableList.of(key), statistics, 3));
+    }
+
+    @Test
+    void testKnownHotValueSkewSurvivesConstantOtherKey() {
+        SlotReference hotKey = new SlotReference("hot_key", IntegerType.INSTANCE);
+        SlotReference constantKey = new SlotReference("constant_key", IntegerType.INSTANCE);
+        Statistics statistics = new StatisticsBuilder()
+                .setRowCount(10000)
+                .putColumnStatistics(hotKey, new ColumnStatisticBuilder(10000)
+                        .setNdv(2000)
+                        .setHotValues(ImmutableMap.of(Literal.of(1), 0.2f))
+                        .build())
+                .putColumnStatistics(constantKey, new ColumnStatisticBuilder(10000)
+                        .setNdv(1)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .build();
+
+        Assertions.assertTrue(ShuffleKeyPruneUtils.hasKnownSkewForOnePhaseAgg(
+                ImmutableList.of(hotKey, constantKey), statistics, 3));
+    }
+
+    @Test
+    void testHighNdvOtherKeyDispersesKnownHotValueSkew() {
+        SlotReference hotKey = new SlotReference("hot_key", IntegerType.INSTANCE);
+        SlotReference highNdvKey = new SlotReference("high_ndv_key", IntegerType.INSTANCE);
+        Statistics statistics = new StatisticsBuilder()
+                .setRowCount(1_000_000)
+                .putColumnStatistics(hotKey, new ColumnStatisticBuilder(1_000_000)
+                        .setNdv(2000)
+                        .setHotValues(ImmutableMap.of(Literal.of(1), 0.2f))
+                        .build())
+                .putColumnStatistics(highNdvKey, new ColumnStatisticBuilder(1_000_000)
+                        .setNdv(10000)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .build();
+
+        Assertions.assertFalse(ShuffleKeyPruneUtils.hasKnownSkewForOnePhaseAgg(
+                ImmutableList.of(hotKey, highNdvKey), statistics, 100));
+    }
+
+    @Test
+    void testNullableOtherKeyCanExceedOnePhaseDispersionLimit() {
+        SlotReference hotKey = new SlotReference("hot_key", IntegerType.INSTANCE);
+        SlotReference nullableKey = new SlotReference("nullable_key", IntegerType.INSTANCE);
+        Statistics statistics = new StatisticsBuilder()
+                .setRowCount(1_000_000)
+                .putColumnStatistics(hotKey, new ColumnStatisticBuilder(1_000_000)
+                        .setNdv(2000)
+                        .setHotValues(ImmutableMap.of(Literal.of(1), 0.2f))
+                        .build())
+                .putColumnStatistics(nullableKey, new ColumnStatisticBuilder(1_000_000)
+                        .setNdv(1024)
+                        .setNumNulls(500_000)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .build();
+
+        Assertions.assertFalse(ShuffleKeyPruneUtils.hasKnownSkewForOnePhaseAgg(
+                ImmutableList.of(hotKey, nullableKey), statistics, 3));
+    }
+
+    @Test
+    void testKnownHotNullSkewSurvivesConstantOtherKey() {
+        SlotReference nullKey = new SlotReference("null_key", IntegerType.INSTANCE);
+        SlotReference constantKey = new SlotReference("constant_key", IntegerType.INSTANCE);
+        Statistics statistics = new StatisticsBuilder()
+                .setRowCount(10000)
+                .putColumnStatistics(nullKey, new ColumnStatisticBuilder(10000)
+                        .setNdv(2000)
+                        .setNumNulls(2000)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .putColumnStatistics(constantKey, new ColumnStatisticBuilder(10000)
+                        .setNdv(1)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .build();
+
+        Assertions.assertTrue(ShuffleKeyPruneUtils.hasKnownSkewForOnePhaseAgg(
+                ImmutableList.of(nullKey, constantKey), statistics, 3));
+    }
+
+    @Test
+    void testHighNdvOtherKeyDispersesKnownHotNullSkew() {
+        SlotReference nullKey = new SlotReference("null_key", IntegerType.INSTANCE);
+        SlotReference highNdvKey = new SlotReference("high_ndv_key", IntegerType.INSTANCE);
+        Statistics statistics = new StatisticsBuilder()
+                .setRowCount(1_000_000)
+                .putColumnStatistics(nullKey, new ColumnStatisticBuilder(1_000_000)
+                        .setNdv(2000)
+                        .setNumNulls(200_000)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .putColumnStatistics(highNdvKey, new ColumnStatisticBuilder(1_000_000)
+                        .setNdv(10000)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .build();
+
+        Assertions.assertFalse(ShuffleKeyPruneUtils.hasKnownSkewForOnePhaseAgg(
+                ImmutableList.of(nullKey, highNdvKey), statistics, 100));
+    }
+
+    @Test
+    void testSmallNullFractionIsNotKnownSkew() {
+        SlotReference key = new SlotReference("key", IntegerType.INSTANCE);
+        Statistics statistics = new StatisticsBuilder()
+                .setRowCount(1_000_000)
+                .putColumnStatistics(key, new ColumnStatisticBuilder(1_000_000)
+                        .setNdv(500_000)
+                        .setNumNulls(20)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .build();
+
+        Assertions.assertFalse(ShuffleKeyPruneUtils.hasKnownSkewForOnePhaseAgg(
+                ImmutableList.of(key), statistics, 3));
+    }
+
+    @Test
+    void testLargeNullBucketBelowHotValueRatioIsKnownSkew() {
+        SlotReference key = new SlotReference("key", IntegerType.INSTANCE);
+        Statistics statistics = new StatisticsBuilder()
+                .setRowCount(1_000_000_000)
+                .putColumnStatistics(key, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(1_000_000)
+                        .setNumNulls(50_000_000)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .build();
+
+        Assertions.assertTrue(ShuffleKeyPruneUtils.hasKnownSkewForOnePhaseAgg(
+                ImmutableList.of(key), statistics, 100));
+    }
+
+    @Test
+    void testStrictPruningRejectsHotNullEvenWithAnotherHighNdvKey() {
+        SlotReference nullKey = new SlotReference("null_key", IntegerType.INSTANCE);
+        SlotReference highNdvKey = new SlotReference("high_ndv_key", IntegerType.INSTANCE);
+        Statistics statistics = new StatisticsBuilder()
+                .setRowCount(1_000_000_000)
+                .putColumnStatistics(nullKey, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(1_000_000)
+                        .setNumNulls(50_000_000)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .putColumnStatistics(highNdvKey, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(1_000_000)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .build();
+
+        Assertions.assertFalse(ShuffleKeyPruneUtils.isSafeForShuffleKeyPruning(
+                ImmutableList.of(nullKey, highNdvKey), statistics, 100));
+    }
+
+    @Test
+    void testStrictPruningRejectsHotValueEvenWithAnotherHighNdvKey() {
+        SlotReference hotKey = new SlotReference("hot_key", IntegerType.INSTANCE);
+        SlotReference highNdvKey = new SlotReference("high_ndv_key", IntegerType.INSTANCE);
+        Statistics statistics = new StatisticsBuilder()
+                .setRowCount(10000)
+                .putColumnStatistics(hotKey, new ColumnStatisticBuilder(10000)
+                        .setNdv(2000)
+                        .setHotValues(ImmutableMap.of(Literal.of(1), 0.2f))
+                        .build())
+                .putColumnStatistics(highNdvKey, new ColumnStatisticBuilder(10000)
+                        .setNdv(2000)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .build();
+
+        Assertions.assertFalse(ShuffleKeyPruneUtils.isSafeForShuffleKeyPruning(
+                ImmutableList.of(hotKey, highNdvKey), statistics, 3));
+    }
+
+    @Test
+    void testStrictPruningUsesExecutionInstanceLoadForHotValues() {
+        SlotReference hotKey = new SlotReference("hot_key", IntegerType.INSTANCE);
+        SlotReference highNdvKey = new SlotReference("high_ndv_key", IntegerType.INSTANCE);
+        Statistics statistics = new StatisticsBuilder()
+                .setRowCount(1_000_000_000)
+                .putColumnStatistics(hotKey, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(1100)
+                        .setHotValues(ImmutableMap.of(Literal.of(1), 0.005f))
+                        .build())
+                .putColumnStatistics(highNdvKey, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(2_000_000)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .build();
+
+        Assertions.assertFalse(ShuffleKeyPruneUtils.isSafeForShuffleKeyPruning(
+                ImmutableList.of(hotKey, highNdvKey), statistics, 3000));
+    }
+
+    @Test
+    void testStrictPruningAccountsForCollectedHotValueRatioRounding() {
+        SlotReference hotKey = new SlotReference("hot_key", IntegerType.INSTANCE);
+        Statistics statistics = new StatisticsBuilder()
+                .setRowCount(1_000_000_000)
+                .putColumnStatistics(hotKey, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(2_000_000)
+                        // A true ratio such as 0.004 is stored as 0.00 by ROUND(..., 2).
+                        .setHotValues(ImmutableMap.of(Literal.of(1), 0.0f))
+                        .build())
+                .build();
+
+        Assertions.assertFalse(ShuffleKeyPruneUtils.isSafeForShuffleKeyPruning(
+                ImmutableList.of(hotKey), statistics, 3000));
+    }
+
+    @Test
+    void testRoundedZeroHotValueDoesNotProveKnownSkew() {
+        SlotReference hotKey = new SlotReference("hot_key", IntegerType.INSTANCE);
+        Statistics statistics = new StatisticsBuilder()
+                .setRowCount(1_000_000_000)
+                .putColumnStatistics(hotKey, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(2_000_000)
+                        .setHotValues(ImmutableMap.of(Literal.of(1), 0.0f))
+                        .build())
+                .build();
+
+        Assertions.assertFalse(ShuffleKeyPruneUtils.hasKnownSkewForOnePhaseAgg(
+                ImmutableList.of(hotKey), statistics, 3000));
+    }
+
+    @Test
+    void testConfiguredThresholdsControlOnePhaseKnownSkew() {
+        SlotReference hotKey = new SlotReference("hot_key", IntegerType.INSTANCE);
+        Statistics statistics = new StatisticsBuilder()
+                .setRowCount(10000)
+                .putColumnStatistics(hotKey, new ColumnStatisticBuilder(10000)
+                        .setNdv(2000)
+                        .setHotValues(ImmutableMap.of(Literal.of(1), 0.06f))
+                        .build())
+                .build();
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext thresholdContext = new ConnectContext();
+        thresholdContext.setThreadLocalInfo();
+        try {
+            thresholdContext.getSessionVariable().setHotValueThreshold(0.1);
+            thresholdContext.getSessionVariable().setSkewValueThreshold(10);
+            Assertions.assertTrue(ShuffleKeyPruneUtils.hasKnownSkewForOnePhaseAgg(
+                    ImmutableList.of(hotKey), statistics, 3));
+
+            thresholdContext.getSessionVariable().setHotValueThreshold(0.2);
+            thresholdContext.getSessionVariable().setSkewValueThreshold(1000);
+            Assertions.assertFalse(ShuffleKeyPruneUtils.hasKnownSkewForOnePhaseAgg(
+                    ImmutableList.of(hotKey), statistics, 3));
+        } finally {
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    void testStrictPruningUsesExecutionInstanceLoadForNulls() {
+        SlotReference nullKey = new SlotReference("null_key", IntegerType.INSTANCE);
+        SlotReference highNdvKey = new SlotReference("high_ndv_key", IntegerType.INSTANCE);
+        Statistics statistics = new StatisticsBuilder()
+                .setRowCount(1_000_000_000)
+                .putColumnStatistics(nullKey, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(1100)
+                        .setNumNulls(5_000_000)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .putColumnStatistics(highNdvKey, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(2_000_000)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .build();
+
+        Assertions.assertFalse(ShuffleKeyPruneUtils.isSafeForShuffleKeyPruning(
+                ImmutableList.of(nullKey, highNdvKey), statistics, 3000));
+    }
+
+    @Test
+    void testShuffleKeyReuseRequiresNdvProportionalToInstanceCount() {
+        SlotReference key = new SlotReference("key", IntegerType.INSTANCE);
+        Statistics statistics = new StatisticsBuilder()
+                .setRowCount(1_000_000_000)
+                .putColumnStatistics(key, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(1_000_000)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .build();
+
+        Assertions.assertFalse(ShuffleKeyPruneUtils.isSafeForShuffleKeyPruning(
+                ImmutableList.of(key), statistics, 3000));
+    }
+
+    @Test
+    void testStrictPruningRejectsUnknownStatistics() {
+        SlotReference key = new SlotReference("key", IntegerType.INSTANCE);
+        Statistics statistics = new StatisticsBuilder()
+                .setRowCount(10000)
+                .putColumnStatistics(key, ColumnStatistic.UNKNOWN)
+                .build();
+
+        Assertions.assertFalse(ShuffleKeyPruneUtils.isSafeForShuffleKeyPruning(
+                ImmutableList.of(key), statistics, 3));
+    }
+
+    @Test
+    void testStrictPruningRejectsMissingHotValueStatistics() {
+        SlotReference key = new SlotReference("key", IntegerType.INSTANCE);
+        Statistics statistics = new StatisticsBuilder()
+                .setRowCount(10000)
+                .putColumnStatistics(key, new ColumnStatisticBuilder(10000)
+                        .setNdv(2000)
+                        .build())
+                .build();
+
+        Assertions.assertFalse(ShuffleKeyPruneUtils.isSafeForShuffleKeyPruning(
+                ImmutableList.of(key), statistics, 3));
+    }
+
+    @Test
+    void testIndependentShuffleDimensionsMergeEquivalenceFromMultipleProperties() {
+        ExprId bridge = new ExprId(6);
+        ExprId unrelated = new ExprId(7);
+        DistributionSpecHash requiredHash = new DistributionSpecHash(
+                ImmutableList.of(slotA.getExprId(), slotB.getExprId(), slotC.getExprId()),
+                DistributionSpecHash.ShuffleType.REQUIRE, -1L, ImmutableSet.of(),
+                ImmutableList.of(
+                        ImmutableSet.of(slotA.getExprId(), bridge),
+                        ImmutableSet.of(slotB.getExprId()),
+                        ImmutableSet.of(slotC.getExprId())),
+                ImmutableMap.of(
+                        slotA.getExprId(), 0,
+                        bridge, 0,
+                        slotB.getExprId(), 1,
+                        slotC.getExprId(), 2));
+        DistributionSpecHash actualHash = new DistributionSpecHash(
+                ImmutableList.of(slotA.getExprId(), slotB.getExprId(), unrelated),
+                DistributionSpecHash.ShuffleType.NATURAL, -1L, ImmutableSet.of(),
+                ImmutableList.of(
+                        ImmutableSet.of(slotA.getExprId()),
+                        ImmutableSet.of(slotB.getExprId(), bridge),
+                        ImmutableSet.of(unrelated)),
+                ImmutableMap.of(
+                        slotA.getExprId(), 0,
+                        slotB.getExprId(), 1,
+                        bridge, 1,
+                        unrelated, 2));
+        List<ExprId> shuffleKeys = ImmutableList.of(
+                slotA.getExprId(), slotB.getExprId(), slotC.getExprId());
+
+        Assertions.assertEquals(3,
+                ShuffleKeyPruneUtils.getIndependentShuffleDimensions(shuffleKeys, requiredHash).size());
+        Assertions.assertEquals(3,
+                ShuffleKeyPruneUtils.getIndependentShuffleDimensions(shuffleKeys, actualHash).size());
+        List<Set<ExprId>> combinedDimensions = ShuffleKeyPruneUtils.getIndependentShuffleDimensions(
+                shuffleKeys, requiredHash, actualHash);
+        Assertions.assertEquals(2, combinedDimensions.size());
+        Assertions.assertEquals(
+                ImmutableSet.of(slotA.getExprId(), slotB.getExprId(), bridge), combinedDimensions.get(0));
+        Assertions.assertEquals(ImmutableSet.of(slotC.getExprId()), combinedDimensions.get(1));
+        Assertions.assertFalse(combinedDimensions.stream().anyMatch(dimension -> dimension.contains(unrelated)));
+    }
+
+    @Test
+    void testParentShuffleReuseAllowsUnknownHotValuesWithSmallNullBucket() {
+        SlotReference key = new SlotReference("key", IntegerType.INSTANCE);
+        double rowCount = 2_870_000_000D;
+        Statistics statistics = new StatisticsBuilder()
+                .setRowCount(rowCount)
+                .putColumnStatistics(key, new ColumnStatisticBuilder(rowCount)
+                        .setNdv(10_000_000)
+                        .setNumNulls(67_000_000)
+                        .build())
+                .build();
+
+        Assertions.assertTrue(ShuffleKeyPruneUtils.isSafeForParentShuffleDimensions(
+                ImmutableList.of(ImmutableList.of(key)), statistics, 100));
+        Assertions.assertFalse(ShuffleKeyPruneUtils.isSafeForShuffleKeyPruning(
+                ImmutableList.of(key), statistics, 100));
+    }
+
+    @Test
+    void testParentShuffleReuseRejectsLargeNullBucketWhenHotValuesAreUnknown() {
+        SlotReference key = new SlotReference("key", IntegerType.INSTANCE);
+        Statistics statistics = new StatisticsBuilder()
+                .setRowCount(10000)
+                .putColumnStatistics(key, new ColumnStatisticBuilder(10000)
+                        .setNdv(2000)
+                        .setNumNulls(1000)
+                        .build())
+                .build();
+
+        Assertions.assertFalse(ShuffleKeyPruneUtils.isSafeForParentShuffleDimensions(
+                ImmutableList.of(ImmutableList.of(key)), statistics, 3));
+    }
+
+    @Test
+    void testMissingHotValueStatsAndNoNullAreNotKnownSkew() {
+        SlotReference key = new SlotReference("key", IntegerType.INSTANCE);
+        Statistics statistics = new StatisticsBuilder()
+                .setRowCount(10000)
+                .putColumnStatistics(key, new ColumnStatisticBuilder(10000)
+                        .setNdv(2000)
+                        .build())
+                .build();
+
+        Assertions.assertFalse(ShuffleKeyPruneUtils.hasKnownSkewForOnePhaseAgg(
+                ImmutableList.of(key), statistics, 3));
+    }
+
+    @Test
+    void testUnknownOtherKeyDoesNotProveSkew() {
+        SlotReference hotKey = new SlotReference("hot_key", IntegerType.INSTANCE);
+        SlotReference unknownKey = new SlotReference("unknown_key", IntegerType.INSTANCE);
+        Statistics statistics = new StatisticsBuilder()
+                .setRowCount(3000)
+                .putColumnStatistics(hotKey, new ColumnStatisticBuilder(3000)
+                        .setNdv(2000)
+                        .setHotValues(ImmutableMap.of(Literal.of(1), 0.2f))
+                        .build())
+                .putColumnStatistics(unknownKey, ColumnStatistic.UNKNOWN)
+                .build();
+
+        Assertions.assertFalse(ShuffleKeyPruneUtils.hasKnownSkewForOnePhaseAgg(
+                ImmutableList.of(hotKey, unknownKey), statistics, 3));
+    }
+
     // ===== Additional tests for selectBestShuffleKeyForAgg =====
 
     @Test
@@ -173,7 +652,7 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
         PhysicalHashAggregate<PhysicalEmptyRelation> agg = createAgg(ImmutableList.of(slotA), false);
         Statistics stats = statsWithDefaultNdv(slotA);
 
-        Optional<List<Expression>> result = ShuffleKeyPruneUtils.selectBestShuffleKeyForAgg(agg,
+        Optional<List<ExprId>> result = selectBestShuffleKeyForAgg(agg,
                 ImmutableList.of(), stats, connectContext);
 
         Assertions.assertFalse(result.isPresent());
@@ -186,7 +665,7 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
         Statistics stats = statsWithDefaultNdv(slotA);
         Expression nonSlotExpr = Mockito.mock(Expression.class);
 
-        Optional<List<Expression>> result = ShuffleKeyPruneUtils.selectBestShuffleKeyForAgg(agg,
+        Optional<List<ExprId>> result = selectBestShuffleKeyForAgg(agg,
                 ImmutableList.of(nonSlotExpr), stats, connectContext);
 
         Assertions.assertFalse(result.isPresent());
@@ -200,7 +679,7 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
         Statistics stats = statsWithUnknown(ROW_COUNT, slot);
 
         PhysicalHashAggregate<PhysicalEmptyRelation> agg = createAgg(ImmutableList.of(slot), false);
-        Optional<List<Expression>> result = ShuffleKeyPruneUtils.selectBestShuffleKeyForAgg(agg,
+        Optional<List<ExprId>> result = selectBestShuffleKeyForAgg(agg,
                 ImmutableList.of(slot), stats, connectContext);
 
         Assertions.assertFalse(result.isPresent());
@@ -214,7 +693,7 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
         Statistics stats = statsWithNullHotValues(5000.0, ROW_COUNT, slot);
 
         PhysicalHashAggregate<PhysicalEmptyRelation> agg = createAgg(ImmutableList.of(slot), false);
-        Optional<List<Expression>> result = ShuffleKeyPruneUtils.selectBestShuffleKeyForAgg(agg,
+        Optional<List<ExprId>> result = selectBestShuffleKeyForAgg(agg,
                 ImmutableList.of(slot), stats, connectContext);
 
         Assertions.assertFalse(result.isPresent());
@@ -234,7 +713,7 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
 
         PhysicalHashAggregate<PhysicalEmptyRelation> agg = createAgg(
                 ImmutableList.of(strSlot1, strSlot2), false);
-        Optional<List<Expression>> result = ShuffleKeyPruneUtils.selectBestShuffleKeyForAgg(agg,
+        Optional<List<ExprId>> result = selectBestShuffleKeyForAgg(agg,
                 ImmutableList.of(strSlot1, strSlot2), stats, connectContext);
 
         Assertions.assertFalse(result.isPresent());
@@ -250,8 +729,101 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
         Statistics stats = statsWithNdv(ndvMap, ROW_COUNT);
 
         PhysicalHashAggregate<PhysicalEmptyRelation> agg = createAgg(ImmutableList.of(numSlot), false);
-        Optional<List<Expression>> result = ShuffleKeyPruneUtils.selectBestShuffleKeyForAgg(agg,
+        Optional<List<ExprId>> result = selectBestShuffleKeyForAgg(agg,
                 ImmutableList.of(numSlot), stats, connectContext);
+
+        Assertions.assertFalse(result.isPresent());
+    }
+
+    @Test
+    void testSelectBestShuffleKeyForAgg_rejectsSingleKeyWithInstanceAwareHotBucket() {
+        SlotReference hotKey = new SlotReference(new ExprId(25), "hot_key", IntegerType.INSTANCE, true,
+                ImmutableList.of());
+        SlotReference stringKey = new SlotReference(new ExprId(26), "string_key", new VarcharType(64), true,
+                ImmutableList.of());
+        Statistics stats = new StatisticsBuilder()
+                .setRowCount(1_000_000_000)
+                .putColumnStatistics(hotKey, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(2_000_000)
+                        .setHotValues(ImmutableMap.of(Literal.of(1), 0.005f))
+                        .build())
+                .putColumnStatistics(stringKey, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(1)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .build();
+        ConnectContext largeClusterContext = connectContextWithExecutionInstanceNum(3000);
+        PhysicalHashAggregate<PhysicalEmptyRelation> agg = createAgg(
+                ImmutableList.of(stringKey, hotKey), false);
+
+        Optional<List<ExprId>> result = selectBestShuffleKeyForAgg(agg,
+                ImmutableList.of(stringKey, hotKey), stats, largeClusterContext);
+
+        Assertions.assertFalse(result.isPresent());
+    }
+
+    @Test
+    void testSelectBestShuffleKeyForAgg_rejectsUnsafeNumericDateFallback() {
+        SlotReference hotNumericKey = new SlotReference(new ExprId(27), "hot_numeric_key",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        SlotReference numericKey = new SlotReference(new ExprId(28), "numeric_key",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        SlotReference stringKey = new SlotReference(new ExprId(29), "string_key",
+                new VarcharType(64), true, ImmutableList.of());
+        Statistics stats = new StatisticsBuilder()
+                .setRowCount(1_000_000_000)
+                .putColumnStatistics(hotNumericKey, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(100_000)
+                        .setHotValues(ImmutableMap.of(Literal.of(1), 0.005f))
+                        .build())
+                .putColumnStatistics(numericKey, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(100_000)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .putColumnStatistics(stringKey, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(1)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .build();
+        ConnectContext largeClusterContext = connectContextWithExecutionInstanceNum(3000);
+        PhysicalHashAggregate<PhysicalEmptyRelation> agg = createAgg(
+                ImmutableList.of(hotNumericKey, numericKey, stringKey), false);
+
+        Optional<List<ExprId>> result = selectBestShuffleKeyForAgg(agg,
+                ImmutableList.of(hotNumericKey, numericKey, stringKey), stats, largeClusterContext);
+
+        Assertions.assertFalse(result.isPresent());
+    }
+
+    @Test
+    void testSelectBestShuffleKeyForAgg_duplicateKeysDoNotInflateCombinedNdv() {
+        SlotReference numericKey = new SlotReference(new ExprId(54), "numeric_key",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        SlotReference constantKey = new SlotReference(new ExprId(55), "constant_key",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        SlotReference stringKey = new SlotReference(new ExprId(56), "string_key",
+                new VarcharType(64), true, ImmutableList.of());
+        Statistics stats = new StatisticsBuilder()
+                .setRowCount(1_000_000)
+                .putColumnStatistics(numericKey, new ColumnStatisticBuilder(1_000_000)
+                        .setNdv(1000)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .putColumnStatistics(constantKey, new ColumnStatisticBuilder(1_000_000)
+                        .setNdv(1)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .putColumnStatistics(stringKey, new ColumnStatisticBuilder(1_000_000)
+                        .setNdv(1000)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .build();
+        PhysicalHashAggregate<PhysicalEmptyRelation> agg = createAgg(
+                ImmutableList.of(numericKey, stringKey, constantKey), false);
+
+        Optional<List<ExprId>> result = selectBestShuffleKeyForAgg(agg,
+                ImmutableList.of(numericKey, stringKey, numericKey, constantKey), stats,
+                connectContextWithExecutionInstanceNum(3));
 
         Assertions.assertFalse(result.isPresent());
     }
@@ -273,13 +845,38 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
                 ImmutableList.of(numericSlot, dateSlot, stringSlot), false);
         Statistics stats = statsWithNdv(exprToNdv, ROW_COUNT);
 
-        Optional<List<Expression>> result = ShuffleKeyPruneUtils.selectBestShuffleKeyForAgg(agg,
+        Optional<List<ExprId>> result = selectBestShuffleKeyForAgg(agg,
                 ImmutableList.of(numericSlot, dateSlot, stringSlot), stats, connectContext);
 
         Assertions.assertTrue(result.isPresent());
         Assertions.assertEquals(2, result.get().size());
-        Assertions.assertEquals(numericSlot, result.get().get(0));
-        Assertions.assertEquals(dateSlot, result.get().get(1));
+        Assertions.assertEquals(numericSlot.getExprId(), result.get().get(0));
+        Assertions.assertEquals(dateSlot.getExprId(), result.get().get(1));
+    }
+
+    private Optional<List<ExprId>> selectBestShuffleKeyForAgg(
+            PhysicalHashAggregate<?> agg, List<Expression> partitionExprs,
+            Statistics childStats, ConnectContext context) {
+        List<ExprId> shuffleExprIds = partitionExprs.stream()
+                .filter(SlotReference.class::isInstance)
+                .map(SlotReference.class::cast)
+                .map(SlotReference::getExprId)
+                .collect(ImmutableList.toImmutableList());
+        DistributionSpecHash hashSpec = new DistributionSpecHash(
+                shuffleExprIds, DistributionSpecHash.ShuffleType.REQUIRE);
+        return ShuffleKeyPruneUtils.selectBestShuffleKeyForAgg(
+                hashSpec, agg.child().getOutput(), childStats, context);
+    }
+
+    private Optional<Pair<List<ExprId>, List<ExprId>>> tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
+            ConnectContext context, List<Slot> leftOrderedShuffledColumns,
+            List<Slot> rightOrderedShuffledColumns, List<ExprId> leftOrderedShuffledColumnIds,
+            List<ExprId> rightOrderedShuffledColumnIds, Statistics leftStats, Statistics rightStats) {
+        return ShuffleKeyPruneUtils.tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
+                context,
+                new DistributionSpecHash(leftOrderedShuffledColumnIds, DistributionSpecHash.ShuffleType.REQUIRE),
+                new DistributionSpecHash(rightOrderedShuffledColumnIds, DistributionSpecHash.ShuffleType.REQUIRE),
+                leftOrderedShuffledColumns, rightOrderedShuffledColumns, leftStats, rightStats);
     }
 
     // ===== Tests for tryFindOptimalShuffleKeyForJoinWithDistributeColumns =====
@@ -289,7 +886,7 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
         Statistics rightStats = statsWithDefaultNdv(slotB);
 
         Optional<Pair<List<ExprId>, List<ExprId>>> result =
-                ShuffleKeyPruneUtils.tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
+                tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
                         connectContext,
                         ImmutableList.<Slot>of(slotA), ImmutableList.<Slot>of(slotB),
                         ImmutableList.of(slotA.getExprId()), ImmutableList.of(slotB.getExprId()),
@@ -303,7 +900,7 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
         Statistics leftStats = statsWithDefaultNdv(slotA);
 
         Optional<Pair<List<ExprId>, List<ExprId>>> result =
-                ShuffleKeyPruneUtils.tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
+                tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
                         connectContext,
                         ImmutableList.<Slot>of(slotA), ImmutableList.<Slot>of(slotB),
                         ImmutableList.of(slotA.getExprId()), ImmutableList.of(slotB.getExprId()),
@@ -319,7 +916,7 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
         Statistics rightStats = statsWithDefaultNdv(slotC);
 
         Optional<Pair<List<ExprId>, List<ExprId>>> result =
-                ShuffleKeyPruneUtils.tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
+                tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
                         connectContext,
                         ImmutableList.<Slot>of(slotA, slotB), ImmutableList.<Slot>of(slotC),
                         ImmutableList.of(slotA.getExprId(), slotB.getExprId()),
@@ -336,7 +933,7 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
         Statistics rightStats = statsWithDefaultNdv(slotB);
 
         Optional<Pair<List<ExprId>, List<ExprId>>> result =
-                ShuffleKeyPruneUtils.tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
+                tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
                         connectContext,
                         ImmutableList.<Slot>of(slotA), ImmutableList.<Slot>of(slotB),
                         ImmutableList.of(slotA.getExprId(), slotB.getExprId()), // size=2
@@ -357,7 +954,7 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
         Statistics rightStats = statsWithDefaultNdv(rightSlot);
 
         Optional<Pair<List<ExprId>, List<ExprId>>> result =
-                ShuffleKeyPruneUtils.tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
+                tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
                         connectContext,
                         ImmutableList.<Slot>of(leftSlot), ImmutableList.<Slot>of(rightSlot),
                         ImmutableList.of(leftSlot.getExprId()), ImmutableList.of(rightSlot.getExprId()),
@@ -377,7 +974,7 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
         Statistics rightStats = statsWithDefaultNdv(rightSlot);
 
         Optional<Pair<List<ExprId>, List<ExprId>>> result =
-                ShuffleKeyPruneUtils.tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
+                tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
                         connectContext,
                         ImmutableList.<Slot>of(leftSlot), ImmutableList.<Slot>of(rightSlot),
                         ImmutableList.of(leftSlot.getExprId()), ImmutableList.of(rightSlot.getExprId()),
@@ -409,7 +1006,7 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
         Statistics rightStats = statsWithNdv(rightNdvMap, ROW_COUNT);
 
         Optional<Pair<List<ExprId>, List<ExprId>>> result =
-                ShuffleKeyPruneUtils.tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
+                tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
                         connectContext,
                         ImmutableList.<Slot>of(leftNum, leftStr), ImmutableList.<Slot>of(rightNum, rightStr),
                         ImmutableList.of(leftNum.getExprId(), leftStr.getExprId()),
@@ -423,6 +1020,51 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
     }
 
     @Test
+    void testTryFindOptimalJoin_rejectsInstanceAwareHotKeyPair() {
+        SlotReference leftHot = new SlotReference(new ExprId(50), "left_hot", IntegerType.INSTANCE, true,
+                ImmutableList.of());
+        SlotReference rightHot = new SlotReference(new ExprId(51), "right_hot", IntegerType.INSTANCE, true,
+                ImmutableList.of());
+        SlotReference leftString = new SlotReference(new ExprId(52), "left_string", new VarcharType(64), true,
+                ImmutableList.of());
+        SlotReference rightString = new SlotReference(new ExprId(53), "right_string", new VarcharType(64), true,
+                ImmutableList.of());
+        Statistics leftStats = new StatisticsBuilder()
+                .setRowCount(1_000_000_000)
+                .putColumnStatistics(leftHot, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(2_000_000)
+                        .setHotValues(ImmutableMap.of(Literal.of(1), 0.005f))
+                        .build())
+                .putColumnStatistics(leftString, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(1)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .build();
+        Statistics rightStats = new StatisticsBuilder()
+                .setRowCount(1_000_000_000)
+                .putColumnStatistics(rightHot, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(2_000_000)
+                        .setHotValues(ImmutableMap.of(Literal.of(1), 0.005f))
+                        .build())
+                .putColumnStatistics(rightString, new ColumnStatisticBuilder(1_000_000_000)
+                        .setNdv(1)
+                        .setHotValues(ImmutableMap.of())
+                        .build())
+                .build();
+
+        Optional<Pair<List<ExprId>, List<ExprId>>> result =
+                tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
+                        connectContextWithExecutionInstanceNum(3000),
+                        ImmutableList.<Slot>of(leftString, leftHot),
+                        ImmutableList.<Slot>of(rightString, rightHot),
+                        ImmutableList.of(leftString.getExprId(), leftHot.getExprId()),
+                        ImmutableList.of(rightString.getExprId(), rightHot.getExprId()),
+                        leftStats, rightStats);
+
+        Assertions.assertFalse(result.isPresent());
+    }
+
+    @Test
     void testTryFindOptimalJoin_singlePairAlreadyOptimalReturnsEmpty() {
         // Only 1 pair and both sides are balanced → step 1 finds it but size is unchanged → return empty
         SlotReference leftNum = new SlotReference(new ExprId(38), "ln2", IntegerType.INSTANCE, true,
@@ -433,7 +1075,7 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
         Statistics rightStats = statsWithNdv(ImmutableMap.of((Expression) rightNum, 5000.0), ROW_COUNT);
 
         Optional<Pair<List<ExprId>, List<ExprId>>> result =
-                ShuffleKeyPruneUtils.tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
+                tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
                         connectContext,
                         ImmutableList.<Slot>of(leftNum), ImmutableList.<Slot>of(rightNum),
                         ImmutableList.of(leftNum.getExprId()), ImmutableList.of(rightNum.getExprId()),
@@ -472,7 +1114,7 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
         Statistics rightStats = statsWithNdv(rightNdvMap, ROW_COUNT);
 
         Optional<Pair<List<ExprId>, List<ExprId>>> result =
-                ShuffleKeyPruneUtils.tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
+                tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
                         connectContext,
                         ImmutableList.<Slot>of(leftInt, leftDate, leftStr),
                         ImmutableList.<Slot>of(rightInt, rightDate, rightStr),
@@ -501,7 +1143,7 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
         Statistics rightStats = statsWithNdv(rightNdvMap, ROW_COUNT);
 
         Optional<Pair<List<ExprId>, List<ExprId>>> result =
-                ShuffleKeyPruneUtils.tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
+                tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
                         connectContext,
                         ImmutableList.<Slot>of(leftStr), ImmutableList.<Slot>of(rightStr),
                         ImmutableList.of(leftStr.getExprId()), ImmutableList.of(rightStr.getExprId()),
@@ -525,7 +1167,7 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
         Statistics rightStats = statsWithNdv(rightNdvMap, ROW_COUNT);
 
         Optional<Pair<List<ExprId>, List<ExprId>>> result =
-                ShuffleKeyPruneUtils.tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
+                tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
                         connectContext,
                         ImmutableList.<Slot>of(leftNum), ImmutableList.<Slot>of(rightNum),
                         ImmutableList.of(leftNum.getExprId()), ImmutableList.of(rightNum.getExprId()),

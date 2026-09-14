@@ -184,12 +184,16 @@ public class SplitMultiDistinctTest extends TestWithFeService implements MemoPat
                                                     physicalHashJoin(
                                                             physicalProject(
                                                             physicalHashAggregate(
-                                                                    physicalHashAggregate(
-                                                                            physicalDistribute(any())))),
+                                                                    physicalDistribute(
+                                                                            physicalHashAggregate(
+                                                                                    physicalHashAggregate(
+                                                                                            physicalDistribute(any())))))),
                                                             physicalProject(
                                                             physicalHashAggregate(
-                                                                    physicalHashAggregate(
-                                                                            physicalDistribute(any()))))
+                                                                    physicalDistribute(
+                                                                            physicalHashAggregate(
+                                                                                    physicalHashAggregate(
+                                                                                            physicalDistribute(any()))))))
                                                     ).when(join ->
                                                         join.getJoinType() == JoinType.INNER_JOIN && join.getHashJoinConjuncts().get(0) instanceof NullSafeEqual
                                                     )
