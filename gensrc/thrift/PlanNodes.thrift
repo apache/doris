@@ -811,6 +811,25 @@ struct TLanceIndexMetadataParams {
   3: optional string table
 }
 
+// A tablet to inspect and the partition visible version to read.
+struct TIndexDiskUsageTablet {
+  1: optional i64 tablet_id
+  2: optional i64 partition_id
+  3: optional i64 version
+}
+
+// Parameters of the index_disk_usage table function.
+struct TIndexDiskUsageMetadataParams {
+  // "tablet", "rowset" or "segment".
+  1: optional string level
+  // Scan SNII dictionary regions to split positions out of postings.
+  2: optional bool position_detail
+  // Empty means all indexes.
+  3: optional list<i64> index_ids
+  4: optional map<i64, string> partition_names
+  5: optional list<TIndexDiskUsageTablet> tablets
+}
+
 struct TMetaScanRange {
   1: optional Types.TMetadataType metadata_type
   2: optional TIcebergMetadataParams iceberg_params // deprecated
@@ -832,6 +851,7 @@ struct TMetaScanRange {
   16: optional list<string> serialized_splits;
   17: optional TParquetMetadataParams parquet_params;
   18: optional TLanceIndexMetadataParams lance_index_params;
+  19: optional TIndexDiskUsageMetadataParams index_disk_usage_params;
 }
 
 // Specification of an individual data range which is held in its entirety

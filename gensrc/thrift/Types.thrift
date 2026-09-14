@@ -771,6 +771,7 @@ enum TMetadataType {
   // Also assigned on branch-4.1 for Lance physical index entries inspection.
   // Keep the value aligned across maintained branches. Do not renumber.
   LANCE_INDEX_ENTRIES = 15,
+  INDEX_DISK_USAGE = 16,
 }
 
 // deprecated
