@@ -68,12 +68,11 @@ bool is_compaction_or_checksum_reader(const StorageReadOptions* opts) {
 }
 
 int32_t variant_root_uid(const TabletColumn& column) {
-    // Extracted paths may have independent schema uids, but all path readers are indexed below
-    // the VARIANT root. For example, `v.user.id` uid=42 must still resolve through root `v` uid=7.
+    // A VARIANT root has path information too, but its parent uid remains -1. Preserve the original
+    // resolution rule so root `v` uses its own uid=7, while a BE-generated `v.user.id` whose uid is
+    // -1 reaches the same root through parent_uid=7.
     const int32_t root_uid =
-            column.has_path_info()
-                    ? column.parent_unique_id()
-                    : (column.unique_id() >= 0 ? column.unique_id() : column.parent_unique_id());
+            column.unique_id() >= 0 ? column.unique_id() : column.parent_unique_id();
     DORIS_CHECK_GE(root_uid, 0) << "VARIANT column does not have a root uid: "
                                 << column.debug_string();
     return root_uid;

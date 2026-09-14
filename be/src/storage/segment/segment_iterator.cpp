@@ -3313,8 +3313,15 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
         }
         const auto* tablet_column = _schema->column(cid);
         std::shared_ptr<ColumnReader> reader;
-        RETURN_IF_ERROR(_segment->_get_column_reader_for_pruning(*tablet_column, &reader, _opts));
-        if (reader == nullptr || !reader->has_zone_map()) {
+        Status st = _segment->_get_column_reader_for_pruning(*tablet_column, &reader, _opts);
+        if (st.is<ErrorCode::NOT_FOUND>()) {
+            // Sparse-only VARIANT paths have no physical page zonemap. Keep every page and let
+            // row-level extraction evaluate the predicate.
+            continue;
+        }
+        RETURN_IF_ERROR(st);
+        DORIS_CHECK(reader != nullptr);
+        if (!reader->has_zone_map()) {
             continue;
         }
         const std::vector<ZoneMapPB>* page_zone_maps = nullptr;

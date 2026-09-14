@@ -117,16 +117,17 @@ public:
     static Status new_constant_iterator(const TabletColumn& tablet_column,
                                         std::unique_ptr<ColumnIterator>* iter);
 
-    // Resolve a schema column to the logical reader used to produce its values.
-    // For example, reading `v.user.id` returns the VARIANT root reader for `v`; that reader can
-    // then choose a typed leaf, sparse extraction, or default fill from the segment metadata.
+    // Resolve the reader used to produce a column's values while applying read-time system-column
+    // constants and schema defaults. Preserve the original VARIANT uid rule: a persisted column
+    // uses its own uid, while a BE-generated path whose uid is -1 resolves through its parent.
     Status _get_column_reader_for_read(const TabletColumn& col,
                                        std::shared_ptr<ColumnReader>* column_reader,
                                        const StorageReadOptions& read_options);
 
     // Resolve the reader whose physical metadata can be used for pruning or index lookup.
     // For example, if `v.user.id` exists only in the sparse binary column, no physical leaf
-    // zonemap exists, so this returns nullptr and the caller keeps all rows.
+    // zonemap exists, so this returns NOT_FOUND and the caller conservatively keeps all rows.
+    // Status::OK guarantees that column_reader is non-null.
     Status _get_column_reader_for_pruning(const TabletColumn& col,
                                           std::shared_ptr<ColumnReader>* column_reader,
                                           const StorageReadOptions& read_options);

@@ -145,6 +145,12 @@ TabletSchemaSPtr make_key_only_tablet_schema() {
     return tablet_schema;
 }
 
+TabletSchemaSPtr make_schema_with_added_default_column() {
+    auto tablet_schema = make_key_only_tablet_schema();
+    tablet_schema->append_column(*make_runtime_bigint_column(1, "added_value", false, "42"));
+    return tablet_schema;
+}
+
 std::shared_ptr<AndBlockColumnPredicate> make_commit_tso_gt_predicate(int32_t column_id,
                                                                       int64_t value) {
     auto predicates = AndBlockColumnPredicate::create_shared();
@@ -226,7 +232,12 @@ protected:
 
         VerticalSegmentWriterOptions opts;
         opts.num_rows_per_block = 4;
-        TestVerticalSegmentWriter writer(file_writer.get(), 0, _tablet_schema, nullptr, nullptr,
+        // Write with a key-only schema to model an old segment created before the runtime system
+        // columns were added. Segment::open still receives the current full schema below, so the
+        // reader must synthesize VERSION/TSO from StorageReadOptions instead of reading data pages.
+        const auto writer_schema =
+                write_runtime_columns ? _tablet_schema : make_key_only_tablet_schema();
+        TestVerticalSegmentWriter writer(file_writer.get(), 0, writer_schema, nullptr, nullptr,
                                          opts, nullptr);
         st = writer.init();
         ASSERT_TRUE(st.ok()) << st;
@@ -493,6 +504,25 @@ TEST_F(SegmentIteratorExprZonemapTest, MissingPhysicalRuntimeColumnsUseReadOptio
     ASSERT_NO_FATAL_FAILURE(expect_bigint_values(version_column, 7));
     ASSERT_NO_FATAL_FAILURE(expect_bigint_values(binlog_timestamp_column, kCommitTso));
     ASSERT_NO_FATAL_FAILURE(expect_bigint_values(commit_tso_column, kCommitTso));
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, MissingOrdinaryColumnUsesSchemaDefault) {
+    _tablet_schema = make_schema_with_added_default_column();
+
+    // The key-only writer models a segment created before `added_value` was added to the schema.
+    // Unlike VERSION/TSO, this ordinary column has no read-time value and must use its schema
+    // default instead of being treated as a missing physical-reader error.
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_runtime_column_segment(&segment, false));
+
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.tablet_schema = _tablet_schema;
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+
+    MutableColumnPtr added_value_column;
+    ASSERT_NO_FATAL_FAILURE(read_column(segment, 1, read_options, &added_value_column));
+    ASSERT_NO_FATAL_FAILURE(expect_bigint_values(added_value_column, 42));
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, NewIteratorPrunesCommitTsoByReadOptionValue) {
