@@ -707,7 +707,7 @@ final class IcebergPartitionUtils {
             // Ordered values, one per DISTINCT source column in first-occurrence order; supplied so fe-core
             // skips the name parse. Derived from the deduped map rather than from raw.columnNames so the
             // tuple arity always equals the deduped partition-column count fe-core declares — fe-core zips
-            // the two positionally (PluginDrivenMvccExternalTable.toListPartitionItem's load-bearing
+            // the two positionally (PluginDrivenExternalTable.toListPartitionItem's load-bearing
             // checkState), so emitting one value per spec FIELD against one column per DISTINCT source
             // column would skip every partition and silently disable pruning.
             // String.valueOf keeps byte-parity with the legacy parse, which reads a null field rendered

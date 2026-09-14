@@ -1721,7 +1721,10 @@ public class HiveMetaStoreClient implements IMetaStoreClient, HmsRawPartitionFil
         || hiveVersion == HiveVersion.V2_3 ? db_name : prependCatalogToDbName(catName, db_name, conf);
     List<Partition> parts =client.get_partitions_by_filter(
         databaseName, tbl_name, filter, shrinkMaxtoShort(max_parts));
-    return new HmsRawPartitionFilterPage(deepCopyPartitions(filterHook.filterPartitions(parts)), parts.size());
+    // Capture the RAW page size BEFORE the hook runs: a hook is free to filter the list in place, and the
+    // caller decides saturation on the pre-hook page.
+    int rawCount = parts.size();
+    return new HmsRawPartitionFilterPage(deepCopyPartitions(filterHook.filterPartitions(parts)), rawCount);
   }
 
   @Override

@@ -405,7 +405,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * (which never consults {@code selectedPartitions}). A non-empty pruned set is still forwarded unchanged.
      * (Note: {@code col IS NULL} over a connector-supplied genuine-NULL partition now prunes ACCURATELY to that
      * {@code NullLiteral} partition — a non-empty set — so it no longer relies on this opt-out; see
-     * {@code PluginDrivenMvccExternalTable.toListPartitionItem}.) For every other connector
+     * {@code PluginDrivenExternalTable.toListPartitionItem}.) For every other connector
      * ({@code ignorePartitionPruneShortCircuit=false}) the behavior is identical to
      * {@link #resolveRequiredPartitions(SelectedPartitions)}.</p>
      */
