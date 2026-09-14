@@ -653,3 +653,39 @@ struct TAgentPublishRequest {
     1: required TAgentServiceVersion protocol_version
     2: required list<TTopicUpdate> updates
 }
+
+// Mutation intent of a one-shot Lance index job, mirroring the durable FE job record.
+enum TLanceIndexMutationType {
+    CREATE = 1,
+    REPLACE = 2,
+    DROP = 3
+}
+
+// One-shot Lance index mutation dispatch. The master FE records the durable RUNNING
+// state (invocation id, BE process epoch, deadline) BEFORE sending this request, and
+// sends it at most once per invocation id to one selected BE. The BE handler only
+// enqueues it into a bounded supervisor queue and answers immediately: OK means the
+// request was enqueued exactly once; an ERROR status means it was NOT enqueued and
+// this invocation id will never be executed. Execution and results are reported only
+// via FrontendService.report_lance_index_job_result.
+struct TLanceIndexJobDispatch {
+    1: required i64 job_id
+    2: required i64 dispatch_revision
+    3: required string invocation_id
+    4: required i64 be_process_epoch
+    5: required i64 deadline_ms
+    6: required TLanceIndexMutationType mutation_type
+    7: required string index_name
+    8: required string column_name
+    9: required string index_type
+    10: optional string properties_json
+    11: optional bool if_not_exists
+    12: optional bool if_exists
+    13: required string dataset_uri
+    14: required i64 admitted_dataset_version
+    15: required string schema_contract_json
+    // Lance-native storage options, handed to the worker untranslated, resolved from
+    // current catalog properties at send time. Same provider-opaque contract as
+    // TLanceScanParams.lance_storage_options. Never persisted, logged, or echoed back.
+    16: optional map<string, string> storage_options
+}

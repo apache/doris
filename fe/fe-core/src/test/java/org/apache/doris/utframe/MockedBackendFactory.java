@@ -51,6 +51,7 @@ import org.apache.doris.thrift.TGetTopNHotPartitionsResponse;
 import org.apache.doris.thrift.THeartbeatResult;
 import org.apache.doris.thrift.TIngestBinlogRequest;
 import org.apache.doris.thrift.TIngestBinlogResult;
+import org.apache.doris.thrift.TLanceIndexJobDispatch;
 import org.apache.doris.thrift.TMasterInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPublishTopicRequest;
@@ -158,6 +159,13 @@ public class MockedBackendFactory {
 
         public void setBackendInFe(Backend backendInFe) {
             this.backendInFe = backendInFe;
+        }
+
+        // One-shot Lance index mutation dispatch: the default mock only acknowledges
+        // enqueue; fault-injecting tests override or drive the FE handler directly.
+        @Override
+        public TStatus submitLanceIndexJob(TLanceIndexJobDispatch dispatch) {
+            return new TStatus(TStatusCode.OK);
         }
 
         public abstract void init();
