@@ -57,7 +57,7 @@ public class ArrayCompact extends ScalarFunction
 
     /**
      * array_compact needs to compare whether the sub-elements in the array are equal.
-     * so the sub-elements must be comparable. but now map and struct type is not comparable.
+     * so the sub-elements must be comparable.
      */
     @Override
     public void checkLegalityBeforeTypeCoercion() {
@@ -69,7 +69,7 @@ public class ArrayCompact extends ScalarFunction
             throw new AnalysisException("array_compact requires an ARRAY argument, but got " + dataType.toSql());
         }
         DataType itemType = ((ArrayType) dataType).getItemType();
-        if (itemType.isMapType() || itemType.isStructType()) {
+        if (itemType.isOnlyMetricType() && !itemType.isArrayType()) {
             throw new AnalysisException("array_compact does not support type "
                     + itemType.toString() + ", expression is " + toSql());
         }

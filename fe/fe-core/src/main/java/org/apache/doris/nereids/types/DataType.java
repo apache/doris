@@ -783,8 +783,8 @@ public abstract class DataType {
 
     /** Whether this type has a BE column implementation supported by hash-based array set operations. */
     public boolean canBeUsedInArraySetOperation() {
-        return isNumericType() || isBooleanType() || isStringLikeType() || isVarBinaryType()
-                || isDateLikeType() || isTimeType() || isIPType() || isNullType();
+        return isNumericType() || isBooleanType() || isStringLikeType()
+                || isDateLikeType() || isIPType() || isNullType();
     }
 
     /**

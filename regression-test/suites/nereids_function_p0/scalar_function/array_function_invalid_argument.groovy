@@ -27,8 +27,33 @@ suite("array_function_invalid_argument") {
     }
 
     test {
+        sql "select array_compact(array(to_bitmap(1), to_bitmap(1)))"
+        exception "array_compact does not support type BITMAP"
+    }
+
+    test {
+        sql "select array_compact(array(hll_hash('a'), hll_hash('a')))"
+        exception "array_compact does not support type HLL"
+    }
+
+    test {
+        sql "select array_compact(array(to_quantile_state(1, 2048), to_quantile_state(1, 2048)))"
+        exception "array_compact does not support type QUANTILE_STATE"
+    }
+
+    test {
         sql "select array_union(array(to_bitmap(1)), array(to_bitmap(1)))"
         exception "array_union does not support element type BITMAP"
+    }
+
+    test {
+        sql "select array_union(array(cast('a' as varbinary)), array(cast('b' as varbinary)))"
+        exception "array_union does not support element type VARBINARY"
+    }
+
+    test {
+        sql "select array_union(array(cast('12:34:56' as time(0))), array(cast('12:34:57' as time(0))))"
+        exception "array_union does not support element type TIME"
     }
 
     test {
@@ -36,9 +61,25 @@ suite("array_function_invalid_argument") {
         exception "array_intersect does not support element type BITMAP"
     }
 
+    test {
+        sql "select array_intersect(array(cast('a' as varbinary)), array(cast('b' as varbinary)))"
+        exception "array_intersect does not support element type VARBINARY"
+    }
+
+    test {
+        sql "select array_intersect(array(cast('12:34:56' as time(0))), array(cast('12:34:57' as time(0))))"
+        exception "array_intersect does not support element type TIME"
+    }
+
+    test {
+        sql "select array_except(array(to_bitmap(1)), array(to_bitmap(1)))"
+        exception "array_except does not support element type BITMAP"
+    }
+
     qt_array_flatten "select array_flatten([[1, 2], [], [3]])"
     qt_array_flatten_empty "select array_flatten([])"
     qt_array_compact "select array_compact([1, 1, null, null, 2])"
+    order_qt_array_compact_nested "select array_compact([[1], [1], [2]])"
     qt_array_union "select array_sort(array_union([1, 2], [2, 3]))"
     qt_array_intersect "select array_sort(array_intersect([1, 2], [2, 3]))"
 }

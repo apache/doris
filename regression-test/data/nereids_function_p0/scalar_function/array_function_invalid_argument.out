@@ -8,8 +8,12 @@
 -- !array_compact --
 [1, null, 2]
 
+-- !array_compact_nested --
+[[1], [2]]
+
 -- !array_union --
 [1, 2, 3]
 
 -- !array_intersect --
 [2]
+
