@@ -34,9 +34,13 @@ struct ReadAheadStatistics {
     /// Physical-column preparation, including initialization, validation and empty plans.
     RuntimeProfile::Counter column_plan_time {TUnit::TIME_NS};
     RuntimeProfile::Counter column_init_time {TUnit::TIME_NS};
+    /// Page-index driven window maintenance after scan initialization, excluding apply_plans().
+    RuntimeProfile::Counter page_advance_time {TUnit::TIME_NS};
+    /// Window maintenance sub-timers can overlap initialization and page advancement.
     RuntimeProfile::Counter window_discard_time {TUnit::TIME_NS};
-    /// Current-rowid loop, including any window extensions triggered inside that loop.
+    /// Exact-rowid planning for point reads and dependent nested data, including extensions.
     RuntimeProfile::Counter current_batch_plan_time {TUnit::TIME_NS};
+    /// Shared sub-timer of initialization, page advancement and exact-rowid planning.
     RuntimeProfile::Counter window_extend_time {TUnit::TIME_NS};
     RuntimeProfile::Counter candidate_pages {TUnit::UNIT};
     RuntimeProfile::Counter candidate_bytes {TUnit::BYTES};
