@@ -170,12 +170,13 @@ public class LanceIndexJobManagerQueryTest {
             Assertions.assertEquals(i + 1L, all.get(i).getJobId());
         }
 
-        // The limit truncates before the job-id sort is applied, so which of the five jobs
-        // survive a capped call is iteration-order dependent; only the count is promised.
+        // The limit keeps the smallest ids: ordering happens before truncation, so a
+        // stable subset of undispatchable jobs can never crowd out later ids.
         List<LanceIndexJob> capped = manager.getJobsNeedingDispatch(3);
         Assertions.assertEquals(3, capped.size());
-        for (LanceIndexJob job : capped) {
-            Assertions.assertEquals(LanceIndexJobMutationState.PENDING, job.getMutationState());
+        for (int i = 0; i < capped.size(); i++) {
+            Assertions.assertEquals(i + 1L, capped.get(i).getJobId());
+            Assertions.assertEquals(LanceIndexJobMutationState.PENDING, capped.get(i).getMutationState());
         }
 
         Assertions.assertTrue(manager.getJobsNeedingDispatch(0).isEmpty());
