@@ -29,6 +29,8 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.info.IndexType;
+import org.apache.doris.cloud.catalog.CloudPartition;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.tvf.source.IndexDiskUsageScanNode;
@@ -39,6 +41,7 @@ import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TIndexDiskUsageMetadataParams;
 import org.apache.doris.thrift.TIndexDiskUsageTablet;
 import org.apache.doris.thrift.TMetaScanRange;
@@ -165,20 +168,28 @@ public class IndexDiskUsageTableValuedFunction extends MetadataTableValuedFuncti
         OlapTable table = getOlapTable(dbName, tableName);
         String qualifiedName = dbName + "." + tableName;
         List<Long> resolvedIndexIds;
+        List<Partition> partitions;
         Map<Long, String> resolvedPartitionNames = Maps.newLinkedHashMap();
-        List<TabletTarget> targets = Lists.newArrayList();
+        Map<Long, List<Tablet>> tabletsByPartition = Maps.newHashMap();
         table.readLock();
         try {
             resolvedIndexIds = resolveIndexIds(table, validParams.get(INDEXES), qualifiedName);
-            for (Partition partition : resolvePartitions(table, validParams.get(PARTITIONS), qualifiedName)) {
+            partitions = resolvePartitions(table, validParams.get(PARTITIONS), qualifiedName);
+            for (Partition partition : partitions) {
                 resolvedPartitionNames.put(partition.getId(), partition.getName());
-                long version = partition.getVisibleVersion();
-                for (Tablet tablet : partition.getBaseIndex().getTablets()) {
-                    targets.add(new TabletTarget(tablet, partition.getId(), version));
-                }
+                tabletsByPartition.put(partition.getId(), Lists.newArrayList(partition.getBaseIndex().getTablets()));
             }
         } finally {
             table.readUnlock();
+        }
+        // Cloud partitions may fetch visible versions from meta-service, so read them without the table lock.
+        List<Long> versions = visibleVersions(partitions);
+        List<TabletTarget> targets = Lists.newArrayList();
+        for (int i = 0; i < partitions.size(); ++i) {
+            long partitionId = partitions.get(i).getId();
+            for (Tablet tablet : tabletsByPartition.get(partitionId)) {
+                targets.add(new TabletTarget(tablet, partitionId, versions.get(i)));
+            }
         }
         this.indexIds = ImmutableList.copyOf(resolvedIndexIds);
         this.partitionNames = resolvedPartitionNames;
@@ -309,6 +320,27 @@ public class IndexDiskUsageTableValuedFunction extends MetadataTableValuedFuncti
             ids.add(index.getIndexId());
         }
         return ids;
+    }
+
+    private static List<Long> visibleVersions(List<Partition> partitions) {
+        if (!Config.isCloudMode()) {
+            return partitions.stream().map(Partition::getVisibleVersion).collect(Collectors.toList());
+        }
+        List<CloudPartition> cloudPartitions =
+                partitions.stream().map(CloudPartition.class::cast).collect(Collectors.toList());
+        List<Long> versions;
+        try {
+            versions = CloudPartition.getSnapshotVisibleVersion(cloudPartitions);
+        } catch (RpcException e) {
+            throw new AnalysisException("Failed to get partition visible versions: " + e.getMessage(), e);
+        }
+        for (int i = 0; i < versions.size(); ++i) {
+            if (versions.get(i) < 0) {
+                throw new AnalysisException(
+                        "Visible version of partition '" + partitions.get(i).getName() + "' is not found");
+            }
+        }
+        return versions;
     }
 
     private static Collection<String> splitNames(String raw) {
