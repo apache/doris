@@ -64,6 +64,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_uuid.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/orc_serde_utils.h"
 #include "core/types.h"
@@ -790,10 +791,11 @@ OrcReader::OrcReader(std::shared_ptr<io::FileSystemProperties>& system_propertie
                      std::unique_ptr<io::FileDescription>& file_description,
                      std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                      std::optional<format::GlobalRowIdContext> global_rowid_context,
-                     bool enable_mapping_timestamp_tz)
+                     bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary)
         : FileReader(system_properties, file_description, io_ctx, profile),
           _global_rowid_context(std::move(global_rowid_context)),
-          _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz) {}
+          _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz),
+          _enable_mapping_varbinary(enable_mapping_varbinary) {}
 
 OrcReader::~OrcReader() = default;
 
@@ -1036,8 +1038,10 @@ DataTypePtr OrcReader::_convert_to_doris_type(const ::orc::Type& type) const {
         data_type = std::make_shared<DataTypeString>();
         break;
     case ::orc::TypeKind::BINARY:
-        if (type.hasAttributeKey("doris.logical_type") &&
-            type.getAttributeValue("doris.logical_type") == "uuid") {
+        if (_enable_mapping_varbinary) {
+            data_type = std::make_shared<DataTypeVarbinary>();
+        } else if (type.hasAttributeKey("doris.logical_type") &&
+                   type.getAttributeValue("doris.logical_type") == "uuid") {
             data_type = std::make_shared<DataTypeUUID>();
         } else {
             data_type = std::make_shared<DataTypeString>();
