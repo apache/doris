@@ -20,7 +20,6 @@ package org.apache.doris.datasource.lance.job;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
@@ -202,7 +201,7 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             // Unreachable while the unresolved-job guard blocks catalog drops; kept as a
             // fail-closed fallback so the job still transitions and retries later.
             LOG.warn("catalog of lance index job {} is gone; marking its refresh FAILED", job.getJobId());
-            jobManager.markRefreshFailed(job.getJobId(), refreshRevision);
+            finishRefreshTransition(job.getJobId(), refreshRevision, false);
             return;
         }
         try {
@@ -211,13 +210,41 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             // state for the job.
             Env.getCurrentEnv().getRefreshManager().handleRefreshTable(catalog.getName(),
                     job.getDbName(), job.getTableName(), true);
-        } catch (DdlException e) {
-            LOG.warn("refresh of lance index job {} failed; keeping the fence for a retry: {}",
-                    job.getJobId(), e.getMessage());
-            jobManager.markRefreshFailed(job.getJobId(), refreshRevision);
+        } catch (Throwable t) {
+            // The typed DdlException is the expected failure; an unchecked exception out
+            // of the metadata path must still leave the durable refresh state, or the
+            // job would strand in refresh RUNNING until the next master transfer.
+            LOG.warn("refresh of lance index job {} failed; keeping the fence for a retry",
+                    job.getJobId(), t);
+            finishRefreshTransition(job.getJobId(), refreshRevision, false);
             return;
         }
-        jobManager.markRefreshDone(job.getJobId(), refreshRevision);
+        finishRefreshTransition(job.getJobId(), refreshRevision, true);
+    }
+
+    /**
+     * Applies the DONE/FAILED transition with a bounded revision retry. A concurrent
+     * termination-proof write can bump the revision after markRefreshRunning succeeded,
+     * and silently losing that compare-and-set would leave the refresh RUNNING — a
+     * state only the master-transfer sweep downgrades. Re-reading the revision and
+     * retrying a few times converges it; a persistent loss is escalated.
+     */
+    private void finishRefreshTransition(long jobId, long expectedRevision, boolean done) {
+        long revision = expectedRevision;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            boolean transitioned = done ? jobManager.markRefreshDone(jobId, revision)
+                    : jobManager.markRefreshFailed(jobId, revision);
+            if (transitioned) {
+                return;
+            }
+            LanceIndexJob fresh = jobManager.getJob(jobId);
+            if (fresh == null) {
+                break;
+            }
+            revision = fresh.getRevision();
+        }
+        LOG.error("lance index job {} kept its refresh RUNNING: the DONE/FAILED transition kept losing the"
+                + " compare-and-set; the master-transfer sweep will downgrade it", jobId);
     }
 
     /**
@@ -332,7 +359,15 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             completeNoTrusted(fresh, "dispatch send failed; the result cannot be trusted");
             return;
         }
-        if (status == null || status.getStatusCode() != TStatusCode.OK) {
+        if (status == null || status.getStatusCode() == null) {
+            // Absence of a status is the absence of a trusted answer, not a clean
+            // rejection; only a complete error status proves the dispatch was not
+            // enqueued.
+            LOG.warn("dispatch send of lance index job {} returned no status", job.getJobId());
+            completeNoTrusted(fresh, "dispatch send returned no status");
+            return;
+        }
+        if (status.getStatusCode() != TStatusCode.OK) {
             // A clean error status proves the backend did not enqueue the dispatch, so
             // this invocation is known never to have executed.
             LOG.warn("backend {} rejected the dispatch of lance index job {} before enqueueing",
