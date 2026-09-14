@@ -204,6 +204,44 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
                                                          last_delete_version, 2));
 }
 
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+       pick_input_rowsets_small_single_overlapping_rowset_not_trimmed_empty) {
+    TTabletSchema schema;
+    schema.keys_type = TKeysType::DUP_KEYS;
+    TabletMetaSharedPtr tablet_meta(new TabletMeta(1, 2, 15673, 15674, 4, 5, schema, 6, {{7, 8}},
+                                                   UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                                   TCompressionType::LZ4F));
+    tablet_meta->set_tablet_state(TABLET_RUNNING);
+    CloudTablet tablet(_engine, tablet_meta);
+    tablet._base_size = 1024L * 1024 * 1024;
+    CloudSizeBasedCumulativeCompactionPolicy policy;
+
+    // Match the regression case: one small rowset, six segments, min score 2, max score 1000.
+    auto rowset = create_rowset(Version(2, 2), 6, true, 6370);
+    ASSERT_NE(nullptr, rowset);
+    for (auto overlap : {OVERLAPPING, NONOVERLAPPING_WITHIN_GROUP, NONOVERLAPPING}) {
+        SCOPED_TRACE(static_cast<int>(overlap));
+        rowset->rowset_meta()->set_segments_overlap(overlap);
+        rowset->rowset_meta()->clear_segment_group_sizes();
+        if (overlap == NONOVERLAPPING_WITHIN_GROUP) {
+            rowset->rowset_meta()->set_segment_group_sizes({2, 2, 2});
+        }
+        std::vector<RowsetSharedPtr> input_rowsets;
+        Version last_delete_version {-1, -1};
+        size_t compaction_score = 0;
+        policy.pick_input_rowsets(&tablet, {rowset}, 1000, 2, &input_rowsets,
+                                  &last_delete_version, &compaction_score, true);
+        if (overlap == NONOVERLAPPING) {
+            EXPECT_TRUE(input_rowsets.empty());
+            EXPECT_EQ(0, compaction_score);
+        } else {
+            ASSERT_EQ(1, input_rowsets.size());
+            EXPECT_EQ(rowset, input_rowsets.front());
+            EXPECT_EQ(6, compaction_score);
+        }
+    }
+}
+
 // Test case: Empty rowset compaction with skip_trim
 TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_empty_rowset_compaction) {
     // Save original config values
