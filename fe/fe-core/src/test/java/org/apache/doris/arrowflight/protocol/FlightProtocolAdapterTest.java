@@ -17,15 +17,26 @@
 
 package org.apache.doris.arrowflight.protocol;
 
+import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectScheduler;
+import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TMasterOpRequest;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TResultSinkType;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.collect.Lists;
 import org.apache.arrow.flight.FlightRuntimeException;
 import org.apache.arrow.flight.FlightStatusCode;
 import org.apache.thrift.TException;
@@ -33,12 +44,16 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -73,6 +88,20 @@ public class FlightProtocolAdapterTest {
             adapter.runCommand(ctx, command);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+        }
+    }
+
+    // Runs a trivial command of the session from another thread and returns what it answered, or
+    // rethrows what it failed with (UNAVAILABLE if the session was still held).
+    private static String callFromAnotherThread(FlightProtocolAdapter adapter, ConnectContext ctx)
+            throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            return executor.submit(() -> adapter.callCommand(ctx, () -> "ok")).get(10, TimeUnit.SECONDS);
+        } catch (ExecutionException e) {
+            throw (Exception) e.getCause();
+        } finally {
+            executor.shutdownNow();
         }
     }
 
@@ -172,7 +201,7 @@ public class FlightProtocolAdapterTest {
     }
 
     @Test
-    public void testFailedCommandReleasesTheSession() {
+    public void testFailedCommandReleasesTheSession() throws Exception {
         ConnectContext ctx = flightSession();
         FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
         ConnectContext.remove();
@@ -184,9 +213,158 @@ public class FlightProtocolAdapterTest {
         Assertions.assertThrows(TException.class, () -> adapter.runCommand(ctx, () -> {
             throw new TException("boom");
         }));
-        // ... the thread is clean, and the next command of the session is not blocked.
+        // ... the thread is clean, and the next command of the session is not blocked. That next
+        // command runs on another thread: the lock is reentrant, so this thread would get through
+        // even if the failed command had left the lock held.
         Assertions.assertNull(ConnectContext.get());
-        Assertions.assertEquals("ok", adapter.callCommand(ctx, () -> "ok"));
+        ctx.getSessionVariable().setQueryTimeoutS(1);
+        Assertions.assertEquals("ok", callFromAnotherThread(adapter, ctx));
+    }
+
+    @Test
+    public void testAFlightSessionTakesNoResultProducedForAMysqlClient() {
+        ConnectContext ctx = flightSession();
+        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
+
+        // The SQL cache and the master answer with MySQL packets; a FE-side result is untyped
+        // Utf8; a short circuit has no Arrow result at either end; a retry would leave the failed
+        // attempt's endpoints behind.
+        Assertions.assertFalse(adapter.supportsSqlCacheReplay());
+        Assertions.assertFalse(adapter.canReplayForwardedQueryResult());
+        Assertions.assertFalse(adapter.supportsFeSideResult());
+        Assertions.assertFalse(ctx.supportHandleByFe());
+        Assertions.assertFalse(adapter.supportsShortCircuitPointQuery());
+        Assertions.assertFalse(adapter.canRetryQuery(ctx));
+
+        // The master needs to know nothing about the client: its response is consumed here.
+        TMasterOpRequest request = new TMasterOpRequest();
+        adapter.fillForwardRequest(ctx, request);
+        Assertions.assertFalse(request.isSetMysqlCapability());
+        Assertions.assertFalse(request.isSetClientDeprecatedEOF());
+        Assertions.assertFalse(request.isSetPrepareExecuteBuffer());
+        Assertions.assertFalse(request.isSetCursorFetchRequested());
+    }
+
+    @Test
+    public void testWhereTheResultIsFollowsTheStatementLifecycle() throws Exception {
+        ConnectContext ctx = flightSession();
+        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
+        ShowResultSet resultSet = new ShowResultSet(
+                ShowResultSetMetaData.builder().addColumn(new Column("c", ScalarType.createVarchar(20))).build(),
+                Lists.<List<String>>newArrayList(Lists.newArrayList("v")));
+
+        // A statement's result is on this frontend (a SHOW, a SET) ...
+        adapter.beforeStatement(ctx);
+        Assertions.assertTrue(ctx.isReturnResultFromLocal());
+        // ... until a query is run for it on the backends: then the client pulls it from where
+        // the coordinator registered it.
+        adapter.beforeQuery(ctx);
+        Assertions.assertFalse(ctx.isReturnResultFromLocal());
+        ctx.addFlightSqlEndpointsLocation(new FlightSqlEndpointsLocation(new TUniqueId(1, 1),
+                new TNetworkAddress("127.0.0.1", 8070), new TNetworkAddress("127.0.0.1", 8060), new ArrayList<>()));
+        Assertions.assertEquals(1, ctx.getFlightSqlEndpointsLocations().size());
+        // The next statement of the request starts on this frontend again.
+        adapter.beforeStatement(ctx);
+        Assertions.assertTrue(ctx.isReturnResultFromLocal());
+        // An EXPLAIN is answered here without ever touching a backend, so it never leaves the
+        // frontend: the sender does not decide where the result is.
+        ctx.setQueryId(new TUniqueId(2, 2));
+        ctx.getResultSender().sendResultSet(resultSet, null, false);
+        Assertions.assertTrue(ctx.isReturnResultFromLocal());
+        Assertions.assertEquals(1, adapter.getChannel().resultNum());
+
+        // A new request drops everything the previous one left: its deferred coordinator, the
+        // result nobody pulled, the endpoints, and the result is on this frontend again.
+        adapter.beforeQuery(ctx);
+        StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
+        ctx.addFlightSqlDeferredExecutor(deferred);
+        adapter.beginRequest();
+        Mockito.verify(deferred).finalizeArrowFlightQuery();
+        Assertions.assertEquals(0, adapter.getChannel().resultNum());
+        Assertions.assertTrue(ctx.getFlightSqlEndpointsLocations().isEmpty());
+        Assertions.assertTrue(ctx.isReturnResultFromLocal());
+    }
+
+    // A replanned statement is run again without going through beforeStatement. The attempt that
+    // failed had moved the result to the backends and registered endpoints there; the next one
+    // starts as the statement did, so that a second failure before its query runs does not leave
+    // the session believing a result is waiting on the backends, and that nothing the failed
+    // attempt registered is delivered.
+    @Test
+    public void testAnAttemptStartsWhereTheStatementDid() {
+        ConnectContext ctx = flightSession();
+        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
+
+        adapter.beforeStatement(ctx);
+        adapter.beforeAttempt(ctx);
+        Assertions.assertTrue(ctx.isReturnResultFromLocal());
+        Assertions.assertTrue(ctx.getFlightSqlEndpointsLocations().isEmpty());
+
+        // The first attempt ran its query: result on the backends, one endpoint registered.
+        adapter.beforeQuery(ctx);
+        ctx.addFlightSqlEndpointsLocation(new FlightSqlEndpointsLocation(new TUniqueId(1, 1),
+                new TNetworkAddress("127.0.0.1", 8070), new TNetworkAddress("127.0.0.1", 8060), new ArrayList<>()));
+        Assertions.assertFalse(ctx.isReturnResultFromLocal());
+        Assertions.assertEquals(1, ctx.getFlightSqlEndpointsLocations().size());
+
+        // It failed and the statement is replanned: the second attempt starts afresh.
+        adapter.beforeAttempt(ctx);
+        Assertions.assertTrue(ctx.isReturnResultFromLocal());
+        Assertions.assertTrue(ctx.getFlightSqlEndpointsLocations().isEmpty());
+
+        // Only what the attempt that completes registers is delivered.
+        adapter.beforeQuery(ctx);
+        ctx.addFlightSqlEndpointsLocation(new FlightSqlEndpointsLocation(new TUniqueId(2, 2),
+                new TNetworkAddress("127.0.0.1", 8070), new TNetworkAddress("127.0.0.1", 8060), new ArrayList<>()));
+        Assertions.assertFalse(ctx.isReturnResultFromLocal());
+        Assertions.assertEquals(1, ctx.getFlightSqlEndpointsLocations().size());
+        Assertions.assertEquals(new TUniqueId(2, 2), ctx.getFlightSqlEndpointsLocations().get(0).getFinstId());
+
+        // The next statement of the request leaves that endpoint as it was, whatever its own
+        // attempts do: a retried attempt withdraws only what the failed one registered.
+        adapter.beforeStatement(ctx);
+        adapter.beforeAttempt(ctx);
+        adapter.beforeQuery(ctx);
+        ctx.addFlightSqlEndpointsLocation(new FlightSqlEndpointsLocation(new TUniqueId(3, 3),
+                new TNetworkAddress("127.0.0.1", 8070), new TNetworkAddress("127.0.0.1", 8060), new ArrayList<>()));
+        adapter.beforeAttempt(ctx);
+        Assertions.assertEquals(1, ctx.getFlightSqlEndpointsLocations().size());
+        Assertions.assertEquals(new TUniqueId(2, 2), ctx.getFlightSqlEndpointsLocations().get(0).getFinstId());
+        adapter.beforeQuery(ctx);
+        ctx.addFlightSqlEndpointsLocation(new FlightSqlEndpointsLocation(new TUniqueId(4, 4),
+                new TNetworkAddress("127.0.0.1", 8070), new TNetworkAddress("127.0.0.1", 8060), new ArrayList<>()));
+        Assertions.assertEquals(2, ctx.getFlightSqlEndpointsLocations().size());
+        Assertions.assertEquals(new TUniqueId(4, 4), ctx.getFlightSqlEndpointsLocations().get(1).getFinstId());
+
+        // A new request starts from nothing.
+        adapter.beginRequest();
+        adapter.beforeStatement(ctx);
+        adapter.beforeAttempt(ctx);
+        Assertions.assertTrue(ctx.getFlightSqlEndpointsLocations().isEmpty());
+    }
+
+    @Test
+    public void testOnlyTheLastStatementOfARequestMayReturnAResult() throws Exception {
+        ConnectContext ctx = flightSession();
+        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        ShowResultSet resultSet = new ShowResultSet(
+                ShowResultSetMetaData.builder().addColumn(new Column("c", ScalarType.createVarchar(20))).build(),
+                Lists.<List<String>>newArrayList(Lists.newArrayList("v")));
+
+        // A statement without a result lets the request go on.
+        Assertions.assertTrue(adapter.finishStatement(ctx, executor, 0, 2));
+
+        // A result produced by the last statement is fine ...
+        ctx.setQueryId(new TUniqueId(1, 1));
+        ctx.getResultSender().sendResultSet(resultSet, null, false);
+        Assertions.assertTrue(adapter.finishStatement(ctx, executor, 1, 2));
+        Assertions.assertNotEquals(MysqlStateType.ERR, ctx.getState().getStateType());
+
+        // ... one produced earlier stops the request with the error the client will see.
+        Assertions.assertFalse(adapter.finishStatement(ctx, executor, 0, 2));
+        Assertions.assertEquals(MysqlStateType.ERR, ctx.getState().getStateType());
+        Assertions.assertEquals(ErrorCode.ERR_ARROW_FLIGHT_SQL_MUST_ONLY_RESULT_STMT, ctx.getState().getErrorCode());
     }
 
     @Test

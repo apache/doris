@@ -172,8 +172,7 @@ bool ProcessHashTableProbe<JoinOpType>::can_transfer_probe_columns_to_output(
     // pending build-side match that will need the original probe columns in a later pull.
     return probe_indices_are_contiguous && _probe_indexs.get_element(0) == 0 &&
            _probe_indexs.size() == _parent->_probe_block.rows() &&
-           _parent->_probe_index == _parent->_probe_block.rows() && _parent->_build_index == 0 &&
-           !_parent_operator->need_finalize_variant_column();
+           _parent->_probe_index == _parent->_probe_block.rows() && _parent->_build_index == 0;
 }
 
 template <int JoinOpType>
@@ -187,15 +186,6 @@ void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(MutableColumns&
             can_transfer_probe_columns_to_output(probe_indices_are_contiguous);
 
     for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
-        if (_left_output_slot_flags[i]) {
-            if (_parent_operator->need_finalize_variant_column()) {
-                auto mutable_column =
-                        IColumn::mutate(std::move(probe_block.get_by_position(i).column));
-                mutable_column->finalize();
-                probe_block.get_by_position(i).column = std::move(mutable_column);
-            }
-        }
-
         // For ASOF JOIN optimized path, skip lazy materialization check
         constexpr bool is_asof_join = is_asof_join_op_v<JoinOpType>;
         bool should_output = _left_output_slot_flags[i] &&

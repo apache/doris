@@ -651,6 +651,11 @@ public class SchemaTable extends Table {
                                     .column("LAST_LOAD_SUCCESS_TIME", ScalarType.createStringType())
                                     .column("LAST_LOAD_FAILURE_TIME", ScalarType.createStringType())
                                     .column("LAST_ERROR", ScalarType.createStringType())
+                                    // Upgrade BE before FE: older BE scanners do not recognize these slots.
+                                    .column("MAX_WEIGHT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("ESTIMATED_WEIGHT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("WEIGHT_REJECT_COUNT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("LAST_WEIGHT_REJECT_REASON", ScalarType.createStringType())
                                     .build())
             )
             .put("backend_kerberos_ticket_cache",

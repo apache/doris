@@ -21,20 +21,27 @@ import org.apache.doris.arrowflight.auth2.FlightRemoteIpServerStreamTracer;
 import org.apache.doris.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectPoolMgr;
 import org.apache.doris.qe.ConnectScheduler;
+import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.protocol.ProtocolAdapter;
+import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TResultSinkType;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.arrow.flight.CallStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -60,6 +67,14 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     private final Map<String, String> preparedQuerys = new HashMap<>();
     private String runningQuery;
     private final List<FlightSqlEndpointsLocation> endpointsLocations = Lists.newArrayList();
+    // How many of endpointsLocations were registered before the statement being executed
+    // started: what an attempt of that statement registers comes after them, and only that is
+    // withdrawn when the statement is attempted again (beforeAttempt).
+    private int endpointsBeforeStatement = 0;
+    // Whether the result of the statement being executed is on this frontend (a SHOW, a SET, an
+    // EXPLAIN: cached on the channel for the client's DoGet) or on the backends the coordinator
+    // ran the query on, registered in endpointsLocations for the client to pull from. Set by the
+    // statement lifecycle hooks below.
     private boolean returnResultFromLocal = true;
     // Executors of already-planned queries whose results are produced on the BE and pulled later
     // during the DoGet phase. Their coordinators must stay alive until the BE finishes scanning:
@@ -84,7 +99,8 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
         if (adapter instanceof FlightProtocolAdapter) {
             return (FlightProtocolAdapter) adapter;
         }
-        throw new IllegalStateException("not an Arrow Flight SQL connection: " + adapter.type());
+        throw new IllegalStateException("not an Arrow Flight SQL connection: "
+                + (adapter == null ? "no protocol adapter" : adapter.type()));
     }
 
     @Override
@@ -107,8 +123,168 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     }
 
     @Override
+    public FlightResultSender resultSender(ConnectContext ctx) {
+        return new FlightResultSender(ctx, this);
+    }
+
+    /**
+     * The SQL cache keeps the result rows in MySQL wire format, which cannot be turned into the
+     * Arrow batches a Flight client needs; the cached rows would be wrong for it anyway (object
+     * types such as HLL / BITMAP / QUANTILE_STATE were serialized as NULL under
+     * return_object_data_as_binary=false). A Flight session always re-executes the query.
+     */
+    @Override
+    public boolean supportsSqlCacheReplay() {
+        return false;
+    }
+
+    /**
+     * The master returns a query result as MySQL wire packets, which cannot be turned into the
+     * Arrow batches a Flight client needs. The executor refuses to forward a query rather than
+     * let the master build a result set this frontend would discard and answer the client with a
+     * synthesized empty success.
+     */
+    @Override
+    public boolean canReplayForwardedQueryResult() {
+        return false;
+    }
+
+    /**
+     * A result this frontend materializes is cached with every column as a Utf8 vector, whatever
+     * its type ({@link FlightResultSender}). That is acceptable for the text a SHOW or an EXPLAIN
+     * produces, not for a SELECT a client expects typed Arrow data from, so a query the planner
+     * could answer here is run on a backend until the sender types its vectors.
+     */
+    @Override
+    public boolean supportsFeSideResult() {
+        return false;
+    }
+
+    /**
+     * The short circuit produces no Arrow result at either end. PointQueryExecutor is not a
+     * Coordinator, and Coordinator/NereidsCoordinator are the only places that register a
+     * FlightSqlEndpointsLocation, so GetFlightInfo found none and failed the query with
+     * "no FlightSqlEndpointsLocations"; the backend side cannot be pointed at either, since the
+     * lookup rpc serializes with VMysqlResultWriter into PTabletKeyLookupResponse.row_batch and
+     * never creates the ArrowFlightResultBlockBuffer that fetch_arrow_flight_schema looks up.
+     * Arrow Flight SQL stays on the normal execution path. See #67368.
+     */
+    @Override
+    public boolean supportsShortCircuitPointQuery() {
+        return false;
+    }
+
+    /**
+     * A Flight session does not retry a failed query under a new query id within
+     * {@code StmtExecutor.handleQueryWithRetry}: the client is not told which of the attempts
+     * its endpoints belong to. (The replan retry of {@code StmtExecutor.queryRetry} is not asked;
+     * it starts every attempt through {@link #beforeAttempt}.)
+     */
+    @Override
+    public boolean canRetryQuery(ConnectContext ctx) {
+        return false;
+    }
+
+    /** A statement's result is on this frontend until {@link #beforeQuery} says otherwise. */
+    @Override
+    public void beforeStatement(ConnectContext ctx) {
+        returnResultFromLocal = true;
+        endpointsBeforeStatement = endpointsLocations.size();
+    }
+
+    /**
+     * An attempt starts where the statement did: its result is on this frontend, and it has
+     * registered no endpoint yet. The attempt that failed before it may have moved the result to
+     * the backends ({@link #beforeQuery}) and registered where; nothing will be pulled from
+     * there, and a stale "on the backends" state would keep the statement's cleanup (its query
+     * registration, its connector statement scope) waiting for a DoGet that never comes. Only
+     * what that attempt registered is withdrawn: what an earlier statement of the request
+     * registered is left as it was.
+     */
+    @Override
+    public void beforeAttempt(ConnectContext ctx) {
+        returnResultFromLocal = true;
+        if (endpointsLocations.size() > endpointsBeforeStatement) {
+            endpointsLocations.subList(endpointsBeforeStatement, endpointsLocations.size()).clear();
+        }
+    }
+
+    /**
+     * The query's result stays on the backends for the client to pull with DoGet; the
+     * coordinator registers where ({@link #addEndpointsLocation}) instead of fetching the rows.
+     */
+    @Override
+    public void beforeQuery(ConnectContext ctx) {
+        returnResultFromLocal = false;
+    }
+
+    @Override
+    public boolean returnsResultFromLocal(ConnectContext ctx) {
+        return returnResultFromLocal;
+    }
+
+    /**
+     * The master's response is consumed here as a status and, for a SHOW, a result set (see
+     * {@link #carryForwardedOutcome}); it is never replayed to the client as packets, so the
+     * master needs to know nothing about the client.
+     */
+    @Override
+    public void fillForwardRequest(ConnectContext ctx, TMasterOpRequest request) {
+    }
+
+    @Override
     public ConnectPoolMgr connectPool(ConnectScheduler scheduler) {
         return scheduler.getFlightSqlConnectPoolMgr();
+    }
+
+    /**
+     * A statement forwarded to the master has its outcome carried into this session here, the
+     * way {@code MysqlProtocolAdapter.finishCommand} replays it to a MySQL client. And of the
+     * statements of one request only the last may produce a result: the FlightInfo returned for
+     * the request describes exactly one.
+     */
+    @Override
+    public boolean finishStatement(ConnectContext ctx, StmtExecutor executor, int stmtIndex, int stmtCount)
+            throws IOException {
+        if (executor.hasForwardedToMaster()) {
+            carryForwardedOutcome(ctx, executor);
+        }
+        Preconditions.checkState(channel.resultNum() <= 1);
+        if (channel.resultNum() == 1 && stmtIndex != stmtCount - 1) {
+            String errMsg = "Only be one stmt that returns the result and it is at the end. "
+                    + "stmts.size(): " + stmtCount;
+            LOG.warn(errMsg);
+            ctx.getState().setError(ErrorCode.ERR_ARROW_FLIGHT_SQL_MUST_ONLY_RESULT_STMT, errMsg);
+            ctx.getState().setErrType(QueryState.ErrType.OTHER_ERR);
+            return false;
+        }
+        return true;
+    }
+
+    // The master answers a forwarded statement with its status and, for a SHOW, its rows. Without
+    // this a forwarded statement leaves ctx.getState() at the OK that executeQuery() set with
+    // reset() and leaves the FlightSqlChannel empty, so DorisFlightSqlProducer answers with
+    // addOKResult()'s synthesized StatusResult=0 -- reporting success for a statement that failed
+    // on the master, and an empty status row instead of the rows a forwarded SHOW produced.
+    @VisibleForTesting
+    void carryForwardedOutcome(ConnectContext ctx, StmtExecutor executor) throws IOException {
+        if (executor.getProxyStatusCode() != 0) {
+            // The master rejected the statement, e.g. CREATE TABLE on a table that already exists.
+            // TMasterOpResult carries the master's error code as a plain int and ErrorCode has no
+            // reverse lookup, so the master's code travels in the message instead.
+            String errMsg = "forwarded statement failed on master FE, error code: "
+                    + executor.getProxyStatusCode() + ", error message: " + executor.getProxyErrMsg();
+            LOG.warn(errMsg);
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, errMsg);
+            return;
+        }
+        // Set exactly when the forwarded statement produced rows: proxyExecute() fills
+        // TMasterOpResult.resultSet from getProxyShowResultSet(). A forwarded DDL produces none,
+        // and the synthesized StatusResult=0 is the right answer for it.
+        ShowResultSet resultSet = executor.getShowResultSet();
+        if (resultSet != null) {
+            executor.sendResultSet(resultSet);
+        }
     }
 
     @Override
@@ -159,16 +335,19 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
         return endpointsLocations;
     }
 
-    public void clearEndpointsLocations() {
+    /**
+     * Starts a request of the session: whatever the previous request left behind is dropped.
+     * Its query's coordinator, if its close was deferred, is finalized now -- the previous DoGet
+     * is done by the time the next request arrives (#62259); the result it may have cached and
+     * never pulled with DoGet is released; its endpoints are forgotten; and the new request's
+     * result is on this frontend until a query is run for it.
+     */
+    public void beginRequest() {
+        closeDeferredExecutors();
+        channel.reset();
         endpointsLocations.clear();
-    }
-
-    public void setReturnResultFromLocal(boolean returnResultFromLocal) {
-        this.returnResultFromLocal = returnResultFromLocal;
-    }
-
-    public boolean isReturnResultFromLocal() {
-        return returnResultFromLocal;
+        endpointsBeforeStatement = 0;
+        returnResultFromLocal = true;
     }
 
     public void addDeferredExecutor(StmtExecutor executor) {
@@ -238,7 +417,7 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
      * Runs one command of the session, and no other one at the same time: a statement, a prepared
      * statement action, a DoGet of a frontend-side result, a metadata request. The session's
      * {@link ConnectContext} is the thread's current context while the command runs. A command
-     * that finds another one still running waits for it up to the session's query timeout and
+     * that finds another one still running waits for it up to the session's execution timeout and
      * then fails with {@code UNAVAILABLE} instead of running concurrently on the same context.
      *
      * <p>Session teardown (bearer token expiry, CloseSession, KILL) does not go through here.
@@ -268,16 +447,22 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     }
 
     private void acquireCommandLock(ConnectContext ctx) {
-        long waitS = ctx.getQueryTimeoutS();
+        // Wait as long as the running command is allowed to run: for a synchronous load statement
+        // that is max(insert_timeout, query_timeout), the bound the timeout checker applies to it.
+        long waitS = ctx.getExecTimeoutS();
         boolean locked;
         try {
             locked = commandLock.tryLock(waitS, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            LOG.warn("interrupted while waiting for the running command of Arrow Flight SQL connection {}",
+                    ctx.getConnectionId());
             throw CallStatus.CANCELLED.withDescription("interrupted while waiting for the previous command of "
                     + "this Arrow Flight SQL session to finish").withCause(e).toRuntimeException();
         }
         if (!locked) {
+            LOG.warn("a command of Arrow Flight SQL connection {} gave up after waiting {}s for the running one",
+                    ctx.getConnectionId(), waitS);
             throw CallStatus.UNAVAILABLE.withDescription(String.format("another command of this Arrow Flight SQL "
                     + "session is still running after %d seconds, connection id: %d", waitS, ctx.getConnectionId()))
                     .toRuntimeException();

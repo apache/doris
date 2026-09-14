@@ -227,6 +227,25 @@ class HiveCatalogPropertiesTest {
     }
 
     @Test
+    void icebergSiblingWeightsAreValidatedAtTheHmsCreateTimeDoor() {
+        Map<String, String> invalidWeight = HiveTestProperties.mapWith(
+                "meta.cache.iceberg.manifest.max-weight", "invalid");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> HiveCatalogProperties.of(invalidWeight).checkCreateTimeOnlyRules());
+
+        Map<String, String> unknownEntry = HiveTestProperties.mapWith(
+                "meta.cache.iceberg.manfiest.max-weight", "64MB");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> HiveCatalogProperties.of(unknownEntry).checkCreateTimeOnlyRules());
+        HiveConnectorProvider provider = new HiveConnectorProvider();
+        Assertions.assertDoesNotThrow(() -> HiveCatalogProperties.of(unknownEntry));
+        Assertions.assertDoesNotThrow(() -> provider.validatePropertiesForUpdate(unknownEntry,
+                java.util.Collections.singletonMap("comment", "updated")));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validatePropertiesForUpdate(
+                HiveTestProperties.mapWith(), unknownEntry));
+    }
+
+    @Test
     void validCatalogPassesBothDoors() {
         Assertions.assertDoesNotThrow(() -> HiveTestProperties.minimal().checkCreateTimeOnlyRules());
     }

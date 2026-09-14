@@ -37,6 +37,21 @@ import java.util.Map;
  */
 public class IcebergCatalogPropertiesTest {
 
+    @Test
+    public void alterToleratesPersistedFutureWeightEntryButValidatesKnownValues() {
+        Map<String, String> current = props("iceberg.catalog.type", "hadoop", "warehouse", "s3://bucket/wh",
+                "meta.cache.iceberg.future_entry.max-weight", "future-format");
+        IcebergConnectorProvider provider = new IcebergConnectorProvider();
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validateProperties(current));
+        Assertions.assertDoesNotThrow(() -> IcebergCatalogProperties.of(current));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validatePropertiesForUpdate(
+                current, Collections.singletonMap("meta.cache.iceberg.partiton.max-weight", "64MB")));
+        Assertions.assertDoesNotThrow(() -> provider.validatePropertiesForUpdate(
+                current, Collections.singletonMap("comment", "updated")));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validatePropertiesForUpdate(
+                current, Collections.singletonMap("meta.cache.iceberg.table.max-weight", "invalid")));
+    }
+
     private static Map<String, String> props(String... kv) {
         Map<String, String> m = new HashMap<>();
         for (int i = 0; i < kv.length; i += 2) {

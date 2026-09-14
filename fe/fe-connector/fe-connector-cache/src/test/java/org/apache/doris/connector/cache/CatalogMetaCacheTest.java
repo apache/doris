@@ -20,6 +20,7 @@ package org.apache.doris.connector.cache;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Modifier;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Arrays;
@@ -32,8 +33,17 @@ class CatalogMetaCacheTest {
     private static final CacheSpec SPEC = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 100);
 
     @Test
+    void unmanagedOwnershipMustBeSelectedExplicitly() throws Exception {
+        Assertions.assertTrue(Modifier.isPrivate(CatalogMetaCache.class.getDeclaredConstructor().getModifiers()));
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            Assertions.assertFalse(owner.hasEnclosingWeightLimit());
+            Assertions.assertFalse(MetaCacheGovernance.catalogCaches(owner.catalogId()).contains(owner));
+        }
+    }
+
+    @Test
     void tableInvalidationAutomaticallyCoversEveryPhysicalCache() {
-        try (CatalogMetaCache catalog = new CatalogMetaCache()) {
+        try (CatalogMetaCache catalog = CatalogMetaCache.unmanaged()) {
             MetaCache<TableKey, String> tableCache = catalog.create(tableDefinition("table"));
             MetaCache<TableKey, String> snapshotCache = catalog.create(tableDefinition("snapshot"));
             MetaCache<TableKey, String> futureCache = catalog.create(tableDefinition("future-derived-cache"));
@@ -56,7 +66,7 @@ class CatalogMetaCacheTest {
 
     @Test
     void databaseInvalidationCoversDescendantsButNotSiblingDatabase() {
-        try (CatalogMetaCache catalog = new CatalogMetaCache()) {
+        try (CatalogMetaCache catalog = CatalogMetaCache.unmanaged()) {
             MetaCache<TableKey, String> cache = catalog.create(tableDefinition("table"));
             TableKey first = new TableKey("db1", "table");
             TableKey second = new TableKey("db2", "table");
@@ -72,7 +82,7 @@ class CatalogMetaCacheTest {
 
     @Test
     void partitionInvalidationCoversCollectionAndSelectedPartitionsOnly() {
-        try (CatalogMetaCache catalog = new CatalogMetaCache()) {
+        try (CatalogMetaCache catalog = CatalogMetaCache.unmanaged()) {
             MetaCache<String, String> collection = catalog.create(MetaCacheDefinition
                     .<String, String>builder("partition-collection", SPEC,
                             ignored -> ScopePath.partitionCollection("db", "table"))
@@ -101,7 +111,7 @@ class CatalogMetaCacheTest {
                 .<TableKey, String>builder("table", SPEC, TableKey::scope)
                 .loader(key -> "default-" + loads.incrementAndGet())
                 .build();
-        try (CatalogMetaCache catalog = new CatalogMetaCache()) {
+        try (CatalogMetaCache catalog = CatalogMetaCache.unmanaged()) {
             MetaCache<TableKey, String> cache = catalog.create(definition);
             TableKey first = new TableKey("db", "first");
             TableKey second = new TableKey("db", "second");
@@ -122,7 +132,7 @@ class CatalogMetaCacheTest {
                 .removalListener((key, value, removalReason) -> removed.set(value))
                 .discardListener((key, value) -> discarded.set(value))
                 .build();
-        try (CatalogMetaCache catalog = new CatalogMetaCache()) {
+        try (CatalogMetaCache catalog = CatalogMetaCache.unmanaged()) {
             MetaCache<TableKey, String> cache = catalog.create(definition);
 
             Assertions.assertEquals("loaded", cache.get(
@@ -137,7 +147,7 @@ class CatalogMetaCacheTest {
         Assertions.assertThrows(NullPointerException.class,
                 () -> MetaCacheDefinition.builder("missing-scope", SPEC, null).build());
 
-        CatalogMetaCache catalog = new CatalogMetaCache();
+        CatalogMetaCache catalog = CatalogMetaCache.unmanaged();
         catalog.create(tableDefinition("duplicate"));
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> catalog.create(tableDefinition("duplicate")));
@@ -154,7 +164,7 @@ class CatalogMetaCacheTest {
                 .loader(key -> "v" + loads.incrementAndGet())
                 .refreshAfterWrite(Duration.ofNanos(1), Runnable::run)
                 .build();
-        try (CatalogMetaCache catalog = new CatalogMetaCache()) {
+        try (CatalogMetaCache catalog = CatalogMetaCache.unmanaged()) {
             MetaCache<TableKey, String> cache = catalog.create(definition);
             TableKey key = new TableKey("db", "table");
 
@@ -169,7 +179,7 @@ class CatalogMetaCacheTest {
         AtomicInteger loads = new AtomicInteger();
         AtomicReference<String> removed = new AtomicReference<>();
         AtomicReference<String> discarded = new AtomicReference<>();
-        CatalogMetaCache catalog = new CatalogMetaCache();
+        CatalogMetaCache catalog = CatalogMetaCache.unmanaged();
         MetaCacheDefinition<TableKey, String> definition = MetaCacheDefinition
                 .<TableKey, String>builder("refresh", SPEC, TableKey::scope)
                 .loader(key -> {
@@ -207,7 +217,7 @@ class CatalogMetaCacheTest {
                 .removalListener((key, removed, reason) -> removals.incrementAndGet())
                 .refreshAfterWrite(Duration.ofNanos(1), Runnable::run)
                 .build();
-        try (CatalogMetaCache catalog = new CatalogMetaCache()) {
+        try (CatalogMetaCache catalog = CatalogMetaCache.unmanaged()) {
             MetaCache<TableKey, Object> cache = catalog.create(definition);
             TableKey key = new TableKey("db", "table");
 
@@ -223,7 +233,7 @@ class CatalogMetaCacheTest {
         Object value = new Object();
         AtomicInteger loads = new AtomicInteger();
         AtomicInteger removals = new AtomicInteger();
-        CatalogMetaCache catalog = new CatalogMetaCache();
+        CatalogMetaCache catalog = CatalogMetaCache.unmanaged();
         MetaCacheDefinition<TableKey, Object> definition = MetaCacheDefinition
                 .<TableKey, Object>builder("refresh", SPEC, TableKey::scope)
                 .loader(key -> {
@@ -256,7 +266,7 @@ class CatalogMetaCacheTest {
                 .loader(key -> "v" + loads.incrementAndGet())
                 .refreshAfterWrite(Duration.ofNanos(1), executor)
                 .build();
-        CatalogMetaCache catalog = new CatalogMetaCache();
+        CatalogMetaCache catalog = CatalogMetaCache.unmanaged();
         MetaCache<TableKey, String> cache = catalog.create(definition);
         TableKey key = new TableKey("db", "table");
 

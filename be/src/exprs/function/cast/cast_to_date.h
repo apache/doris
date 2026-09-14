@@ -504,7 +504,7 @@ public:
             TimestampTzValue from_tz {col_from[i]};
             DateV2Value<DateTimeV2ValueType> dt;
             if (!from_tz.to_datetime(dt, local_time_zone, dt_scale, tz_scale)) {
-                return Status::InternalError(
+                return Status::InvalidArgument(
                         "can not cast from  timestamptz : {} to datetime in timezone : {}",
                         from_tz.to_string(local_time_zone), context->state()->timezone());
             }
