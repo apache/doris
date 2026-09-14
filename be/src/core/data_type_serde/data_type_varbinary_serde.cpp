@@ -133,8 +133,8 @@ Status DataTypeVarbinarySerDe::write_column_to_arrow(const IColumn& column, cons
                 continue;
             }
             const auto value = column.get_data_at(i);
-            RETURN_IF_ERROR(
-                    checkArrowStatus(builder.Append(value.data, value.size), column, builder));
+            RETURN_IF_ERROR(checkArrowStatus(
+                    builder.Append(value.data, cast_set<int32_t>(value.size)), column, builder));
         }
         return Status::OK();
     };
@@ -298,7 +298,7 @@ void DataTypeVarbinarySerDe::to_string(const IColumn& column, size_t row_num, Bu
                                        const FormatOptions& options) const {
     const auto value = column.get_data_at(row_num);
     if (_nesting_level >= 2) { // in complex type, need to dump as hex string by hand
-        const auto hex_str = StringView(value.data, value.size).dump_hex();
+        const auto hex_str = StringView(value.data, cast_set<uint32_t>(value.size)).dump_hex();
         bw.write(hex_str.data(), hex_str.size());
     } else { // mysql protocol will be handle as hex binary data directly
         bw.write(value.data, value.size);
