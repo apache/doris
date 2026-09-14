@@ -50,13 +50,17 @@ public class TableAddOrDropInvertedIndicesInfo implements Writable {
     private boolean isDropInvertedIndex;
     @SerializedName(value = "jobId")
     private long jobId;
+    @SerializedName(value = "createTimeMs")
+    private Long createTimeMs;
+    @SerializedName(value = "finishedTimeMs")
+    private Long finishedTimeMs;
     @SerializedName(value = "rawSql")
     private String rawSql;
 
     public TableAddOrDropInvertedIndicesInfo(String rawSql, long dbId, long tableId,
             Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> indexes,
             List<Index> alterInvertedIndexes, boolean isDropInvertedIndex,
-            long jobId) {
+            long jobId, Long createTimeMs, Long finishedTimeMs) {
         this.rawSql = rawSql;
         this.dbId = dbId;
         this.tableId = tableId;
@@ -65,6 +69,8 @@ public class TableAddOrDropInvertedIndicesInfo implements Writable {
         this.alterInvertedIndexes = alterInvertedIndexes;
         this.isDropInvertedIndex = isDropInvertedIndex;
         this.jobId = jobId;
+        this.createTimeMs = createTimeMs;
+        this.finishedTimeMs = finishedTimeMs;
     }
 
     public long getDbId() {
@@ -93,6 +99,14 @@ public class TableAddOrDropInvertedIndicesInfo implements Writable {
 
     public long getJobId() {
         return jobId;
+    }
+
+    public Long getCreateTimeMs() {
+        return createTimeMs;
+    }
+
+    public Long getFinishedTimeMs() {
+        return finishedTimeMs;
     }
 
     public String toJson() {
