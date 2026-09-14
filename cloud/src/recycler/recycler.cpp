@@ -5988,7 +5988,7 @@ int InstanceRecycler::recycle_rowsets() {
         }
         worker_pool->submit([&, rowset_keys_to_delete = std::move(rowset_keys_to_delete),
                              rowsets_to_delete = std::move(rowsets_to_delete)]() mutable {
-          std::vector<std::vector<std::string>> versioned_delete_bitmap_key_groups;
+            std::vector<std::vector<std::string>> versioned_delete_bitmap_key_groups;
             if (delete_rowset_data(rowsets_to_delete, RowsetRecyclingState::FORMAL_ROWSET,
                                    metrics_context, &versioned_delete_bitmap_key_groups) != 0) {
                 LOG(WARNING) << "failed to delete rowset data, instance_id=" << instance_id_;
