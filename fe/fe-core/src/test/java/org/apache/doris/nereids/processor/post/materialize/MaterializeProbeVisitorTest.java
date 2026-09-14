@@ -20,15 +20,26 @@ package org.apache.doris.nereids.processor.post.materialize;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.nereids.properties.DataTrait;
+import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.table.VectorSearch;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -37,6 +48,7 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.tablefunction.VectorSearchTableValuedFunction;
 import org.apache.doris.thrift.TAccessPathType;
@@ -58,6 +70,82 @@ import java.util.Map;
 import java.util.Optional;
 
 class MaterializeProbeVisitorTest {
+
+    @Test
+    void testIcebergVariantTopNStaysInInitialScan() {
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        IcebergExternalDatabase database = Mockito.mock(IcebergExternalDatabase.class);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getRemoteName()).thenReturn("db");
+        IcebergExternalTable table = new IcebergExternalTable(1, "tbl", "tbl", catalog, database);
+        for (DataType type : externalVariantTypes()) {
+            List<Slot> output = topNOutput(type);
+            PhysicalFileScan scan = new PhysicalFileScan(new RelationId(1), table, ImmutableList.of("db"),
+                    null, Optional.empty(), new LogicalProperties(() -> output, () -> DataTrait.EMPTY_TRAIT),
+                    null, Optional.empty(), Optional.empty(), ImmutableList.of(), Optional.empty());
+            assertVariantTopNStaysInInitialScan(scan, output);
+        }
+    }
+
+    @Test
+    void testFileTVFVariantTopNStaysInInitialScan() {
+        for (String functionName : ImmutableList.of("s3", "hdfs", "local")) {
+            for (String format : ImmutableList.of("parquet", "orc")) {
+                for (DataType type : externalVariantTypes()) {
+                    List<Slot> output = topNOutput(type);
+                    VectorSearch function = Mockito.mock(VectorSearch.class);
+                    Mockito.when(function.getName()).thenReturn(functionName);
+                    Mockito.when(function.getTVFProperties())
+                            .thenReturn(new Properties(ImmutableMap.of("format", format)));
+                    PhysicalTVFRelation scan = new PhysicalTVFRelation(new RelationId(1), function,
+                            ImmutableList.of(), new LogicalProperties(() -> output, () -> DataTrait.EMPTY_TRAIT));
+                    assertVariantTopNStaysInInitialScan(scan, output);
+                }
+            }
+        }
+    }
+
+    @Test
+    void testOlapAndLanceVariantCanStillBeDeferred() {
+        SlotReference slot = (SlotReference) topNOutput(VariantType.COMPUTE_V2_INSTANCE).get(1);
+        MaterializeProbeVisitor visitor = new MaterializeProbeVisitor();
+        Assertions.assertTrue(visitor.visitPhysicalOlapScan(mockBaseOlapScan(slot),
+                new MaterializeProbeVisitor.ProbeContext(slot)).isPresent());
+        PhysicalTVFRelation lance = mockVectorSearchRelation();
+        Mockito.when(lance.getOutput()).thenReturn(ImmutableList.of(slot));
+        Mockito.when(lance.getOperativeSlots()).thenReturn(ImmutableList.of());
+        Assertions.assertTrue(visitor.visitPhysicalTVFRelation(lance,
+                new MaterializeProbeVisitor.ProbeContext(slot)).isPresent());
+    }
+
+    private List<DataType> externalVariantTypes() {
+        return ImmutableList.of(VariantType.INSTANCE, VariantType.COMPUTE_V2_INSTANCE,
+                ArrayType.of(VariantType.COMPUTE_V2_INSTANCE),
+                MapType.of(IntegerType.INSTANCE, VariantType.COMPUTE_V2_INSTANCE),
+                new StructType(ImmutableList.of(new StructField("nested",
+                        ArrayType.of(VariantType.COMPUTE_V2_INSTANCE), true, ""))));
+    }
+
+    private List<Slot> topNOutput(DataType type) {
+        return ImmutableList.of(new SlotReference("id", IntegerType.INSTANCE),
+                new SlotReference("v", type).withColumn(new Column("v", type.toCatalogDataType())),
+                new SlotReference("payload", IntegerType.INSTANCE)
+                        .withColumn(new Column("payload", org.apache.doris.catalog.Type.INT)));
+    }
+
+    private void assertVariantTopNStaysInInitialScan(Plan scan, List<Slot> output) {
+        PhysicalTopN<Plan> topN = new PhysicalTopN<>(
+                ImmutableList.of(new OrderKey(output.get(0), true, true)), 10, 0,
+                SortPhase.GATHER_SORT, scan.getLogicalProperties(), scan);
+        MaterializeProbeVisitor visitor = new MaterializeProbeVisitor();
+        // VARIANT is passive here: only id participates in TopN ordering.
+        Assertions.assertFalse(topN.accept(visitor,
+                new MaterializeProbeVisitor.ProbeContext((SlotReference) output.get(1))).isPresent());
+        Assertions.assertTrue(topN.accept(visitor,
+                new MaterializeProbeVisitor.ProbeContext((SlotReference) output.get(2))).isPresent());
+        Assertions.assertFalse(topN.accept(visitor,
+                new MaterializeProbeVisitor.ProbeContext((SlotReference) output.get(0))).isPresent());
+    }
 
     @Test
     void testExternalTimestampsStayInInitialScan() {

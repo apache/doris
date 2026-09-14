@@ -1319,6 +1319,22 @@ public class AppendVariantEqualityDelete {
         ORDER BY id
     """
 
+    // Passive VARIANT outputs must not be pruned into the legacy phase-two row fetch.
+    def oldTopNThreshold = sql "SELECT @@topn_lazy_materialization_threshold"
+    try {
+        for (String query : [
+                "SELECT id, v FROM variant_values ORDER BY id LIMIT 3",
+                "SELECT id, info, events, attrs FROM variant_nested ORDER BY id LIMIT 3"]) {
+            sql "SET topn_lazy_materialization_threshold=0"
+            def expected = sql query
+            assertTrue(!expected.isEmpty())
+            sql "SET topn_lazy_materialization_threshold=1024"
+            assertEquals(expected, sql(query))
+        }
+    } finally {
+        sql "SET topn_lazy_materialization_threshold=${oldTopNThreshold[0][0]}"
+    }
+
     order_qt_variant_root_array_projection """
         SELECT id,
                v IS NULL,
