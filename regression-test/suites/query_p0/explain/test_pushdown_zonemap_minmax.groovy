@@ -18,7 +18,7 @@
 // MIN/MAX push-down no longer looks at the declared column length. The storage layer decides per
 // segment: a zone map bound cut to 512 bytes is not a value the column holds, so those segments
 // read the rows instead.
-suite("test_pushdown_string_minmax") {
+suite("test_pushdown_zonemap_minmax") {
     sql "set enable_nereids_planner = true"
     sql "set enable_fallback_to_original_planner = false"
 
@@ -102,7 +102,7 @@ suite("test_pushdown_string_minmax") {
 
     // On: the cut bound answers straight away. It is a 512-byte prefix with its last byte raised,
     // so it is not the value that was inserted.
-    sql "set enable_pushdown_string_minmax = true"
+    sql "set force_pushdown_zonemap_minmax = true"
     explain {
         sql "select min(v), max(v) from test_string_minmax_str"
         contains "pushAggOp=MINMAX"
@@ -110,7 +110,7 @@ suite("test_pushdown_string_minmax") {
     r = sql "select min(v), max(v) from test_string_minmax_str"
     assertEquals(512, r[0][1].length())
     assertTrue(r[0][1] != longValue)
-    sql "set enable_pushdown_string_minmax = false"
+    sql "set force_pushdown_zonemap_minmax = false"
 
     sql "DROP TABLE IF EXISTS test_string_minmax_str"
     sql "DROP TABLE IF EXISTS test_string_minmax_512"

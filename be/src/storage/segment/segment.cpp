@@ -143,14 +143,11 @@ Status build_segment_zonemap_context(Segment* segment, const ReadSchema& schema,
     return Status::OK();
 }
 
-// Statistics collection reads the zone map as it is, even when its min/max is not a value the data
-// holds right now: the bound may have been cut, or it may still cover rows a delete predicate
-// removed. An approximation is all it needs, and reading the rows instead would scan the whole
-// table. Every other query needs the real value. Without a runtime state, keep what the segment
-// did before.
-bool accepts_inexact_min_max(const StorageReadOptions& read_options) {
+// Whether to force MIN/MAX onto the zone map when its bound is not a value the data holds now: a
+// cut string bound, or one covering rows a delete predicate removed. Statistics collection sets it.
+bool pushdown_zonemap_minmax_forced(const StorageReadOptions& read_options) {
     return read_options.runtime_state == nullptr ||
-           read_options.runtime_state->query_options().enable_pushdown_string_minmax;
+           read_options.runtime_state->query_options().force_pushdown_zonemap_minmax;
 }
 
 // The statistics iterator answers pushed-down aggregates from the segment zone maps alone. A zone
@@ -158,7 +155,7 @@ bool accepts_inexact_min_max(const StorageReadOptions& read_options) {
 Status segment_zone_maps_can_answer_agg(Segment* segment, const ReadSchema& schema,
                                         const StorageReadOptions& read_options, bool* usable) {
     *usable = true;
-    const bool accept_cut_bound = accepts_inexact_min_max(read_options);
+    const bool accept_cut_bound = pushdown_zonemap_minmax_forced(read_options);
     for (size_t ordinal = 0; ordinal < schema.num_block_columns(); ++ordinal) {
         // The commit-tso column is only served correctly once its reader is created with the
         // rowset's commit_tso as a const value. Creating it here without one would cache a reader
@@ -544,7 +541,7 @@ Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& re
     const bool delete_free =
             read_options.delete_condition_predicates->num_of_column_predicate() == 0;
     bool use_statistics_iterator =
-            (delete_free || accepts_inexact_min_max(read_options)) &&
+            (delete_free || pushdown_zonemap_minmax_forced(read_options)) &&
             read_options.push_down_agg_type_opt != TPushAggOp::NONE &&
             read_options.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX;
     // COUNT only fills defaults, every other pushed-down aggregate reads min/max out of the
