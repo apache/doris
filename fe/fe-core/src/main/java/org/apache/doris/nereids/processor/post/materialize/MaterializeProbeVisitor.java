@@ -41,6 +41,7 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.tablefunction.FullTextSearchTableValuedFunction;
 import org.apache.doris.tablefunction.VectorSearchTableValuedFunction;
@@ -208,7 +209,7 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     @Override
     public Optional<MaterializeSource> visitPhysicalCatalogRelation(
             PhysicalCatalogRelation relation, ProbeContext context) {
-        if (!(relation instanceof PhysicalOlapScan) && containsTimestamp(context.slot.getDataType())) {
+        if (!(relation instanceof PhysicalOlapScan) && requiresInitialExternalScan(context.slot.getDataType())) {
             return Optional.empty();
         }
         if (checkRelationTableSupportedType(relation)
@@ -228,7 +229,7 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     @Override
     public Optional<MaterializeSource> visitPhysicalTVFRelation(
             PhysicalTVFRelation tvfRelation, ProbeContext context) {
-        if (!isLanceExternalSearch(tvfRelation) && containsTimestamp(context.slot.getDataType())) {
+        if (!isLanceExternalSearch(tvfRelation) && requiresInitialExternalScan(context.slot.getDataType())) {
             return Optional.empty();
         }
         // The first Lance implementation fetches top-level columns by row ID. Keep nested
@@ -250,9 +251,13 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
         return Optional.empty();
     }
 
+    private static boolean requiresInitialExternalScan(DataType type) {
+        // Phase-two FileScanner V1 supports neither external VARIANT nor versioned timestamps.
+        // Check nested types before lazy pruning hides these leaves from regular scan validation.
+        return VariantType.containsVariant(type) || containsTimestamp(type);
+    }
+
     private static boolean containsTimestamp(DataType type) {
-        // External phase-two row fetch still uses FileScanner V1, which does not honor the
-        // versioned timestamp contract. Keep these leaves in phase one, including nested values.
         if (type.isDateTimeType() || type.isDateTimeV2Type() || type.isTimeStampTzType()) {
             return true;
         }
