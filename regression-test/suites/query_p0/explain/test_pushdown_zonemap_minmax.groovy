@@ -19,9 +19,6 @@
 // segment: a zone map bound cut to 512 bytes is not a value the column holds, so those segments
 // read the rows instead.
 suite("test_pushdown_zonemap_minmax") {
-    sql "set enable_nereids_planner = true"
-    sql "set enable_fallback_to_original_planner = false"
-
     def longValue = "z" * 600
     def exactValue = "d" * 512
 
@@ -42,9 +39,7 @@ suite("test_pushdown_zonemap_minmax") {
         sql "select min(v), max(v) from test_string_minmax_wide"
         contains "pushAggOp=MINMAX"
     }
-    def r = sql "select min(v), max(v) from test_string_minmax_wide"
-    assertEquals("aaa", r[0][0])
-    assertEquals("zzz", r[0][1])
+    qt_wide_short "select min(v), max(v) from test_string_minmax_wide"
 
     // A value past the 512-byte cut: the plan still pushes down, and the storage layer falls back
     // per segment so the answer stays a value the table holds.
@@ -53,9 +48,7 @@ suite("test_pushdown_zonemap_minmax") {
         sql "select min(v), max(v) from test_string_minmax_wide"
         contains "pushAggOp=MINMAX"
     }
-    r = sql "select min(v), max(v) from test_string_minmax_wide"
-    assertEquals("aaa", r[0][0])
-    assertEquals(longValue, r[0][1])
+    qt_wide_long "select min(v), length(max(v)), right(max(v), 4) from test_string_minmax_wide"
 
     // A VARCHAR filled to exactly 512 bytes is cut as well. FE pushed this down before too,
     // because the declared length is not over 512, and the raised bound answered MAX with a value
@@ -71,9 +64,8 @@ suite("test_pushdown_zonemap_minmax") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
     sql """ INSERT INTO test_string_minmax_512 VALUES (1, "aaa"), (2, "${exactValue}") """
-    r = sql "select max(v) from test_string_minmax_512"
-    assertEquals(exactValue, r[0][0])
-    assertEquals(1, sql("select count(*) from test_string_minmax_512 where v = '${exactValue}'")[0][0])
+    qt_512_max "select length(max(v)), right(max(v), 4) from test_string_minmax_512"
+    qt_512_eq "select count(*) from test_string_minmax_512 where v = '${exactValue}'"
 
     // The switch says whether a cut bound may answer MIN/MAX. It is off by default, so the answer
     // is always a value the table holds. Statistics collection turns it on and takes the cut bound
@@ -96,23 +88,15 @@ suite("test_pushdown_zonemap_minmax") {
         sql "select min(v), max(v) from test_string_minmax_str"
         contains "pushAggOp=MINMAX"
     }
-    r = sql "select min(v), max(v) from test_string_minmax_str"
-    assertEquals("aaa", r[0][0])
-    assertEquals(longValue, r[0][1])
+    qt_str_off "select min(v), length(max(v)), right(max(v), 4) from test_string_minmax_str"
 
-    // On: the cut bound answers straight away. It is a 512-byte prefix with its last byte raised,
-    // so it is not the value that was inserted.
+    // On: the cut bound answers straight away. It is the 512-byte prefix with its last byte
+    // raised, so the max ends in '{', one past the 'z' that was inserted.
     sql "set force_pushdown_zonemap_minmax = true"
     explain {
         sql "select min(v), max(v) from test_string_minmax_str"
         contains "pushAggOp=MINMAX"
     }
-    r = sql "select min(v), max(v) from test_string_minmax_str"
-    assertEquals(512, r[0][1].length())
-    assertTrue(r[0][1] != longValue)
+    qt_str_on "select length(max(v)), right(max(v), 4) from test_string_minmax_str"
     sql "set force_pushdown_zonemap_minmax = false"
-
-    sql "DROP TABLE IF EXISTS test_string_minmax_str"
-    sql "DROP TABLE IF EXISTS test_string_minmax_512"
-    sql "DROP TABLE IF EXISTS test_string_minmax_wide"
 }

@@ -150,6 +150,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         String sql = stringSubstitutor.replace(BASIC_STATS_TEMPLATE);
         ResultRow resultRow;
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
+            // Force this statistics query to take min/max from the zone map.
+            r.connectContext.getSessionVariable().setForcePushDownZonemapMinMax(true);
             stmtExecutor = new StmtExecutor(r.connectContext, sql);
             resultRow = stmtExecutor.executeInternalQuery().get(0);
             if (LOG.isDebugEnabled()) {

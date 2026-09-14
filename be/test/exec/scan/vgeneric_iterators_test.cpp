@@ -229,14 +229,14 @@ protected:
         return tablet_schema;
     }
 
-    // Writes one segment holding `values` in the VARCHAR column and returns the iterator that a
-    // pushed-down MIN/MAX would run on. `accept_cut_bound` is what statistics collection sets:
+    // Writes one segment holding `values` in the VARCHAR column and returns the iterator that the
+    // pushed-down `agg` would run on. `accept_cut_bound` is what statistics collection sets:
     // it takes an inexact min/max as an approximation instead of reading the data.
     // `with_delete` adds a delete predicate, which leaves the zone map covering removed rows.
-    std::unique_ptr<RowwiseIterator> minmax_iterator_for(const std::string& name,
-                                                         const std::vector<std::string>& values,
-                                                         bool accept_cut_bound = false,
-                                                         bool with_delete = false) {
+    std::unique_ptr<RowwiseIterator> pushdown_iterator_for(
+            const std::string& name, const std::vector<std::string>& values,
+            bool accept_cut_bound = false, bool with_delete = false,
+            TPushAggOp::type agg = TPushAggOp::MINMAX) {
         auto tablet_schema = make_schema();
         const std::string segment_path = std::string(kTestDir) + "/" + name + ".dat";
 
@@ -274,7 +274,7 @@ protected:
         auto schema = std::make_shared<ReadSchema>(
                 project_columns_by_ordinal(tablet_schema->columns(), column_ids));
         StorageReadOptions read_options;
-        read_options.push_down_agg_type_opt = TPushAggOp::MINMAX;
+        read_options.push_down_agg_type_opt = agg;
         read_options.stats = &_stats;
         read_options.tablet_schema = tablet_schema;
 
@@ -306,7 +306,7 @@ protected:
 
 TEST_F(StatisticsIteratorStringBoundsTest, ShortBoundsAnswerFromTheZoneMap) {
     // Every value fits well inside the 512-byte bound, so the stored min/max are the real ones.
-    auto iter = minmax_iterator_for("short", {"aaa", "bbb", "ccc"});
+    auto iter = pushdown_iterator_for("short", {"aaa", "bbb", "ccc"});
     EXPECT_NE(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr)
             << "exact bounds can answer MIN/MAX without reading the data";
 }
@@ -314,7 +314,7 @@ TEST_F(StatisticsIteratorStringBoundsTest, ShortBoundsAnswerFromTheZoneMap) {
 TEST_F(StatisticsIteratorStringBoundsTest, CutBoundsFallBackToReadingTheData) {
     // The longest value runs past the 512-byte cut, so the stored max is a raised prefix and not a
     // value in the column. Answering MIN/MAX from it would return a string the table never held.
-    auto iter = minmax_iterator_for("cut", {"aaa", "bbb", std::string(600, 'c')});
+    auto iter = pushdown_iterator_for("cut", {"aaa", "bbb", std::string(600, 'c')});
     EXPECT_EQ(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr)
             << "a cut bound is not a value from the data, so the query has to read the rows";
 }
@@ -322,15 +322,15 @@ TEST_F(StatisticsIteratorStringBoundsTest, CutBoundsFallBackToReadingTheData) {
 // A VARCHAR(512) column full to its declared length was cut too, and FE used to push MIN/MAX down
 // for it because the length is not over 512.
 TEST_F(StatisticsIteratorStringBoundsTest, BoundsCutExactlyAtTheLimitFallBack) {
-    auto iter = minmax_iterator_for("exact", {"aaa", std::string(MAX_ZONE_MAP_INDEX_SIZE, 'z')});
+    auto iter = pushdown_iterator_for("exact", {"aaa", std::string(MAX_ZONE_MAP_INDEX_SIZE, 'z')});
     EXPECT_EQ(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr);
 }
 
 // Statistics collection only needs an approximation, and reading the data instead would scan the
 // whole table. It keeps the statistics iterator even when the stored bounds were cut.
 TEST_F(StatisticsIteratorStringBoundsTest, CutBoundsAnswerWhenTheCallerTakesAnApproximation) {
-    auto iter = minmax_iterator_for("cut_approx", {"aaa", "bbb", std::string(600, 'c')},
-                                    /*accept_cut_bound=*/true);
+    auto iter = pushdown_iterator_for("cut_approx", {"aaa", "bbb", std::string(600, 'c')},
+                                      /*accept_cut_bound=*/true);
     EXPECT_NE(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr)
             << "statistics collection reads the cut bound rather than scanning the rows";
 }
@@ -340,8 +340,8 @@ TEST_F(StatisticsIteratorStringBoundsTest, CutBoundsAnswerWhenTheCallerTakesAnAp
 TEST_F(StatisticsIteratorStringBoundsTest, PassAllZoneMapAnswersWhenApproximationIsAccepted) {
     std::string wrapping(MAX_ZONE_MAP_INDEX_SIZE - 1, 'a');
     wrapping.push_back(static_cast<char>(0xff));
-    auto iter = minmax_iterator_for("pass_all_approx", {"aaa", wrapping},
-                                    /*accept_cut_bound=*/true);
+    auto iter = pushdown_iterator_for("pass_all_approx", {"aaa", wrapping},
+                                      /*accept_cut_bound=*/true);
     EXPECT_NE(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr)
             << "a zone map that gave up its range on read still carries the bounds it parsed";
 
@@ -357,7 +357,7 @@ TEST_F(StatisticsIteratorStringBoundsTest, PassAllZoneMapAnswersWhenApproximatio
 TEST_F(StatisticsIteratorStringBoundsTest, PassAllZoneMapFallsBackToReadingTheData) {
     std::string wrapping(MAX_ZONE_MAP_INDEX_SIZE - 1, 'a');
     wrapping.push_back(static_cast<char>(0xff));
-    auto iter = minmax_iterator_for("pass_all_exact", {"aaa", wrapping});
+    auto iter = pushdown_iterator_for("pass_all_exact", {"aaa", wrapping});
     EXPECT_EQ(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr);
 }
 
@@ -365,17 +365,24 @@ TEST_F(StatisticsIteratorStringBoundsTest, PassAllZoneMapFallsBackToReadingTheDa
 // value the table no longer holds. That is a real answer for every query but statistics
 // collection, which takes the approximation to avoid scanning the table.
 TEST_F(StatisticsIteratorStringBoundsTest, DeletePredicateFallsBackToReadingTheData) {
-    auto iter = minmax_iterator_for("del_exact", {"aaa", "bbb"}, /*accept_cut_bound=*/false,
-                                    /*with_delete=*/true);
+    auto iter = pushdown_iterator_for("del_exact", {"aaa", "bbb"}, /*accept_cut_bound=*/false,
+                                      /*with_delete=*/true);
     EXPECT_EQ(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr)
             << "a deleted row may still sit inside the zone map bounds";
 }
 
 TEST_F(StatisticsIteratorStringBoundsTest, DeletePredicateAnswersWhenApproximationIsAccepted) {
-    auto iter = minmax_iterator_for("del_approx", {"aaa", "bbb"}, /*accept_cut_bound=*/true,
-                                    /*with_delete=*/true);
+    auto iter = pushdown_iterator_for("del_approx", {"aaa", "bbb"}, /*accept_cut_bound=*/true,
+                                      /*with_delete=*/true);
     EXPECT_NE(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr)
             << "statistics collection keeps the zone map even with a delete predicate";
+}
+
+TEST_F(StatisticsIteratorStringBoundsTest, CountKeepsTheDeletePredicateGuardWhenForced) {
+    auto iter = pushdown_iterator_for("count_del", {"aaa", "bbb"}, /*accept_cut_bound=*/true,
+                                      /*with_delete=*/true, TPushAggOp::COUNT);
+    EXPECT_EQ(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr)
+            << "COUNT reports the segment row count, which still counts the deleted rows";
 }
 
 TEST(VGenericIteratorsTest, Union) {
