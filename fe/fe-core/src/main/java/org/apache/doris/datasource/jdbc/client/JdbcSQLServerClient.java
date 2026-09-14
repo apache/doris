@@ -21,6 +21,8 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
+import java.sql.Types;
+
 public class JdbcSQLServerClient extends JdbcClient {
 
     protected JdbcSQLServerClient(JdbcClientConfig jdbcClientConfig) {
@@ -99,6 +101,56 @@ public class JdbcSQLServerClient extends JdbcClient {
             case "varbinary":
                 return enableMappingVarbinary ? ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize())
                         : ScalarType.createStringType();
+            default:
+                return jdbcTypeToDorisByJdbcDataType(fieldSchema);
+        }
+    }
+
+    /**
+     * Fallback for SQL Server user-defined alias types and other columns whose TYPE_NAME is not a
+     * built-in SQL Server type name. Uses JDBC {@code DATA_TYPE} only for standard scalar codes;
+     * vendor-specific types (e.g. CLR UDTs reported as {@code VARBINARY}) stay unsupported.
+     */
+    private Type jdbcTypeToDorisByJdbcDataType(JdbcFieldSchema fieldSchema) {
+        switch (fieldSchema.getDataType()) {
+            case Types.BIT:
+                return Type.BOOLEAN;
+            case Types.TINYINT:
+            case Types.SMALLINT:
+                return Type.SMALLINT;
+            case Types.INTEGER:
+                return Type.INT;
+            case Types.BIGINT:
+                return Type.BIGINT;
+            case Types.REAL:
+                return Type.FLOAT;
+            case Types.FLOAT:
+            case Types.DOUBLE:
+                return Type.DOUBLE;
+            case Types.DECIMAL:
+            case Types.NUMERIC: {
+                int precision = fieldSchema.getColumnSize().orElse(0);
+                int scale = fieldSchema.getDecimalDigits().orElse(0);
+                return createDecimalOrStringType(precision, scale);
+            }
+            case Types.DATE:
+                return ScalarType.createDateV2Type();
+            case Types.TIME:
+                return ScalarType.createStringType();
+            case Types.TIMESTAMP: {
+                int scale = fieldSchema.getDecimalDigits().orElse(0);
+                if (scale > JDBC_DATETIME_SCALE) {
+                    scale = JDBC_DATETIME_SCALE;
+                }
+                return ScalarType.createDatetimeV2Type(scale);
+            }
+            case Types.CHAR:
+            case Types.VARCHAR:
+            case Types.LONGVARCHAR:
+            case Types.NCHAR:
+            case Types.NVARCHAR:
+            case Types.LONGNVARCHAR:
+                return ScalarType.createStringType();
             default:
                 return Type.UNSUPPORTED;
         }
