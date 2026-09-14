@@ -64,20 +64,56 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
     // Positioned to first char after '://'.
     StringRef protocol_end = trimmed_url.substring(protocol_pos + _s_protocol.size);
 
+    // Split the hierarchical URL into authority, path, query and fragment first.
+    // Delimiters in later components must never affect authority parsing.
+    int32_t authority_end = static_cast<int32_t>(protocol_end.size);
+    for (int32_t i = 0; i < protocol_end.size; ++i) {
+        if (protocol_end.data[i] == '/' || protocol_end.data[i] == '?' ||
+            protocol_end.data[i] == '#') {
+            authority_end = i;
+            break;
+        }
+    }
+    StringRef authority = protocol_end.substring(0, authority_end);
+    int32_t userinfo_end = -1;
+    for (int32_t i = 0; i < authority.size; ++i) {
+        if (authority.data[i] == '@') {
+            userinfo_end = i;
+        }
+    }
+    int32_t host_start = userinfo_end < 0 ? 0 : userinfo_end + 1;
+    int32_t host_end = static_cast<int32_t>(authority.size);
+    int32_t port_start = -1;
+    if (host_start < authority.size && authority.data[host_start] == '[') {
+        for (int32_t i = host_start + 1; i < authority.size; ++i) {
+            if (authority.data[i] == ']') {
+                host_end = i + 1;
+                if (host_end < authority.size && authority.data[host_end] == ':') {
+                    port_start = host_end + 1;
+                }
+                break;
+            }
+        }
+    } else {
+        for (int32_t i = host_start; i < authority.size; ++i) {
+            if (authority.data[i] == ':') {
+                host_end = i;
+                port_start = i + 1;
+                break;
+            }
+        }
+    }
+
     switch (part) {
     case AUTHORITY: {
-        // Find first '/'.
-        int32_t end_pos = _s_slash_search.search(&protocol_end);
-        *result = protocol_end.substring(0, end_pos);
+        *result = authority;
         break;
     }
 
     case FILE:
     case PATH: {
-        // Find first '/'.
-        int32_t start_pos = _s_slash_search.search(&protocol_end);
-
-        if (start_pos < 0) {
+        int32_t start_pos = authority_end;
+        if (start_pos >= protocol_end.size || protocol_end.data[start_pos] != '/') {
             // Return empty string. This is what Hive does.
             return true;
         }
@@ -90,11 +126,11 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
             end_pos = _s_hash_search.search(&path_start);
         } else {
             // End string _s_at next '?' or '#'.
-            end_pos = _s_question_search.search(&path_start);
-
-            if (end_pos < 0) {
-                // No '?' was found, look for '#'.
-                end_pos = _s_hash_search.search(&path_start);
+            int32_t query_pos = _s_question_search.search(&path_start);
+            int32_t hash_pos = _s_hash_search.search(&path_start);
+            end_pos = query_pos;
+            if (end_pos < 0 || (hash_pos >= 0 && hash_pos < end_pos)) {
+                end_pos = hash_pos;
             }
         }
 
@@ -103,32 +139,7 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
     }
 
     case HOST: {
-        // Find '@'.
-        int32_t start_pos = _s_at_search.search(&protocol_end);
-
-        if (start_pos < 0) {
-            // No '@' was found, i.e., no user:pass info was given, start after _s_protocol.
-            start_pos = 0;
-        } else {
-            // Skip '@'.
-            start_pos += _s_at.size;
-        }
-
-        StringRef host_start = protocol_end.substring(start_pos);
-        // Find first '?'.
-        int32_t query_start_pos = _s_question_search.search(&host_start);
-        if (query_start_pos > 0) {
-            host_start = host_start.substring(0, query_start_pos);
-        }
-        // Find ':' to strip out port.
-        int32_t end_pos = _s_colon_search.search(&host_start);
-
-        if (end_pos < 0) {
-            // No port was given. search for '/' to determine ending position.
-            end_pos = _s_slash_search.search(&host_start);
-        }
-
-        *result = host_start.substring(0, end_pos);
+        *result = authority.substring(host_start, host_end - host_start);
         break;
     }
 
@@ -138,10 +149,10 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
     }
 
     case QUERY: {
-        // Find first '?'.
         int32_t start_pos = _s_question_search.search(&protocol_end);
+        int32_t hash_pos = _s_hash_search.search(&protocol_end);
 
-        if (start_pos < 0) {
+        if (start_pos < 0 || (hash_pos >= 0 && hash_pos < start_pos)) {
             // Indicate no query was found.
             return false;
         }
@@ -167,45 +178,20 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
     }
 
     case USERINFO: {
-        // Find '@'.
-        int32_t end_pos = _s_at_search.search(&protocol_end);
-
-        if (end_pos < 0) {
+        if (userinfo_end < 0) {
             // Indicate no user and pass were given.
             return false;
         }
 
-        *result = protocol_end.substring(0, end_pos);
+        *result = authority.substring(0, userinfo_end);
         break;
     }
 
     case PORT: {
-        // Find '@'.
-        int32_t start_pos = _s_at_search.search(&protocol_end);
-
-        if (start_pos < 0) {
-            // No '@' was found, i.e., no user:pass info was given, start after _s_protocol.
-            start_pos = 0;
-        } else {
-            // Skip '@'.
-            start_pos += _s_at.size;
-        }
-
-        StringRef host_start = protocol_end.substring(start_pos);
-        // Find ':' to strip out port.
-        int32_t end_pos = _s_colon_search.search(&host_start);
-        //no port found
-        if (end_pos < 0) {
+        if (port_start < 0) {
             return false;
         }
-
-        StringRef port_start_str = host_start.substring(end_pos + _s_colon.size);
-        int32_t port_end_pos = _s_slash_search.search(&port_start_str);
-        //if '/' not found, try to find '?'
-        if (port_end_pos < 0) {
-            port_end_pos = _s_question_search.search(&port_start_str);
-        }
-        *result = port_start_str.substring(0, port_end_pos);
+        *result = authority.substring(port_start, authority.size - port_start);
         break;
     }
 
@@ -223,52 +209,54 @@ bool UrlParser::parse_url_key(const StringRef& url, UrlPart part, const StringRe
         return false;
     }
 
-    // Remove leading and trailing spaces.
     StringRef trimmed_url = url.trim();
+    int32_t query_start = _s_question_search.search(&trimmed_url);
+    int32_t fragment_start = _s_hash_search.search(&trimmed_url);
+    if (query_start < 0 || (fragment_start >= 0 && fragment_start < query_start)) {
+        return false;
+    }
+    StringRef query = trimmed_url.substring(query_start + _s_question.size);
+    int32_t query_end = _s_hash_search.search(&query);
+    query = query.substring(0, query_end);
 
-    // Search for the key in the url, ignoring malformed URLs for now.
     StringSearch key_search(&key);
 
-    while (trimmed_url.size > 0) {
+    while (query.size > 0) {
         // Search for the key in the current substring.
-        int32_t key_pos = key_search.search(&trimmed_url);
+        int32_t key_pos = key_search.search(&query);
         bool match = true;
 
         if (key_pos < 0) {
             return false;
         }
 
-        // Key pos must be != 0 because it must be preceded by a '?' or a '&'.
-        // Check that the char before key_pos is either '?' or '&'.
-        if (key_pos == 0 ||
-            (trimmed_url.data[key_pos - 1] != '?' && trimmed_url.data[key_pos - 1] != '&')) {
+        if (key_pos != 0 && query.data[key_pos - 1] != '&') {
             match = false;
         }
 
         // Advance substring beyond matching key.
-        trimmed_url = trimmed_url.substring(key_pos + key.size);
+        query = query.substring(key_pos + key.size);
 
         if (!match) {
             continue;
         }
 
-        if (trimmed_url.size <= 0) {
+        if (query.size <= 0) {
             break;
         }
 
         // Next character must be '=', otherwise the match cannot be a key in the query part.
-        if (trimmed_url.data[0] != '=') {
+        if (query.data[0] != '=') {
             continue;
         }
 
         int32_t pos = 1;
 
         // Find ending position of key's value by matching '#' or '&'.
-        while (pos < trimmed_url.size) {
-            switch (trimmed_url.data[pos]) {
-            case '#':
+        while (pos < query.size) {
+            switch (query.data[pos]) {
             case '&':
-                *result = trimmed_url.substring(1, pos - 1);
+                *result = query.substring(1, pos - 1);
                 return true;
             }
 
@@ -276,7 +264,7 @@ bool UrlParser::parse_url_key(const StringRef& url, UrlPart part, const StringRe
         }
 
         // Ending position is end of string.
-        *result = trimmed_url.substring(1);
+        *result = query.substring(1);
         return true;
     }
 
