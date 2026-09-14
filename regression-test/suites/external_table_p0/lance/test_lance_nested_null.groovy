@@ -56,6 +56,7 @@ suite("test_lance_nested_null", "p0,external") {
                    null_map IS NULL, COALESCE(map_size(null_map), -1), null_map['a'] IS NULL
             FROM ${lanceTvf} ORDER BY id
         """
+        // Complex output uses JSON-style null; a top-level SQL NULL remains \N.
         qt_nested_null_projection """
             SELECT id, null_list, struct_element(null_struct, 'empty') IS NULL
             FROM ${lanceTvf} WHERE id >= 1 ORDER BY id LIMIT 3

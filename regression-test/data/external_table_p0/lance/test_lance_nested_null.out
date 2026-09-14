@@ -6,6 +6,6 @@
 4	false	1	true	false	3	false	2	true	40	false	1	false	1	true
 
 -- !nested_null_projection --
-1	[NULL, NULL]	true
+1	[null, null]	true
 2	\N	true
 3	[]	true
