@@ -19,9 +19,12 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InitCatalogLog.Type;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.metacache.MetaCache;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -31,6 +34,7 @@ import java.lang.management.ThreadMXBean;
 import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CountDownLatch;
@@ -54,6 +58,51 @@ public class ExternalCatalogDeadlockTest {
     public void testTableEventUpdateShouldNotDeadlockWithSameKeyObjectLoad() throws Exception {
         assertEventUpdateDoesNotDeadlockWithSameKeyObjectLoad(
                 "table-event-cache", Mockito.mock(ExternalTable.class));
+    }
+
+    @Test
+    public void testExcludedDatabaseEventDoesNotPublishIntoWarmCaseInsensitiveCache() throws Exception {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(ExternalCatalog.EXCLUDE_DATABASE_LIST, "ExcludedDb");
+        properties.put(ExternalCatalog.LOWER_CASE_DATABASE_NAMES, "2");
+        FilteredEventCatalog catalog = new FilteredEventCatalog(properties);
+        Map<String, String> lowerCaseRoutes = Maps.newConcurrentMap();
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        MetaCache<ExternalDatabase<? extends ExternalTable>> cache = new MetaCache<>(
+                "filtered-event-cache",
+                refreshExecutor,
+                OptionalLong.empty(),
+                OptionalLong.empty(),
+                10,
+                key -> Lists.newArrayList(Pair.of("AllowedDb", "AllowedDb")),
+                names -> {
+                    lowerCaseRoutes.clear();
+                    names.forEach(pair -> lowerCaseRoutes.put(pair.key().toLowerCase(), pair.key()));
+                },
+                (remoteName, localName) -> lowerCaseRoutes.put(remoteName.toLowerCase(), remoteName),
+                localName -> lowerCaseRoutes.remove(localName.toLowerCase()),
+                key -> Optional.empty(),
+                (key, value, cause) -> { });
+        catalog.setMetaCache(cache);
+        catalog.setLowerCaseRoutes(lowerCaseRoutes);
+
+        try {
+            Assertions.assertEquals(Lists.newArrayList("AllowedDb"), cache.listNames());
+            Assertions.assertTrue(catalog.registerDatabaseFromEvent(2L, "ExcludedDb", 0L));
+            Assertions.assertFalse(cache.tryGetMetaObj("ExcludedDb").isPresent());
+            Assertions.assertFalse(lowerCaseRoutes.containsKey("excludeddb"));
+            Assertions.assertNull(catalog.getDbNullable("eXcLuDeDdB"));
+            Assertions.assertEquals(0, catalog.getBuildCount());
+
+            Assertions.assertTrue(catalog.registerDatabaseFromEvent(3L, "AllowedDb", 0L));
+            Assertions.assertTrue(cache.tryGetMetaObj("AllowedDb").isPresent());
+            Assertions.assertEquals("AllowedDb", lowerCaseRoutes.get("alloweddb"));
+            Assertions.assertNotNull(catalog.getDbNullable("aLlOwEdDb"));
+            Assertions.assertEquals(1, catalog.getBuildCount());
+        } finally {
+            refreshExecutor.shutdownNow();
+            Assertions.assertTrue(refreshExecutor.awaitTermination(5, TimeUnit.SECONDS));
+        }
     }
 
     private <T> void assertEventUpdateDoesNotDeadlockWithSameKeyObjectLoad(String cacheName, T eventObject)
@@ -448,6 +497,40 @@ public class ExternalCatalogDeadlockTest {
         @Override
         public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
             return false;
+        }
+    }
+
+    private static class FilteredEventCatalog extends HMSExternalCatalog {
+        private final AtomicInteger buildCount = new AtomicInteger();
+
+        FilteredEventCatalog(Map<String, String> properties) {
+            super(1L, "filtered-event-catalog", null, properties, "");
+            setInitializedForTest(true);
+        }
+
+        void setMetaCache(MetaCache<ExternalDatabase<? extends ExternalTable>> cache) {
+            metaCache = cache;
+        }
+
+        void setLowerCaseRoutes(Map<String, String> routes) throws Exception {
+            Field routesField = ExternalCatalog.class.getDeclaredField("lowerCaseToDatabaseName");
+            routesField.setAccessible(true);
+            routesField.set(this, routes);
+        }
+
+        int getBuildCount() {
+            return buildCount.get();
+        }
+
+        @Override
+        protected void initLocalObjectsImpl() {
+        }
+
+        @Override
+        protected ExternalDatabase<? extends ExternalTable> buildDbForInit(String remoteDbName, String localDbName,
+                long dbId, InitCatalogLog.Type logType, boolean checkExists) {
+            buildCount.incrementAndGet();
+            return new HMSExternalDatabase(this, dbId, remoteDbName, remoteDbName);
         }
     }
 

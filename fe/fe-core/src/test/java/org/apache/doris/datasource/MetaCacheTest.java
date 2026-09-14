@@ -28,10 +28,12 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -249,6 +251,137 @@ public class MetaCacheTest {
             Assert.assertTrue(caller.awaitTermination(3, TimeUnit.SECONDS));
             Assert.assertTrue(refreshExecutor.awaitTermination(3, TimeUnit.SECONDS));
         }
+    }
+
+    @Test
+    public void testRefreshNamesDoesNotRejoinCompletedActiveLoad() throws Exception {
+        CountDownLatch firstLoadStarted = new CountDownLatch(1);
+        CountDownLatch releaseFirstLoad = new CountDownLatch(1);
+        CountDownLatch completionCallbackFinished = new CountDownLatch(1);
+        AtomicInteger loadCount = new AtomicInteger();
+        AtomicReference<List<String>> refreshedNames = new AtomicReference<>();
+        AtomicReference<Throwable> callbackFailure = new AtomicReference<>();
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService caller = Executors.newSingleThreadExecutor();
+        MetaCache<String> cache = new MetaCache<>(
+                "databaseCache",
+                refreshExecutor,
+                OptionalLong.empty(),
+                OptionalLong.empty(),
+                10,
+                key -> {
+                    int currentLoad = loadCount.incrementAndGet();
+                    if (currentLoad == 1) {
+                        firstLoadStarted.countDown();
+                        Assert.assertTrue(releaseFirstLoad.await(3, TimeUnit.SECONDS));
+                    }
+                    return Lists.newArrayList(Pair.of(
+                            "remote-" + currentLoad, "local-" + currentLoad));
+                },
+                key -> Optional.of(key),
+                (key, value, cause) -> { });
+
+        try {
+            Future<List<String>> firstLoad = caller.submit(cache::listNames);
+            Assert.assertTrue(firstLoadStarted.await(3, TimeUnit.SECONDS));
+
+            CompletableFuture<?> activeLoad = getActiveNamesLoadFuture(cache);
+            activeLoad.thenRun(() -> {
+                try {
+                    refreshedNames.set(cache.refreshNames());
+                } catch (Throwable t) {
+                    callbackFailure.set(t);
+                } finally {
+                    completionCallbackFinished.countDown();
+                }
+            });
+
+            releaseFirstLoad.countDown();
+            Assert.assertEquals(Lists.newArrayList("local-1"), firstLoad.get(3, TimeUnit.SECONDS));
+            Assert.assertTrue(completionCallbackFinished.await(3, TimeUnit.SECONDS));
+            Assert.assertNull(callbackFailure.get());
+            Assert.assertEquals(Lists.newArrayList("local-2"), refreshedNames.get());
+            Assert.assertEquals(2, loadCount.get());
+        } finally {
+            releaseFirstLoad.countDown();
+            caller.shutdownNow();
+            refreshExecutor.shutdownNow();
+            Assert.assertTrue(caller.awaitTermination(3, TimeUnit.SECONDS));
+            Assert.assertTrue(refreshExecutor.awaitTermination(3, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void testRefreshNamesDoesNotRejoinFailedActiveLoad() throws Exception {
+        CountDownLatch firstLoadStarted = new CountDownLatch(1);
+        CountDownLatch releaseFirstLoad = new CountDownLatch(1);
+        CountDownLatch completionCallbackFinished = new CountDownLatch(1);
+        AtomicInteger loadCount = new AtomicInteger();
+        AtomicReference<List<String>> refreshedNames = new AtomicReference<>();
+        AtomicReference<Throwable> callbackFailure = new AtomicReference<>();
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService caller = Executors.newSingleThreadExecutor();
+        MetaCache<String> cache = new MetaCache<>(
+                "databaseCache",
+                refreshExecutor,
+                OptionalLong.empty(),
+                OptionalLong.empty(),
+                10,
+                key -> {
+                    int currentLoad = loadCount.incrementAndGet();
+                    if (currentLoad == 1) {
+                        firstLoadStarted.countDown();
+                        Assert.assertTrue(releaseFirstLoad.await(3, TimeUnit.SECONDS));
+                        throw new RuntimeException("first load failed");
+                    }
+                    return Lists.newArrayList(Pair.of("remote-2", "local-2"));
+                },
+                key -> Optional.of(key),
+                (key, value, cause) -> { });
+
+        try {
+            Future<List<String>> firstLoad = caller.submit(cache::listNames);
+            Assert.assertTrue(firstLoadStarted.await(3, TimeUnit.SECONDS));
+
+            CompletableFuture<?> activeLoad = getActiveNamesLoadFuture(cache);
+            activeLoad.whenComplete((ignored, failure) -> {
+                try {
+                    refreshedNames.set(cache.refreshNames());
+                } catch (Throwable t) {
+                    callbackFailure.set(t);
+                } finally {
+                    completionCallbackFinished.countDown();
+                }
+            });
+
+            releaseFirstLoad.countDown();
+            try {
+                firstLoad.get(3, TimeUnit.SECONDS);
+                Assert.fail("first names load should fail");
+            } catch (java.util.concurrent.ExecutionException e) {
+                Assert.assertEquals("first load failed", e.getCause().getMessage());
+            }
+            Assert.assertTrue(completionCallbackFinished.await(3, TimeUnit.SECONDS));
+            Assert.assertNull(callbackFailure.get());
+            Assert.assertEquals(Lists.newArrayList("local-2"), refreshedNames.get());
+            Assert.assertEquals(2, loadCount.get());
+        } finally {
+            releaseFirstLoad.countDown();
+            caller.shutdownNow();
+            refreshExecutor.shutdownNow();
+            Assert.assertTrue(caller.awaitTermination(3, TimeUnit.SECONDS));
+            Assert.assertTrue(refreshExecutor.awaitTermination(3, TimeUnit.SECONDS));
+        }
+    }
+
+    private CompletableFuture<?> getActiveNamesLoadFuture(MetaCache<String> cache) throws Exception {
+        Field activeNamesLoadField = MetaCache.class.getDeclaredField("activeNamesLoad");
+        activeNamesLoadField.setAccessible(true);
+        Object activeNamesLoad = activeNamesLoadField.get(cache);
+        Assert.assertNotNull(activeNamesLoad);
+        Field resultField = activeNamesLoad.getClass().getDeclaredField("result");
+        resultField.setAccessible(true);
+        return (CompletableFuture<?>) resultField.get(activeNamesLoad);
     }
 
     @Test

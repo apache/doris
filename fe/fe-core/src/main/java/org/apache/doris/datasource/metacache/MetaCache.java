@@ -301,34 +301,43 @@ public class MetaCache<T> {
                     publishNames(value);
                 }
             }
+            finishNamesLoad(namesLoad);
             namesLoad.result.complete(value);
             return value;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             CompletionException failure = new CompletionException(e);
+            finishNamesLoad(namesLoad);
             namesLoad.result.completeExceptionally(failure);
             throw failure;
         } catch (RuntimeException e) {
+            finishNamesLoad(namesLoad);
             if (!namesLoad.result.completeExceptionally(e)) {
                 return null;
             }
             throw e;
         } catch (Error e) {
+            finishNamesLoad(namesLoad);
             namesLoad.result.completeExceptionally(e);
             throw e;
         } catch (Exception e) {
             CompletionException failure = new CompletionException(e);
+            finishNamesLoad(namesLoad);
             if (!namesLoad.result.completeExceptionally(failure)) {
                 return null;
             }
             throw failure;
         } finally {
-            synchronized (namesMutationLock) {
-                if (activeNamesLoad == namesLoad) {
-                    activeNamesLoad = null;
-                }
-                physicalNamesLoads.remove(namesLoad);
+            finishNamesLoad(namesLoad);
+        }
+    }
+
+    private void finishNamesLoad(NamesLoad namesLoad) {
+        synchronized (namesMutationLock) {
+            if (activeNamesLoad == namesLoad) {
+                activeNamesLoad = null;
             }
+            physicalNamesLoads.remove(namesLoad);
         }
     }
 
