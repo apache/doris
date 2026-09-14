@@ -137,12 +137,9 @@ public class CatalogProperty {
 
     public void modifyCatalogProps(Map<String, String> props) {
         synchronized (this) {
+            // Preserve replayed values until the master journals their migration. Normalizing
+            // only this copy would hide pending upgrades from followers and rollback images.
             properties.putAll(props);
-            if (props.containsKey(ENABLE_MAPPING_VARBINARY)) {
-                // Normalize ALTER CATALOG updates so the compatibility marker cannot revive the
-                // removed STRING mapping after a rolling downgrade.
-                properties.put(ENABLE_MAPPING_VARBINARY, "true");
-            }
             resetAllCaches();
         }
     }

@@ -50,7 +50,9 @@ public class CatalogPropertyTest {
 
         catalogProperty.modifyCatalogProps(
                 Collections.singletonMap(CatalogProperty.ENABLE_MAPPING_VARBINARY, "false"));
-        Assert.assertEquals("true",
+        // Replayed metadata remains detectable for migration; effective mapping stays binary.
+        Assert.assertTrue(catalogProperty.getEnableMappingVarbinary());
+        Assert.assertEquals("false",
                 catalogProperty.getProperties().get(CatalogProperty.ENABLE_MAPPING_VARBINARY));
     }
 

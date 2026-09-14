@@ -282,8 +282,9 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
                 sql "set enable_parquet_filter_by_min_max=${minMax}"
                 for (boolean lazy : [false, true]) {
                     sql "set enable_parquet_lazy_materialization=${lazy}"
-                    for (def query : [q1, q2, q3, q4, q5, q6, q7]) {
-                        def metrics = query()
+                    def queries = [q1, q2, q3, q4, q5, q6, q7]
+                    for (int queryIndex = 0; queryIndex < queries.size(); queryIndex++) {
+                        def metrics = queries[queryIndex]()
                         long raw = metricValueAsLong(metrics["RawRowsRead"])
                         long selected = metricValueAsLong(metrics["ReaderSelectRows"])
                         long filtered = metricValueAsLong(metrics["RowsFilteredByConjunct"])
@@ -291,6 +292,18 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
                         assertTrue(raw >= 0 && selected >= 0 && filtered >= 0)
                         assertEquals(raw, selected + filtered)
                         assertTrue(lazyFiltered >= 0 && lazyFiltered <= filtered)
+                        // Accounting can remain correct even if pruning is broken. These fixtures
+                        // must skip row groups/pages, independently of conjunct and lazy filtering.
+                        if (minMax && queryIndex < 3) {
+                            long totalGroups = metricValueAsLong(metrics["RowGroupsTotalNum"])
+                            long readGroups = metricValueAsLong(metrics["RowGroupsReadNum"])
+                            assertTrue(metricValueAsLong(metrics["RowGroupsFilteredByMinMax"]) > 0)
+                            assertTrue(readGroups >= 0 && readGroups < totalGroups)
+                        }
+                        if (minMax && queryIndex in [3, 4, 6]) {
+                            assertTrue(metricValueAsLong(metrics["FilteredRowsByPage"]) > 0)
+                            assertTrue(raw < 7300)
+                        }
                     }
                 }
             }
