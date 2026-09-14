@@ -145,6 +145,13 @@ public class MysqlPacketGoldenTest extends TestWithFeService {
                 .add(query("select 1; set @a = 1")));
         cases.add(new GoldenCase("multi-statement-without-capability-query-then-set", MODERN_CLIENT)
                 .add(query("select 1; set @a = 1")));
+        // A later statement of the request fails. With the capability the client already got the
+        // first statement's result; without it, the client gets only the ERR, numbered from where
+        // the last flush left off -- nothing of this request had reached it yet.
+        cases.add(new GoldenCase("multi-statement-with-capability-query-then-error", MULTI_STATEMENT_CLIENT)
+                .add(query("select 1; select * from no_such_table")));
+        cases.add(new GoldenCase("multi-statement-without-capability-query-then-error", MODERN_CLIENT)
+                .add(query("select 1; select * from no_such_table")));
         // A transaction command used to reset the channel on its own; only the shape is kept, the
         // OK carries a label derived from the query id.
         cases.add(new GoldenCase("multi-statement-without-capability-query-then-begin", MODERN_CLIENT,

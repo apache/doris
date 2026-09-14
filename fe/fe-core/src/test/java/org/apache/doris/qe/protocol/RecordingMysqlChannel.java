@@ -36,10 +36,10 @@ import java.util.List;
  * instead, and the golden renders the header from the two.
  *
  * <p>What the send buffer does is modeled, though: a flush pushes everything written so far, and
- * {@link #reset()} drops what was written after the last flush, the way
- * {@link org.apache.doris.mysql.MysqlChannel#reset()} clears the buffer. So the golden shows what
- * reaches the client, not everything the server wrote, and a packet that was written and then
- * dropped leaves a gap in the sequence ids, as it does on the wire.
+ * {@link #reset()} drops what was written after the last flush and rewinds the sequence id to the
+ * last one the client saw, the way {@link org.apache.doris.mysql.MysqlChannel#reset()} does. So
+ * the golden shows what reaches the client, not everything the server wrote, numbered as the
+ * client will see it.
  */
 public class RecordingMysqlChannel extends DummyMysqlChannel {
 
@@ -111,6 +111,7 @@ public class RecordingMysqlChannel extends DummyMysqlChannel {
         // The real channel advances the sequence id once per packet it reads, so the first response
         // packet is framed with the request's id plus one.
         accSequenceId();
+        wireSequenceId = sequenceId;
         return packet;
     }
 
@@ -122,6 +123,7 @@ public class RecordingMysqlChannel extends DummyMysqlChannel {
     @Override
     public void sendAndFlush(ByteBuffer packet) {
         record(packet, true);
+        wireSequenceId = sequenceId;
         isSend = true;
     }
 
@@ -130,6 +132,7 @@ public class RecordingMysqlChannel extends DummyMysqlChannel {
         // Nothing to push when the last packet already went out with a flush.
         if (!outbound.isEmpty() && !outbound.get(outbound.size() - 1).isFlushed()) {
             outbound.get(outbound.size() - 1).markFlushed();
+            wireSequenceId = sequenceId;
             isSend = true;
         }
     }
@@ -144,6 +147,7 @@ public class RecordingMysqlChannel extends DummyMysqlChannel {
             end--;
         }
         outbound.subList(end, outbound.size()).clear();
+        sequenceId = wireSequenceId;
     }
 
     private void record(ByteBuffer packet, boolean flushed) {
