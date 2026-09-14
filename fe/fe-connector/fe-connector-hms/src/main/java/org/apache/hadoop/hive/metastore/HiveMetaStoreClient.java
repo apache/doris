@@ -18,6 +18,8 @@
 
 package org.apache.hadoop.hive.metastore;
 
+import org.apache.doris.connector.hms.HmsRawPartitionFilterPage;
+import org.apache.doris.connector.hms.HmsRawPartitionFilterPageSource;
 import org.apache.doris.datasource.hive.HiveVersionUtil;
 import org.apache.doris.datasource.hive.HiveVersionUtil.HiveVersion;
 
@@ -304,7 +306,7 @@ import javax.security.auth.login.LoginException;
  */
 @InterfaceAudience.Public
 @InterfaceStability.Evolving
-public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
+public class HiveMetaStoreClient implements IMetaStoreClient, HmsRawPartitionFilterPageSource, AutoCloseable {
   /**
    * Capabilities of the current client. If this client talks to a MetaStore server in a manner
    * implying the usage of some expanded features that require client-side support that this client
@@ -1701,11 +1703,31 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
   @Override
   public List<Partition> listPartitionsByFilter(String catName, String db_name, String tbl_name,
                                                 String filter, int max_parts) throws TException {
+    return listPartitionsByFilterRawPage(catName, db_name, tbl_name, filter, max_parts).getPartitions();
+  }
+
+  /**
+   * Doris addition: like {@link #listPartitionsByFilter(String, String, String, String, int)} but also reports
+   * the RAW (pre-{@code filterHook}) page size of the underlying {@code get_partitions_by_filter} call.
+   *
+   * <p>WHY: the raw metastore page is capped at {@code max_parts} and the {@code filterHook} is applied only
+   * afterwards, so a hook that hides one entry of a truncated page makes the returned list look complete. A
+   * caller that must not silently drop matching partitions (Doris's direct-HMS partition pruning) decides
+   * saturation on the raw size, which is preserved here.</p>
+   */
+  public HmsRawPartitionFilterPage listPartitionsByFilterRawPage(String catName, String db_name,
+                                              String tbl_name, String filter, int max_parts) throws TException {
     String databaseName = hiveVersion == HiveVersion.V1_0 || hiveVersion == HiveVersion.V2_0
         || hiveVersion == HiveVersion.V2_3 ? db_name : prependCatalogToDbName(catName, db_name, conf);
     List<Partition> parts =client.get_partitions_by_filter(
         databaseName, tbl_name, filter, shrinkMaxtoShort(max_parts));
-    return deepCopyPartitions(filterHook.filterPartitions(parts));
+    return new HmsRawPartitionFilterPage(deepCopyPartitions(filterHook.filterPartitions(parts)), parts.size());
+  }
+
+  @Override
+  public HmsRawPartitionFilterPage listPartitionsByFilterRawPage(String db_name, String tbl_name,
+                                              String filter, int max_parts) throws TException {
+    return listPartitionsByFilterRawPage(getDefaultCatalog(conf), db_name, tbl_name, filter, max_parts);
   }
 
   @Override

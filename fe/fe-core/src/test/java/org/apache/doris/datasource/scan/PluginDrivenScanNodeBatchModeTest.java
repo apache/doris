@@ -34,6 +34,7 @@ import org.mockito.Mockito;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * FIX-BATCH-MODE-SPLIT (P4-T06e / NG-7) — guards {@link PluginDrivenScanNode#shouldUseBatchMode},
@@ -112,11 +113,22 @@ public class PluginDrivenScanNodeBatchModeTest {
         }
 
         SelectedPartitions materialized = PluginDrivenScanNode.materializeDeferredSelectedPartitions(
-                SelectedPartitions.DEFERRED_PARTITION_PRUNING, items);
+                SelectedPartitions.DEFERRED_PARTITION_PRUNING, Optional.of(items));
 
         Assertions.assertNotSame(SelectedPartitions.DEFERRED_PARTITION_PRUNING, materialized);
         Assertions.assertTrue(
                 PluginDrivenScanNode.shouldUseBatchMode(materialized, true, true, THRESHOLD));
+    }
+
+    @Test
+    public void testUnavailableDeferredPartitionViewDegradesToScanAll() {
+        // An unrepresentable connector partition makes the whole deferred view unavailable. That must degrade
+        // to NOT_PRUNED (read every partition) instead of an empty selection, which would read none.
+        SelectedPartitions degraded = PluginDrivenScanNode.materializeDeferredSelectedPartitions(
+                SelectedPartitions.DEFERRED_PARTITION_PRUNING, Optional.empty());
+
+        Assertions.assertSame(SelectedPartitions.NOT_PRUNED, degraded);
+        Assertions.assertNull(PluginDrivenScanNode.resolveRequiredPartitions(degraded));
     }
 
     @Test
