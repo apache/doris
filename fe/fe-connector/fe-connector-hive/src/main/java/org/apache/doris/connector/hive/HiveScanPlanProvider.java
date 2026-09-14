@@ -279,18 +279,29 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     private List<HmsPartitionInfo> resolveBatchPartitions(HiveTableHandle handle, List<String> partitionBatch) {
-        if (handle.getPrunedPartitionsByName().isEmpty()) {
+        Map<String, HmsPartitionInfo> retained = handle.getPrunedPartitionsByName();
+        if (retained.isEmpty()) {
             return loadPartitionsWithProfile(handle.getDbName(), handle.getTableName(), partitionBatch);
         }
         List<HmsPartitionInfo> partitions = new ArrayList<>(partitionBatch.size());
+        boolean covered = true;
         for (String partitionName : partitionBatch) {
-            HmsPartitionInfo partition = handle.getPrunedPartitionsByName().get(partitionName);
-            if (partition == null) {
-                throw new DorisConnectorException("Missing connector-pruned Hive partition: " + partitionName);
-            }
+            HmsPartitionInfo partition = retained.get(partitionName);
             partitions.add(partition);
+            if (partition == null) {
+                covered = false;
+            }
         }
-        return partitions;
+        if (covered) {
+            return partitions;
+        }
+        // The retained map covers exactly what THIS scan's connector predicate admitted, which can be narrower
+        // than the logical selection this batch came from: the connector converter declines an expression the
+        // physical converter strips (e.g. CAST(p AS INT) = 1 becomes the bare p = '1' handle), so a typed
+        // logical prune may legitimately select names the map does not hold, and no HMS mutation is needed for
+        // that. The native map is not proven to cover the logical selection, so resolve the whole batch by name
+        // exactly as the pre-cutover batch path did - one consistent generation, never a mixed one.
+        return loadPartitionsWithProfile(handle.getDbName(), handle.getTableName(), partitionBatch);
     }
 
     /**
