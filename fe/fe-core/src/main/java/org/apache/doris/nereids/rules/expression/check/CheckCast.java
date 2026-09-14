@@ -348,7 +348,6 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(MapType.class);
         allowedTypes.add(StructType.class);
         allowedTypes.add(VariantType.class);
-        allowedTypes.add(AggStateType.class);
         allowedTypes.add(QuantileStateType.class);
     }
 
@@ -384,6 +383,16 @@ public class CheckCast implements ExpressionPatternRuleFactory {
      */
     public static boolean check(DataType originalType, DataType targetType,
             boolean isStrictMode, boolean looseAggState) {
+        // Serialized values do not carry the aggregate function's state invariants.
+        // Matching containers are checked recursively below; parsing a value into a container
+        // of states must not bypass the same restriction (for example, Variant -> Array<AggState>).
+        if (checkTypeContainsType(targetType, AggStateType.class)
+                && !originalType.isAggStateType() && !originalType.isNullType()
+                && !(originalType.isArrayType() && targetType.isArrayType())
+                && !(originalType.isMapType() && targetType.isMapType())
+                && !(originalType.isStructType() && targetType.isStructType())) {
+            return false;
+        }
         if (originalType.isVariantType() && (targetType instanceof PrimitiveType || targetType.isArrayType())) {
             // variant could cast to primitive types and array
             return true;

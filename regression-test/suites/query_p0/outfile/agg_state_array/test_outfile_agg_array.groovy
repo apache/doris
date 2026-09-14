@@ -62,11 +62,22 @@ suite("test_outfile_agg_state_array") {
     properties("replication_num" = "1");
     """
 
-    def filePath=testHelper.localDir+"/tmp_*"
-    cmd """
-    curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "format:PARQUET" -H "Expect:100-continue" -T ${filePath} http://${context.config.feHttpAddress}/api/regression_test_query_p0_outfile_agg_state_array/a_table2/_stream_load
-    """
-    Thread.sleep(10000)
+    // Raw serialized states cannot be cast from file columns to AGG_STATE.
+    def files = new File(testHelper.localDir).listFiles().findAll { it.isFile() }
+    assertTrue(!files.isEmpty())
+    files.each { exportedFile ->
+        streamLoad {
+            table "a_table2"
+            set "format", "parquet"
+            file exportedFile.absolutePath
+            check { result, exception, startTime, endTime ->
+                assertTrue(exception == null)
+                def response = parseJson(result)
+                assertEquals("Fail", response.Status)
+                assertTrue(response.Message.contains("cast"), response.Message)
+            }
+        }
+    }
     qt_test "select k1,max_by_merge(k2),group_concat_merge(k3) from a_table2 group by k1 order by k1;"
     testHelper.close()
 }
