@@ -24,6 +24,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
@@ -643,6 +645,41 @@ public class MTMV extends OlapTable {
         editLogItem.await();
     }
 
+    /**
+     * Release the IVM baseline barrier after the partitions it named have been rebuilt, or after
+     * partition sync removed them (a dropped partition resolves its own entry: the partition and its
+     * IVM offsets are both gone).
+     *
+     * <p>Guarded by schemaChangeVersion, like {@link #persistIvmBaselineGuard}: a base-table change
+     * landing while the rebuild runs carries its own barrier entry, and a blind clear would swallow
+     * it. Failing instead preserves that entry -- the next refresh rebuilds it together with the
+     * partitions this task handled.
+     *
+     * <p>Journals the new state right away, like every other ivmInfo mutation here. A task that dies
+     * before {@link #addTaskResult} would otherwise leave the release in memory only, and a restart
+     * would resurrect the barrier from disk.
+     */
+    public void releaseIvmBaselineRebuild(long expectedSchemaChangeVersion) throws JobException {
+        EditLogItem editLogItem;
+        writeMvLock();
+        try {
+            if (ivmInfo == null || !ivmInfo.isBaselineRebuildRequired()) {
+                // Nothing to release: skip both the mutation and the journal entry. Any base-table
+                // change that raced us in is still caught by validateIvmRefreshStart() below.
+                return;
+            }
+            if (schemaChangeVersion != expectedSchemaChangeVersion) {
+                throw new JobException("Base table metadata changed before IVM baseline refresh, mv="
+                        + getName());
+            }
+            ivmInfo.clearBaselineRebuild();
+            editLogItem = submitIvmInfoChange();
+        } finally {
+            writeMvUnlock();
+        }
+        editLogItem.await();
+    }
+
     public void persistIvmBaselineGuard(RefreshMode refreshMode, Set<String> baselinePartitions,
             long expectedSchemaChangeVersion) throws JobException {
         EditLogItem editLogItem;
@@ -759,13 +796,21 @@ public class MTMV extends OlapTable {
     private Map<List<String>, Set<String>> getEffectiveQueryUsedBaseTablePartitionMap(
             Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap,
             Map<String, PartitionItem> mvPartitionItems) throws AnalysisException {
+        return getEffectiveQueryUsedBaseTablePartitionMap(queryUsedBaseTablePartitionMap, mvPartitionItems,
+                null);
+    }
+
+    private Map<List<String>, Set<String>> getEffectiveQueryUsedBaseTablePartitionMap(
+            Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap,
+            Map<String, PartitionItem> mvPartitionItems,
+            Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots) throws AnalysisException {
         if (queryUsedBaseTablePartitionMap.isEmpty()
                 || mvPartitionInfo.getPartitionType() != MTMVPartitionType.EXPR) {
             return queryUsedBaseTablePartitionMap;
         }
         return MTMVPartitionExpander.expandToMvPartitionGranularity(queryUsedBaseTablePartitionMap,
                 mvPartitionItems != null ? mvPartitionItems : getAndCopyPartitionItems(),
-                mvPartitionInfo.getPctTables());
+                mvPartitionInfo.getPctTables(), pinnedSnapshots);
     }
 
     /**
@@ -778,6 +823,12 @@ public class MTMV extends OlapTable {
      */
     public Map<String, Map<MTMVRelatedTableIf, Set<String>>> calculatePartitionMappings(
             Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap) throws AnalysisException {
+        return calculatePartitionMappings(queryUsedBaseTablePartitionMap, null);
+    }
+
+    public Map<String, Map<MTMVRelatedTableIf, Set<String>>> calculatePartitionMappings(
+            Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap,
+            Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots) throws AnalysisException {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return Maps.newHashMap();
         }
@@ -790,11 +841,12 @@ public class MTMV extends OlapTable {
         // so the pipeline runs without filtering (full computation) — correct behavior.
         Map<String, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
         Map<List<String>, Set<String>> effectiveFilter
-                = getEffectiveQueryUsedBaseTablePartitionMap(queryUsedBaseTablePartitionMap, mvPartitionItems);
+                = getEffectiveQueryUsedBaseTablePartitionMap(
+                        queryUsedBaseTablePartitionMap, mvPartitionItems, pinnedSnapshots);
         Map<String, Map<MTMVRelatedTableIf, Set<String>>> res = Maps.newHashMap();
         Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> pctPartitionDescs = MTMVPartitionUtil
                 .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties, getPartitionColumns(),
-                        effectiveFilter);
+                        effectiveFilter, pinnedSnapshots);
         for (Entry<String, PartitionItem> entry : mvPartitionItems.entrySet()) {
             res.put(entry.getKey(),
                     pctPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(), Maps.newHashMap()));

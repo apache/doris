@@ -54,10 +54,8 @@ public:
     std::string_view name() const override { return "VariantParse"; }
 };
 
-// Checks schema rules and block width for every block entering a seam. The
-// horizontal writer keeps a transitional duplicate of the width check until a
-// later change removes it: non-seam callers (compaction, index change) still
-// rely on it.
+// Checks schema rules and block width for every block entering a seam.
+// append_block repeats the width check for non-seam callers (compaction, index change).
 class ValidateStage : public BlockTransform {
 public:
     Status apply(TransformExecContext& ctx, Block* block) const override {

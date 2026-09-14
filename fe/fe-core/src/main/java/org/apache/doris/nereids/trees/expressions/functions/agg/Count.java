@@ -40,7 +40,8 @@ import java.util.List;
 
 /** count agg function. */
 public class Count extends NotNullableAggregateFunction
-        implements ExplicitlyCastableSignature, SupportWindowAnalytic, RollUpTrait, SupportMultiDistinct {
+        implements ExplicitlyCastableSignature, SupportWindowAnalytic, RollUpTrait, SupportMultiDistinct,
+        NullIgnoringAggregateFunction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             // count(*)

@@ -133,8 +133,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                         return false;
                     }
 
-                    Set<Slot> aggSlots = funcs.stream()
-                            .flatMap(f -> f.getInputSlots().stream())
+                    Set<Slot> aggSlots = normalizeArguments(funcs, agg.child()).stream()
+                            .flatMap(argument -> argument.getInputSlots().stream())
                             .collect(Collectors.toSet());
                     return aggSlots.isEmpty() || conjuncts.stream().allMatch(expr ->
                                 checkSlotInOrExpression(expr, aggSlots) && checkIsNullExpr(expr, aggSlots));

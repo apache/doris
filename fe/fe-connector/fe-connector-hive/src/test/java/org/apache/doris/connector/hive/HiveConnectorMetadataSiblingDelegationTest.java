@@ -136,6 +136,8 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         ConnectorMvccSnapshot pin = md.beginQuerySnapshot(session, foreignHandle).orElse(null);
         md.getTableFreshness(session, foreignHandle);
         md.getPartitionFreshnessMillis(session, foreignHandle, "p");
+        Map<String, Long> partitionFreshness = md.getPartitionsFreshnessMillis(
+                session, foreignHandle, Collections.singletonList("p"));
         md.dropTable(session, foreignHandle);
         md.truncateTable(session, foreignHandle, Collections.emptyList());
 
@@ -162,6 +164,8 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 "estimateDataSize must return the sibling's value, not hive's -1");
         Assertions.assertEquals(RecordingSiblingMetadata.SENTINEL_SNAPSHOT_ID, pin.getSnapshotId(),
                 "beginQuerySnapshot must return the sibling's snapshot-id pin, not hive's -1 last-modified pin");
+        Assertions.assertEquals(Collections.singletonMap("p", 55L), partitionFreshness,
+                "getPartitionsFreshnessMillis must return the sibling's result");
         Assertions.assertEquals(Collections.singletonList("sibling-part"), partNames,
                 "listPartitionNames must return the sibling's names");
         Assertions.assertEquals(Collections.singletonList("snapshots"), sysTables,
@@ -597,7 +601,8 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 "getTableSchema", "getColumnHandles", "getTableStatistics", "getColumnStatistics",
                 "estimateDataSizeByListingFiles",
                 "applyFilter", "listPartitionNames", "listPartitions",
-                "beginQuerySnapshot", "getTableFreshness", "getPartitionFreshnessMillis", "dropTable",
+                "beginQuerySnapshot", "getTableFreshness", "getPartitionFreshnessMillis",
+                "getPartitionsFreshnessMillis", "dropTable",
                 "truncateTable", "getTableSchemaAtSnapshot", "getMvccPartitionView", "resolveTimeTravel",
                 "applySnapshot", "getSyntheticScanPredicates", "applyRewriteFileScope",
                 "applyTopnLazyMaterialization", "listSupportedSysTables", "getSysTableHandle",
@@ -699,6 +704,13 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 String partitionName) {
             calls.add("getPartitionFreshnessMillis");
             return OptionalLong.of(55L);
+        }
+
+        @Override
+        public Map<String, Long> getPartitionsFreshnessMillis(ConnectorSession session,
+                ConnectorTableHandle handle, List<String> partitionNames) {
+            calls.add("getPartitionsFreshnessMillis");
+            return Collections.singletonMap(partitionNames.get(0), 55L);
         }
 
         @Override

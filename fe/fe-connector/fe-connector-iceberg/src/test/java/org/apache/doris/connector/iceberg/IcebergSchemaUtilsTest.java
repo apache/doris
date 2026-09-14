@@ -715,14 +715,21 @@ public class IcebergSchemaUtilsTest {
     }
 
     @Test
-    public void extractNameMappingFailsSoftOnMalformedProperty() {
-        // A malformed name-mapping property must not break the scan (legacy catches + warns). MUTATION: let the
-        // parse exception propagate -> the whole scan fails on a benign metadata quirk -> red.
+    public void malformedNameMappingKeepsIdlessCurrentNameFallback() {
+        // A malformed name-mapping property must not break the scan or look identical to a genuinely absent
+        // mapping. Required and optional fields both need current-name aliases for ID-less legacy files.
         Table table = createTable("t1", SCHEMA,
                 Collections.singletonMap(TableProperties.DEFAULT_NAME_MAPPING, "{not valid json"));
-        // A malformed property yields Optional.empty() (absent, not a present-empty mapping) -> hasNameMapping
-        // false -> the scan proceeds on the legacy name fallback instead of breaking.
-        Assertions.assertFalse(IcebergSchemaUtils.extractNameMapping(table).isPresent());
+
+        Map<Integer, List<String>> fallback = IcebergSchemaUtils.extractNameMapping(table).orElseThrow();
+        Assertions.assertEquals(Collections.singletonList("id"), fallback.get(1));
+        Assertions.assertEquals(Collections.singletonList("name"), fallback.get(2));
+
+        Map<String, TField> fields = topFields(dict(table, "id", "name"));
+        Assertions.assertTrue(fields.get("id").isNameMappingIsAuthoritative());
+        Assertions.assertEquals(Collections.singletonList("id"), fields.get("id").getNameMapping());
+        Assertions.assertTrue(fields.get("name").isNameMappingIsAuthoritative());
+        Assertions.assertEquals(Collections.singletonList("name"), fields.get("name").getNameMapping());
     }
 
     // --- round-trip through the prop transport (what the generic node does) ---

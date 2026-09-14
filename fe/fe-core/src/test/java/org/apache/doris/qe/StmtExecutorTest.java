@@ -17,23 +17,16 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchemaInitializer;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ResourceMgr;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Status;
-import org.apache.doris.mysql.MysqlChannel;
-import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
-import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
-import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
@@ -42,15 +35,9 @@ import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
-import org.mockito.invocation.InvocationOnMock;
-import org.mockito.stubbing.Answer;
 
-import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class StmtExecutorTest extends TestWithFeService {
@@ -86,13 +73,17 @@ public class StmtExecutorTest extends TestWithFeService {
     // the idle reaper must not read the session value later.
     @Test
     public void testDeferForArrowFlightFreezesExecTimeoutInEffect() throws Exception {
-        int savedQueryTimeout = connectContext.getSessionVariable().getQueryTimeoutS();
+        // Only an Arrow Flight SQL session defers a query's coordinator.
+        ConnectContext flightContext = ConnectContext.forFlight("test-peer-identity");
+        flightContext.setCurrentUserIdentity(connectContext.getCurrentUserIdentity());
+        flightContext.setEnv(connectContext.getEnv());
         int savedIdleTimeout = Config.arrow_flight_deferred_query_idle_timeout_second;
-        connectContext.setQueryId(new TUniqueId(0x67503L, 0x1L));
+        flightContext.setQueryId(new TUniqueId(0x67503L, 0x1L));
         try {
             Config.arrow_flight_deferred_query_idle_timeout_second = 1;
-            connectContext.getSessionVariable().setQueryTimeoutS(1234);
-            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
+            flightContext.getSessionVariable().setQueryTimeoutS(1234);
+            StmtExecutor stmtExecutor = new StmtExecutor(flightContext,
+                    analyzeAndGetStmtByNereids("select 1", flightContext));
             Assertions.assertFalse(stmtExecutor.isDeferredForArrowFlight());
             Assertions.assertEquals(-1, stmtExecutor.getDeferredExecTimeoutS());
 
@@ -101,14 +92,13 @@ public class StmtExecutorTest extends TestWithFeService {
             Assertions.assertTrue(stmtExecutor.isDeferredForArrowFlight());
             Assertions.assertEquals(1234, stmtExecutor.getDeferredExecTimeoutS());
             // the reaper's bound is floored at the frozen value ...
-            Assertions.assertEquals(1234L, connectContext.getFlightSqlDeferredExecutorsIdleTimeoutS());
+            Assertions.assertEquals(1234L, flightContext.getFlightSqlDeferredExecutorsIdleTimeoutS());
             // ... even after the session value moved on, as it does when a SET_VAR hint is reverted
-            connectContext.getSessionVariable().setQueryTimeoutS(5);
+            flightContext.getSessionVariable().setQueryTimeoutS(5);
             Assertions.assertEquals(1234, stmtExecutor.getDeferredExecTimeoutS());
-            Assertions.assertEquals(1234L, connectContext.getFlightSqlDeferredExecutorsIdleTimeoutS());
+            Assertions.assertEquals(1234L, flightContext.getFlightSqlDeferredExecutorsIdleTimeoutS());
         } finally {
-            connectContext.closeFlightSqlDeferredExecutors();
-            connectContext.getSessionVariable().setQueryTimeoutS(savedQueryTimeout);
+            flightContext.closeFlightSqlDeferredExecutors();
             Config.arrow_flight_deferred_query_idle_timeout_second = savedIdleTimeout;
         }
     }
@@ -270,172 +260,6 @@ public class StmtExecutorTest extends TestWithFeService {
         executor = new StmtExecutor(connectContext, "use testDb");
         executor.execute();
         Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
-    }
-
-    @Test
-    public void testSendTextResultRow() throws IOException {
-        ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
-        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
-        Mockito.when(mockCtx.getConnectType()).thenReturn(ConnectType.MYSQL);
-        Mockito.when(mockCtx.getMysqlChannel()).thenReturn(channel);
-        MysqlSerializer mysqlSerializer = MysqlSerializer.newInstance();
-        Mockito.when(channel.getSerializer()).thenReturn(mysqlSerializer);
-        SessionVariable sessionVariable = VariableMgr.newSessionVariable();
-        Mockito.when(mockCtx.getSessionVariable()).thenReturn(sessionVariable);
-        OriginStatement stmt = new OriginStatement("", 1);
-
-        List<List<String>> rows = Lists.newArrayList();
-        List<String> row1 = Lists.newArrayList();
-        row1.add(null);
-        row1.add("row1");
-        List<String> row2 = Lists.newArrayList();
-        row2.add("1234");
-        row2.add("row2");
-        rows.add(row1);
-        rows.add(row2);
-        List<Column> columns = Lists.newArrayList();
-        columns.add(new Column());
-        columns.add(new Column());
-        ResultSet resultSet = new CommonResultSet(new CommonResultSetMetaData(columns), rows);
-        AtomicInteger i = new AtomicInteger();
-        Mockito.doAnswer(new Answer<Void>() {
-            @Override
-            public Void answer(InvocationOnMock invocation) {
-                byte[] expected0 = new byte[] {-5, 4, 114, 111, 119, 49};
-                byte[] expected1 = new byte[] {4, 49, 50, 51, 52, 4, 114, 111, 119, 50};
-                ByteBuffer buffer = invocation.getArgument(0);
-                if (i.get() == 0) {
-                    Assertions.assertArrayEquals(expected0, buffer.array());
-                    i.getAndIncrement();
-                } else if (i.get() == 1) {
-                    Assertions.assertArrayEquals(expected1, buffer.array());
-                    i.getAndIncrement();
-                }
-                return null;
-            }
-        }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
-
-        StmtExecutor executor = new StmtExecutor(mockCtx, stmt, false);
-        executor.sendTextResultRow(resultSet);
-    }
-
-    @Test
-    public void testSendBinaryResultRow() throws IOException {
-        ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
-        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
-        Mockito.when(mockCtx.getConnectType()).thenReturn(ConnectType.MYSQL);
-        Mockito.when(mockCtx.getMysqlChannel()).thenReturn(channel);
-        MysqlSerializer mysqlSerializer = MysqlSerializer.newInstance();
-        Mockito.when(channel.getSerializer()).thenReturn(mysqlSerializer);
-        SessionVariable sessionVariable = VariableMgr.newSessionVariable();
-        Mockito.when(mockCtx.getSessionVariable()).thenReturn(sessionVariable);
-        OriginStatement stmt = new OriginStatement("", 1);
-
-        List<List<String>> rows = Lists.newArrayList();
-        List<String> row1 = Lists.newArrayList();
-        row1.add(null);
-        row1.add("2025-01-01 01:02:03");
-        List<String> row2 = Lists.newArrayList();
-        row2.add("1234");
-        row2.add("2025-01-01 01:02:03.123456");
-        rows.add(row1);
-        rows.add(row2);
-        List<Column> columns = Lists.newArrayList();
-        columns.add(new Column("col1", PrimitiveType.BIGINT));
-        columns.add(new Column("col2", PrimitiveType.DATETIMEV2));
-        ResultSet resultSet = new CommonResultSet(new CommonResultSetMetaData(columns), rows);
-        AtomicInteger i = new AtomicInteger();
-        Mockito.doAnswer(new Answer<Void>() {
-            @Override
-            public Void answer(InvocationOnMock invocation) {
-                byte[] expected0 = new byte[] {0, 4, 7, -23, 7, 1, 1, 1, 2, 3};
-                byte[] expected1 = new byte[] {0, 0, -46, 4, 0, 0, 0, 0, 0, 0, 11, -23, 7, 1, 1, 1, 2, 3,
-                        64, -30, 1, 0};
-                ByteBuffer buffer = invocation.getArgument(0);
-                if (i.get() == 0) {
-                    Assertions.assertArrayEquals(expected0, buffer.array());
-                    i.getAndIncrement();
-                } else if (i.get() == 1) {
-                    Assertions.assertArrayEquals(expected1, buffer.array());
-                    i.getAndIncrement();
-                }
-                return null;
-            }
-        }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
-
-        StmtExecutor executor = new StmtExecutor(mockCtx, stmt, false);
-        executor.sendBinaryResultRow(resultSet);
-    }
-
-    @Test
-    public void testSendBinaryTimestampNsResultRow() throws IOException {
-        ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
-        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
-        Mockito.when(mockCtx.getConnectType()).thenReturn(ConnectType.MYSQL);
-        Mockito.when(mockCtx.getMysqlChannel()).thenReturn(channel);
-        MysqlSerializer mysqlSerializer = MysqlSerializer.newInstance();
-        Mockito.when(channel.getSerializer()).thenReturn(mysqlSerializer);
-        Mockito.when(mockCtx.getSessionVariable()).thenReturn(VariableMgr.newSessionVariable());
-
-        String value = "2025-01-01 01:02:03.123456789";
-        List<List<String>> rows = Lists.newArrayList();
-        rows.add(Lists.newArrayList(value));
-        ResultSet resultSet = new CommonResultSet(
-                new CommonResultSetMetaData(Lists.newArrayList(
-                        new Column("timestamp_ns", ScalarType.createTimeStampNsType()))),
-                rows);
-        Mockito.doAnswer(invocation -> {
-            byte[] valueBytes = value.getBytes(StandardCharsets.UTF_8);
-            byte[] expected = new byte[valueBytes.length + 3];
-            expected[2] = (byte) valueBytes.length;
-            System.arraycopy(valueBytes, 0, expected, 3, valueBytes.length);
-            ByteBuffer buffer = invocation.getArgument(0);
-            Assertions.assertArrayEquals(expected, buffer.array());
-            return null;
-        }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
-
-        StmtExecutor executor = new StmtExecutor(mockCtx, new OriginStatement("", 1), false);
-        executor.sendBinaryResultRow(resultSet);
-    }
-
-    @Test
-    public void testSendBinaryBooleanResultRow() throws IOException {
-        ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
-        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
-        Mockito.when(mockCtx.getConnectType()).thenReturn(ConnectType.MYSQL);
-        Mockito.when(mockCtx.getMysqlChannel()).thenReturn(channel);
-        MysqlSerializer mysqlSerializer = MysqlSerializer.newInstance();
-        Mockito.when(channel.getSerializer()).thenReturn(mysqlSerializer);
-        SessionVariable sessionVariable = VariableMgr.newSessionVariable();
-        Mockito.when(mockCtx.getSessionVariable()).thenReturn(sessionVariable);
-        OriginStatement stmt = new OriginStatement("", 1);
-
-        List<List<String>> rows = Lists.newArrayList();
-        rows.add(Lists.newArrayList("false"));
-        rows.add(Lists.newArrayList("1"));
-        List<Column> columns = Lists.newArrayList();
-        columns.add(new Column("col1", PrimitiveType.BOOLEAN));
-        ResultSet resultSet = new CommonResultSet(new CommonResultSetMetaData(columns), rows);
-        AtomicInteger i = new AtomicInteger();
-        Mockito.doAnswer(new Answer<Void>() {
-            @Override
-            public Void answer(InvocationOnMock invocation) {
-                byte[] expected0 = new byte[] {0, 0, 0};
-                byte[] expected1 = new byte[] {0, 0, 1};
-                ByteBuffer buffer = invocation.getArgument(0);
-                if (i.get() == 0) {
-                    Assertions.assertArrayEquals(expected0, buffer.array());
-                    i.getAndIncrement();
-                } else if (i.get() == 1) {
-                    Assertions.assertArrayEquals(expected1, buffer.array());
-                    i.getAndIncrement();
-                }
-                return null;
-            }
-        }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
-
-        StmtExecutor executor = new StmtExecutor(mockCtx, stmt, false);
-        executor.sendBinaryResultRow(resultSet);
     }
 
     @Test

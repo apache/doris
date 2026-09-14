@@ -580,8 +580,14 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
 
             // Read next block.
             // Some of column in block may not be filled (column not exist in file)
-            RETURN_IF_ERROR(
-                    _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
+            Status st = _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof);
+            // Lazy open may surface NOT_FOUND on the first read; skip as above.
+            if (st.is<ErrorCode::NOT_FOUND>() && config::ignore_not_found_file_in_external_table) {
+                _cur_reader_eof = true;
+                COUNTER_UPDATE(_not_found_file_counter, 1);
+                continue;
+            }
+            RETURN_IF_ERROR(st);
         }
         // use read_rows instead of _src_block_ptr->rows(), because the first column of _src_block_ptr
         // may not be filled after calling `get_next_block()`, so _src_block_ptr->rows() may return wrong result.

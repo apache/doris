@@ -2,3 +2,5 @@
 -- !ctas --
 135.55	67.7750
 
+-- !bigint_avg_distinct_overflow --
+1	2

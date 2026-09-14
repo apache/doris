@@ -32,6 +32,12 @@
 // running the test and copying the "actual=" value from the failure message --
 // and say so loudly in the commit message.
 //
+// RE-HARVESTED (A2, CommonGrams removal) for the two ANALYZED lanes only: an analyzed
+// index with positions now always carries a BM25 norms section, so EnglishPhrase and
+// UnicodePhrase moved while KeywordDocsOnly (no analyzer, no norms) and the posting-shape
+// matrix (explicit inputs) stayed byte-identical -- which is what tells you the change
+// is confined to "analyzed + positions" segments.
+//
 // RE-HARVESTED when SniiStatsPB and SniiSectionRefsPB were renumbered back to the
 // field numbers the format shipped with. Protobuf tags are part of the image, so
 // EVERY digest moved -- including kGoldenKeywordDocsOnly, which is what tells you
@@ -187,7 +193,6 @@ doris::snii::writer::SniiIndexInput make_shape_input(
     input.index_suffix = std::move(suffix);
     input.config = config;
     input.doc_count = term.docids.empty() ? 0 : term.docids.back() + 1;
-    input.write_freq = false;
     input.terms.push_back(std::move(term));
     return input;
 }
@@ -286,15 +291,12 @@ protected:
         config::snii_dict_block_zstd_level = 3;
         config::snii_prx_zstd_level = 3;
         config::snii_prx_zstd_level_direct_load = 3;
-        _saved_write_freq = config::snii_positions_index_write_freq;
-        config::snii_positions_index_write_freq = false;
     }
 
     void TearDown() override {
         config::snii_dict_block_zstd_level = _saved_dict_lvl;
         config::snii_prx_zstd_level = _saved_prx_lvl;
         config::snii_prx_zstd_level_direct_load = _saved_prx_load_lvl;
-        config::snii_positions_index_write_freq = _saved_write_freq;
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
@@ -302,15 +304,21 @@ private:
     int32_t _saved_dict_lvl = 3;
     int32_t _saved_prx_lvl = 3;
     int32_t _saved_prx_load_lvl = 3;
-    bool _saved_write_freq = false;
 };
 
+// Whole-image digests re-harvested after core metadata stopped writing an empty
+// norms section reference (SniiSectionRefsPB.norms is optional; production writers
+// never emitted it). Every digest moved, the keyword docs-only one included.
+// S1 re-harvest (2026-09-04): the dict / posting / prelude physical layout went back
+// to the production layout byte-for-byte (no freq regions, no per-window max_freq /
+// max_norm, no dict-entry term stats, no frq_docs_len), so every digest moved again --
+// the keyword docs-only one included.
 // Whole-image digests re-harvested for the protobuf v1 metadata layout. They
 // still pin posting bytes together with every framing, directory, and metadata
 // byte, so future format changes remain explicit.
-constexpr uint64_t kGoldenEnglishPhrase = 0x21fa508c4b24585eULL;
-constexpr uint64_t kGoldenUnicodePhrase = 0xf3132d01603c7613ULL;
-constexpr uint64_t kGoldenKeywordDocsOnly = 0x45e45e6f7b81c65aULL;
+constexpr uint64_t kGoldenEnglishPhrase = 0x8157f9dd81c5397cULL;
+constexpr uint64_t kGoldenUnicodePhrase = 0x9e2a4ba4abedaef9ULL;
+constexpr uint64_t kGoldenKeywordDocsOnly = 0x27cec04c70573201ULL;
 
 TEST_F(SniiWriterGoldenBytes, EnglishPhrase) {
     const TabletIndex meta =
@@ -390,9 +398,9 @@ TEST_F(SniiWriterGoldenBytes, PostingShapeMatrixCompleteImageDigest) {
             "df-8192", "recut-full", "recut-tail", "docs-only",
     };
     constexpr std::array<uint64_t, 9> expected = {
-            0x5c9d83ad451240d5ULL, 0xbc57a5703b9ad0b2ULL, 0x41bbd0018cad67eeULL,
-            0x5fd78aaa9e3d2387ULL, 0x19fb79ed197b52b1ULL, 0x53d66eb1b705907cULL,
-            0xdae9ed00bf186842ULL, 0x72e87672c20f8cafULL, 0xc86fb412bf9c7686ULL,
+            0x5b6807a5d668ff9fULL, 0x0aaa7e9cc44697e1ULL, 0xffff899812d536afULL,
+            0x346f92715953d47cULL, 0x6feac955a63cd476ULL, 0x5c12077d649d3f95ULL,
+            0x8d31c79d059cb728ULL, 0xcea7e9f70309b4f7ULL, 0x96696b7f0b18be2dULL,
     };
     for (size_t i = 0; i < images.size(); ++i) {
         const uint64_t actual = fnv1a64(images[i].bytes);

@@ -1338,7 +1338,12 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             return collectPartitions(paimonHandle);
         }
         ConnectorTableKey key = partitionViewCacheKey(paimonHandle);
-        return partitionViewCache.get(key, () -> collectPartitions(paimonHandle));
+        return partitionViewCache.get(key, () -> {
+            List<ConnectorPartitionInfo> partitions = collectPartitions(paimonHandle);
+            return partitionViewCache.isEnabled() && partitionViewCache.isWeightBounded()
+                    ? new PaimonPartitionView(key, partitions)
+                    : partitions;
+        });
     }
 
     /**

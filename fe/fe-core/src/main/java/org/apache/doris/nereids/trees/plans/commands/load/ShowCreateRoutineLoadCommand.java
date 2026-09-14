@@ -106,7 +106,7 @@ public class ShowCreateRoutineLoadCommand extends ShowCommand {
                 return new ShowResultSet(getMetaData(), rows);
             }
             for (RoutineLoadJob job : routineLoadJobList) {
-                String tableName = "";
+                String tableName = null;
                 try {
                     tableName = job.getTableName();
                 } catch (MetaNotFoundException e) {
@@ -114,7 +114,17 @@ public class ShowCreateRoutineLoadCommand extends ShowCommand {
                             .add("error_msg", "The table name for this routine load does not exist")
                             .build(), e);
                 }
-                if (!Env.getCurrentEnv().getAccessManager()
+                // A job that names no table - a multi table one, or one whose table has since been dropped,
+                // which this branch lists because it includes history - has to be decided on the database or
+                // above. Asking about a table by the empty name left here before was a question about a table
+                // that does not exist, which each source is free to answer its own way.
+                if (tableName == null) {
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                            PrivPredicate.LOAD)) {
+                        continue;
+                    }
+                } else if (!Env.getCurrentEnv().getAccessManager()
                         .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName, tableName,
                         PrivPredicate.LOAD)) {
                     continue;

@@ -18,6 +18,8 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
+import org.apache.doris.connector.cache.ConnectorTableKey;
+import org.apache.doris.connector.cache.JvmSizeUtils;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition;
@@ -37,6 +39,7 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -123,6 +126,63 @@ public class IcebergConnectorMetadataPartitionViewCacheTest {
     private static List<String> mvccNames(Optional<ConnectorMvccPartitionView> view) {
         return view.get().getPartitions().stream()
                 .map(ConnectorMvccPartition::getName).collect(Collectors.toList());
+    }
+
+    @Test
+    public void derivedViewWeightsIncludeTailAtEveryPosition() {
+        ConnectorTableKey key = new ConnectorTableKey("db", "table", 1L, 1L);
+        String large = "x".repeat(1024 * 1024);
+        long listBaseline = 0L;
+        long mvccBaseline = 0L;
+        for (int position : new int[] {-1, 0, 333, 998, 999}) {
+            List<ConnectorPartitionInfo> listView = new ArrayList<>();
+            List<ConnectorMvccPartition> mvccPartitions = new ArrayList<>();
+            for (int index = 0; index < 1000; index++) {
+                String value = index == position ? large : "x";
+                listView.add(new ConnectorPartitionInfo("p=" + value,
+                        Collections.singletonMap("p", value), Collections.emptyMap(),
+                        Collections.singletonList(value), Collections.emptyList()));
+                mvccPartitions.add(new ConnectorMvccPartition("p=" + value,
+                        Collections.singletonList(value), Collections.singletonList(value), 1L));
+            }
+            long listBytes = IcebergCacheSizeEstimator.estimatePartitionInfoViewEntry(key, listView).getBytes();
+            long mvccBytes = IcebergCacheSizeEstimator.estimateMvccPartitionViewEntry(key,
+                    new ConnectorMvccPartitionView(ConnectorMvccPartitionView.Style.RANGE,
+                            ConnectorMvccPartitionView.Freshness.SNAPSHOT_ID, mvccPartitions, 1L)).getBytes();
+            if (position == -1) {
+                listBaseline = listBytes;
+                mvccBaseline = mvccBytes;
+            } else {
+                long nameGrowth = JvmSizeUtils.stringSize("p=" + large) - JvmSizeUtils.stringSize("p=x");
+                long valueGrowth = JvmSizeUtils.stringSize(large) - JvmSizeUtils.stringSize("x");
+                Assertions.assertEquals(listBaseline + nameGrowth + valueGrowth, listBytes);
+                Assertions.assertEquals(mvccBaseline + nameGrowth + 2 * valueGrowth, mvccBytes);
+            }
+        }
+    }
+
+    @Test
+    public void largePartitionViewsCanBeEstimatedWithoutTheReflectiveVisitLimit() {
+        List<ConnectorPartitionInfo> listView = new ArrayList<>();
+        List<ConnectorMvccPartition> mvccPartitions = new ArrayList<>();
+        for (int index = 0; index < 20_000; index++) {
+            String value = Integer.toString(index);
+            listView.add(new ConnectorPartitionInfo("p=" + value,
+                    Collections.singletonMap("p", value), Collections.emptyMap(),
+                    Collections.singletonList(value), Collections.emptyList()));
+            mvccPartitions.add(new ConnectorMvccPartition(
+                    "p=" + value, Collections.singletonList(value),
+                    Collections.singletonList(value), index));
+        }
+        ConnectorTableKey key = new ConnectorTableKey("db", "table", 1L, 1L);
+        ConnectorMvccPartitionView mvccView = new ConnectorMvccPartitionView(
+                ConnectorMvccPartitionView.Style.RANGE,
+                ConnectorMvccPartitionView.Freshness.SNAPSHOT_ID, mvccPartitions, 1L);
+
+        Assertions.assertTrue(IcebergCacheSizeEstimator.estimatePartitionInfoViewEntry(
+                key, listView).isComplete());
+        Assertions.assertTrue(IcebergCacheSizeEstimator.estimateMvccPartitionViewEntry(
+                key, mvccView).isComplete());
     }
 
     // ---------------------------------------------------------------------

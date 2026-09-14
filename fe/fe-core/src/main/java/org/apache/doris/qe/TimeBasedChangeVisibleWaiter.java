@@ -18,67 +18,170 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.thrift.FrontendService;
+import org.apache.doris.thrift.TAcquireTimeBasedChangeReadFenceRequest;
+import org.apache.doris.thrift.TAcquireTimeBasedChangeReadFenceResult;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
-import org.apache.doris.transaction.TransactionState;
-import org.apache.doris.transaction.TransactionStatus;
+import org.apache.doris.tso.TSOService;
 import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
+import java.util.concurrent.TimeUnit;
 
 /**
- * Before executing a time-based incremental read, wait for relevant target-table transactions to
- * become visible. In cloud mode, drain transactions registered before a query-start transaction ID
- * watermark. In non-cloud mode, wait for committed transactions whose commit TSO is within the
- * requested read timestamp.
+ * Establishes a closed upper fence before planning a time-based incremental read.
  *
- * <p>Skipped entirely when the session enables eventual-consistent change reads, or when no table
- * is involved. Waiting is bounded by session variable {@code change_visible_timeout_ms}; timing out
- * raises a {@link UserException}.
+ * <p>The master FE first captures its TSO, validates an explicit end timestamp, then captures a
+ * transaction ID watermark and drains earlier transactions involving the target tables. In classic
+ * mode, it also synchronizes with transaction publishers through the target table locks and returns
+ * a journal watermark for a follower FE to replay. In cloud mode, partition versions are refreshed
+ * directly from MetaService after this waiter completes.
  */
 public class TimeBasedChangeVisibleWaiter {
-    private static final long CLOUD_TXN_POLL_INTERVAL_MS = 100;
+    private static final long TXN_POLL_INTERVAL_MS = 100;
 
-    private final ConnectContext context;
+    /** Immutable result of establishing the fence on the master FE. */
+    public static final class ChangeReadFence {
+        private final long currentTso;
+        private final long maxJournalId;
+
+        public ChangeReadFence(long currentTso, long maxJournalId) {
+            this.currentTso = currentTso;
+            this.maxJournalId = maxJournalId;
+        }
+
+        public long getCurrentTso() {
+            return currentTso;
+        }
+
+        public long getMaxJournalId() {
+            return maxJournalId;
+        }
+    }
+
+    @VisibleForTesting
+    static final class ChangeReadInfo {
+        private final Map<Long, List<Long>> dbToTableIds;
+        private final Long maxEndTimestampMs;
+
+        private ChangeReadInfo(Map<Long, List<Long>> dbToTableIds, Long maxEndTimestampMs) {
+            this.dbToTableIds = dbToTableIds;
+            this.maxEndTimestampMs = maxEndTimestampMs;
+        }
+
+        Map<Long, List<Long>> getDbToTableIds() {
+            return dbToTableIds;
+        }
+
+        Long getMaxEndTimestampMs() {
+            return maxEndTimestampMs;
+        }
+    }
 
     public static void waitForVisible(ConnectContext context, Plan plan, Map<List<String>, TableIf> tables)
             throws UserException {
-        if (context.getSessionVariable().isEnableEventualConsistentChange() || tables.isEmpty()) {
+        if (tables.isEmpty()) {
             return;
         }
-        Map<Long, Map<Long, Long>> dbToTableEndTSO = collectDbToTableEndTSO(
-                context, plan, tables, System.currentTimeMillis());
-        new TimeBasedChangeVisibleWaiter(context).waitForDbToTableEndTSO(dbToTableEndTSO);
-    }
+        ChangeReadInfo changeReadInfo = collectChangeReadInfo(context, plan, tables);
+        if (changeReadInfo.getDbToTableIds().isEmpty()) {
+            return;
+        }
 
-    private TimeBasedChangeVisibleWaiter(ConnectContext context) {
-        this.context = context;
+        boolean waitForTransactions = !context.getSessionVariable().isEnableEventualConsistentChange();
+        // Eventual-consistent reads without an explicit end do not need a closed fence.
+        if (!waitForTransactions && changeReadInfo.getMaxEndTimestampMs() == null) {
+            return;
+        }
+
+        long timeoutMs = context.getSessionVariable().getChangeVisibleTimeoutMs();
+        long deadlineMs = System.currentTimeMillis() + timeoutMs;
+        ChangeReadFence fence;
+        boolean acquiredFromRemoteMaster = !context.getEnv().isMaster();
+        if (!acquiredFromRemoteMaster) {
+            fence = acquireFenceOnMaster(changeReadInfo.getDbToTableIds(),
+                    changeReadInfo.getMaxEndTimestampMs(), timeoutMs, waitForTransactions);
+        } else {
+            fence = acquireFenceFromMaster(context, changeReadInfo, timeoutMs, waitForTransactions);
+        }
+
+        if (acquiredFromRemoteMaster && waitForTransactions && !Config.isCloudMode()
+                && context.getEnv().getReplayedJournalId() < fence.getMaxJournalId()) {
+            long remainingMs = deadlineMs - System.currentTimeMillis();
+            if (remainingMs <= 0) {
+                throw new UserException(String.format(
+                        "timeout waiting follower journal replay for time-based read, maxJournalId=%d",
+                        fence.getMaxJournalId()));
+            }
+            context.getEnv().getJournalObservable().waitOn(
+                    fence.getMaxJournalId(), (int) Math.min(Integer.MAX_VALUE, remainingMs));
+        }
     }
 
     /**
-     * Walk the plan, pick out relations doing an incremental read, and for each OlapTable record the
-     * read end timestamp (converted to a full TSO) aggregated as dbId -> (tableId -> max endTSO).
+     * Capture and validate the TSO before acquiring the transaction ID watermark. This method must
+     * execute on the master FE; follower FEs invoke it through FrontendService.
      */
+    public static ChangeReadFence acquireFenceOnMaster(Map<Long, List<Long>> dbToTableIds,
+            Long maxEndTimestampMs, long timeoutMs, boolean waitForTransactions) throws UserException {
+        Env env = Env.getCurrentEnv();
+        if (!env.isMaster()) {
+            throw new UserException("time-based change read fence must be acquired on the master FE");
+        }
+
+        TSOService.TSOStatusSnapshot tsoSnapshot = env.getTSOService().getStatusSnapshot();
+        if (!tsoSnapshot.isInitialized()) {
+            throw new UserException("TSO timestamp is not calibrated, please check");
+        }
+        long currentTso = tsoSnapshot.getCurrentTso();
+        validateEndTimestamp(maxEndTimestampMs, currentTso);
+
+        if (waitForTransactions) {
+            long deadlineMs = System.currentTimeMillis() + timeoutMs;
+            GlobalTransactionMgrIface txnMgr = Env.getCurrentGlobalTransactionMgr();
+            long txnIdWatermark;
+            try {
+                txnIdWatermark = txnMgr.getTransactionIdWatermark();
+            } catch (UserException e) {
+                throw new UserException("get transaction id watermark failed for time-based read", e);
+            }
+            waitForPreviousTransactions(txnMgr, txnIdWatermark, dbToTableIds, deadlineMs);
+            if (!Config.isCloudMode()) {
+                synchronizeClassicPublishers(dbToTableIds, deadlineMs);
+            }
+        }
+        return new ChangeReadFence(currentTso, env.getMaxJournalId());
+    }
+
     @VisibleForTesting
-    static Map<Long, Map<Long, Long>> collectDbToTableEndTSO(ConnectContext context, Plan plan,
-            Map<List<String>, TableIf> tables, long defaultEndTsMs) {
-        Map<Long, Map<Long, Long>> dbToTableEndTSO = new HashMap<>();
+    static ChangeReadInfo collectChangeReadInfo(ConnectContext context, Plan plan,
+            Map<List<String>, TableIf> tables) {
+        Map<Long, Set<Long>> dbToTableIdSets = new TreeMap<>();
+        long[] maxEndTimestampMs = {-1L};
         plan.foreach(node -> {
             if (!(node instanceof UnboundRelation)) {
                 return;
@@ -89,52 +192,44 @@ public class TimeBasedChangeVisibleWaiter {
                 return;
             }
             TableIf table = tables.get(RelationUtil.getQualifierName(context, relation.getNameParts()));
-            if (table instanceof OlapTable) {
-                addTableEndTSO(dbToTableEndTSO, (OlapTable) table, getEndTsMs(scanParams, defaultEndTsMs));
+            if (!(table instanceof OlapTable)) {
+                return;
             }
-        });
-        return dbToTableEndTSO;
-    }
-
-    /** Wait for relevant transactions using the transaction manager implementation for the cluster mode. */
-    private void waitForDbToTableEndTSO(Map<Long, Map<Long, Long>> dbToTableEndTSO) throws UserException {
-        if (dbToTableEndTSO.isEmpty()) {
-            return;
-        }
-        long deadlineMs = System.currentTimeMillis() + context.getSessionVariable().getChangeVisibleTimeoutMs();
-        if (Config.isCloudMode()) {
-            waitForCloudTransactions(dbToTableEndTSO, deadlineMs);
-            return;
-        }
-        for (Map.Entry<Long, Map<Long, Long>> dbEntry : dbToTableEndTSO.entrySet()) {
-            long dbId = dbEntry.getKey();
-            Map<Long, Long> tableEndTSO = dbEntry.getValue();
-            for (TransactionState txn : getCommittedTransactions(dbId)) {
-                Pair<Long, Long> matchedTableEndTSO = findMatchedTableEndTSO(txn, tableEndTSO);
-                if (matchedTableEndTSO != null) {
-                    waitTransactionVisible(txn, dbId, matchedTableEndTSO.first, matchedTableEndTSO.second,
-                            deadlineMs);
+            OlapTable olapTable = (OlapTable) table;
+            dbToTableIdSets.computeIfAbsent(olapTable.getDatabase().getId(), ignored -> new TreeSet<>())
+                    .add(olapTable.getId());
+            if (scanParams.getMapParams().containsKey(OlapScanNode.OLAP_END_TIMESTAMP)) {
+                long endTimestampMs = OlapScanNode.parseChangeTimestamp(
+                        scanParams.getMapParams().get(OlapScanNode.OLAP_END_TIMESTAMP));
+                if (endTimestampMs > 0) {
+                    maxEndTimestampMs[0] = Math.max(maxEndTimestampMs[0], endTimestampMs);
                 }
             }
+        });
+
+        Map<Long, List<Long>> dbToTableIds = new TreeMap<>();
+        dbToTableIdSets.forEach((dbId, tableIds) -> dbToTableIds.put(dbId, new ArrayList<>(tableIds)));
+        return new ChangeReadInfo(dbToTableIds, maxEndTimestampMs[0] < 0 ? null : maxEndTimestampMs[0]);
+    }
+
+    private static void validateEndTimestamp(Long maxEndTimestampMs, long currentTso) throws UserException {
+        if (maxEndTimestampMs == null) {
+            return;
+        }
+        long maxSupportedEndTimestampMs = TSOTimestamp.extractPhysicalTime(currentTso);
+        if (maxEndTimestampMs > maxSupportedEndTimestampMs) {
+            throw new UserException(String.format(
+                    "endTimestamp exceeds the maximum supported time for an INCR read: "
+                            + "requestedEndTimestampMs=%d, CURRENT_TSO_PHYSICAL_TIME=%d",
+                    maxEndTimestampMs, maxSupportedEndTimestampMs));
         }
     }
 
-    private void waitForCloudTransactions(Map<Long, Map<Long, Long>> dbToTableEndTSO, long deadlineMs)
-            throws UserException {
-        GlobalTransactionMgrIface txnMgr = Env.getCurrentGlobalTransactionMgr();
-        long txnIdWatermark;
-        try {
-            // MetaService returns the current maximum transaction ID, while check_txn_conflict
-            // uses an exclusive upper bound.
-            txnIdWatermark = txnMgr.getNextTransactionId() + 1;
-        } catch (UserException e) {
-            throw new UserException("get transaction id watermark failed for time-based read", e);
-        }
-
-        for (Map.Entry<Long, Map<Long, Long>> dbEntry : dbToTableEndTSO.entrySet()) {
+    private static void waitForPreviousTransactions(GlobalTransactionMgrIface txnMgr, long txnIdWatermark,
+            Map<Long, List<Long>> dbToTableIds, long deadlineMs) throws UserException {
+        for (Map.Entry<Long, List<Long>> dbEntry : dbToTableIds.entrySet()) {
             long dbId = dbEntry.getKey();
-            List<Long> tableIds = new ArrayList<>(dbEntry.getValue().keySet());
-            Collections.sort(tableIds);
+            List<Long> tableIds = dbEntry.getValue();
             while (!isPreviousTransactionsFinished(txnMgr, txnIdWatermark, dbId, tableIds)) {
                 long remainingMs = deadlineMs - System.currentTimeMillis();
                 if (remainingMs <= 0) {
@@ -144,7 +239,7 @@ public class TimeBasedChangeVisibleWaiter {
                             txnIdWatermark, dbId, tableIds));
                 }
                 try {
-                    Thread.sleep(Math.min(CLOUD_TXN_POLL_INTERVAL_MS, remainingMs));
+                    Thread.sleep(Math.min(TXN_POLL_INTERVAL_MS, remainingMs));
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     throw new UserException(String.format(
@@ -156,7 +251,7 @@ public class TimeBasedChangeVisibleWaiter {
         }
     }
 
-    private boolean isPreviousTransactionsFinished(GlobalTransactionMgrIface txnMgr, long txnIdWatermark,
+    private static boolean isPreviousTransactionsFinished(GlobalTransactionMgrIface txnMgr, long txnIdWatermark,
             long dbId, List<Long> tableIds) throws UserException {
         try {
             return txnMgr.isPreviousTransactionsFinished(txnIdWatermark, dbId, tableIds);
@@ -169,68 +264,76 @@ public class TimeBasedChangeVisibleWaiter {
     }
 
     /**
-     * Return (tableId, endTSO) if the transaction is COMMITTED and its commit TSO is within the
-     * requested endTSO of one of its tables; otherwise null (no need to wait).
+     * A classic transaction becomes VISIBLE in memory while its publisher still owns table write
+     * locks. Taking the corresponding read locks after the transaction drain guarantees that the
+     * visible journal and partition metadata updates have completed before maxJournalId is read.
      */
-    private Pair<Long, Long> findMatchedTableEndTSO(TransactionState txn, Map<Long, Long> tableEndTSO) {
-        long commitTSO = txn.getCommitTSO();
-        if (txn.getTransactionStatus() != TransactionStatus.COMMITTED || commitTSO < 0) {
-            return null;
-        }
-        for (Long tableId : txn.getTableIdList()) {
-            Long endTSO = tableEndTSO.get(tableId);
-            if (endTSO != null && commitTSO <= endTSO) {
-                return Pair.of(tableId, endTSO);
-            }
-        }
-        return null;
-    }
-
-    private List<TransactionState> getCommittedTransactions(long dbId) throws UserException {
-        try {
-            return Env.getCurrentGlobalTransactionMgr().getCommittedTransactions(dbId);
-        } catch (Exception e) {
-            throw new UserException("get committed transactions failed. dbId=" + dbId, e);
-        }
-    }
-
-    /**
-     * Poll-wait until the transaction leaves COMMITTED (becomes visible) or the deadline passes;
-     * throw if it is still COMMITTED at timeout.
-     */
-    private void waitTransactionVisible(TransactionState txn, long dbId, long tableId,
-            long endTSO, long deadlineMs) throws UserException {
-        long remainingMs = deadlineMs - System.currentTimeMillis();
-        while (txn.getTransactionStatus() == TransactionStatus.COMMITTED && remainingMs > 0) {
+    private static void synchronizeClassicPublishers(Map<Long, List<Long>> dbToTableIds, long deadlineMs)
+            throws UserException {
+        for (Map.Entry<Long, List<Long>> dbEntry : dbToTableIds.entrySet()) {
+            Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbEntry.getKey());
+            List<Table> tables = db.getTablesOnIdOrderIfExist(dbEntry.getValue());
+            List<Table> lockedTables = new ArrayList<>(tables.size());
             try {
-                txn.waitTransactionVisible(remainingMs);
-            } catch (InterruptedException ignored) {
-                // Keep the previous wait behavior.
+                for (Table table : tables) {
+                    long remainingMs = deadlineMs - System.currentTimeMillis();
+                    if (remainingMs <= 0 || !table.tryReadLock(remainingMs, TimeUnit.MILLISECONDS)) {
+                        throw new UserException(String.format(
+                                "timeout synchronizing visible versions for time-based read, dbId=%d tableId=%d",
+                                dbEntry.getKey(), table.getId()));
+                    }
+                    lockedTables.add(table);
+                }
+            } finally {
+                Collections.reverse(lockedTables);
+                lockedTables.forEach(Table::readUnlock);
             }
-            remainingMs = deadlineMs - System.currentTimeMillis();
-        }
-        if (txn.getTransactionStatus() == TransactionStatus.COMMITTED) {
-            throw new UserException(String.format(
-                    "timeout waiting transaction become visible for time-based read, "
-                            + "txnId=%d dbId=%d tableId=%d endTSO=%d",
-                    txn.getTransactionId(), dbId, tableId, endTSO));
         }
     }
 
-    // Resolve the read end timestamp (ms) from scan params; fall back to defaultEndTsMs (the query
-    // start time) when absent or non-positive.
-    private static long getEndTsMs(TableScanParams scanParams, long defaultEndTsMs) {
-        if (scanParams.getMapParams().containsKey(OlapScanNode.OLAP_END_TIMESTAMP)) {
-            long endTsMs = OlapScanNode.parseChangeTimestamp(
-                    scanParams.getMapParams().get(OlapScanNode.OLAP_END_TIMESTAMP));
-            return endTsMs > 0 ? endTsMs : defaultEndTsMs;
+    private static ChangeReadFence acquireFenceFromMaster(ConnectContext context, ChangeReadInfo changeReadInfo,
+            long timeoutMs, boolean waitForTransactions) throws UserException {
+        TAcquireTimeBasedChangeReadFenceRequest request = new TAcquireTimeBasedChangeReadFenceRequest();
+        request.setDbToTableIds(changeReadInfo.getDbToTableIds());
+        request.setTimeoutMs(timeoutMs);
+        request.setWaitForTransactions(waitForTransactions);
+        if (changeReadInfo.getMaxEndTimestampMs() != null) {
+            request.setEndTimestampMs(changeReadInfo.getMaxEndTimestampMs());
         }
-        return defaultEndTsMs;
-    }
 
-    // Compose endTsMs into a full TSO and merge into dbId -> (tableId -> endTSO), keeping the max.
-    private static void addTableEndTSO(Map<Long, Map<Long, Long>> dbToTableEndTSO, OlapTable table, long endTsMs) {
-        dbToTableEndTSO.computeIfAbsent(table.getDatabase().getId(), ignored -> new HashMap<>())
-                .merge(table.getId(), TSOTimestamp.composeFullTimestamp(endTsMs), Math::max);
+        TNetworkAddress masterAddress = new TNetworkAddress(
+                context.getEnv().getMasterHost(), context.getEnv().getMasterRpcPort());
+        int thriftTimeoutMs = (int) Math.min(Integer.MAX_VALUE, Math.max(1L, timeoutMs));
+        FrontendService.Client client;
+        try {
+            client = ClientPool.frontendPool.borrowObject(masterAddress, thriftTimeoutMs);
+        } catch (Exception e) {
+            throw new UserException("failed to get master FE client for time-based read", e);
+        }
+
+        boolean returnToPool = false;
+        try {
+            TAcquireTimeBasedChangeReadFenceResult result = client.acquireTimeBasedChangeReadFence(request);
+            returnToPool = true;
+            if (result.getStatus().getStatusCode() != TStatusCode.OK) {
+                String error = result.getStatus().isSetErrorMsgs()
+                        ? String.join(". ", result.getStatus().getErrorMsgs())
+                        : "unknown error";
+                throw new UserException("acquire time-based read fence from master FE failed: " + error);
+            }
+            Preconditions.checkState(result.isSetCurrentTso(), "master FE did not return current_tso");
+            Preconditions.checkState(result.isSetMaxJournalId(), "master FE did not return max_journal_id");
+            return new ChangeReadFence(result.getCurrentTso(), result.getMaxJournalId());
+        } catch (UserException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new UserException("acquire time-based read fence from master FE failed", e);
+        } finally {
+            if (returnToPool) {
+                ClientPool.frontendPool.returnObject(masterAddress, client);
+            } else {
+                ClientPool.frontendPool.invalidateObject(masterAddress, client);
+            }
+        }
     }
 }
