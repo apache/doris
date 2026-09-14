@@ -18,6 +18,8 @@
 #include "storage/index/index_disk_usage.h"
 
 #include <algorithm>
+#include <map>
+#include <tuple>
 #include <utility>
 
 #include "common/cast_set.h"
@@ -90,7 +92,46 @@ Status sum_snii_position_bytes(const IndexFileReader& reader, uint64_t index_id,
     return Status::OK();
 }
 
+int64_t merge_component(int64_t lhs, int64_t rhs) {
+    return lhs < 0 || rhs < 0 ? -1 : lhs + rhs;
+}
+
 } // namespace
+
+std::vector<IndexDiskUsageRow> aggregate_index_disk_usage(std::vector<IndexDiskUsageRow> rows,
+                                                          IndexDiskUsageLevel level) {
+    if (level == IndexDiskUsageLevel::kSegment) {
+        return rows;
+    }
+    using Key = std::tuple<std::string, int64_t, std::string, int, int>;
+    std::map<Key, size_t> positions;
+    std::vector<IndexDiskUsageRow> merged;
+    for (auto& row : rows) {
+        row.segment_id = -1;
+        if (level == IndexDiskUsageLevel::kTablet) {
+            row.rowset_id.clear();
+        }
+        Key key {row.rowset_id, row.record.index_id, row.record.index_suffix,
+                 static_cast<int>(row.format), static_cast<int>(row.record.structure)};
+        auto [it, inserted] = positions.emplace(std::move(key), merged.size());
+        if (inserted) {
+            merged.push_back(std::move(row));
+            continue;
+        }
+        IndexDiskUsageRow& target = merged[it->second];
+        target.segment_count += row.segment_count;
+        target.row_count += row.row_count;
+        IndexDiskUsageRecord& dst = target.record;
+        const IndexDiskUsageRecord& src = row.record;
+        dst.total_bytes += src.total_bytes;
+        dst.dict_bytes = merge_component(dst.dict_bytes, src.dict_bytes);
+        dst.posting_bytes = merge_component(dst.posting_bytes, src.posting_bytes);
+        dst.position_bytes = merge_component(dst.position_bytes, src.position_bytes);
+        dst.stats_bytes = merge_component(dst.stats_bytes, src.stats_bytes);
+        dst.other_bytes = merge_component(dst.other_bytes, src.other_bytes);
+    }
+    return merged;
+}
 
 void classify_clucene_file(std::string_view name, int64_t length, IndexDiskUsageRecord* record) {
     record->total_bytes += length;
