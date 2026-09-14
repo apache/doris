@@ -77,3 +77,22 @@
 \N
 7
 
+-- !eq_grouped_having_refs_outer_domain --
+
+-- !eq_grouped_having_refs_outer_domain_not_exists --
+3
+
+-- !global_sum_of_empty_domain --
+1
+
+-- !global_count_distinct_literal --
+2
+
+-- !having_predicate_of_outer_row_only --
+
+-- !volatile_output_which_does_not_feed_the_correlation --
+1
+
+-- !volatile_output_which_does_not_feed_the_having --
+1
+
