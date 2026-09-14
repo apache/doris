@@ -53,7 +53,7 @@ struct RegexNode {
 };
 
 // Parse a pattern in the RE2 syntax subset into a RegexNode AST. Supported: literals; escapes
-// (`\. \a \f \n \t \r \ooo \xHH \x{...} \Q..\E`, where \ooo is three octal digits);
+// (`\. \a \f \n \t \r \0oo \xHH \x{...} \Q..\E`, where \0oo has no octal digit after it);
 // classes (`[...]`, negation, ranges, POSIX classes, `\d \w \s \v \D \W \S \pL \p{..}`);
 // `.`; groups (capturing, `(?:`, `(?P<name>`, `(?<name>`);
 // the flags `(?i) (?s) (?m) (?U)` and `(?i:...)`; the quantifiers `* + ? {m} {m,} {m,n}` and

@@ -373,10 +373,17 @@ TEST(RegexGramRecallTest, Re2FallbackEngineMatrix) {
              {"ab\vcdtimeout", "ab\ncdtimeout", "ab\rcdtimeout", "ab\fcdtimeout", "unrelated"},
              {true, false, false, false, false},
              ScalarPath::RE2},
+            {R"(ab[\061]cdtimeout.{0,51}$)",
+             {"ab1cdtimeout", "abacdtimeout", "unrelated"},
+             {true, false, false},
+             ScalarPath::RE2},
+            // Only \0dd with no octal digit after it reads alike on every engine, Boost included.
             {R"(ab[\141]cdtimeout.{0,51}$)",
              {"abacdtimeout", "ab1cdtimeout", "unrelated"},
              {true, false, false},
-             ScalarPath::RE2},
+             ScalarPath::RE2,
+             false,
+             true},
             {R"(\Qab😀\E{2}timeout.{0,51}$)",
              {"ab😀😀timeout", "ab😀timeout", "unrelated"},
              {true, false, false},
@@ -719,10 +726,28 @@ TEST(RegexGramRecallTest, EscapesPreserveScalarRecall) {
                   "ab cdtimeout", "ab\tcdtimeout", "abvcdtimeout", "unrelated"},
                  {true, true, true, true, false, false, false, false}, true);
 
+    // \0dd with no octal digit after it is the one numeric escape every engine reads alike.
+    check_recall(R"(ab\061cdtimeout)", {"ab1cdtimeout", "ab061cdtimeout", "unrelated"},
+                 {true, false, false}, true);
+    check_recall(R"(ab[\061]cdtimeout)", {"ab1cdtimeout", "ab0cdtimeout", "unrelated"},
+                 {true, false, false}, true);
+    // Hyperscan reads 'a' and \014 then '1' here, but Boost reads a backreference and a
+    // four-digit octal escape, so these filter nothing whichever engine runs the pattern.
     check_recall(R"(ab\141cdtimeout)", {"abacdtimeout", "ab141cdtimeout", "unrelated"},
-                 {true, false, false}, true);
+                 {true, false, false}, /*require_pruning=*/false,
+                 /*enable_hyperscan_fallback=*/true, /*enable_extended_regex=*/false,
+                 ScalarPath::ANY, /*require_all=*/true);
     check_recall(R"(ab[\141]cdtimeout)", {"abacdtimeout", "ab1cdtimeout", "unrelated"},
-                 {true, false, false}, true);
+                 {true, false, false}, /*require_pruning=*/false,
+                 /*enable_hyperscan_fallback=*/true, /*enable_extended_regex=*/false,
+                 ScalarPath::ANY, /*require_all=*/true);
+    check_recall(R"(ab\0141cdtimeout)",
+                 {"ab\x0c"
+                  "1cdtimeout",
+                  "abacdtimeout", "unrelated"},
+                 {true, false, false}, /*require_pruning=*/false,
+                 /*enable_hyperscan_fallback=*/true, /*enable_extended_regex=*/false,
+                 ScalarPath::ANY, /*require_all=*/true);
 
     // Hyperscan accepts \Z even though RE2 rejects it. It must not become a literal Z.
     check_recall(R"(timeout\Z)", {"timeout", "timeoutx", "unrelated"}, {true, false, false}, false);
@@ -833,6 +858,36 @@ TEST(RegexGramRecallTest, EmbeddedNulPreservesScalarRecall) {
     check_recall(R"(foo\x00timeout)", {literal, "foo", "unrelated"}, {true, false, false}, true);
     check_recall<FunctionLike>("%prefix%timeout%", {"prefixtimeout", "prefix", "unrelated"},
                                {true, false, false}, true);
+}
+
+TEST(RegexGramRecallTest, NumericEscapesBoostReadsDifferentlyFilterNothing) {
+    // With extended regex, Boost runs every pattern that Hyperscan and RE2 both reject, and such
+    // a pattern can still get past the gram parser. Boost reads \0141 as the octal escape for 'a'
+    // and \141 as backreference 1 followed by "41", where Hyperscan and RE2 read \014 then '1',
+    // and 'a'. The row Boost matches must stay a candidate.
+    const auto check_boost = [](const std::string& pattern, const std::vector<std::string>& rows,
+                                bool require_pruning) {
+        check_recall(pattern, rows, {true, false, false}, require_pruning,
+                     /*enable_hyperscan_fallback=*/true, /*enable_extended_regex=*/true,
+                     ScalarPath::BOOST, /*require_all=*/!require_pruning);
+    };
+    // An ill-formed UTF-8 byte is one way onto Boost; it does not stop the gram parser.
+    const std::string ill_formed = "\xFF";
+    check_boost(ill_formed + "ab\\0141cdtimeout",
+                {ill_formed + "abacdtimeout",
+                 ill_formed + "ab\x0c"
+                              "1cdtimeout",
+                 "unrelated"},
+                false);
+    check_boost(ill_formed + "(x)ab\\141cdtimeout",
+                {ill_formed + "xabx41cdtimeout", ill_formed + "xabacdtimeout", "unrelated"}, false);
+    // A possessive quantifier is another, with every byte well-formed.
+    check_boost("(x)ab\\141cd++timeout", {"xabx41cdtimeout", "xabacdtimeout", "unrelated"}, false);
+    // \0dd with no octal digit after it names the same code point to Boost, so it still filters.
+    check_boost(ill_formed + "ab\\061cdtimeout",
+                {ill_formed + "ab1cdtimeout", ill_formed + "abacdtimeout", "unrelated"}, true);
+    check_boost(ill_formed + "ab[\\061]cdtimeout",
+                {ill_formed + "ab1cdtimeout", ill_formed + "abacdtimeout", "unrelated"}, true);
 }
 
 } // namespace doris::segment_v2::gram
