@@ -843,6 +843,27 @@ TEST(VariantAssemblerLegacyTest, HierarchicalMaterializedLegacyDateTimeAndDecima
               R"({"dt":"1970-01-01 00:00:02.000000","m":-56.780000000})");
 }
 
+TEST(VariantAssemblerLegacyTest, SparseOriginalWinsOverMaterializedTemplateValue) {
+    auto values = ColumnInt32::create();
+    values->insert_value(5);
+    values->insert_value(6);
+    auto sparse = map_column_rows({{{"num_b", string_storage_cell("005")}}, {}});
+    VariantAssemblerOptions options;
+    options.materialized_paths = {
+            {.path = PathInData("num_b"), .type = std::make_shared<DataTypeInt32>()}};
+    options.storage_map_kind = StorageMapKind::SPARSE;
+    auto assembler = create_assembler(std::move(options));
+    const IColumn* materialized = values.get();
+    VariantAssemblerBatchView batch;
+    batch.num_rows = 2;
+    batch.materialized_columns = {&materialized, 1};
+    batch.storage_map = sparse.get();
+    ColumnNullable::MutablePtr output;
+    ASSERT_TRUE(assembler->assemble(batch, &output).ok());
+    EXPECT_EQ(json_at(assembled_values(output), 0), R"({"num_b":"005"})");
+    EXPECT_EQ(json_at(assembled_values(output), 1), R"({"num_b":6})");
+}
+
 TEST(VariantAssemblerLegacyTest, UnsortedMaterializedPathsKeepSourceColumns) {
     auto z = ColumnInt32::create();
     z->insert_value(10);

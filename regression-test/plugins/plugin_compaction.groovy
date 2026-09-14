@@ -62,7 +62,7 @@ Suite.metaClass.be_run_full_compaction_by_table_id = { String ip, String port, S
 }
 
 logger.info("Added 'be_run_full_compaction' function to Suite")
-Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compaction_type, int timeout_seconds=300, String[] ignored_errors=[] ->
+Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compaction_type, int timeout_seconds=300, String[] ignored_errors=[], boolean require_success=false ->
     if (!(compaction_type in ["cumulative", "base", "full"])) {
         throw new IllegalArgumentException("invalid compaction type: ${compaction_type}, supported types: cumulative, base, full")
     }
@@ -187,6 +187,10 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                 if (running) {
                     logger.info("compaction is still running, be host: ${be_host}, tablet id: ${tablet.TabletId}, run status: ${compactionStatus.run_status}, old status: ${oldStatus}, new status: ${tabletStatus}")
                     return false
+                }
+                if (require_success) {
+                    assert !success_time_unchanged || completedByBaseCompactionAfterDeleteVersion:
+                            "compaction finished without success: ${tabletStatus}"
                 }
             } else {
                 // time series compaction sometimes doesn't update compaction success time

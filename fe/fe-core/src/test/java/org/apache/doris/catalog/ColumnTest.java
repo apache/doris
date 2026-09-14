@@ -64,6 +64,18 @@ public class ColumnTest {
     }
 
     @Test
+    public void testVariantTemplatePatternEqualityAndCopy() {
+        Column exact = new Column("a", Type.INT);
+        exact.setFieldPatternType(PatternType.MATCH_NAME);
+        Column glob = new Column("a", Type.INT);
+        glob.setFieldPatternType(PatternType.MATCH_NAME_GLOB);
+        Assertions.assertNotEquals(exact, glob);
+        Column copy = new Column(exact);
+        Assertions.assertEquals(exact, copy);
+        Assertions.assertEquals(exact.hashCode(), copy.hashCode());
+    }
+
+    @Test
     public void testSchemaChangeDefaultExpressionSerialization() throws Exception {
         Column column = new Column("ts", Type.TIMESTAMP_NS, false, null, true,
                 "CURRENT_TIMESTAMP(9)", "", true, null, 1,

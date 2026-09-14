@@ -1053,7 +1053,9 @@ void VariantCompactionUtil::get_subpaths(int32_t max_subcolumns_count,
         std::vector<std::pair<size_t, std::string_view>> paths_with_sizes;
         paths_with_sizes.reserve(stats.size());
         for (const auto& [path, size] : stats) {
-            paths_with_sizes.emplace_back(size, path);
+            if (!paths_set_info.typed_path_set.contains(path)) {
+                paths_with_sizes.emplace_back(size, path);
+            }
         }
         std::sort(paths_with_sizes.begin(), paths_with_sizes.end(), std::greater());
 
@@ -1071,7 +1073,9 @@ void VariantCompactionUtil::get_subpaths(int32_t max_subcolumns_count,
     } else {
         // Apply all paths as subcolumns
         for (const auto& [path, _] : stats) {
-            paths_set_info.sub_path_set.emplace(path);
+            if (!paths_set_info.typed_path_set.contains(path)) {
+                paths_set_info.sub_path_set.emplace(path);
+            }
         }
     }
 }
@@ -1081,9 +1085,12 @@ Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr
     if (output->tablet_schema()->num_variant_columns() == 0) {
         return Status::OK();
     }
+    // Templates can retain both sparse originals and converted materialized values;
+    // their physical path counts do not represent logical value counts.
     for (const auto& rowset : intputs) {
         for (const auto& column : rowset->tablet_schema()->columns()) {
-            if (column->is_variant_type() && !should_check_variant_path_stats(*column)) {
+            if (column->is_variant_type() &&
+                (!should_check_variant_path_stats(*column) || !column->get_sub_columns().empty())) {
                 return Status::OK();
             }
         }
@@ -1122,7 +1129,8 @@ Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr
         }
     }
     for (const auto& column : output->tablet_schema()->columns()) {
-        if (column->is_variant_type() && !should_check_variant_path_stats(*column)) {
+        if (column->is_variant_type() &&
+            (!should_check_variant_path_stats(*column) || !column->get_sub_columns().empty())) {
             return Status::OK();
         }
     }
@@ -1147,9 +1155,25 @@ Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr
         if (stats.size() > output->tablet_schema()
                                    ->column_by_uid(uid)
                                    .variant_max_sparse_column_statistics_size()) {
-            // When there is only one segment, we can ensure that the size of each path in output stats is accurate
             if (output->num_segments() == 1) {
+                SegmentCacheHandle segments;
+                RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
+                        std::static_pointer_cast<BetaRowset>(output), &segments));
+                std::shared_ptr<ColumnReader> reader;
+                OlapReaderStatistics reader_stats;
+                RETURN_IF_ERROR(segments.get_segments().front()->get_column_reader(uid, &reader,
+                                                                                   &reader_stats));
+                auto* variant_reader = assert_cast<segment_v2::VariantColumnReader*>(reader.get());
+                RETURN_IF_ERROR(variant_reader->load_external_meta_once());
+                const bool sparse_stats_truncated =
+                        variant_reader->is_exceeded_sparse_column_limit();
                 for (const auto& [path, size] : stats) {
+                    // A materialized path may also have sparse rows. If sparse statistics
+                    // omit that path, even a single segment provides only a lower bound.
+                    if (sparse_stats_truncated &&
+                        !variant_reader->get_stats()->sparse_column_non_null_size.contains(path)) {
+                        continue;
+                    }
                     if (original_uid_to_path_stats.at(uid).find(path) ==
                         original_uid_to_path_stats.at(uid).end()) {
                         continue;
@@ -1204,9 +1228,9 @@ Status VariantCompactionUtil::get_compaction_typed_columns(
             output_schema->append_column(sub_column_info.column);
             paths_set_info.typed_path_set.insert({path, std::move(sub_column_info)});
             VLOG_DEBUG << "append typed column " << path;
-        } else {
-            return Status::InternalError("Failed to generate sub column info for path {}", path);
         }
+        // A historical typed path can become dynamic after its template is removed.
+        // The regular subcolumn builders below retain its input values and types.
     }
     return Status::OK();
 }
@@ -1317,7 +1341,8 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
     for (const auto& [path, data_types] : path_to_data_types) {
         // Typed paths are materialized by get_compaction_typed_columns(); this helper only
         // materializes regular subcolumns inferred from rowset data types.
-        if (data_types.empty() || path.empty() || path.get_is_typed() || path.has_nested_part()) {
+        if (data_types.empty() || path.empty() ||
+            paths_set_info.typed_path_set.contains(path.get_path()) || path.has_nested_part()) {
             continue;
         }
         DataTypePtr data_type;
@@ -1379,11 +1404,7 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
         }
         VLOG_DEBUG << "column " << column->name() << " unique id " << column->unique_id();
 
-        const auto info_it = uid_to_variant_extended_info.find(column->unique_id());
-        const VariantExtendedInfo empty_extended_info;
-        const VariantExtendedInfo& extended_info = info_it == uid_to_variant_extended_info.end()
-                                                           ? empty_extended_info
-                                                           : info_it->second;
+        auto& extended_info = uid_to_variant_extended_info[column->unique_id()];
         auto& paths_set_info = uid_to_paths_set_info[column->unique_id()];
         const bool use_nested_group_compaction_schema = ng_root_uids.contains(column->unique_id());
 
@@ -1427,12 +1448,28 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
                                                       extended_info.path_to_data_types, column,
                                                       output_schema, paths_set_info));
 
+        // Old typed columns have no dynamic path statistics. After template removal,
+        // include them in ordinary budget selection so they are materialized or kept sparse.
+        for (const auto& path : extended_info.typed_paths) {
+            if (!paths_set_info.typed_path_set.contains(path)) {
+                extended_info.path_to_none_null_values.try_emplace(path, 0);
+                auto old_types = extended_info.path_to_data_types.extract(PathInData(path, true));
+                DORIS_CHECK(!old_types.empty());
+                auto& dynamic_types = extended_info.path_to_data_types[PathInData(path)];
+                dynamic_types.insert(dynamic_types.end(), old_types.mapped().begin(),
+                                     old_types.mapped().end());
+            }
+        }
+
         // 3. get the subpaths
         get_subpaths(column->variant_max_subcolumns_count(), extended_info.path_to_none_null_values,
                      paths_set_info);
 
         // 4. append subcolumns
-        if (column->variant_max_subcolumns_count() > 0 || !column->get_sub_columns().empty()) {
+        // Sparse input paths need output columns even when the new budget is unlimited.
+        // Sparse-only paths lack type entries but are removed from sparse by sub_path_set.
+        if (column->variant_max_subcolumns_count() > 0 || !column->get_sub_columns().empty() ||
+            !extended_info.sparse_paths.empty()) {
             get_compaction_subcolumns_from_subpaths(paths_set_info, column, target,
                                                     extended_info.path_to_data_types,
                                                     extended_info.sparse_paths, output_schema);

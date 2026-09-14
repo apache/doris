@@ -38,6 +38,7 @@
 #include "core/string_buffer.hpp"
 #include "core/value/jsonb_value.h"
 #include "storage/iterators.h"
+#include "storage/segment/variant/sparse_column_merge_iterator.h"
 
 namespace doris::segment_v2 {
 namespace {
@@ -193,6 +194,48 @@ std::string variant_v2_json_at(const ColumnVariantV2& column, size_t row) {
     EXPECT_TRUE(serde.serialize_one_cell_to_json(column, row, writer, options).ok());
     writer.commit();
     return output->get_data_at(0).to_string();
+}
+
+TEST(SparseColumnMergeIteratorTest, PreserveOriginalWhenTypedPathBecomesSparse) {
+    auto sparse = ColumnVariant::create_binary_column_fn();
+    auto& map = assert_cast<ColumnMap&>(*sparse);
+    auto strings = ColumnString::create();
+    strings->insert_data("005", 3);
+    append_storage_cell(map, "a", DataTypeString(), *strings, 0);
+    map.get_offsets().push_back(1);
+    const auto original = assert_cast<ColumnString&>(map.get_values()).get_data_at(0).to_string();
+    auto counters = std::make_shared<SparseReadCounters>();
+    auto cache = std::make_shared<BinaryColumnCache>(
+            std::make_unique<FixedSparseIterator>(std::move(sparse), counters),
+            ColumnVariant::create_binary_column_fn());
+    auto type = make_nullable(std::make_shared<DataTypeInt64>());
+    auto values = type->create_column();
+    auto& nullable_values = assert_cast<ColumnNullable&>(*values);
+    assert_cast<ColumnInt64&>(nullable_values.get_nested_column()).insert_value(5);
+    nullable_values.get_null_map_data().push_back(0);
+    SubstreamReaderTree tree;
+    ASSERT_TRUE(tree.add(
+            PathInData("a", true),
+            SubstreamIterator(type->create_column(),
+                              std::make_unique<FixedSparseIterator>(std::move(values), counters),
+                              type)));
+    TabletSchema::PathsSetInfo paths;
+    paths.sparse_path_set.emplace("a");
+    OlapReaderStatistics stats;
+    StorageReadOptions options;
+    options.stats = &stats;
+    SparseColumnMergeIterator iterator(paths, cache, std::move(tree), &options);
+    ColumnIteratorOptions iterator_options;
+    ASSERT_TRUE(iterator.init(iterator_options).ok());
+    ASSERT_TRUE(iterator.seek_to_ordinal(0).ok());
+    auto output = ColumnVariant::create_binary_column_fn();
+    size_t rows = 1;
+    bool has_null = false;
+    ASSERT_TRUE(iterator.next_batch(&rows, output, &has_null).ok());
+    EXPECT_EQ(rows, 1);
+    auto& result = assert_cast<ColumnMap&>(*output);
+    EXPECT_EQ(result.get_offsets()[0], 1);
+    EXPECT_EQ(assert_cast<ColumnString&>(result.get_values()).get_data_at(0).to_string(), original);
 }
 
 TEST(BinaryColumnExtractIteratorV2Test, RejectsDestinationThatDoesNotMatchConfiguredRoute) {

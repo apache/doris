@@ -480,8 +480,8 @@ Status emit_merged_row(
                         : sparse_cursor->sort_key.compare(materialized_raw_path);
         const bool use_sparse = has_sparse && sparse_cursor->available &&
                                 (!materialized_available || path_comparison < 0 ||
-                                 (path_comparison == 0 && sparse_cursor->is_direct_subtree_value &&
-                                  !materialized_is_root));
+                                 (path_comparison == 0 && (sparse_cursor->is_direct_subtree_value ||
+                                                           !materialized_is_root)));
         if (!materialized_available && !use_sparse) {
             return append_visible_merge_values(*pending, row, emitter);
         }
@@ -494,6 +494,13 @@ Status emit_merged_row(
         } else {
             current.set_cell(sparse_cursor->sort_key, sparse_cursor->cell,
                              sparse_cursor->is_direct_subtree_value, sparse_cursor->depth);
+            // A template can materialize a converted value while the sparse stream retains
+            // the original. Whole-object reads must emit the original only once.
+            // An empty object key and a subtree root have equal sort keys but distinct paths.
+            if (materialized_available && path_comparison == 0 &&
+                sparse_cursor->is_direct_subtree_value == materialized_is_root) {
+                ++materialized_index;
+            }
             RETURN_IF_ERROR(sparse_cursor->advance());
         }
     }

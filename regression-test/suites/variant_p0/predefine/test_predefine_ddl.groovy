@@ -128,7 +128,7 @@ suite("test_predefine_ddl", "p0") {
 
     test {
         sql """ alter table ${tableName} modify column var variant NULL """
-        exception("Can not change variant")
+        exception("Can not remove variant schema template ab referenced by index idx_ab")
     }
 
     test {

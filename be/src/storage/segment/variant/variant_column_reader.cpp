@@ -898,6 +898,15 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
     // Otherwise the prefix is not exist and the sparse column size is reached limit
     // which means the path maybe exist in sparse_column
     bool exceeded_sparse_column_limit = _is_exceeded_sparse_column_limit_unlocked();
+    // Sparse presence does not rule out an externalized materialized leaf for the same path.
+    if (node == nullptr && _ext_meta_reader && _ext_meta_reader->available() &&
+        (existed_in_sparse_column || exceeded_sparse_column_limit)) {
+        lock.unlock();
+        RETURN_IF_ERROR(load_external_meta_once(opt->stats, &opt->io_ctx));
+        lock.lock();
+        root = _subcolumns_meta_info->get_root();
+        node = _subcolumns_meta_info->find_exact(relative_path);
+    }
 
     const std::string dot_prefix = relative_path.get_path() + ".";
     if (target_col.variant_enable_doc_mode() &&
@@ -916,7 +925,12 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
     const bool has_prefix_path = _has_prefix_path_unlocked(relative_path, opt->stats, &opt->io_ctx);
     const bool sparse_stats_may_have_unrecorded_children =
             exceeded_sparse_column_limit && existed_in_sparse_column;
-    if (has_prefix_path || sparse_stats_may_have_unrecorded_children) {
+    // Property changes can leave an untyped path split between materialized and sparse rows.
+    const bool leaf_may_have_sparse_values =
+            node != nullptr && !node->path.get_is_typed() &&
+            (existed_in_sparse_column || exceeded_sparse_column_limit);
+    if (has_prefix_path || sparse_stats_may_have_unrecorded_children ||
+        leaf_may_have_sparse_values) {
         // Example {"b" : {"c":456,"e":7.111}}
         // b.c is sparse column, b.e is subcolumn, so b is both the prefix of sparse column and
         // subcolumn

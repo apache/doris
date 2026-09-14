@@ -401,23 +401,36 @@ void ensure_variant_json_shape(const IndexBatch& batch, size_t column_pos) {
     }
 }
 
-Status fill_variant_column(const VariantColumnSpec& column_spec, const IndexBatch& batch,
-                           size_t column_pos, MutableColumnPtr* output) {
+Status fill_variant_column(const TabletColumn& column, const IndexBatch& batch, size_t column_pos,
+                           MutableColumnPtr* output) {
     ensure_variant_json_shape(batch, column_pos);
-    auto variant_column =
-            ColumnVariant::create(column_spec.max_subcolumns_count, column_spec.enable_doc_mode);
-    auto json_column = ColumnString::create();
-    for (const auto& json : batch.variant_jsons_by_column[column_pos]) {
-        json_column->insert_data(json.data(), json.size());
+    MutableColumnPtr variant_column;
+    if (column.variant_is_v2()) {
+        auto values = ColumnVariantV2::create();
+        DataTypeVariantV2SerDe serde;
+        DataTypeSerDe::FormatOptions options;
+        for (const auto& json : batch.variant_jsons_by_column[column_pos]) {
+            Slice slice(json.data(), json.size());
+            RETURN_IF_ERROR(serde.deserialize_one_cell_from_json(*values, slice, options));
+        }
+        variant_column = std::move(values);
+    } else {
+        auto values = ColumnVariant::create(column.variant_max_subcolumns_count(),
+                                            column.variant_enable_doc_mode());
+        auto json_column = ColumnString::create();
+        for (const auto& json : batch.variant_jsons_by_column[column_pos]) {
+            json_column->insert_data(json.data(), json.size());
+        }
+        ParseConfig config;
+        config.deprecated_enable_flatten_nested = batch.deprecated_enable_flatten_nested;
+        config.check_duplicate_json_path = batch.check_duplicate_json_path;
+        config.parse_to = column.variant_enable_doc_mode()
+                                  ? ParseConfig::ParseTo::OnlyDocValueColumn
+                                  : batch.parse_to;
+        variant_util::parse_json_to_variant(*values, *json_column, config);
+        variant_column = std::move(values);
     }
-
-    ParseConfig config;
-    config.deprecated_enable_flatten_nested = batch.deprecated_enable_flatten_nested;
-    config.check_duplicate_json_path = batch.check_duplicate_json_path;
-    config.parse_to =
-            column_spec.enable_doc_mode ? ParseConfig::ParseTo::OnlyDocValueColumn : batch.parse_to;
-    variant_util::parse_json_to_variant(*variant_column, *json_column, config);
-    if (column_spec.nullable) {
+    if (column.is_nullable()) {
         auto null_map = ColumnUInt8::create();
         null_map->insert_many_defaults(variant_column->size());
         *output = ColumnNullable::create(std::move(variant_column), std::move(null_map));
@@ -510,8 +523,8 @@ Status fill_block(const TabletSchema& schema, const IndexTabletOptions& tablet_o
         }
 
         MutableColumnPtr variant_column;
-        RETURN_IF_ERROR(fill_variant_column(tablet_options.variant_columns[variant_pos], batch,
-                                            variant_pos, &variant_column));
+        RETURN_IF_ERROR(fill_variant_column(schema.column(column_pos), batch, variant_pos,
+                                            &variant_column));
         columns[column_pos] = std::move(variant_column);
     }
 
@@ -1203,6 +1216,20 @@ Result<RowsetSharedPtr> IndexStorageTestFixture::write_rowset(const IndexRowsetS
         tablet_options.variant_columns.push_back(std::move(column_spec));
     }
 
+    // Execution representation belongs to the input block, not the persisted rowset schema.
+    TabletSchemaSPtr write_schema = _tablet_schema;
+    if (spec.use_variant_v2) {
+        write_schema = std::make_shared<TabletSchema>();
+        write_schema->copy_from(*_tablet_schema);
+        write_schema->set_storage_format(_tablet_schema->storage_format());
+        for (int32_t cid = 0; cid < write_schema->num_columns(); ++cid) {
+            auto& column = write_schema->mutable_column(cid);
+            if (column.is_variant_type()) {
+                column.set_variant_is_v2(true);
+            }
+        }
+    }
+
     for (const auto& batch : batches) {
         if (batch.num_rows() == 0) {
             return ResultError(Status::InvalidArgument("variant json batch is empty"));
@@ -1237,9 +1264,8 @@ Result<RowsetSharedPtr> IndexStorageTestFixture::write_rowset(const IndexRowsetS
                     tablet_options.variant_columns.size(), batch.variant_columns_by_column.size()));
         }
 
-        Block block = _tablet_schema->create_storage_block();
-        RETURN_RESULT_IF_ERROR(
-                fill_block(*_tablet_schema, tablet_options, batch, &next_key, &block));
+        Block block = write_schema->create_storage_block();
+        RETURN_RESULT_IF_ERROR(fill_block(*write_schema, tablet_options, batch, &next_key, &block));
         RETURN_RESULT_IF_ERROR(rowset_writer->add_block(&block));
         RETURN_RESULT_IF_ERROR(rowset_writer->flush());
     }
@@ -1280,7 +1306,9 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
     }
     TabletSchemaSPtr tablet_schema = _tablet_schema;
     if (options.use_variant_v2) {
-        tablet_schema = std::make_shared<TabletSchema>(*_tablet_schema);
+        tablet_schema = std::make_shared<TabletSchema>();
+        tablet_schema->copy_from(*_tablet_schema);
+        tablet_schema->set_storage_format(_tablet_schema->storage_format());
         for (int32_t column_id = 0; column_id < tablet_schema->num_columns(); ++column_id) {
             auto& column = tablet_schema->mutable_column(column_id);
             if (column.is_variant_type()) {

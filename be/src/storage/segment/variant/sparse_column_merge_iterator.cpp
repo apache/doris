@@ -135,12 +135,16 @@ void SparseColumnMergeIterator::_merge_to(MutableColumnPtr& dst) {
                 while (sorted_src_subcolumn_for_sparse_column_idx <
                                sorted_src_subcolumn_for_sparse_column_size &&
                        _sorted_src_subcolumn_for_sparse[sorted_src_subcolumn_for_sparse_column_idx]
-                                       .first < src_sparse_path_string) {
+                                       .first <= src_sparse_path_string) {
                     auto& [src_path, src_subcolumn] = _sorted_src_subcolumn_for_sparse
                             [sorted_src_subcolumn_for_sparse_column_idx++];
-                    _serialize_nullable_column_to_sparse(src_subcolumn.get(),
-                                                         dst_sparse_column_paths,
-                                                         dst_sparse_column_values, src_path, row);
+                    // A former typed path can retain its original in sparse storage.
+                    // Consume its materialized copy without writing the same key twice.
+                    if (src_path != src_sparse_path_string) {
+                        _serialize_nullable_column_to_sparse(
+                                src_subcolumn.get(), dst_sparse_column_paths,
+                                dst_sparse_column_values, src_path, row);
+                    }
                 }
 
                 /// Insert path and value from src sparse column to our sparse column.

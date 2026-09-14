@@ -1334,7 +1334,10 @@ void ColumnVariant::insert_from_sparse_column_and_fill_remaing_dense_column(
             const std::string_view src_sparse_path(src_sparse_path_string);
             // Check if we have this path in subcolumns.
             const PathInData column_path(src_sparse_path);
-            if (auto* subcolumn = get_subcolumn(column_path); subcolumn != nullptr) {
+            // A source path can be split between dense and sparse storage. Its dense range
+            // was already appended above; preserve the sparse cells instead of appending twice.
+            if (auto* subcolumn = get_subcolumn(column_path);
+                subcolumn != nullptr && src.get_subcolumn(column_path) == nullptr) {
                 // Deserialize binary value into subcolumn from src serialized sparse column data.
                 subcolumn->deserialize_from_binary_column(src_sparse_column_values, i);
             } else {
@@ -1344,11 +1347,15 @@ void ColumnVariant::insert_from_sparse_column_and_fill_remaing_dense_column(
                                sorted_src_subcolumn_for_sparse_column_size &&
                        sorted_src_subcolumn_for_sparse_column
                                        [sorted_src_subcolumn_for_sparse_column_idx]
-                                               .first < src_sparse_path) {
+                                               .first <= src_sparse_path) {
                     auto& [src_path, src_subcolumn] = sorted_src_subcolumn_for_sparse_column
                             [sorted_src_subcolumn_for_sparse_column_idx++];
-                    src_subcolumn.serialize_to_binary_column(sparse_column_path, src_path,
-                                                             sparse_column_values, row);
+                    // Preserve the original sparse cell when a materialized template value
+                    // for the same path also moves into sparse storage.
+                    if (src_path != src_sparse_path) {
+                        src_subcolumn.serialize_to_binary_column(sparse_column_path, src_path,
+                                                                 sparse_column_values, row);
+                    }
                 }
 
                 /// Insert path and value from src sparse column to our sparse column.
