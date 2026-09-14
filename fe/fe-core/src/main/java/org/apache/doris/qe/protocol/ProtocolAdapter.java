@@ -102,6 +102,17 @@ public interface ProtocolAdapter {
     void beforeStatement(ConnectContext ctx);
 
     /**
+     * Called by the executor at the start of every attempt to execute the statement: the first
+     * one, and each one {@code StmtExecutor.queryRetry} makes after an attempt failed with an
+     * error the statement is replanned on. A retried attempt does not go through
+     * {@link #beforeStatement}, so the protocol drops here what the failed attempt left behind
+     * and starts the new one as the statement started: its result comes from this frontend until
+     * {@link #beforeQuery} moves it, and nothing the failed attempt registered for the client is
+     * delivered.
+     */
+    void beforeAttempt(ConnectContext ctx);
+
+    /**
      * Called by the executor when the statement's plan is about to be run on the backends as a
      * query, before the coordinator is built. The protocol decides here where the query's result
      * goes: relayed by this frontend row by row, or left on the backends for the client to pull;

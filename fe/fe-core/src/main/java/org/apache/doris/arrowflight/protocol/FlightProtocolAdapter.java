@@ -171,8 +171,10 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     }
 
     /**
-     * A Flight session does not retry a failed query: the backend endpoints the failed attempt
-     * registered would have to be withdrawn first, and nothing does that yet.
+     * A Flight session does not retry a failed query under a new query id within
+     * {@code StmtExecutor.handleQueryWithRetry}: the client is not told which of the attempts
+     * its endpoints belong to. (The replan retry of {@code StmtExecutor.queryRetry} is not asked;
+     * it starts every attempt through {@link #beforeAttempt}.)
      */
     @Override
     public boolean canRetryQuery(ConnectContext ctx) {
@@ -183,6 +185,19 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     @Override
     public void beforeStatement(ConnectContext ctx) {
         returnResultFromLocal = true;
+    }
+
+    /**
+     * An attempt starts where the statement did: its result is on this frontend, and no endpoint
+     * is registered for the client. The attempt that failed before it may have moved the result
+     * to the backends ({@link #beforeQuery}) and registered where; nothing will be pulled from
+     * there, and a stale "on the backends" state would keep the statement's cleanup (its query
+     * registration, its connector statement scope) waiting for a DoGet that never comes.
+     */
+    @Override
+    public void beforeAttempt(ConnectContext ctx) {
+        returnResultFromLocal = true;
+        endpointsLocations.clear();
     }
 
     /**

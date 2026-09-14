@@ -694,6 +694,10 @@ public class StmtExecutor {
         SessionVariable sessionVariable = context.getSessionVariable();
         context.setEffectiveCloudCluster(null);
         externalDmlAuditCoordinator = null;
+        // Every attempt starts as the statement did. queryRetry() runs this again after a replan
+        // error without going back through the processor's beforeStatement, and the failed attempt
+        // may have moved the result to the backends (beforeQuery) and registered where.
+        context.getProtocolAdapter().beforeAttempt(context);
 
         try {
             try {

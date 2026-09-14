@@ -253,6 +253,11 @@ public class MysqlProtocolAdapterTest {
         // A failed query may be retried while none of its packets reached the client ...
         channel.sendOnePacket(ByteBuffer.wrap(new byte[] {2}));
         Assertions.assertTrue(protocol.canRetryQuery(ctx));
+        // (a replanned attempt starts without touching the channel: the result of every attempt
+        // is relayed by this frontend, there is nothing of the failed one to withdraw)
+        protocol.beforeAttempt(ctx);
+        Assertions.assertEquals(1, channel.getOutbound().size());
+        Assertions.assertTrue(protocol.canRetryQuery(ctx));
         // ... and not once one was flushed to the socket.
         channel.flush();
         Assertions.assertFalse(protocol.canRetryQuery(ctx));

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.arrowflight.FlightSqlConnectProcessor;
 import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -36,6 +37,7 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.protocol.RecordingMysqlChannel;
 import org.apache.doris.qe.protocol.RecordingMysqlChannel.RecordedPacket;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TUniqueId;
@@ -44,6 +46,7 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.nio.ByteBuffer;
 import java.util.List;
@@ -220,6 +223,45 @@ public class ProtocolCapabilityWiringTest extends TestWithFeService {
             DefaultPBackendServiceImpl.failNextExecPlanFragments(0);
             connectContext.setThreadLocalInfo();
             dropTable("retry_tbl", true);
+        }
+    }
+
+    // A query that fails with an error the statement is replanned on is run again by queryRetry
+    // without going back through the processor: it is the executor that starts every attempt
+    // where the statement started. The first attempt of this Flight query moved its result to
+    // the backend and registered an endpoint there before it failed; the second fails while it
+    // is planned, before it could run a query. The session must not be left believing a result
+    // is waiting on the backend -- that state would keep its cleanup (StatementContext.close,
+    // the query registration) waiting for a DoGet that never comes -- and the endpoint the failed
+    // attempt registered must not be delivered.
+    @Test
+    public void testEveryAttemptOfAReplannedFlightQueryStartsOnTheFrontend() throws Exception {
+        createTable("create table replan_tbl (k int) distributed by hash(k) buckets 1"
+                + " properties ('replication_num' = '1')");
+        try {
+            ConnectContext flight = flightContext();
+            flight.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+            StmtExecutor executor = Mockito.spy(executorFor(flight, "select k from replan_tbl"));
+            flight.setExecutor(executor);
+            // The second attempt fails before its query is run.
+            Mockito.doCallRealMethod().doThrow(new AnalysisException("injected planning failure"))
+                    .when(executor).checkBlockRulesByRegex(Mockito.any());
+            DefaultPBackendServiceImpl.failNextExecPlanFragments(1,
+                    SystemInfoService.ERROR_E230 + " injected replan error");
+
+            executor.execute();
+
+            Assertions.assertEquals(0, DefaultPBackendServiceImpl.getPendingExecPlanFragmentFailures());
+            Mockito.verify(executor, Mockito.times(2)).checkBlockRulesByRegex(Mockito.any());
+            Assertions.assertEquals(MysqlStateType.ERR, flight.getState().getStateType());
+            Assertions.assertTrue(flight.getState().getErrorMessage().contains("injected planning failure"),
+                    flight.getState().getErrorMessage());
+            Assertions.assertTrue(flight.isReturnResultFromLocal());
+            Assertions.assertTrue(flight.getFlightSqlEndpointsLocations().isEmpty());
+        } finally {
+            DefaultPBackendServiceImpl.failNextExecPlanFragments(0);
+            connectContext.setThreadLocalInfo();
+            dropTable("replan_tbl", true);
         }
     }
 

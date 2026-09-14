@@ -151,6 +151,12 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
     }
 
     @Override
+    public void beforeAttempt(ConnectContext ctx) {
+        // The result of every attempt is relayed by this frontend; a failed attempt registers
+        // nothing for the client that the next one would have to drop.
+    }
+
+    @Override
     public void beforeQuery(ConnectContext ctx) {
         // The rows are relayed through the channel as the coordinator fetches them.
     }

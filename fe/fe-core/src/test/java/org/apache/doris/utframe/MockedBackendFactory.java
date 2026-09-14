@@ -495,14 +495,27 @@ public class MockedBackendFactory {
 
     // The default Brpc service.
     public static class DefaultPBackendServiceImpl extends PBackendServiceGrpc.PBackendServiceImplBase {
-        // How many of the next exec_plan_fragment rpcs answer with a TIMEOUT status, which the
-        // coordinator reports as an RpcException (the kind of failure StmtExecutor retries a query
-        // on), without blacklisting this backend. Every exec_plan_fragment rpc counts.
+        // How many of the next exec_plan_fragment rpcs answer with a failed status, without
+        // blacklisting this backend. Every exec_plan_fragment rpc counts. By default the status is
+        // a TIMEOUT, which the coordinator reports as an RpcException (the kind of failure
+        // StmtExecutor retries a query on); with an error message it is an INTERNAL_ERROR carrying
+        // that message, which the coordinator reports as a UserException.
         private static final AtomicInteger execPlanFragmentTimeouts = new AtomicInteger();
+        private static volatile String execPlanFragmentErrorMsg = null;
         private static final AtomicInteger execPlanFragmentCalls = new AtomicInteger();
 
-        /** Makes the next {@code times} exec_plan_fragment rpcs of every mocked backend fail. */
+        /** Makes the next {@code times} exec_plan_fragment rpcs of every mocked backend time out. */
         public static void failNextExecPlanFragments(int times) {
+            failNextExecPlanFragments(times, null);
+        }
+
+        /**
+         * Makes the next {@code times} exec_plan_fragment rpcs of every mocked backend fail with
+         * {@code errorMsg} (a TIMEOUT when it is null), e.g. with one of
+         * {@code SystemInfoService.NEED_REPLAN_ERRORS} to have the statement replanned.
+         */
+        public static void failNextExecPlanFragments(int times, String errorMsg) {
+            execPlanFragmentErrorMsg = errorMsg;
             execPlanFragmentTimeouts.set(times);
         }
 
@@ -518,9 +531,15 @@ public class MockedBackendFactory {
         private static InternalService.PExecPlanFragmentResult execPlanFragmentResult() {
             execPlanFragmentCalls.incrementAndGet();
             if (execPlanFragmentTimeouts.getAndUpdate(left -> left > 0 ? left - 1 : 0) > 0) {
+                String errorMsg = execPlanFragmentErrorMsg;
+                if (errorMsg == null) {
+                    return InternalService.PExecPlanFragmentResult.newBuilder()
+                            .setStatus(Types.PStatus.newBuilder().setStatusCode(TStatusCode.TIMEOUT.getValue())
+                                    .addErrorMsgs("injected exec_plan_fragment timeout")).build();
+                }
                 return InternalService.PExecPlanFragmentResult.newBuilder()
-                        .setStatus(Types.PStatus.newBuilder().setStatusCode(TStatusCode.TIMEOUT.getValue())
-                                .addErrorMsgs("injected exec_plan_fragment timeout")).build();
+                        .setStatus(Types.PStatus.newBuilder().setStatusCode(TStatusCode.INTERNAL_ERROR.getValue())
+                                .addErrorMsgs(errorMsg)).build();
             }
             return InternalService.PExecPlanFragmentResult.newBuilder()
                     .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build();

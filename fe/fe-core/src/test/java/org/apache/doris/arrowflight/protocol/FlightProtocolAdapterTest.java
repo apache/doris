@@ -285,6 +285,42 @@ public class FlightProtocolAdapterTest {
         Assertions.assertTrue(ctx.isReturnResultFromLocal());
     }
 
+    // A replanned statement is run again without going through beforeStatement. The attempt that
+    // failed had moved the result to the backends and registered endpoints there; the next one
+    // starts as the statement did, so that a second failure before its query runs does not leave
+    // the session believing a result is waiting on the backends, and that nothing the failed
+    // attempt registered is delivered.
+    @Test
+    public void testAnAttemptStartsWhereTheStatementDid() {
+        ConnectContext ctx = flightSession();
+        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
+
+        adapter.beforeStatement(ctx);
+        adapter.beforeAttempt(ctx);
+        Assertions.assertTrue(ctx.isReturnResultFromLocal());
+        Assertions.assertTrue(ctx.getFlightSqlEndpointsLocations().isEmpty());
+
+        // The first attempt ran its query: result on the backends, one endpoint registered.
+        adapter.beforeQuery(ctx);
+        ctx.addFlightSqlEndpointsLocation(new FlightSqlEndpointsLocation(new TUniqueId(1, 1),
+                new TNetworkAddress("127.0.0.1", 8070), new TNetworkAddress("127.0.0.1", 8060), new ArrayList<>()));
+        Assertions.assertFalse(ctx.isReturnResultFromLocal());
+        Assertions.assertEquals(1, ctx.getFlightSqlEndpointsLocations().size());
+
+        // It failed and the statement is replanned: the second attempt starts afresh.
+        adapter.beforeAttempt(ctx);
+        Assertions.assertTrue(ctx.isReturnResultFromLocal());
+        Assertions.assertTrue(ctx.getFlightSqlEndpointsLocations().isEmpty());
+
+        // Only what the attempt that completes registers is delivered.
+        adapter.beforeQuery(ctx);
+        ctx.addFlightSqlEndpointsLocation(new FlightSqlEndpointsLocation(new TUniqueId(2, 2),
+                new TNetworkAddress("127.0.0.1", 8070), new TNetworkAddress("127.0.0.1", 8060), new ArrayList<>()));
+        Assertions.assertFalse(ctx.isReturnResultFromLocal());
+        Assertions.assertEquals(1, ctx.getFlightSqlEndpointsLocations().size());
+        Assertions.assertEquals(new TUniqueId(2, 2), ctx.getFlightSqlEndpointsLocations().get(0).getFinstId());
+    }
+
     @Test
     public void testOnlyTheLastStatementOfARequestMayReturnAResult() throws Exception {
         ConnectContext ctx = flightSession();
