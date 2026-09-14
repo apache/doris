@@ -150,12 +150,9 @@ bool pushdown_zonemap_minmax_forced(const StorageReadOptions& read_options) {
            read_options.runtime_state->query_options().force_pushdown_zonemap_minmax;
 }
 
-// The statistics iterator answers pushed-down aggregates from the segment zone maps alone. A zone
-// map with no usable min/max sends the caller back to reading the data instead.
 Status segment_zone_maps_can_answer_agg(Segment* segment, const ReadSchema& schema,
                                         const StorageReadOptions& read_options, bool* usable) {
     *usable = true;
-    const bool accept_cut_bound = pushdown_zonemap_minmax_forced(read_options);
     for (size_t ordinal = 0; ordinal < schema.num_block_columns(); ++ordinal) {
         // The commit-tso column is only served correctly once its reader is created with the
         // rowset's commit_tso as a const value. Creating it here without one would cache a reader
@@ -177,14 +174,6 @@ Status segment_zone_maps_can_answer_agg(Segment* segment, const ReadSchema& sche
         }
         ZoneMap zone_map;
         RETURN_IF_ERROR(reader->get_segment_zone_map(&zone_map));
-        const bool is_string_column = is_string_type(schema.column(ordinal)->type());
-
-        // Statistics collection reads a string zone map as it is. A string zone map gives up its
-        // range on read, never on write, so its bounds were parsed and still hold what the
-        // segment stored, cut or not.
-        if (accept_cut_bound && is_string_column) {
-            continue;
-        }
 
         // The zone map gave up its range, so it has no min/max left to answer with.
         if (zone_map.pass_all) {
@@ -194,7 +183,7 @@ Status segment_zone_maps_can_answer_agg(Segment* segment, const ReadSchema& sche
 
         // Only a string bound is cut at MAX_ZONE_MAP_INDEX_SIZE, and a column of nothing but
         // nulls stored no bound to look at.
-        if (!is_string_column || !zone_map.has_not_null) {
+        if (!is_string_type(schema.column(ordinal)->type()) || !zone_map.has_not_null) {
             continue;
         }
 
@@ -535,21 +524,17 @@ Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& re
         RETURN_IF_ERROR(load_index(read_options.stats, &read_options.io_ctx));
     }
 
-    // A delete predicate leaves the zone map covering rows that are gone, so its min/max may be a
-    // value the table no longer holds. Statistics collection takes that approximation; every other
-    // query has to read the rows.
-    const bool delete_free =
-            read_options.delete_condition_predicates->num_of_column_predicate() == 0;
+    // Statistics collection takes the zone map bounds as they are, so it skips both checks below:
+    // a delete predicate leaves them covering rows that are gone, and a cut bound is a prefix.
+    const bool forced = pushdown_zonemap_minmax_forced(read_options);
+    const auto agg = read_options.push_down_agg_type_opt;
     bool use_statistics_iterator =
-            (delete_free || pushdown_zonemap_minmax_forced(read_options)) &&
-            read_options.push_down_agg_type_opt != TPushAggOp::NONE &&
-            read_options.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX;
-    // COUNT only fills defaults, every other pushed-down aggregate reads min/max out of the
-    // segment zone maps.
-    if (use_statistics_iterator && read_options.push_down_agg_type_opt != TPushAggOp::COUNT) {
-        bool usable = false;
-        RETURN_IF_ERROR(segment_zone_maps_can_answer_agg(this, *schema, read_options, &usable));
-        use_statistics_iterator = usable;
+            agg != TPushAggOp::NONE && agg != TPushAggOp::COUNT_ON_INDEX &&
+            (forced || read_options.delete_condition_predicates->num_of_column_predicate() == 0);
+    // COUNT only fills defaults, every other aggregate reads min/max out of the zone maps.
+    if (use_statistics_iterator && !forced && agg != TPushAggOp::COUNT) {
+        RETURN_IF_ERROR(segment_zone_maps_can_answer_agg(this, *schema, read_options,
+                                                         &use_statistics_iterator));
     }
     if (use_statistics_iterator) {
         iter->reset(new_vstatistics_iterator(this->shared_from_this(), *schema));
