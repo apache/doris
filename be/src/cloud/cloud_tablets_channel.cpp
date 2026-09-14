@@ -17,7 +17,9 @@
 
 #include "cloud/cloud_tablets_channel.h"
 
+#include <chrono>
 #include <mutex>
+#include <thread>
 
 #include "cloud/cloud_delta_writer.h"
 #include "cloud/cloud_meta_mgr.h"
@@ -26,6 +28,7 @@
 #include "load/channel/tablets_channel.h"
 #include "load/delta_writer/delta_writer.h"
 #include "storage/tablet_info.h"
+#include "util/debug_points.h"
 
 namespace doris {
 
@@ -198,6 +201,16 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
     auto* tablet_errors = res->mutable_tablet_errors();
     auto* tablet_vec = res->mutable_tablet_vec();
     _state = kFinished;
+    DBUG_EXECUTE_IF("TabletsChannel.close.wait_until_cancel", {
+        // Keep the heavy worker and channel lock until cancellation is published.
+        // Removing the debug point must not release a close that already entered.
+        LOG(INFO) << "wait for cancel in close: " << _key;
+        while (_check_cancelled().ok()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        LOG(INFO) << "cancel released close: " << _key << ", status=" << _close_status;
+        return _close_status;
+    });
 
     // All senders are closed
     // 1. close all delta writers. under _lock.

@@ -48,6 +48,7 @@
 #include "storage/tablet/tablet_manager.h"
 #include "storage/tablet_info.h"
 #include "storage/txn/txn_manager.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 
 namespace doris {
@@ -385,6 +386,16 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
     }
 
     _state = kFinished;
+    DBUG_EXECUTE_IF("TabletsChannel.close.wait_until_cancel", {
+        // Keep the heavy worker and channel lock until cancellation is published.
+        // Removing the debug point must not release a close that already entered.
+        LOG(INFO) << "wait for cancel in close: " << _key;
+        while (_check_cancelled().ok()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        LOG(INFO) << "cancel released close: " << _key << ", status=" << _close_status;
+        return _close_status;
+    });
     // All senders are closed
     // 1. close all delta writers
     std::set<DeltaWriter*> need_wait_writers;
