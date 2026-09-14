@@ -17,8 +17,11 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement.Assertion;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
@@ -70,6 +73,90 @@ class EliminateAssertNumRowsTest implements MemoPatternMatchSupported {
                 .applyTopDown(new EliminateAssertNumRows())
                 .matchesFromRoot(
                         logicalAggregate(logicalOlapScan())
+                );
+    }
+
+    @Test
+    void testScalarAggEqOne() {
+        LogicalPlan plan = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
+                .agg(ImmutableList.of(), ImmutableList.of((new Count()).alias("cnt")))
+                .assertNumRows(Assertion.EQ, 1)
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new EliminateAssertNumRows())
+                .matchesFromRoot(
+                        logicalAggregate(logicalOlapScan())
+                );
+    }
+
+    @Test
+    void testProjectAboveScalarAggEqOne() {
+        LogicalPlan plan = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
+                .agg(ImmutableList.of(), ImmutableList.of((new Count()).alias("cnt")))
+                .project(ImmutableList.of(0))
+                .assertNumRows(Assertion.EQ, 1)
+                .build();
+
+        // a projection keeps the rows of the aggregation, the assertion is still redundant
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new EliminateAssertNumRows())
+                .matchesFromRoot(
+                        logicalProject(logicalAggregate(logicalOlapScan()))
+                );
+    }
+
+    @Test
+    void testFilterAboveScalarAggEqOne() {
+        Alias cnt = (new Count()).alias("cnt");
+        LogicalPlan plan = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
+                .agg(ImmutableList.of(), ImmutableList.of(cnt))
+                .filter(new GreaterThan(cnt.toSlot(), new BigIntLiteral(1)))
+                .assertNumRows(Assertion.EQ, 1)
+                .build();
+
+        // the filter (a HAVING clause) can remove the row of the global aggregation, and then the
+        // assertion is what turns the empty scalar subquery into its null value
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new EliminateAssertNumRows())
+                .matchesFromRoot(
+                        logicalAssertNumRows(logicalFilter(logicalAggregate(logicalOlapScan())))
+                );
+    }
+
+    @Test
+    void testFilterAboveScalarAggWithLeAssertion() {
+        Alias cnt = (new Count()).alias("cnt");
+        LogicalPlan plan = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
+                .agg(ImmutableList.of(), ImmutableList.of(cnt))
+                .filter(new GreaterThan(cnt.toSlot(), new BigIntLiteral(1)))
+                .assertNumRows(Assertion.LE, 10)
+                .build();
+
+        // the filter can only keep less rows than the aggregation, so the checked number of rows
+        // is still an upper bound of the input of the assertion
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new EliminateAssertNumRows())
+                .matchesFromRoot(
+                        logicalFilter(logicalAggregate(logicalOlapScan()))
+                );
+    }
+
+    @Test
+    void testSemiJoinAboveScalarAggEqOne() {
+        LogicalPlan plan = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
+                .agg(ImmutableList.of(), ImmutableList.of((new Count()).alias("cnt")))
+                .joinEmptyOn(PlanConstructor.newLogicalOlapScan(1, "t2", 0), JoinType.LEFT_SEMI_JOIN)
+                .assertNumRows(Assertion.EQ, 1)
+                .build();
+
+        // a semi join only keeps the matched rows of its left child, the aggregation above is not
+        // the only input of the assertion any more
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new EliminateAssertNumRows())
+                .matchesFromRoot(
+                        logicalAssertNumRows(
+                                leftSemiLogicalJoin(logicalAggregate(logicalOlapScan()), logicalOlapScan()))
                 );
     }
 
