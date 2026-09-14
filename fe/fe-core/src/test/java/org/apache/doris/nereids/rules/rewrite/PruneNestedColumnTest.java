@@ -365,6 +365,15 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testVariantIntegerIndexPredicateStopsSubColumnPath() throws Exception {
+        // Filters stop at the integer index too, also when a string key follows it; the object-key sub-column
+        // items.1, spelled like the index, stays a separate slot.
+        assertVariantSubColumnSlots("select id from variant_tbl"
+                        + " where v['items'][1] = 2 and v['items'][-1]['k'] = 1 and v['items']['1'] = 'x'",
+                ImmutableList.of(ImmutableList.of("items"), ImmutableList.of("items", "1")));
+    }
+
+    @Test
     public void testVariantPredicateAccessPath() throws Exception {
         assertColumn("select 1 from variant_tbl where v['k'] is not null",
                 "variant",

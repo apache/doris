@@ -78,7 +78,9 @@ suite("regression_test_variant_element_at", "p0")  {
         (1, ${variantV2Function}('{"items": [2, 3, 4]}')),
         (2, ${variantV2Function}('{"items": [[5, 6], "s", 7]}')),
         (3, ${variantV2Function}('{"items": {"1": "key one"}}')),
-        (4, ${variantV2Function}('{"other": 1}'))"""
+        (4, ${variantV2Function}('{"other": 1}')),
+        (5, ${variantV2Function}('{"items": [{"k": 1}, {"k": 2}]}')),
+        (6, ${variantV2Function}('{"items": [2, null, 4]}'))"""
     order_qt_nested_integer_index """
         SELECT id,
                element_at(element_at(json_variant, 'items'), 1),
@@ -93,4 +95,35 @@ suite("regression_test_variant_element_at", "p0")  {
         SELECT element_at(element_at(${variantV2Function}('{"items": [2, 3, 4]}'), 'items'), 1),
                element_at(element_at(${variantV2Function}('{"items": [2, 3, 4]}'), 'items'), -1)
     """
+
+    // Filters read items and apply the index the same way: as a pushed-down predicate, after a string key that
+    // follows the index, next to the object-key sub-column items.1 in one filter, and under a TopN.
+    order_qt_nested_integer_index_filter """
+        SELECT id FROM element_at_nested_index_test
+        WHERE CAST(element_at(element_at(json_variant, 'items'), 1) AS INT) = 2
+    """
+    order_qt_nested_integer_index_filter_negative """
+        SELECT id, json_variant['items'][2] FROM element_at_nested_index_test
+        WHERE CAST(json_variant['items'][-1] AS INT) = 4
+    """
+    order_qt_nested_integer_index_filter_null """
+        SELECT id FROM element_at_nested_index_test
+        WHERE element_at(element_at(json_variant, 'items'), 1) IS NULL
+    """
+    order_qt_nested_integer_index_filter_object """
+        SELECT id FROM element_at_nested_index_test WHERE CAST(json_variant['items'][1]['k'] AS INT) = 1
+    """
+    order_qt_nested_integer_index_filter_with_key """
+        SELECT id FROM element_at_nested_index_test
+        WHERE CAST(json_variant['items']['1'] AS STRING) = 'key one' OR CAST(json_variant['items'][1] AS INT) = 2
+    """
+    qt_nested_integer_index_filter_topn """
+        SELECT id, CAST(json_variant['items'] AS STRING) FROM element_at_nested_index_test
+        WHERE CAST(json_variant['items'][1] AS INT) = 2 ORDER BY id LIMIT 1
+    """
+    // MATCH needs a storage column, and a path with an integer index is not one.
+    test {
+        sql "SELECT id FROM element_at_nested_index_test WHERE json_variant['items'][2] MATCH_ANY 's'"
+        exception "Only support match left operand is SlotRef"
+    }
 }
