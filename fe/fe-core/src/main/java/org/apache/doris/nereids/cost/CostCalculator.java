@@ -19,7 +19,6 @@ package org.apache.doris.nereids.cost;
 
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.qe.ConnectContext;
 
@@ -35,13 +34,9 @@ public class CostCalculator {
      * Calculate cost for groupExpression
      */
     public static Cost calculateCost(ConnectContext connectContext, GroupExpression groupExpression,
-            List<PhysicalProperties> childrenProperties) {
-        PlanContext planContext = new PlanContext(connectContext, groupExpression);
-        if (childrenProperties.size() >= 2
-                && childrenProperties.get(1).getDistributionSpec() instanceof DistributionSpecReplicated) {
-            planContext.setBroadcastJoin();
-        }
-
+            List<PhysicalProperties> childrenProperties, CostWeight costWeight) {
+        PlanContext planContext = new PlanContext(
+                connectContext, groupExpression, childrenProperties, costWeight);
         CostModel costModelV1 = new CostModel(connectContext);
         return groupExpression.getPlan().accept(costModelV1, planContext);
     }

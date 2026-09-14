@@ -19,6 +19,7 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
+import org.apache.doris.nereids.cost.CostWeight;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
@@ -40,13 +41,15 @@ public class EnforceMissingPropertiesHelper {
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(EnforcerEvent.class, EventChannel.LOG)));
     private final ConnectContext connectContext;
     private final GroupExpression groupExpression;
+    private final CostWeight costWeight;
     private Cost curTotalCost;
 
     public EnforceMissingPropertiesHelper(ConnectContext connectContext, GroupExpression groupExpression,
-            Cost curTotalCost) {
+            Cost curTotalCost, CostWeight costWeight) {
         this.connectContext = connectContext;
         this.groupExpression = groupExpression;
         this.curTotalCost = curTotalCost;
+        this.costWeight = costWeight;
     }
 
     public Cost getCurTotalCost() {
@@ -164,10 +167,10 @@ public class EnforceMissingPropertiesHelper {
         if (enforcerCost == null) {
             enforcer.setEstOutputRowCount(enforcer.getOwnerGroup().getStatistics().getRowCount());
             enforcerCost = CostCalculator.calculateCost(connectContext, enforcer,
-                    Lists.newArrayList(oldOutputProperty));
+                    Lists.newArrayList(oldOutputProperty), costWeight);
             enforcer.setCost(enforcerCost);
         }
-        curTotalCost = enforcerCost.add(curTotalCost, connectContext.getStatementContext().getCostWeight());
+        curTotalCost = enforcerCost.add(curTotalCost, costWeight);
         if (enforcer.updateLowestCostTable(newOutputProperty,
                 Lists.newArrayList(oldOutputProperty), curTotalCost)) {
             enforcer.putOutputPropertiesMap(newOutputProperty, newOutputProperty);

@@ -120,6 +120,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
         countJobExecutionTimesOfGroupExpressions(groupExpression);
         // Do init logic of root plan/groupExpr of `subplan`, only run once per task.
         if (curChildIndex == -1) {
+            curTotalCost = Cost.zero();
             curChildIndex = 0;
             // List<request property to children>
             // [ child item: [leftProperties, rightProperties]]
@@ -252,7 +253,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
 
             // recompute cost after adjusting property
             Cost nodeCost = CostCalculator.calculateCost(
-                    getConnectContext(), groupExpression, requestChildrenProperties);
+                    getConnectContext(), groupExpression, requestChildrenProperties, costWeight);
             groupExpression.setCost(nodeCost);
             curTotalCost = nodeCost;
             for (int i = 0; i < outputChildrenProperties.size(); i++) {
@@ -302,8 +303,9 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             }
         }
 
-        EnforceMissingPropertiesHelper enforceMissingPropertiesHelper
-                = new EnforceMissingPropertiesHelper(getConnectContext(), groupExpression, curTotalCost);
+        CostWeight costWeight = context.getCascadesContext().getStatementContext().getCostWeight();
+        EnforceMissingPropertiesHelper enforceMissingPropertiesHelper = new EnforceMissingPropertiesHelper(
+                getConnectContext(), groupExpression, curTotalCost, costWeight);
         PhysicalProperties addEnforcedProperty = enforceMissingPropertiesHelper
                 .enforceProperty(outputProperty, requiredProperties);
         curTotalCost = enforceMissingPropertiesHelper.getCurTotalCost();

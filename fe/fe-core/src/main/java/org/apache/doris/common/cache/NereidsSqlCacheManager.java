@@ -58,7 +58,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types.PUniqueId;
@@ -186,7 +185,7 @@ public class NereidsSqlCacheManager {
     /**
      * tryAddFeCache
      */
-    public void tryAddFeSqlCache(ConnectContext connectContext, String sql, PhysicalPlan physicalPlan) {
+    public void tryAddFeSqlCache(ConnectContext connectContext, String sql) {
         switch (connectContext.getCommand()) {
             case COM_STMT_EXECUTE:
             case COM_STMT_PREPARE:
@@ -211,7 +210,6 @@ public class NereidsSqlCacheManager {
         if (sqlCaches.getIfPresent(key) == null && sqlCacheContext.getOrComputeCacheKeyMd5(sessionVariable) != null
                 && sqlCacheContext.getResultSetInFe().isPresent()) {
             sqlCacheContext.setAffectQueryResultVariables(sessionVariable);
-            sqlCacheContext.setPhysicalPlan(physicalPlan.treeString());
             sqlCaches.put(key, sqlCacheContext);
         }
     }
@@ -219,8 +217,7 @@ public class NereidsSqlCacheManager {
     /**
      * tryAddBeCache
      */
-    public void tryAddBeCache(ConnectContext connectContext, String sql, CacheAnalyzer analyzer,
-            PhysicalPlan physicalPlan) {
+    public void tryAddBeCache(ConnectContext connectContext, String sql, CacheAnalyzer analyzer) {
         switch (connectContext.getCommand()) {
             case COM_STMT_EXECUTE:
             case COM_STMT_PREPARE:
@@ -263,7 +260,6 @@ public class NereidsSqlCacheManager {
                 return;
             }
 
-            sqlCacheContext.setPhysicalPlan(physicalPlan.treeString());
             sqlCaches.put(key, sqlCacheContext);
         }
     }

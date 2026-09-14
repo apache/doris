@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.SessionVariable;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class CostModelV1Test extends SqlTestBase {

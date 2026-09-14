@@ -548,6 +548,7 @@ public class StatementContext implements Closeable {
         }
         return costWeight;
     }
+
     public Set<String> getUsedAIResourceNames() {
         return Collections.unmodifiableSet(usedAIResourceNames);
     }

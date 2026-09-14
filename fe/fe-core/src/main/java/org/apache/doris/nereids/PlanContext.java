@@ -19,6 +19,8 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.nereids.cost.CostWeight;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DistributionSpecReplicated;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -40,18 +42,39 @@ public class PlanContext {
     private final int arity;
     private boolean isBroadcastJoin = false;
     private final boolean isStatsReliable;
+    private final CostWeight costWeight;
 
     /**
      * Constructor for PlanContext.
      */
     public PlanContext(ConnectContext connectContext, GroupExpression groupExpression) {
+        this(connectContext, groupExpression, (CostWeight) null);
+    }
+
+    private PlanContext(ConnectContext connectContext, GroupExpression groupExpression, CostWeight costWeight) {
         this.connectContext = connectContext;
+        this.costWeight = costWeight;
         this.arity = groupExpression.arity();
         this.planStats = groupExpression.getOwnerGroup().getStatistics();
         this.isStatsReliable = groupExpression.getOwnerGroup().isStatsReliable();
         this.childrenStats = new ArrayList<>(groupExpression.arity());
         for (int i = 0; i < groupExpression.arity(); i++) {
             childrenStats.add(groupExpression.childStatistics(i));
+        }
+    }
+
+    public PlanContext(ConnectContext connectContext, GroupExpression groupExpression,
+            List<PhysicalProperties> childrenProperties) {
+        this(connectContext, groupExpression, childrenProperties, null);
+    }
+
+    /** Constructor for cost calculation with the statement-scoped weight snapshot. */
+    public PlanContext(ConnectContext connectContext, GroupExpression groupExpression,
+            List<PhysicalProperties> childrenProperties, CostWeight costWeight) {
+        this(connectContext, groupExpression, costWeight);
+        if (childrenProperties.size() >= 2
+                && childrenProperties.get(1).getDistributionSpec() instanceof DistributionSpecReplicated) {
+            isBroadcastJoin = true;
         }
     }
 
@@ -64,6 +87,7 @@ public class PlanContext {
         this.planStats = null;
         this.arity = 0;
         this.isStatsReliable = true;
+        this.costWeight = null;
     }
 
     public SessionVariable getSessionVariable() {
@@ -75,7 +99,7 @@ public class PlanContext {
     }
 
     public CostWeight getCostWeight() {
-        return getStatementContext().getCostWeight();
+        return costWeight;
     }
 
     public boolean isBroadcastJoin() {
