@@ -42,8 +42,17 @@ TIndexPolicy make_analyzer_policy(int64_t id, std::string name, std::string toke
     return policy;
 }
 
-size_t count_analyzer_terms(IndexPolicyMgr& manager) {
-    auto analyzer = manager.get_policy_by_name("COLLIDING_ANALYZER");
+TIndexPolicy make_tokenizer_policy(int64_t id, std::string name, std::string type) {
+    TIndexPolicy policy;
+    policy.id = id;
+    policy.name = std::move(name);
+    policy.type = TIndexPolicyType::TOKENIZER;
+    policy.properties["type"] = std::move(type);
+    return policy;
+}
+
+size_t count_analyzer_terms(IndexPolicyMgr& manager, const std::string& name) {
+    auto analyzer = manager.get_policy_by_name(name);
     auto reader = segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader({});
     const std::string text = "one two";
     reader->init(text.data(), static_cast<int32_t>(text.size()), false);
@@ -56,11 +65,11 @@ void assert_collision_sequence(const std::vector<TIndexPolicy>& updates, int64_t
                                int64_t newer_id) {
     IndexPolicyMgr manager;
     manager.apply_policy_changes(updates, {});
-    EXPECT_EQ(count_analyzer_terms(manager), 2);
+    EXPECT_EQ(count_analyzer_terms(manager, "Colliding_Analyzer"), 2);
     EXPECT_EQ(manager.get_index_policys().size(), 2);
 
     manager.apply_policy_changes({}, {older_id});
-    EXPECT_EQ(count_analyzer_terms(manager), 2);
+    EXPECT_EQ(count_analyzer_terms(manager, "Colliding_Analyzer"), 2);
     manager.apply_policy_changes({}, {newer_id});
     EXPECT_THROW(manager.get_policy_by_name("colliding_analyzer"), Exception);
 }
@@ -172,7 +181,30 @@ TEST_F(IndexPolicyMgrTest, NormalizedNameCollisionUsesHigherIdIndependentOfArriv
     IndexPolicyMgr manager;
     manager.apply_policy_changes({older, newer}, {});
     manager.apply_policy_changes({}, {newer.id});
-    EXPECT_EQ(count_analyzer_terms(manager), 1);
+    EXPECT_EQ(count_analyzer_terms(manager, "COLLIDING_ANALYZER"), 1);
+}
+
+TEST_F(IndexPolicyMgrTest, LegacyExactNameCollisionPreservesDependentAnalyzerTerms) {
+    TIndexPolicy historical = make_tokenizer_policy(100, "IK_SMART", "standard");
+    TIndexPolicy newer = make_tokenizer_policy(101, "ik_smart", "keyword");
+    TIndexPolicy dependent = make_analyzer_policy(102, "legacy_exact_analyzer", "IK_SMART");
+
+    for (const std::vector<TIndexPolicy>& updates :
+         {std::vector<TIndexPolicy> {historical, newer, dependent},
+          std::vector<TIndexPolicy> {dependent, newer, historical}}) {
+        IndexPolicyMgr manager;
+        manager.apply_policy_changes(updates, {});
+
+        auto analyzer = manager.get_policy_by_name(dependent.name);
+        auto reader = segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader({});
+        const std::string text = "one two";
+        reader->init(text.data(), static_cast<int32_t>(text.size()), false);
+        auto terms = segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                reader, analyzer.get());
+        ASSERT_EQ(terms.size(), 2);
+        EXPECT_EQ(terms[0].get_single_term(), "one");
+        EXPECT_EQ(terms[1].get_single_term(), "two");
+    }
 }
 
 TEST_F(IndexPolicyMgrTest, TestGetPolicyByName) {

@@ -219,6 +219,52 @@ bool PinyinFilter::readTerm(Token* token) {
     return false;
 }
 
+bool PinyinFilter::prepareCurrentSource(std::vector<UChar32>& source_codepoints) {
+    size_t source_start = 0;
+    size_t source_end = current_token_text_.size();
+    if (config_->trimWhitespace) {
+        source_start = current_token_text_.find_first_not_of(" \t\n\r");
+        if (source_start == std::string::npos) {
+            return false;
+        }
+        source_end = current_token_text_.find_last_not_of(" \t\n\r") + 1;
+    }
+    current_source_ = current_token_text_.substr(source_start, source_end - source_start);
+
+    if (current_source_.empty()) {
+        return false;
+    }
+
+    current_runes_ = convertToRunes(current_source_, source_codepoints);
+
+    std::vector<UChar32> original_codepoints;
+    const auto original_runes = convertToRunes(current_token_text_, original_codepoints);
+    if (current_source_byte_offsets_.size() == original_runes.size() + 1) {
+        const auto start_rune = std::ranges::lower_bound(
+                original_runes, static_cast<int32_t>(source_start), {}, &RuneInfo::byte_start);
+        const auto end_rune = std::ranges::lower_bound(
+                original_runes, static_cast<int32_t>(source_end), {}, &RuneInfo::byte_start);
+        const auto start_index = static_cast<size_t>(start_rune - original_runes.begin());
+        const auto end_index = static_cast<size_t>(end_rune - original_runes.begin());
+        DORIS_CHECK_EQ(end_index - start_index, current_runes_.size());
+        const int32_t token_start_offset = current_start_offset_;
+        current_start_offset_ += current_source_byte_offsets_[start_index];
+        current_end_offset_ = token_start_offset + current_source_byte_offsets_[end_index];
+        for (size_t i = 0; i < current_runes_.size(); ++i) {
+            current_runes_[i].byte_start = current_source_byte_offsets_[start_index + i] -
+                                           current_source_byte_offsets_[start_index];
+            current_runes_[i].byte_end = current_source_byte_offsets_[start_index + i + 1] -
+                                         current_source_byte_offsets_[start_index];
+        }
+    } else {
+        current_start_offset_ += static_cast<int32_t>(source_start);
+        current_end_offset_ =
+                current_start_offset_ + static_cast<int32_t>(source_end - source_start);
+    }
+
+    return !source_codepoints.empty();
+}
+
 bool PinyinFilter::processCurrentToken() {
     processed_candidate_ = true;
 
@@ -226,30 +272,9 @@ bool PinyinFilter::processCurrentToken() {
         return false;
     }
 
-    current_source_ = current_token_text_;
-
-    // Apply trimming if configured
-    if (config_->trimWhitespace) {
-        current_source_ = trim(current_source_);
-    }
-
-    if (current_source_.empty()) {
-        return false;
-    }
-
-    // Convert to Unicode codepoints for processing
+    // Convert to Unicode codepoints for processing.
     std::vector<UChar32> source_codepoints;
-    current_runes_ = convertToRunes(current_source_, source_codepoints);
-
-    if (current_source_ == current_token_text_ &&
-        current_source_byte_offsets_.size() == current_runes_.size() + 1) {
-        for (size_t i = 0; i < current_runes_.size(); ++i) {
-            current_runes_[i].byte_start = current_source_byte_offsets_[i];
-            current_runes_[i].byte_end = current_source_byte_offsets_[i + 1];
-        }
-    }
-
-    if (source_codepoints.empty()) {
+    if (!prepareCurrentSource(source_codepoints)) {
         return false;
     }
 

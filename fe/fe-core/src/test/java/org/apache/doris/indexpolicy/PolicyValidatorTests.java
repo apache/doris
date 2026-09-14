@@ -325,7 +325,9 @@ public class PolicyValidatorTests {
 
         manager.replayCreateIndexPolicy(older);
         manager.replayCreateIndexPolicy(newer);
-        Assertions.assertEquals(List.of(newer), manager.getCopiedIndexPolicies());
+        Assertions.assertEquals(2, manager.getCopiedIndexPolicies().size());
+        Assertions.assertTrue(manager.getCopiedIndexPolicies().containsAll(List.of(older, newer)));
+        Assertions.assertEquals(older.getId(), manager.getPolicyByName("IK_SMART").getId());
         manager.replayDropIndexPolicy(new DropIndexPolicyLog(older.getId()));
 
         Assertions.assertEquals(newer.getId(), manager.getPolicyByName("IK_SMART").getId());
@@ -349,7 +351,7 @@ public class PolicyValidatorTests {
     }
 
     @Test
-    public void testImageRebuildSelectsNewestLocaleCollisionDeterministically() throws Exception {
+    public void testImageRebuildPreservesLegacyExactNameBindings() throws Exception {
         long newerId = 1L << 32;
         IndexPolicyMgr manager = new IndexPolicyMgr();
         IndexPolicy newer = new IndexPolicy(
@@ -361,7 +363,35 @@ public class PolicyValidatorTests {
         manager.replayCreateIndexPolicy(older);
         IndexPolicyMgr restored = roundTrip(manager);
 
-        Assertions.assertEquals(newerId, restored.getPolicyByName("IK_SMART").getId());
+        Assertions.assertEquals(older.getId(), restored.getPolicyByName("IK_SMART").getId());
+        Assertions.assertEquals(newerId, restored.getPolicyByName("ik_smart").getId());
+        Assertions.assertEquals(newerId, restored.getPolicyByName("Ik_Smart").getId());
+    }
+
+    @Test
+    public void testJournalAndImageKeepLegacyExactNameBindings() throws Exception {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        IndexPolicy historical = new IndexPolicy(
+                1, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard"));
+        IndexPolicy newer = new IndexPolicy(
+                2, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "keyword"));
+        IndexPolicy dependent = new IndexPolicy(
+                3, "legacy_exact_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "IK_SMART"));
+
+        manager.replayCreateIndexPolicy(historical);
+        manager.replayCreateIndexPolicy(newer);
+        manager.replayCreateIndexPolicy(dependent);
+        Assertions.assertEquals(historical.getId(), manager.getPolicyByName("IK_SMART").getId());
+        Assertions.assertEquals(newer.getId(), manager.getPolicyByName("ik_smart").getId());
+        Assertions.assertEquals(3, manager.getCopiedIndexPolicies().size());
+
+        IndexPolicyMgr restored = roundTrip(manager);
+        Assertions.assertEquals(historical.getId(), restored.getPolicyByName("IK_SMART").getId());
+        Assertions.assertEquals(newer.getId(), restored.getPolicyByName("ik_smart").getId());
+        Assertions.assertEquals("IK_SMART",
+                restored.getPolicyByName(dependent.getName()).getProperties().get("tokenizer"));
+        Assertions.assertEquals(3, restored.getCopiedIndexPolicies().size());
     }
 
     // StandardTokenizerValidator Tests
