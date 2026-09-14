@@ -24,24 +24,37 @@
 #include <limits>
 #include <type_traits>
 
+#include "core/data_type/data_type_date.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_date_time.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_timestamp_ns.h"
+#include "core/data_type/data_type_timestamptz.h"
+#include "core/type_limit.h"
 
 namespace doris {
 
 template <typename Index, PrimitiveType PT>
-struct CaseFloatTypes {
+struct CaseSelectionTypes {
     using IndexType = Index;
     using ColumnType = ColumnVector<PT>;
-    using DataType = DataTypeNumber<PT>;
+    using DataType = typename PrimitiveTypeTraits<PT>::DataType;
 };
 
-using CaseFloatTestTypes =
-        ::testing::Types<CaseFloatTypes<uint8_t, TYPE_FLOAT>, CaseFloatTypes<uint8_t, TYPE_DOUBLE>,
-                         CaseFloatTypes<uint16_t, TYPE_FLOAT>,
-                         CaseFloatTypes<uint16_t, TYPE_DOUBLE>>;
+using CaseSelectionTestTypes = ::testing::Types<
+        CaseSelectionTypes<uint8_t, TYPE_FLOAT>, CaseSelectionTypes<uint8_t, TYPE_DOUBLE>,
+        CaseSelectionTypes<uint16_t, TYPE_FLOAT>, CaseSelectionTypes<uint16_t, TYPE_DOUBLE>,
+        CaseSelectionTypes<uint8_t, TYPE_DATE>, CaseSelectionTypes<uint8_t, TYPE_DATETIME>,
+        CaseSelectionTypes<uint8_t, TYPE_DATEV2>, CaseSelectionTypes<uint8_t, TYPE_DATETIMEV2>,
+        CaseSelectionTypes<uint8_t, TYPE_TIMESTAMP_NS>,
+        CaseSelectionTypes<uint8_t, TYPE_TIMESTAMPTZ>, CaseSelectionTypes<uint16_t, TYPE_DATE>,
+        CaseSelectionTypes<uint16_t, TYPE_DATETIME>, CaseSelectionTypes<uint16_t, TYPE_DATEV2>,
+        CaseSelectionTypes<uint16_t, TYPE_DATETIMEV2>,
+        CaseSelectionTypes<uint16_t, TYPE_TIMESTAMP_NS>,
+        CaseSelectionTypes<uint16_t, TYPE_TIMESTAMPTZ>>;
 
 template <typename T>
-class VCaseFloatTest : public ::testing::Test {
+class VCaseSelectionTest : public ::testing::Test {
 protected:
     using Index = typename T::IndexType;
     using Column = typename T::ColumnType;
@@ -57,8 +70,10 @@ protected:
         node.__set_is_nullable(false);
         node.case_expr.__set_has_else_expr(true);
         VCaseExpr expr(node);
-        // Arithmetic masking corrupts unselected infinities/NaNs, and adding to +0 loses -0.
-        const std::array<Value, 9> values = {Value(1.25),
+        const auto values = [] {
+            if constexpr (std::is_floating_point_v<Value>) {
+                // Arithmetic masking corrupts unselected infinities/NaNs, and adding to +0 loses -0.
+                return std::array<Value, 9> {Value(1.25),
                                              Value(-2.5),
                                              Value(0.0),
                                              Value(-0.0),
@@ -67,6 +82,11 @@ protected:
                                              std::numeric_limits<Value>::quiet_NaN(),
                                              std::numeric_limits<Value>::denorm_min(),
                                              std::numeric_limits<Value>::max()};
+            } else {
+                return std::array<Value, 3> {type_limit<Value>::min(), Column::default_value(),
+                                             type_limit<Value>::max()};
+            }
+        }();
         std::vector<Index> indices(rows);
         for (size_t row = 0; row < rows; ++row) {
             indices[row] = row % branches;
@@ -96,21 +116,21 @@ protected:
     }
 };
 
-TYPED_TEST_SUITE(VCaseFloatTest, CaseFloatTestTypes);
+TYPED_TEST_SUITE(VCaseSelectionTest, CaseSelectionTestTypes);
 
-TYPED_TEST(VCaseFloatTest, NonFiniteValuesAndVectorTails) {
+TYPED_TEST(VCaseSelectionTest, ValuesAndVectorTails) {
     for (size_t rows : {0, 1, 3, 7, 8, 15, 16, 31, 32, 33, 4095, 4096, 4099}) {
         this->check_selection(rows, 9, false);
     }
 }
 
-TYPED_TEST(VCaseFloatTest, ConstantBranches) {
+TYPED_TEST(VCaseSelectionTest, ConstantBranches) {
     for (size_t rows : {1, 31, 4099}) {
         this->check_selection(rows, 9, true);
     }
 }
 
-TYPED_TEST(VCaseFloatTest, MaximumAndWideBranchIndices) {
+TYPED_TEST(VCaseSelectionTest, MaximumAndWideBranchIndices) {
     // 255 columns still use uint8_t; 257 columns exercise indices beyond the uint8_t range.
     const size_t branches = sizeof(typename TypeParam::IndexType) == 1 ? 255 : 257;
     this->check_selection(4099, branches, false);

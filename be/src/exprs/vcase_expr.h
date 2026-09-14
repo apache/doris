@@ -250,7 +250,13 @@ private:
                             ->get_data()
                             .data();
             if constexpr (std::is_same_v<ColumnType, ColumnFloat32> ||
-                          std::is_same_v<ColumnType, ColumnFloat64>) {
+                          std::is_same_v<ColumnType, ColumnFloat64> ||
+                          std::is_same_v<ColumnType, ColumnDate> ||
+                          std::is_same_v<ColumnType, ColumnDateTime> ||
+                          std::is_same_v<ColumnType, ColumnDateV2> ||
+                          std::is_same_v<ColumnType, ColumnDateTimeV2> ||
+                          std::is_same_v<ColumnType, ColumnTimeStampNs> ||
+                          std::is_same_v<ColumnType, ColumnTimeStampTz>) {
                 // Arithmetic masking propagates unselected NaN/Infinity and loses signed zero.
                 // Conditional stores also let the compiler vectorize without loading from a
                 // selected source/destination pointer, as a ternary assignment can do.
@@ -258,16 +264,6 @@ private:
                     if (then_idx[row_idx] == i) {
                         result_raw_data[row_idx] = column_raw_data[row_idx];
                     }
-                }
-            } else if constexpr (std::is_same_v<ColumnType, ColumnDate> ||
-                                 std::is_same_v<ColumnType, ColumnDateTime> ||
-                                 std::is_same_v<ColumnType, ColumnDateV2> ||
-                                 std::is_same_v<ColumnType, ColumnDateTimeV2> ||
-                                 std::is_same_v<ColumnType, ColumnTimeStampNs> ||
-                                 std::is_same_v<ColumnType, ColumnTimeStampTz>) {
-                for (int row_idx = 0; row_idx < rows_count; row_idx++) {
-                    result_raw_data[row_idx] = (then_idx[row_idx] == i) ? column_raw_data[row_idx]
-                                                                        : result_raw_data[row_idx];
                 }
             } else {
                 for (int row_idx = 0; row_idx < rows_count; row_idx++) {
