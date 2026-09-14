@@ -21,8 +21,8 @@ package org.apache.doris.filesystem.properties;
  * Backend-facing storage classification used to select FE-to-BE adapters.
  *
  * <p>This is intentionally more specific than {@link StorageKind}. For example,
- * Azure Blob is object storage at the filesystem layer, but it may be sent to BE
- * either through the S3-compatible adapter or through its native AZURE storage type.
+ * Azure Blob is object storage at the filesystem layer, but uses native Azure credentials
+ * and client selection even while sharing the existing FILE_S3 transport type.
  */
 public enum BackendStorageKind {
     /**
@@ -31,7 +31,7 @@ public enum BackendStorageKind {
     S3_COMPATIBLE,
 
     /**
-     * Storage that should keep its own backend storage type, such as AZURE.
+     * Storage with a provider-specific backend credential and client contract, such as Azure.
      */
     NATIVE,
 

@@ -21,6 +21,7 @@ import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorStorageAccess;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
@@ -37,6 +38,7 @@ import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.filesystem.properties.StorageProperties;
+import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileContent;
@@ -168,10 +170,8 @@ public class IcebergWritePlanProviderTest {
 
     private static RecordingConnectorContext contextWithStorage() {
         RecordingConnectorContext ctx = new RecordingConnectorContext();
-        // Static catalog creds in BE-canonical form (AWS_*), the form the write sink ships to BE — NOT the
-        // fs.s3a.* hadoop form (s3_util.cpp convert_properties_to_s3_conf reads only AWS_*). Fed through the
-        // typed fe-filesystem seam (getStorageProperties() -> toBackendProperties().toMap()) that the write
-        // now derives its BE creds from (design S3), the SAME source the scan path uses.
+        // Retain the legacy fixture's BE-canonical static map. The recording context adapts this fixture
+        // to one storage access result; the writer itself no longer assembles credentials from these maps.
         ctx.storageProperties = Collections.singletonList(
                 fakeBackendStorage(Collections.singletonMap("AWS_ACCESS_KEY", "AK123")));
         ctx.backendFileType = TFileType.FILE_S3;
@@ -179,8 +179,7 @@ public class IcebergWritePlanProviderTest {
     }
 
     /** A fe-filesystem {@link StorageProperties} whose toBackendProperties().toMap() returns the given
-     * BE-canonical map — mirrors how a real object-store binding hands BE creds to the connector, and how
-     * the write path (design S3) sources its static creds. Adapted verbatim from the scan test. */
+     * BE-canonical map for the recording context's legacy fixture adapter. */
     private static StorageProperties fakeBackendStorage(Map<String, String> beMap) {
         BackendStorageProperties backend = new BackendStorageProperties() {
             @Override
@@ -766,7 +765,108 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
-    public void planWriteMergesStorageHadoopConfig() {
+    public void planWriteUsesOneResolvedAzureAccessForEverySink() {
+        String rawLocation = "abfss://container@account.dfs.core.windows.net/path/http://file+//data";
+        Map<String, String> rawCredentials = Collections.singletonMap(
+                "adls.sas-token.account.dfs.core.windows.net", "sv=test&sig=raw-test-sas");
+        Map<String, String> backendProperties = ImmutableMap.<String, String>builder()
+                .put("provider", "azure")
+                .put("AZURE_AUTH_TYPE", "SAS")
+                .put("AZURE_ENDPOINT", "https://account.blob.core.windows.net")
+                .put("AZURE_ACCOUNT_NAME", "account")
+                .put("AZURE_SAS_TOKEN", "sv=test&sig=selected-test-sas")
+                .put("AZURE_SAS_EXPIRY_MS", "4102444800000")
+                .build();
+        ConnectorStorageAccess access = new ConnectorStorageAccess("azure", rawLocation,
+                BackendStorageKind.NATIVE, TFileType.FILE_S3.name(), backendProperties);
+        Table real = unpartitionedTableWith("azure_access", ImmutableMap.of(
+                "write.data.path", rawLocation, "format-version", "2"));
+        Table table = new BaseTable(new IcebergAuthenticatedTableOperations(
+                ((HasTableOperations) real).operations(), new PropsFileIO(rawCredentials)), real.name());
+
+        for (WriteOperation operation : WriteOperation.values()) {
+            RecordingConnectorContext ctx = new RecordingConnectorContext();
+            // If a sink independently assembles a catalog-wide map or reader, these conflicting values
+            // leak into the result. Only the selected access may determine the wire representation.
+            ctx.storageProperties = Collections.singletonList(fakeBackendStorage(ImmutableMap.of(
+                    "AWS_SECRET_KEY", "unrelated-s3-secret",
+                    "AZURE_ACCOUNT_KEY", "stale-shared-key",
+                    "fs.defaultFS", "hdfs://unrelated-namenode")));
+            ctx.vendedBeProps = Collections.singletonMap("AZURE_SAS_TOKEN", "wrong-legacy-token");
+            ctx.backendFileType = TFileType.FILE_HDFS;
+            ctx.storageAccessProviderNames = Collections.singleton("AZURE");
+            ctx.storageAccessResolver = rawUri -> access;
+            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+            ops.table = table;
+            IcebergWritePlanProvider provider = new IcebergWritePlanProvider(
+                    IcebergCatalogProperties.of(restVendedProps()), ops, ctx);
+
+            ConnectorSinkPlan plan = provider.planWrite(
+                    new WriteSession(new IcebergConnectorTransaction(42L, ops, ctx)),
+                    new WriteHandle(new IcebergTableHandle("db1", "azure_access"))
+                            .writeOperation(operation).overwrite(operation == WriteOperation.OVERWRITE));
+
+            assertResolvedStorage(plan.getDataSink(), rawLocation, access);
+            assertSingleResolvedAccess(ctx, rawLocation, access);
+            Assertions.assertEquals(rawCredentials, ctx.lastStorageAccessVendedToken);
+            Assertions.assertEquals("azure", ctx.resolvedStorageAccesses.get(0).getProviderName());
+            Assertions.assertEquals("azure", access.getBackendProperties().get("provider"));
+        }
+    }
+
+    private static void assertSingleResolvedAccess(RecordingConnectorContext ctx, String rawLocation,
+            ConnectorStorageAccess access) {
+        Assertions.assertEquals(1, ctx.newStorageAccessResolverCount);
+        Assertions.assertEquals(1, ctx.storageAccessResolveCount);
+        Assertions.assertEquals(Collections.singletonList(rawLocation), ctx.resolvedStorageUris);
+        Assertions.assertEquals(Collections.singletonList(access), ctx.resolvedStorageAccesses);
+        Assertions.assertEquals(0, ctx.getStoragePropertiesCount);
+        Assertions.assertEquals(0, ctx.vendStorageCredentialsCount);
+        Assertions.assertEquals(0, ctx.getBackendFileTypeCount);
+        Assertions.assertEquals(0, ctx.normalizeCount);
+    }
+
+    private static void assertResolvedStorage(TDataSink sink, String rawLocation, ConnectorStorageAccess access) {
+        Map<String, String> backendProperties;
+        String outputPath;
+        TFileType fileType;
+        switch (sink.getType()) {
+            case ICEBERG_TABLE_SINK:
+                TIcebergTableSink tableSink = sink.getIcebergTableSink();
+                backendProperties = tableSink.getHadoopConfig();
+                outputPath = tableSink.getOutputPath();
+                fileType = tableSink.getFileType();
+                Assertions.assertEquals(rawLocation, tableSink.getOriginalOutputPath());
+                Assertions.assertFalse(tableSink.isSetBrokerAddresses());
+                break;
+            case ICEBERG_DELETE_SINK:
+                TIcebergDeleteSink deleteSink = sink.getIcebergDeleteSink();
+                backendProperties = deleteSink.getHadoopConfig();
+                outputPath = deleteSink.getOutputPath();
+                fileType = deleteSink.getFileType();
+                Assertions.assertEquals(rawLocation, deleteSink.getTableLocation());
+                Assertions.assertFalse(deleteSink.isSetBrokerAddresses());
+                break;
+            case ICEBERG_MERGE_SINK:
+                TIcebergMergeSink mergeSink = sink.getIcebergMergeSink();
+                backendProperties = mergeSink.getHadoopConfig();
+                outputPath = mergeSink.getOutputPath();
+                fileType = mergeSink.getFileType();
+                Assertions.assertEquals(rawLocation, mergeSink.getOriginalOutputPath());
+                Assertions.assertEquals(rawLocation, mergeSink.getTableLocation());
+                Assertions.assertFalse(mergeSink.isSetBrokerAddresses());
+                break;
+            default:
+                throw new AssertionError("Unexpected sink type: " + sink.getType());
+        }
+        Assertions.assertEquals(access.getNormalizedUri(), outputPath);
+        Assertions.assertEquals(TFileType.valueOf(access.getBackendFileType()), fileType);
+        Assertions.assertEquals(access.getBackendProperties().keySet(), backendProperties.keySet());
+        Assertions.assertEquals(access.getBackendProperties(), backendProperties);
+    }
+
+    @Test
+    public void planWriteCarriesResolvedBackendProperties() {
         Table table = partitionedSortedTable(freshCatalog());
         TIcebergTableSink sink = planSink(table, contextWithStorage(),
                 new WriteHandle(new IcebergTableHandle("db1", "t1")));
@@ -863,11 +963,10 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
-    public void planWriteOverlaysVendedCredentials() {
-        // H-1: a REST vending catalog's static storage map is empty by design; the per-table vended token (read
-        // from the table's FileIO) must be overlaid into the write sink's hadoop_config in BE-canonical form
-        // (AWS_*), winning over a colliding static key — mirroring the scan path. The token here is non-empty so
-        // RecordingConnectorContext.vendStorageCredentials yields the configured BE-canonical vended creds.
+    public void planWriteCarriesResolvedVendedCredentials() {
+        // The writer passes the per-table FileIO credentials into storage resolution and forwards its
+        // BE-canonical result. Preserve the legacy fixture's vended-over-static values in the recording
+        // context, which adapts those maps to the new access seam. No merge happens in the writer itself.
         //
         // Wrap a real table's operations with a FileIO carrying a non-empty vended token. Keeping the real table
         // operations also exercises the statement-pinned writer identity and fresh-metadata validation.
@@ -1724,8 +1823,8 @@ public class IcebergWritePlanProviderTest {
         providerFor(ops.table, ctx).planWrite(new WriteSession(txn),
                 new WriteHandle(emptyPinnedHandle).writeOperation(WriteOperation.MERGE));
 
-        Assertions.assertNull(txn.getBaseSnapshotId(),
-                "an explicitly empty read must leave RowDelta validation unbounded across the first append");
+        Assertions.assertEquals(Long.valueOf(-1L), txn.getBaseSnapshotId(),
+                "an explicitly empty read must retain the OCC fence across the first append");
     }
 
     // ───────────────────────────── MERGE sink (TIcebergMergeSink) ─────────────────────────────
@@ -2094,7 +2193,7 @@ public class IcebergWritePlanProviderTest {
     }
 
     /** Minimal {@link FileIO} whose {@link #properties()} yields a known (non-empty) vended token map, so
-     * {@link IcebergScanPlanProvider#extractVendedToken} returns a non-empty token through the write path
+     * {@link IcebergScanPlanProvider#extractNativeStorageCredentials} carries credentials through the write path
      * (H-1). Mirrors the scan test's equivalent double; the read/write file methods are never exercised. */
     private static final class PropsFileIO implements FileIO {
         private final Map<String, String> props;

@@ -21,16 +21,22 @@ import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStorageAccess;
+import org.apache.doris.connector.spi.ConnectorStorageAccessResolver;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TFileType;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.function.Function;
 import java.util.function.UnaryOperator;
 
 /**
@@ -57,9 +63,8 @@ final class RecordingConnectorContext implements ConnectorContext, ConnectorStor
     int authCount;
     boolean failAuth;
 
-    /** Storage properties the fake returns from {@link #getStorageProperties()} — the typed fe-filesystem
-     * seam both the scan and (design S3) the write path derive their BE-canonical static creds from via
-     * {@code sp.toBackendProperties().toMap()} (default: none). */
+    /** Storage properties for older scan fixtures and the legacy fixture adapter in
+     * {@link #newStorageAccessResolver}; explicit access results bypass this map (default: none). */
     List<StorageProperties> storageProperties = Collections.emptyList();
 
     /** BE-canonical vended creds the fake returns from {@link #vendStorageCredentials} for a NON-EMPTY token
@@ -77,6 +82,18 @@ final class RecordingConnectorContext implements ConnectorContext, ConnectorStor
     /** The vended token the connector passed to the most recent 2-arg {@link #normalizeStorageUri} (T09). */
     Map<String, String> lastVendedToken;
 
+    /** Request-level storage access seam. Tests can supply a binding result independently of the legacy maps. */
+    Function<String, ConnectorStorageAccess> storageAccessResolver;
+    Set<String> storageAccessProviderNames = Collections.singleton("fake");
+    int newStorageAccessResolverCount;
+    int storageAccessResolveCount;
+    Map<String, String> lastStorageAccessVendedToken;
+    final List<String> resolvedStorageUris = new ArrayList<>();
+    final List<ConnectorStorageAccess> resolvedStorageAccesses = new ArrayList<>();
+    int getStoragePropertiesCount;
+    int vendStorageCredentialsCount;
+    int getBackendFileTypeCount;
+
     /** BE file type the fake returns from {@link #getBackendFileType} (T06 iceberg write sink). */
     TFileType backendFileType = TFileType.FILE_S3;
     /** The vended token the connector passed to the most recent {@link #getBackendFileType}. */
@@ -93,6 +110,7 @@ final class RecordingConnectorContext implements ConnectorContext, ConnectorStor
 
     @Override
     public String getBackendFileType(String rawUri, Map<String, String> vendedToken) {
+        getBackendFileTypeCount++;
         lastFileTypeVendedToken = vendedToken;
         return backendFileType.name();
     }
@@ -131,12 +149,53 @@ final class RecordingConnectorContext implements ConnectorContext, ConnectorStor
     }
 
     @Override
+    public ConnectorStorageAccessResolver newStorageAccessResolver(Map<String, String> vendedToken) {
+        newStorageAccessResolverCount++;
+        lastStorageAccessVendedToken = vendedToken;
+        Function<String, ConnectorStorageAccess> resolver = storageAccessResolver;
+        if (resolver == null) {
+            // Preserve the older tests' configured static/vended maps and URI fake. This is not an engine
+            // binding implementation: isolation tests supply an explicit access result through the seam above.
+            Map<String, String> backendProperties = new HashMap<>();
+            for (StorageProperties properties : IcebergCatalogFactory.selectEffectiveStorages(getStorageProperties())) {
+                properties.toBackendProperties().ifPresent(b -> backendProperties.putAll(b.toMap()));
+            }
+            backendProperties.putAll(vendStorageCredentials(vendedToken));
+            resolver = rawUri -> new ConnectorStorageAccess("fake", normalizeStorageUri(rawUri, vendedToken),
+                    fixtureBackendKind(), getBackendFileType(rawUri, vendedToken), backendProperties);
+        }
+        Function<String, ConnectorStorageAccess> requestResolver = resolver;
+        return new ConnectorStorageAccessResolver(storageAccessProviderNames, rawUri -> {
+            storageAccessResolveCount++;
+            resolvedStorageUris.add(rawUri);
+            ConnectorStorageAccess access = requestResolver.apply(rawUri);
+            resolvedStorageAccesses.add(access);
+            return access;
+        });
+    }
+
+    private BackendStorageKind fixtureBackendKind() {
+        switch (backendFileType) {
+            case FILE_HDFS:
+                return BackendStorageKind.HDFS;
+            case FILE_BROKER:
+                return BackendStorageKind.BROKER;
+            case FILE_LOCAL:
+                return BackendStorageKind.LOCAL;
+            default:
+                return BackendStorageKind.S3_COMPATIBLE;
+        }
+    }
+
+    @Override
     public List<StorageProperties> getStorageProperties() {
+        getStoragePropertiesCount++;
         return storageProperties;
     }
 
     @Override
     public Map<String, String> vendStorageCredentials(Map<String, String> rawVendedCredentials) {
+        vendStorageCredentialsCount++;
         // Mirror DefaultConnectorContext: an empty/null token yields no overlay; a non-empty token yields the
         // configured BE-canonical creds. The real normalization (StorageProperties.createAll ->
         // getBackendPropertiesFromStorageMap) is covered by fe-core's DefaultConnectorContext tests.

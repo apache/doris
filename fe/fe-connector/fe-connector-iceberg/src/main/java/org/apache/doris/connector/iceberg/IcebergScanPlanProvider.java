@@ -21,6 +21,8 @@ import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStorageAccess;
+import org.apache.doris.connector.spi.ConnectorStorageAccessResolver;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
@@ -33,6 +35,8 @@ import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
+import org.apache.doris.filesystem.FileSystemType;
+import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.thrift.TFileFormatType;
@@ -42,6 +46,7 @@ import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.annotations.VisibleForTesting;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.BaseFileScanTask;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.BatchScan;
@@ -81,6 +86,7 @@ import org.apache.iceberg.expressions.InclusiveMetricsEvaluator;
 import org.apache.iceberg.expressions.ManifestEvaluator;
 import org.apache.iceberg.expressions.Projections;
 import org.apache.iceberg.expressions.ResidualEvaluator;
+import org.apache.iceberg.hadoop.HadoopConfigurable;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.io.FileIO;
@@ -548,9 +554,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         List<String> orderedPartitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
         ZoneId zone = resolveSessionZone(session);
         boolean partitioned = table.spec().isPartitioned();
-        Map<String, String> vendedToken = context != null
-                ? extractVendedToken(table, restVendedCredentialsEnabled()) : Collections.emptyMap();
-        UnaryOperator<String> uriNormalizer = newUriNormalizer(vendedToken);
+        UnaryOperator<String> uriNormalizer = scanUriNormalizer(session, iceHandle, table);
         long fileSplitSize = sessionLong(session, FILE_SPLIT_SIZE, 0L);
         long sliceSize = fileSplitSize > 0 ? fileSplitSize
                 : sessionLong(session, MAX_FILE_SPLIT_SIZE, DEFAULT_MAX_FILE_SPLIT_SIZE);
@@ -737,17 +741,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         ZoneId zone = resolveSessionZone(session);
         boolean partitioned = table.spec().isPartitioned();
 
-        // Vended credentials (T09): extract the per-table REST vended token ONCE per scan (gated on the catalog
-        // flag iceberg.rest.vended-credentials-enabled, mirroring legacy IcebergVendedCredentialsProvider), then
-        // thread it into the 2-arg URI normalization below so REST object-store data/delete paths normalize via
-        // the vended map (a REST catalog's static storage map is empty by design). Empty for non-vended catalogs
-        // / no context -> the 2-arg normalize folds to the static-map path (non-REST reads byte-unchanged). The
-        // BE-credential overlay is emitted separately by getScanNodeProperties.
-        Map<String, String> vendedToken = context != null
-                ? extractVendedToken(table, restVendedCredentialsEnabled()) : Collections.emptyMap();
-        // Derive the vended storage config ONCE per scan (the token is scan-invariant) and reuse it for every
-        // per-file path normalization below, instead of rebuilding it per data/delete file (C3).
-        UnaryOperator<String> uriNormalizer = newUriNormalizer(vendedToken);
+        // Azure credentials, reader and normalized paths share the statement's frozen read binding.
+        // Other providers retain their existing normalizer and aggregate backend-property behavior.
+        UnaryOperator<String> uriNormalizer = scanUriNormalizer(session, iceHandle, table);
 
         // COUNT(*) pushdown (T05): derive an exact count from the current manifest list and collapse the scan to
         // a single whole-file range. Snapshot summary fields are optional writer-provided metadata and must never
@@ -885,7 +881,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     /**
      * Plan the system-table (JNI) scan for a {@code $sys} handle, mirroring legacy
      * {@code IcebergScanNode.doGetSystemTableSplits} + {@code createIcebergSysSplit} + {@code setIcebergParams}:
-     * resolve the metadata table ({@link #resolveSysTable}), apply the time-travel pin + predicate through the
+     * resolve the metadata table ({@link #resolveSystemBaseTable}), apply the time-travel pin + predicate through the
      * shared {@link #buildScan} (legacy {@code createTableScan} honors {@code useSnapshot}/{@code useRef} on the
      * metadata-table scan too — iceberg system tables are legal time-travel targets), then serialize each
      * metadata {@code FileScanTask} ({@code SerializationUtil.serializeToBase64}) into a JNI split carrying ONLY
@@ -899,7 +895,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter,
             ConnectorSession session) {
         // Thread-level auth wrap (legacy parity: preExecutionAuthenticator.execute around doGetSplits), ONE
-        // scope spanning the base-table load (resolveSysTable) plus the metadata-table planFiles — whose
+        // scope spanning the base-table load (resolveSystemBaseTable) plus the metadata-table planFiles — whose
         // manifest-list read for the $files family happens on THIS thread. Deliberately NOT the
         // wrapTableForScan object-level wrap — the planned FileScanTasks are Java-serialized to the BE JNI
         // reader and the authenticator-bearing FileIO wrapper is not serializable.
@@ -919,12 +915,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private List<ConnectorScanRange> doPlanSystemTableScan(IcebergTableHandle handle,
             List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter,
             ConnectorSession session) {
-        Table metadataTable = resolveSysTable(session, handle);
+        Table baseTable = resolveSystemBaseTable(session, handle);
+        Table metadataTable = MetadataTableUtils.createMetadataTableInstance(
+                baseTable, MetadataTableType.from(handle.getSysTableName()));
         if (isPositionDeletesSysTable(handle)) {
-            return doPlanPositionDeletesSystemTableScan(handle, metadataTable, columns, filter, session);
+            return doPlanPositionDeletesSystemTableScan(handle, baseTable, metadataTable, columns, filter, session);
         }
         TableScan scan = buildScan(metadataTable, handle, filter, session);
-        // Project the metadata-table scan to ONLY the requested columns, in the SAME order BE lists them in
+        // Project the metadata-table scan to the requested columns, in the SAME order BE lists them in
         // required_fields (== the scan slot order: buildColumnHandles iterates desc.getSlots(), BE builds
         // required_fields from the matching file_slot_descs). This mirrors legacy IcebergScanNode
         // .getSystemTableProjectedSchema() + scan.project(...). Two reasons the projection is mandatory AND must
@@ -953,6 +951,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     projectedFields.add(field);
                 }
             }
+            // Iceberg BaseFile.splitOffsets() validates the last offset against fileSizeInBytes.
+            // Without that field the projected file has size -1 and returns null for valid offsets.
+            // Append this internal dependency AFTER the requested fields: BE consumes only the
+            // requested prefix positionally, so neither output columns nor their order changes.
+            if (projectedColumns.contains(DataFile.SPLIT_OFFSETS.name())
+                    && seenFieldIds.add(DataFile.FILE_SIZE.fieldId())) {
+                projectedFields.add(metadataSchema.findField(DataFile.FILE_SIZE.fieldId()));
+            }
             scan = scan.project(new Schema(projectedFields));
         }
         List<ConnectorScanRange> ranges = new ArrayList<>();
@@ -961,6 +967,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 ranges.add(new IcebergScanRange.Builder()
                         .path(SYS_TABLE_DUMMY_PATH)
                         .serializedSplit(SerializationUtil.serializeToBase64(task))
+                        .fileIoExpiryMs(IcebergMetadataTaskProperties.fixedSasExpiryMs(baseTable.io(), task))
                         .build());
             }
         } catch (IOException e) {
@@ -1002,8 +1009,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * the connector SPI exposes no backend inventory.
      */
     private List<ConnectorScanRange> doPlanPositionDeletesSystemTableScan(IcebergTableHandle handle,
-            Table metadataTable, List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter,
-            ConnectorSession session) {
+            Table baseTable, Table metadataTable, List<ConnectorColumnHandle> columns,
+            Optional<ConnectorExpression> filter, ConnectorSession session) {
         BatchScan scan = metadataTable.newBatchScan();
         if (handle.hasSnapshotSelection()) {
             if (handle.getRef() != null) {
@@ -1047,9 +1054,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 ? getPositionDeletesOutputPartitionFields(metadataTable) : Collections.emptyList();
         boolean enableMappingVarbinary = catalogProps.isEnableMappingVarbinary();
         ZoneId zone = resolveSessionZone(session);
-        Map<String, String> vendedToken = context != null
-                ? extractVendedToken(metadataTable, restVendedCredentialsEnabled()) : Collections.emptyMap();
-        UnaryOperator<String> uriNormalizer = newUriNormalizer(vendedToken);
+        UnaryOperator<String> uriNormalizer = scanUriNormalizer(session, handle, baseTable);
 
         List<ConnectorScanRange> ranges = new ArrayList<>();
         for (PositionDeletesScanTask task : tasks) {
@@ -1080,6 +1085,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         String originalPath = deleteFile.path().toString();
         IcebergScanRange.Builder builder = new IcebergScanRange.Builder()
                 .path(uriNormalizer.apply(originalPath))
+                .backendFileType(resolvedBackendFileType(uriNormalizer))
                 .start(task.start())
                 .length(task.length())
                 .fileSize(deleteFile.fileSizeInBytes())
@@ -1613,6 +1619,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
         return new IcebergScanRange.Builder()
                 .path(file.normalizedPath)
+                .backendFileType(resolvedBackendFileType(uriNormalizer))
                 .originalPath(file.rawDataPath)
                 .start(task.start())
                 .length(task.length())
@@ -1791,8 +1798,111 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return null;
     }
 
+    /** Fixed Azure read access; no credential material is copied into a range or a diagnostic. */
+    static final class ReadStorageAccess implements UnaryOperator<String> {
+        private final ConnectorStorageAccess nodeAccess;
+        private final String nodeLocation;
+        private final ConnectorStorageAccessResolver resolver;
+        private final NativeStorageCredentials credentials;
+
+        ReadStorageAccess(ConnectorStorageAccess nodeAccess, String nodeLocation,
+                ConnectorStorageAccessResolver resolver, NativeStorageCredentials credentials) {
+            this.nodeAccess = nodeAccess;
+            this.nodeLocation = nodeLocation;
+            this.resolver = resolver;
+            this.credentials = credentials;
+        }
+
+        boolean isAzure() {
+            return nodeAccess != null && "azure".equalsIgnoreCase(nodeAccess.getProviderName());
+        }
+
+        @Override
+        public String apply(String rawUri) {
+            ConnectorStorageAccess access = resolveCompatible(rawUri);
+            credentials.validateLocation(resolver, rawUri);
+            return access.getNormalizedUri();
+        }
+
+        Map<String, String> backendProperties() {
+            // Revalidate expiry on every properties request, including a statement-scope cache hit.
+            return resolveCompatible(nodeLocation).getBackendProperties();
+        }
+
+        private ConnectorStorageAccess resolveCompatible(String rawUri) {
+            ConnectorStorageAccess access = resolver.apply(rawUri);
+            if (!nodeAccess.getProviderName().equalsIgnoreCase(access.getProviderName())
+                    || nodeAccess.getBackendKind() != access.getBackendKind()
+                    || !nodeAccess.getBackendFileType().equals(access.getBackendFileType())
+                    || !nodeAccess.getBackendProperties().equals(access.getBackendProperties())) {
+                throw new DorisConnectorException("Azure data location is incompatible with this scan's fixed "
+                        + "storage access; multiple Azure authentication scopes in one scan are not supported");
+            }
+            return access;
+        }
+    }
+
+    private ReadStorageAccess readStorageAccess(ConnectorSession session, IcebergTableHandle handle, Table table) {
+        Supplier<ReadStorageAccess> loader = () -> {
+            NativeStorageCredentials credentials = context == null
+                    ? new NativeStorageCredentials(Collections.emptyMap(), null)
+                    : extractNativeStorageCredentials(table, restVendedCredentialsEnabled());
+            if (context == null) {
+                return new ReadStorageAccess(null, null, null, credentials);
+            }
+            ConnectorStorageAccessResolver resolver = storage().newStorageAccessResolver(credentials.properties());
+            if (!resolver.hasProvider("azure")) {
+                // The Iceberg FileIO may own metadata on a different store from the data files. Non-Azure
+                // scans retain their existing per-file routing without requiring a BE binding for that root.
+                return new ReadStorageAccess(null, null, resolver, credentials);
+            }
+            String location = readStorageLocation(table);
+            ConnectorStorageAccess access = resolver.apply(location);
+            return new ReadStorageAccess(access, location, resolver, credentials);
+        };
+        return IcebergStatementScope.readStorageAccess(
+                session, handle.getDbName(), handle.getTableName(), table, loader);
+    }
+
+    private static String readStorageLocation(Table table) {
+        // A table may store data separately from its metadata. Use Iceberg's declared data location without
+        // imposing the writer's custom-location-provider restrictions on a read-only scan.
+        Map<String, String> properties = table.properties();
+        String location = properties.get(TableProperties.WRITE_DATA_LOCATION);
+        if (location == null && Boolean.parseBoolean(properties.get(TableProperties.OBJECT_STORE_ENABLED))) {
+            location = properties.get(TableProperties.OBJECT_STORE_PATH);
+        }
+        if (location == null) {
+            location = properties.get(TableProperties.WRITE_FOLDER_STORAGE_LOCATION);
+        }
+        return location == null ? table.location() : location;
+    }
+
+    private UnaryOperator<String> scanUriNormalizer(ConnectorSession session, IcebergTableHandle handle, Table table) {
+        ReadStorageAccess access = readStorageAccess(session, handle, table);
+        if (access.isAzure()) {
+            return access;
+        }
+        UnaryOperator<String> normalizer = newUriNormalizer(access.credentials.properties());
+        if (access.credentials.azurePrefix == null) {
+            return normalizer;
+        }
+        // Changing the declared write location does not relocate historical data or delete files.
+        // Keep legacy routing, but apply the Azure scope to each actual Azure file independently
+        // of the provider selected for the node's declared location.
+        return rawUri -> {
+            access.credentials.validateAzureLocation(access.resolver, rawUri);
+            return normalizer.apply(rawUri);
+        };
+    }
+
+    private static String resolvedBackendFileType(UnaryOperator<String> normalizer) {
+        return normalizer instanceof ReadStorageAccess
+                ? ((ReadStorageAccess) normalizer).nodeAccess.getBackendFileType() : null;
+    }
+
     /**
-     * Build the scan-scoped URI normalizer once (where the per-table vended token is extracted) and thread it
+     * Build the non-Azure scan-scoped URI normalizer once and thread it
      * through the per-file range builders, instead of re-deriving the vended storage config per data/delete
      * file. Each application normalizes a raw iceberg storage path (the data file BE opens, or a delete file)
      * to BE's canonical scheme via the engine seam (legacy goes through {@code LocationPath.of(path,
@@ -1847,17 +1957,130 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * refresh — the credentials are fresh because the REST catalog reloads the table per query.
      */
     static Map<String, String> extractVendedToken(Table table, boolean vendedEnabled) {
+        return extractVendedToken(table, vendedEnabled, false).properties();
+    }
+
+    /** Native data readers and writers retain the selected Azure scope with its authentication group. */
+    static NativeStorageCredentials extractNativeStorageCredentials(Table table, boolean vendedEnabled) {
+        return extractVendedToken(table, vendedEnabled, true);
+    }
+
+    /** Request-local SDK scope, separate from every provider's backend/Hadoop credential dialect. */
+    static final class NativeStorageCredentials {
+        private final Map<String, String> properties;
+        private final String azurePrefix;
+
+        NativeStorageCredentials(Map<String, String> properties, String azurePrefix) {
+            this.properties = Collections.unmodifiableMap(new HashMap<>(properties));
+            this.azurePrefix = azurePrefix;
+        }
+
+        Map<String, String> properties() {
+            return properties;
+        }
+
+        void validateAzureLocation(ConnectorStorageAccessResolver resolver, String rawUri) {
+            if (azurePrefix != null && "azure".equalsIgnoreCase(resolver.apply(rawUri).getProviderName())) {
+                validateLocation(resolver, rawUri);
+            }
+        }
+
+        void validateLocation(ConnectorStorageAccessResolver resolver, String rawUri) {
+            if (azurePrefix != null && !resolver.matchesLocationPrefix(rawUri, azurePrefix)) {
+                throw new DorisConnectorException("Location is outside the Azure storage credential prefix");
+            }
+        }
+    }
+
+    private static NativeStorageCredentials extractVendedToken(Table table, boolean vendedEnabled,
+            boolean validateAzureScopes) {
         if (!vendedEnabled || table == null || table.io() == null) {
-            return Collections.emptyMap();
+            return new NativeStorageCredentials(Collections.emptyMap(), null);
         }
         FileIO fileIO = table.io();
         Map<String, String> ioProps = new HashMap<>(fileIO.properties());
+        String azurePrefix = null;
         if (fileIO instanceof SupportsStorageCredentials) {
+            StorageCredential azureCredential = null;
             for (StorageCredential storageCredential : ((SupportsStorageCredentials) fileIO).credentials()) {
+                if (validateAzureScopes && storageCredential.config().keySet().stream()
+                        .anyMatch(key -> key.regionMatches(true, 0, "adls.", 0, 5))) {
+                    // A native scan/sink has one fixed identity. Distinct scopes would require per-file
+                    // credential selection; identical repeated entries are not ambiguous.
+                    if (azureCredential != null
+                            && (!Objects.equals(azureCredential.prefix(), storageCredential.prefix())
+                            || !azureCredential.config().equals(storageCredential.config()))) {
+                        throw new DorisConnectorException(
+                                "Multiple scoped Azure storage credentials are not supported");
+                    }
+                    azureCredential = storageCredential;
+                    if (storageCredential.config().keySet().stream()
+                            .anyMatch(IcebergRestFileIOProperties::isAzureAuthenticationProperty)) {
+                        // FileIO may contain provider-generated DFS/Blob aliases with a normalized
+                        // expiry. Overlay the raw scoped identity as a group, not per key, so neither
+                        // those aliases nor an earlier credential generation survive into native binding.
+                        ioProps.keySet().removeIf(IcebergRestFileIOProperties::isAzureAuthenticationProperty);
+                        azurePrefix = storageCredential.prefix();
+                    }
+                }
                 ioProps.putAll(storageCredential.config());
             }
         }
-        return ioProps;
+        return new NativeStorageCredentials(ioProps, azurePrefix);
+    }
+
+    private Map<String, String> legacyBackendProperties(Table table, ReadStorageAccess readAccess) {
+        if (context == null) {
+            return Collections.emptyMap();
+        }
+        // Non-Azure native scans can legitimately use both HDFS and object-store files.
+        // Keep their existing aggregate carrier and per-key vended overlay.
+        // A mixed-storage scan may still open Azure files. Its captured prefix and authentication
+        // must come from the same generation even if the FileIO has since received new credentials.
+        Map<String, String> vendedToken = readAccess.credentials.azurePrefix == null
+                ? extractVendedToken(table, restVendedCredentialsEnabled()) : readAccess.credentials.properties();
+        List<StorageProperties> storages = new ArrayList<>(storage().getStorageProperties());
+        if (!vendedToken.isEmpty()
+                && storages.stream().anyMatch(properties -> properties.type() == FileSystemType.AZURE)) {
+            // Replace the Azure authentication group before exporting (and validating) an expired
+            // static SAS. Other providers retain their legacy per-key backend overlay, not whole
+            // binding replacement: a new S3 credential need not repeat every static S3 option.
+            StorageProperties azure = storage().resolveStorageProperties(vendedToken).stream()
+                    .filter(properties -> properties.type() == FileSystemType.AZURE).findFirst()
+                    .orElseThrow(() -> new DorisConnectorException("Resolved Azure storage binding is missing"));
+            storages.replaceAll(properties -> properties.type() == FileSystemType.AZURE ? azure : properties);
+        }
+        Map<String, String> backendProperties = new HashMap<>();
+        for (StorageProperties properties : IcebergCatalogFactory.selectEffectiveStorages(storages)) {
+            properties.toBackendProperties().ifPresent(backend -> backendProperties.putAll(backend.toMap()));
+        }
+        backendProperties.putAll(storage().vendStorageCredentials(vendedToken));
+        return backendProperties;
+    }
+
+    private Map<String, String> metadataHadoopProperties(Table table) {
+        Map<String, String> hadoopProperties = new HashMap<>();
+        if (context != null) {
+            for (StorageProperties binding : IcebergCatalogFactory.selectEffectiveStorages(
+                    storage().getStorageProperties())) {
+                if (binding.kind() == StorageKind.HDFS_COMPATIBLE) {
+                    binding.toHadoopProperties().ifPresent(hadoop ->
+                            hadoopProperties.putAll(hadoop.toHadoopConfigurationMap()));
+                }
+            }
+        }
+        // FileIO owns metadata access, independently of the native data provider. In particular,
+        // HadoopFileIO may still authenticate Azure OAuth2 or OneLake. Its actual configuration
+        // wins over catalog defaults and also supplies the BE's Hadoop/UGI execution context.
+        FileIO fileIO = table.io();
+        Configuration configuration = fileIO instanceof IcebergAuthenticatedFileIO
+                ? ((IcebergAuthenticatedFileIO) fileIO).hadoopConfiguration()
+                : fileIO instanceof HadoopConfigurable ? ((HadoopConfigurable) fileIO).getConf() : null;
+        // A ResolvingFileIO initialized without Hadoop support has no Configuration.
+        if (configuration != null) {
+            configuration.forEach(entry -> hadoopProperties.put(entry.getKey(), entry.getValue()));
+        }
+        return hadoopProperties;
     }
 
     /**
@@ -1874,9 +2097,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      *       columns so BE field-id-matches file&harr;table columns across rename/reorder (see
      *       {@link IcebergSchemaUtils}). Emitted unconditionally (legacy {@code createScanRangeLocations}
      *       always sets the dict). {@link #populateScanLevelParams} applies it.</li>
-     *   <li>{@code location.*} (T09) — the BE-canonical storage credentials: the catalog's static creds
-     *       (all flavors) plus, for a REST vended catalog, the per-table vended overlay (legacy precedence).
-     *       Without these BE opens the object store with no creds (403). See {@link #extractVendedToken}.</li>
+     *   <li>{@code location.*} — native scans carry BE storage credentials. JNI metadata carries only its
+     *       Hadoop execution configuration; metadata credentials remain in the serialized FileIO.</li>
      * </ul>
      * The serialized-table key (JNI system-table path) lands in a later task.
      */
@@ -1937,42 +2159,28 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // emitting them would double-fill/DCHECK) nor the field-id schema-evolution dict. Worse, building the
         // dict for a sys handle uses the BASE schema keyed off the requested META columns ->
         // IcebergSchemaUtils throws ("requested column not found"). So skip BOTH for a sys handle, keeping
-        // file_format_type=jni and the location.* credential overlay (BE still needs creds to read the
-        // metadata files). Mirrors paimon, whose getScanNodeProperties skips both for a metadata table
+        // file_format_type=jni and the Hadoop execution properties. Mirrors paimon's metadata-table handling
         // (empty partitionKeys + null schema-dict table). resolveTable still loads the base table here for
-        // the credential overlay below (the metadata table shares the base table's FileIO).
+        // the execution properties below (the metadata table shares the base table's FileIO).
         if (!systemTable) {
             List<String> partitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
             if (!partitionKeys.isEmpty()) {
                 props.put(ScanNodePropertyKeys.PATH_PARTITION_KEYS, String.join(",", partitionKeys));
             }
         }
-        // Static storage credentials (T09, all flavors): the catalog's bound fe-filesystem StorageProperties,
-        // normalized to BE-canonical scan keys (AWS_* for object stores, hadoop/dfs for HDFS) and shipped under
-        // location.*. BLOCKER: BE's native (FILE_S3) reader understands ONLY the canonical keys, so the raw
-        // catalog aliases (s3.access_key, oss.access_key, …) must be translated before they leave FE — copying
-        // them verbatim gives BE no usable creds (403 on a private bucket). Mirrors paimon getScanNodeProperties
-        // + legacy IcebergScanNode.getLocationProperties (backendStorageProperties). Empty for no context
-        // (offline tests) or a REST-vended catalog (whose static storage map is empty by design) -> no static
-        // overlay, just the vended one below.
-        if (context != null) {
-            Map<String, String> backendStorageProps = new HashMap<>();
-            for (StorageProperties sp : IcebergCatalogFactory.selectEffectiveStorages(
-                    storage().getStorageProperties())) {
-                sp.toBackendProperties().ifPresent(b -> backendStorageProps.putAll(b.toMap()));
-            }
-            backendStorageProps.forEach((k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
-        }
-        // Vended-credential overlay (T09, REST per-table token): the raw token is extracted from the live,
-        // snapshot-pinned table's FileIO (gated on the catalog flag iceberg.rest.vended-credentials-enabled,
-        // legacy IcebergVendedCredentialsProvider parity), then normalized to BE-facing AWS_* keys by the engine
-        // (the connector cannot import fe-core's StorageProperties). Vended overlays static (legacy precedence —
-        // a colliding location.* key takes the vended value). Skipped when no context (offline tests) or the
-        // table yields no vended token (flag off / non-REST -> empty -> no-op).
-        if (context != null) {
-            Map<String, String> vendedBeProps =
-                    storage().vendStorageCredentials(extractVendedToken(table, restVendedCredentialsEnabled()));
-            vendedBeProps.forEach((k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
+        // JNI metadata uses its serialized FileIO, never the native data credentials. Keep only
+        // Hadoop configuration for its execution context. Native non-Azure scans retain mixed HDFS/S3 maps.
+        ReadStorageAccess readAccess = !systemTable || isPositionDeletesSysTable(iceHandle)
+                ? readStorageAccess(session, iceHandle, table) : null;
+        if (systemTable && !isPositionDeletesSysTable(iceHandle)) {
+            metadataHadoopProperties(table).forEach(
+                    (k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
+        } else if (readAccess != null && readAccess.isAzure()) {
+            readAccess.backendProperties().forEach(
+                    (k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
+        } else {
+            legacyBackendProperties(table, readAccess).forEach(
+                    (k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
         }
         // Field-id schema dictionary (T06). Under a time-travel pin (T07, Option A): the query slots carry the
         // PINNED schema's names, but the generic node builds the column handles from the LATEST schema (the pin
@@ -2054,7 +2262,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             // children.at("_row_id") lookup; the position-delete reader opens the DELETE file, whose schema
             // carries no row-lineage columns.
             //
-            // Built from the base table ALREADY resolved above, not via resolveSysTable: that helper does a
+            // Built from the base table ALREADY resolved above, not via resolveSystemBaseTable: that helper does a
             // second loadTable and — by its own contract — carries NO auth wrap, because its only other caller
             // (planSystemTableScan) supplies one. This method has no such scope, so calling it here would fail
             // a kerberized catalog at plan time. createMetadataTableInstance is a pure local construction over
@@ -3137,19 +3345,19 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * Resolve the metadata table for a system-table handle, mirroring
+     * Resolve the base table for a system-table handle, mirroring
      * {@code IcebergConnectorMetadata.loadSysTable} (and legacy {@code IcebergSysExternalTable.getSysIcebergTable}):
-     * load the BASE table and build the metadata-table instance ({@code MetadataTableUtils}).
+     * load the BASE table; the caller builds the metadata-table instance ({@code MetadataTableUtils}).
      * {@code getSysTableName()} is the already-validated lowercase name, so {@code MetadataTableType.from}
      * never returns null. The auth scope is owned by the SOLE caller {@link #planSystemTableScan}, whose
      * thread-level {@code executeAuthenticated} spans the whole sys planning (this load + {@code planFiles} +
      * task serialization) in ONE scope — no nested wrap here.
      */
-    private Table resolveSysTable(ConnectorSession session, IcebergTableHandle handle) {
+    private Table resolveSystemBaseTable(ConnectorSession session, IcebergTableHandle handle) {
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
         // Keep the raw base shared with metadata binding and ordinary scan properties. The caller already owns
         // the auth scope, and avoiding a fresh load prevents system-table slots and rows crossing generations.
-        Table base = tableCache == null
+        return tableCache == null
                 ? resourceTracker == null
                         ? IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(),
                                 () -> ops.loadTable(handle.getDbName(), handle.getTableName()))
@@ -3160,9 +3368,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                         () -> tableCache.borrow(TableIdentifier.of(handle.getDbName(), handle.getTableName()),
                                 () -> ops.loadTable(handle.getDbName(), handle.getTableName())),
                         () -> ops.loadTable(handle.getDbName(), handle.getTableName()));
-        return MetadataTableUtils.createMetadataTableInstance(
-                base,
-                MetadataTableType.from(handle.getSysTableName()));
     }
 
     /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */

@@ -23,6 +23,7 @@ import org.apache.doris.connector.metastore.iceberg.jdbc.IcebergJdbcMetaStorePro
 import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
+import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
 import org.apache.commons.lang3.StringUtils;
@@ -213,8 +214,9 @@ public final class IcebergCatalogFactory {
     }
 
     /**
-     * Selects the storage bindings Iceberg should consume together. All non-S3-compatible bindings are
-     * preserved, while the S3-compatible family is reduced to the same single binding selected for S3FileIO:
+     * Selects the storage bindings Iceberg should consume together. Synthetic defaults are omitted for
+     * object-storage-only catalogs; HDFS-only defaults and real mixed-storage bindings are preserved.
+     * The S3-compatible family is reduced to the same single binding selected for S3FileIO:
      * a cloud-specific provider such as OSS/COS/OBS wins over the generic S3 fallback. Raw-property routing can
      * legitimately bind both (for legacy parity), but merging both maps would let a later generic S3 binding
      * overwrite the explicit provider's endpoint, credentials, and path-style setting.
@@ -222,8 +224,17 @@ public final class IcebergCatalogFactory {
     public static List<StorageProperties> selectEffectiveStorages(
             List<? extends StorageProperties> storages) {
         S3CompatibleFileSystemProperties chosenS3 = chooseS3Compatible(storages).orElse(null);
+        boolean objectStorageOnly = storages.stream()
+                .anyMatch(storage -> !storage.isSyntheticDefault() && storage.kind() == StorageKind.OBJECT_STORAGE)
+                && storages.stream().allMatch(storage -> storage.isSyntheticDefault()
+                        || storage.kind() == StorageKind.OBJECT_STORAGE);
         List<StorageProperties> selected = new ArrayList<>();
         for (StorageProperties storage : storages) {
+            // Only the registry's fallback creation path can identify a synthetic binding. Raw
+            // Hadoop/Azure key prefixes cannot distinguish it from a real mixed-storage binding.
+            if (objectStorageOnly && storage.isSyntheticDefault()) {
+                continue;
+            }
             if (!(storage instanceof S3CompatibleFileSystemProperties) || storage == chosenS3) {
                 selected.add(storage);
             }
@@ -679,13 +690,18 @@ public final class IcebergCatalogFactory {
             Map<String, String> storageHadoopConfig) {
         Configuration conf = new Configuration();
         conf.setClassLoader(IcebergCatalogFactory.class.getClassLoader());
+        applyHadoopProperties(conf, props, storageHadoopConfig);
+        return conf;
+    }
+
+    static void applyHadoopProperties(Configuration conf, Map<String, String> props,
+            Map<String, String> storageHadoopConfig) {
         storageHadoopConfig.forEach(conf::set);
         props.forEach((key, value) -> {
             if (key.startsWith("fs.") || key.startsWith("dfs.") || key.startsWith("hadoop.")) {
                 conf.set(key, value);
             }
         });
-        return conf;
     }
 
     /**

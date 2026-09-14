@@ -201,6 +201,10 @@ public class ReauthenticatingRestSessionCatalog extends BaseViewSessionCatalog i
     }
 
     private static boolean isAuthExpired(Throwable t) {
+        // A nested 401 from local FileIO binding cannot authorize repeating an already successful create/register POST.
+        if (IcebergPostSuccessFileIOInitializationException.find(t).isPresent()) {
+            return false;
+        }
         return ExceptionUtils.getThrowableList(t).stream().anyMatch(c -> c instanceof NotAuthorizedException);
     }
 

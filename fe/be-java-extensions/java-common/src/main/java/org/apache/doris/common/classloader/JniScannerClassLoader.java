@@ -23,11 +23,51 @@ import java.util.List;
 
 public class JniScannerClassLoader extends URLClassLoader {
 
+    private static final List<String> ICEBERG_FILE_IO_FACTORIES = List.of(
+            "org.apache.iceberg.CatalogUtil", "org.apache.iceberg.io.ResolvingFileIO");
+
     private final String scannerName;
 
     public JniScannerClassLoader(String scannerName, List<URL> urls, ClassLoader parent) {
         super(urls.toArray(new URL[0]), parent);
         this.scannerName = scannerName;
+    }
+
+    @Override
+    protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+        if (!isScannerLocalFactory(name)) {
+            return super.loadClass(name, resolve);
+        }
+        synchronized (getClassLoadingLock(name)) {
+            Class<?> loaded = findLoadedClass(name);
+            if (loaded == null) {
+                try {
+                    loaded = findClass(name);
+                } catch (ClassNotFoundException ignored) {
+                    return super.loadClass(name, resolve);
+                }
+            }
+            if (resolve) {
+                resolveClass(loaded);
+            }
+            return loaded;
+        }
+    }
+
+    private boolean isScannerLocalFactory(String name) {
+        if (!"iceberg-metadata-scanner".equals(scannerName)) {
+            return false;
+        }
+        // CatalogUtil uses its defining loader, not TCCL, to instantiate FileIO implementations.
+        // A cold ResolvingFileIO from preload therefore cannot see this scanner's ADLSFileIO.
+        // Keep those two factories local, including their nested classes, while FileIO interfaces,
+        // metadata tasks, Hadoop/SDK dependencies and all other scanners stay parent-first.
+        for (String factory : ICEBERG_FILE_IO_FACTORIES) {
+            if (name.equals(factory) || name.startsWith(factory + "$")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public synchronized void addURLIfAbsent(URL url) {

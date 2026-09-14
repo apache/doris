@@ -54,8 +54,11 @@ Status IcebergSysTableJniReader::build_scanner_params(
         std::map<std::string, std::string>* params) const {
     DORIS_CHECK(params != nullptr);
     params->clear();
-    params->emplace("serialized_split",
-                    _current_range.table_format_params.iceberg_params.serialized_split);
+    const auto& iceberg_params = _current_range.table_format_params.iceberg_params;
+    params->emplace("serialized_split", iceberg_params.serialized_split);
+    if (iceberg_params.__isset.file_io_expiry_ms) {
+        params->emplace("file_io_expiry_ms", std::to_string(iceberg_params.file_io_expiry_ms));
+    }
 
     std::vector<std::string> required_types;
     required_types.reserve(_projected_columns.size());

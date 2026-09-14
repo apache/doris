@@ -108,6 +108,18 @@ public class PluginApiVersionWiringTest {
     }
 
     @Test
+    public void connectorPluginWithoutLocationPrefixMatchingIsRefused() throws IOException {
+        ApiVersionGate gate = ApiVersionGate.forFamily("connector", ConnectorProvider.class);
+        Assertions.assertEquals("11.0", gate.getExpectedVersion());
+        ConnectorPluginManager manager = new ConnectorPluginManager();
+
+        manager.loadPlugins(Collections.singletonList(connectorPluginRoot("10.0")));
+
+        Assertions.assertFalse(manager.getRegisteredTypes().contains("version_probe"),
+                "a plugin from before provider-owned location prefix matching must not be admitted");
+    }
+
+    @Test
     public void connectorPluginDeclaringNothingIsRefused() throws IOException {
         // The regression this whole change exists for: before, a plugin that said nothing about its API
         // version inherited the kernel's own default and was always admitted.
@@ -140,6 +152,18 @@ public class PluginApiVersionWiringTest {
 
         Assertions.assertFalse(providerNames(manager).contains("version_probe_fs"),
                 "an incompatible filesystem plugin must not join the storage routing table");
+    }
+
+    @Test
+    public void filesystemPluginWithoutLocationPrefixMatchingIsRefused() throws IOException {
+        ApiVersionGate gate = ApiVersionGate.forFamily("filesystem", FileSystemProvider.class);
+        Assertions.assertEquals("7.0", gate.getExpectedVersion());
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+
+        manager.loadPlugins(Collections.singletonList(filesystemPluginRoot("6.0")));
+
+        Assertions.assertFalse(providerNames(manager).contains("version_probe_fs"),
+                "a plugin from before provider-owned location prefix matching must not join storage routing");
     }
 
     @Test

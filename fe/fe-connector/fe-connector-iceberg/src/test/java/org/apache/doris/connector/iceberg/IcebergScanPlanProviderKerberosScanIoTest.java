@@ -21,15 +21,18 @@ import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.StaticTableOperations;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
@@ -39,6 +42,8 @@ import java.io.IOException;
 import java.security.PrivilegedExceptionAction;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 /**
  * Guards the Kerberos scan-planning seam (the FOURTH plugin-side UGI doAs locus, after DDL /
@@ -106,6 +111,31 @@ public class IcebergScanPlanProviderKerberosScanIoTest {
                 throw new RuntimeException(e);
             }
         }
+    }
+
+    @Test
+    public void metadataPropertiesRetainHadoopConfigurationBehindAuthenticationWrapper() {
+        Table source = oneFileTable();
+        Configuration configuration = new Configuration(false);
+        configuration.set("hadoop.username", "task-metadata-reader");
+        configuration.set("hadoop.security.auth_to_local", "RULE:[1:$1] DEFAULT");
+        Table table = new BaseTable(new StaticTableOperations(
+                ((BaseTable) source).operations().current(), new HadoopFileIO(configuration)), source.name());
+        RecordingAuthenticator auth = new RecordingAuthenticator();
+        TcclPinningConnectorContext context = new TcclPinningConnectorContext(
+                new RecordingConnectorContext(), getClass().getClassLoader(), () -> auth);
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table), context);
+        Assertions.assertTrue(provider.wrapTableForScan(table).io() instanceof IcebergAuthenticatedFileIO,
+                "the ordinary scan would hide HadoopConfigurable behind the authentication wrapper");
+
+        Map<String, String> properties = provider.getScanNodeProperties(null,
+                IcebergTableHandle.forSystemTable("db1", "t1", "all_manifests", -1L, null, -1L),
+                Collections.emptyList(), Optional.empty());
+
+        Assertions.assertEquals("task-metadata-reader", properties.get("location.hadoop.username"));
+        Assertions.assertEquals("RULE:[1:$1] DEFAULT", properties.get("location.hadoop.security.auth_to_local"));
+        Assertions.assertEquals(1, auth.doAsCount, "loading metadata must still use the plugin authentication scope");
     }
 
     @Test

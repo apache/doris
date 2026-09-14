@@ -118,6 +118,21 @@ public interface FileSystemProperties extends StorageProperties {
     }
 
     /**
+     * Whether this already-bound provider claims a URI with a generic scheme such as HTTP(S).
+     * The default does not claim any URI; provider-specific schemes continue to route through
+     * {@link #getSupportedSchemes()}.
+     *
+     * <p>This is an identity probe, not validation or credential access. Callers must first select
+     * the claiming binding, then call {@link #validateAndNormalizeUri(String)} and propagate its
+     * errors. In particular, a malformed object path on a recognized endpoint must not fall back
+     * to another provider. A provider must not advertise every HTTP(S) URI in its supported schemes
+     * merely because it accepts its own endpoint's HTTP(S) URLs.</p>
+     */
+    default boolean claimsUri(String uri) {
+        return false;
+    }
+
+    /**
      * Extracts the storage URI from the given load properties and validates it via
      * {@link #validateAndNormalizeUri(String)}.
      *
@@ -132,9 +147,10 @@ public interface FileSystemProperties extends StorageProperties {
 
     /**
      * Stable fingerprint of this storage identity, published under
-     * {@code doris.fs.cache.key.<scheme>} in every BE-bound / Hadoop-bound property map derived
-     * from it, so that the Doris-patched {@code org.apache.hadoop.fs.FileSystem} never shares one
+     * {@code doris.fs.cache.key.<scheme>} in Hadoop-compatible backend / Hadoop configuration maps,
+     * so that the Doris-patched {@code org.apache.hadoop.fs.FileSystem} never shares one
      * cached instance between different credential sets. See {@link FsCacheKeys}.
+     * Native-only backend views do not use these Hadoop cache keys.
      *
      * <p>The default hashes the concrete class name together with
      * {@link FsCacheKeys#identityProperties}, i.e. the user-supplied keys this binding consumed
@@ -156,6 +172,19 @@ public interface FileSystemProperties extends StorageProperties {
      */
     default Optional<BackendStorageProperties> toBackendProperties() {
         return Optional.empty();
+    }
+
+    /**
+     * Selects the backend view for a URI already normalized by this binding. The returned kind
+     * and map must describe the same access path, for example a native view or a Hadoop view,
+     * without mixing their configuration vocabularies.
+     *
+     * <p>Selection performs no I/O or credential refresh. Time-dependent access validation still
+     * applies when the selected view's map is emitted. Providers with a single backend view keep
+     * their existing behavior through this default.</p>
+     */
+    default Optional<BackendStorageProperties> resolveBackendProperties(String normalizedUri) {
+        return toBackendProperties();
     }
 
     /**
