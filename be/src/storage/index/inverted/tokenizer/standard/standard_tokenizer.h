@@ -39,6 +39,8 @@ public:
             size_t token_length = _scanner->yylength();
             if (token_length <= _max_token_length) {
                 set(t, term, _skipped_positions + 1);
+                t->setStartOffset(_scanner->get_token_start_offset());
+                t->setEndOffset(_scanner->get_token_end_offset());
                 return t;
             } else {
                 _skipped_positions++;
