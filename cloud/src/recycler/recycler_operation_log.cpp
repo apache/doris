@@ -783,7 +783,6 @@ int InstanceRecycler::recycle_operation_logs() {
     size_t recycled_operation_log_data_size = 0;
 
     DORIS_CLOUD_DEFER {
-        metrics_context.finish_report();
         report_oplog_recycle_stats(instance_id_, oplog_stats);
 
         int64_t cost = stop_watch.elapsed_us() / 1000'000;
@@ -817,10 +816,11 @@ int InstanceRecycler::recycle_operation_logs() {
 
         size_t value_size = operation_log.ByteSizeLong();
         OperationLogReferenceInfo reference_info;
+        metrics_context.kv_scanned_num++;
+
         if (recycle_checker.can_recycle(log_versionstamp, operation_log.min_timestamp(),
                                         &reference_info)) {
-            metrics_context.total_need_recycle_num++;
-            metrics_context.total_need_recycle_data_size += value_size;
+            metrics_context.kv_expired_num++;
 
             AnnotateTag tag("log_key", hex(key));
             int res = recycle_operation_log(log_versionstamp, raw_keys, std::move(operation_log),
@@ -833,8 +833,7 @@ int InstanceRecycler::recycle_operation_logs() {
 
             recycled_operation_logs++;
             recycled_operation_log_data_size += value_size;
-            metrics_context.total_recycled_num++;
-            metrics_context.total_recycled_data_size += value_size;
+            metrics_context.kv_recycled_num++;
         } else {
             oplog_stats.not_recycled_num.fetch_add(1, std::memory_order_relaxed);
             int res = calculator.calculate_operation_log_data_size(key, operation_log,
@@ -849,7 +848,6 @@ int InstanceRecycler::recycle_operation_logs() {
         operation_log_data_size += value_size;
         max_operation_log_data_size = std::max(max_operation_log_data_size, value_size);
         oplog_stats.total_num.fetch_add(1, std::memory_order_relaxed);
-        metrics_context.report();
         return 0;
     };
 
