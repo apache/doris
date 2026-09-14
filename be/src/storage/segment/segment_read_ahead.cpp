@@ -71,6 +71,19 @@ void SegmentReadAheadFileReader::_register_page(ColumnReadAhead* column,
     slot->second.owners.push_back(owner);
 }
 
+bool SegmentReadAheadFileReader::_reuse_page(ColumnReadAhead* column,
+                                             const ColumnReadAheadPage& page) {
+    std::lock_guard lock(_mutex);
+    auto slot = _pages.find({.offset = page.range.offset, .size = page.range.size});
+    if (slot == _pages.end()) {
+        return false;
+    }
+    const PageOwner owner {.column = column, .page_index = page.page_index};
+    DCHECK(std::ranges::find(slot->second.owners, owner) == slot->second.owners.end());
+    slot->second.owners.push_back(owner);
+    return true;
+}
+
 void SegmentReadAheadFileReader::_release_page(ColumnReadAhead* column,
                                                const ColumnReadAheadPage& page) {
     DORIS_CHECK(column != nullptr);
@@ -346,7 +359,7 @@ SegmentReadAheadResult SegmentReadAhead::apply_plans(std::vector<ColumnReadAhead
                 COUNTER_UPDATE(&_statistics->page_cache_hits, 1);
                 COUNTER_UPDATE(&_statistics->page_cache_hit_bytes,
                                static_cast<int64_t>(page.range.size));
-            } else {
+            } else if (!_reader->_reuse_page(plan.column, page)) {
                 misses.push_back({.column = plan.column, .page = page});
             }
         }
