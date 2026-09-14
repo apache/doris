@@ -175,6 +175,20 @@ under the License.
             <artifactId>guava</artifactId>
         </dependency>
 
+        <!--
+             Iceberg classes in this jar are on the parent-first classpath shared by all JNI
+             scanners. Keep the Azure FileIO implementation here as well, otherwise ResolvingFileIO
+             loaded from this jar cannot resolve ADLSFileIO from a child scanner classloader.
+        -->
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-azure</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-azure-bundle</artifactId>
+        </dependency>
+
         <!-- these dependencies are for iceberg-aws -->
         <dependency>
             <groupId>software.amazon.awssdk</groupId>

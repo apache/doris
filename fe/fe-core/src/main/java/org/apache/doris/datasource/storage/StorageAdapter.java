@@ -59,6 +59,7 @@ import java.util.Set;
 public final class StorageAdapter {
 
     private static final Logger LOG = LogManager.getLogger(StorageAdapter.class);
+    private static final String AZURE_AUTH_TYPE_PREFIX = "fs.azure.account.auth.type.";
 
     /**
      * Plugin manager injected at FE startup (see {@code FileSystemFactory.initPluginManager},
@@ -281,6 +282,17 @@ public final class StorageAdapter {
         return type;
     }
 
+    /**
+     * Whether this adapter carries an Azure account-scoped SAS configuration. Databricks vended
+     * credentials are translated to Hadoop ABFS properties before adapter binding, so the matching
+     * provider is the HDFS fallback even though the URI belongs to the Azure storage family.
+     */
+    public boolean isAzureSasStorage() {
+        return type == StorageTypeId.HDFS && origProps.entrySet().stream()
+                .anyMatch(entry -> entry.getKey().startsWith(AZURE_AUTH_TYPE_PREFIX)
+                        && "SAS".equalsIgnoreCase(entry.getValue()));
+    }
+
     /** Legacy getStorageName() (2.4-1 mapping: every S3-compatible dialect reports "S3"). */
     public String getStorageName() {
         // provider-declared family: the 2.4-1 "every S3 dialect reports S3" mapping lives in the SPI
@@ -334,6 +346,11 @@ public final class StorageAdapter {
     }
 
     public String validateAndNormalizeUri(String uri) {
+        if (isAzureSasStorage() && isAzureUri(uri)) {
+            // Keep abfs[s] intact. The BE Hadoop reader consumes the account-scoped fs.azure SAS
+            // properties; converting this path to another family would select the wrong reader.
+            return uri;
+        }
         // Align fe-core AbstractS3CompatibleProperties/AzureProperties: the SPI S3/Azure typed
         // props do not normalize URIs (compat schemes like cos:// must become s3:// before the
         // path reaches BE or a concrete filesystem), so the facade owns the legacy logic.
@@ -353,6 +370,14 @@ public final class StorageAdapter {
             return StorageUriUtils.validateAndNormalizeJfsUri(uri);
         }
         return spi.validateAndNormalizeUri(uri);
+    }
+
+    private static boolean isAzureUri(String uri) {
+        int schemeEnd = uri.indexOf("://");
+        if (schemeEnd <= 0) {
+            return false;
+        }
+        return StorageRegistry.fromScheme(uri.substring(0, schemeEnd)) == StorageTypeId.AZURE;
     }
 
     public String validateAndGetUri(Map<String, String> loadProps) {

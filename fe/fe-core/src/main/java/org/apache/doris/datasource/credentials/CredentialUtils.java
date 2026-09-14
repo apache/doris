@@ -31,6 +31,11 @@ import java.util.Set;
  */
 public class CredentialUtils {
 
+    private static final String ADLS_SAS_TOKEN_PREFIX = "adls.sas-token.";
+    private static final String ADLS_PROPERTY_PREFIX = "adls.";
+    private static final String HADOOP_AZURE_ACCOUNT_AUTH_TYPE_PREFIX = "fs.azure.account.auth.type.";
+    private static final String HADOOP_AZURE_FIXED_SAS_TOKEN_PREFIX = "fs.azure.sas.fixed.token.";
+
     /**
      * Supported cloud storage prefixes for filtering vended credentials
      */
@@ -42,6 +47,7 @@ public class CredentialUtils {
             "obs.",          // Huawei OBS
             "gs.",           // Google Cloud Storage
             "azure.",        // Microsoft Azure
+            "adls.",         // Iceberg Azure ADLS vended credentials
             "client.",       // Iceberg client properties (e.g., client.region)
             "iceberg.rest."  // Iceberg REST catalog properties (e.g., iceberg.rest.access-key-id)
     ));
@@ -65,6 +71,35 @@ public class CredentialUtils {
                 .forEach(entry -> filtered.put(entry.getKey(), entry.getValue()));
 
         return filtered;
+    }
+
+    /**
+     * Convert cloud storage credentials to the properties consumed by Doris storage adapters.
+     * Databricks Unity Catalog returns Azure SAS credentials using Iceberg's
+     * {@code adls.sas-token.<account-host>} property. Hadoop ABFS instead consumes an account-scoped
+     * authentication type and fixed SAS token, so translate that representation before selecting the
+     * storage adapter. Remove the raw Iceberg {@code adls.*} property names after translating them to
+     * the equivalent backend configuration.
+     *
+     * @param rawVendedCredentials Raw vended credentials map
+     * @return Normalized cloud storage properties
+     */
+    public static Map<String, String> normalizeCloudStorageProperties(
+            Map<String, String> rawVendedCredentials) {
+        Map<String, String> normalized = filterCloudStorageProperties(rawVendedCredentials);
+        Map<String, String> adlsSasTokens = new HashMap<>();
+        normalized.forEach((key, value) -> {
+            if (key.startsWith(ADLS_SAS_TOKEN_PREFIX)) {
+                String accountHost = key.substring(ADLS_SAS_TOKEN_PREFIX.length());
+                adlsSasTokens.put(accountHost, value);
+            }
+        });
+        normalized.keySet().removeIf(key -> key.startsWith(ADLS_PROPERTY_PREFIX));
+        adlsSasTokens.forEach((accountHost, sasToken) -> {
+            normalized.put(HADOOP_AZURE_ACCOUNT_AUTH_TYPE_PREFIX + accountHost, "SAS");
+            normalized.put(HADOOP_AZURE_FIXED_SAS_TOKEN_PREFIX + accountHost, sasToken);
+        });
+        return normalized;
     }
 
     /**
