@@ -48,6 +48,15 @@
 
 namespace doris {
 
+// Arrow requires a timezone label on a timezone-aware timestamp to be either an IANA zone name or a
+// fixed "+HH:MM" offset. The ISO-8601 zero-offset token "Z" (which a Doris session time_zone may carry)
+// is neither, and clients such as PyArrow/zoneinfo reject it. Rewrite it (and the empty label, which Arrow
+// would treat as a naive timestamp) to the portable "UTC" name. Valid IANA names are passed through unchanged.
+const std::string& portable_timezone(const std::string& timezone) {
+    static const std::string kUtc = "UTC";
+    return (timezone.empty() || timezone == "Z") ? kUtc : timezone;
+}
+
 Status convert_to_arrow_type(const DataTypePtr& origin_type,
                              std::shared_ptr<arrow::DataType>* result, const std::string& timezone,
                              bool datetime_naive) {
@@ -118,7 +127,7 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         if (type->get_primitive_type() == TYPE_DATETIMEV2 && datetime_naive) {
             *result = std::make_shared<arrow::TimestampType>(time_unit);
         } else {
-            *result = std::make_shared<arrow::TimestampType>(time_unit, timezone);
+            *result = std::make_shared<arrow::TimestampType>(time_unit, portable_timezone(timezone));
         }
         break;
     }

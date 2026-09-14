@@ -689,6 +689,32 @@ TEST(DataTypeSerDeArrowTest, ConvertDateTimeV2ToNaiveArrowType) {
     EXPECT_TRUE(timestamp_type->timezone().empty());
 }
 
+TEST(DataTypeSerDeArrowTest, TimeStampTzArrowUsesPortableTimezone) {
+    const auto timestamptz_type = std::make_shared<DataTypeTimeStampTz>(6);
+    std::shared_ptr<arrow::DataType> arrow_type;
+
+    // A valid IANA name is preserved verbatim.
+    auto status = convert_to_arrow_type(timestamptz_type, &arrow_type, "Asia/Shanghai");
+    ASSERT_TRUE(status.ok()) << status;
+    auto timestamp_type = std::static_pointer_cast<arrow::TimestampType>(arrow_type);
+    EXPECT_EQ(arrow::TimeUnit::MICRO, timestamp_type->unit());
+    EXPECT_EQ("Asia/Shanghai", timestamp_type->timezone());
+
+    // The ISO-8601 zero-offset "Z" is not a valid IANA name and is rejected by clients such as
+    // PyArrow/zoneinfo; it must be rewritten to the portable "UTC" label. The epoch values are unchanged.
+    status = convert_to_arrow_type(timestamptz_type, &arrow_type, "Z");
+    ASSERT_TRUE(status.ok()) << status;
+    timestamp_type = std::static_pointer_cast<arrow::TimestampType>(arrow_type);
+    EXPECT_EQ(arrow::TimeUnit::MICRO, timestamp_type->unit());
+    EXPECT_EQ("UTC", timestamp_type->timezone());
+
+    // An empty timezone would otherwise produce a naive timestamp for an instant type; map it to "UTC" too.
+    status = convert_to_arrow_type(timestamptz_type, &arrow_type, "");
+    ASSERT_TRUE(status.ok()) << status;
+    timestamp_type = std::static_pointer_cast<arrow::TimestampType>(arrow_type);
+    EXPECT_EQ("UTC", timestamp_type->timezone());
+}
+
 TEST(DataTypeSerDeArrowTest, TimeStampNsArrowRoundTrip) {
     const auto timestamp_ns_type = std::make_shared<DataTypeTimeStampNs>();
     const auto nullable_timestamp_ns_type = make_nullable(timestamp_ns_type);
