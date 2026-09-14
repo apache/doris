@@ -15,54 +15,42 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.nio.file.Files
+import java.nio.file.Paths
+
 // Checklist: G08 G09 G11 G13 H08.
-suite("test_uuid_parquet_roundtrip", "p0,external") {
-
-    String localPath = context.config.otherConfigs.get("uuidLocalExportPath")
-    boolean localMode = localPath != null
-    String token = UUID.randomUUID().toString()
-    String outputPath
-    String sinkProperties
-    String sourceProperties
-    if (localMode) {
-        outputPath = "file://${localPath}_${token}_"
-        sinkProperties = ""
-        def backends = sql "SHOW BACKENDS"
-        sourceProperties = "\"backend_id\"=\"${backends[0][0]}\""
-    } else {
-        outputPath = "s3://${context.config.otherConfigs.get('s3BucketName')}/uuid_file_parquet/${token}_"
-        sinkProperties = """
-                            "s3.endpoint"="${getS3Endpoint()}", "s3.region"="${getS3Region()}",
-                            "s3.access_key"="${getS3AK()}", "s3.secret_key"="${getS3SK()}"
-                            """
-        sourceProperties = sinkProperties
+suite("test_uuid_parquet_roundtrip") {
+    if (!getFeConfig("enable_outfile_to_local").equalsIgnoreCase("true")) {
+        logger.warn("Please set enable_outfile_to_local to true to run test_uuid_parquet_roundtrip")
+        return
     }
-    sql "DROP TABLE IF EXISTS uuid_file_parquet"
-    sql """CREATE TABLE uuid_file_parquet (id INT, u UUID, a ARRAY<UUID>, s STRUCT<k:UUID>)
-           DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
-           PROPERTIES("replication_num"="1")"""
-    sql """INSERT INTO uuid_file_parquet VALUES
-           (1, '00112233445566778899AABBCCDDEEFF', ['00112233445566778899AABBCCDDEEFF', NULL],
-               {'80000000-0000-0000-0000-000000000000'}),
-           (2, 'ffffffff-ffff-ffff-ffff-ffffffffffff', [], {NULL}),
-           (3, NULL, NULL, NULL)"""
-    qt_source "SELECT * FROM uuid_file_parquet ORDER BY id"
-    String projection = "*"
-    String properties = sinkProperties.isEmpty() ? "" : "PROPERTIES(${sinkProperties})"
-    sql """SELECT ${projection} FROM uuid_file_parquet ORDER BY id
-           INTO OUTFILE "${outputPath}parquet_" FORMAT AS parquet ${properties}"""
-    String tvf = localMode ? "local" : "s3"
-    String pathKey = localMode ? "file_path" : "uri"
-    String path = localMode
-            ? "${context.config.otherConfigs.get('uuidLocalTvfPath')}_${token}_parquet_*"
-            : "${outputPath}parquet_*"
-    sql "DROP TABLE IF EXISTS uuid_file_reload_parquet"
-    sql "CREATE TABLE uuid_file_reload_parquet LIKE uuid_file_parquet"
-    String columns = ""
-    sql """INSERT INTO uuid_file_reload_parquet ${columns}
-           SELECT * FROM ${tvf}("${pathKey}"="${path}", "format"="parquet", ${sourceProperties})"""
-    qt_roundtrip "SELECT ${projection} FROM uuid_file_reload_parquet ORDER BY id"
-    order_qt_inferred_types """DESC FUNCTION ${tvf}(
-        "${pathKey}"="${path}", "format"="parquet", ${sourceProperties})"""
-
+    def backend = sql_return_maparray("SHOW BACKENDS").find { it.Alive == "true" }
+    String securePath = sql_return_maparray(
+            "SHOW BACKEND CONFIG LIKE 'user_files_secure_path' FROM ${backend.BackendId}")[0].Value
+    def outputDirectory = Files.createTempDirectory(Paths.get(securePath), "test_uuid_parquet_roundtrip_")
+    try {
+        sql "DROP TABLE IF EXISTS uuid_file_parquet"
+        sql """CREATE TABLE uuid_file_parquet (id INT, u UUID, a ARRAY<UUID>, s STRUCT<k:UUID>)
+               DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+               PROPERTIES("replication_num"="1")"""
+        sql """INSERT INTO uuid_file_parquet VALUES
+               (1, '00112233445566778899AABBCCDDEEFF', ['00112233445566778899AABBCCDDEEFF', NULL],
+                   {'80000000-0000-0000-0000-000000000000'}),
+               (2, 'ffffffff-ffff-ffff-ffff-ffffffffffff', [], {NULL}),
+               (3, NULL, NULL, NULL)"""
+        qt_source "SELECT * FROM uuid_file_parquet ORDER BY id"
+        sql """SELECT * FROM uuid_file_parquet ORDER BY id
+               INTO OUTFILE "file://${outputDirectory}/parquet_" FORMAT AS parquet"""
+        String path = "${outputDirectory.fileName}/parquet_*"
+        sql "DROP TABLE IF EXISTS uuid_file_reload_parquet"
+        sql "CREATE TABLE uuid_file_reload_parquet LIKE uuid_file_parquet"
+        sql """INSERT INTO uuid_file_reload_parquet
+               SELECT * FROM local("file_path"="${path}", "format"="parquet",
+                                   "backend_id"="${backend.BackendId}")"""
+        qt_roundtrip "SELECT * FROM uuid_file_reload_parquet ORDER BY id"
+        order_qt_inferred_types """DESC FUNCTION local(
+            "file_path"="${path}", "format"="parquet", "backend_id"="${backend.BackendId}")"""
+    } finally {
+        assertTrue(outputDirectory.toFile().deleteDir())
+    }
 }
