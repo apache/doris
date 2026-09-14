@@ -32,7 +32,7 @@ PID_DIR="$(
 )"
 export PID_DIR
 
-while read -r line; do
+while read -r line || [[ -n "${line}" ]]; do
     envline="$(echo "${line}" |
         sed 's/[[:blank:]]*=[[:blank:]]*/=/g' |
         sed 's/^[[:blank:]]*//g' |

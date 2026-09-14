@@ -30,6 +30,7 @@
 #include <gen_cpp/Planner_types.h>
 #include <gen_cpp/QueryPlanExtra_types.h>
 #include <gen_cpp/RuntimeProfile_types.h>
+#include <gen_cpp/Status_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <pthread.h>

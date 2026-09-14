@@ -50,14 +50,11 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Ignore;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
-import org.junit.rules.ExpectedException;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -71,10 +68,7 @@ public class ShowExecutorTest {
     private MockedStatic<Env> mockedEnvStatic;
     private MockedStatic<ConnectContext> mockedConnectContextStatic;
 
-    @Rule
-    public ExpectedException expectedEx = ExpectedException.none();
-
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         ctx = new ConnectContext();
         ctx.setCommand(MysqlCommand.COM_SLEEP);
@@ -150,7 +144,7 @@ public class ShowExecutorTest {
         mockedConnectContextStatic.when(ConnectContext::get).thenReturn(ctx);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedEnvStatic != null) {
             mockedEnvStatic.close();
@@ -170,8 +164,8 @@ public class ShowExecutorTest {
             throw new RuntimeException(e);
         }
 
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("testDb", resultSet.getString(0));
+        Assertions.assertTrue(resultSet.next());
+        Assertions.assertEquals("testDb", resultSet.getString(0));
     }
 
     @Test
@@ -184,7 +178,7 @@ public class ShowExecutorTest {
             throw new RuntimeException(e);
         }
 
-        Assert.assertFalse(resultSet.next());
+        Assertions.assertFalse(resultSet.next());
     }
 
     @Test
@@ -197,8 +191,8 @@ public class ShowExecutorTest {
             throw new RuntimeException(e);
         }
 
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("testDb", resultSet.getString(0));
+        Assertions.assertTrue(resultSet.next());
+        Assertions.assertEquals("testDb", resultSet.getString(0));
     }
 
     @Test
@@ -214,9 +208,9 @@ public class ShowExecutorTest {
                 null, false, PlanType.SHOW_TABLES);
         ShowResultSet resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
 
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("testTbl", resultSet.getString(0));
-        Assert.assertFalse(resultSet.next());
+        Assertions.assertTrue(resultSet.next());
+        Assertions.assertEquals("testTbl", resultSet.getString(0));
+        Assertions.assertFalse(resultSet.next());
     }
 
     @Test
@@ -225,7 +219,7 @@ public class ShowExecutorTest {
                 null, false, PlanType.SHOW_VIEWS);
         ShowResultSet resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
 
-        Assert.assertFalse(resultSet.next());
+        Assertions.assertFalse(resultSet.next());
     }
 
     @Test
@@ -234,7 +228,7 @@ public class ShowExecutorTest {
                 null, false, PlanType.SHOW_STREAMS);
         ShowResultSet resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
 
-        Assert.assertFalse(resultSet.next());
+        Assertions.assertFalse(resultSet.next());
     }
 
     @Test
@@ -243,9 +237,9 @@ public class ShowExecutorTest {
                 "internal", false, PlanType.SHOW_TABLES);
         ShowResultSet resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
 
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("testTbl", resultSet.getString(0));
-        Assert.assertFalse(resultSet.next());
+        Assertions.assertTrue(resultSet.next());
+        Assertions.assertEquals("testTbl", resultSet.getString(0));
+        Assertions.assertFalse(resultSet.next());
     }
 
     @Test
@@ -253,9 +247,11 @@ public class ShowExecutorTest {
         ShowTableCommand command = new ShowTableCommand("emptyDb",
                 null, false, PlanType.SHOW_TABLES);
 
-        expectedEx.expect(Exception.class);
-        expectedEx.expectMessage("Unknown database 'emptyDb'");
-        command.doRun(ctx, new StmtExecutor(ctx, ""));
+        Exception e = Assertions.assertThrows(Exception.class, () -> {
+            command.doRun(ctx, new StmtExecutor(ctx, ""));
+        });
+        Assertions.assertTrue(e.getMessage().contains("Unknown database 'emptyDb'"),
+                "unexpected message: " + e.getMessage());
     }
 
     @Test
@@ -264,10 +260,10 @@ public class ShowExecutorTest {
                 null, false, "empty%", null, PlanType.SHOW_TABLES);
         ShowResultSet resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
 
-        Assert.assertFalse(resultSet.next());
+        Assertions.assertFalse(resultSet.next());
     }
 
-    @Ignore
+    @Disabled
     @Test
     public void testDescribe() {
         SystemInfoService clusterInfo = AccessTestUtil.fetchSystemInfoService();
@@ -281,10 +277,10 @@ public class ShowExecutorTest {
         ShowResultSet resultSet = null;
         try {
             resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
-            Assert.assertFalse(resultSet.next());
+            Assertions.assertFalse(resultSet.next());
         } catch (Exception e) {
             e.printStackTrace();
-            Assert.fail();
+            Assertions.fail();
         }
     }
 
@@ -294,10 +290,10 @@ public class ShowExecutorTest {
                 null, true, PlanType.SHOW_TABLES);
         ShowResultSet resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
 
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("testTbl", resultSet.getString(0));
-        Assert.assertEquals("BASE TABLE", resultSet.getString(1));
-        Assert.assertFalse(resultSet.next());
+        Assertions.assertTrue(resultSet.next());
+        Assertions.assertEquals("testTbl", resultSet.getString(0));
+        Assertions.assertEquals("BASE TABLE", resultSet.getString(1));
+        Assertions.assertFalse(resultSet.next());
     }
 
     @Test
@@ -313,7 +309,7 @@ public class ShowExecutorTest {
             throw new RuntimeException(e);
         }
 
-        Assert.assertFalse(resultSet.next());
+        Assertions.assertFalse(resultSet.next());
     }
 
     @Test
@@ -321,8 +317,8 @@ public class ShowExecutorTest {
         ShowStorageEnginesCommand command = new ShowStorageEnginesCommand();
         ShowResultSet resultSet = command.doRun(ctx, null);
 
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("Olap engine", resultSet.getString(0));
+        Assertions.assertTrue(resultSet.next());
+        Assertions.assertEquals("Olap engine", resultSet.getString(0));
     }
 
     @Test

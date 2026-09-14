@@ -27,9 +27,9 @@ import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.ColumnStatisticBuilder;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.ColumnStatisticBuilder;
+import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.tablefunction.NumbersTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 

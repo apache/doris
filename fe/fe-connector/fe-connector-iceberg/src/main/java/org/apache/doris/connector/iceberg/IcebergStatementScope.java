@@ -110,7 +110,7 @@ final class IcebergStatementScope {
             Function<Table, T> action) {
         if (session == null || session.getStatementScope() == ConnectorStatementScope.NONE) {
             try (IcebergTableCache.TableLease lease = loader.get()) {
-                return action.apply(snapshotReadTable(lease.table()));
+                return action.apply(lease.snapshotReadTable());
             }
         }
         return action.apply(sharedBorrowedTable(session, dbName, tableName, loader, unscopedLoader));
@@ -148,7 +148,7 @@ final class IcebergStatementScope {
 
         private ScopedBorrow(IcebergTableCache.TableLease lease) {
             this.lease = lease;
-            this.table = snapshotReadTable(lease.table());
+            this.table = lease.snapshotReadTable();
         }
 
         @Override

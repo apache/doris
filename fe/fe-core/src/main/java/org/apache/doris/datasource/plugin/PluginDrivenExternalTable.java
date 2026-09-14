@@ -53,12 +53,12 @@ import org.apache.doris.datasource.systable.PluginDrivenSysTable;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
-import org.apache.doris.statistics.AnalysisInfo;
-import org.apache.doris.statistics.BaseAnalysisTask;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.ColumnStatisticBuilder;
-import org.apache.doris.statistics.ExternalAnalysisTask;
-import org.apache.doris.statistics.PluginDrivenSampleAnalysisTask;
+import org.apache.doris.statistics.analysis.AnalysisInfo;
+import org.apache.doris.statistics.analysis.BaseAnalysisTask;
+import org.apache.doris.statistics.analysis.ExternalAnalysisTask;
+import org.apache.doris.statistics.analysis.PluginDrivenSampleAnalysisTask;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.ColumnStatisticBuilder;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
@@ -276,6 +276,11 @@ public class PluginDrivenExternalTable extends ExternalTable {
      */
     public boolean supportsNestedColumnPrune() {
         return hasCapability(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
+    }
+
+    /** Whether this table's storage reader can use inferred bare-column predicates for data skipping. */
+    public boolean supportsStoragePredicatePruning() {
+        return hasCapability(ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING);
     }
 
     /**

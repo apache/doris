@@ -17,8 +17,8 @@
 
 package org.apache.doris.datasource.metacache;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -36,9 +36,9 @@ public class IdNameIndexTest {
         index.checkCanPut(1L, "db1");
         index.put(1L, "db1");
 
-        Assert.assertEquals("db1", index.getName(1L));
-        Assert.assertTrue(index.containsMappingForTest(1L, "db1"));
-        Assert.assertEquals(1, index.sizeForTest());
+        Assertions.assertEquals("db1", index.getName(1L));
+        Assertions.assertTrue(index.containsMappingForTest(1L, "db1"));
+        Assertions.assertEquals(1, index.sizeForTest());
     }
 
     @Test
@@ -46,12 +46,12 @@ public class IdNameIndexTest {
         IdNameIndex index = new IdNameIndex("test database");
         index.put(1L, "db1");
 
-        Assert.assertThrows(IllegalStateException.class, () -> index.checkCanPut(2L, "db1"));
-        Assert.assertThrows(IllegalStateException.class, () -> index.checkCanPut(1L, "db2"));
+        Assertions.assertThrows(IllegalStateException.class, () -> index.checkCanPut(2L, "db1"));
+        Assertions.assertThrows(IllegalStateException.class, () -> index.checkCanPut(1L, "db2"));
 
-        Assert.assertTrue(index.containsMappingForTest(1L, "db1"));
-        Assert.assertNull(index.getName(2L));
-        Assert.assertEquals(1, index.sizeForTest());
+        Assertions.assertTrue(index.containsMappingForTest(1L, "db1"));
+        Assertions.assertNull(index.getName(2L));
+        Assertions.assertEquals(1, index.sizeForTest());
     }
 
     @Test
@@ -74,15 +74,15 @@ public class IdNameIndexTest {
         IdNameIndex index = new IdNameIndex("test database");
         index.put(1L, "db1");
 
-        IllegalStateException exception = Assert.assertThrows(
+        IllegalStateException exception = Assertions.assertThrows(
                 IllegalStateException.class, () -> index.put(2L, "db1"));
 
-        Assert.assertTrue(exception.getMessage().contains("test database"));
-        Assert.assertTrue(exception.getMessage().contains("id 1"));
-        Assert.assertTrue(exception.getMessage().contains("id 2"));
-        Assert.assertTrue(index.containsMappingForTest(1L, "db1"));
-        Assert.assertNull(index.getName(2L));
-        Assert.assertEquals(1, index.sizeForTest());
+        Assertions.assertTrue(exception.getMessage().contains("test database"));
+        Assertions.assertTrue(exception.getMessage().contains("id 1"));
+        Assertions.assertTrue(exception.getMessage().contains("id 2"));
+        Assertions.assertTrue(index.containsMappingForTest(1L, "db1"));
+        Assertions.assertNull(index.getName(2L));
+        Assertions.assertEquals(1, index.sizeForTest());
     }
 
     @Test
@@ -90,14 +90,14 @@ public class IdNameIndexTest {
         IdNameIndex index = new IdNameIndex("test table");
         index.put(1L, "tbl1");
 
-        IllegalStateException exception = Assert.assertThrows(
+        IllegalStateException exception = Assertions.assertThrows(
                 IllegalStateException.class, () -> index.put(1L, "tbl2"));
 
-        Assert.assertTrue(exception.getMessage().contains("test table"));
-        Assert.assertTrue(exception.getMessage().contains("tbl1"));
-        Assert.assertTrue(exception.getMessage().contains("tbl2"));
-        Assert.assertTrue(index.containsMappingForTest(1L, "tbl1"));
-        Assert.assertEquals(1, index.sizeForTest());
+        Assertions.assertTrue(exception.getMessage().contains("test table"));
+        Assertions.assertTrue(exception.getMessage().contains("tbl1"));
+        Assertions.assertTrue(exception.getMessage().contains("tbl2"));
+        Assertions.assertTrue(index.containsMappingForTest(1L, "tbl1"));
+        Assertions.assertEquals(1, index.sizeForTest());
     }
 
     @Test
@@ -109,9 +109,9 @@ public class IdNameIndexTest {
         index.removeName("tbl1");
         index.removeName("tbl1");
 
-        Assert.assertNull(index.getName(1L));
-        Assert.assertEquals("tbl2", index.getName(2L));
-        Assert.assertEquals(1, index.sizeForTest());
+        Assertions.assertNull(index.getName(1L));
+        Assertions.assertEquals("tbl2", index.getName(2L));
+        Assertions.assertEquals(1, index.sizeForTest());
     }
 
     @Test
@@ -122,11 +122,11 @@ public class IdNameIndexTest {
 
         index.clear();
 
-        Assert.assertNull(index.getName(1L));
-        Assert.assertNull(index.getName(2L));
-        Assert.assertEquals(0, index.sizeForTest());
+        Assertions.assertNull(index.getName(1L));
+        Assertions.assertNull(index.getName(2L));
+        Assertions.assertEquals(0, index.sizeForTest());
         index.put(3L, "tbl1");
-        Assert.assertTrue(index.containsMappingForTest(3L, "tbl1"));
+        Assertions.assertTrue(index.containsMappingForTest(3L, "tbl1"));
     }
 
     @Test
@@ -134,9 +134,9 @@ public class IdNameIndexTest {
         IdNameIndex index = new IdNameIndex("test table");
         index.put(1L, "MixedTable");
 
-        Assert.assertEquals("MixedTable", index.findNameIgnoreCase("mixedtable"));
-        Assert.assertNull(index.findNameIgnoreCase("missing"));
-        Assert.assertTrue(index.containsMappingForTest(1L, "MixedTable"));
+        Assertions.assertEquals("MixedTable", index.findNameIgnoreCase("mixedtable"));
+        Assertions.assertNull(index.findNameIgnoreCase("missing"));
+        Assertions.assertTrue(index.containsMappingForTest(1L, "MixedTable"));
     }
 
     @Test
@@ -149,11 +149,11 @@ public class IdNameIndexTest {
             Future<Boolean> second = executor.submit(() -> putAfterStart(index, start, 2L, "db"));
             start.countDown();
 
-            Assert.assertNotEquals(first.get(), second.get());
-            Assert.assertEquals(1, index.sizeForTest());
+            Assertions.assertNotEquals(first.get(), second.get());
+            Assertions.assertEquals(1, index.sizeForTest());
             String firstName = index.getName(1L);
             String secondName = index.getName(2L);
-            Assert.assertTrue(("db".equals(firstName) && secondName == null)
+            Assertions.assertTrue(("db".equals(firstName) && secondName == null)
                     || (firstName == null && "db".equals(secondName)));
         } finally {
             executor.shutdownNow();
@@ -181,7 +181,7 @@ public class IdNameIndexTest {
                     started.countDown();
                     check.run();
                 });
-                Assert.assertTrue(started.await(3L, TimeUnit.SECONDS));
+                Assertions.assertTrue(started.await(3L, TimeUnit.SECONDS));
                 result.get(3L, TimeUnit.SECONDS);
             }
         } finally {

@@ -166,6 +166,10 @@ DEFINE_mInt64(file_cache_warmup_download_rate_limit_bytes_per_second, "104857600
 DEFINE_mInt64(peer_candidate_cleanup_interval_s, "3600"); // cleanup interval, 1 hour
 DEFINE_mInt64(peer_candidate_expiry_s, "3600");           // candidate expiry, 1 hour
 DEFINE_mInt32(peer_rpc_failure_eviction_threshold, "3");  // consecutive failures to evict
+// Consecutive connection or RPC failures to one peer address before opening its circuit.
+DEFINE_mInt32(cache_peer_read_failure_threshold, "3");
+// Seconds to reject reads to a peer address before allowing one recovery probe.
+DEFINE_mInt32(cache_peer_read_circuit_open_seconds, "30");
 DEFINE_mInt32(peer_all_miss_cooldown_threshold,
               "5"); // consecutive all-miss races to trigger cooldown
 DEFINE_mInt64(peer_all_miss_cooldown_duration_s, "300"); // cooldown duration, 5 minutes

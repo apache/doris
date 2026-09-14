@@ -70,7 +70,7 @@ Paimon ecosystem matrix are boundary tests rather than positive Doris P0 contrac
 | Paimon | Append table, partitioned table, primitive and nested types | Covered | `test_paimon_catalog`, `test_paimon_partition_table`, `test_paimon_full_schema_change` |
 | Paimon | Primary-key deduplicate, partial-update, aggregation and first-row | Covered | `test_paimon_merge_engine_matrix` |
 | Paimon | Fixed bucket, dynamic bucket and cross-partition update | Covered | `test_paimon_merge_engine_matrix`, `test_paimon_partition_pk_delete_refs` |
-| Paimon | Parquet/ORC and mixed-format reads; JNI/native parity | Covered | `test_paimon_merge_engine_matrix`, `paimon_tb_mix_format`, `test_paimon_cpp_reader` |
+| Paimon | Parquet/ORC and mixed-format reads; JNI/native parity | Covered | `test_paimon_merge_engine_matrix`, `paimon_tb_mix_format`, `test_paimon_reader_parity` |
 | Paimon | Snapshot/timestamp/tag/branch and incremental modes | Covered | `paimon_time_travel`, `paimon_incr_read`, `test_paimon_schema_time_travel_matrix` |
 | Paimon | Schema evolution, partition-key restrictions and historical schema binding | Covered | `test_paimon_schema_time_travel_matrix`, `test_paimon_partition_mutation_atomicity` |
 | Paimon | Deletion vectors, upsert/delete visibility and data/system tables | Covered | `test_paimon_deletion_vector`, `paimon_data_system_table`, `paimon_system_table` |

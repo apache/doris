@@ -21,8 +21,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 
 import com.google.common.collect.Lists;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.List;
@@ -34,13 +34,13 @@ public class ExternalTableSchemaCacheDelegationTest {
     public void testGetFullSchemaDelegatesToGetSchemaCacheValue() {
         List<Column> schema = Lists.newArrayList(new Column("c1", PrimitiveType.INT));
         ExternalTable table = new DelegatingExternalTable(Optional.of(new SchemaCacheValue(schema)));
-        Assert.assertEquals(schema, table.getFullSchema());
+        Assertions.assertEquals(schema, table.getFullSchema());
     }
 
     @Test
     public void testGetFullSchemaReturnsNullWhenSchemaCacheMissing() {
         ExternalTable table = new DelegatingExternalTable(Optional.empty());
-        Assert.assertNull(table.getFullSchema());
+        Assertions.assertNull(table.getFullSchema());
     }
 
     @Test
@@ -56,10 +56,9 @@ public class ExternalTableSchemaCacheDelegationTest {
         BypassProbeTable table = new BypassProbeTable(catalog, live);
 
         Optional<SchemaCacheValue> result = table.getSchemaCacheValue();
-        Assert.assertTrue(result.isPresent());
-        Assert.assertEquals(live, result.get().getSchema());
-        Assert.assertEquals("schema was read live, once, through initSchema (not the shared cache)",
-                1, table.initSchemaCalls);
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals(live, result.get().getSchema());
+        Assertions.assertEquals(1, table.initSchemaCalls, "schema was read live, once, through initSchema (not the shared cache)");
     }
 
     private static final class BypassProbeTable extends ExternalTable {

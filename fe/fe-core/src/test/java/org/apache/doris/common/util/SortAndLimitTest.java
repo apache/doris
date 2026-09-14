@@ -19,8 +19,8 @@ package org.apache.doris.common.util;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
@@ -49,7 +49,7 @@ public class SortAndLimitTest {
     public void testEmptyLimitKeepsEveryRow() {
         List<List<Comparable>> sorted = SortAndLimit.sortAndLimit(rows(3L, 1L, 2L), BY_FIRST_COLUMN,
                 Optional.empty());
-        Assert.assertEquals(Lists.newArrayList(1L, 2L, 3L), firstColumnOf(sorted));
+        Assertions.assertEquals(Lists.newArrayList(1L, 2L, 3L), firstColumnOf(sorted));
     }
 
     @Test
@@ -57,14 +57,14 @@ public class SortAndLimitTest {
         // the two smallest values, not the first two rows of the input
         List<List<Comparable>> sorted = SortAndLimit.sortAndLimit(rows(3L, 1L, 2L), BY_FIRST_COLUMN,
                 Optional.of(2));
-        Assert.assertEquals(Lists.newArrayList(1L, 2L), firstColumnOf(sorted));
+        Assertions.assertEquals(Lists.newArrayList(1L, 2L), firstColumnOf(sorted));
     }
 
     @Test
     public void testLimitLargerThanInputIsClamped() {
         List<List<Comparable>> sorted = SortAndLimit.sortAndLimit(rows(3L, 1L), BY_FIRST_COLUMN,
                 Optional.of(100));
-        Assert.assertEquals(Lists.newArrayList(1L, 3L), firstColumnOf(sorted));
+        Assertions.assertEquals(Lists.newArrayList(1L, 3L), firstColumnOf(sorted));
     }
 
     @Test
@@ -73,7 +73,7 @@ public class SortAndLimitTest {
                 ImmutableList.<Comparable>of(3L),
                 ImmutableList.<Comparable>of(1L));
         List<List<Comparable>> sorted = SortAndLimit.sortAndLimit(input, BY_FIRST_COLUMN, Optional.of(1));
-        Assert.assertEquals(Lists.newArrayList(1L), firstColumnOf(sorted));
-        Assert.assertEquals(Lists.newArrayList(3L, 1L), firstColumnOf(input));
+        Assertions.assertEquals(Lists.newArrayList(1L), firstColumnOf(sorted));
+        Assertions.assertEquals(Lists.newArrayList(3L, 1L), firstColumnOf(input));
     }
 }

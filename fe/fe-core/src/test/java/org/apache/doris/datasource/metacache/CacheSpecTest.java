@@ -20,8 +20,8 @@ package org.apache.doris.datasource.metacache;
 import org.apache.doris.connector.cache.CacheSpec;
 
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 import java.util.OptionalLong;
@@ -41,9 +41,9 @@ public class CacheSpecTest {
                 "k.ttl", CacheSpec.CACHE_NO_TTL,
                 "k.capacity", 100);
 
-        Assert.assertFalse(spec.isEnable());
-        Assert.assertEquals(123, spec.getTtlSecond());
-        Assert.assertEquals(456, spec.getCapacity());
+        Assertions.assertFalse(spec.isEnable());
+        Assertions.assertEquals(123, spec.getTtlSecond());
+        Assertions.assertEquals(456, spec.getCapacity());
     }
 
     @Test
@@ -59,9 +59,9 @@ public class CacheSpecTest {
                 .capacity("k.capacity", 100)
                 .build());
 
-        Assert.assertFalse(spec.isEnable());
-        Assert.assertEquals(123, spec.getTtlSecond());
-        Assert.assertEquals(456, spec.getCapacity());
+        Assertions.assertFalse(spec.isEnable());
+        Assertions.assertEquals(123, spec.getTtlSecond());
+        Assertions.assertEquals(456, spec.getCapacity());
     }
 
     @Test
@@ -76,9 +76,9 @@ public class CacheSpecTest {
                 "capacity", 100);
 
         CacheSpec spec = CacheSpec.fromProperties(properties, "hive", "schema", defaultSpec);
-        Assert.assertTrue(spec.isEnable());
-        Assert.assertEquals(0, spec.getTtlSecond());
-        Assert.assertEquals(100, spec.getCapacity());
+        Assertions.assertTrue(spec.isEnable());
+        Assertions.assertEquals(0, spec.getTtlSecond());
+        Assertions.assertEquals(100, spec.getCapacity());
     }
 
     @Test
@@ -95,29 +95,29 @@ public class CacheSpecTest {
         Map<String, String> mapped = CacheSpec.applyCompatibilityMap(properties, compatibilityMap);
 
         // New key keeps precedence if already present.
-        Assert.assertEquals("20", mapped.get("new.ttl"));
+        Assertions.assertEquals("20", mapped.get("new.ttl"));
         // Missing new key is copied from legacy key.
-        Assert.assertEquals("30", mapped.get("new.capacity"));
+        Assertions.assertEquals("30", mapped.get("new.capacity"));
         // Original map is not modified.
-        Assert.assertFalse(properties.containsKey("new.capacity"));
+        Assertions.assertFalse(properties.containsKey("new.capacity"));
     }
 
     @Test
     public void testOfSemantics() {
         CacheSpec enabled = CacheSpec.of(true, 60, 100);
-        Assert.assertTrue(enabled.isEnable());
-        Assert.assertEquals(60, enabled.getTtlSecond());
-        Assert.assertEquals(100, enabled.getCapacity());
+        Assertions.assertTrue(enabled.isEnable());
+        Assertions.assertEquals(60, enabled.getTtlSecond());
+        Assertions.assertEquals(100, enabled.getCapacity());
 
         CacheSpec zeroTtl = CacheSpec.of(true, 0, 100);
-        Assert.assertTrue(zeroTtl.isEnable());
-        Assert.assertEquals(0, zeroTtl.getTtlSecond());
-        Assert.assertEquals(100, zeroTtl.getCapacity());
+        Assertions.assertTrue(zeroTtl.isEnable());
+        Assertions.assertEquals(0, zeroTtl.getTtlSecond());
+        Assertions.assertEquals(100, zeroTtl.getCapacity());
 
         CacheSpec disabled = CacheSpec.of(false, 60, 100);
-        Assert.assertFalse(disabled.isEnable());
-        Assert.assertEquals(60, disabled.getTtlSecond());
-        Assert.assertEquals(100, disabled.getCapacity());
+        Assertions.assertFalse(disabled.isEnable());
+        Assertions.assertEquals(60, disabled.getTtlSecond());
+        Assertions.assertEquals(100, disabled.getCapacity());
     }
 
     @Test
@@ -127,43 +127,43 @@ public class CacheSpecTest {
 
         try {
             CacheSpec.checkBooleanProperty("on", "k.enable");
-            Assert.fail("expected IllegalArgumentException");
+            Assertions.fail("expected IllegalArgumentException");
         } catch (IllegalArgumentException e) {
-            Assert.assertTrue(e.getMessage().contains("k.enable"));
+            Assertions.assertTrue(e.getMessage().contains("k.enable"));
         }
 
         CacheSpec.checkLongProperty("10", 0, "k.ttl");
         try {
             CacheSpec.checkLongProperty("-1", 0, "k.ttl");
-            Assert.fail("expected IllegalArgumentException");
+            Assertions.fail("expected IllegalArgumentException");
         } catch (IllegalArgumentException e) {
-            Assert.assertTrue(e.getMessage().contains("k.ttl"));
+            Assertions.assertTrue(e.getMessage().contains("k.ttl"));
         }
     }
 
     @Test
     public void testIsCacheEnabled() {
-        Assert.assertTrue(CacheSpec.isCacheEnabled(true, CacheSpec.CACHE_NO_TTL, 1));
-        Assert.assertFalse(CacheSpec.isCacheEnabled(false, CacheSpec.CACHE_NO_TTL, 1));
-        Assert.assertFalse(CacheSpec.isCacheEnabled(true, 0, 1));
-        Assert.assertFalse(CacheSpec.isCacheEnabled(true, CacheSpec.CACHE_NO_TTL, 0));
+        Assertions.assertTrue(CacheSpec.isCacheEnabled(true, CacheSpec.CACHE_NO_TTL, 1));
+        Assertions.assertFalse(CacheSpec.isCacheEnabled(false, CacheSpec.CACHE_NO_TTL, 1));
+        Assertions.assertFalse(CacheSpec.isCacheEnabled(true, 0, 1));
+        Assertions.assertFalse(CacheSpec.isCacheEnabled(true, CacheSpec.CACHE_NO_TTL, 0));
     }
 
     @Test
     public void testToExpireAfterAccess() {
         OptionalLong noTtl = CacheSpec.toExpireAfterAccess(CacheSpec.CACHE_NO_TTL);
-        Assert.assertFalse(noTtl.isPresent());
+        Assertions.assertFalse(noTtl.isPresent());
 
         OptionalLong disabled = CacheSpec.toExpireAfterAccess(0);
-        Assert.assertTrue(disabled.isPresent());
-        Assert.assertEquals(0, disabled.getAsLong());
+        Assertions.assertTrue(disabled.isPresent());
+        Assertions.assertEquals(0, disabled.getAsLong());
 
         OptionalLong positive = CacheSpec.toExpireAfterAccess(15);
-        Assert.assertTrue(positive.isPresent());
-        Assert.assertEquals(15, positive.getAsLong());
+        Assertions.assertTrue(positive.isPresent());
+        Assertions.assertEquals(15, positive.getAsLong());
 
         OptionalLong negativeOther = CacheSpec.toExpireAfterAccess(-2);
-        Assert.assertTrue(negativeOther.isPresent());
-        Assert.assertEquals(0, negativeOther.getAsLong());
+        Assertions.assertTrue(negativeOther.isPresent());
+        Assertions.assertEquals(0, negativeOther.getAsLong());
     }
 }

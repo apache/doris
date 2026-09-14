@@ -379,7 +379,7 @@ Status Segment::_open(OlapReaderStatistics* stats, const io::IOContext* source_i
                                 config::max_segment_partial_column_cache_size) *
                        config::estimated_mem_per_column_reader;
 
-    // 1024 comes from SegmentWriterOptions
+    // 1024 comes from VerticalSegmentWriterOptions
     _meta_mem_usage += (_num_rows + 1023) / 1024 * (36 + 4);
     // 0.01 comes from PrimaryKeyIndexBuilder::init
     _meta_mem_usage += BloomFilter::optimal_bit_num(_num_rows, 0.01) / 8;

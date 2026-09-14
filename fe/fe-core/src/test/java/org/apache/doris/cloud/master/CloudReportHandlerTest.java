@@ -20,8 +20,8 @@ package org.apache.doris.cloud.master;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.catalog.CloudEnv;
 
-import org.junit.After;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -32,7 +32,7 @@ public class CloudReportHandlerTest {
     private CloudEnv mockCloudEnv = Mockito.mock(CloudEnv.class);
     private MockedStatic<Env> mockedEnvStatic;
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedEnvStatic != null) {
             mockedEnvStatic.close();

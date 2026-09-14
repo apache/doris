@@ -48,8 +48,8 @@ constexpr FieldType kIndexableFieldTypes[] = {
         FieldType::OLAP_FIELD_TYPE_DECIMAL128I,  FieldType::OLAP_FIELD_TYPE_DECIMAL256,
         FieldType::OLAP_FIELD_TYPE_DATE,         FieldType::OLAP_FIELD_TYPE_DATETIME,
         FieldType::OLAP_FIELD_TYPE_DATEV2,       FieldType::OLAP_FIELD_TYPE_DATETIMEV2,
-        FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ,  FieldType::OLAP_FIELD_TYPE_IPV4,
-        FieldType::OLAP_FIELD_TYPE_IPV6,
+        FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ,  FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS,
+        FieldType::OLAP_FIELD_TYPE_IPV4,         FieldType::OLAP_FIELD_TYPE_IPV6,
 };
 
 // Resolves a raw on-disk field_type code and the bytes_per_dim it implies.

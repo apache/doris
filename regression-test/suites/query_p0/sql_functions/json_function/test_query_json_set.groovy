@@ -120,4 +120,26 @@ suite("test_query_json_set", "query") {
         sql "select json_set('1', '\$.', 4);"
         exception "Json path error: Invalid Json Path for value"
     }
+
+    // arguments must be a JSON document followed by path/value pairs, so an even count is rejected by FE
+    test {
+        sql "select json_set('{}', '\$.a', 1, '\$.b');"
+        exception "number of arguments must be odd, but got 4"
+    }
+
+    test {
+        sql "select json_set('{}', '\$.a', 1, '\$.b', 2, '\$.c');"
+        exception "number of arguments must be odd, but got 6"
+    }
+
+    test {
+        sql "select jsonb_set('{}', '\$.a', 1, '\$.b');"
+        exception "number of arguments must be odd, but got 4"
+    }
+
+    test {
+        sql "explain select json_set('{}', '\$.a', 1, '\$.b');"
+        exception "number of arguments must be odd, but got 4"
+    }
+    qt_set_odd_arity_ok """select json_set('{}', '\$.a', 1), json_set('{}', '\$.a', 1, '\$.b', 2), jsonb_set('{}', '\$.a', 1, '\$.b', 2);"""
 }

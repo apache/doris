@@ -18,9 +18,11 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.DefaultValueExprDef;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -81,9 +83,17 @@ public class DefaultValue {
      * default value current_timestamp(precision)
      */
     public static DefaultValue currentTimeStampDefaultValueWithPrecision(Long precision) {
-        if (precision > ScalarType.MAX_DATETIMEV2_SCALE || precision < 0) {
+        return currentTimeStampDefaultValueWithPrecision(precision, DateTimeV2Type.SYSTEM_DEFAULT);
+    }
+
+    /**
+     * default value current_timestamp(precision), validated against the target column type
+     */
+    public static DefaultValue currentTimeStampDefaultValueWithPrecision(Long precision, DataType type) {
+        int maxScale = type.isTimeStampNsType() ? TimeStampNsType.SCALE : DateTimeV2Type.MAX_SCALE;
+        if (precision > maxScale || precision < 0) {
             throw new AnalysisException("column's default value current_timestamp"
-                    + " precision must be between 0 and 6");
+                    + " precision must be between 0 and " + maxScale);
         }
         if (precision == 0) {
             return new DefaultValue(CURRENT_TIMESTAMP, NOW);
@@ -118,26 +128,23 @@ public class DefaultValue {
             return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId()).toString().replace('T', ' ');
         } else if (isCurrentTimeStampWithPrecision()) {
             long precision = getCurrentTimeStampPrecision();
-            String format = "yyyy-MM-dd HH:mm:ss";
             if (precision == 0) {
                 return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId()).toString().replace('T', ' ');
-            } else if (precision == 1) {
-                format = "yyyy-MM-dd HH:mm:ss.S";
-            } else if (precision == 2) {
-                format = "yyyy-MM-dd HH:mm:ss.SS";
-            } else if (precision == 3) {
-                format = "yyyy-MM-dd HH:mm:ss.SSS";
-            } else if (precision == 4) {
-                format = "yyyy-MM-dd HH:mm:ss.SSSS";
-            } else if (precision == 5) {
-                format = "yyyy-MM-dd HH:mm:ss.SSSSS";
-            } else if (precision == 6) {
-                format = "yyyy-MM-dd HH:mm:ss.SSSSSS";
             }
+            String format = "yyyy-MM-dd HH:mm:ss." + "S".repeat((int) precision);
             return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId())
                     .format(DateTimeFormatter.ofPattern(format));
         }
         return value;
+    }
+
+    /** Get a schema-change backfill value using the target type's default precision. */
+    public String getRawValue(DataType targetType) {
+        if (targetType.isTimeStampNsType() && isCurrentTimeStamp()) {
+            return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId())
+                    .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        }
+        return getRawValue();
     }
 
     /**

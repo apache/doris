@@ -26,8 +26,8 @@ import okhttp3.Response;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class ForwardToMasterTest extends DorisHttpTestCase {
     @Test
@@ -44,8 +44,8 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
                         .url(url)
                         .build();
                 Response response = networkClient.newCall(request).execute();
-                Assert.assertTrue(response.isSuccessful());
-                Assert.assertNotNull(response.body());
+                Assertions.assertTrue(response.isSuccessful());
+                Assertions.assertNotNull(response.body());
                 String respStr = response.body().string();
                 JSONObject object = (JSONObject) JSONValue.parse(respStr);
 
@@ -60,7 +60,7 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
                         existsbe++;
                     }
                 }
-                Assert.assertEquals(0, existsbe);
+                Assertions.assertEquals(0, existsbe);
             }
 
             {
@@ -81,7 +81,7 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
                         .post(RequestBody.create(jsonBody, MediaType.parse("application/json")))
                         .build();
                 Response response = networkClient.newCall(request).execute();
-                Assert.assertTrue(response.isSuccessful());
+                Assertions.assertTrue(response.isSuccessful());
             }
 
             {
@@ -94,8 +94,8 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
                         .url(url)
                         .build();
                 Response response = networkClient.newCall(request).execute();
-                Assert.assertTrue(response.isSuccessful());
-                Assert.assertNotNull(response.body());
+                Assertions.assertTrue(response.isSuccessful());
+                Assertions.assertNotNull(response.body());
                 String respStr = response.body().string();
 
                 JSONObject object = (JSONObject) JSONValue.parse(respStr);
@@ -110,7 +110,7 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
                         existsbe++;
                     }
                 }
-                Assert.assertEquals(1, existsbe);
+                Assertions.assertEquals(1, existsbe);
             }
 
             {
@@ -132,7 +132,7 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
                         .post(RequestBody.create(jsonBody, MediaType.parse("application/json")))
                         .build();
                 Response response = networkClient.newCall(request).execute();
-                Assert.assertTrue(response.isSuccessful());
+                Assertions.assertTrue(response.isSuccessful());
             }
 
             {
@@ -145,8 +145,8 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
                         .url(url)
                         .build();
                 Response response = networkClient.newCall(request).execute();
-                Assert.assertTrue(response.isSuccessful());
-                Assert.assertNotNull(response.body());
+                Assertions.assertTrue(response.isSuccessful());
+                Assertions.assertNotNull(response.body());
                 String respStr = response.body().string();
                 JSONObject object = (JSONObject) JSONValue.parse(respStr);
 
@@ -161,7 +161,7 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
                         existsbe++;
                     }
                 }
-                Assert.assertEquals(0, existsbe);
+                Assertions.assertEquals(0, existsbe);
             }
     }
 
@@ -177,13 +177,13 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
                 .post(emptyBody)
                 .build();
         Response response = networkClient.newCall(request).execute();
-        Assert.assertTrue(response.isSuccessful());
-        Assert.assertNotNull(response.body());
+        Assertions.assertTrue(response.isSuccessful());
+        Assertions.assertNotNull(response.body());
         String respStr = response.body().string();
         JSONObject object = (JSONObject) JSONValue.parse(respStr);
 
         String data = (String) object.get("data");
-        Assert.assertTrue(data.contains("does not exist"));
+        Assertions.assertTrue(data.contains("does not exist"));
     }
 
     @Test
@@ -202,13 +202,13 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
                 .addHeader("Authorization", rootAuth)
                 .build();
         Response response = networkClient.newCall(request).execute();
-        Assert.assertTrue(response.isSuccessful());
-        Assert.assertNotNull(response.body());
+        Assertions.assertTrue(response.isSuccessful());
+        Assertions.assertNotNull(response.body());
         String respStr = response.body().string();
         JSONObject object = (JSONObject) JSONValue.parse(respStr);
 
         String data = (String) object.get("data");
-        Assert.assertTrue(data.contains("the group 99999999.18888 isn't exist"));
+        Assertions.assertTrue(data.contains("the group 99999999.18888 isn't exist"));
     }
 
     @Test
@@ -222,12 +222,12 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
                 .url(url)
                 .build();
         Response response = networkClient.newCall(request).execute();
-        Assert.assertTrue(response.isSuccessful());
-        Assert.assertNotNull(response.body());
+        Assertions.assertTrue(response.isSuccessful());
+        Assertions.assertNotNull(response.body());
         String respStr = response.body().string();
         JSONObject object = (JSONObject) JSONValue.parse(respStr);
 
         JSONObject data = (JSONObject) object.get("data");
-        Assert.assertTrue(data.toString().contains("diskOccupancy"));
+        Assertions.assertTrue(data.toString().contains("diskOccupancy"));
     }
 }

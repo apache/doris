@@ -333,6 +333,7 @@ struct TIcebergDeleteFileDesc {
     9: optional string original_path;
     // Referenced data file path. Required to materialize rows from deletion vectors.
     10: optional string referenced_data_file_path;
+    11: optional i64 file_size;
 }
 
 struct TIcebergFileDesc {
@@ -367,6 +368,7 @@ struct TPaimonDeletionFileDesc {
 enum TPaimonReaderType {
     PAIMON_NATIVE = 0,
     PAIMON_JNI = 1,
+    // Deprecated wire value kept during rolling upgrades. New plans never emit it.
     PAIMON_CPP = 2,
 }
 
@@ -389,6 +391,9 @@ struct TPaimonFileDesc {
     16: optional i64 schema_id; // for schema change.
     // Reader implementation for logical paimon split. Native file split uses range format type.
     17: optional TPaimonReaderType reader_type;
+    // Original Paimon RawFile.path() before Doris storage path normalization. Native readers use this
+    // to materialize the public file-location metadata column.
+    18: optional string original_file_path;
 }
 
 struct TTrinoConnectorFileDesc {
@@ -592,6 +597,9 @@ struct TFileScanRangeParams {
     // values unchanged. When present, only INT96 TIMESTAMP values are converted with this zone.
     36: optional string hive_parquet_time_zone
     37: optional TLanceScanParams lance_scan_params
+    // Non-regular columns in the pinned full schema, including columns pruned from phase one.
+    // When present, omitted names are REGULAR. Used to rebuild row-id fetch projections.
+    38: optional map<string, TColumnCategory> column_name_to_category
 }
 
 struct TFileRangeDesc {

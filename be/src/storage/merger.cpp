@@ -51,7 +51,7 @@
 #include "storage/rowset/rowset_writer.h"
 #include "storage/schema.h"
 #include "storage/segment/segment.h"
-#include "storage/segment/segment_writer.h"
+#include "storage/segment/vertical_segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/base_tablet.h"
 #include "storage/tablet/tablet.h"
@@ -139,8 +139,8 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
         if (reader_params.record_rowids && block.rows() > 0) {
             std::vector<uint32_t> segment_num_rows;
             RETURN_IF_ERROR(dst_rowset_writer->get_segment_num_rows(&segment_num_rows));
-            stats_output->rowid_conversion->add(reader.current_block_row_locations(),
-                                                segment_num_rows);
+            RETURN_IF_ERROR(stats_output->rowid_conversion->add(
+                    reader.current_block_row_locations(), segment_num_rows));
         }
 
         output_rows += block.rows();
@@ -329,8 +329,8 @@ Status Merger::vertical_compact_one_group(
         if (is_key && reader_params.record_rowids && block.rows() > 0) {
             std::vector<uint32_t> segment_num_rows;
             RETURN_IF_ERROR(dst_rowset_writer->get_segment_num_rows(&segment_num_rows));
-            stats_output->rowid_conversion->add(reader.current_block_row_locations(),
-                                                segment_num_rows);
+            RETURN_IF_ERROR(stats_output->rowid_conversion->add(
+                    reader.current_block_row_locations(), segment_num_rows));
         }
         output_rows += block.rows();
         block.clear_column_data();
@@ -366,7 +366,7 @@ Status Merger::vertical_compact_one_group(
 Status Merger::vertical_compact_one_group(
         int64_t tablet_id, ReaderType reader_type, const ReadSchema& read_schema, bool is_key,
         RowSourcesBuffer* row_source_buf, VerticalBlockReader& src_block_reader,
-        segment_v2::SegmentWriter& dst_segment_writer, Statistics* stats_output,
+        segment_v2::VerticalSegmentWriter& dst_segment_writer, Statistics* stats_output,
         uint64_t* index_size, KeyBoundsPB& key_bounds, SimpleRowIdConversion* rowid_conversion) {
     // TODO: record_rowids
     Block block = read_schema.create_read_block();
@@ -410,8 +410,7 @@ Status Merger::vertical_compact_one_group(
     }
 
     // segcompaction produce only one segment at once
-    RETURN_IF_ERROR(dst_segment_writer.finalize_columns_data());
-    RETURN_IF_ERROR(dst_segment_writer.finalize_columns_index(index_size));
+    RETURN_IF_ERROR(dst_segment_writer.finalize_columns(index_size));
 
     if (is_key) {
         Slice min_key = dst_segment_writer.min_encoded_key();

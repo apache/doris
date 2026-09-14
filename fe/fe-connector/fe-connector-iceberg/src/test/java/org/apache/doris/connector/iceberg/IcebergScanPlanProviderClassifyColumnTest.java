@@ -53,6 +53,8 @@ public class IcebergScanPlanProviderClassifyColumnTest {
         // Case-insensitive, mirroring legacy IcebergScanNode (Column.ICEBERG_ROWID_COL.equalsIgnoreCase).
         Assertions.assertEquals(ConnectorColumnCategory.SYNTHESIZED,
                 PROVIDER.classifyColumn("__doris_iceberg_rowid_col__"));
+        Assertions.assertEquals(ConnectorColumnCategory.SYNTHESIZED, PROVIDER.classifyColumn("_file"));
+        Assertions.assertEquals(ConnectorColumnCategory.SYNTHESIZED, PROVIDER.classifyColumn("_POS"));
     }
 
     @Test

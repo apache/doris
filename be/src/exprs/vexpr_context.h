@@ -235,6 +235,12 @@ public:
         return _fn_contexts[i].get();
     }
 
+    void set_auto_partition_boundary_context() {
+        for (auto& fn_context : _fn_contexts) {
+            fn_context->set_auto_partition_boundary_context();
+        }
+    }
+
     // execute expr with inverted index which column a, b has inverted indexes
     //  but some situation although column b has indexes, but apply index is not useful, we should
     //  skip this expr, just do not apply index anymore.

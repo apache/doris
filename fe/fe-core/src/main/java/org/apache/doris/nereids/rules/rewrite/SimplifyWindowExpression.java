@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
@@ -90,11 +91,12 @@ public class SimplifyWindowExpression extends OneRewriteRuleFactory {
             if (function instanceof BoundFunction) {
                 BoundFunction boundFunction = (BoundFunction) function;
                 String name = ((BoundFunction) function).getName();
-                if ((name.equals(COUNT) && checkCount((Count) boundFunction))
-                        || REWRRITE_TO_CONST_WINDOW_FUNCTIONS.contains(name)) {
+                boolean frameContainsCurrentRow = windowFrameContainsCurrentRow(windowExpression);
+                if (REWRRITE_TO_CONST_WINDOW_FUNCTIONS.contains(name)
+                        || (frameContainsCurrentRow && name.equals(COUNT) && checkCount((Count) boundFunction))) {
                     projectionsBuilder.add(new Alias(alias.getExprId(),
                             new Cast(new TinyIntLiteral((byte) 1), function.getDataType()), alias.getName()));
-                } else if (REWRRITE_TO_SLOT_WINDOW_FUNCTIONS.contains(name)) {
+                } else if (frameContainsCurrentRow && REWRRITE_TO_SLOT_WINDOW_FUNCTIONS.contains(name)) {
                     projectionsBuilder.add(new Alias(alias.getExprId(),
                             TypeCoercionUtils.castIfNotSameType(boundFunction.child(0), boundFunction.getDataType()),
                             alias.getName()));
@@ -125,6 +127,12 @@ public class SimplifyWindowExpression extends OneRewriteRuleFactory {
             return new LogicalProject(finalProjections, window.withExpressionsAndChild(remainWindows,
                     window.child(0)));
         }
+    }
+
+    private boolean windowFrameContainsCurrentRow(WindowExpression windowExpression) {
+        WindowFrame windowFrame = windowExpression.getWindowFrame().get();
+        return !windowFrame.getLeftBoundary().asFollowing()
+                && !windowFrame.getRightBoundary().asPreceding();
     }
 
     private boolean checkCount(Count count) {

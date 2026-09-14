@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
+import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -39,6 +40,7 @@ import org.apache.doris.datasource.scan.FileScanNode;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -64,6 +66,7 @@ import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor.InsertExecutorListener;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
@@ -92,11 +95,14 @@ import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.awaitility.Awaitility;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -109,9 +115,13 @@ import java.util.function.Supplier;
  * InsertIntoTableCommand(Query())
  * ExplainCommand(Query())
  */
-public class InsertIntoTableCommand extends Command implements NeedAuditEncryption, ForwardWithSync, Explainable {
+public class InsertIntoTableCommand extends Command
+        implements NeedAuditEncryption, ForwardWithSync, Explainable, CancelableCommand {
 
     public static final Logger LOG = LogManager.getLogger(InsertIntoTableCommand.class);
+
+    private final AtomicBoolean isCancelled = new AtomicBoolean(false);
+    private final AtomicBoolean isRunning = new AtomicBoolean(false);
 
     private LogicalPlan originLogicalQuery;
     private Optional<LogicalPlan> logicalQuery;
@@ -221,13 +231,47 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        runInternal(ctx, executor);
+        runWithUpdateInfo(ctx, executor, null);
     }
 
+    @Override
+    public void cancel() {
+        isCancelled.set(true);
+    }
+
+    @Override
+    public void waitNotRunning() {
+        long waitMaxTimeSecond = 10L;
+        try {
+            Awaitility.await().atMost(waitMaxTimeSecond, TimeUnit.SECONDS).untilFalse(isRunning);
+        } catch (Exception e) {
+            LOG.warn("waiting time exceeds {} second, stop wait, labelName: {}",
+                    waitMaxTimeSecond, labelName.orElse(""), e);
+        }
+    }
+
+    /**
+     * Shared execution entrypoint for both direct statements and scheduled insert tasks
+     * (see InsertTask). The running flag and the pending-cancellation state live here so
+     * cancellation handling (KILL / waitNotRunning) is identical on both paths.
+     */
     public void runWithUpdateInfo(ConnectContext ctx, StmtExecutor executor,
                                   LoadStatistic loadStatistic) throws Exception {
-        // TODO: add coordinator statistic
-        runInternal(ctx, executor);
+        // Consume a cancellation that arrived while this invocation was queued
+        // (cancel-before-run) and reset the flag, so a reused command instance
+        // (server-side prepared INSERT) can execute again after a cancelled run.
+        if (isCancelled.getAndSet(false)) {
+            LOG.info("insert is cancelled before execution, queryId: {}",
+                    ctx.getQueryIdentifier());
+            return;
+        }
+        isRunning.set(true);
+        try {
+            // TODO: add coordinator statistic
+            runInternal(ctx, executor);
+        } finally {
+            isRunning.set(false);
+        }
     }
 
     // may be overridden
@@ -287,6 +331,17 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             parsedPlan = Optional.ofNullable(buildResult.planner.getParsedPlan());
             Plan analyzedPlan = buildResult.planner.getAnalyzedPlan();
             lineagePlan = Optional.ofNullable(analyzedPlan);
+            // Fast INSERT INTO VALUES does not retain an analyzed plan and cannot contain table stream scans.
+            if (analyzedPlan != null && !ctx.getStatementContext().isIvmMTMVRewrite()) {
+                for (LogicalOlapTableStreamScan streamScan : analyzedPlan
+                        .<LogicalOlapTableStreamScan>collectToList(LogicalOlapTableStreamScan.class::isInstance)) {
+                    OlapTableStreamWrapper wrapper = streamScan.getTable();
+                    if (wrapper.getName().startsWith(IvmUtil.IVM_STREAM_PREFIX)) {
+                        throw new AnalysisException("IVM internal table stream cannot be used in INSERT INTO: "
+                                + wrapper.getName());
+                    }
+                }
+            }
             if (!needBeginTransaction) {
                 return insertExecutor;
             }
@@ -318,34 +373,45 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
             // lock after plan and check does table's schema changed to ensure we lock table order by id.
             TableIf newestTargetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
-            newestTargetTableIf.readLock();
             try {
-                if (targetTableIf.getId() != newestTargetTableIf.getId()) {
-                    LOG.warn("insert plan failed {} times. query id is {}. table id changed from {} to {}",
-                            retryTimes, DebugUtil.printId(ctx.queryId()),
-                            targetTableIf.getId(), newestTargetTableIf.getId());
+                newestTargetTableIf.readLock();
+                try {
+                    if (targetTableIf.getId() != newestTargetTableIf.getId()) {
+                        LOG.warn("insert plan failed {} times. query id is {}. table id changed from {} to {}",
+                                retryTimes, DebugUtil.printId(ctx.queryId()),
+                                targetTableIf.getId(), newestTargetTableIf.getId());
+                        continue;
+                    }
+                    // Use the schema saved during planning as the schema of the original target table.
+                    if (!ctx.getStatementContext().getInsertTargetSchema()
+                            .equals(newestTargetTableIf.getFullSchema())) {
+                        LOG.warn("insert plan failed {} times. query id is {}. table schema changed from {} to {}",
+                                retryTimes, DebugUtil.printId(ctx.queryId()),
+                                ctx.getStatementContext().getInsertTargetSchema(),
+                                newestTargetTableIf.getFullSchema());
+                        continue;
+                    }
+                    if (insertExecutor.requiresTransaction()) {
+                        if (isCancelled.get()) {
+                            LOG.info("insert is cancelled before beginTransaction, queryId: {}",
+                                    ctx.getQueryIdentifier());
+                            throw new IllegalStateException("insert is cancelled");
+                        }
+                        insertExecutor.beginTransaction();
+                        insertExecutor.finalizeSink(
+                                buildResult.planner.getFragments().get(0), buildResult.dataSink,
+                                buildResult.physicalSink
+                        );
+                    }
+                } finally {
+                    // Single owner of the read lock: the retry-loop `continue` branches and the
+                    // cancellation throw above must not unlock again (a second unlock would raise
+                    // IllegalMonitorStateException and mask the original error before onFail runs).
                     newestTargetTableIf.readUnlock();
-                    continue;
                 }
-                // Use the schema saved during planning as the schema of the original target table.
-                if (!ctx.getStatementContext().getInsertTargetSchema().equals(newestTargetTableIf.getFullSchema())) {
-                    LOG.warn("insert plan failed {} times. query id is {}. table schema changed from {} to {}",
-                            retryTimes, DebugUtil.printId(ctx.queryId()),
-                            ctx.getStatementContext().getInsertTargetSchema(), newestTargetTableIf.getFullSchema());
-                    newestTargetTableIf.readUnlock();
-                    continue;
-                }
-                if (insertExecutor.requiresTransaction()) {
-                    insertExecutor.beginTransaction();
-                    insertExecutor.finalizeSink(
-                            buildResult.planner.getFragments().get(0), buildResult.dataSink,
-                            buildResult.physicalSink
-                    );
-                }
-                newestTargetTableIf.readUnlock();
             } catch (Throwable e) {
-                newestTargetTableIf.readUnlock();
-                // the abortTxn in onFail need to acquire table write lock
+                // the abortTxn in onFail need to acquire table write lock; the read lock is
+                // already released by the finally above
                 if (insertExecutor != null) {
                     insertExecutor.onFail(e);
                 }
@@ -687,6 +753,11 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
     }
 
     private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        if (isCancelled.get()) {
+            LOG.info("insert is cancelled before execution, queryId: {}",
+                    ctx.getQueryIdentifier());
+            return;
+        }
         AbstractInsertExecutor insertExecutor = initPlan(ctx, executor);
         // An empty Table Stream read still needs to commit its offset update atomically.
         if (!insertExecutor.requiresTransaction()) {
@@ -695,6 +766,18 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         if (insertExecutorListener != null) {
             insertExecutor.registerListener(insertExecutorListener);
         }
+        // Abort the transaction if cancellation arrives after execution but before commit.
+        insertExecutor.registerListener(new InsertExecutorListener() {
+            @Override
+            public void beforeComplete(AbstractInsertExecutor executor, StmtExecutor stmtExecutor, long jobId)
+                    throws Exception {
+                if (isCancelled.get()) {
+                    LOG.info("insert is cancelled before commit, queryId: {}",
+                            ctx.getQueryIdentifier());
+                    throw new IllegalStateException("insert is cancelled before commit");
+                }
+            }
+        });
         insertExecutor.executeSingleInsert(executor);
         LineageUtils.submitLineageEventIfNeeded(executor, lineagePlan, getLogicalQuery(), getClass());
     }

@@ -23,6 +23,7 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <tuple>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -1685,6 +1686,135 @@ TEST(MetaReaderTest, GetRowsetMetas) {
         ASSERT_EQ(rowset_metas[2].end_version(), 5);
         ASSERT_EQ(rowset_metas[2].num_rows(), 500) << dump_range(txn_kv.get());
     }
+}
+
+TEST(MetaReaderTest, GetRowsetMetasMinReadVersionstamp) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    const std::string instance_id = "rowset_min_version";
+    constexpr int64_t tablet_id = 4001;
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    auto put_rowset = [&](const std::string& id, int64_t start, int64_t end, Versionstamp version,
+                          bool compact) {
+        doris::RowsetMetaCloudPB rowset;
+        rowset.set_rowset_id(0);
+        rowset.set_rowset_id_v2(id);
+        rowset.set_tablet_id(tablet_id);
+        rowset.set_start_version(start);
+        rowset.set_end_version(end);
+        auto key = compact ? versioned::meta_rowset_compact_key({instance_id, tablet_id, end})
+                           : versioned::meta_rowset_load_key({instance_id, tablet_id, end});
+        ASSERT_TRUE(versioned::document_put(txn.get(), key, version, std::move(rowset)));
+    };
+    put_rowset("L1", 1, 1, Versionstamp(70, 1), false);
+    put_rowset("L2", 2, 2, Versionstamp(80, 1), false);
+    put_rowset("L3", 3, 3, Versionstamp(90, 1), false);
+    put_rowset("A", 2, 3, Versionstamp(150, 2), true);
+    put_rowset("L4", 4, 4, Versionstamp(170, 1), false);
+    // Compact keys are scanned by descending end version: A also hides this older compact.
+    put_rowset("old_compact", 2, 2, Versionstamp(110, 1), true);
+    put_rowset("old_A", 2, 3, Versionstamp(120, 1), true);
+    TabletStatsPB stats;
+    stats.set_num_rowsets(1);
+    versioned_put(txn.get(), versioned::tablet_load_stats_key({instance_id, tablet_id}),
+                  Versionstamp(70, 2), stats.SerializeAsString());
+    versioned_put(txn.get(), versioned::tablet_compact_stats_key({instance_id, tablet_id}),
+                  Versionstamp(75, 1), stats.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    using Rowset = std::tuple<std::string, int64_t, int64_t>;
+    auto check_rowsets = [&](MetaReader& reader, int64_t start, int64_t end,
+                             const std::vector<Rowset>& expected, Versionstamp expected_min) {
+        SCOPED_TRACE(fmt::format("rowset range [{}, {}]", start, end));
+        std::vector<doris::RowsetMetaCloudPB> rowsets;
+        ASSERT_EQ(reader.get_rowset_metas(tablet_id, start, end, &rowsets), TxnErrorCode::TXN_OK);
+        std::vector<Rowset> actual;
+        for (const auto& rowset : rowsets) {
+            EXPECT_EQ(rowset.tablet_id(), tablet_id);
+            actual.emplace_back(rowset.rowset_id_v2(), rowset.start_version(),
+                                rowset.end_version());
+        }
+        EXPECT_EQ(actual, expected);
+        EXPECT_EQ(reader.min_read_versionstamp(), expected_min)
+                << "actual metadata version: " << reader.min_read_version()
+                << ", expected: " << expected_min.version();
+    };
+    {
+        MetaReader reader(instance_id, txn_kv.get());
+        // Covered L2@80/L3@90 must not lower the minimum of A@150/L4@170.
+        check_rowsets(reader, 2, 4, {{"A", 2, 3}, {"L4", 4, 4}}, Versionstamp(150, 2));
+    }
+    {
+        MetaReader reader(instance_id, txn_kv.get());
+        check_rowsets(reader, 2, 3, {{"A", 2, 3}}, Versionstamp(150, 2));
+    }
+    {
+        MetaReader reader(instance_id, txn_kv.get());
+        // A selected old load still contributes its full metadata versionstamp.
+        check_rowsets(reader, 1, 4, {{"L1", 1, 1}, {"A", 2, 3}, {"L4", 4, 4}}, Versionstamp(70, 1));
+    }
+    {
+        MetaReader reader(instance_id, txn_kv.get(), Versionstamp(100, 0));
+        check_rowsets(reader, 2, 3, {{"L2", 2, 2}, {"L3", 3, 3}}, Versionstamp(80, 1));
+    }
+    for (bool load_stats : {true, false}) {
+        SCOPED_TRACE(load_stats ? "prior load stats" : "prior compact stats");
+        MetaReader reader(instance_id, txn_kv.get());
+        auto err = load_stats ? reader.get_tablet_load_stats(tablet_id, &stats, nullptr)
+                              : reader.get_tablet_compact_stats(tablet_id, &stats, nullptr);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        auto previous_min = load_stats ? Versionstamp(70, 2) : Versionstamp(75, 1);
+        EXPECT_EQ(reader.min_read_versionstamp(), previous_min);
+        check_rowsets(reader, 2, 4, {{"A", 2, 3}, {"L4", 4, 4}}, previous_min);
+        check_rowsets(reader, 5, 6, {}, previous_min);
+    }
+    {
+        MetaReader reader(instance_id, txn_kv.get());
+        check_rowsets(reader, 5, 6, {}, Versionstamp::max());
+        check_rowsets(reader, 2, 3, {{"A", 2, 3}}, Versionstamp(150, 2));
+        check_rowsets(reader, 4, 4, {{"L4", 4, 4}}, Versionstamp(150, 2));
+        check_rowsets(reader, 1, 1, {{"L1", 1, 1}}, Versionstamp(70, 1));
+        check_rowsets(reader, 2, 4, {{"A", 2, 3}, {"L4", 4, 4}}, Versionstamp(70, 1));
+        check_rowsets(reader, 5, 6, {}, Versionstamp(70, 1));
+    }
+    {
+        // Equal transaction versions must still compare the two-byte order component.
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        put_rowset("L5", 5, 5, Versionstamp(150, 1), false);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        MetaReader reader(instance_id, txn_kv.get());
+        check_rowsets(reader, 2, 5, {{"A", 2, 3}, {"L4", 4, 4}, {"L5", 5, 5}},
+                      Versionstamp(150, 1));
+    }
+}
+
+TEST(MetaReaderTest, GetRowsetMetasScanFailure) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    const std::string instance_id = "rowset_scan_failure";
+    constexpr int64_t tablet_id = 4001;
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    doris::RowsetMetaCloudPB load;
+    load.set_rowset_id(0);
+    load.set_start_version(2);
+    load.set_end_version(2);
+    ASSERT_TRUE(versioned::document_put(
+            txn.get(), versioned::meta_rowset_load_key({instance_id, tablet_id, 2}),
+            Versionstamp(80, 1), std::move(load)));
+    // A malformed compact document fails after the load scan has succeeded.
+    versioned_put(txn.get(), versioned::meta_rowset_compact_key({instance_id, tablet_id, 3}),
+                  Versionstamp(150, 1), "invalid protobuf");
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    MetaReader reader(instance_id, txn_kv.get());
+    std::vector<doris::RowsetMetaCloudPB> rowsets(1);
+    rowsets[0].set_rowset_id_v2("unchanged");
+    ASSERT_EQ(reader.get_rowset_metas(tablet_id, 2, 3, &rowsets), TxnErrorCode::TXN_INVALID_DATA);
+    ASSERT_EQ(rowsets.size(), 1);
+    EXPECT_EQ(rowsets[0].rowset_id_v2(), "unchanged");
+    EXPECT_EQ(reader.min_read_versionstamp(), Versionstamp::max());
 }
 
 TEST(MetaReaderTest, GetPartitionPendingTxnId) {

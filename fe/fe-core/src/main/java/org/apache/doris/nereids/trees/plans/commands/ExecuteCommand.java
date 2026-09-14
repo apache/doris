@@ -90,14 +90,14 @@ public class ExecuteCommand extends Command {
                     "prepare statement " + stmtName + " not found,  maybe expired");
         }
         PrepareCommand prepareCommand = preparedStmtCtx.command;
-        StatementContext statementContext = preparedStmtCtx.getStatementContext();
+        // Allocate a fresh StatementContext per EXECUTE so the per-statement state accumulated by
+        // prior executions (bound tables, CTE maps, statistics, snapshots, ...) is released
+        // promptly instead of living as long as the connection, which can OOM long-lived
+        // connections. The necessary cross-execution state (placeholder bindings, comparison
+        // slots, id generator positions, short-circuit flags) is carried over to the new context.
+        StatementContext statementContext = preparedStmtCtx.nextStatementContext();
         statementContext.setPrepareStage(false);
         statementContext.setIsInsert(false);
-        // A prepared EXECUTE reuses this one StatementContext across executions; drop the connector
-        // per-statement scope so a prior execution's cached tables/state never leak into this one (the
-        // scope key's queryId is a second line of defense). See StatementContext#resetConnectorStatementScope.
-        statementContext.resetConnectorStatementScope();
-        statementContext.resetMvccSnapshots();
         LogicalPlan logicalPlan = prepareCommand.getLogicalPlan();
         List<LogicalPlan> relationRoots = new ArrayList<>();
         if (logicalPlan instanceof InsertIntoTableCommand) {
@@ -157,6 +157,11 @@ public class ExecuteCommand extends Command {
                 && hasShortCircuitContext
                 && shortCircuitContextReusable
                 && !statementContext.hasNondeterministic()) {
+            // The fresh per-execution context carries the short-circuit flag but not the cached plan.
+            // Install the just-validated cache before the direct path: result sending reads it via
+            // statementContext.getShortCircuitQueryContext(), and the fallback (building one from a
+            // null planner, since this path skips planning) would NPE.
+            statementContext.setShortCircuitQueryContext(preparedStmtCtx.shortCircuitQueryContext.get());
             PointQueryExecutor.directExecuteShortCircuitQuery(executor, preparedStmtCtx, statementContext);
             return;
         }

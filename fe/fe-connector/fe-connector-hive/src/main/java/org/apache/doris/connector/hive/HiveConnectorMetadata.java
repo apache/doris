@@ -25,6 +25,7 @@ import org.apache.doris.connector.hms.HmsClientException;
 import org.apache.doris.connector.hms.HmsColumnStatistics;
 import org.apache.doris.connector.hms.HmsCreateDatabaseRequest;
 import org.apache.doris.connector.hms.HmsCreateTableRequest;
+import org.apache.doris.connector.hms.HmsPartitionBatchResult;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.hms.HmsTypeMapping;
@@ -517,7 +518,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             // An iceberg/hudi-on-HMS table's schema is built by the embedded sibling connector, but fe-core's
             // PluginDrivenExternalTable.hasCapability only ever reads the CATALOG connector (this HIVE
             // connector), never the sibling — so a per-table capability the sibling declares connector-wide
-            // (auto-analyze / Top-N lazy / nested-column prune) would be lost for the embedded table. Reflect the
+            // (auto-analyze / Top-N lazy / nested-column prune / storage predicate pruning) would be lost for
+            // the embedded table. Reflect the
             // SIBLING_INHERITABLE_CAPABILITIES subset of the owning sibling's connector-wide set onto the
             // delegated schema as a per-table marker so it survives delegation (mirrors Trino table-redirection,
             // where the redirected-to connector's capabilities govern the table). Only the subset fe-core
@@ -560,10 +562,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         }
 
         // Per-table scan capabilities that the generic fe-core consumer refines the connector-wide capability
-        // set with. Top-N lazy materialization is orc/parquet-only in hive (legacy
-        // HMSExternalTable.supportedHiveTopNLazyTable), which the connector-wide SUPPORTS_TOPN_LAZY_MATERIALIZE
-        // cannot express for a heterogeneous hive catalog; emit it per-table so fe-core enables the optimization
-        // only for eligible tables and never for text/csv/json/view/hudi.
+        // set with. Top-N lazy materialization and storage min/max pruning are orc/parquet-only in hive, which
+        // connector-wide capabilities cannot express for a heterogeneous hive catalog; emit them per-table so
+        // fe-core enables the optimizations only for eligible tables and never for text/csv/json/view/hudi.
         Set<ConnectorCapability> perTableCapabilities = EnumSet.noneOf(ConnectorCapability.class);
         // Legacy StatisticsUtil.supportAutoAnalyze admitted EVERY plain-hive (dlaType==HIVE) table into background
         // per-column auto-analyze regardless of file format. Emit it per-table for every plain-hive data table (any
@@ -577,8 +578,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         if (supportsHiveSampleAnalyze(tableInfo)) {
             perTableCapabilities.add(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE);
         }
-        if (supportsHiveTopNLazyMaterialize(tableInfo)) {
+        if (supportsHiveOrcOrParquetScan(tableInfo)) {
             perTableCapabilities.add(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE);
+            perTableCapabilities.add(ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING);
         }
 
         // Distribution (bucketing) columns for the flipped table's getDistributionColumnNames() — legacy
@@ -609,6 +611,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                     ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE,
                     ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE,
                     ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE,
+                    ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING,
                     ConnectorCapability.SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE));
 
     /**
@@ -618,7 +621,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * {@code PluginDrivenExternalTable.hasCapability} resolves a table-scoped capability from the CATALOG
      * (hive) connector-wide set OR the table's own set, and NEVER consults the sibling connector directly, so
      * without this reflection an iceberg-on-HMS table would silently lose every such capability the iceberg
-     * sibling declares connector-wide (auto-analyze / Top-N lazy / nested-column prune / nested column DDL).
+     * sibling declares connector-wide (auto-analyze / Top-N lazy / nested-column prune / storage predicate
+     * pruning / nested column DDL).
      * Returns the sibling schema unchanged when nothing is inherited and the sibling declared nothing itself
      * (e.g. a hudi sibling, which declares no capabilities at all).
      */
@@ -1103,7 +1107,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         if (partNames.isEmpty()) {
             return Collections.emptyList();
         }
-        List<HmsPartitionInfo> partitions = hmsClient.getPartitions(
+        List<HmsPartitionInfo> partitions = hmsClient.getExistingPartitions(
                 handle.getDbName(), handle.getTableName(), partNames);
         List<PartitionRef> refs = new ArrayList<>(partitions.size());
         for (HmsPartitionInfo partition : partitions) {
@@ -1182,10 +1186,20 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             return Optional.empty();
         }
 
-        List<HmsPartitionInfo> prunedPartitions = matchedPartNames.isEmpty()
-                ? Collections.emptyList()
-                : hmsClient.getPartitions(hiveHandle.getDbName(),
-                        hiveHandle.getTableName(), matchedPartNames);
+        HmsPartitionBatchResult pruningResult;
+        try {
+            pruningResult = matchedPartNames.isEmpty()
+                    ? null : hmsClient.getExistingPartitionsWithStats(
+                            hiveHandle.getDbName(), hiveHandle.getTableName(), matchedPartNames);
+        } catch (HmsClientException e) {
+            if (e.getPartitionBatchStats() != null) {
+                HiveScanPlanProvider.recordPruningFailure(
+                        session, hiveHandle.getDbName(), hiveHandle.getTableName(), e.getPartitionBatchStats());
+            }
+            throw e;
+        }
+        List<HmsPartitionInfo> prunedPartitions = pruningResult == null
+                ? Collections.emptyList() : pruningResult.getPartitions();
 
         LOG.info("Partition pruning: {}.{} all={} pruned={}",
                 hiveHandle.getDbName(), hiveHandle.getTableName(),
@@ -1193,6 +1207,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
 
         HiveTableHandle newHandle = hiveHandle.toBuilder()
                 .prunedPartitions(prunedPartitions)
+                .pruningBatchStats(pruningResult == null ? null : pruningResult.getStats())
                 .build();
         return Optional.of(new FilterApplicationResult<>(
                 newHandle, constraint.getExpression(), false));
@@ -1393,8 +1408,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             // Parity: an empty partition list yields MTMVMaxTimestampSnapshot(tableName, 0).
             return Optional.of(new ConnectorTableFreshness(hiveHandle.getTableName(), 0L));
         }
-        List<HmsPartitionInfo> partitions =
-                hmsClient.getPartitions(hiveHandle.getDbName(), hiveHandle.getTableName(), partitionNames);
+        List<HmsPartitionInfo> partitions = hmsClient.getExistingPartitions(
+                hiveHandle.getDbName(), hiveHandle.getTableName(), partitionNames);
         String maxName = hiveHandle.getTableName();
         long maxMillis = 0L;
         for (HmsPartitionInfo partition : partitions) {
@@ -1423,12 +1438,36 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             return siblingMetadata(session, handle).getPartitionFreshnessMillis(session, handle, partitionName);
         }
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
-        List<HmsPartitionInfo> partitions = hmsClient.getPartitions(hiveHandle.getDbName(),
+        List<HmsPartitionInfo> partitions = hmsClient.getExistingPartitions(hiveHandle.getDbName(),
                 hiveHandle.getTableName(), Collections.singletonList(partitionName));
         if (partitions.isEmpty()) {
             return OptionalLong.empty();
         }
         return OptionalLong.of(lastDdlMillis(partitions.get(0).getParameters()));
+    }
+
+    @Override
+    public Map<String, Long> getPartitionsFreshnessMillis(ConnectorSession session, ConnectorTableHandle handle,
+            List<String> partitionNames) {
+        if (!(handle instanceof HiveTableHandle)) {
+            return siblingMetadata(session, handle)
+                    .getPartitionsFreshnessMillis(session, handle, partitionNames);
+        }
+        if (partitionNames.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        HiveTableHandle hiveHandle = (HiveTableHandle) handle;
+        List<HmsPartitionInfo> partitions = hmsClient.getExistingPartitions(
+                hiveHandle.getDbName(), hiveHandle.getTableName(), partitionNames);
+        Map<List<String>, String> namesByValues = new HashMap<>();
+        for (String partitionName : partitionNames) {
+            namesByValues.put(HiveWriteUtils.toPartitionValues(partitionName), partitionName);
+        }
+        Map<String, Long> freshness = new LinkedHashMap<>();
+        for (HmsPartitionInfo partition : partitions) {
+            freshness.put(namesByValues.get(partition.getValues()), lastDdlMillis(partition.getParameters()));
+        }
+        return freshness;
     }
 
     /**
@@ -2267,13 +2306,11 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Whether {@code tableInfo} is a plain-hive orc/parquet base table eligible for Top-N lazy materialization,
-     * replicating legacy {@code HMSExternalTable.supportedHiveTopNLazyTable} plus the {@code getDlaType()==HIVE}
-     * guard the legacy consumer ({@code MaterializeProbeVisitor}) applied: a view is excluded, an
-     * iceberg/hudi-on-HMS table is excluded (those are served by their own connector, which declares the
-     * capability connector-wide after the cutover), and only the parquet/orc input formats qualify.
+     * Whether {@code tableInfo} is a plain-hive ORC/Parquet base table. These tables support both Top-N lazy
+     * materialization and storage-level min/max predicate pruning. Views and iceberg/hudi-on-HMS tables are
+     * excluded; their connector-specific pruning semantics are validated separately.
      */
-    private boolean supportsHiveTopNLazyMaterialize(HmsTableInfo tableInfo) {
+    private boolean supportsHiveOrcOrParquetScan(HmsTableInfo tableInfo) {
         if (isView(tableInfo)) {
             return false;
         }
@@ -2287,7 +2324,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     /**
      * Whether {@code tableInfo} is a plain-hive data table (any file format) eligible for background per-column
      * auto-analyze, replicating legacy {@code StatisticsUtil.supportAutoAnalyze}'s {@code dlaType==HIVE} gate.
-     * Unlike {@link #supportsHiveTopNLazyMaterialize} there is NO orc/parquet restriction (legacy analyzed any hive
+     * Unlike {@link #supportsHiveOrcOrParquetScan} there is NO orc/parquet restriction (legacy analyzed any hive
      * format); a view is excluded (nothing to analyze) and an iceberg/hudi-on-HMS table is excluded here
      * ({@code detect() != HIVE}) — iceberg-on-HMS instead inherits the capability from its sibling via
      * {@link #reflectSiblingCapabilities}, and hudi-on-HMS is withheld.

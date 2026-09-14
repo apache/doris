@@ -22,6 +22,7 @@
 #include <iostream>
 #include <vector>
 
+#include "benchmark_array_range.hpp"
 #include "benchmark_arrow_validation.hpp"
 #include "benchmark_binary_arithmetic.hpp"
 #include "benchmark_bit_pack.hpp"

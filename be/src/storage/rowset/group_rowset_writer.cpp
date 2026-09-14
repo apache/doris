@@ -18,7 +18,7 @@
 #include "storage/rowset/group_rowset_writer.h"
 
 #include "storage/rowset/beta_rowset_writer.h"
-#include "storage/segment/segment_writer.h"
+#include "storage/segment/vertical_segment_writer.h"
 #include "util/debug_points.h"
 
 namespace doris {

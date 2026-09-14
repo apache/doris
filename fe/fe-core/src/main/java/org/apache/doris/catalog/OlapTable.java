@@ -72,11 +72,11 @@ import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
-import org.apache.doris.statistics.AnalysisInfo;
-import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
-import org.apache.doris.statistics.BaseAnalysisTask;
-import org.apache.doris.statistics.HistogramTask;
-import org.apache.doris.statistics.OlapAnalysisTask;
+import org.apache.doris.statistics.analysis.AnalysisInfo;
+import org.apache.doris.statistics.analysis.AnalysisInfo.AnalysisType;
+import org.apache.doris.statistics.analysis.BaseAnalysisTask;
+import org.apache.doris.statistics.analysis.HistogramTask;
+import org.apache.doris.statistics.analysis.OlapAnalysisTask;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -3738,6 +3738,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public static List<Long> getVisibleVersionFromMeta(List<Long> dbIds, List<Long> tableIds) {
+        return getVisibleVersionFromMeta(dbIds, tableIds, Config.metaServiceRpcRetryTimes());
+    }
+
+    public static List<Long> getVisibleVersionFromMeta(List<Long> dbIds, List<Long> tableIds, int maxAttempts) {
         // get version rpc
         Cloud.GetVersionRequest request = Cloud.GetVersionRequest.newBuilder()
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached())
@@ -3751,7 +3755,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 .build();
 
         try {
-            Cloud.GetVersionResponse resp = VersionHelper.getVersionFromMeta(request);
+            Cloud.GetVersionResponse resp = VersionHelper.getVersionFromMeta(request, maxAttempts);
             if (resp.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 throw new RpcException("get table visible version", "unexpected status " + resp.getStatus());
             }

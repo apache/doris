@@ -22,10 +22,10 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.system.BrokerHbResponse;
 
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -39,14 +39,14 @@ public class FsBrokerTest {
     private static String fileName1 = "./FsBrokerTest1";
     private static String fileName2 = "./FsBrokerTest2";
 
-    @BeforeClass
+    @BeforeAll
     public static void setup() {
         MetaContext context = new MetaContext();
         context.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         context.setThreadLocalInfo();
     }
 
-    @AfterClass
+    @AfterAll
     public static void tear() {
         new File(fileName1).delete();
         new File(fileName2).delete();
@@ -71,12 +71,12 @@ public class FsBrokerTest {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
 
         FsBroker readBroker = FsBroker.readIn(dis);
-        Assert.assertEquals(fsBroker.host, readBroker.host);
-        Assert.assertEquals(fsBroker.port, readBroker.port);
-        Assert.assertEquals(fsBroker.isAlive, readBroker.isAlive);
-        Assert.assertTrue(fsBroker.isAlive);
-        Assert.assertEquals(time, readBroker.lastStartTime);
-        Assert.assertEquals(-1, readBroker.lastUpdateTime);
+        Assertions.assertEquals(fsBroker.host, readBroker.host);
+        Assertions.assertEquals(fsBroker.port, readBroker.port);
+        Assertions.assertEquals(fsBroker.isAlive, readBroker.isAlive);
+        Assertions.assertTrue(fsBroker.isAlive);
+        Assertions.assertEquals(time, readBroker.lastStartTime);
+        Assertions.assertEquals(-1, readBroker.lastUpdateTime);
         dis.close();
     }
 
@@ -98,12 +98,12 @@ public class FsBrokerTest {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
 
         FsBroker readBroker = FsBroker.readIn(dis);
-        Assert.assertEquals(fsBroker.host, readBroker.host);
-        Assert.assertEquals(fsBroker.port, readBroker.port);
-        Assert.assertEquals(fsBroker.isAlive, readBroker.isAlive);
-        Assert.assertFalse(fsBroker.isAlive);
-        Assert.assertEquals(-1, readBroker.lastStartTime);
-        Assert.assertEquals(-1, readBroker.lastUpdateTime);
+        Assertions.assertEquals(fsBroker.host, readBroker.host);
+        Assertions.assertEquals(fsBroker.port, readBroker.port);
+        Assertions.assertEquals(fsBroker.isAlive, readBroker.isAlive);
+        Assertions.assertFalse(fsBroker.isAlive);
+        Assertions.assertEquals(-1, readBroker.lastStartTime);
+        Assertions.assertEquals(-1, readBroker.lastUpdateTime);
         dis.close();
     }
 

@@ -134,6 +134,17 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         return desc;
     }
 
+    /**
+     * Whether this scan hands out its splits lazily through a batch {@link SplitSource} that the
+     * BE fetches from the FE while it is scanning (external-table batch mode, see
+     * {@link SplitGenerator#isBatchMode()}). Such a scan needs its coordinator alive until the BE
+     * has finished scanning, even after the FE is done dispatching the query: closing the
+     * coordinator releases the split source ({@link #stop()}) and the BE's next split fetch fails.
+     */
+    public boolean hasBatchSplitSource() {
+        return splitAssignment != null;
+    }
+
     protected abstract void createScanRangeLocations() throws UserException;
 
     /**
@@ -649,6 +660,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
         List<CloudPartition> partitions = new ArrayList<>();
         Set<Long> partitionSet = new HashSet<>();
+        boolean hasIncrementalRead = false;
         for (ScanNode node : scanNodes) {
             if (!(node instanceof OlapScanNode)) {
                 continue;
@@ -659,6 +671,9 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
             if (table instanceof OlapTableWrapper
                     && ((OlapTableWrapper) table).hasFixedVisibleVersions()) {
                 continue;
+            }
+            if (scanNode.getScanParams() != null && scanNode.getScanParams().incrementalRead()) {
+                hasIncrementalRead = true;
             }
             for (Long id : scanNode.getSelectedPartitionIds()) {
                 if (!partitionSet.contains(id)) {
@@ -672,7 +687,11 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         if (!partitions.isEmpty()) {
             List<Long> versions;
             try {
-                versions = CloudPartition.getSnapshotVisibleVersion(partitions);
+                // A time-based change read may have just waited for an old transaction to finish.
+                // Bypass the FE cache so the scan uses the version made visible by that transaction.
+                versions = hasIncrementalRead
+                        ? CloudPartition.getSnapshotVisibleVersionFromMs(partitions, false)
+                        : CloudPartition.getSnapshotVisibleVersion(partitions);
             } catch (RpcException e) {
                 throw new UserException("get visible version for OlapScanNode failed", e);
             }

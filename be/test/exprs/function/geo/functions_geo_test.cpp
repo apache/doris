@@ -218,6 +218,38 @@ TEST(VGeoFunctionsTest, function_geo_st_numpoints_invalid) {
     static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
 }
 
+// ==================== ST_IsClosed Tests ====================
+
+TEST(VGeoFunctionsTest, function_geo_st_isclosed) {
+    std::string func_name = "st_isclosed";
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+
+    auto encode_wkt = [](const std::string& wkt) {
+        GeoParseStatus status;
+        auto shape = GeoShape::from_wkt(wkt.data(), wkt.size(), status);
+        EXPECT_EQ(status, GEO_PARSE_OK);
+        EXPECT_NE(shape, nullptr);
+
+        std::string buf;
+        shape->encode_to(&buf);
+        return buf;
+    };
+
+    auto closed_line = encode_wkt("LINESTRING (0 0, 1 1, 0 0)");
+    auto open_line = encode_wkt("LINESTRING (0 0, 1 1, 2 2)");
+    auto nearly_closed_line = encode_wkt("LINESTRING (0 0, 1 1, 0 0.0000000000001)");
+    auto point = encode_wkt("POINT (0 0)");
+
+    DataSet data_set = {{{closed_line}, uint8_t(1)},
+                        {{open_line}, uint8_t(0)},
+                        {{nearly_closed_line}, uint8_t(0)},
+                        {{point}, Null()},
+                        {{std::string("invalid_geometry_data")}, Null()},
+                        {{Null()}, Null()}};
+
+    check_function_all_arg_comb<DataTypeUInt8, true>(func_name, input_types, data_set);
+}
+
 // ==================== ST_Geometries Tests ====================
 
 TEST(VGeoFunctionsTest, function_geo_st_geometries_point) {

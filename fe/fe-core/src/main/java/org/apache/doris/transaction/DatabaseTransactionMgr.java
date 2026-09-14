@@ -22,6 +22,7 @@ import org.apache.doris.binlog.UpsertRecord;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
@@ -62,7 +63,7 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.statistics.AnalysisManager;
+import org.apache.doris.statistics.analysis.AnalysisManager;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -123,6 +124,14 @@ public class DatabaseTransactionMgr {
     // the max number of txn that can be remove per round.
     // set it to avoid holding lock too long when removing too many txns per round.
     private static final int MAX_REMOVE_TXN_PER_ROUND = 10000;
+
+    // Test hook: when enabled with the MV table name as the debug point's "value" param,
+    // finishTransaction returns without turning transactions that write that MV table
+    // VISIBLE, so IVM regression tests can hold a refresh txn in COMMITTED while other
+    // tables keep publishing normally.
+    public static final String DEBUG_POINT_FINISH_TRANSACTION_BLOCK_VISIBLE =
+            "DatabaseTransactionMgr.finishTransaction.block_visible";
+
     // ConfigBase replaces the array on every update, so its identity is the cache version.
     private static volatile String[] cachedResourceGroupSuccQuorumConfig;
     private static volatile Map<String, Integer> cachedResourceGroupSuccQuorum = Map.of();
@@ -886,6 +895,11 @@ public class DatabaseTransactionMgr {
             readUnlock();
         }
 
+        if (DebugPointUtil.isEnable("DatabaseTransactionMgr.commitTransaction.failed")) {
+            throw new TabletQuorumFailedException(transactionId,
+                    "DebugPoint: DatabaseTransactionMgr.commitTransaction.failed");
+        }
+
         if (!checkTransactionStateBeforeCommit(db, tableList, transactionId, is2PC, transactionState)) {
             return;
         }
@@ -1251,6 +1265,11 @@ public class DatabaseTransactionMgr {
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("finish transaction {} with tables {}", transactionId, tableIdList);
+        }
+        String blockedTableName = DebugPointUtil.getDebugParamOrDefault(
+                DEBUG_POINT_FINISH_TRANSACTION_BLOCK_VISIBLE, "");
+        if (!blockedTableName.isEmpty() && transactionWritesTableNamed(db, tableIdList, blockedTableName)) {
+            return;
         }
         List<? extends TableIf> tableList = db.getTablesOnIdOrderIfExist(tableIdList);
         if (!MetaLockUtils.tryWriteLockTablesIfExist(tableList, 10, TimeUnit.SECONDS)) {
@@ -2399,6 +2418,16 @@ public class DatabaseTransactionMgr {
         // update table stream offset if necessary
         if (!CollectionUtils.isEmpty(transactionState.getStreamUpdateInfos())) {
             updateStreamOffset(transactionState, transactionState.getCommitTime());
+            updateIvmRefreshVersion(transactionState, db);
+        }
+    }
+
+    private void updateIvmRefreshVersion(TransactionState transactionState, Database db) {
+        for (Long tableId : transactionState.getTableIdList()) {
+            Table table = db.getTableNullable(tableId);
+            if (table instanceof MTMV && ((MTMV) table).isIvm()) {
+                ((MTMV) table).getIvmInfo().advanceRefreshVersion();
+            }
         }
     }
 
@@ -3239,5 +3268,15 @@ public class DatabaseTransactionMgr {
             }
             ((BaseTableStream) tableIf).unprotectedUpdateStreamUpdate(info.getUpdate(), ts);
         }
+    }
+
+    private static boolean transactionWritesTableNamed(Database db, List<Long> tableIdList, String tableName) {
+        for (Long tableId : tableIdList) {
+            Table table = db.getTableNullable(tableId);
+            if (table != null && table.getName().equals(tableName)) {
+                return true;
+            }
+        }
+        return false;
     }
 }
