@@ -26,6 +26,7 @@
 #include "core/column/column_dictionary.h"
 #include "core/column/column_nothing.h"
 #include "core/column/column_nullable.h"
+#include "runtime/descriptors.h"
 
 namespace doris {
 
@@ -142,6 +143,50 @@ Status ReadSchema::init_row_binlog_column_mappings(RowBinlogValueColumnPairs val
             std::move(value_pairs), read_ordinal_by_tablet_cid(tablet_schema.binlog_tso_col_idx()),
             read_ordinal_by_tablet_cid(tablet_schema.binlog_lsn_col_idx()),
             read_ordinal_by_tablet_cid(tablet_schema.binlog_op_col_idx()));
+}
+
+Status ReadSchema::init_row_binlog_column_mappings(const std::vector<TSlotId>* current_slot_ids,
+                                                   const std::vector<TSlotId>* before_slot_ids,
+                                                   const TupleDescriptor& scan_tuple,
+                                                   const TabletSchema& tablet_schema,
+                                                   TBinlogScanType::type scan_type) {
+    DORIS_CHECK(scan_tuple.slots().size() == _num_block_columns);
+    const bool merge_changes =
+            scan_type == TBinlogScanType::MIN_DELTA || scan_type == TBinlogScanType::DETAIL;
+    RowBinlogValueColumnPairs value_pairs;
+    if (merge_changes) {
+        if (current_slot_ids == nullptr || before_slot_ids == nullptr ||
+            current_slot_ids->size() != before_slot_ids->size()) {
+            return Status::InvalidArgument(
+                    "Row-binlog current/before slot mappings must be present and aligned");
+        }
+        std::unordered_map<TSlotId, ColumnId> slot_id_to_ordinal;
+        slot_id_to_ordinal.reserve(scan_tuple.slots().size());
+        for (ColumnId ordinal = 0; const auto* slot : scan_tuple.slots()) {
+            slot_id_to_ordinal.emplace(slot->id(), ordinal++);
+        }
+        value_pairs.reserve(current_slot_ids->size());
+        for (size_t i = 0; i < current_slot_ids->size(); ++i) {
+            const auto current = slot_id_to_ordinal.find((*current_slot_ids)[i]);
+            const auto before = slot_id_to_ordinal.find((*before_slot_ids)[i]);
+            if (current == slot_id_to_ordinal.end() || before == slot_id_to_ordinal.end()) {
+                return Status::InvalidArgument(
+                        "Row-binlog current/before slot mapping references an unknown slot");
+            }
+            value_pairs.emplace_back(current->second, before->second);
+        }
+    }
+
+    RETURN_IF_ERROR(init_row_binlog_column_mappings(std::move(value_pairs), tablet_schema));
+    if (merge_changes && (_tso_ordinal < 0 || _op_ordinal < 0)) {
+        return Status::InvalidArgument(
+                "Row-binlog TSO and OP columns must be present for change merging");
+    }
+    if (scan_type == TBinlogScanType::MIN_DELTA && !_row_binlog_value_pairs_complete) {
+        return Status::InvalidArgument(
+                "MIN_DELTA requires mappings for every materialized row-binlog value column");
+    }
+    return Status::OK();
 }
 
 Block ReadSchema::create_read_block() const {

@@ -32,6 +32,7 @@
 #include "common/status.h"
 #include "core/column/column.h"
 #include "exprs/aggregate/aggregate_function.h"
+#include "gen_cpp/PlanNodes_types.h"
 #include "io/io_common.h"
 #include "runtime/thread_context.h"
 #include "storage/olap_common.h"
@@ -42,6 +43,7 @@ namespace doris {
 
 class ReadSchema;
 class Block;
+class TupleDescriptor;
 using ReadSchemaSPtr = std::shared_ptr<ReadSchema>;
 
 // Select columns by their ordinal in `columns`, preserving the requested order and duplicates.
@@ -110,6 +112,15 @@ public:
     // Resolve TabletSchema special columns to dense ReadSchema ordinals by unique id.
     Status init_row_binlog_column_mappings(RowBinlogValueColumnPairs value_pairs,
                                            const TabletSchema& tablet_schema);
+
+    // Parse query mappings and validate the scan-mode requirements. nullptr means an absent
+    // mapping field, while an empty vector is an explicitly supplied empty mapping. The tuple
+    // slots must match this ReadSchema's caller-visible columns in order. Inputs are not retained.
+    Status init_row_binlog_column_mappings(const std::vector<TSlotId>* current_slot_ids,
+                                           const std::vector<TSlotId>* before_slot_ids,
+                                           const TupleDescriptor& scan_tuple,
+                                           const TabletSchema& tablet_schema,
+                                           TBinlogScanType::type scan_type);
 
     // Return the matching before-image ordinal for a Row Binlog value column. For example, in
     // [v1, v2, __BEFORE__v1__, __BEFORE__v2__], 0 maps to 2 and 1 maps to 3.

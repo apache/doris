@@ -25,9 +25,12 @@
 #include <utility>
 #include <vector>
 
+#include "common/object_pool.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
+#include "gen_cpp/PlanNodes_types.h"
+#include "runtime/descriptors.h"
 #include "storage/schema.h"
 #include "util/json/path_in_data.h"
 
@@ -206,6 +209,127 @@ TEST(ReadSchemaTest, RowBinlogMappingRejectsInvalidOrdinals) {
     ReadSchema mismatched_read_schema(std::move(mismatched_columns));
     EXPECT_TRUE(mismatched_read_schema.init_row_binlog_column_mappings({{4, 1}}, 3, -1, 2)
                         .is<ErrorCode::INVALID_ARGUMENT>());
+}
+
+class RowBinlogScanMappingTest : public testing::Test {
+protected:
+    Status init(const std::vector<TSlotId>* current, const std::vector<TSlotId>* before,
+                TBinlogScanType::type scan_type,
+                const std::vector<ColumnId>& projection = {0, 1, 2, 3, 4, 5, 6}) {
+        const std::vector<TabletColumnPtr> columns {
+                create_int_column(10, "key", true),   create_int_column(11, "first"),
+                create_int_column(12, BINLOG_OP_COL), create_int_column(13, BINLOG_TSO_COL),
+                create_int_column(14, "second"),      create_int_column(15, "third"),
+                create_int_column(16, "fourth")};
+        TabletSchema tablet_schema;
+        for (ColumnId ordinal : {0, 4, 1, 5, 6, 3, 2}) {
+            tablet_schema.append_column(*columns[ordinal]);
+        }
+
+        // Slot IDs are neither tablet column IDs nor dense read ordinals.
+        const std::vector<TSlotId> slot_ids {90, 12, 40, 7, 81, 25, 63};
+        TDescriptorTable thrift_table;
+        TTupleDescriptor tuple;
+        tuple.__set_id(0);
+        thrift_table.tupleDescriptors.push_back(tuple);
+        for (auto ordinal : projection) {
+            TSlotDescriptor slot;
+            slot.__set_id(slot_ids[ordinal]);
+            slot.__set_parent(0);
+            slot.__set_slotType(columns[ordinal]->get_vec_type()->to_thrift());
+            slot.__set_isMaterialized(true);
+            slot.__set_nullIndicatorBit(-1);
+            thrift_table.slotDescriptors.push_back(slot);
+        }
+        thrift_table.__isset.slotDescriptors = true;
+        DescriptorTbl* descriptors = nullptr;
+        RETURN_IF_ERROR(DescriptorTbl::create(&_pool, thrift_table, &descriptors));
+        read_schema = std::make_shared<ReadSchema>(project_columns_by_ordinal(columns, projection));
+        return read_schema->init_row_binlog_column_mappings(
+                current, before, *descriptors->get_tuple_descriptor(0), tablet_schema, scan_type);
+    }
+
+    ObjectPool _pool;
+    ReadSchemaSPtr read_schema;
+    const std::vector<TSlotId> current {81, 25};
+    const std::vector<TSlotId> before {12, 63};
+};
+
+TEST_F(RowBinlogScanMappingTest, ResolvesSlotsInReadOrder) {
+    ASSERT_TRUE(init(&current, &before, TBinlogScanType::MIN_DELTA, {4, 0, 2, 6, 3, 5, 1}).ok());
+    EXPECT_EQ(read_schema->row_binlog_value_column_pairs(),
+              (ReadSchema::RowBinlogValueColumnPairs {{0, 6}, {5, 3}}));
+    EXPECT_EQ(6, read_schema->before_column_ordinal(0));
+    EXPECT_EQ(3, read_schema->before_column_ordinal(5));
+    EXPECT_EQ(4, read_schema->tso_ordinal());
+    EXPECT_EQ(2, read_schema->op_ordinal());
+    EXPECT_EQ(-1, read_schema->lsn_ordinal());
+    EXPECT_TRUE(read_schema->row_binlog_value_pairs_complete());
+}
+
+TEST_F(RowBinlogScanMappingTest, RejectsMissingMisalignedAndUnknownSlots) {
+    const std::vector<TSlotId> shorter {12};
+    const std::vector<TSlotId> unknown {999, 63};
+    for (auto mode : {TBinlogScanType::DETAIL, TBinlogScanType::MIN_DELTA}) {
+        EXPECT_TRUE(init(nullptr, &before, mode).is<ErrorCode::INVALID_ARGUMENT>());
+        EXPECT_TRUE(init(&current, nullptr, mode).is<ErrorCode::INVALID_ARGUMENT>());
+        EXPECT_TRUE(init(nullptr, nullptr, mode).is<ErrorCode::INVALID_ARGUMENT>());
+        EXPECT_TRUE(init(&current, &shorter, mode).is<ErrorCode::INVALID_ARGUMENT>());
+        EXPECT_TRUE(init(&current, &unknown, mode).is<ErrorCode::INVALID_ARGUMENT>());
+        EXPECT_TRUE(init(&unknown, &before, mode).is<ErrorCode::INVALID_ARGUMENT>());
+    }
+}
+
+TEST_F(RowBinlogScanMappingTest, RequiresSpecialColumnsForChangeMerging) {
+    for (auto mode : {TBinlogScanType::DETAIL, TBinlogScanType::MIN_DELTA}) {
+        EXPECT_TRUE(init(&current, &before, mode, {0, 1, 2, 4, 5, 6})
+                            .is<ErrorCode::INVALID_ARGUMENT>());
+        EXPECT_TRUE(init(&current, &before, mode, {0, 1, 3, 4, 5, 6})
+                            .is<ErrorCode::INVALID_ARGUMENT>());
+    }
+}
+
+TEST_F(RowBinlogScanMappingTest, OnlyMinDeltaRequiresCompletePairs) {
+    const std::vector<TSlotId> partial_current {81};
+    const std::vector<TSlotId> partial_before {12};
+    ASSERT_TRUE(init(&partial_current, &partial_before, TBinlogScanType::DETAIL).ok());
+    EXPECT_FALSE(read_schema->row_binlog_value_pairs_complete());
+    EXPECT_TRUE(init(&partial_current, &partial_before, TBinlogScanType::MIN_DELTA)
+                        .is<ErrorCode::INVALID_ARGUMENT>());
+}
+
+TEST_F(RowBinlogScanMappingTest, AcceptsExplicitEmptyMappingForKeyOnlyReads) {
+    const std::vector<TSlotId> empty;
+    for (auto mode : {TBinlogScanType::DETAIL, TBinlogScanType::MIN_DELTA}) {
+        ASSERT_TRUE(init(&empty, &empty, mode, {0, 2, 3}).ok());
+        EXPECT_TRUE(read_schema->row_binlog_value_column_pairs().empty());
+        EXPECT_TRUE(read_schema->row_binlog_value_pairs_complete());
+        EXPECT_TRUE(init(nullptr, nullptr, mode, {0, 2, 3}).is<ErrorCode::INVALID_ARGUMENT>());
+    }
+}
+
+TEST_F(RowBinlogScanMappingTest, NonMergingReadsDoNotParsePairs) {
+    const std::vector<TSlotId> invalid {999};
+    for (auto mode : {TBinlogScanType::NONE, TBinlogScanType::APPEND_ONLY}) {
+        ASSERT_TRUE(init(nullptr, nullptr, mode, {0, 4}).ok());
+        EXPECT_TRUE(read_schema->row_binlog_value_column_pairs().empty());
+        EXPECT_EQ(-1, read_schema->tso_ordinal());
+        ASSERT_TRUE(init(&invalid, nullptr, mode).ok());
+        EXPECT_TRUE(read_schema->row_binlog_value_column_pairs().empty());
+        EXPECT_EQ(3, read_schema->tso_ordinal());
+        EXPECT_EQ(2, read_schema->op_ordinal());
+    }
+}
+
+TEST_F(RowBinlogScanMappingTest, ValidatesResolvedOrdinalPairs) {
+    const std::vector<TSlotId> duplicate {12, 12};
+    const std::vector<TSlotId> key {90, 63};
+    const std::vector<TSlotId> special {40, 63};
+    EXPECT_TRUE(
+            init(&current, &duplicate, TBinlogScanType::DETAIL).is<ErrorCode::INVALID_ARGUMENT>());
+    EXPECT_TRUE(init(&current, &key, TBinlogScanType::DETAIL).is<ErrorCode::INVALID_ARGUMENT>());
+    EXPECT_TRUE(
+            init(&current, &special, TBinlogScanType::DETAIL).is<ErrorCode::INVALID_ARGUMENT>());
 }
 
 } // namespace
