@@ -22,7 +22,9 @@
 #include <bvar/bvar.h>
 #include <concurrentqueue.h>
 
+#include <array>
 #include <atomic>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -38,8 +40,24 @@ class BlockFileCache;
 class CacheBlockMetaStore;
 
 struct TtlInfo {
-    uint64_t ttl;
-    uint64_t tablet_ctime;
+    uint64_t ttl = 0;
+    uint64_t tablet_ctime = 0;
+    // Cache type last applied to this tablet's blocks. The manager converts blocks only on a
+    // state transition, so the applied state has to be remembered explicitly: whether an entry
+    // exists cannot tell "this tablet never had a TTL" apart from "its TTL already expired and
+    // the blocks were demoted", and those two need opposite handling when a new TTL arrives.
+    bool blocks_are_ttl = false;
+
+    // Whether this tablet's blocks belong in the TTL queue right now.
+    bool is_ttl_active(uint64_t now) const {
+        if (ttl == 0 || tablet_ctime == 0) {
+            return false;
+        }
+        if (tablet_ctime > std::numeric_limits<uint64_t>::max() - ttl) {
+            return false;
+        }
+        return tablet_ctime + ttl >= now;
+    }
 };
 
 class BlockFileCacheTtlMgr {
@@ -61,6 +79,17 @@ public:
 private:
     FileBlocks get_file_blocks_from_tablet_id(int64_t tablet_id);
 
+    // Drive this tablet's cached blocks to the cache type its current TTL state asks for.
+    // Both background threads funnel through here and it is serialized per tablet, so they can
+    // never scan the same tablet concurrently and leave the blocks in whatever type the scan
+    // that happened to finish last wrote. force_demote_scan additionally scans a tablet the map
+    // does not track, which is how TTL blocks restored from persisted metadata are cleaned up.
+    void reconcile_tablet_blocks(int64_t tablet_id, bool force_demote_scan);
+
+    std::mutex& transition_lock_for(int64_t tablet_id) {
+        return _transition_locks[static_cast<uint64_t>(tablet_id) % kTransitionLockStripes];
+    }
+
 private:
     // Tablet ids waiting to be deduplicated + set of unique ids known to have cached data
     moodycamel::ConcurrentQueue<int64_t> _tablet_id_queue;
@@ -78,6 +107,11 @@ private:
     std::mutex _thread_lifecycle_mutex;
 
     std::mutex _ttl_info_mutex;
+
+    // Striped locks serializing block conversions per tablet. Lock order is always
+    // _transition_locks[i] -> _ttl_info_mutex; _ttl_info_mutex is never held across a block scan.
+    static constexpr size_t kTransitionLockStripes = 64;
+    std::array<std::mutex, kTransitionLockStripes> _transition_locks;
 
     std::shared_ptr<bvar::Status<size_t>> _tablet_id_set_size_metrics;
 };

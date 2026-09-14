@@ -168,6 +168,61 @@ FileBlocks BlockFileCacheTtlMgr::get_file_blocks_from_tablet_id(int64_t tablet_i
     return result;
 }
 
+void BlockFileCacheTtlMgr::reconcile_tablet_blocks(int64_t tablet_id, bool force_demote_scan) {
+    // Serialize all conversions of this tablet. Whichever caller takes this lock last re-reads
+    // the current state below and has the final say, so the update and expiration threads cannot
+    // fight over the same blocks and strand them in the loser's cache type.
+    std::lock_guard<std::mutex> transition_lock(transition_lock_for(tablet_id));
+
+    bool want_ttl = false;
+    bool blocks_are_ttl = false;
+    {
+        // Deliberately re-read the map rather than trust what the caller saw: the expiration
+        // thread picks its candidates up to a full gc interval before getting here.
+        std::lock_guard<std::mutex> lock(_ttl_info_mutex);
+        auto it = _ttl_info_map.find(tablet_id);
+        if (it != _ttl_info_map.end()) {
+            want_ttl = it->second.is_ttl_active(UnixSeconds());
+            blocks_are_ttl = it->second.blocks_are_ttl;
+        }
+    }
+
+    // Nothing to apply. Note this is a state comparison, not a comparison of TTL values: a
+    // tablet whose TTL is rewritten to another still-valid value keeps its blocks where they
+    // are, instead of rescanning the whole tablet every time the property is touched.
+    if (want_ttl == blocks_are_ttl && !(force_demote_scan && !want_ttl)) {
+        return;
+    }
+
+    // Scan and convert outside _ttl_info_mutex: this walks the meta store and takes the cache
+    // lock once per block, which is far too long to hold a mutex the other thread needs.
+    const auto target_type = want_ttl ? FileCacheType::TTL : FileCacheType::NORMAL;
+    FileBlocks blocks = get_file_blocks_from_tablet_id(tablet_id);
+    for (auto& block : blocks) {
+        if (block->cache_type() == target_type) {
+            continue;
+        }
+        auto st = block->change_cache_type(target_type);
+        if (!st.ok()) {
+            LOG(WARNING) << "Failed to convert block to " << cache_type_to_string(target_type)
+                         << " cache_type, tablet_id=" << tablet_id << ", err=" << st;
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(_ttl_info_mutex);
+        auto it = _ttl_info_map.find(tablet_id);
+        if (it != _ttl_info_map.end()) {
+            it->second.blocks_are_ttl = want_ttl;
+            // A tablet with no TTL whose blocks are all back in the normal queue needs no
+            // further tracking, and dropping it keeps the expiration thread's scan short.
+            if (it->second.ttl == 0 && !want_ttl) {
+                _ttl_info_map.erase(it);
+            }
+        }
+    }
+}
+
 void BlockFileCacheTtlMgr::run_backgroud_update_ttl_info_map() {
     Thread::set_self_name("ttl_mgr_update");
 
@@ -220,47 +275,38 @@ void BlockFileCacheTtlMgr::run_backgroud_update_ttl_info_map() {
                     }
                 }
 
-                // Update TTL info map
-                bool need_convert_from_ttl = false;
+                // Record the TTL this tablet currently has, then let reconcile_tablet_blocks()
+                // decide whether that moves its blocks between the TTL and normal queues.
+                bool tracked = false;
                 {
                     std::lock_guard<std::mutex> lock(_ttl_info_mutex);
+                    auto it = _ttl_info_map.find(tablet_id);
                     if (ttl > 0) {
-                        auto old_info_it = _ttl_info_map.find(tablet_id);
-                        bool was_zero_ttl = (old_info_it == _ttl_info_map.end() ||
-                                             old_info_it->second.ttl == 0);
-                        _ttl_info_map[tablet_id] = TtlInfo {ttl, tablet_ctime};
-
-                        // If TTL changed from 0 to non-zero, convert blocks to TTL type
-                        if (was_zero_ttl) {
-                            FileBlocks blocks = get_file_blocks_from_tablet_id(tablet_id);
-                            for (auto& block : blocks) {
-                                if (block->cache_type() != FileCacheType::TTL) {
-                                    auto change_status =
-                                            block->change_cache_type(FileCacheType::TTL);
-                                    if (!change_status.ok()) {
-                                        LOG(WARNING) << "Failed to convert block to TTL cache_type";
-                                    }
-                                }
-                            }
+                        if (it == _ttl_info_map.end()) {
+                            _ttl_info_map.emplace(
+                                    tablet_id,
+                                    TtlInfo {ttl, tablet_ctime, /*blocks_are_ttl=*/false});
+                        } else {
+                            // Keep blocks_are_ttl: it describes the blocks, not the tablet meta.
+                            it->second.ttl = ttl;
+                            it->second.tablet_ctime = tablet_ctime;
                         }
-                    } else {
-                        // Periodically reconcile blocks restored from persisted TTL metadata,
-                        // because _ttl_info_map is rebuilt only in memory after restart.
-                        need_convert_from_ttl =
-                                _ttl_info_map.erase(tablet_id) > 0 || need_full_reconcile;
+                        tracked = true;
+                    } else if (it != _ttl_info_map.end()) {
+                        // Hold on to the entry until the blocks are actually demoted. It carries
+                        // the blocks_are_ttl bit reconcile_tablet_blocks() needs, and drops
+                        // itself once the tablet has settled back to NORMAL.
+                        it->second.ttl = 0;
+                        tracked = true;
                     }
                 }
 
-                if (need_convert_from_ttl) {
-                    FileBlocks blocks = get_file_blocks_from_tablet_id(tablet_id);
-                    for (auto& block : blocks) {
-                        if (block->cache_type() == FileCacheType::TTL) {
-                            auto st = block->change_cache_type(FileCacheType::NORMAL);
-                            if (!st.ok()) {
-                                LOG(WARNING) << "Failed to convert block back to NORMAL cache_type";
-                            }
-                        }
-                    }
+                if (tracked) {
+                    reconcile_tablet_blocks(tablet_id, /*force_demote_scan=*/false);
+                } else if (need_full_reconcile) {
+                    // Periodically reconcile blocks restored from persisted TTL metadata,
+                    // because _ttl_info_map is rebuilt only in memory after restart.
+                    reconcile_tablet_blocks(tablet_id, /*force_demote_scan=*/true);
                 }
             }
 
@@ -279,29 +325,28 @@ void BlockFileCacheTtlMgr::run_backgroud_expiration_check() {
 
     while (!_stop_background.load(std::memory_order_acquire)) {
         try {
-            std::map<int64_t, TtlInfo> ttl_info_copy;
-
-            // Copy TTL info for processing
+            // Collect tablets whose TTL has run out while their blocks still sit in the TTL
+            // queue. Tablets already demoted are skipped, so an expired tablet is scanned once
+            // instead of once per gc round for as long as it stays in the map.
+            std::vector<int64_t> expired_tablet_ids;
             {
                 std::lock_guard<std::mutex> lock(_ttl_info_mutex);
-                ttl_info_copy = _ttl_info_map;
-            }
-
-            uint64_t current_time = UnixSeconds();
-
-            for (const auto& [tablet_id, ttl_info] : ttl_info_copy) {
-                if (ttl_info.tablet_ctime + ttl_info.ttl < current_time) {
-                    // Tablet has expired, convert TTL blocks back to NORMAL type
-                    FileBlocks blocks = get_file_blocks_from_tablet_id(tablet_id);
-                    for (auto& block : blocks) {
-                        if (block->cache_type() == FileCacheType::TTL) {
-                            auto st = block->change_cache_type(FileCacheType::NORMAL);
-                            if (!st.ok()) {
-                                LOG(WARNING) << "Failed to convert block back to NORMAL cache_type";
-                            }
-                        }
+                uint64_t current_time = UnixSeconds();
+                for (const auto& [tablet_id, ttl_info] : _ttl_info_map) {
+                    if (ttl_info.blocks_are_ttl && !ttl_info.is_ttl_active(current_time)) {
+                        expired_tablet_ids.push_back(tablet_id);
                     }
                 }
+            }
+
+            // This is only a candidate list. reconcile_tablet_blocks() re-reads the tablet's
+            // state under the per-tablet lock, so a TTL extended between the two never gets
+            // demoted on the strength of what was observed above.
+            for (int64_t tablet_id : expired_tablet_ids) {
+                if (_stop_background.load(std::memory_order_acquire)) {
+                    break;
+                }
+                reconcile_tablet_blocks(tablet_id, /*force_demote_scan=*/false);
             }
 
             std::this_thread::sleep_for(
