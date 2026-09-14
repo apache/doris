@@ -54,6 +54,23 @@ struct IndexDiskUsageOptions {
     std::set<int64_t> index_ids;
 };
 
+enum class IndexDiskUsageLevel : uint8_t { kTablet, kRowset, kSegment };
+
+// A record tagged with the rowset and segment it was collected from.
+struct IndexDiskUsageRow {
+    std::string rowset_id;
+    int32_t segment_id = -1;
+    int64_t segment_count = 0;
+    int64_t row_count = 0;
+    InvertedIndexStorageFormatPB format = InvertedIndexStorageFormatPB::V2;
+    IndexDiskUsageRecord record;
+};
+
+// Merges rows of the same index, format and structure within the granularity of `level`.
+// Merged rows keep first-appearance order; a component unknown in any input stays unknown.
+std::vector<IndexDiskUsageRow> aggregate_index_disk_usage(std::vector<IndexDiskUsageRow> rows,
+                                                          IndexDiskUsageLevel level);
+
 // Adds a CLucene sub-file to the component it belongs to. BKD sub-files only count toward the
 // total and mark the record as a BKD structure.
 void classify_clucene_file(std::string_view name, int64_t length, IndexDiskUsageRecord* record);
