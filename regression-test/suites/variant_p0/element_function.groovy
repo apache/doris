@@ -59,4 +59,38 @@ suite("regression_test_variant_element_at", "p0")  {
     def obj = sql """select sort_json_object_keys(json_extract(
             cast(${variantV2Function}('{"o":{"name":"john"}}') as json), '\$.o'))"""
     assertEquals('{"name":"john"}', obj[0][0])
+
+    // DORIS-28435: an integer index on a VARIANT array that was itself extracted with element_at is 1-based like
+    // ARRAY element_at and counts from the end when negative; 0, out-of-range indexes, non-array values and
+    // missing paths give NULL, while a string index still reads object keys. On a stored column the planner
+    // must not turn the integer index into the storage sub-path items.1.
+    sql "DROP TABLE IF EXISTS element_at_nested_index_test"
+    sql """
+        CREATE TABLE element_at_nested_index_test (
+            id INT,
+            json_variant VARIANT
+        )
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO element_at_nested_index_test VALUES
+        (1, ${variantV2Function}('{"items": [2, 3, 4]}')),
+        (2, ${variantV2Function}('{"items": [[5, 6], "s", 7]}')),
+        (3, ${variantV2Function}('{"items": {"1": "key one"}}')),
+        (4, ${variantV2Function}('{"other": 1}'))"""
+    order_qt_nested_integer_index """
+        SELECT id,
+               element_at(element_at(json_variant, 'items'), 1),
+               element_at(element_at(json_variant, 'items'), -1),
+               element_at(element_at(json_variant, 'items'), 0),
+               element_at(element_at(json_variant, 'items'), 4),
+               json_variant['items'][2],
+               element_at(element_at(json_variant, 'items'), '1')
+        FROM element_at_nested_index_test
+    """
+    qt_nested_integer_index_const """
+        SELECT element_at(element_at(${variantV2Function}('{"items": [2, 3, 4]}'), 'items'), 1),
+               element_at(element_at(${variantV2Function}('{"items": [2, 3, 4]}'), 'items'), -1)
+    """
 }

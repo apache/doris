@@ -2,3 +2,12 @@
 -- !sql --
 1
 
+-- !nested_integer_index --
+1	2	4	\N	\N	3	\N
+2	[5,6]	7	\N	\N	s	\N
+3	\N	\N	\N	\N	\N	key one
+4	\N	\N	\N	\N	\N	\N
+
+-- !nested_integer_index_const --
+2	4
+

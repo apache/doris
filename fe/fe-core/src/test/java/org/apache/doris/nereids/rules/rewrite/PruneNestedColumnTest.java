@@ -357,6 +357,14 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testVariantIntegerIndexStopsSubColumnPath() throws Exception {
+        // DORIS-28435: an integer index selects an array element, so only the object-key prefix becomes a storage
+        // sub-column; a sub-column items.1 would look up a missing object key and return NULL.
+        assertVariantSubColumnSlots("select element_at(element_at(v, 'items'), 1), v['items'][-1] from variant_tbl",
+                ImmutableList.of(ImmutableList.of("items")));
+    }
+
+    @Test
     public void testVariantPredicateAccessPath() throws Exception {
         assertColumn("select 1 from variant_tbl where v['k'] is not null",
                 "variant",
