@@ -66,9 +66,11 @@ import org.apache.iceberg.PartitionSpecParser;
 import org.apache.iceberg.PositionDeletesScanTask;
 import org.apache.iceberg.ScanTask;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SchemaAwareDataTableScan;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SplittableScanTask;
+import org.apache.iceberg.SupportsDistributedScanPlanning;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
@@ -92,7 +94,6 @@ import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.util.ScanTaskUtil;
-import org.apache.iceberg.util.SerializationUtil;
 import org.apache.iceberg.util.TableScanUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -493,7 +494,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         long threshold = sessionLong(session, NUM_FILES_IN_BATCH_MODE, DEFAULT_NUM_FILES_IN_BATCH_MODE);
         long fileCount = 0;
         try (CloseableIterable<ManifestFile> matching = getMatchingManifest(
-                snapshot.dataManifests(table.io()), table.specs(), scan.filter())) {
+                snapshot.dataManifests(table.io()),
+                SchemaAwareDataTableScan.specsFor(table, scan.schema()), scan.filter())) {
             for (ManifestFile manifest : matching) {
                 // Manifest metadata counts (cheap — no per-file read). Null guard for ancient manifests that
                 // omit the counts (legacy summed them unguarded; 0 is the safe under-count, never over-streams).
@@ -888,7 +890,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * resolve the metadata table ({@link #resolveSysTable}), apply the time-travel pin + predicate through the
      * shared {@link #buildScan} (legacy {@code createTableScan} honors {@code useSnapshot}/{@code useRef} on the
      * metadata-table scan too — iceberg system tables are legal time-travel targets), then serialize each
-     * metadata {@code FileScanTask} ({@code SerializationUtil.serializeToBase64}) into a JNI split carrying ONLY
+     * metadata {@code FileScanTask} into a rolling-upgrade-compatible JNI split carrying ONLY
      * {@code serialized_split} + {@code FORMAT_JNI} (see {@link IcebergScanRange#populateRangeParams}). COUNT(*)
      * pushdown does not apply (a metadata table has no snapshot-summary count). The serialized {@code
      * FileScanTask} bytes are consumed verbatim by BE's {@code IcebergSysTableJniScanner}
@@ -960,7 +962,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             for (FileScanTask task : tasks) {
                 ranges.add(new IcebergScanRange.Builder()
                         .path(SYS_TABLE_DUMMY_PATH)
-                        .serializedSplit(SerializationUtil.serializeToBase64(task))
+                        .serializedSplit(IcebergSystemTableSerialization.serializeToBase64(task))
                         .build());
             }
         } catch (IOException e) {
@@ -1201,7 +1203,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private TableScan buildScan(Table table, IcebergTableHandle handle, Optional<ConnectorExpression> filter,
             ConnectorSession session) {
-        TableScan scan = table.newScan();
+        Schema selectedSchema = !handle.isSystemTable() && handle.hasSnapshotPin()
+                ? pinnedSchema(table, handle) : table.schema();
+        // Keep the SDK's native Table.newScan implementation unless an actual historical schema needs the
+        // metadata-only snapshot fix; catalog-specific Table wrappers may provide their own scan behavior.
+        TableScan scan = !handle.isSystemTable() && !selectedSchema.sameSchema(table.schema())
+                ? SchemaAwareDataTableScan.newScan(table) : table.newScan();
         // MVCC / time-travel pin: a tag/branch pins by REF (so a later commit to the ref is honored, legacy
         // parity), else by snapshot id (legacy createTableScan: useRef when info.getRef()!=null else useSnapshot).
         if (handle.hasSnapshotPin() && supportsSnapshotSelection(handle)) {
@@ -1211,10 +1218,16 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 scan = scan.useSnapshot(handle.getSnapshotId());
             }
         }
+        // A latest MVCC pin may pair the current schema with the preceding snapshot after a schema-only commit.
+        // Preserve that logical schema explicitly so cache metrics use new field IDs and their initial defaults.
+        if (!handle.isSystemTable() && !scan.schema().sameSchema(selectedSchema)) {
+            scan = scan.project(selectedSchema);
+        }
         if (filter.isPresent()) {
             // Historical predicates must resolve names to the field ids of the generation used for binding;
             // using the current schema drops renamed predicates or can bind a later reused name incorrectly.
-            Schema predicateSchema = handle.hasSnapshotPin() ? pinnedSchema(table, handle) : table.schema();
+            Schema predicateSchema = handle.isSystemTable() && handle.hasSnapshotPin()
+                    ? pinnedSchema(table, handle) : selectedSchema;
             List<Expression> predicates =
                     new IcebergPredicateConverter(predicateSchema, resolveSessionZone(session)).convert(filter.get());
             for (Expression predicate : predicates) {
@@ -2754,16 +2767,17 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (snapshot == null) {
             return CloseableIterable.withNoopClose(Collections.emptyList());
         }
-        Expression filterExpr = combineFilter(filter, table, session);
-        Map<Integer, PartitionSpec> specsById = table.specs();
+        Schema scanSchema = scan.schema();
+        Expression filterExpr = combineFilter(filter, scanSchema, session);
+        Map<Integer, PartitionSpec> specsById = SchemaAwareDataTableScan.specsFor(table, scanSchema);
         boolean caseSensitive = true;
 
         Map<Integer, ResidualEvaluator> residualEvaluators = new HashMap<>();
         specsById.forEach((id, spec) -> residualEvaluators.put(id,
                 ResidualEvaluator.of(spec, filterExpr, caseSensitive)));
         InclusiveMetricsEvaluator metricsEvaluator =
-                new InclusiveMetricsEvaluator(table.schema(), filterExpr, caseSensitive);
-        String schemaJson = SchemaParser.toJson(table.schema());
+                new InclusiveMetricsEvaluator(scanSchema, filterExpr, caseSensitive);
+        String schemaJson = SchemaParser.toJson(scanSchema);
 
         // Phase 1 (eager): partition-prune + cache-load delete manifests into the delete-file index.
         List<DeleteFile> deleteFiles = new ArrayList<>();
@@ -2781,6 +2795,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             deleteFiles.addAll(manifestCacheGet(manifest, table, statsQueryId).getDeleteFiles());
         }
         DeleteFileIndex deleteIndex = DeleteFileIndex.builderFor(deleteFiles)
+                .schemasById(table.schemas())
                 .specsById(specsById)
                 .caseSensitive(caseSensitive)
                 .build();
@@ -2908,15 +2923,15 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     /**
      * Combine the pushed predicate into one iceberg {@link Expression} for manifest-level pruning, mirroring
      * legacy {@code conjuncts.stream().map(convertToIcebergExpr).filter(nonNull).reduce(alwaysTrue, and)}. Reuses
-     * the T02 {@link IcebergPredicateConverter} on the table's CURRENT schema; an absent filter is
+     * the T02 {@link IcebergPredicateConverter} on the scan-bound schema; an absent filter is
      * {@code alwaysTrue()} (scan everything).
      */
-    private Expression combineFilter(Optional<ConnectorExpression> filter, Table table, ConnectorSession session) {
+    private Expression combineFilter(Optional<ConnectorExpression> filter, Schema schema, ConnectorSession session) {
         if (!filter.isPresent()) {
             return Expressions.alwaysTrue();
         }
         List<Expression> predicates =
-                new IcebergPredicateConverter(table.schema(), resolveSessionZone(session)).convert(filter.get());
+                new IcebergPredicateConverter(schema, resolveSessionZone(session)).convert(filter.get());
         Expression combined = Expressions.alwaysTrue();
         for (Expression predicate : predicates) {
             combined = Expressions.and(combined, predicate);
@@ -3092,7 +3107,19 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                         () -> tableCache.borrow(
                                 TableIdentifier.of(handle.getDbName(), handle.getTableName()), directLoader),
                         directLoader);
+        rejectServerSideScanPlanning(raw, handle);
         return wrapTableForScan(raw);
+    }
+
+    private static void rejectServerSideScanPlanning(Table table, IcebergTableHandle handle) {
+        if (table instanceof SupportsDistributedScanPlanning
+                && !((SupportsDistributedScanPlanning) table).allowDistributedPlanning()) {
+            // Iceberg 1.11 marks REST server-planned tables this way. Doris reads manifests and table.io()
+            // before planFiles(), when REST scan-scoped credentials do not exist, so fail before any local I/O.
+            throw new DorisConnectorException("Iceberg server-side scan planning is not supported for table "
+                    + handle.getDbName() + "." + handle.getTableName()
+                    + "; configure the REST catalog to use client-side scan planning");
+        }
     }
 
     /**
@@ -3160,6 +3187,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                         () -> tableCache.borrow(TableIdentifier.of(handle.getDbName(), handle.getTableName()),
                                 () -> ops.loadTable(handle.getDbName(), handle.getTableName())),
                         () -> ops.loadTable(handle.getDbName(), handle.getTableName()));
+        rejectServerSideScanPlanning(base, handle);
         return MetadataTableUtils.createMetadataTableInstance(
                 base,
                 MetadataTableType.from(handle.getSysTableName()));
