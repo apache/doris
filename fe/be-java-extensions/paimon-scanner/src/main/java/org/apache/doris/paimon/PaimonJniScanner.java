@@ -704,13 +704,13 @@ public class PaimonJniScanner extends JniScanner {
             FileStoreTable main = applyManifestParallelismBound(
                     pair.wrapped(), safeBound, materializeAbsent);
             FileStoreTable fallback = applyManifestParallelismBound(
-                    pair.fallback(), safeBound, materializeAbsent);
-            if (main == pair.wrapped() && fallback == pair.fallback()) {
+                    pair.other(), safeBound, materializeAbsent);
+            if (main == pair.wrapped() && fallback == pair.other()) {
                 return table;
             }
             // Each branch owns an independent planner setting; a smaller sibling is not an
             // execution ceiling and must never throttle the other branch.
-            return new FallbackReadFileStoreTable(main, fallback);
+            return new FallbackReadFileStoreTable(main, fallback, true);
         }
 
         if (table instanceof DelegatedFileStoreTable) {
@@ -801,7 +801,7 @@ public class PaimonJniScanner extends JniScanner {
         validateSerializedAsyncThreshold(table.options().get(CoreOptions.FILE_READER_ASYNC_THRESHOLD.key()));
         validateSerializedSplitTargetSize(table.options().get(CoreOptions.SOURCE_SPLIT_TARGET_SIZE.key()));
         if (table instanceof FallbackReadFileStoreTable) {
-            validateSerializedReaderOptions(((FallbackReadFileStoreTable) table).fallback());
+            validateSerializedReaderOptions(((FallbackReadFileStoreTable) table).other());
         }
         if (table instanceof DelegatedFileStoreTable) {
             validateSerializedReaderOptions(((DelegatedFileStoreTable) table).wrapped());

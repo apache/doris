@@ -21,6 +21,7 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.catalog.TableQueryAuthResult;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.options.Options;
@@ -377,7 +378,7 @@ public class PaimonBackendBoundTableTest {
                 onDisk.copyWithoutTimeTravel(mainOptions), catalogEnvironment(mainCatalog));
         FileStoreTable fallback = withCatalogEnvironment(
                 onDisk.copyWithoutTimeTravel(fallbackOptions), catalogEnvironment(fallbackCatalog));
-        FileStoreTable catalogPair = new FallbackReadFileStoreTable(main, fallback);
+        FileStoreTable catalogPair = new FallbackReadFileStoreTable(main, fallback, true);
 
         FileStoreTable pinned = PaimonScanPlanProvider.pinCatalogSnapshot(
                 PaimonScanPlanProvider.dropCatalogLoader(catalogPair), catalogPair);
@@ -385,7 +386,7 @@ public class PaimonBackendBoundTableTest {
         Assertions.assertTrue(pinned instanceof FallbackReadFileStoreTable);
         FallbackReadFileStoreTable pinnedPair = (FallbackReadFileStoreTable) pinned;
         Assertions.assertEquals("2", pinnedPair.wrapped().options().get("scan.snapshot-id"));
-        Assertions.assertEquals("1", pinnedPair.fallback().options().get("scan.snapshot-id"),
+        Assertions.assertEquals("1", pinnedPair.other().options().get("scan.snapshot-id"),
                 "the fallback branch must use its own catalog pointer, not its newest snapshot file");
         Assertions.assertTrue(mainCatalog.loadSnapshotCalls > 0);
         Assertions.assertTrue(fallbackCatalog.loadSnapshotCalls > 0);
@@ -532,13 +533,13 @@ public class PaimonBackendBoundTableTest {
         Map<String, String> fallbackOptions = queryAuthEnabled();
         fallbackOptions.put("branch", "fb");
         FileStoreTable main = newTable(warehouse,
-                new CatalogEnvironment(mainIdentifier, null, () -> catalog, null, null, true),
+                new CatalogEnvironment(mainIdentifier, null, () -> catalog, null, null, null, true, false),
                 queryAuthEnabled(), C1);
         FileStoreTable fallback = newTable(warehouse,
-                new CatalogEnvironment(fallbackIdentifier, null, () -> catalog, null, null, true),
+                new CatalogEnvironment(fallbackIdentifier, null, () -> catalog, null, null, null, true, false),
                 fallbackOptions, C1);
 
-        PaimonScanPlanProvider.authorizeDeferredScan(new FallbackReadFileStoreTable(main, fallback));
+        PaimonScanPlanProvider.authorizeDeferredScan(new FallbackReadFileStoreTable(main, fallback, true));
 
         Assertions.assertEquals(Arrays.asList(mainIdentifier, fallbackIdentifier), catalog.authCalls,
                 "both branches must be authorized, each against its own identifier");
@@ -582,7 +583,7 @@ public class PaimonBackendBoundTableTest {
                 withCatalogEnvironment(onDisk.copyWithoutTimeTravel(mainOptions),
                         catalogEnvironment(mainCatalog)),
                 withCatalogEnvironment(onDisk.copyWithoutTimeTravel(fallbackOptions),
-                        catalogEnvironment(fallbackCatalog)));
+                        catalogEnvironment(fallbackCatalog)), true);
         Map<String, String> pinned = PaimonScanParams.markAsOptions(
                 Collections.singletonMap("scan.snapshot-id", "2"));
         PaimonTableHandle handle = sysHandle("ro", pair).withScanOptions(pinned);
@@ -595,7 +596,7 @@ public class PaimonBackendBoundTableTest {
         FallbackReadFileStoreTable backendPair =
                 (FallbackReadFileStoreTable) wrapped.get(forBackend);
         Assertions.assertEquals("2", backendPair.wrapped().options().get("scan.snapshot-id"));
-        Assertions.assertEquals("1", backendPair.fallback().options().get("scan.snapshot-id"));
+        Assertions.assertEquals("1", backendPair.other().options().get("scan.snapshot-id"));
         Assertions.assertTrue(fallbackCatalog.loadSnapshotCalls > 0,
                 "fallback translation must consult its catalog before the loader is removed");
     }
@@ -683,7 +684,7 @@ public class PaimonBackendBoundTableTest {
         Map<String, String> fallbackOptions = new HashMap<>();
         fallbackOptions.put("branch", "fb");
         FileStoreTable fallback = newTable(warehouse, catalogEnvironment(catalog), fallbackOptions, C1);
-        FileStoreTable pair = new FallbackReadFileStoreTable(main, fallback);
+        FileStoreTable pair = new FallbackReadFileStoreTable(main, fallback, true);
 
         Map<String, String> range = new HashMap<>();
         range.put("incremental-between-timestamp",
@@ -744,7 +745,7 @@ public class PaimonBackendBoundTableTest {
 
     private static CatalogEnvironment catalogEnvironment(VersionManagedCatalog catalog) {
         return new CatalogEnvironment(Identifier.create("db", "tbl"), null, () -> catalog, null, null,
-                catalog.supportsVersionManagement());
+                null, catalog.supportsVersionManagement(), false);
     }
 
     /** A table object with the given schema; no files are written, so nothing touches the disk. */
@@ -833,11 +834,11 @@ public class PaimonBackendBoundTableTest {
                 "the pair itself must reach the BE, or a fallback split has no reader there");
         FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) forBackend;
         // The fallback branch must stay on F1 - not the c2 generation sitting on the filesystem.
-        Assertions.assertEquals(fallback.rowType(), pair.fallback().rowType());
+        Assertions.assertEquals(fallback.rowType(), pair.other().rowType());
         Assertions.assertEquals(main.rowType(), pair.wrapped().rowType());
         // And neither branch may carry the loader that drags the metastore stack onto the BE.
         Assertions.assertNull(pair.wrapped().catalogEnvironment().catalogLoader());
-        Assertions.assertNull(pair.fallback().catalogEnvironment().catalogLoader());
+        Assertions.assertNull(pair.other().catalogEnvironment().catalogLoader());
     }
 
     /** Decodes {@code paimon.serialized_table} the way {@code PaimonJniScanner#initTable} does. */
@@ -910,12 +911,12 @@ public class PaimonBackendBoundTableTest {
         }
 
         @Override
-        public List<String> authTableQuery(Identifier identifier, List<String> select) {
+        public TableQueryAuthResult authTableQuery(Identifier identifier, List<String> select) {
             authCalls.add(identifier);
             if (authDenialMessage != null) {
                 throw new RuntimeException(authDenialMessage);
             }
-            return Collections.emptyList();
+            return new TableQueryAuthResult(Collections.emptyList(), Collections.emptyMap());
         }
 
         @Override

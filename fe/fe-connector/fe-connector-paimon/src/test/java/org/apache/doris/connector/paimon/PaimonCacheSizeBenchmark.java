@@ -112,7 +112,7 @@ public final class PaimonCacheSizeBenchmark {
                     value += "x".repeat(LARGE_VALUE_CHARS);
                 }
                 ops.partitions.add(new Partition(Collections.singletonMap("region", value),
-                        1L, 1L, 1, 1L, true));
+                        1L, 1L, 1L, 1L, 1, true));
             }
             metadata = new PaimonConnectorMetadata(ops, PaimonCatalogProperties.of(Collections.emptyMap()),
                     new RecordingConnectorContext());
