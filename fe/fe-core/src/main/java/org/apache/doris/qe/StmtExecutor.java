@@ -1665,9 +1665,7 @@ public class StmtExecutor {
                 Cache cache = cacheAnalyzer.getCache();
                 if (cache instanceof SqlCache && !cache.isDisableCache() && planner instanceof NereidsPlanner) {
                     String originStmt = parsedStmt.getOrigStmt().originStmt;
-                    NereidsPlanner nereidsPlanner = (NereidsPlanner) planner;
-                    context.getEnv().getSqlCacheManager().tryAddBeCache(
-                            context, originStmt, cacheAnalyzer, nereidsPlanner.getPhysicalPlan());
+                    context.getEnv().getSqlCacheManager().tryAddBeCache(context, originStmt, cacheAnalyzer);
                 }
             }
             if (!isSendFields) {

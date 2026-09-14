@@ -749,6 +749,7 @@ public class NereidsPlanner extends Planner {
             sqlCacheContext.setColLabels(columnLabels);
             sqlCacheContext.setFieldInfos(fieldInfos);
             sqlCacheContext.setResultExprs(root.getOutputExprs());
+            sqlCacheContext.setPhysicalPlan(resultPlan.treeString());
         }
 
         cascadesContext.releaseMemo();
@@ -1222,8 +1223,7 @@ public class NereidsPlanner extends Planner {
         sqlCacheContext.get().setResultSetInFe(resultSet);
         Env.getCurrentEnv().getSqlCacheManager().tryAddFeSqlCache(
                 statementContext.getConnectContext(),
-                statementContext.getOriginStatement().originStmt,
-                physicalPlan);
+                statementContext.getOriginStatement().originStmt);
     }
 
     private void setFormatOptions() {

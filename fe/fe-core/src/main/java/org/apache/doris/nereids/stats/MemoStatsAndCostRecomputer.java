@@ -324,7 +324,7 @@ public final class MemoStatsAndCostRecomputer {
                 continue;
             }
             Cost nodeCost = CostCalculator.calculateCost(cascadesContext.getConnectContext(),
-                    groupExpression, childInputProperties);
+                    groupExpression, childInputProperties, costWeight);
             Cost totalCost = nodeCost;
             for (int i = 0; i < childInputProperties.size(); i++) {
                 Optional<Pair<Cost, GroupExpression>> childBestPlan = groupExpression.child(i)

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.properties;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
+import org.apache.doris.nereids.cost.CostWeight;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -992,9 +993,11 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         GroupExpression enforcer = target.addEnforcer(child.getOwnerGroup());
         child.getOwnerGroup().addEnforcer(enforcer);
         ConnectContext connectContext = jobContext.getCascadesContext().getConnectContext();
-        Cost enforceCost = CostCalculator.calculateCost(connectContext, enforcer, Lists.newArrayList(childOutput));
+        CostWeight costWeight = jobContext.getCascadesContext().getStatementContext().getCostWeight();
+        Cost enforceCost = CostCalculator.calculateCost(
+                connectContext, enforcer, Lists.newArrayList(childOutput), costWeight);
         enforcer.setCost(enforceCost);
-        Cost totalCost = enforceCost.add(currentCost, connectContext.getStatementContext().getCostWeight());
+        Cost totalCost = enforceCost.add(currentCost, costWeight);
 
         if (enforcer.updateLowestCostTable(newOutputProperty,
                 Lists.newArrayList(childOutput), totalCost)) {

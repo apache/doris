@@ -34,8 +34,9 @@ public class CostCalculator {
      * Calculate cost for groupExpression
      */
     public static Cost calculateCost(ConnectContext connectContext, GroupExpression groupExpression,
-            List<PhysicalProperties> childrenProperties) {
-        PlanContext planContext = new PlanContext(connectContext, groupExpression, childrenProperties);
+            List<PhysicalProperties> childrenProperties, CostWeight costWeight) {
+        PlanContext planContext = new PlanContext(
+                connectContext, groupExpression, childrenProperties, costWeight);
         CostModel costModelV1 = new CostModel(connectContext);
         return groupExpression.getPlan().accept(costModelV1, planContext);
     }

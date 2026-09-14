@@ -244,7 +244,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
 
             // recompute cost after adjusting property
             Cost nodeCost = CostCalculator.calculateCost(
-                    getConnectContext(), groupExpression, requestChildrenProperties);
+                    getConnectContext(), groupExpression, requestChildrenProperties, costWeight);
             groupExpression.setCost(nodeCost);
             curTotalCost = nodeCost;
             for (int i = 0; i < outputChildrenProperties.size(); i++) {
@@ -294,8 +294,9 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             }
         }
 
-        EnforceMissingPropertiesHelper enforceMissingPropertiesHelper
-                = new EnforceMissingPropertiesHelper(getConnectContext(), groupExpression, curTotalCost);
+        CostWeight costWeight = context.getCascadesContext().getStatementContext().getCostWeight();
+        EnforceMissingPropertiesHelper enforceMissingPropertiesHelper = new EnforceMissingPropertiesHelper(
+                getConnectContext(), groupExpression, curTotalCost, costWeight);
         PhysicalProperties addEnforcedProperty = enforceMissingPropertiesHelper
                 .enforceProperty(outputProperty, requiredProperties);
         curTotalCost = enforceMissingPropertiesHelper.getCurTotalCost();

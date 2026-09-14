@@ -1,4 +1,5 @@
 {
+    "FeVersion": "test",
     "Sql": "select * from t1",
     "SessionVariable": {
         "enable_nereids_planner": true,
@@ -10,7 +11,7 @@
     "Tables": [
         {
             "TableType": "OLAP",
-            "TableName": "t1",
+            "TableName": "[\"db\",\"t1\"]",
             "TableValue": {
                 "clazz": "OlapTable",
                 "state": "NORMAL",
