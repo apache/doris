@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 
+#include "common/consts.h"
 #include "exec/operator/file_scan_operator.h"
 #include "exec/scan/file_scanner_v2.h"
 #include "format_v2/column_mapper.h"
@@ -127,9 +128,11 @@ TEST_F(RowIdStorageReaderTest, ExternalFetchPreservesIcebergFileMetadata) {
 
 TEST_F(RowIdStorageReaderTest, ExternalFetchPreservesPrunedMetadataCategories) {
     TFileScanRangeParams source_params;
+    // Branch-4.1 recognizes these built-in virtual names; arbitrary synthesized names are
+    // not virtual columns and fall through to the legacy partition-slot classification.
     source_params.__set_column_name_to_category(
-            {{"metadata_path", TColumnCategory::SYNTHESIZED},
-             {"metadata_position", TColumnCategory::SYNTHESIZED},
+            {{BeConsts::GLOBAL_ROWID_COL, TColumnCategory::SYNTHESIZED},
+             {BeConsts::ICEBERG_ROWID_COL, TColumnCategory::SYNTHESIZED},
              {"generated_col", TColumnCategory::GENERATED},
              {"partition_col", TColumnCategory::PARTITION_KEY}});
     // Phase one projects only the sort key; none of these fetch slots survives in required_slots.
@@ -139,12 +142,13 @@ TEST_F(RowIdStorageReaderTest, ExternalFetchPreservesPrunedMetadataCategories) {
     source_params.__set_required_slots({sort_slot});
     source_params.__set_column_idxs({0});
     std::vector<SlotDescriptor> slots;
-    for (const auto* name :
-         {"metadata_path", "metadata_position", "generated_col", "partition_col", "value"}) {
+    for (const auto& name :
+         {BeConsts::GLOBAL_ROWID_COL, BeConsts::ICEBERG_ROWID_COL, std::string("generated_col"),
+          std::string("partition_col"), std::string("value")}) {
         slots.emplace_back(make_slot(
                 {.col_name = name,
                  .slot_id = static_cast<int32_t>(slots.size()),
-                 .type = std::string_view(name) == "metadata_path" ? TYPE_STRING : TYPE_BIGINT}));
+                 .type = name == BeConsts::GLOBAL_ROWID_COL ? TYPE_STRING : TYPE_BIGINT}));
     }
     const auto params = RowIdStorageReader::build_external_scan_params(
             source_params, TFileRangeDesc {}, slots, {3, 4, 1, 2, 0});

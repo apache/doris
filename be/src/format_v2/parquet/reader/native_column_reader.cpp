@@ -266,7 +266,7 @@ Status NativeColumnReader::create(
         const cctz::time_zone* timezone, io::IOContext* io_ctx, RuntimeState* runtime_state,
         bool enable_page_cache, const std::string& page_cache_file_key,
         bool enable_dictionary_filter, ParquetColumnReaderProfile profile,
-        std::unique_ptr<ParquetColumnReader>* reader) {
+        std::unique_ptr<ParquetColumnReader>* reader, bool enable_read_ahead) {
     if (reader == nullptr) {
         return Status::InvalidArgument("Native parquet reader result is null");
     }
@@ -307,10 +307,11 @@ Status NativeColumnReader::create(
     auto native_reader = std::unique_ptr<NativeColumnReader>(
             new NativeColumnReader(column_schema, std::move(logical_type), std::move(native_type),
                                    std::move(variant_plan), profile));
-    RETURN_IF_ERROR(native_reader->init(
-            std::move(file), metadata, row_group_id, field, std::move(schema_node),
-            std::move(projected_ids), selected_ranges, offset_indexes, timezone, io_ctx,
-            runtime_state, enable_page_cache, page_cache_file_key, enable_dictionary_filter));
+    RETURN_IF_ERROR(native_reader->init(std::move(file), metadata, row_group_id, field,
+                                        std::move(schema_node), std::move(projected_ids),
+                                        selected_ranges, offset_indexes, timezone, io_ctx,
+                                        runtime_state, enable_page_cache, page_cache_file_key,
+                                        enable_dictionary_filter, enable_read_ahead));
     *reader = std::move(native_reader);
     return Status::OK();
 }
@@ -322,7 +323,7 @@ Status NativeColumnReader::init(
         const std::unordered_map<int, tparquet::OffsetIndex>& offset_indexes,
         const cctz::time_zone* timezone, io::IOContext* io_ctx, RuntimeState* runtime_state,
         bool enable_page_cache, const std::string& page_cache_file_key,
-        bool enable_dictionary_filter) {
+        bool enable_dictionary_filter, bool enable_read_ahead) {
     DORIS_CHECK(file != nullptr);
     DORIS_CHECK(metadata != nullptr);
     DORIS_CHECK(field != nullptr);
@@ -347,7 +348,10 @@ Status NativeColumnReader::init(
 
     const size_t max_group_buffer = config::parquet_rowgroup_max_buffer_mb << 20;
     const size_t max_column_buffer = config::parquet_column_max_buffer_mb << 20;
-    const size_t max_buffer_size = std::min(max_group_buffer, max_column_buffer);
+    // Sparse exact-row fetches need demand pages, not one read-ahead buffer per physical leaf.
+    // Passing zero through the native tree also prevents wide nested projections multiplying it.
+    const size_t max_buffer_size =
+            enable_read_ahead ? std::min(max_group_buffer, max_column_buffer) : 0;
     RuntimeState* native_runtime_state = runtime_state;
     const bool runtime_page_cache_enabled =
             runtime_state == nullptr ||

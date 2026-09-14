@@ -1642,7 +1642,7 @@ Status ParquetScanScheduler::open_next_row_group(
                 file_context.native_io_ctx, _runtime_state, file_context.native_page_cache_enabled,
                 file_context.native_page_cache_file_key,
                 _current_dictionary_filters.contains(local_id), _scan_profile.column_reader_profile,
-                &column_reader));
+                &column_reader, !request.row_ids.has_value()));
         _current_predicate_columns[local_id] = std::move(column_reader);
     }
     // Start warming filter-column chunks as soon as their row group is selected. The native
@@ -1682,7 +1682,7 @@ Status ParquetScanScheduler::open_next_row_group(
                 row_group_idx, _current_selected_ranges, _current_offset_indexes, _timezone,
                 file_context.native_io_ctx, _runtime_state, file_context.native_page_cache_enabled,
                 file_context.native_page_cache_file_key, false, _scan_profile.column_reader_profile,
-                &column_reader));
+                &column_reader, !request.row_ids.has_value()));
         _current_non_predicate_columns[local_id] = std::move(column_reader);
     }
     if (!_current_merge_range_active &&
@@ -2229,7 +2229,7 @@ Status ParquetScanScheduler::prepare_current_dictionary_filters(
                 row_group_idx, _current_selected_ranges, _current_offset_indexes, _timezone,
                 file_context.native_io_ctx, _runtime_state, file_context.native_page_cache_enabled,
                 file_context.native_page_cache_file_key, true, _scan_profile.column_reader_profile,
-                &column_reader));
+                &column_reader, !request.row_ids.has_value()));
         MutableColumnPtr dictionary_values;
         {
             SCOPED_TIMER(_scan_profile.dict_filter_read_dict_time);
@@ -3213,6 +3213,13 @@ Status ParquetScanScheduler::read_next_batch(
         *eof = false;
         return Status::OK();
     }
+    // Phase-two IDs have already survived filtering. Append sparse ranges directly to one
+    // output block so TableReader finalization and result merging happen once per caller batch.
+    // Filtered requests and pending projection changes retain their single-batch coordinates.
+    const bool append_row_id_ranges =
+            _active_request->row_ids.has_value() && _active_request->predicate_columns.empty() &&
+            _active_request->conjuncts.empty() && _active_request->delete_conjuncts.empty() &&
+            _active_request->count_star_placeholder_columns.empty() && _pending_request == nullptr;
     int64_t predicate_batch_rows = std::max(_batch_size, _empty_predicate_batch_rows);
     const int64_t max_predicate_batch_rows = std::min<int64_t>(
             std::numeric_limits<uint16_t>::max(),
@@ -3265,13 +3272,17 @@ Status ParquetScanScheduler::read_next_batch(
             continue;
         }
 
-        const int64_t batch_rows = std::min<int64_t>(predicate_batch_rows, remaining_rows);
+        const int64_t row_cap = append_row_id_ranges ? _batch_size - static_cast<int64_t>(*rows)
+                                                     : predicate_batch_rows;
+        const int64_t batch_rows = std::min<int64_t>(row_cap, remaining_rows);
         const int64_t physical_rows_read = batch_rows;
         const int64_t batch_first_file_row =
                 _current_row_group_first_row + _current_row_group_rows_read;
+        size_t batch_output_rows = 0;
         RETURN_IF_ERROR(read_current_row_group_batch(file_context, file_schema, batch_rows,
                                                      *_active_request, batch_first_file_row,
-                                                     file_block, rows));
+                                                     file_block, &batch_output_rows));
+        *rows += batch_output_rows;
         _current_row_group_rows_read += physical_rows_read;
         _current_range_rows_read += physical_rows_read;
         if (_current_range_rows_read >= current_range.length) {
@@ -3285,6 +3296,9 @@ Status ParquetScanScheduler::read_next_batch(
             predicate_batch_rows = grow_empty_predicate_batch(predicate_batch_rows);
             _empty_predicate_batch_rows = predicate_batch_rows;
             _publish_adaptive_state(*_active_request);
+            continue;
+        }
+        if (append_row_id_ranges && *rows < static_cast<size_t>(_batch_size)) {
             continue;
         }
         *eof = false;

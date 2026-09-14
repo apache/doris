@@ -834,6 +834,12 @@ Status FileScannerV2::read_by_rows(const TFileRangeDesc& range, const std::list<
     _table_reader.reset();
     COUNTER_UPDATE(_file_read_bytes_counter, _file_reader_stats->read_bytes);
     COUNTER_UPDATE(_file_read_time_counter, _file_reader_stats->read_time_ns);
+    // Reordering uses a dense position for every requested ID. A replaced or truncated file
+    // must fail here instead of exposing a short source column to unchecked indexed inserts.
+    if (result_block->rows() != row_ids.size()) {
+        return Status::Corruption("FileScannerV2 row-ID fetch returned {} rows, expected {}",
+                                  result_block->rows(), row_ids.size());
+    }
     return Status::OK();
 }
 
