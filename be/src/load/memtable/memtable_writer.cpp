@@ -221,6 +221,12 @@ Status MemTableWriter::_flush_memtable_async() {
 
 Status MemTableWriter::flush_async() {
     std::lock_guard<std::mutex> l(_lock);
+    if (_req.load_cancel_status && !_req.load_cancel_status->ok()) {
+        // Load cancellation no longer traverses writers. Pressure flushing must
+        // observe it before submitting or replacing the active memtable.
+        return Status::Cancelled("Load has been cancelled: {}",
+                                 _req.load_cancel_status->status().to_string());
+    }
     // Three calling paths:
     // 1. call by local, from `VTabletWriterV2::_write_memtable`.
     // 2. call by remote, from `LoadChannelMgr::_get_load_channel`.

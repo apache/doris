@@ -30,6 +30,7 @@
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
+#include "storage/delete/calc_delete_bitmap_executor.h"
 #include "storage/storage_engine.h"
 #include "util/debug_points.h"
 
@@ -41,6 +42,8 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
                          std::string sender_ip, int64_t backend_id, bool enable_profile,
                          int64_t wg_id)
         : _load_id(load_id),
+          _delete_bitmap_cancellation(std::make_shared<DeleteBitmapCancellation>()),
+          _cancel_status(std::make_shared<AtomicStatus>()),
           _timeout_s(timeout_s),
           _is_high_priority(is_high_priority),
           _sender_ip(std::move(sender_ip)),
@@ -106,6 +109,7 @@ void LoadChannel::_init_profile() {
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
+    RETURN_IF_ERROR(cancel_status());
     if (config::is_cloud_mode() && params.txn_expiration() <= 0) {
         return Status::InternalError(
                 "The txn expiration of PTabletWriterOpenRequest is invalid, value={}",
@@ -139,6 +143,8 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
                 channel = std::make_shared<TabletsChannel>(engine.to_local(), key, _load_id,
                                                            _is_high_priority, _self_profile);
             }
+            channel->set_delete_bitmap_cancellation(_delete_bitmap_cancellation);
+            channel->set_load_cancel_status(_cancel_status);
             {
                 std::lock_guard<std::mutex> lt(_tablets_channels_lock);
                 _tablets_channels.insert({index_id, channel});
@@ -180,6 +186,7 @@ Status LoadChannel::_get_tablets_channel(std::shared_ptr<BaseTabletsChannel>& ch
 
 Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                               PTabletWriterAddBlockResult* response) {
+    RETURN_IF_ERROR(cancel_status());
     DBUG_EXECUTE_IF("LoadChannel.add_batch.failed",
                     { return Status::InternalError("fault injection"); });
     SCOPED_TIMER(_add_batch_timer);
@@ -237,6 +244,7 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
                                   request.index_id(), request.sender_id());
         int count = 0;
         while (!channel->is_finished()) {
+            RETURN_IF_ERROR(cancel_status());
             bthread_usleep(1000);
             count++;
         }
@@ -247,6 +255,7 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
         }
     }
 
+    RETURN_IF_ERROR(cancel_status());
     if (finished) {
         std::lock_guard<std::mutex> l(_lock);
         {
@@ -304,13 +313,24 @@ bool LoadChannel::is_finished() {
     return _tablets_channels.empty();
 }
 
-Status LoadChannel::cancel() {
-    _cancelled.store(true);
-    std::lock_guard<std::mutex> l(_lock);
-    for (auto& it : _tablets_channels) {
-        static_cast<void>(it.second->cancel());
-    }
+void LoadChannel::publish_cancel_status(const Status& reason) {
+    DCHECK(!reason.ok());
+    _cancel_status->update(reason);
+}
+
+Status LoadChannel::cancel(const Status& reason) {
+    publish_cancel_status(reason);
+    // No channel or writer lock is held while bitmap callbacks drain.
+    _delete_bitmap_cancellation->cancel(cancel_status());
     return Status::OK();
+}
+
+Status LoadChannel::cancel_status() const {
+    return _cancel_status->ok() ? Status::OK() : _cancel_status->status();
+}
+
+bool LoadChannel::is_cancelled() const {
+    return !_cancel_status->ok();
 }
 
 } // namespace doris

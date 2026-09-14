@@ -17,7 +17,9 @@
 
 #include "cloud/cloud_tablets_channel.h"
 
+#include <chrono>
 #include <mutex>
+#include <thread>
 
 #include "cloud/cloud_delta_writer.h"
 #include "cloud/cloud_meta_mgr.h"
@@ -26,6 +28,7 @@
 #include "load/channel/tablets_channel.h"
 #include "load/delta_writer/delta_writer.h"
 #include "storage/tablet_info.h"
+#include "util/debug_points.h"
 
 namespace doris {
 
@@ -167,6 +170,7 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
                                   PTabletWriterAddBlockResult* res, bool* finished) {
     // FIXME(plat1ko): Too many duplicate code with `TabletsChannel`
     std::lock_guard l(_lock);
+    RETURN_IF_ERROR(_check_cancelled());
     if (_state == kFinished) {
         return _close_status;
     }
@@ -197,6 +201,16 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
     auto* tablet_errors = res->mutable_tablet_errors();
     auto* tablet_vec = res->mutable_tablet_vec();
     _state = kFinished;
+    DBUG_EXECUTE_IF("TabletsChannel.close.wait_until_cancel", {
+        // Keep the heavy worker and channel lock until cancellation is published.
+        // Removing the debug point must not release a close that already entered.
+        LOG(INFO) << "wait for cancel in close: " << _key;
+        while (_check_cancelled().ok()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        LOG(INFO) << "cancel released close: " << _key << ", status=" << _close_status;
+        return _close_status;
+    });
 
     // All senders are closed
     // 1. close all delta writers. under _lock.
@@ -205,6 +219,7 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
     bool success = true;
 
     for (auto&& [tablet_id, base_writer] : _tablet_writers) {
+        RETURN_IF_ERROR(_check_cancelled());
         auto* writer = static_cast<CloudDeltaWriter*>(base_writer.get());
         // ATTN: the strict mode means strict filtering of column type conversions during import.
         // Sometimes all inputs are filtered, but the partition ID is still set, and the writer is
@@ -256,6 +271,7 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
     using namespace std::chrono;
     auto build_start = steady_clock::now();
     for (auto* writer : writers_to_commit) {
+        RETURN_IF_ERROR(_check_cancelled());
         if (!writer->is_init()) {
             continue;
         }
@@ -278,6 +294,7 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
     std::vector<std::function<Status()>> tasks;
     tasks.reserve(writers_to_commit.size());
     for (auto* writer : writers_to_commit) {
+        RETURN_IF_ERROR(_check_cancelled());
         tasks.emplace_back([writer] { return writer->commit_rowset(); });
     }
     _close_status = cloud::bthread_fork_join(tasks, 10);
@@ -290,6 +307,7 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
 
     // 4. calculate delete bitmap for Unique Key MoW tables
     for (auto* writer : writers_to_commit) {
+        RETURN_IF_ERROR(_check_cancelled());
         auto st = writer->submit_calc_delete_bitmap_task();
         if (!st.ok()) {
             LOG(WARNING) << "failed to close wait DeltaWriter. tablet_id=" << writer->tablet_id()
@@ -302,6 +320,7 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
 
     // 5. wait for delete bitmap calculation complete if necessary
     for (auto* writer : writers_to_commit) {
+        RETURN_IF_ERROR(_check_cancelled());
         auto st = writer->wait_calc_delete_bitmap();
         if (!st.ok()) {
             LOG(WARNING) << "failed to close wait DeltaWriter. tablet_id=" << writer->tablet_id()
@@ -314,6 +333,7 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
 
     // 6. set txn related info if necessary
     for (auto it = writers_to_commit.begin(); it != writers_to_commit.end();) {
+        RETURN_IF_ERROR(_check_cancelled());
         auto st = (*it)->set_txn_related_info();
         if (!st.ok()) {
             _add_error_tablet(tablet_errors, (*it)->tablet_id(), st);
@@ -325,6 +345,7 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
 
     tablet_vec->Reserve(static_cast<int>(writers_to_commit.size() * 2));
     for (auto* writer : writers_to_commit) {
+        RETURN_IF_ERROR(_check_cancelled());
         PTabletInfo* tablet_info = tablet_vec->Add();
         tablet_info->set_tablet_id(writer->tablet_id());
         // unused required field.
@@ -343,7 +364,7 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
     }
     res->set_build_rowset_latency_ms(build_latency);
     res->set_commit_rowset_latency_ms(commit_latency);
-    return Status::OK();
+    return _check_cancelled();
 }
 
 } // namespace doris
