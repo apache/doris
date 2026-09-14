@@ -64,8 +64,10 @@ inline uint64_t gram_digest(const std::vector<std::string_view>& grams) {
     return hash;
 }
 
-// fresh=1 follows the writer's per-value tokenizer lifetime; fresh=0 isolates
-// extraction with reusable buffers. This measures tokenization, not SQL throughput.
+// fresh=0 reuses one extractor and its output buffer across rows, as the index writers do;
+// fresh=1 constructs both for every row, a synthetic measure of per-row construction and
+// allocation cost. Scheme fields other than mode and lower_case keep the GramScheme defaults
+// in gram_scheme.h. This measures tokenization, not SQL throughput.
 inline void GramExtraction(benchmark::State& state) {
     GramScheme scheme;
     scheme.mode = state.range(1) == 0 ? GramMode::DENSE : GramMode::SPARSE;
