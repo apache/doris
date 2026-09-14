@@ -153,4 +153,45 @@ TEST_F(FunctionCastToDecimalTest, test_from_bool_overflow) {
     from_bool_overflow_test_func<Decimal128V3>();
     from_bool_overflow_test_func<Decimal256>();
 }
+
+// A row that the input null map marks as NULL may still carry an arbitrary hidden payload in the
+// nested column. The strict integer-to-decimal kernel must skip such rows instead of reporting the
+// hidden value as out of range. check_overflow_for_decimal is disabled here so that the CAST
+// wrapper does not replace the hidden payload beforehand and the kernel itself has to skip it.
+TEST_F(FunctionCastToDecimalTest, int_to_decimal_skips_null_covered_payload) {
+    auto ctx = create_context(true);
+    ctx->set_check_overflow_for_decimal(false);
+
+    auto from_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>());
+    auto to_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDecimal32>(9, 0));
+
+    // Row 0 is NULL with hidden payload 999999999999999999, which overflows DECIMAL(9, 0).
+    ColumnPtr from_column =
+            ColumnHelper::create_nullable_column<DataTypeInt64>({999999999999999999LL, 1}, {1, 0});
+
+    auto fn = get_cast_wrapper(ctx.get(), from_type, to_type);
+    ASSERT_TRUE(fn != nullptr);
+
+    Block block = {
+            {std::move(from_column), from_type, "from"},
+            {nullptr, to_type, "to"},
+    };
+    ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    EXPECT_EQ(result.get_null_map_data()[0], 1);
+    EXPECT_EQ(result.get_null_map_data()[1], 0);
+    EXPECT_EQ(to_type->to_string(*block.get_by_position(1).column, 1), "1");
+
+    // An out-of-range value in a visible (non NULL) row must still fail in strict mode.
+    {
+        ColumnPtr overflow_column = ColumnHelper::create_nullable_column<DataTypeInt64>(
+                {999999999999999999LL, 999999999999999999LL}, {1, 0});
+        Block overflow_block = {
+                {std::move(overflow_column), from_type, "from"},
+                {nullptr, to_type, "to"},
+        };
+        EXPECT_FALSE(fn(ctx.get(), overflow_block, {0}, 1, overflow_block.rows(), nullptr).ok());
+    }
+}
 } // namespace doris
