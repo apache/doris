@@ -17,17 +17,26 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -48,6 +57,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 
 /**
  * The correlated aggregation of an EXISTS subquery can only be pushed into the group by of the
@@ -181,6 +191,260 @@ class UnCorrelatedApplyAggregateFilterTest {
         return false;
     }
 
+    /** whether the argument of an aggregate of the given type is guarded by a condition */
+    private static boolean containsGuardedAggregate(Plan plan, Class<? extends AggregateFunction> aggClass) {
+        List<LogicalAggregate> aggregates = plan.collectToList(LogicalAggregate.class::isInstance);
+        for (LogicalAggregate<?> aggregate : aggregates) {
+            for (NamedExpression output : aggregate.getOutputExpressions()) {
+                for (AggregateFunction function : ExpressionUtils.<AggregateFunction>collectAll(
+                        ImmutableList.of(output), aggClass::isInstance)) {
+                    if (function.arity() == 1 && function.child(0) instanceof If) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /** whether the plan aggregates a distinct count which keeps its argument guarded */
+    private static boolean containsGuardedDistinctCount(Plan plan) {
+        List<LogicalAggregate> aggregates = plan.collectToList(LogicalAggregate.class::isInstance);
+        for (LogicalAggregate<?> aggregate : aggregates) {
+            for (NamedExpression output : aggregate.getOutputExpressions()) {
+                for (Count count : ExpressionUtils.<Count>collectAll(ImmutableList.of(output),
+                        Count.class::isInstance)) {
+                    if (count.isDistinct() && count.arity() == 1 && count.child(0) instanceof If) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /** whether a predicate which only references the outer row is evaluated on the aggregation */
+    private static boolean hasHavingPredicateAboveAggregate(Plan plan) {
+        List<LogicalFilter> filters = plan.collectToList(LogicalFilter.class::isInstance);
+        for (LogicalFilter<?> filter : filters) {
+            if (!(filter.child() instanceof LogicalAggregate)) {
+                continue;
+            }
+            for (Expression conjunct : filter.getConjuncts()) {
+                if (conjunct instanceof EqualTo && ((EqualTo) conjunct).right() instanceof BigIntLiteral) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** whether such a predicate was pushed into a condition of a join instead */
+    private static boolean hasJoinConjunctWithLiteral(Plan plan) {
+        List<LogicalJoin> joins = plan.collectToList(LogicalJoin.class::isInstance);
+        for (LogicalJoin<?, ?> join : joins) {
+            for (Expression conjunct : join.getOtherJoinConjuncts()) {
+                if (conjunct instanceof EqualTo && ((EqualTo) conjunct).right() instanceof BigIntLiteral) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    @Test
+    public void testSumOfTheEmptyCorrelatedDomainDoesNotSeeTheKeptRow() {
+        Alias sum = new Alias(new Sum(new BigIntLiteral(1)), "s");
+        Plan rewritten = rewriteWithGlobalAggregate(sum, slot -> new IsNull(sum.toSlot()), null);
+        // the row which is kept for an empty correlated domain may not be an input of sum: an empty
+        // input returns null, while the kept row would evaluate the argument of sum
+        List<LogicalJoin> joins = rewritten.collectToList(LogicalJoin.class::isInstance);
+        Assertions.assertTrue(joins.stream().anyMatch(join -> join.getJoinType() == JoinType.LEFT_OUTER_JOIN),
+                "the empty correlated domain has to be kept");
+        Assertions.assertTrue(containsGuardedAggregate(rewritten, Sum.class),
+                "the argument of sum must be null for the row which is kept for an empty domain");
+    }
+
+    @Test
+    public void testDistinctCountOfALiteralKeepsItsDistinctFlag() {
+        Alias count = new Alias(new Count(true, new BigIntLiteral(1)), "c");
+        Plan rewritten = rewriteWithGlobalAggregate(count, null,
+                slot -> new EqualTo(count.toSlot(), slot));
+        // two matching inner rows count as one value, so the distinct flag and the argument of the
+        // count have to be kept: only the argument is guarded by the marker
+        Assertions.assertTrue(containsGuardedDistinctCount(rewritten),
+                "count(distinct 1) must keep its distinct flag and its guarded argument");
+    }
+
+    @Test
+    public void testHavingPredicateWhichReferencesTheOuterRowOnly() {
+        Alias count = new Alias(new Count(), "c");
+        Plan rewritten = rewriteWithGlobalAggregate(count, null,
+                slot -> new EqualTo(slot, new BigIntLiteral(1)));
+        // the predicate decides whether the row of the aggregation survives, so it has to be
+        // evaluated above the aggregation instead of filtering the domain of the outer row
+        Assertions.assertTrue(hasHavingPredicateAboveAggregate(rewritten),
+                "the predicate has to be evaluated on the aggregation");
+        Assertions.assertFalse(hasJoinConjunctWithLiteral(rewritten),
+                "the predicate may not become a condition of the join of the domain");
+    }
+
+    @Test
+    public void testVolatileOutputWhichDoesNotFeedTheCorrelationIsAccepted() {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        Slot x = left.getOutput().get(0); // t1.id
+        Alias random = new Alias(new Random(), "r");
+        LogicalProject<LogicalOlapScan> outer = new LogicalProject<>(ImmutableList.of(x, random), left);
+        // the volatile column decorates the output of the outer query only: the subquery does not
+        // reference it and it is not a correlation key, so duplicating it cannot change the result
+        Plan rewritten = rewriteWithOuter(outer, ImmutableList.of(x));
+        List<LogicalJoin> joins = rewritten.collectToList(LogicalJoin.class::isInstance);
+        Assertions.assertTrue(rewritten.collectToList(LogicalApply.class::isInstance).isEmpty());
+        Assertions.assertTrue(joins.stream().anyMatch(join -> join.getJoinType() == JoinType.LEFT_SEMI_JOIN),
+                "the outer rows must be filtered by the aggregation result");
+        Assertions.assertTrue(joins.stream().anyMatch(join -> join.getJoinType() == JoinType.LEFT_OUTER_JOIN),
+                "the empty correlated domain has to be kept");
+        Assertions.assertTrue(containsCompensatedCount(rewritten),
+                "count(*) must not count the row which is kept for an empty correlated domain");
+    }
+
+    @Test
+    public void testVolatileCorrelationKeyIsRejected() {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        Alias random = new Alias(new Random(), "k");
+        LogicalProject<LogicalOlapScan> outer = new LogicalProject<>(ImmutableList.of(random), left);
+        // the value of the correlation key changes between the two evaluations, so the key of the
+        // copied plan would not match the value of the outer row
+        Assertions.assertThrows(AnalysisException.class,
+                () -> rewriteWithOuter(outer, ImmutableList.of(random.toSlot())));
+    }
+
+    @Test
+    public void testVolatilePredicateOfTheOuterPlanIsRejected() {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        Slot x = left.getOutput().get(0); // t1.id
+        LogicalFilter<LogicalOlapScan> outer = new LogicalFilter<>(
+                ImmutableSet.of(new GreaterThan(new Random(), new DoubleLiteral(0.5))), left);
+        // the two evaluations of the outer plan would filter different rows, so the copied
+        // correlation keys do not cover the outer rows
+        Assertions.assertThrows(AnalysisException.class, () -> rewriteWithOuter(outer, ImmutableList.of(x)));
+    }
+
+    @Test
+    public void testNoneMovableFunctionOfTheOuterPlanIsRejected() {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        Slot x = left.getOutput().get(0); // t1.id
+        Alias guard = new Alias(new AssertTrue(new GreaterThan(x, new BigIntLiteral(0)),
+                new VarcharLiteral("the id has to be positive")), "guard");
+        LogicalProject<LogicalOlapScan> outer = new LogicalProject<>(ImmutableList.of(x, guard), left);
+        // assert_true is evaluated a second time in the copy of the outer plan, which could raise
+        // its error for the rows the query of the user did not write it for
+        Assertions.assertThrows(AnalysisException.class, () -> rewriteWithOuter(outer, ImmutableList.of(x)));
+    }
+
+    @Test
+    public void testVolatileAggregateOutputWhichDoesNotFeedTheHavingIsAccepted() {
+        Alias count = new Alias(new Count(), "c");
+        Alias sum = new Alias(new Sum(new Random()), "s");
+        Plan rewritten = rewriteWithGlobalAggregate(ImmutableList.of(count, sum),
+                slot -> new EqualTo(count.toSlot(), new BigIntLiteral(0)), null, null);
+        // the value of sum(random()) is not observed by the EXISTS (the HAVING clause only uses
+        // count(*)), so the aggregation may compute the volatile argument once per correlation key
+        Assertions.assertTrue(rewritten.collectToList(LogicalApply.class::isInstance).isEmpty());
+        Assertions.assertTrue(containsCompensatedCount(rewritten));
+        Assertions.assertTrue(containsGuardedAggregate(rewritten, Sum.class));
+    }
+
+    @Test
+    public void testVolatileAggregateOutputWhichFeedsTheHavingIsRejected() {
+        Alias count = new Alias(new Count(), "c");
+        Alias sum = new Alias(new Sum(new Random()), "s");
+        // the HAVING clause uses the aggregated value, which would be computed once for two outer
+        // rows with the same correlation key
+        Assertions.assertThrows(AnalysisException.class, () -> rewriteWithGlobalAggregate(
+                ImmutableList.of(count, sum), slot -> new EqualTo(sum.toSlot(), new BigIntLiteral(1)), null, null));
+    }
+
+    @Test
+    public void testVolatilePredicateOfTheSubqueryDomainIsRejected() {
+        Alias count = new Alias(new Count(), "c");
+        // which inner rows belong to the domain of a correlation key cannot be shared by two outer
+        // rows with the same key
+        Assertions.assertThrows(AnalysisException.class, () -> rewriteWithGlobalAggregate(
+                ImmutableList.of(count), slot -> new EqualTo(count.toSlot(), new BigIntLiteral(0)), null,
+                new LessThan(new Random(), new DoubleLiteral(0.5))));
+    }
+
+    /**
+     * build `outer exists (select count(*) from R where r1 = x having count(*) = 0)` where the
+     * aggregation of the subquery has to be computed on the outer side (the HAVING clause holds for
+     * an empty input), and apply the rule.
+     */
+    private Plan rewriteWithOuter(Plan outer, List<Slot> correlationSlots) {
+        LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "t2", 1);
+        Slot r1 = right.getOutput().get(0); // t2.id
+        LogicalFilter<LogicalOlapScan> where = new LogicalFilter<>(
+                ImmutableSet.of(new EqualTo(r1, correlationSlots.get(0))), right);
+        Alias count = new Alias(new Count(), "c");
+        LogicalAggregate<LogicalFilter<LogicalOlapScan>> agg =
+                new LogicalAggregate<>(ImmutableList.of(), ImmutableList.of(count), where);
+        LogicalFilter<LogicalAggregate<LogicalFilter<LogicalOlapScan>>> having = new LogicalFilter<>(
+                ImmutableSet.of(new EqualTo(count.toSlot(), new BigIntLiteral(0))), agg);
+        LogicalApply<Plan, LogicalFilter<LogicalAggregate<LogicalFilter<LogicalOlapScan>>>> apply =
+                new LogicalApply<>(correlationSlots, LogicalApply.SubQueryType.EXITS_SUBQUERY, false,
+                        Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), false, false,
+                        outer, having);
+
+        ConnectContext connectContext = new ConnectContext();
+        Rule rule = new UnCorrelatedApplyAggregateFilter().buildRules().get(0);
+        List<Plan> transformed = rule.transform(apply, MemoTestUtils.createCascadesContext(connectContext, apply));
+        Assertions.assertEquals(1, transformed.size());
+        return transformed.get(0);
+    }
+
+    /**
+     * build `L exists (select &lt;outputs&gt; from R where r1 = x [and &lt;extraWherePredicate&gt;]
+     * [having &lt;havingOnAggregate&gt;])` where a predicate of the HAVING clause which was pulled into
+     * the apply may be provided as well, and apply the rule.
+     */
+    private Plan rewriteWithGlobalAggregate(List<NamedExpression> outputs,
+            Function<Slot, Expression> havingOnAggregate, Function<Slot, Expression> pulledPredicate,
+            Expression extraWherePredicate) {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        Slot x = left.getOutput().get(0); // t1.id
+        LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "t2", 1);
+        Slot r1 = right.getOutput().get(0); // t2.id
+
+        ImmutableSet.Builder<Expression> whereConjuncts = ImmutableSet.builder();
+        whereConjuncts.add(new EqualTo(r1, x));
+        if (extraWherePredicate != null) {
+            whereConjuncts.add(extraWherePredicate);
+        }
+        LogicalFilter<LogicalOlapScan> where = new LogicalFilter<>(whereConjuncts.build(), right);
+        LogicalAggregate<LogicalFilter<LogicalOlapScan>> agg =
+                new LogicalAggregate<>(ImmutableList.of(), outputs, where);
+        Plan subquery = agg;
+        if (havingOnAggregate != null) {
+            subquery = new LogicalFilter<>(ImmutableSet.of(havingOnAggregate.apply(x)), subquery);
+        }
+        LogicalApply<LogicalOlapScan, Plan> apply =
+                new LogicalApply<>(ImmutableList.of(x), LogicalApply.SubQueryType.EXITS_SUBQUERY, false,
+                        Optional.empty(), Optional.empty(),
+                        pulledPredicate == null ? Optional.empty() : Optional.of(pulledPredicate.apply(x)),
+                        Optional.empty(), false, false, left, subquery);
+
+        ConnectContext connectContext = new ConnectContext();
+        Rule rule = new UnCorrelatedApplyAggregateFilter().buildRules().get(0);
+        List<Plan> transformed = rule.transform(apply, MemoTestUtils.createCascadesContext(connectContext, apply));
+        Assertions.assertEquals(1, transformed.size());
+        return transformed.get(0);
+    }
+
+    private Plan rewriteWithGlobalAggregate(NamedExpression output,
+            Function<Slot, Expression> havingOnAggregate, Function<Slot, Expression> pulledPredicate) {
+        return rewriteWithGlobalAggregate(ImmutableList.of(output), havingOnAggregate, pulledPredicate, null);
+    }
+
     /**
      * build `L exists (select count(*) from R where r1 = x [having count(*) &gt; 0] having count(*) &lt;= x)`
      * after the rule which pulls the correlated predicates out of the filter under the apply
@@ -214,8 +478,7 @@ class UnCorrelatedApplyAggregateFilterTest {
                         false, false, left, subquery);
 
         ConnectContext connectContext = new ConnectContext();
-        Rule rule = new UnCorrelatedApplyAggregateFilter().buildRules()
-                .get(withProjection ? (withRemainingHavingPredicate ? 3 : 2) : 0);
+        Rule rule = new UnCorrelatedApplyAggregateFilter().buildRules().get(0);
         List<Plan> transformed = rule.transform(apply, MemoTestUtils.createCascadesContext(connectContext, apply));
         Assertions.assertEquals(1, transformed.size());
         return transformed.get(0);
@@ -249,7 +512,7 @@ class UnCorrelatedApplyAggregateFilterTest {
                         Optional.empty(), Optional.empty(), Optional.empty(), false, false, left, having);
 
         ConnectContext connectContext = new ConnectContext();
-        Rule rule = new UnCorrelatedApplyAggregateFilter().buildRules().get(1);
+        Rule rule = new UnCorrelatedApplyAggregateFilter().buildRules().get(0);
         List<Plan> transformed = rule.transform(apply, MemoTestUtils.createCascadesContext(connectContext, apply));
         Assertions.assertEquals(1, transformed.size());
         return transformed.get(0);

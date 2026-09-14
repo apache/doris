@@ -187,4 +187,173 @@ suite("correlated_exists_having") {
             GROUP BY n.g HAVING count(*) >= e.k - 1)
         ORDER BY e.k
     """
+
+    // ---------------------------------------------------------------------------------------------
+    // regression of the review of the rewrite: the aggregation of one outer row is the aggregation
+    // of exactly the inner rows satisfying the correlated predicate, so the predicates which were
+    // pulled out of the HAVING clause have to stay on that aggregation (they must not be lost by
+    // the fallback of the rule), and the aggregates of the domain of an outer row have to be the
+    // aggregates of the subquery (the predicate of the WHERE clause may not be dropped either).
+    sql "DROP TABLE IF EXISTS ceh_r_e"
+    sql """
+        CREATE TABLE IF NOT EXISTS ceh_r_e (
+            k INT NULL
+        ) ENGINE = OLAP
+        DUPLICATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    sql "DROP TABLE IF EXISTS ceh_r_i"
+    sql """
+        CREATE TABLE IF NOT EXISTS ceh_r_i (
+            k INT NULL,
+            g INT NULL
+        ) ENGINE = OLAP
+        DUPLICATE KEY(k, g)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    sql "INSERT INTO ceh_r_e VALUES (3)"
+    // the domain of e.k = 3 is one group (g = 20) whose count is 1 and does not satisfy the HAVING
+    // clause; the group g = 10 of the whole table has the count 2 which would satisfy it, so the
+    // query must not return 3
+    sql "INSERT INTO ceh_r_i VALUES (1, 10), (1, 10), (3, 20)"
+    order_qt_eq_grouped_having_refs_outer_domain """
+        SELECT e.k FROM ceh_r_e e
+        WHERE EXISTS (SELECT count(*) AS c FROM ceh_r_i i WHERE i.k = e.k GROUP BY i.g
+            HAVING count(*) >= e.k - 1)
+        ORDER BY e.k
+    """
+    order_qt_eq_grouped_having_refs_outer_domain_not_exists """
+        SELECT e.k FROM ceh_r_e e
+        WHERE NOT EXISTS (SELECT count(*) AS c FROM ceh_r_i i WHERE i.k = e.k GROUP BY i.g
+            HAVING count(*) >= e.k - 1)
+        ORDER BY e.k
+    """
+    // the kept row of an empty correlated domain must not be an input of any aggregate: sum(1) of
+    // an empty domain is null, while the kept row would evaluate the argument 1
+    sql "DROP TABLE IF EXISTS ceh_s_e"
+    sql """
+        CREATE TABLE IF NOT EXISTS ceh_s_e (
+            k INT NULL
+        ) ENGINE = OLAP
+        DUPLICATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    sql "DROP TABLE IF EXISTS ceh_s_i"
+    sql """
+        CREATE TABLE IF NOT EXISTS ceh_s_i (
+            k INT NULL
+        ) ENGINE = OLAP
+        DUPLICATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    sql "INSERT INTO ceh_s_e VALUES (1)"
+    sql "INSERT INTO ceh_s_i VALUES (2)"
+    order_qt_global_sum_of_empty_domain """
+        SELECT e.k FROM ceh_s_e e
+        WHERE EXISTS (SELECT sum(1) FROM ceh_s_i i WHERE i.k = e.k HAVING sum(1) IS NULL)
+        ORDER BY e.k
+    """
+    // a distinct count of a literal keeps its distinct flag and its argument: two matching inner
+    // rows count as one
+    sql "DROP TABLE IF EXISTS ceh_d_e"
+    sql """
+        CREATE TABLE IF NOT EXISTS ceh_d_e (
+            k INT NULL
+        ) ENGINE = OLAP
+        DUPLICATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    sql "DROP TABLE IF EXISTS ceh_d_i"
+    sql """
+        CREATE TABLE IF NOT EXISTS ceh_d_i (
+            k INT NULL
+        ) ENGINE = OLAP
+        DUPLICATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    sql "INSERT INTO ceh_d_e VALUES (2)"
+    sql "INSERT INTO ceh_d_i VALUES (2), (2)"
+    order_qt_global_count_distinct_literal """
+        SELECT e.k FROM ceh_d_e e
+        WHERE EXISTS (SELECT count(DISTINCT 1) AS c FROM ceh_d_i i WHERE i.k = e.k
+            HAVING c = e.k - 1)
+        ORDER BY e.k
+    """
+    // a predicate of the HAVING clause which references the outer row only still rejects the row of
+    // the aggregation, it may not become a condition of the join of the domain
+    sql "DROP TABLE IF EXISTS ceh_f_e"
+    sql """
+        CREATE TABLE IF NOT EXISTS ceh_f_e (
+            k INT NULL,
+            flag INT NULL
+        ) ENGINE = OLAP
+        DUPLICATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    sql "DROP TABLE IF EXISTS ceh_f_i"
+    sql """
+        CREATE TABLE IF NOT EXISTS ceh_f_i (
+            k INT NULL
+        ) ENGINE = OLAP
+        DUPLICATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    sql "INSERT INTO ceh_f_e VALUES (1, 0)"
+    sql "INSERT INTO ceh_f_i VALUES (1)"
+    order_qt_having_predicate_of_outer_row_only """
+        SELECT e.k FROM ceh_f_e e
+        WHERE EXISTS (SELECT count(*) FROM ceh_f_i i WHERE i.k = e.k HAVING e.flag = 1)
+        ORDER BY e.k
+    """
+    // a volatile column which only decorates the output of the outer query does not change the rows
+    // of the outer plan nor the value of a correlation key, so the rewrite may duplicate it
+    order_qt_volatile_output_which_does_not_feed_the_correlation """
+        SELECT t.k FROM (SELECT e.k AS k, random() AS r FROM ceh_s_e e) t
+        WHERE EXISTS (SELECT count(*) FROM ceh_s_i i WHERE i.k < t.k HAVING count(*) = 0)
+        ORDER BY t.k
+    """
+    // a volatile argument of an aggregate whose value neither the HAVING clause nor the subquery
+    // reads does not change the result: such a value is not observed by the EXISTS
+    order_qt_volatile_output_which_does_not_feed_the_having """
+        SELECT t.k FROM (SELECT e.k AS k FROM ceh_s_e e) t
+        WHERE EXISTS (SELECT count(*), sum(random()) AS s FROM ceh_s_i i
+            WHERE i.k < t.k HAVING count(*) = 0)
+        ORDER BY t.k
+    """
+    // ... while a value which the HAVING clause uses has to be computed for every outer row: the
+    // rewrite would compute it once for two outer rows with the same correlation key
+    test {
+        sql "SELECT t.k FROM (SELECT e.k AS k FROM ceh_s_e e) t" +
+                " WHERE EXISTS (SELECT sum(random()) AS s, count(*) FROM ceh_s_i i" +
+                " WHERE i.k < t.k HAVING s >= 0)"
+        exception "Unsupported correlated subquery with grouping and/or aggregation"
+    }
+    // the aggregation of the subquery can only be evaluated for the correlation keys of the outer
+    // rows when the two evaluations of the outer plan return the same rows, when the correlation
+    // keys of the two evaluations are the same, and when the predicates of the subquery do not have
+    // to be evaluated for every outer row: the shapes below are rejected instead of returning a
+    // wrong result
+    test {
+        sql "SELECT t.k FROM (SELECT e.k AS k FROM ceh_s_e e LIMIT 1) t" +
+                " WHERE EXISTS (SELECT count(*) FROM ceh_s_i i WHERE i.k < t.k HAVING count(*) = 0)"
+        exception "Unsupported correlated subquery with grouping and/or aggregation"
+    }
+    test {
+        sql "SELECT t.k FROM (SELECT random() AS k FROM ceh_s_e e) t" +
+                " WHERE EXISTS (SELECT count(*) FROM ceh_s_i i WHERE i.k < t.k HAVING count(*) = 0)"
+        exception "Unsupported correlated subquery with grouping and/or aggregation"
+    }
+    test {
+        sql "SELECT e.k FROM ceh_s_e e" +
+                " WHERE EXISTS (SELECT array_agg(i.k) FROM ceh_s_i i WHERE i.k = e.k HAVING count(*) = e.k)"
+        exception "Unsupported correlated subquery with grouping and/or aggregation"
+    }
 }
