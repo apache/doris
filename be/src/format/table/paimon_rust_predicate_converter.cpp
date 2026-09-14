@@ -39,8 +39,6 @@
 #include "exprs/vin_predicate.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
-#include "runtime/descriptors.h"
-#include "runtime/runtime_state.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
@@ -97,19 +95,6 @@ std::string consume_predicate_error(paimon_error* err) {
     return "code=" + std::to_string(owned->code) + ", msg=" + msg;
 }
 } // namespace
-
-PaimonRustPredicateConverter::PaimonRustPredicateConverter(
-        const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
-        const paimon_table* table)
-        : _state(state), _table(table) {
-    _file_columns.reserve(file_slot_descs.size());
-    for (const auto& slot : file_slot_descs) {
-        _file_columns.insert(_normalize_name(slot->col_name()));
-    }
-    if (!TimezoneUtils::find_cctz_time_zone("GMT", _gmt_tz)) {
-        TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, _gmt_tz);
-    }
-}
 
 PaimonRustPredicateConverter::PaimonRustPredicateConverter(
         const std::vector<std::string>& column_names, const std::vector<DataTypePtr>& column_types,
@@ -386,38 +371,18 @@ std::optional<PaimonRustPredicateConverter::FieldMeta> PaimonRustPredicateConver
     if (!slot_ref) {
         return std::nullopt;
     }
-
-    if (!_columns_by_name.empty()) {
-        // V2 mode: the conjunct VSlotRefs were rewritten to table global indices, so
-        // slot_id is a position, not a slot id; resolve by the carried column name
-        // against the projected-column registry instead of the desc table.
-        auto it = _columns_by_name.find(_normalize_name(slot_ref->column_name()));
-        if (it == _columns_by_name.end()) {
-            return std::nullopt;
-        }
-        const auto& [column, type] = it->second;
-        if (!_is_supported_slot_type(type->get_primitive_type(), type->get_precision())) {
-            return std::nullopt;
-        }
-        return FieldMeta {column, type};
-    }
-
-    // V1 mode: resolve through the desc table.
-    if (!_state) {
+    // FileScannerV2 rewrites conjunct VSlotRefs to table global indices, so slot_id
+    // is a position, not a slot id; resolve by the carried column name against the
+    // projected-column registry instead of the desc table.
+    auto it = _columns_by_name.find(_normalize_name(slot_ref->column_name()));
+    if (it == _columns_by_name.end()) {
         return std::nullopt;
     }
-    auto* slot_desc = _state->desc_tbl().get_slot_descriptor(slot_ref->slot_id());
-    if (!slot_desc) {
+    const auto& [column, type] = it->second;
+    if (!_is_supported_slot_type(type->get_primitive_type(), type->get_precision())) {
         return std::nullopt;
     }
-    if (_file_columns.find(_normalize_name(slot_desc->col_name())) == _file_columns.end()) {
-        return std::nullopt;
-    }
-    auto slot_type = slot_desc->type();
-    if (!_is_supported_slot_type(slot_type->get_primitive_type(), slot_type->get_precision())) {
-        return std::nullopt;
-    }
-    return FieldMeta {slot_desc->col_name(), slot_type};
+    return FieldMeta {column, type};
 }
 
 std::optional<PaimonRustPredicateConverter::DatumHolder>
