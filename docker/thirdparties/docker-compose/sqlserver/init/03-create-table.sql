@@ -321,6 +321,11 @@ CREATE TYPE dbo.doris_alias_varbinary FROM varbinary(20) NULL;
 CREATE TYPE dbo.doris_alias_image FROM image NULL;
 CREATE TYPE dbo.doris_alias_datetimeoffset FROM datetimeoffset NULL;
 CREATE TYPE dbo.doris_alias_variant FROM sql_variant NULL;
+-- Alias names that start with a system type name: they are reported as they are and must not be
+-- mistaken for that system type.
+CREATE TYPE dbo.[int alias] FROM varchar(50) NULL;
+CREATE TYPE dbo.[decimal(18,0) identity] FROM nvarchar(20) NULL;
+CREATE TYPE dbo.[int identity] FROM varchar(10) NULL;
 GO
 
 -- Every supported base type family behind an alias, plus sysname (a built-in alias over nvarchar(128)).
@@ -360,6 +365,14 @@ CREATE TABLE dbo.test_alias_type (
 CREATE TABLE dbo.test_alias_identity (
     id dbo.doris_alias_identity IDENTITY(1,1) PRIMARY KEY,
     val dbo.doris_alias_varchar NULL
+);
+
+-- Alias names that start with a system type name, next to a real IDENTITY column.
+CREATE TABLE dbo.test_alias_name (
+    id int IDENTITY(1,1) PRIMARY KEY,
+    alias_named_int_col dbo.[int alias] NULL,
+    alias_named_decimal_identity_col dbo.[decimal(18,0) identity] NULL,
+    alias_named_int_identity_col dbo.[int identity] NULL
 );
 
 -- Negative cases: aliases over binary types, datetimeoffset and sql_variant, and the xml / CLR system

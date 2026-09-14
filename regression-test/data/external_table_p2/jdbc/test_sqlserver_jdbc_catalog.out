@@ -176,6 +176,15 @@ val	text	Yes	true	\N
 1	first
 2	second
 
+-- !desc_alias_name --
+alias_named_decimal_identity_col	text	Yes	true	\N	
+alias_named_int_col	text	Yes	true	\N	
+alias_named_int_identity_col	text	Yes	true	\N	
+id	int	No	true	\N	
+
+-- !alias_name --
+1	not an int	not a decimal	not an id
+
 -- !desc_alias_unsupported --
 alias_binary_col	unknown type: UNSUPPORTED_TYPE	Yes	true	\N	
 alias_datetimeoffset_col	unknown type: UNSUPPORTED_TYPE	Yes	true	\N	

@@ -123,6 +123,34 @@ public class JdbcSQLServerClientTest {
     }
 
     @Test
+    public void testAliasNamedLikeASystemTypeIsResolvedByJdbcTypeCode() throws SQLException {
+        // A delimited alias name may contain spaces and parentheses ([int alias], [decimal(18,0) identity]);
+        // it is reported as is, and the base type is still what DATA_TYPE says
+        Assertions.assertEquals(Type.STRING, client.jdbcTypeToDoris(column("int alias", Types.VARCHAR, 50, 0)));
+        Assertions.assertEquals(Type.STRING,
+                client.jdbcTypeToDoris(column("decimal(18,0) identity", Types.NVARCHAR, 20, 0)));
+        Assertions.assertEquals(Type.STRING, client.jdbcTypeToDoris(column("int identity", Types.VARCHAR, 10, 0)));
+        Assertions.assertEquals(Type.STRING,
+                client.jdbcTypeToDoris(column("bigint identity", Types.NVARCHAR, 20, 0)));
+        Assertions.assertEquals(ScalarType.createDatetimeV2Type(3),
+                client.jdbcTypeToDoris(column("varchar(50) alias", Types.TIMESTAMP, 23, 3)));
+
+        // The IDENTITY decoration of a real system type, in the forms the driver versions report it in
+        Assertions.assertEquals(Type.INT, client.jdbcTypeToDoris(column("int identity", Types.INTEGER, 10, 0)));
+        Assertions.assertEquals(Type.BIGINT, client.jdbcTypeToDoris(column("bigint identity", Types.BIGINT, 19, 0)));
+        Assertions.assertEquals(Type.SMALLINT,
+                client.jdbcTypeToDoris(column("tinyint identity", Types.TINYINT, 3, 0)));
+        Assertions.assertEquals(ScalarType.createDecimalV3Type(18, 0),
+                client.jdbcTypeToDoris(column("decimal identity", Types.DECIMAL, 18, 0)));
+        Assertions.assertEquals(ScalarType.createDecimalV3Type(18, 0),
+                client.jdbcTypeToDoris(column("decimal() identity", Types.DECIMAL, 18, 0)));
+        Assertions.assertEquals(ScalarType.createDecimalV3Type(18, 0),
+                client.jdbcTypeToDoris(column("numeric(18, 0) identity", Types.NUMERIC, 18, 0)));
+        Assertions.assertEquals(ScalarType.createDecimalV3Type(18, 0),
+                client.jdbcTypeToDoris(column("decimal(18,0) IDENTITY(1,1)", Types.DECIMAL, 18, 0)));
+    }
+
+    @Test
     public void testSystemTypeNamesTakePrecedence() throws SQLException {
         // the name based mapping is unchanged, the type code is only consulted for unknown names
         Assertions.assertEquals(Type.SMALLINT, client.jdbcTypeToDoris(column("tinyint", Types.TINYINT, 3, 0)));

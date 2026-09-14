@@ -27,7 +27,10 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.sql.Types;
+import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * SQL Server-specific JDBC connector client.
@@ -36,6 +39,12 @@ import java.util.Map;
 public class JdbcSQLServerConnectorClient extends JdbcConnectorClient {
 
     private static final Logger LOG = LogManager.getLogger(JdbcSQLServerConnectorClient.class);
+
+    // TYPE_NAME of an IDENTITY column decorates the base type: "int identity", "decimal() identity",
+    // "numeric(18, 0) identity", "decimal(18,0) IDENTITY(1,1)". IDENTITY is only allowed on these base types.
+    private static final Pattern IDENTITY_TYPE_NAME = Pattern.compile(
+            "^(tinyint|smallint|int|bigint|decimal|numeric)\\s*(\\([^)]*\\))?\\s+identity(\\s*\\([^)]*\\))?$",
+            Pattern.CASE_INSENSITIVE);
 
     public JdbcSQLServerConnectorClient(
             String catalogName, JdbcDbType dbType, String jdbcUrl,
@@ -49,13 +58,48 @@ public class JdbcSQLServerConnectorClient extends JdbcConnectorClient {
                 enableMappingVarbinary, enableMappingTimestampTz);
     }
 
+    /**
+     * The base type of an IDENTITY column's TYPE_NAME, or the name unchanged.
+     * <p>
+     * The decoration is trusted only when {@code DATA_TYPE} is the code of the named base type: an alias type
+     * may legally be named like that ({@code CREATE TYPE dbo.[int identity] FROM varchar(10)}, or
+     * {@code dbo.[int alias]}), and it then has to be resolved by its code, not by the words of its name.
+     */
+    static String identityBaseType(String typeName, int dataType) {
+        Matcher matcher = IDENTITY_TYPE_NAME.matcher(typeName);
+        if (!matcher.matches()) {
+            return typeName;
+        }
+        String baseType = matcher.group(1).toLowerCase(Locale.ROOT);
+        boolean codeMatches;
+        switch (baseType) {
+            case "tinyint":
+                codeMatches = dataType == Types.TINYINT;
+                break;
+            case "smallint":
+                codeMatches = dataType == Types.SMALLINT;
+                break;
+            case "int":
+                codeMatches = dataType == Types.INTEGER;
+                break;
+            case "bigint":
+                codeMatches = dataType == Types.BIGINT;
+                break;
+            default:
+                codeMatches = dataType == Types.DECIMAL || dataType == Types.NUMERIC;
+                break;
+        }
+        return codeMatches ? baseType : typeName;
+    }
+
     @Override
     public ConnectorType jdbcTypeToConnectorType(JdbcFieldInfo fieldInfo) {
         String rawType = fieldInfo.getDataTypeName().orElse("unknown").toLowerCase();
-        // SQL Server JDBC driver decorates type names for IDENTITY columns,
-        // e.g., "int identity", "decimal() identity". Strip parenthesized parts
-        // and suffixes to get the base type name.
-        String ssType = rawType.replaceAll("[\\s(].*", "");
+        // An IDENTITY column is reported as "int identity" or "decimal(18,0) identity": only the base type
+        // is matched below. Any other name is matched as it is: system type names are single words, and a
+        // user-defined alias type may be named with spaces or parentheses ("int alias") and must not be
+        // mistaken for the system type its name starts with.
+        String ssType = identityBaseType(rawType, fieldInfo.getDataType());
         switch (ssType) {
             case "bit":
                 return ConnectorType.of("BOOLEAN");

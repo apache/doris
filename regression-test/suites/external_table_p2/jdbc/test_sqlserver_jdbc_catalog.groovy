@@ -95,6 +95,10 @@ suite("test_sqlserver_jdbc_catalog", "p2,external") {
         // IDENTITY on an alias typed column
         order_qt_desc_alias_identity """ desc test_alias_identity; """
         order_qt_alias_identity """ select * from test_alias_identity order by id; """
+        // Alias types named like a system type ([int alias], [decimal(18,0) identity], [int identity]) are
+        // resolved by their base type; only a real IDENTITY column is reported with its base type decorated.
+        order_qt_desc_alias_name """ desc test_alias_name; """
+        order_qt_alias_name """ select * from test_alias_name order by id; """
         // Aliases over binary types, datetimeoffset and sql_variant can not be resolved by the JDBC type
         // code, and the xml / CLR system types are not supported either. They stay UNSUPPORTED, the other
         // columns of the table remain readable and SELECT * still fails on the unsupported columns.

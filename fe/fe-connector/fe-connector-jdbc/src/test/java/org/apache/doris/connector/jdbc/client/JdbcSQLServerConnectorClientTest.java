@@ -226,6 +226,34 @@ public class JdbcSQLServerConnectorClientTest {
     }
 
     @Test
+    void testAliasNamedLikeASystemTypeIsResolvedByJdbcTypeCode() {
+        JdbcSQLServerConnectorClient client = createClient();
+
+        // A delimited alias name may contain spaces and parentheses ([int alias], [decimal(18,0) identity]);
+        // it is reported as is, and the base type is still what DATA_TYPE says
+        Assertions.assertEquals("STRING", typeOf(client, column("int alias", Types.VARCHAR, 50, 0)));
+        Assertions.assertEquals("STRING", typeOf(client, column("decimal(18,0) identity", Types.NVARCHAR, 20, 0)));
+        Assertions.assertEquals("STRING", typeOf(client, column("int identity", Types.VARCHAR, 10, 0)));
+        Assertions.assertEquals("STRING", typeOf(client, column("bigint identity", Types.NVARCHAR, 20, 0)));
+        Assertions.assertEquals("DATETIMEV2", typeOf(client, column("varchar(50) alias", Types.TIMESTAMP, 23, 3)));
+
+        // The IDENTITY decoration of a real system type, in the forms the driver versions report it in
+        Assertions.assertEquals("INT", typeOf(client, column("int identity", Types.INTEGER, 10, 0)));
+        Assertions.assertEquals("BIGINT", typeOf(client, column("bigint identity", Types.BIGINT, 19, 0)));
+        Assertions.assertEquals("SMALLINT", typeOf(client, column("tinyint identity", Types.TINYINT, 3, 0)));
+        for (String decorated : new String[] {"decimal identity", "decimal() identity",
+                "decimal(18,0) IDENTITY(1,1)", "DECIMAL(18, 0) IDENTITY"}) {
+            ConnectorType ct = client.jdbcTypeToConnectorType(column(decorated, Types.DECIMAL, 18, 0));
+            Assertions.assertEquals("DECIMALV3", ct.getTypeName(), decorated);
+            Assertions.assertEquals(18, ct.getPrecision(), decorated);
+            Assertions.assertEquals(0, ct.getScale(), decorated);
+        }
+        ConnectorType numeric = client.jdbcTypeToConnectorType(column("numeric(18, 0) identity", Types.NUMERIC, 18, 0));
+        Assertions.assertEquals("DECIMALV3", numeric.getTypeName());
+        Assertions.assertEquals(18, numeric.getPrecision());
+    }
+
+    @Test
     void testSystemTypeNamesTakePrecedence() {
         JdbcSQLServerConnectorClient client = createClient();
 

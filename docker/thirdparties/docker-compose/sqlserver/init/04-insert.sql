@@ -146,6 +146,9 @@ Insert into dbo.test_alias_type values
 
 Insert into dbo.test_alias_identity (val) values ('first'), ('second');
 
+Insert into dbo.test_alias_name (alias_named_int_col, alias_named_decimal_identity_col, alias_named_int_identity_col)
+values ('not an int', 'not a decimal', 'not an id');
+
 Insert into dbo.test_alias_unsupported values
 (1, 'plain', 0x01, 0x0102, 0x03, '2023-01-17 16:49:05 +08:00', 1, '<a/>', geometry::STGeomFromText('POINT (1 2)', 0), hierarchyid::GetRoot()),
 (2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
