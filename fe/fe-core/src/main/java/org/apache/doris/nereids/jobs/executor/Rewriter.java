@@ -96,7 +96,6 @@ import org.apache.doris.nereids.rules.rewrite.InferInPredicateFromOr;
 import org.apache.doris.nereids.rules.rewrite.InferJoinNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
-import org.apache.doris.nereids.rules.rewrite.InitJoinOrder;
 import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
 import org.apache.doris.nereids.rules.rewrite.JoinExtractOrFromCaseWhen;
 import org.apache.doris.nereids.rules.rewrite.LimitAggToTopNAgg;
@@ -755,7 +754,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ),
                 topic("set initial join order",
                         bottomUp(ImmutableList.of(new PushDownJoinOnAssertNumRows(), new MergeProjectable())),
-                        topDown(new InitJoinOrder()),
                         topDown(new SkewJoin())),
                 topic("agg rewrite",
                     // these rules should be put after mv optimization to avoid mv matching fail

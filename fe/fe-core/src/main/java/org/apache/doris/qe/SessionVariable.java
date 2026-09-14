@@ -1971,7 +1971,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     @VarAttrDef.VarAttr(name = MAX_JOIN_NUMBER_BUSHY_TREE)
-    private int maxJoinNumBushyTree = 8;
+    private int maxJoinNumBushyTree = 9;
 
     @VarAttrDef.VarAttr(name = ENABLE_PARTITION_TOPN)
     private boolean enablePartitionTopN = true;
