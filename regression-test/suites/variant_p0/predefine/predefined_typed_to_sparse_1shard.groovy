@@ -15,9 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_predefine_typed_to_sparse_1shard", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: false]) {
-    assertFalse(getFeConfig("enable_variant_v2").toBoolean())
-    def variantV2Function = ""
+    def variantV2Function = "parse_to_variant"
     def checkTypedArrays = { String table ->
         qt_sql """select id, cast(var['array_decimal_1'] as array<decimalv3(26, 9)>),
                     cast(var['array_ipv6_1'] as array<ipv6>) from ${table}
@@ -160,5 +158,5 @@ suite("test_predefine_typed_to_sparse_1shard", "p0,nonConcurrent") {
     qt_full_values """select * from ${tableName} order by id"""
     qt_sql """select ${typedValues} from ${tableName} order by id"""
 
-    }
+
 }
