@@ -659,11 +659,11 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             listener.onCompleted();
         } catch (FlightRuntimeException e) {
             // Same as in getFlightInfoStatement: keep the status the session's command lock chose.
-            LOG.error("set session options failed", e);
+            LOG.warn("set session options failed", e);
             listener.onError(e);
         } catch (Throwable e) {
             String errMsg = "set session options failed, " + e.getMessage();
-            LOG.error(errMsg, e);
+            LOG.warn(errMsg, e);
             listener.onError(CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException());
         }
     }
@@ -679,11 +679,11 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             listener.onNext(new GetSessionOptionsResult(options));
             listener.onCompleted();
         } catch (FlightRuntimeException e) {
-            LOG.error("get session options failed", e);
+            LOG.warn("get session options failed", e);
             listener.onError(e);
         } catch (Throwable e) {
             String errMsg = "get session options failed, " + e.getMessage();
-            LOG.error(errMsg, e);
+            LOG.warn(errMsg, e);
             listener.onError(CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException());
         }
     }
@@ -700,7 +700,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         try {
             flightSessionsManager.closeConnectContext(context.peerIdentity());
         } catch (final Throwable e) {
-            LOG.error("closeSession failed", e);
+            LOG.warn("closeSession failed", e);
             listener.onError(
                     CallStatus.INTERNAL.withDescription("closeSession failed").withCause(e).toRuntimeException());
             return;
