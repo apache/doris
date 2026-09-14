@@ -22,6 +22,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
 
 #include "cloud/cloud_tablet.h"
 #include "common/cast_set.h"
@@ -133,19 +134,6 @@ void insert_int32(IColumn* column, int32_t value) {
 
 void insert_string(IColumn* column, std::string_view value) {
     assert_cast<ColumnString*>(non_null_nested(column))->insert_data(value.data(), value.size());
-}
-
-// Components are reported only for term indexes, except that a container row carries its
-// overhead as other bytes. Unknown components (-1) are NULL.
-void insert_component(IColumn* column, const IndexDiskUsageRecord& record, int64_t value,
-                      bool is_other) {
-    const bool reported = record.structure == IndexDiskUsageStructure::kTerm ||
-                          (is_other && record.structure == IndexDiskUsageStructure::kContainer);
-    if (!reported || value < 0) {
-        insert_null(column);
-    } else {
-        insert_int64(column, value);
-    }
 }
 
 } // namespace
@@ -265,6 +253,104 @@ Status IndexDiskUsageReader::_fill_block(Block* block, const TIndexDiskUsageTabl
     return Status::OK();
 }
 
+namespace {
+
+// One output row with the names resolved from the tablet schema.
+struct RowView {
+    const TIndexDiskUsageTablet* target = nullptr;
+    // nullptr when FE sent no name for the partition.
+    const std::string* partition_name = nullptr;
+    const IndexDiskUsageRow* row = nullptr;
+    // nullptr for container rows and for indexes no longer in the schema.
+    const TabletIndex* index = nullptr;
+    std::string column_name;
+};
+
+// A cell value: NULL, an integer or a string that outlives the insertion.
+using Cell = std::variant<std::monostate, int64_t, std::string_view>;
+
+// Components are reported only for term indexes, except that a container row carries its
+// overhead as other bytes. Unknown components (-1) are NULL.
+Cell component_cell(const IndexDiskUsageRecord& record, int64_t value, bool is_other) {
+    const bool reported = record.structure == IndexDiskUsageStructure::kTerm ||
+                          (is_other && record.structure == IndexDiskUsageStructure::kContainer);
+    return reported && value >= 0 ? Cell {value} : Cell {};
+}
+
+Cell cell_of(IndexDiskUsageReader::Column column, const RowView& view, IndexDiskUsageLevel level,
+             int64_t backend_id) {
+    using C = IndexDiskUsageReader::Column;
+    const IndexDiskUsageRow& row = *view.row;
+    const IndexDiskUsageRecord& record = row.record;
+    const bool is_container = record.structure == IndexDiskUsageStructure::kContainer;
+    switch (column) {
+    case C::kPartitionName:
+        return view.partition_name == nullptr ? Cell {}
+                                              : Cell {std::string_view(*view.partition_name)};
+    case C::kTabletId:
+        return Cell {view.target->tablet_id};
+    case C::kBackendId:
+        return Cell {backend_id};
+    case C::kRowsetId:
+        return level == IndexDiskUsageLevel::kTablet ? Cell {}
+                                                     : Cell {std::string_view(row.rowset_id)};
+    case C::kSegmentId:
+        return level == IndexDiskUsageLevel::kSegment ? Cell {int64_t {row.segment_id}} : Cell {};
+    case C::kIndexId:
+        return is_container ? Cell {} : Cell {record.index_id};
+    case C::kIndexName:
+        return view.index == nullptr ? Cell {} : Cell {std::string_view(view.index->index_name())};
+    case C::kIndexType:
+        if (view.index == nullptr) {
+            return Cell {};
+        }
+        return Cell {std::string_view(view.index->is_ann_index() ? "ANN" : "INVERTED")};
+    case C::kColumnName:
+        return view.column_name.empty() ? Cell {} : Cell {std::string_view(view.column_name)};
+    case C::kIndexSuffix:
+        return is_container ? Cell {} : Cell {std::string_view(record.index_suffix)};
+    case C::kStructure:
+        return Cell {structure_name(record.structure)};
+    case C::kStorageFormat:
+        return Cell {std::string_view(InvertedIndexStorageFormatPB_Name(row.format))};
+    case C::kSegmentCount:
+        return Cell {row.segment_count};
+    case C::kRowCount:
+        return Cell {row.row_count};
+    case C::kTotalBytes:
+        return Cell {record.total_bytes};
+    case C::kDictBytes:
+        return component_cell(record, record.dict_bytes, false);
+    case C::kPostingBytes:
+        return component_cell(record, record.posting_bytes, false);
+    case C::kPositionBytes:
+        return component_cell(record, record.position_bytes, false);
+    case C::kStatsBytes:
+        return component_cell(record, record.stats_bytes, false);
+    case C::kOtherBytes:
+        return component_cell(record, record.other_bytes, true);
+    case C::kStatsSource:
+        return Cell {std::string_view("FILE")};
+    }
+    return Cell {};
+}
+
+void insert_cell(IColumn* column, IndexDiskUsageReader::Column kind, const Cell& cell) {
+    if (std::holds_alternative<std::monostate>(cell)) {
+        insert_null(column);
+    } else if (const auto* value = std::get_if<int64_t>(&cell)) {
+        if (kind == IndexDiskUsageReader::Column::kSegmentId) {
+            insert_int32(column, cast_set<int32_t>(*value));
+        } else {
+            insert_int64(column, *value);
+        }
+    } else {
+        insert_string(column, std::get<std::string_view>(cell));
+    }
+}
+
+} // namespace
+
 void IndexDiskUsageReader::_append_rows(std::vector<MutableColumnPtr>& columns,
                                         const TIndexDiskUsageTablet& target,
                                         const TabletSchema& schema,
@@ -272,115 +358,22 @@ void IndexDiskUsageReader::_append_rows(std::vector<MutableColumnPtr>& columns,
     const auto& partition_names = _scan_range.index_disk_usage_params.partition_names;
     const auto partition = partition_names.find(target.partition_id);
     for (const IndexDiskUsageRow& row : rows) {
-        const IndexDiskUsageRecord& record = row.record;
-        const bool is_container = record.structure == IndexDiskUsageStructure::kContainer;
-        const TabletIndex* index = is_container ? nullptr : find_index(schema, record);
-        std::string column_name;
-        if (index != nullptr && !index->col_unique_ids().empty()) {
-            const int32_t ordinal = schema.field_index(index->col_unique_ids()[0]);
+        RowView view;
+        view.target = &target;
+        view.partition_name = partition == partition_names.end() ? nullptr : &partition->second;
+        view.row = &row;
+        if (row.record.structure != IndexDiskUsageStructure::kContainer) {
+            view.index = find_index(schema, row.record);
+        }
+        if (view.index != nullptr && !view.index->col_unique_ids().empty()) {
+            const int32_t ordinal = schema.field_index(view.index->col_unique_ids()[0]);
             if (ordinal >= 0) {
-                column_name = schema.column(ordinal).name();
+                view.column_name = schema.column(ordinal).name();
             }
         }
         for (size_t i = 0; i < _slot_columns.size(); ++i) {
-            IColumn* column = columns[i].get();
-            switch (_slot_columns[i]) {
-            case Column::kPartitionName:
-                if (partition == partition_names.end()) {
-                    insert_null(column);
-                } else {
-                    insert_string(column, partition->second);
-                }
-                break;
-            case Column::kTabletId:
-                insert_int64(column, target.tablet_id);
-                break;
-            case Column::kBackendId:
-                insert_int64(column, _state->backend_id());
-                break;
-            case Column::kRowsetId:
-                if (_level == IndexDiskUsageLevel::kTablet) {
-                    insert_null(column);
-                } else {
-                    insert_string(column, row.rowset_id);
-                }
-                break;
-            case Column::kSegmentId:
-                if (_level == IndexDiskUsageLevel::kSegment) {
-                    insert_int32(column, row.segment_id);
-                } else {
-                    insert_null(column);
-                }
-                break;
-            case Column::kIndexId:
-                if (is_container) {
-                    insert_null(column);
-                } else {
-                    insert_int64(column, record.index_id);
-                }
-                break;
-            case Column::kIndexName:
-                if (index == nullptr) {
-                    insert_null(column);
-                } else {
-                    insert_string(column, index->index_name());
-                }
-                break;
-            case Column::kIndexType:
-                if (index == nullptr) {
-                    insert_null(column);
-                } else {
-                    insert_string(column, index->is_ann_index() ? "ANN" : "INVERTED");
-                }
-                break;
-            case Column::kColumnName:
-                if (column_name.empty()) {
-                    insert_null(column);
-                } else {
-                    insert_string(column, column_name);
-                }
-                break;
-            case Column::kIndexSuffix:
-                if (is_container) {
-                    insert_null(column);
-                } else {
-                    insert_string(column, record.index_suffix);
-                }
-                break;
-            case Column::kStructure:
-                insert_string(column, structure_name(record.structure));
-                break;
-            case Column::kStorageFormat:
-                insert_string(column, InvertedIndexStorageFormatPB_Name(row.format));
-                break;
-            case Column::kSegmentCount:
-                insert_int64(column, row.segment_count);
-                break;
-            case Column::kRowCount:
-                insert_int64(column, row.row_count);
-                break;
-            case Column::kTotalBytes:
-                insert_int64(column, record.total_bytes);
-                break;
-            case Column::kDictBytes:
-                insert_component(column, record, record.dict_bytes, false);
-                break;
-            case Column::kPostingBytes:
-                insert_component(column, record, record.posting_bytes, false);
-                break;
-            case Column::kPositionBytes:
-                insert_component(column, record, record.position_bytes, false);
-                break;
-            case Column::kStatsBytes:
-                insert_component(column, record, record.stats_bytes, false);
-                break;
-            case Column::kOtherBytes:
-                insert_component(column, record, record.other_bytes, true);
-                break;
-            case Column::kStatsSource:
-                insert_string(column, "FILE");
-                break;
-            }
+            insert_cell(columns[i].get(), _slot_columns[i],
+                        cell_of(_slot_columns[i], view, _level, _state->backend_id()));
         }
     }
 }
