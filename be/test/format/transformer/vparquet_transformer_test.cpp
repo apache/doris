@@ -166,9 +166,13 @@ TEST_F(VParquetTransformerTest, WritesIcebergSpatialWkbAsBinary) {
 
     const std::string wkb(
             "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00@", 21);
+    const std::string projected_wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00@"
+            "\x8f@\x00\x00\x00\x00\x00@\x9f@",
+            21);
     auto geometry_column = ColumnSpatial::create(TYPE_GEOMETRY);
     auto geography_column = ColumnSpatial::create(TYPE_GEOGRAPHY);
-    geometry_column->insert_data(wkb.data(), wkb.size());
+    geometry_column->insert_data(projected_wkb.data(), projected_wkb.size());
     geography_column->insert_data(wkb.data(), wkb.size());
     Block block;
     block.insert(ColumnWithTypeAndName(std::move(geometry_column), geometry_type, "shape"));
@@ -210,7 +214,7 @@ TEST_F(VParquetTransformerTest, WritesIcebergSpatialWkbAsBinary) {
                 table->column(column_index)->chunk(0));
         ASSERT_EQ(1, array->length());
         ASSERT_FALSE(array->IsNull(0));
-        EXPECT_EQ(wkb, array->GetString(0));
+        EXPECT_EQ(column_index == 0 ? projected_wkb : wkb, array->GetString(0));
     }
     EXPECT_EQ("GEOMETRY",
               table->schema()->field(0)->metadata()->Get("iceberg.binary-type").ValueUnsafe());

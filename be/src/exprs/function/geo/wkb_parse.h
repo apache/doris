@@ -42,6 +42,7 @@ public:
     static GeoParseStatus parse_wkb(std::istream& is, std::unique_ptr<GeoShape>& shape);
     static GeoParseStatus parse_wkb_bytes(const char* data, size_t size,
                                           std::unique_ptr<GeoShape>& shape);
+    static GeoParseStatus validate_wkb_bytes(const char* data, size_t size);
 
 private:
     static void read_hex(std::istream& is, WkbParseContext& ctx);
@@ -61,6 +62,9 @@ private:
     static GeoParseStatus minMemSize(int wkbType, uint64_t size, WkbParseContext& ctx);
 
     static bool readCoordinate(WkbParseContext& ctx);
+
+    static bool validate_geometry(WkbParseContext& ctx);
+    static bool validate_coordinates(uint32_t size, WkbParseContext& ctx);
 };
 
 } // namespace doris

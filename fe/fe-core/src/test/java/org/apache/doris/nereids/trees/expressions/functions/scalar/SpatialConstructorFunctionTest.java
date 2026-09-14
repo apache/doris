@@ -28,13 +28,21 @@ import org.junit.jupiter.api.Test;
 
 public class SpatialConstructorFunctionTest {
     @Test
-    public void testGeomFromWkbReturnsDefaultGeometry() {
-        GeometryType defaultGeometry = new GeometryType("OGC:CRS84");
-        Assertions.assertEquals(defaultGeometry,
+    public void testLegacyGeomFromWkbReturnsVarchar() {
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT,
                 new StGeomFromWKB(new StringLiteral("0101000000000000000000F03F0000000000000040"))
                         .getDataType());
-        Assertions.assertEquals(defaultGeometry,
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT,
                 new StGeometryFromWKB(new StringLiteral("0101000000000000000000F03F0000000000000040"))
+                        .getDataType());
+    }
+
+    @Test
+    public void testTypedGeometryFromWkbReturnsDefaultGeometry() {
+        GeometryType defaultGeometry = new GeometryType("OGC:CRS84");
+        Assertions.assertEquals(defaultGeometry,
+                new StGeometryFromWKBTyped(
+                        new StringLiteral("0101000000000000000000F03F0000000000000040"))
                         .getDataType());
     }
 
@@ -49,7 +57,7 @@ public class SpatialConstructorFunctionTest {
     @Test
     public void testAsTextAcceptsGeometry() {
         GeometryType defaultGeometry = new GeometryType("OGC:CRS84");
-        StAstext asText = new StAstext(new StGeomFromWKB(
+        StAstext asText = new StAstext(new StGeometryFromWKBTyped(
                 new StringLiteral("0101000000000000000000F03F0000000000000040")));
         Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT,
                 asText.getDataType());

@@ -129,7 +129,7 @@ public class CreateIcebergSpatialV3Table {
         sql """set enable_fallback_to_original_planner = false"""
         sql """
             insert into ${tableName} values
-                (1, ST_GeomFromWKB('0101000000000000000000F03F0000000000000040'),
+                (1, ST_GeometryFromWKBTyped('0101000000000000000000F03F0000000000000040'),
                  ST_GeogFromWKB('0101000000000000000000F03F0000000000000040'))
         """
         def rows = sql """

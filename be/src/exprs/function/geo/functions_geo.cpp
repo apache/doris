@@ -39,6 +39,7 @@
 #include "core/string_ref.h"
 #include "exprs/function/geo/geo_common.h"
 #include "exprs/function/geo/geo_types.h"
+#include "exprs/function/geo/wkb_parse.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/function/string_hex_util.h"
 
@@ -145,8 +146,14 @@ Status validate_spatial_wkb_inputs(const Block& block, const ColumnNumbers& argu
                         "row {}",
                         row);
             }
-            GeoParseStatus parse_status;
-            if (decode_geo_shape(value, type, &parse_status) == nullptr) {
+            const auto parse_status = remove_nullable(type)->get_primitive_type() == TYPE_GEOMETRY
+                                              ? WkbParse::validate_wkb_bytes(value.data, value.size)
+                                              : [&] {
+                                                    GeoParseStatus status;
+                                                    decode_geo_shape(value, type, &status);
+                                                    return status;
+                                                }();
+            if (parse_status != GEO_PARSE_OK) {
                 return Status::InvalidArgument("Invalid WKB in spatial input at row {}: {}", row,
                                                to_string(parse_status));
             }
@@ -764,6 +771,45 @@ struct StGeogFromWKB {
     static constexpr PrimitiveType OUTPUT_TYPE = TYPE_GEOGRAPHY;
 };
 
+struct StGeometryFromWKBTyped {
+    static constexpr auto NAME = "st_geometryfromwkbtyped";
+    static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
+    static constexpr PrimitiveType OUTPUT_TYPE = TYPE_GEOMETRY;
+};
+
+template <typename Impl>
+struct LegacyStGeoFromWkb {
+    static constexpr auto NAME = Impl::NAME;
+    static const size_t NUM_ARGS = 1;
+    using Type = DataTypeString;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto& geo = block.get_by_position(arguments[0]).column;
+
+        const auto size = geo->size();
+        auto res = ColumnString::create();
+        auto null_map = ColumnUInt8::create(size, 0);
+        auto& null_map_data = null_map->get_data();
+        GeoParseStatus status;
+        std::string buf;
+        for (int row = 0; row < size; ++row) {
+            const auto value = geo->get_data_at(row);
+            auto shape = GeoShape::from_wkb(value.data, value.size, status);
+            if (shape == nullptr || status != GEO_PARSE_OK) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            buf.clear();
+            shape->encode_to(&buf);
+            res->insert_data(buf.data(), buf.size());
+        }
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res), std::move(null_map)));
+        return Status::OK();
+    }
+};
+
 template <typename Impl>
 struct StGeoFromWkb {
     static constexpr auto NAME = Impl::NAME;
@@ -1039,8 +1085,10 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StGeoFromText<StPolyFromText>>>();
     factory.register_function<GeoFunction<StAreaSquareMeters>>();
     factory.register_function<GeoFunction<StAreaSquareKm>>();
-    factory.register_function<SpatialWkbConstructorFunction<StGeoFromWkb<StGeometryFromWKB>>>();
-    factory.register_function<SpatialWkbConstructorFunction<StGeoFromWkb<StGeomFromWKB>>>();
+    factory.register_function<GeoFunction<LegacyStGeoFromWkb<StGeometryFromWKB>>>();
+    factory.register_function<GeoFunction<LegacyStGeoFromWkb<StGeomFromWKB>>>();
+    factory.register_function<
+            SpatialWkbConstructorFunction<StGeoFromWkb<StGeometryFromWKBTyped>>>();
     factory.register_function<SpatialWkbConstructorFunction<StGeoFromWkb<StGeogFromWKB>>>();
     factory.register_function<GeoFunction<StAsBinary>>();
     factory.register_function<GeoFunction<StLength>>();

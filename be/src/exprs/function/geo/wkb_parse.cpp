@@ -97,6 +97,30 @@ GeoParseStatus WkbParse::parse_wkb_bytes(const char* data, size_t size,
     return ctx.parse_status;
 }
 
+GeoParseStatus WkbParse::validate_wkb_bytes(const char* data, size_t size) {
+    if (size == 0) {
+        return GEO_PARSE_WKB_SYNTAX_ERROR;
+    }
+
+    try {
+        const auto byte_order = static_cast<unsigned char>(data[0]);
+        WkbParseContext ctx;
+        if (byte_order == byteOrder::wkbNDR) {
+            ctx.dis = ByteOrderDataInStream(reinterpret_cast<const unsigned char*>(data), size);
+            ctx.dis.setOrder(ByteOrderValues::ENDIAN_LITTLE);
+        } else if (byte_order == byteOrder::wkbXDR) {
+            ctx.dis = ByteOrderDataInStream(reinterpret_cast<const unsigned char*>(data), size);
+            ctx.dis.setOrder(ByteOrderValues::ENDIAN_BIG);
+        } else {
+            return GEO_PARSE_WKB_SYNTAX_ERROR;
+        }
+        return validate_geometry(ctx) && ctx.dis.size() == 0 ? GEO_PARSE_OK
+                                                             : GEO_PARSE_WKB_SYNTAX_ERROR;
+    } catch (...) {
+        return GEO_PARSE_WKB_SYNTAX_ERROR;
+    }
+}
+
 void WkbParse::read_hex(std::istream& is, WkbParseContext& ctx) {
     // setup input/output stream
     std::stringstream os(std::ios_base::binary | std::ios_base::in | std::ios_base::out);
@@ -324,6 +348,54 @@ bool WkbParse::readCoordinate(WkbParseContext& ctx) {
         ctx.ordValues[i] = ctx.dis.readDouble();
     }
 
+    return true;
+}
+
+bool WkbParse::validate_geometry(WkbParseContext& ctx) {
+    if (ctx.dis.size() < 5) {
+        return false;
+    }
+    ctx.dis.readByte();
+    const uint32_t type = ctx.dis.readUnsigned();
+    constexpr uint32_t ewkb_metadata_flags = 0xE0000000;
+    if ((type & ewkb_metadata_flags) != 0 || (type >= 1000 && type < 4000)) {
+        return false;
+    }
+
+    switch (type & WKB_TYPE_MASK) {
+    case wkbType::wkbPoint:
+        return validate_coordinates(1, ctx);
+    case wkbType::wkbLine: {
+        const uint32_t size = ctx.dis.readUnsigned();
+        return size > 0 && validate_coordinates(size, ctx);
+    }
+    case wkbType::wkbPolygon: {
+        const uint32_t loops = ctx.dis.readUnsigned();
+        if (loops == 0 || loops > ctx.dis.size() / sizeof(uint32_t)) {
+            return false;
+        }
+        for (uint32_t loop = 0; loop < loops; ++loop) {
+            const uint32_t size = ctx.dis.readUnsigned();
+            if (size < 3 || !validate_coordinates(size, ctx)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
+bool WkbParse::validate_coordinates(uint32_t size, WkbParseContext& ctx) {
+    constexpr size_t coordinate_size = 2 * sizeof(double);
+    if (size > ctx.dis.size() / coordinate_size) {
+        return false;
+    }
+    for (uint32_t coordinate = 0; coordinate < size; ++coordinate) {
+        ctx.dis.readDouble();
+        ctx.dis.readDouble();
+    }
     return true;
 }
 

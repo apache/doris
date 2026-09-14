@@ -124,16 +124,46 @@ TEST(VGeoFunctionsTest, function_geo_st_as_text_with_spatial_wkb) {
     }
 }
 
-TEST(VGeoFunctionsTest, function_geo_st_geomfromwkb_returns_raw_geometry_wkb) {
+TEST(VGeoFunctionsTest, function_geo_st_as_text_preserves_null_spatial_rows) {
     const std::string wkb(
             "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
-    for (const auto& function_name : {"st_geomfromwkb", "st_geometryfromwkb"}) {
+    auto spatial_values = ColumnSpatial::create(TYPE_GEOMETRY);
+    spatial_values->insert_data(wkb.data(), wkb.size());
+    spatial_values->insert_default();
+    auto null_map = ColumnUInt8::create();
+    null_map->insert_value(0);
+    null_map->insert_value(1);
+
+    auto spatial_type = make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY));
+    ColumnsWithTypeAndName arguments {
+            {ColumnNullable::create(std::move(spatial_values), std::move(null_map)), spatial_type,
+             "spatial"}};
+    auto result_type = make_nullable(std::make_shared<DataTypeString>());
+    auto function =
+            SimpleFunctionFactory::instance().get_function("st_astext", arguments, result_type);
+    ASSERT_NE(nullptr, function);
+
+    Block block;
+    block.insert(arguments.front());
+    block.insert({nullptr, result_type, "result"});
+    ASSERT_TRUE(function->execute(nullptr, block, {0}, 1, 2).ok());
+
+    const auto& result = block.get_by_position(1).column;
+    EXPECT_EQ("POINT (1 2)", std::string(result->get_data_at(0).data, result->get_data_at(0).size));
+    EXPECT_TRUE(result->is_null_at(1));
+}
+
+TEST(VGeoFunctionsTest, function_geo_st_geometryfromwkbtyped_returns_raw_geometry_wkb) {
+    const std::string wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    for (const auto& function_name : {"st_geometryfromwkbtyped"}) {
         auto input_column = ColumnString::create();
         input_column->insert_data("0101000000000000000000F03F0000000000000040", 42);
         auto input_type = std::make_shared<DataTypeString>();
         ColumnsWithTypeAndName arguments {{std::move(input_column), input_type, "wkb"}};
         auto result_type = make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY));
-        auto function = SimpleFunctionFactory::instance().get_function(function_name, arguments, result_type);
+        auto function = SimpleFunctionFactory::instance().get_function(function_name, arguments,
+                                                                       result_type);
         ASSERT_NE(nullptr, function);
 
         Block block;
@@ -146,7 +176,7 @@ TEST(VGeoFunctionsTest, function_geo_st_geomfromwkb_returns_raw_geometry_wkb) {
     }
 }
 
-TEST(VGeoFunctionsTest, function_geo_st_geomfromwkb_accepts_0x_prefixed_wkb) {
+TEST(VGeoFunctionsTest, function_geo_st_geometryfromwkbtyped_accepts_0x_prefixed_wkb) {
     const std::string wkb(
             "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
     auto input_column = ColumnString::create();
@@ -154,8 +184,8 @@ TEST(VGeoFunctionsTest, function_geo_st_geomfromwkb_accepts_0x_prefixed_wkb) {
     auto input_type = std::make_shared<DataTypeString>();
     ColumnsWithTypeAndName arguments {{std::move(input_column), input_type, "wkb"}};
     auto result_type = make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY));
-    auto function = SimpleFunctionFactory::instance().get_function("st_geomfromwkb", arguments,
-                                                                   result_type);
+    auto function = SimpleFunctionFactory::instance().get_function("st_geometryfromwkbtyped",
+                                                                   arguments, result_type);
     ASSERT_NE(nullptr, function);
 
     Block block;
@@ -176,7 +206,8 @@ TEST(VGeoFunctionsTest, function_geo_st_geogfromwkb_returns_raw_geography_wkb) {
     ColumnsWithTypeAndName arguments {{std::move(input_column), input_type, "wkb"}};
     auto result_type = make_nullable(
             std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "spherical"));
-    auto function = SimpleFunctionFactory::instance().get_function("st_geogfromwkb", arguments, result_type);
+    auto function = SimpleFunctionFactory::instance().get_function("st_geogfromwkb", arguments,
+                                                                   result_type);
     ASSERT_NE(nullptr, function);
 
     Block block;
@@ -193,18 +224,19 @@ TEST(VGeoFunctionsTest, function_geo_fromwkb_rejects_unsupported_metadata) {
     const std::vector<std::string> unsupported_wkb {
             "0101000080000000000000F03F00000000000000400000000000000840",
             "0101000020E6100000000000000000F03F0000000000000040"};
-    for (const auto& function_name : {"st_geomfromwkb", "st_geogfromwkb"}) {
+    for (const auto& function_name : {"st_geometryfromwkbtyped", "st_geogfromwkb"}) {
         for (const auto& wkb : unsupported_wkb) {
             auto input_column = ColumnString::create();
             input_column->insert_data(wkb.data(), wkb.size());
             auto input_type = std::make_shared<DataTypeString>();
             ColumnsWithTypeAndName arguments {{std::move(input_column), input_type, "wkb"}};
-            auto result_type = function_name == "st_geomfromwkb"
-                    ? make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY))
-                    : make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84",
-                                                                       "spherical"));
-            auto function =
-                    SimpleFunctionFactory::instance().get_function(function_name, arguments, result_type);
+            auto result_type =
+                    function_name == "st_geometryfromwkbtyped"
+                            ? make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY))
+                            : make_nullable(std::make_shared<DataTypeSpatial>(
+                                      TYPE_GEOGRAPHY, "OGC:CRS84", "spherical"));
+            auto function = SimpleFunctionFactory::instance().get_function(function_name, arguments,
+                                                                           result_type);
             ASSERT_NE(nullptr, function);
 
             Block block;

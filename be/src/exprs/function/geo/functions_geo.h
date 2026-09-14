@@ -64,6 +64,7 @@ public:
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return Impl::NUM_ARGS; }
     bool is_variadic() const override { return false; }
+    bool use_default_implementation_for_nulls() const override { return false; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<ReturnType>());

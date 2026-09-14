@@ -481,9 +481,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDisjoint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistanceSphere;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeogFromWKB;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromWKB;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromWKBTyped;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomfromtext;
@@ -1076,6 +1077,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StGeomfromtext.class, "st_geomfromtext"),
             scalar(StGeomFromWKB.class, "st_geomfromwkb"),
             scalar(StGeogFromWKB.class, "st_geogfromwkb"),
+            scalar(StGeometryFromWKBTyped.class, "st_geometryfromwkbtyped"),
             scalar(StLinefromtext.class, "st_linefromtext"),
             scalar(StLinestringfromtext.class, "st_linestringfromtext"),
             scalar(StPoint.class, "st_point"),
