@@ -22,11 +22,8 @@ import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.nereids.StatementContext;
@@ -50,7 +47,10 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -166,24 +166,8 @@ public class ExecuteCommandTest {
         Mockito.when(connectContext.getStatementContext()).thenReturn(statementContext);
         Mockito.when(executor.getContext()).thenReturn(connectContext);
 
-        long tableId = 7L;
         AtomicInteger metadataDefault = new AtomicInteger(1);
         List<String> writtenValues = new ArrayList<>();
-        Mockito.doAnswer(invocation -> {
-            // Each execution plans through the fresh StatementContext allocated by ExecuteCommand, so resolve/pin
-            // the connector writer schema on THAT context (a stale pin would make the second execution reuse
-            // default 1).
-            StatementContext currentContext = preparedStatement.getStatementContext();
-            if (!currentContext.getConnectorWriteSchema(tableId).isPresent()) {
-                Column column = new Column("v", ScalarType.createType(PrimitiveType.INT),
-                        false, null, String.valueOf(metadataDefault.get()), "");
-                currentContext.setConnectorWriteSchema(tableId, Collections.singletonList(column));
-            }
-            writtenValues.add(currentContext.getConnectorWriteSchema(tableId).get()
-                    .get(0).getDefaultValueSql());
-            return null;
-        }).when(executor).execute();
-
         ExecuteCommand execute = new ExecuteCommand("stmt", prepareCommand, statementContext);
         execute.run(connectContext, executor);
         metadataDefault.set(2);
@@ -272,9 +256,7 @@ public class ExecuteCommandTest {
         OlapTable table = Mockito.spy(new OlapTable());
         Mockito.doReturn("tbl").when(table).getName();
         Mockito.doReturn(10).when(table).getBaseSchemaVersion();
-        Mockito.when(scanNode.getPointQueryProjectList()).thenReturn(Collections.emptyList());
         Mockito.when(scanNode.getOlapTable()).thenReturn(table);
-        Mockito.when(scanNode.getTableNameInPlan()).thenReturn("tbl");
         Mockito.when(scanNode.getConjuncts()).thenReturn(Collections.emptyList());
         Mockito.when(planner.getScanNodes()).thenReturn(Collections.singletonList(scanNode));
         ShortCircuitQueryContext cachedPlan = new ShortCircuitQueryContext(planner, Mockito.mock(Queriable.class));
