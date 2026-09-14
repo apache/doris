@@ -172,6 +172,7 @@ import org.apache.doris.nereids.rules.rewrite.batch.ApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.batch.CorrelateApplyToUnCorrelateApply;
 import org.apache.doris.nereids.rules.rewrite.batch.EliminateUselessPlanUnderApply;
 import org.apache.doris.nereids.rules.rewrite.eageraggregation.PushDownAggregation;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.ReorderJoinBeforeEagerAgg;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
@@ -676,6 +677,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 || cascadesContext.rewritePlanContainsTypes(LogicalUnion.class),
                         topDown(new PushDownAggThroughJoinOnPkFk()),
                         topDown(new PullUpJoinFromUnionAll())
+                ),
+                topic("Reorder join before eager aggregation",
+                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalJoin.class),
+                        custom(RuleType.REORDER_JOIN_BEFORE_EAGER_AGG, ReorderJoinBeforeEagerAgg::new)
                 ),
                 topic("Eager aggregation",
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(
