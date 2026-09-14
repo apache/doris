@@ -24,6 +24,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
@@ -45,6 +46,8 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -310,6 +313,35 @@ public class StmtExecutorTest extends TestWithFeService {
 
         StmtExecutor executor = new StmtExecutor(mockCtx, stmt, false);
         executor.sendTextResultRow(resultSet);
+    }
+
+    @Test
+    public void testProxyResultSetRetainsMetadataForZeroAndMultipleRows() throws IOException {
+        for (int rowCount : new int[] {0, 1, 2}) {
+            ConnectContext ctx = Mockito.mock(ConnectContext.class);
+            ProxyMysqlChannel channel = new ProxyMysqlChannel();
+            Mockito.when(ctx.getConnectType()).thenReturn(ConnectType.MYSQL);
+            Mockito.when(ctx.getMysqlChannel()).thenReturn(channel);
+            Mockito.when(ctx.getSessionVariable()).thenReturn(VariableMgr.newSessionVariable());
+            QueryState state = new QueryState();
+            Mockito.when(ctx.getState()).thenReturn(state);
+            List<List<String>> rows = Lists.newArrayList();
+            for (int index = 0; index < rowCount; index++) {
+                rows.add(Collections.singletonList("stats-" + index + ".parquet"));
+            }
+            ResultSet result = new CommonResultSet(new CommonResultSetMetaData(Collections.singletonList(
+                    new Column("partition_statistics_file", PrimitiveType.STRING, true))), rows);
+            new StmtExecutor(ctx, new OriginStatement("", 0), true).sendResultSet(result);
+            List<ByteBuffer> packets = channel.getProxyResultBufferList();
+            Assertions.assertEquals(3 + rowCount, packets.size());
+            Assertions.assertEquals(1, packets.get(0).get(0));
+            ByteBuffer definition = packets.get(1).duplicate();
+            byte[] bytes = new byte[definition.remaining()];
+            definition.get(bytes);
+            Assertions.assertTrue(new String(bytes, StandardCharsets.UTF_8).contains("partition_statistics_file"));
+            Assertions.assertEquals(QueryState.MysqlStateType.EOF, state.getStateType());
+            Mockito.verify(ctx).updateReturnRows(rowCount);
+        }
     }
 
     @Test

@@ -16,7 +16,8 @@
 // under the License.
 
 namespace cpp tparquet
-namespace java org.apache.parquet.format
+// Keep Doris-generated Java beans separate from parquet-format-structures.
+namespace java org.apache.doris.thrift.parquet
 
 /**
  * Types supported by Parquet.  These types are intended to be used in combination
