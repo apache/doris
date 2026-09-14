@@ -23,7 +23,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlProto;
-import org.apache.doris.service.arrowflight.sessions.FlightSqlConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
@@ -98,7 +97,7 @@ public class FEOpExecutorMysqlProtocolTest {
         Mockito.when(env.getSelfNode()).thenReturn(new SystemInfoService.HostInfo("127.0.0.1", 9010));
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            FlightSqlConnectContext context = new FlightSqlConnectContext("alice");
+            ConnectContext context = ConnectContext.forFlight("alice");
             context.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("alice", "%"));
             context.setRemoteIP("127.0.0.1");
             TMasterOpRequest request = new TestFEOpExecutor(context).build();

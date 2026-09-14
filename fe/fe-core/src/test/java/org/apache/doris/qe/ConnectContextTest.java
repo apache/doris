@@ -99,13 +99,11 @@ public class ConnectContextTest {
         ctx.currentDb = "test_db";
         ctx.currentDbId = 10;
         ctx.addLastDBOfCatalog("external_catalog", "test_db");
-        ctx.addPreparedQuery("1", "select 1");
         long initialPreparedStmtId = ctx.getPreparedStmtId();
         ctx.getSessionVariable().enableServeSidePreparedStatement = true;
         ctx.addPreparedStatementContext(String.valueOf(initialPreparedStmtId),
                 new PreparedStatementContext(null, ctx, null, "select 1"));
         long nextPreparedStmtId = ctx.getPreparedStmtId();
-        ctx.setRunningQuery("select 1");
         TUniqueId queryId = new TUniqueId(100, 200);
         ctx.setQueryId(queryId);
         ctx.setTraceId("old_trace");
@@ -129,8 +127,6 @@ public class ConnectContextTest {
         Assertions.assertEquals("external_catalog", ctx.getDefaultCatalog());
         Assertions.assertEquals("test_db", ctx.getDatabase());
         Assertions.assertEquals("test_db", ctx.getLastDBOfCatalog("external_catalog"));
-        Assertions.assertNull(ctx.getPreparedQuery("1"));
-        Assertions.assertNull(ctx.getRunningQuery());
         Assertions.assertNull(ctx.queryId());
         Assertions.assertNull(ctx.getLastQueryId());
         Assertions.assertNull(ctx.traceId());
@@ -763,7 +759,7 @@ public class ConnectContextTest {
 
     @Test
     public void testCloseFlightSqlDeferredExecutorsFinalizesEachExecutor() {
-        ConnectContext ctx = new ConnectContext();
+        ConnectContext ctx = ConnectContext.forFlight("test-peer-identity");
         StmtExecutor deferred1 = Mockito.mock(StmtExecutor.class);
         StmtExecutor deferred2 = Mockito.mock(StmtExecutor.class);
         ctx.addFlightSqlDeferredExecutor(deferred1);
@@ -779,7 +775,7 @@ public class ConnectContextTest {
 
     @Test
     public void testCloseFlightSqlDeferredExecutorsClearsListSoSecondCallIsNoOp() {
-        ConnectContext ctx = new ConnectContext();
+        ConnectContext ctx = ConnectContext.forFlight("test-peer-identity");
         StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
         ctx.addFlightSqlDeferredExecutor(deferred);
 
@@ -794,7 +790,7 @@ public class ConnectContextTest {
 
     @Test
     public void testCloseFlightSqlDeferredExecutorsFinalizesRemainingWhenOneFails() {
-        ConnectContext ctx = new ConnectContext();
+        ConnectContext ctx = ConnectContext.forFlight("test-peer-identity");
         StmtExecutor failing = Mockito.mock(StmtExecutor.class);
         StmtExecutor healthy = Mockito.mock(StmtExecutor.class);
         Mockito.doThrow(new RuntimeException("finalize failed")).when(failing).finalizeArrowFlightQuery();

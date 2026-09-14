@@ -20,6 +20,7 @@ package org.apache.doris.qe.protocol;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.mysql.MysqlCapability;
+import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MysqlConnectProcessor;
@@ -54,7 +55,7 @@ import java.util.List;
  *   <li>the same result set with {@code CLIENT_DEPRECATE_EOF} negotiated off, which decides whether
  *       a result set ends in an EOF or an OK, and adds one after the column definitions;</li>
  *   <li>{@code SHOW VARIABLES} (both EOF flavors), {@code DESC} (two data rows), {@code SET},
- *       {@code USE}, {@code EXPLAIN};</li>
+ *       {@code USE}, {@code EXPLAIN}, {@code EXPLAIN PLAN PROCESS};</li>
  *   <li>errors: a syntax error, an unknown table, and an error followed by a healthy statement on
  *       the same connection;</li>
  *   <li>multi-statement requests with and without {@code CLIENT_MULTI_STATEMENTS}, which decides
@@ -124,6 +125,9 @@ public class MysqlPacketGoldenTest extends TestWithFeService {
                 .add(query("use " + DB_NAME)));
         cases.add(new GoldenCase("explain-select", MODERN_CLIENT, ProtocolGolden.Fidelity.SUMMARY)
                 .add(query("explain select 1")));
+        // The rule names and plan shapes move with the planner, like the plan text above.
+        cases.add(new GoldenCase("explain-plan-process", MODERN_CLIENT, ProtocolGolden.Fidelity.SUMMARY)
+                .add(query("explain plan process select 1")));
         cases.add(new GoldenCase("syntax-error", MODERN_CLIENT, ProtocolGolden.Fidelity.SUMMARY)
                 .add(query("select from")));
         cases.add(new GoldenCase("unknown-table", MODERN_CLIENT)
@@ -183,7 +187,7 @@ public class MysqlPacketGoldenTest extends TestWithFeService {
     }
 
     private ConnectContext newContext(RecordingMysqlChannel channel, int clientFlags) {
-        ConnectContext ctx = new GoldenConnectContext(channel);
+        ConnectContext ctx = new ConnectContext(new MysqlProtocolAdapter(channel));
         ctx.setCurrentUserIdentity(UserIdentity.ROOT);
         ctx.setRemoteIP("127.0.0.1");
         ctx.setEnv(Env.getCurrentEnv());
@@ -244,14 +248,6 @@ public class MysqlPacketGoldenTest extends TestWithFeService {
         byte[] argumentBytes = argument.getBytes(StandardCharsets.UTF_8);
         payload.write(argumentBytes, 0, argumentBytes.length);
         return new Command(label, payload.toByteArray());
-    }
-
-    /** A ConnectContext wired to a channel of our choosing; the field is protected, so subclass it. */
-    private static class GoldenConnectContext extends ConnectContext {
-        GoldenConnectContext(RecordingMysqlChannel channel) {
-            super();
-            this.mysqlChannel = channel;
-        }
     }
 
     private static class Command {

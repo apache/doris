@@ -41,6 +41,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 /**
@@ -235,6 +236,50 @@ public class IcebergConnectorCacheTest {
                 new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext()).tableCacheForTest();
         Assertions.assertNotNull(cache, "a plain catalog must build the cross-query table cache");
         Assertions.assertTrue(cache.isEnabled(), "the default 24h TTL enables the cache");
+    }
+
+    @Test
+    public void nonPositiveTableTtlKeepsConnectorLoadsLiveWithAndWithoutQuota() throws Exception {
+        for (String ttl : new String[] {"-1", "0"}) {
+            for (String quotaKey : new String[] {"", "meta.cache.max-weight",
+                    "meta.cache.iceberg.table.max-weight"}) {
+                Map<String, String> properties = props(IcebergConnector.TABLE_CACHE_TTL_SECOND, ttl);
+                if (!quotaKey.isEmpty()) {
+                    properties.put(quotaKey, "1MB");
+                }
+                try (IcebergConnector connector =
+                        new IcebergConnector(properties, new RecordingConnectorContext())) {
+                    IcebergTableCache tables = connector.tableCacheForTest();
+                    IcebergLatestSnapshotCache snapshots = connector.latestSnapshotCacheForTest();
+                    TableIdentifier id = TableIdentifier.of("db1", "t1");
+                    AtomicInteger loads = new AtomicInteger();
+                    Supplier<IcebergLatestSnapshotCache.CachedSnapshot> loader = () -> {
+                        Table table = tables.getOrLoad(id, () -> fakeTable(
+                                Integer.toString(loads.incrementAndGet())));
+                        return new IcebergLatestSnapshotCache.CachedSnapshot(
+                                Long.parseLong(table.name()), table.schema().schemaId());
+                    };
+                    Assertions.assertEquals(1L, snapshots.getOrLoad(id, loader).snapshotId);
+                    Assertions.assertEquals(2L, snapshots.getOrLoad(id, loader).snapshotId);
+                    Assertions.assertEquals(2, loads.get());
+                    Assertions.assertFalse(tables.isEnabled(), ttl + " / " + quotaKey);
+                    Assertions.assertEquals(0, tables.size());
+                    Assertions.assertEquals(0, snapshots.size());
+                    Assertions.assertFalse(connector.partitionCacheForTest().isEnabled());
+                }
+            }
+        }
+    }
+
+    @Test
+    public void independentPartitionTtlKeepsItsNoExpirationSemantics() throws Exception {
+        Map<String, String> properties = props(IcebergConnector.TABLE_CACHE_TTL_SECOND, "-1");
+        properties.put("meta.cache.iceberg.partition.ttl-second", "-1");
+        try (IcebergConnector connector =
+                new IcebergConnector(properties, new RecordingConnectorContext())) {
+            Assertions.assertFalse(connector.tableCacheForTest().isEnabled());
+            Assertions.assertTrue(connector.partitionCacheForTest().isEnabled());
+        }
     }
 
     @Test

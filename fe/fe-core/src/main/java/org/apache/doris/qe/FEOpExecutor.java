@@ -26,10 +26,10 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.mysql.MysqlCommand;
-import org.apache.doris.mysql.MysqlCursorFetchCompatibility;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlResultSetEndPacket;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TExpr;
@@ -291,9 +291,7 @@ public class FEOpExecutor {
         }
         List<ByteBuffer> packets = new ArrayList<>(result.getQueryResultBufList());
         int metadataEnd = Math.toIntExact(MysqlProto.readVInt(packets.get(0).duplicate())) + 1;
-        boolean needsCursorTerminator = ctx.isCursorFetchRequested()
-                && MysqlCursorFetchCompatibility.resolve(ctx.getConnectAttributes())
-                        != MysqlCursorFetchCompatibility.Behavior.STANDARD;
+        boolean needsCursorTerminator = MysqlProtocolAdapter.of(ctx).clientConsumesCursorMetadataTerminator(ctx);
         // An execution error may occur after only part of the metadata has been buffered.
         if (metadataEnd > packets.size()) {
             Preconditions.checkState(isErrorPacket(result.packet));

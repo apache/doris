@@ -21,11 +21,15 @@ import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimate;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimator;
 import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.connector.iceberg.IcebergPartitionUtils.IcebergRawPartition;
 
 import org.apache.iceberg.catalog.TableIdentifier;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
@@ -86,19 +90,38 @@ final class IcebergPartitionCache {
         }
     }
 
+    static final class CachedPartitions {
+        final List<IcebergRawPartition> partitions;
+        final MetaCacheSizeEstimate sizeEstimate;
+
+        CachedPartitions(List<IcebergRawPartition> partitions, boolean estimateWeight) {
+            this.partitions = estimateWeight
+                    ? Collections.unmodifiableList(new ArrayList<>(partitions))
+                    : partitions;
+            this.sizeEstimate = estimateWeight
+                    ? MetaCacheSizeEstimator.estimateSafely("iceberg_partition_estimator_failure",
+                            () -> MetaCacheSizeEstimate.complete(
+                                    IcebergCacheSizeEstimator.estimatePartitions(this.partitions)))
+                    : MetaCacheSizeEstimate.complete(0L);
+        }
+    }
+
     private final CatalogMetaCache owner;
-    private final MetaCache<Key, List<IcebergRawPartition>> entry;
+    private final MetaCache<Key, CachedPartitions> entry;
 
     IcebergPartitionCache(long ttlSeconds, int maxSize) {
-        this(new CatalogMetaCache(), ttlSeconds, maxSize);
+        this(CatalogMetaCache.unmanaged(), ttlSeconds, maxSize);
     }
 
     IcebergPartitionCache(CatalogMetaCache owner, long ttlSeconds, int maxSize) {
+        this(owner, CacheSpec.ofConnectorTtl(ttlSeconds, maxSize));
+    }
+
+    IcebergPartitionCache(CatalogMetaCache owner, CacheSpec spec) {
         this.owner = owner;
-        // "<= 0 disables" connector TTL contract, folded to CacheSpec's disable sentinel (CacheSpec.ofConnectorTtl).
-        CacheSpec spec = CacheSpec.ofConnectorTtl(ttlSeconds, maxSize);
         this.entry = owner.create(MetaCacheDefinition
-                .<Key, List<IcebergRawPartition>>builder("iceberg-partition", spec, IcebergPartitionCache::scope)
+                .<Key, CachedPartitions>builder("iceberg-partition", spec, IcebergPartitionCache::scope)
+                .sizeEstimator(IcebergCacheSizeEstimator::estimatePartitionEntry)
                 .build());
     }
 
@@ -113,7 +136,8 @@ final class IcebergPartitionCache {
      * loader runs OUTSIDE Caffeine's compute lock (single-flight per key) and its exception propagates unwrapped.
      */
     List<IcebergRawPartition> getOrLoad(Key key, Supplier<List<IcebergRawPartition>> loader) {
-        return entry.get(key, ignored -> loader.get());
+        return entry.get(key, ignored -> new CachedPartitions(loader.get(),
+                entry.isEnabled() && entry.isWeightBounded())).partitions;
     }
 
     /** Drops every cached snapshot entry for one table so the next read scans live (REFRESH TABLE). */
