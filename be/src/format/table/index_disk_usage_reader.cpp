@@ -49,26 +49,16 @@ namespace {
 const std::vector<std::pair<std::string_view, IndexDiskUsageReader::Column>>& column_names() {
     using C = IndexDiskUsageReader::Column;
     static const std::vector<std::pair<std::string_view, C>> names = {
-            {"PARTITION_NAME", C::kPartitionName},
-            {"TABLET_ID", C::kTabletId},
-            {"BACKEND_ID", C::kBackendId},
-            {"ROWSET_ID", C::kRowsetId},
-            {"SEGMENT_ID", C::kSegmentId},
-            {"INDEX_ID", C::kIndexId},
-            {"INDEX_NAME", C::kIndexName},
-            {"INDEX_TYPE", C::kIndexType},
-            {"COLUMN_NAME", C::kColumnName},
-            {"INDEX_SUFFIX", C::kIndexSuffix},
-            {"STRUCTURE", C::kStructure},
-            {"STORAGE_FORMAT", C::kStorageFormat},
-            {"SEGMENT_COUNT", C::kSegmentCount},
-            {"ROW_COUNT", C::kRowCount},
-            {"TOTAL_BYTES", C::kTotalBytes},
-            {"DICT_BYTES", C::kDictBytes},
-            {"POSTING_BYTES", C::kPostingBytes},
-            {"POSITION_BYTES", C::kPositionBytes},
-            {"STATS_BYTES", C::kStatsBytes},
-            {"OTHER_BYTES", C::kOtherBytes},
+            {"PARTITION_NAME", C::kPartitionName}, {"TABLET_ID", C::kTabletId},
+            {"BACKEND_ID", C::kBackendId},         {"ROWSET_ID", C::kRowsetId},
+            {"SEGMENT_ID", C::kSegmentId},         {"INDEX_ID", C::kIndexId},
+            {"INDEX_NAME", C::kIndexName},         {"INDEX_TYPE", C::kIndexType},
+            {"COLUMN_NAME", C::kColumnName},       {"INDEX_SUFFIX", C::kIndexSuffix},
+            {"STRUCTURE", C::kStructure},          {"STORAGE_FORMAT", C::kStorageFormat},
+            {"SEGMENT_COUNT", C::kSegmentCount},   {"ROW_COUNT", C::kRowCount},
+            {"TOTAL_BYTES", C::kTotalBytes},       {"DICT_BYTES", C::kDictBytes},
+            {"POSTING_BYTES", C::kPostingBytes},   {"POSITION_BYTES", C::kPositionBytes},
+            {"STATS_BYTES", C::kStatsBytes},       {"OTHER_BYTES", C::kOtherBytes},
             {"STATS_SOURCE", C::kStatsSource},
     };
     return names;
@@ -261,9 +251,8 @@ Status IndexDiskUsageReader::_fill_block(Block* block, const TIndexDiskUsageTabl
         }
         _append_rows(columns, target, schema, rows);
         for (size_t i = 0; i < _slots.size(); ++i) {
-            block->insert(ColumnWithTypeAndName(std::move(columns[i]),
-                                                _slots[i]->get_data_type_ptr(),
-                                                _slots[i]->col_name()));
+            block->insert(ColumnWithTypeAndName(
+                    std::move(columns[i]), _slots[i]->get_data_type_ptr(), _slots[i]->col_name()));
         }
     } else {
         auto columns_guard = block->mutate_columns_scoped();

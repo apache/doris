@@ -199,8 +199,7 @@ protected:
                                         &file_writer, &opts)
                                 .ok());
         }
-        IndexFileWriter index_file_writer(fs, prefix, rowset_id, 0, format,
-                                          std::move(file_writer));
+        IndexFileWriter index_file_writer(fs, prefix, rowset_id, 0, format, std::move(file_writer));
         std::vector<std::unique_ptr<IndexColumnWriter>> writers;
         for (auto& spec : *specs) {
             std::unique_ptr<IndexColumnWriter> writer;
@@ -218,16 +217,17 @@ protected:
 
     static int64_t container_file_size(const std::string& prefix) {
         int64_t size = 0;
-        EXPECT_TRUE(io::global_local_filesystem()
-                            ->file_size(InvertedIndexDescriptor::get_index_file_path_v2(prefix),
-                                        &size)
-                            .ok());
+        EXPECT_TRUE(
+                io::global_local_filesystem()
+                        ->file_size(InvertedIndexDescriptor::get_index_file_path_v2(prefix), &size)
+                        .ok());
         return size;
     }
 
     void check_text_index_with_positions(InvertedIndexStorageFormatPB format) {
         auto schema = create_schema();
-        std::vector<IndexSpec> specs {{.index = text_index(1, true), .column_index = 1, .feed = feed_text}};
+        std::vector<IndexSpec> specs {
+                {.index = text_index(1, true), .column_index = 1, .feed = feed_text}};
         const std::string prefix = write_segment(format, "rs_text", schema, &specs);
 
         IndexDiskUsageCollector collector(io::global_local_filesystem(), prefix, schema, format,
@@ -241,9 +241,8 @@ protected:
         EXPECT_GT(text->dict_bytes, 0);
         EXPECT_GT(text->posting_bytes, 0);
         EXPECT_GT(text->position_bytes, 0);
-        EXPECT_EQ(text->total_bytes, text->dict_bytes + text->posting_bytes +
-                                             text->position_bytes + text->stats_bytes +
-                                             text->other_bytes);
+        EXPECT_EQ(text->total_bytes, text->dict_bytes + text->posting_bytes + text->position_bytes +
+                                             text->stats_bytes + text->other_bytes);
         const IndexDiskUsageRecord* container =
                 find_record(records, -1, IndexDiskUsageStructure::kContainer);
         ASSERT_NE(container, nullptr);
@@ -323,7 +322,8 @@ TEST_F(IndexDiskUsageCollectorTest, CollectV3TextIndexWithPositions) {
 
 TEST_F(IndexDiskUsageCollectorTest, CollectV2DocsOnlyHasNoPositions) {
     auto schema = create_schema();
-    std::vector<IndexSpec> specs {{.index = text_index(1, false), .column_index = 1, .feed = feed_text}};
+    std::vector<IndexSpec> specs {
+            {.index = text_index(1, false), .column_index = 1, .feed = feed_text}};
     const std::string prefix =
             write_segment(InvertedIndexStorageFormatPB::V2, "rs_docs", schema, &specs);
 
@@ -340,7 +340,8 @@ TEST_F(IndexDiskUsageCollectorTest, CollectV2DocsOnlyHasNoPositions) {
 
 TEST_F(IndexDiskUsageCollectorTest, CollectV2NumericIndexIsBkd) {
     auto schema = create_schema();
-    std::vector<IndexSpec> specs {{.index = numeric_index(2), .column_index = 0, .feed = feed_numbers}};
+    std::vector<IndexSpec> specs {
+            {.index = numeric_index(2), .column_index = 0, .feed = feed_numbers}};
     const std::string prefix =
             write_segment(InvertedIndexStorageFormatPB::V2, "rs_num", schema, &specs);
 
@@ -357,8 +358,9 @@ TEST_F(IndexDiskUsageCollectorTest, CollectV2NumericIndexIsBkd) {
 
 TEST_F(IndexDiskUsageCollectorTest, CollectFiltersIndexIds) {
     auto schema = create_schema();
-    std::vector<IndexSpec> specs {{.index = text_index(1, true), .column_index = 1, .feed = feed_text},
-                                  {.index = numeric_index(2), .column_index = 0, .feed = feed_numbers}};
+    std::vector<IndexSpec> specs {
+            {.index = text_index(1, true), .column_index = 1, .feed = feed_text},
+            {.index = numeric_index(2), .column_index = 0, .feed = feed_numbers}};
     const std::string prefix =
             write_segment(InvertedIndexStorageFormatPB::V2, "rs_filter", schema, &specs);
 
@@ -388,7 +390,8 @@ TEST_F(IndexDiskUsageCollectorTest, CollectMissingFileFails) {
 TEST_F(IndexDiskUsageCollectorTest, CollectV1TextIndex) {
     auto schema = create_schema();
     schema->append_index(text_index(1, true));
-    std::vector<IndexSpec> specs {{.index = text_index(1, true), .column_index = 1, .feed = feed_text}};
+    std::vector<IndexSpec> specs {
+            {.index = text_index(1, true), .column_index = 1, .feed = feed_text}};
     const std::string prefix =
             write_segment(InvertedIndexStorageFormatPB::V1, "rs_v1", schema, &specs);
 
@@ -412,7 +415,8 @@ TEST_F(IndexDiskUsageCollectorTest, CollectV1TextIndex) {
 
 TEST_F(IndexDiskUsageCollectorTest, CollectSniiTextIndex) {
     auto schema = create_schema();
-    std::vector<IndexSpec> specs {{.index = text_index(1, true), .column_index = 1, .feed = feed_many_text}};
+    std::vector<IndexSpec> specs {
+            {.index = text_index(1, true), .column_index = 1, .feed = feed_many_text}};
     const std::string prefix =
             write_segment(InvertedIndexStorageFormatPB::SNII, "rs_snii", schema, &specs);
 
@@ -432,7 +436,8 @@ TEST_F(IndexDiskUsageCollectorTest, CollectSniiTextIndex) {
 
 TEST_F(IndexDiskUsageCollectorTest, CollectSniiDocsOnlyHasNoPositions) {
     auto schema = create_schema();
-    std::vector<IndexSpec> specs {{.index = text_index(1, false), .column_index = 1, .feed = feed_many_text}};
+    std::vector<IndexSpec> specs {
+            {.index = text_index(1, false), .column_index = 1, .feed = feed_many_text}};
     const std::string prefix =
             write_segment(InvertedIndexStorageFormatPB::SNII, "rs_snii_docs", schema, &specs);
 
@@ -446,7 +451,8 @@ TEST_F(IndexDiskUsageCollectorTest, CollectSniiDocsOnlyHasNoPositions) {
 TEST_F(IndexDiskUsageCollectorTest, CollectSniiPositionDetail) {
     auto schema = create_schema();
     TabletIndex index = text_index(1, true);
-    std::vector<IndexSpec> specs {{.index = text_index(1, true), .column_index = 1, .feed = feed_many_text}};
+    std::vector<IndexSpec> specs {
+            {.index = text_index(1, true), .column_index = 1, .feed = feed_many_text}};
     const std::string prefix =
             write_segment(InvertedIndexStorageFormatPB::SNII, "rs_snii_detail", schema, &specs);
 
@@ -465,7 +471,8 @@ TEST_F(IndexDiskUsageCollectorTest, CollectSniiPositionDetail) {
 
 TEST_F(IndexDiskUsageCollectorTest, CollectSniiBkdIndex) {
     auto schema = create_schema();
-    std::vector<IndexSpec> specs {{.index = numeric_index(2), .column_index = 0, .feed = feed_numbers}};
+    std::vector<IndexSpec> specs {
+            {.index = numeric_index(2), .column_index = 0, .feed = feed_numbers}};
     const std::string prefix =
             write_segment(InvertedIndexStorageFormatPB::SNII, "rs_snii_bkd", schema, &specs);
 

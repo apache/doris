@@ -365,9 +365,9 @@ Result<std::unique_ptr<doris::snii::reader::LogicalIndexReader>> IndexFileReader
 }
 
 Result<std::unique_ptr<doris::snii::reader::LogicalIndexReader>>
-IndexFileReader::open_snii_logical_index(uint64_t index_id, std::string_view suffix,
-                                         const io::IOContext* io_ctx,
-                                         doris::snii::reader::LogicalIndexOpenMode open_mode) const {
+IndexFileReader::open_snii_logical_index(
+        uint64_t index_id, std::string_view suffix, const io::IOContext* io_ctx,
+        doris::snii::reader::LogicalIndexOpenMode open_mode) const {
     DCHECK(_storage_format == InvertedIndexStorageFormatPB::SNII);
     std::shared_lock<std::shared_mutex> lock(_mutex);
     if (_snii_segment_reader == nullptr) {

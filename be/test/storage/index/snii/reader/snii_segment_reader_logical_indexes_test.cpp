@@ -74,8 +74,9 @@ protected:
             ASSERT_TRUE(writer.open(path_).ok());
             SniiCompoundWriter compound(&writer);
             ASSERT_TRUE(compound.add_logical_index(MakeInput(7, "", IndexConfig::kDocsOnly)).ok());
-            ASSERT_TRUE(compound.add_logical_index(MakeInput(9, "body", IndexConfig::kDocsPositions))
-                                .ok());
+            ASSERT_TRUE(
+                    compound.add_logical_index(MakeInput(9, "body", IndexConfig::kDocsPositions))
+                            .ok());
             ASSERT_TRUE(compound.finish().ok());
         }
         ASSERT_TRUE(file_.open(path_).ok());
