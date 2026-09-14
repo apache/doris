@@ -1317,7 +1317,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         List<String> allPartNames = hmsClient.listPartitionNames(
                 hiveHandle.getDbName(), hiveHandle.getTableName(), -1);
         List<String> matchedPartNames = prunePartitionNames(
-                allPartNames, partKeyNames, partitionPredicates);
+                allPartNames, partKeyNames, hiveHandle.getPartitionKeyTypes(), partitionPredicates);
         if (matchedPartNames.size() == allPartNames.size()) {
             return null;
         }
@@ -2589,12 +2589,12 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * Prunes partition names based on extracted equality predicates.
      * Partition names follow the Hive convention: key1=val1/key2=val2
      */
-    private List<String> prunePartitionNames(List<String> allPartNames,
-            List<String> partKeyNames, Map<String, List<String>> predicates) {
+    private List<String> prunePartitionNames(List<String> allPartNames, List<String> partKeyNames,
+            Map<String, String> partKeyTypes, Map<String, List<String>> predicates) {
         List<String> matched = new ArrayList<>();
         for (String partName : allPartNames) {
             Map<String, String> partValues = parsePartitionName(partName, partKeyNames);
-            if (matchesPredicates(partValues, predicates)) {
+            if (matchesPredicates(partValues, partKeyTypes, predicates)) {
                 matched.add(partName);
             }
         }
@@ -2630,9 +2630,31 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         if (value.isEmpty() || !isHmsFilterLetterOrDigit(value.charAt(0))) {
             return false;
         }
+        // The metastore filter grammar (Filter.g) reserves a set of case-insensitive keyword tokens, and lexes
+        // an all-digit token as an IntegralLiteral (declared before Identifier); a key operand must be an
+        // Identifier, so such a partition key can never be named in a filter. Decline the direct path for it
+        // rather than sending a predictably invalid RPC that fails, taints the pooled client and repeats the
+        // whole enumeration.
+        String lowerCaseValue = value.toLowerCase(Locale.ROOT);
+        if (lowerCaseValue.equals("not") || lowerCaseValue.equals("and") || lowerCaseValue.equals("or")
+                || lowerCaseValue.equals("like") || lowerCaseValue.equals("date")
+                || lowerCaseValue.equals("const") || lowerCaseValue.equals("struct")
+                || isAllDigits(value)) {
+            return false;
+        }
         for (int index = 1; index < value.length(); index++) {
             char character = value.charAt(index);
             if (!isHmsFilterLetterOrDigit(character) && character != '_') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isAllDigits(String value) {
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            if (character < '0' || character > '9') {
                 return false;
             }
         }
@@ -2716,17 +2738,56 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         return values;
     }
 
-    private boolean matchesPredicates(Map<String, String> partValues,
+    private boolean matchesPredicates(Map<String, String> partValues, Map<String, String> partKeyTypes,
             Map<String, List<String>> predicates) {
         for (Map.Entry<String, List<String>> entry : predicates.entrySet()) {
             String colName = entry.getKey();
             List<String> allowedValues = entry.getValue();
             String actualValue = partValues.get(colName);
-            if (actualValue == null || !allowedValues.contains(actualValue)) {
+            if (actualValue == null) {
+                return false;
+            }
+            if (!matchesAnyValue(actualValue, allowedValues, partKeyTypes.get(colName))) {
                 return false;
             }
         }
         return true;
+    }
+
+    /**
+     * Whether a rendered partition value matches one of the predicate literals for its key. Integral keys are
+     * compared NUMERICALLY, because this local prefilter's result is reused as the logical selected view: the
+     * typed Nereids pruner treats {@code 01} and {@code 1} as the same INT value, so a raw text compare here
+     * would silently drop a partition the logical plan selected (and, in batch mode, omit it from the scan
+     * altogether). Every other key type - including STRING, where {@code 01} and {@code 1} are different
+     * partitions - keeps the exact text comparison.
+     */
+    private static boolean matchesAnyValue(String actualValue, List<String> allowedValues, String typeName) {
+        if (isHmsIntegralType(typeName)) {
+            Long actual = parseIntegralValue(actualValue);
+            if (actual != null) {
+                for (String allowed : allowedValues) {
+                    Long candidate = parseIntegralValue(allowed);
+                    if (candidate != null ? candidate.equals(actual) : allowed.equals(actualValue)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        }
+        return allowedValues.contains(actualValue);
+    }
+
+    /** Parses a rendered integral partition value, or {@code null} when it is not an integral literal. */
+    private static Long parseIntegralValue(String value) {
+        if (value == null || value.isEmpty()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
