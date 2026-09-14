@@ -113,24 +113,4 @@ TEST_F(ColumnStructTest, StructTypeTest2erase) {
         EXPECT_EQ(column_int.get_element(i), data_int_res[i]);
     }
 }
-
-TEST_F(ColumnStructTest, InsertNonNullableFieldIntoNullableFieldReportsError) {
-    // Reproduces the ARRAY<STRUCT<i: INT, s: VARCHAR(16)>> insert path: the destination struct field
-    // is nullable while the source field is not. This used to abort the backend process with a fatal
-    // assert in ColumnNullable::insert_from; it must be reported as an error instead.
-    DataTypePtr dst_type = std::make_shared<DataTypeStruct>(DataTypes {
-            std::make_shared<DataTypeInt32>(), make_nullable(std::make_shared<DataTypeString>())});
-    DataTypePtr src_type = std::make_shared<DataTypeStruct>(DataTypes {
-            std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()});
-    auto dst_column = dst_type->create_column();
-    auto src_column = src_type->create_column();
-
-    auto& src_nested = assert_cast<ColumnStruct&>(*src_column);
-    assert_cast<ColumnInt32&>(src_nested.get_column(0)).insert_value(1);
-    assert_cast<ColumnString&>(src_nested.get_column(1)).insert_data("x", 1);
-
-    EXPECT_THROW(assert_cast<ColumnStruct&>(*dst_column).insert_from(*src_column, 0), Exception);
-    EXPECT_THROW(assert_cast<ColumnStruct&>(*dst_column).insert_range_from(*src_column, 0, 1),
-                 Exception);
-}
 } // namespace doris

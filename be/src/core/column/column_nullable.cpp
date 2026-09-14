@@ -45,22 +45,6 @@ ColumnUInt8::Ptr check_nullable_null_map_column_ptr(const ColumnPtr& null_map) {
     return ColumnUInt8::cast_to_column_ptr(&check_nullable_null_map_column(*null_map));
 }
 
-/**
- * A nullable column can only be filled from another nullable column, otherwise the physical layout of
- * the source does not match the destination, e.g. inserting `Struct(..., String)` into
- * `Struct(..., Nullable(String))`. Report it as an error, like ColumnArray::insert_from does for the
- * same kind of mismatch, instead of aborting the whole backend process with a fatal assert.
- */
-const ColumnNullable& check_nullable_insert_source(const IColumn& src, const IColumn& dst) {
-    const auto* concrete = check_and_get_column<ColumnNullable>(src);
-    if (!concrete) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "insert '{}' into '{}'", src.get_name(),
-                               dst.get_name());
-        __builtin_unreachable();
-    }
-    return *concrete;
-}
-
 void check_nullable_sizes(const IColumn& nested_column, const IColumn& null_map) {
     const auto& null_map_concrete = check_nullable_null_map_column(null_map);
     if (nested_column.size() != null_map_concrete.size()) {
@@ -315,7 +299,7 @@ void ColumnNullable::insert_many_strings(const StringRef* strings, size_t num) {
 }
 
 void ColumnNullable::insert_many_from(const IColumn& src, size_t position, size_t length) {
-    const auto& nullable_col = check_nullable_insert_source(src, *this);
+    const auto& nullable_col = assert_cast<const ColumnNullable&>(src);
     get_null_map_column().insert_many_from(nullable_col.get_null_map_column(), position, length);
     get_nested_column().insert_many_from(*nullable_col._nested_column, position, length);
 }
@@ -374,21 +358,21 @@ void ColumnNullable::deserialize(StringRef* keys, const size_t num_rows) {
 
 void ColumnNullable::insert_range_from_ignore_overflow(const doris::IColumn& src, size_t start,
                                                        size_t length) {
-    const auto& nullable_col = check_nullable_insert_source(src, *this);
+    const auto& nullable_col = assert_cast<const ColumnNullable&>(src);
     get_null_map_column().insert_range_from(nullable_col.get_null_map_column(), start, length);
     get_nested_column().insert_range_from_ignore_overflow(*nullable_col._nested_column, start,
                                                           length);
 }
 
 void ColumnNullable::insert_range_from(const IColumn& src, size_t start, size_t length) {
-    const auto& nullable_col = check_nullable_insert_source(src, *this);
+    const auto& nullable_col = assert_cast<const ColumnNullable&>(src);
     get_null_map_column().insert_range_from(nullable_col.get_null_map_column(), start, length);
     get_nested_column().insert_range_from(*nullable_col._nested_column, start, length);
 }
 
 void ColumnNullable::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                                          const uint32_t* indices_end) {
-    const auto& src_concrete = check_nullable_insert_source(src, *this);
+    const auto& src_concrete = assert_cast<const ColumnNullable&>(src);
     get_nested_column().insert_indices_from(src_concrete.get_nested_column(), indices_begin,
                                             indices_end);
     get_null_map_column().insert_indices_from(src_concrete.get_null_map_column(), indices_begin,
@@ -398,7 +382,7 @@ void ColumnNullable::insert_indices_from(const IColumn& src, const uint32_t* ind
 void ColumnNullable::insert_indices_from_not_has_null(const IColumn& src,
                                                       const uint32_t* indices_begin,
                                                       const uint32_t* indices_end) {
-    const auto& src_concrete = check_nullable_insert_source(src, *this);
+    const auto& src_concrete = assert_cast<const ColumnNullable&>(src);
     get_nested_column().insert_indices_from(src_concrete.get_nested_column(), indices_begin,
                                             indices_end);
     push_false_to_nullmap(indices_end - indices_begin);
@@ -425,7 +409,7 @@ void ColumnNullable::insert_duplicate_fields(const Field& x, const size_t n) {
 }
 
 void ColumnNullable::insert_from(const IColumn& src, size_t n) {
-    const auto& src_concrete = check_nullable_insert_source(src, *this);
+    const auto& src_concrete = assert_cast<const ColumnNullable&>(src);
     get_nested_column().insert_from(src_concrete.get_nested_column(), n);
     auto is_null = src_concrete.get_null_map_data()[n];
     get_null_map_data().push_back(is_null);
