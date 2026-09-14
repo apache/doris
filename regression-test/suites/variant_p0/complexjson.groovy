@@ -16,7 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_complexjson", "variant_type_complex_json") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def create_table = { table_name ->
         sql "DROP TABLE IF EXISTS ${table_name}"
         sql """
@@ -25,7 +25,7 @@ suite("regression_test_variant_complexjson", "variant_type_complex_json") {
                 v variant
             )
             DUPLICATE KEY(`k`)
-            DISTRIBUTED BY RANDOM BUCKETS 5 
+            DISTRIBUTED BY RANDOM BUCKETS 5
             properties("replication_num" = "1", "disable_auto_compaction" = "true");
         """
     }
