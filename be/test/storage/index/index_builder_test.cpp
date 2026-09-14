@@ -3653,6 +3653,28 @@ TEST_F(IndexBuilderTest, DropOneIndexNotAffectOtherIndexesOnSameColumnTest) {
             << "Should have exactly 1 inverted index remaining after drop";
 }
 
+// SNII writes a header even when it holds no logical index, so the no-index gate
+// has to run before the SNII dispatch or a schema without an index gets a file.
+TEST_F(IndexBuilderTest, BuildSniiIndexWithNoSurvivingIndexWritesNoFile) {
+    const auto tablet_path = _absolute_dir + "/15697";
+    auto tablet_schema = create_snii_schema({});
+    TabletSharedPtr tablet;
+    ASSERT_TRUE(create_snii_drop_tablet(tablet_schema, tablet_path, &tablet).ok());
+    RowsetSharedPtr source_rowset;
+    ASSERT_TRUE(create_snii_source_rowset(tablet, tablet_schema, tablet_path, &source_rowset).ok());
+    ASSERT_EQ(source_rowset->index_disk_size(), 0);
+
+    // Requested on a column this schema does not have, so nothing survives schema
+    // resolution and the output schema still owns no index.
+    std::vector<RowsetSharedPtr> output_rowsets;
+    ASSERT_TRUE(build_snii_index(tablet,
+                                 {create_build_index(9, "idx_missing", "does_not_exist", -1, {})},
+                                 &output_rowsets)
+                        .ok());
+    ASSERT_EQ(output_rowsets.size(), 1);
+    assert_last_snii_index_dropped(source_rowset, output_rowsets[0]);
+}
+
 TEST_F(IndexBuilderTest, DropOneSniiIndexPreservesSurvivingPhysicalIndex) {
     const auto tablet_path = _absolute_dir + "/15691";
     auto tablet_schema = create_snii_drop_schema();

@@ -469,8 +469,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             LOG(INFO) << "drop index removed the last index, no index file is written. tablet_id="
                       << _tablet->tablet_id()
                       << " rowset_id=" << output_rowset_meta->rowset_id().to_string();
-        }
-        if (!is_v1 && output_has_index_file) {
+        } else if (!is_v1) {
             const auto& fs = output_rowset_meta->fs();
 
             const auto& output_rowset_schema = output_rowset_meta->tablet_schema();
@@ -539,7 +538,6 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
         return Status::OK();
     } else {
         // create inverted or ann index writer
-        const auto& fs = output_rowset_meta->fs();
         auto output_rowset_schema = output_rowset_meta->tablet_schema();
         // Same invariant as the drop branch above, and it holds for every storage
         // format: no index in the output schema, no index file. Reached when
@@ -549,13 +547,17 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
         if (!output_rowset_schema->has_inverted_or_ann_index()) {
             LOG(INFO) << "no index in the output rowset schema, no index file is written."
                       << " tablet_id=" << _tablet->tablet_id()
-                      << " rowset_id=" << output_rowset_meta->rowset_id().to_string();
+                      << " rowset_id=" << output_rowset_meta->rowset_id().to_string()
+                      << " source_rows=" << output_rowset_meta->num_rows();
             return Status::OK();
         }
         if (output_rowset_schema->get_inverted_index_storage_format() ==
             InvertedIndexStorageFormatPB::SNII) {
             return _handle_single_rowset_snii(output_rowset_meta, segments);
         }
+        // fs() looks the tablet up to pick the encryption algorithm, so resolve it
+        // only on the V2/V3 path that writes an index file.
+        const auto& fs = output_rowset_meta->fs();
         size_t inverted_index_size = 0;
         for (auto& seg_ptr : segments) {
             std::string index_path_prefix {
