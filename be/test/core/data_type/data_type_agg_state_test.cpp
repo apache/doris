@@ -25,9 +25,11 @@
 #include <memory>
 
 #include "agent/be_exec_version_manager.h"
+#include "core/arena.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_fixed_length_object.h"
+#include "core/custom_allocator.h"
 #include "core/data_type/common_data_type_serder_test.h"
 #include "core/data_type/common_data_type_test.h"
 #include "core/data_type/data_type.h"
@@ -38,6 +40,7 @@
 #include "core/field.h"
 #include "core/types.h"
 #include "exec/common/variant_util.h"
+#include "exprs/aggregate/aggregate_function_state_merge.h"
 
 // 1. datatype meta info:
 //         get_type_id, get_type_as_type_descriptor, get_storage_field_type, have_subtypes, get_pdata_type (const IDataType *data_type), to_pb_column_meta (PColumnMeta *col_meta)
@@ -251,6 +254,59 @@ TEST_P(DataTypeAggStateTest, SerializeDeserializeTest2) {
     }
     helper->serialize_deserialize_assert(agg_state_cols, {datatype_agg_state_count});
     std::cout << "finish serialize deserialize test2" << std::endl;
+}
+
+TEST(DataTypeAggStateZeroArgumentTest, CountSerializeAndMerge) {
+    const int version = BeExecVersionManager::get_newest_version();
+    auto state_type = std::make_shared<DataTypeAggState>(DataTypes {}, false, "count", version);
+    auto count_function = state_type->get_nested_function();
+    EXPECT_TRUE(state_type->get_sub_types().empty());
+    EXPECT_TRUE(count_function->get_argument_types().empty());
+    EXPECT_EQ(count_function->get_return_type()->get_primitive_type(), TYPE_BIGINT);
+
+    for (size_t rows : {0, 1, 3, 8193}) {
+        SCOPED_TRACE(rows);
+        Arena arena;
+        auto states = state_type->create_column();
+        count_function->streaming_agg_serialize_to_column(nullptr, states, rows, arena);
+        ASSERT_EQ(states->size(), rows);
+
+        DorisVector<char> buffer(state_type->get_uncompressed_serialized_bytes(*states, version));
+        auto* end = state_type->serialize(*states, buffer.data(), version);
+        auto restored = state_type->create_column();
+        EXPECT_EQ(state_type->deserialize(buffer.data(), &restored, version), end);
+        ASSERT_EQ(restored->size(), rows);
+
+        auto merge_function = AggregateStateMerge::create(count_function, DataTypes {state_type},
+                                                          count_function->get_return_type());
+        auto* place =
+                reinterpret_cast<AggregateDataPtr>(arena.alloc(merge_function->size_of_data()));
+        merge_function->create(place);
+        const IColumn* columns[] = {restored.get()};
+        for (size_t row = 0; row < rows; ++row) {
+            merge_function->add(place, columns, row, arena);
+        }
+        auto result = count_function->get_return_type()->create_column();
+        merge_function->insert_result_into(place, *result);
+        merge_function->destroy(place);
+        ASSERT_EQ(result->size(), 1);
+        EXPECT_EQ(result->get_int(0), rows);
+    }
+}
+
+TEST(DataTypeAggStateZeroArgumentTest, RejectOtherFunctions) {
+    for (const auto* name : {"sum", "avg", "unknown"}) {
+        SCOPED_TRACE(name);
+        try {
+            DataTypeAggState state_type(DataTypes {}, true, name,
+                                        BeExecVersionManager::get_newest_version());
+            FAIL() << "Expected an invalid-argument exception";
+        } catch (const Exception& e) {
+            EXPECT_EQ(e.code(), ErrorCode::INVALID_ARGUMENT);
+            EXPECT_NE(e.to_string().find("does not support AggState with zero arguments"),
+                      std::string::npos);
+        }
+    }
 }
 
 INSTANTIATE_TEST_SUITE_P(Params, DataTypeAggStateTest, ::testing::Values(0, 1, 31));
