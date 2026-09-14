@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.SearchDslParser;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.StringType;
@@ -136,6 +137,17 @@ public class SearchExpressionTest {
 
         String str = searchExpr.toString();
         Assertions.assertEquals("search('title:hello')", str);
+        Assertions.assertEquals(str, searchExpr.toSql());
+    }
+
+    @Test
+    public void testSymbolicNullChildForNullRejectionInference() {
+        SearchExpression search = new SearchExpression("title:hello", createTestPlan(),
+                Collections.singletonList(createTestSlot("title")));
+        SearchExpression symbolic = search.withChildren(Collections.singletonList(NullLiteral.INSTANCE));
+        Assertions.assertEquals(NullLiteral.INSTANCE, symbolic.child(0));
+        Assertions.assertFalse(symbolic.foldable());
+        Assertions.assertEquals(search.getQsPlan(), symbolic.getQsPlan());
     }
 
     @Test

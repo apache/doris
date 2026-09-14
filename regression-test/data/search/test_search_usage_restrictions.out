@@ -8,6 +8,9 @@
 
 -- !valid_with_limit --
 
+-- !valid_join --
+1
+
 -- !valid_subquery --
 
 -- !valid_multi_field --
