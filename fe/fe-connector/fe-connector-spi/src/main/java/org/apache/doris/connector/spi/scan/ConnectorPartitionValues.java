@@ -30,7 +30,7 @@ package org.apache.doris.connector.spi.scan;
  * Only the Java symbol may be renamed; changing the string breaks already-persisted objects.</p>
  *
  * <p><b>This constant does not replace the structured null flag</b> on {@code ConnectorPartitionInfo}, and the
- * flag does not replace this constant — see {@code PluginDrivenMvccExternalTable#toListPartitionItem}. The flag
+ * flag does not replace this constant — see {@code PluginDrivenExternalTable#toListPartitionItem}. The flag
  * exists so FE can build a TYPED {@code NullLiteral} (parsing this string as an INT or DATE partition value
  * would throw and silently drop the partition, making a partitioned table look unpartitioned); the name exists
  * for partition identity and for BE's path parsing. Whether a value IS null must be declared by the connector
