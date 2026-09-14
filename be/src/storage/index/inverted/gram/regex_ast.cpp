@@ -373,10 +373,16 @@ struct Parser {
         return true;
     }
 
+    static bool is_octal_digit(char ch) { return ch >= '0' && ch <= '7'; }
+
     // Decode only character escapes whose meaning is shared by the scalar engines. Other
     // letter/digit escapes may denote assertions, classes or backreferences; treating them as
-    // literals could exclude matching rows. Three-digit octal avoids short numeric escapes'
-    // ambiguity with backreferences.
+    // literals could exclude matching rows. A numeric escape is shared in one form only: \0dd
+    // with no octal digit after it. With extended regex on, Boost runs any pattern Hyperscan and
+    // RE2 both reject (an ill-formed UTF-8 byte or a possessive quantifier takes one there), and
+    // Boost reads \0141 as 'a' and \141 as backreference 1, where Hyperscan and RE2 read \014
+    // then '1', and 'a'. The engine is chosen outside the index, so every other numeric escape is
+    // unsupported.
     bool parse_character_escape(uint32_t* cp) {
         const char c = p[i++];
         switch (c) {
@@ -398,9 +404,9 @@ struct Parser {
         case 'x':
             return parse_hex_escape_value(cp);
         default:
-            if (c >= '0' && c <= '7' && i + 1 < p.size() && p[i] >= '0' && p[i] <= '7' &&
-                p[i + 1] >= '0' && p[i + 1] <= '7') {
-                *cp = (c - '0') * 64 + (p[i] - '0') * 8 + (p[i + 1] - '0');
+            if (c == '0' && i + 1 < p.size() && is_octal_digit(p[i]) && is_octal_digit(p[i + 1]) &&
+                (i + 2 == p.size() || !is_octal_digit(p[i + 2]))) {
+                *cp = (p[i] - '0') * 8 + (p[i + 1] - '0');
                 i += 2;
                 return true;
             }
