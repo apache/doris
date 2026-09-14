@@ -767,14 +767,6 @@ int InstanceRecycler::recycle_operation_logs() {
     RecyclerMetricsContext metrics_context(instance_id_, task_name);
     OplogRecycleStats oplog_stats;
 
-    // scan_and_statistics_operation_logs() is expensive (scans lots of KVs),
-    // so it's controlled by enable_recycler_stats_metrics.
-    // The other stats (counting what was actually recycled) are lightweight
-    // and always collected.
-    if (config::enable_recycler_stats_metrics) {
-        scan_and_statistics_operation_logs();
-    }
-
     StopWatch stop_watch;
     size_t total_operation_logs = 0;
     size_t recycled_operation_logs = 0;
