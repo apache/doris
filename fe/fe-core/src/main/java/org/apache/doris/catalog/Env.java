@@ -4552,7 +4552,8 @@ public class Env {
 
         sb.append(" (\n");
         int idx = 0;
-        List<Column> columns = table.getBaseSchema(false);
+        List<Column> columns = table instanceof IcebergExternalTable
+                ? ((IcebergExternalTable) table).getBaseSchemaForDisplay(false) : table.getBaseSchema(false);
         for (Column column : columns) {
             if (idx++ != 0) {
                 sb.append(",\n");
