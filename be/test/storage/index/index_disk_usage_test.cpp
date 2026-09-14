@@ -28,9 +28,12 @@
 
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
 #include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/snii/format/dict_entry.h"
+#include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/options.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/slice.h"
@@ -224,7 +227,7 @@ protected:
 
     void check_text_index_with_positions(InvertedIndexStorageFormatPB format) {
         auto schema = create_schema();
-        std::vector<IndexSpec> specs {{text_index(1, true), 1, feed_text}};
+        std::vector<IndexSpec> specs {{.index = text_index(1, true), .column_index = 1, .feed = feed_text}};
         const std::string prefix = write_segment(format, "rs_text", schema, &specs);
 
         IndexDiskUsageCollector collector(io::global_local_filesystem(), prefix, schema, format,
@@ -241,8 +244,72 @@ protected:
         EXPECT_EQ(text->total_bytes, text->dict_bytes + text->posting_bytes +
                                              text->position_bytes + text->stats_bytes +
                                              text->other_bytes);
-        EXPECT_NE(find_record(records, -1, IndexDiskUsageStructure::kContainer), nullptr);
+        const IndexDiskUsageRecord* container =
+                find_record(records, -1, IndexDiskUsageStructure::kContainer);
+        ASSERT_NE(container, nullptr);
+        EXPECT_GE(container->total_bytes, 0);
         EXPECT_EQ(container_file_size(prefix), sum_total(records));
+    }
+
+    // Enough rows that common terms get non-inline SNII postings with positions.
+    static void feed_many_text(IndexColumnWriter* writer) {
+        const std::vector<std::string> sentences = {"hello world", "quick brown fox",
+                                                    "hello quick fox"};
+        std::vector<std::string> storage;
+        storage.reserve(1200);
+        for (int i = 0; i < 1200; ++i) {
+            storage.push_back(sentences[i % sentences.size()] + " doc" + std::to_string(i));
+        }
+        std::vector<Slice> values(storage.begin(), storage.end());
+        ASSERT_TRUE(writer->add_values("c2", values.data(), values.size()).ok());
+    }
+
+    static std::vector<IndexDiskUsageRecord> collect_snii(const std::string& prefix,
+                                                          const TabletSchemaSPtr& schema,
+                                                          bool position_detail) {
+        IndexDiskUsageCollector collector(io::global_local_filesystem(), prefix, schema,
+                                          InvertedIndexStorageFormatPB::SNII, 1001);
+        IndexDiskUsageOptions options;
+        options.position_detail = position_detail;
+        std::vector<IndexDiskUsageRecord> records;
+        const Status st = collector.collect(options, &records);
+        EXPECT_TRUE(st.ok()) << st;
+        return records;
+    }
+
+    // Independently sums the position bytes of every pod_ref dictionary entry.
+    static int64_t sum_pod_ref_prx_bytes(const std::string& prefix, const TabletIndex& index) {
+        IndexFileReader reader(io::global_local_filesystem(), prefix,
+                               InvertedIndexStorageFormatPB::SNII);
+        const Status init_status = reader.init();
+        if (!init_status.ok()) {
+            ADD_FAILURE() << init_status;
+            return -1;
+        }
+        auto logical = reader.open_snii_index(&index, nullptr,
+                                              snii::reader::LogicalIndexOpenMode::kCompaction);
+        if (!logical.has_value()) {
+            ADD_FAILURE() << logical.error();
+            return -1;
+        }
+        int64_t bytes = 0;
+        std::vector<snii::format::DictEntry> entries;
+        for (uint32_t block = 0; block < logical.value()->n_dict_blocks(); ++block) {
+            uint64_t frq_base = 0;
+            uint64_t prx_base = 0;
+            const Status st =
+                    logical.value()->decode_dict_block(block, &entries, &frq_base, &prx_base);
+            if (!st.ok()) {
+                ADD_FAILURE() << st;
+                return -1;
+            }
+            for (const auto& entry : entries) {
+                if (entry.kind == snii::format::DictEntryKind::kPodRef) {
+                    bytes += static_cast<int64_t>(entry.prx_len);
+                }
+            }
+        }
+        return bytes;
     }
 };
 
@@ -256,7 +323,7 @@ TEST_F(IndexDiskUsageCollectorTest, CollectV3TextIndexWithPositions) {
 
 TEST_F(IndexDiskUsageCollectorTest, CollectV2DocsOnlyHasNoPositions) {
     auto schema = create_schema();
-    std::vector<IndexSpec> specs {{text_index(1, false), 1, feed_text}};
+    std::vector<IndexSpec> specs {{.index = text_index(1, false), .column_index = 1, .feed = feed_text}};
     const std::string prefix =
             write_segment(InvertedIndexStorageFormatPB::V2, "rs_docs", schema, &specs);
 
@@ -273,7 +340,7 @@ TEST_F(IndexDiskUsageCollectorTest, CollectV2DocsOnlyHasNoPositions) {
 
 TEST_F(IndexDiskUsageCollectorTest, CollectV2NumericIndexIsBkd) {
     auto schema = create_schema();
-    std::vector<IndexSpec> specs {{numeric_index(2), 0, feed_numbers}};
+    std::vector<IndexSpec> specs {{.index = numeric_index(2), .column_index = 0, .feed = feed_numbers}};
     const std::string prefix =
             write_segment(InvertedIndexStorageFormatPB::V2, "rs_num", schema, &specs);
 
@@ -290,8 +357,8 @@ TEST_F(IndexDiskUsageCollectorTest, CollectV2NumericIndexIsBkd) {
 
 TEST_F(IndexDiskUsageCollectorTest, CollectFiltersIndexIds) {
     auto schema = create_schema();
-    std::vector<IndexSpec> specs {{text_index(1, true), 1, feed_text},
-                                  {numeric_index(2), 0, feed_numbers}};
+    std::vector<IndexSpec> specs {{.index = text_index(1, true), .column_index = 1, .feed = feed_text},
+                                  {.index = numeric_index(2), .column_index = 0, .feed = feed_numbers}};
     const std::string prefix =
             write_segment(InvertedIndexStorageFormatPB::V2, "rs_filter", schema, &specs);
 
@@ -316,6 +383,97 @@ TEST_F(IndexDiskUsageCollectorTest, CollectMissingFileFails) {
     const Status st = collector.collect(IndexDiskUsageOptions {}, &records);
     EXPECT_FALSE(st.ok());
     EXPECT_NE(st.to_string().find("missing_0"), std::string::npos) << st;
+}
+
+TEST_F(IndexDiskUsageCollectorTest, CollectV1TextIndex) {
+    auto schema = create_schema();
+    schema->append_index(text_index(1, true));
+    std::vector<IndexSpec> specs {{.index = text_index(1, true), .column_index = 1, .feed = feed_text}};
+    const std::string prefix =
+            write_segment(InvertedIndexStorageFormatPB::V1, "rs_v1", schema, &specs);
+
+    IndexDiskUsageCollector collector(io::global_local_filesystem(), prefix, schema,
+                                      InvertedIndexStorageFormatPB::V1, 1001);
+    std::vector<IndexDiskUsageRecord> records;
+    const Status st = collector.collect(IndexDiskUsageOptions {}, &records);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(1U, records.size());
+    EXPECT_EQ(1, records[0].index_id);
+    EXPECT_EQ(IndexDiskUsageStructure::kTerm, records[0].structure);
+    EXPECT_GT(records[0].dict_bytes, 0);
+    EXPECT_GT(records[0].position_bytes, 0);
+    int64_t file_size = 0;
+    ASSERT_TRUE(io::global_local_filesystem()
+                        ->file_size(InvertedIndexDescriptor::get_index_file_path_v1(prefix, 1, ""),
+                                    &file_size)
+                        .ok());
+    EXPECT_EQ(file_size, records[0].total_bytes);
+}
+
+TEST_F(IndexDiskUsageCollectorTest, CollectSniiTextIndex) {
+    auto schema = create_schema();
+    std::vector<IndexSpec> specs {{.index = text_index(1, true), .column_index = 1, .feed = feed_many_text}};
+    const std::string prefix =
+            write_segment(InvertedIndexStorageFormatPB::SNII, "rs_snii", schema, &specs);
+
+    auto records = collect_snii(prefix, schema, /*position_detail=*/false);
+    const IndexDiskUsageRecord* text = find_record(records, 1, IndexDiskUsageStructure::kTerm);
+    ASSERT_NE(text, nullptr);
+    EXPECT_GT(text->dict_bytes, 0);
+    EXPECT_GT(text->posting_bytes, 0);
+    EXPECT_GT(text->stats_bytes, 0);
+    EXPECT_EQ(-1, text->position_bytes);
+    const IndexDiskUsageRecord* container =
+            find_record(records, -1, IndexDiskUsageStructure::kContainer);
+    ASSERT_NE(container, nullptr);
+    EXPECT_GE(container->total_bytes, 0);
+    EXPECT_EQ(container_file_size(prefix), sum_total(records));
+}
+
+TEST_F(IndexDiskUsageCollectorTest, CollectSniiDocsOnlyHasNoPositions) {
+    auto schema = create_schema();
+    std::vector<IndexSpec> specs {{.index = text_index(1, false), .column_index = 1, .feed = feed_many_text}};
+    const std::string prefix =
+            write_segment(InvertedIndexStorageFormatPB::SNII, "rs_snii_docs", schema, &specs);
+
+    auto records = collect_snii(prefix, schema, /*position_detail=*/false);
+    const IndexDiskUsageRecord* text = find_record(records, 1, IndexDiskUsageStructure::kTerm);
+    ASSERT_NE(text, nullptr);
+    EXPECT_EQ(0, text->position_bytes);
+    EXPECT_GT(text->posting_bytes, 0);
+}
+
+TEST_F(IndexDiskUsageCollectorTest, CollectSniiPositionDetail) {
+    auto schema = create_schema();
+    TabletIndex index = text_index(1, true);
+    std::vector<IndexSpec> specs {{.index = text_index(1, true), .column_index = 1, .feed = feed_many_text}};
+    const std::string prefix =
+            write_segment(InvertedIndexStorageFormatPB::SNII, "rs_snii_detail", schema, &specs);
+
+    auto coarse = collect_snii(prefix, schema, /*position_detail=*/false);
+    auto detailed = collect_snii(prefix, schema, /*position_detail=*/true);
+    const IndexDiskUsageRecord* c = find_record(coarse, 1, IndexDiskUsageStructure::kTerm);
+    const IndexDiskUsageRecord* d = find_record(detailed, 1, IndexDiskUsageStructure::kTerm);
+    ASSERT_NE(c, nullptr);
+    ASSERT_NE(d, nullptr);
+    const int64_t expected_positions = sum_pod_ref_prx_bytes(prefix, index);
+    EXPECT_GT(expected_positions, 0);
+    EXPECT_EQ(expected_positions, d->position_bytes);
+    EXPECT_EQ(c->posting_bytes, d->posting_bytes + d->position_bytes);
+    EXPECT_EQ(c->total_bytes, d->total_bytes);
+}
+
+TEST_F(IndexDiskUsageCollectorTest, CollectSniiBkdIndex) {
+    auto schema = create_schema();
+    std::vector<IndexSpec> specs {{.index = numeric_index(2), .column_index = 0, .feed = feed_numbers}};
+    const std::string prefix =
+            write_segment(InvertedIndexStorageFormatPB::SNII, "rs_snii_bkd", schema, &specs);
+
+    auto records = collect_snii(prefix, schema, /*position_detail=*/false);
+    const IndexDiskUsageRecord* bkd = find_record(records, 2, IndexDiskUsageStructure::kBkd);
+    ASSERT_NE(bkd, nullptr);
+    EXPECT_GT(bkd->total_bytes, 0);
+    EXPECT_EQ(container_file_size(prefix), sum_total(records));
 }
 
 } // namespace doris::segment_v2
