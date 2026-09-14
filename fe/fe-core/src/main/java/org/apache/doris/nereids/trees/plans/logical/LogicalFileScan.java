@@ -22,6 +22,8 @@ import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
@@ -347,6 +349,19 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         public final State state;
 
         /**
+         * The connector filter application result the logical pruning rule obtained for this scan, carried so
+         * the physical scan reuses the SAME handle instead of applying the connector predicate a second time.
+         * Two applications can observe different remote generations, which would mix the selected partition
+         * names with another handle's partition metadata (the batched split path resolves those names through
+         * the handle's own pruned-partition map). Empty unless a connector materialized this view from a
+         * predicate.
+         *
+         * <p>Deliberately excluded from {@link #equals}/{@link #hashCode}: it is an execution detail of this
+         * scan, not part of the plan's semantic identity.</p>
+         */
+        public final Optional<FilterApplicationResult<ConnectorTableHandle>> connectorFilterResult;
+
+        /**
          * Constructor for SelectedPartitions.
          */
         public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
@@ -375,6 +390,14 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         private SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
                 boolean isPruned, boolean hasPartitionPredicate,
                 Optional<SortedPartitionRanges<String>> sortedPartitionRanges, State state) {
+            this(totalPartitionNum, selectedPartitions, isPruned, hasPartitionPredicate, sortedPartitionRanges,
+                    state, Optional.empty());
+        }
+
+        private SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
+                boolean isPruned, boolean hasPartitionPredicate,
+                Optional<SortedPartitionRanges<String>> sortedPartitionRanges, State state,
+                Optional<FilterApplicationResult<ConnectorTableHandle>> connectorFilterResult) {
             this.totalPartitionNum = totalPartitionNum;
             this.selectedPartitions = ImmutableMap.copyOf(Objects.requireNonNull(selectedPartitions,
                     "selectedPartitions is null"));
@@ -382,6 +405,27 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             this.hasPartitionPredicate = hasPartitionPredicate;
             this.sortedPartitionRanges = sortedPartitionRanges;
             this.state = state;
+            this.connectorFilterResult = connectorFilterResult;
+        }
+
+        /**
+         * A selection materialized from a connector-filtered partition view, carrying the filter result so the
+         * physical scan reuses the exact handle instead of applying the connector predicate again.
+         *
+         * <p>A named factory rather than a constructor: an {@code Optional<FilterApplicationResult<...>>}
+         * parameter would erase to the same signature as the {@code Optional<SortedPartitionRanges<String>>}
+         * constructor.</p>
+         */
+        public static SelectedPartitions connectorFiltered(long totalPartitionNum,
+                Map<String, PartitionItem> selectedPartitions, boolean hasPartitionPredicate,
+                FilterApplicationResult<ConnectorTableHandle> connectorFilterResult) {
+            return new SelectedPartitions(totalPartitionNum, selectedPartitions, true, hasPartitionPredicate,
+                    Optional.empty(), State.MATERIALIZED, Optional.of(connectorFilterResult));
+        }
+
+        /** The connector filter result this selection was materialized from, or empty. */
+        public Optional<FilterApplicationResult<ConnectorTableHandle>> getConnectorFilterResult() {
+            return connectorFilterResult;
         }
 
         public boolean isNotPruned() {
