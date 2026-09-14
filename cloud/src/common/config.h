@@ -353,6 +353,10 @@ CONF_Bool(delete_bitmap_enable_retry_txn_conflict, "true");
 // more reasonable.
 CONF_mInt64(max_txn_commit_byte, "7340032");
 
+// true: scan txn_running_key entries and fetch transaction info via the corresponding txn_info_key.
+// false: scan txn_info_key entries directly; these usually far outnumber txn_running_key entries.
+CONF_mBool(enable_get_prepare_txn_by_coordinator_by_running_key, "true");
+
 CONF_Bool(enable_cloud_txn_lazy_commit, "true");
 CONF_Int32(txn_lazy_commit_rowsets_thresold, "1000");
 CONF_Int32(txn_lazy_commit_num_threads, "8");

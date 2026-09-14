@@ -815,8 +815,6 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
         auto ret = inner_get(k, &val, opts.snapshot);
         ret == TxnErrorCode::TXN_OK ? res->push_back(val) : res->push_back(std::nullopt);
     }
-    kv_->get_count_ += keys.size();
-    num_get_keys_ += keys.size();
     return TxnErrorCode::TXN_OK;
 }
 
