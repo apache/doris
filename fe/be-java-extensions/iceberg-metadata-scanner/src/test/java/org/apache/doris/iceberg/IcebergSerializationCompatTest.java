@@ -20,8 +20,8 @@ package org.apache.doris.iceberg;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.types.Types;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -53,7 +53,7 @@ public class IcebergSerializationCompatTest {
     public void deserializesIceberg1101SystemTableTask() {
         FileScanTask task = IcebergSerializationCompat.deserializeFromBase64(ICEBERG_1_10_1_TASK);
 
-        Assert.assertEquals("id", task.schema().columns().get(0).name());
+        Assertions.assertEquals("id", task.schema().columns().get(0).name());
     }
 
     @Test
@@ -63,7 +63,7 @@ public class IcebergSerializationCompatTest {
         Schema actual = IcebergSerializationCompat.deserializeFromBase64(
                 serializeToBase64(expected));
 
-        Assert.assertTrue(expected.sameSchema(actual));
+        Assertions.assertTrue(expected.sameSchema(actual));
     }
 
     private static String serializeToBase64(Object value) throws IOException {
