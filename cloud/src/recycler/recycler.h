@@ -445,30 +445,6 @@ public:
 
     bool check_recycle_tasks();
 
-    int scan_and_statistics_indexes();
-
-    int scan_and_statistics_partitions();
-
-    int scan_and_statistics_rowsets();
-
-    int scan_and_statistics_tmp_rowsets();
-
-    int scan_and_statistics_abort_timeout_txn();
-
-    int scan_and_statistics_expired_txn_label();
-
-    int scan_and_statistics_copy_jobs();
-
-    int scan_and_statistics_stage();
-
-    int scan_and_statistics_expired_stage_objects();
-
-    int scan_and_statistics_versions();
-
-    int scan_and_statistics_restore_jobs();
-
-    void scan_and_statistics_operation_logs();
-
     /**
      * Decode the key of a packed-file metadata record into the persisted object path.
      *

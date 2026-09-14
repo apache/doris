@@ -114,8 +114,6 @@ CONF_mInt32(instance_recycler_worker_pool_size, "32");
 // Max number of delete tasks per batch when recycling objects.
 // Each task deletes up to 1000 files. Controls memory usage during large-scale deletion.
 CONF_Int32(recycler_max_tasks_per_batch, "1000");
-// The worker pool size for http api `statistics_recycle` worker pool
-CONF_mInt32(instance_recycler_statistics_recycle_worker_pool_size, "5");
 CONF_Bool(enable_checker, "false");
 // The parallelism for parallel recycle operation
 // s3_producer_pool recycle_tablet_pool, delete single object in this pool
@@ -130,8 +128,6 @@ CONF_mInt64(delete_bitmap_storage_optimize_v2_check_skip_seconds, "300"); // 5mi
 CONF_mInt32(scan_instances_interval_seconds, "60"); // 1min
 // interval for check object
 CONF_mInt32(check_object_interval_seconds, "43200"); // 12hours
-// enable recycler metrics statistics
-CONF_Bool(enable_recycler_stats_metrics, "false");
 CONF_mBool(retain_deleted_instance_tombstone, "true");
 
 CONF_mInt64(check_recycle_task_interval_seconds, "600"); // 10min
