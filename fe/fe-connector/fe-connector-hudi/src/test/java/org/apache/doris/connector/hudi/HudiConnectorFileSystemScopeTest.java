@@ -184,6 +184,50 @@ public class HudiConnectorFileSystemScopeTest {
         high.close();
     }
 
+    /**
+     * The scan-planning path runs inside the connector's scope, so what it opens is what close()
+     * releases. Without this the planning path cached its filesystems under the FE login user - shared
+     * with every other catalog, closable by nobody - and every ALTER CATALOG or CREATE/query/DROP
+     * cycle left its S3 client and executor threads behind for the life of the FE.
+     * {@link HudiScanPlanProviderScopeTest} pins the provider's half: that planScan and the scan-node
+     * properties really do open their metaClients inside the executor they were built with.
+     */
+    @Test
+    public void theScanPlanProviderPlansUnderTheConnectorsScope() throws Exception {
+        Map<String, String> props = propertiesFor("planning");
+        HudiConnector connector = connector(props, 15L);
+        HudiScanPlanProvider provider = (HudiScanPlanProvider) connector.getScanPlanProvider();
+
+        UserGroupInformation planningUnder = provider.planningExecutor().execute(UserGroupInformation::getCurrentUser);
+
+        Assertions.assertNotNull(connector.fileSystemScope(), "a non-Kerberos catalog has a scope");
+        // assertEquals, not assertSame: getCurrentUser() wraps the Subject anew on every call, and UGI
+        // equality is Subject identity - which is also what Hadoop's cache key compares.
+        Assertions.assertEquals(connector.fileSystemScope(), planningUnder,
+                "planning opens its filesystems under the scope that close() releases");
+        Assertions.assertEquals(1, HudiConnector.scopeOwners(HudiConnector.fileSystemScopeKey(props)),
+                "the provider takes no hold of its own: it borrows the connector's, one per connector");
+        connector.close();
+        Assertions.assertEquals(0, HudiConnector.scopeOwners(HudiConnector.fileSystemScopeKey(props)));
+    }
+
+    /** The provider's own failures must reach the engine as they are, not wrapped as a metadata failure. */
+    @Test
+    public void thePlanningExecutorLetsUncheckedFailuresThrough() throws Exception {
+        Map<String, String> props = propertiesFor("planning-failure");
+        HudiConnector connector = connector(props, 16L);
+        HudiScanPlanProvider provider = (HudiScanPlanProvider) connector.getScanPlanProvider();
+        try {
+            IllegalStateException thrown = Assertions.assertThrows(IllegalStateException.class,
+                    () -> provider.planningExecutor().execute(() -> {
+                        throw new IllegalStateException("Failed to list partitions for s3://b/t");
+                    }));
+            Assertions.assertEquals("Failed to list partitions for s3://b/t", thrown.getMessage());
+        } finally {
+            connector.close();
+        }
+    }
+
     @Test
     public void theLastReleaseClosesTheFilesystemsOffTheCallersThread() throws Exception {
         // close() is reached from the FE's journal replay thread: ALTER CATALOG replays under

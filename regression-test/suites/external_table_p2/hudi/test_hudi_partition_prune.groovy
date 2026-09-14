@@ -412,6 +412,24 @@ suite("test_hudi_partition_prune", "p2,external") {
                 "FOR TIME AS OF '${insert_commit}' ORDER BY id;"
         qt_dropped_partition_at_insert dropped_partition_at_insert
 
+        // The same reads with a partition named in the predicate. That reaches a second pruning,
+        // the connector's own (applyFilter), which chooses the universe it prunes: on a hive-sync
+        // catalog that is HMS for a latest read, and HMS no longer knows GONE - so at the latest
+        // instant the empty answer below is the right one, but pruned against HMS at the pin the
+        // predicate would keep nothing, the scan would get zero paths and the query would return
+        // zero rows with a perfectly normal EXPLAIN. At the pin the connector must prune the Hudi
+        // metadata listing instead. KEEP is asked for as well, to show the pruning still prunes
+        // rather than having been skipped.
+        def dropped_partition_latest_gone = "SELECT id,name,part1 FROM dropped_partition_tb " +
+                "WHERE part1 = 'GONE' ORDER BY id;"
+        qt_dropped_partition_latest_gone dropped_partition_latest_gone
+        def dropped_partition_at_insert_gone = "SELECT id,name,part1 FROM dropped_partition_tb " +
+                "FOR TIME AS OF '${insert_commit}' WHERE part1 = 'GONE' ORDER BY id;"
+        qt_dropped_partition_at_insert_gone dropped_partition_at_insert_gone
+        def dropped_partition_at_insert_keep = "SELECT id,name,part1 FROM dropped_partition_tb " +
+                "FOR TIME AS OF '${insert_commit}' WHERE part1 = 'KEEP' ORDER BY id;"
+        qt_dropped_partition_at_insert_keep dropped_partition_at_insert_keep
+
         sql """drop catalog if exists ${catalog_name};"""
 
 

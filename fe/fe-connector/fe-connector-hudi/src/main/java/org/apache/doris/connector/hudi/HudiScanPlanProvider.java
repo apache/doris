@@ -115,10 +115,36 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
 
     private final Map<String, String> properties;
     private final ConnectorContext context;
+    // Every metaClient this provider builds is built inside this; see planScan.
+    private final HudiMetaClientExecutor executor;
 
-    public HudiScanPlanProvider(Map<String, String> properties, ConnectorContext context) {
+    /**
+     * A provider whose planning runs on the calling thread as it is: for tests of the pure helpers, and
+     * for nothing that opens a filesystem.
+     */
+    HudiScanPlanProvider(Map<String, String> properties, ConnectorContext context) {
+        this(properties, context, HudiMetaClientExecutor.inline());
+    }
+
+    /**
+     * @param executor what every metaClient-touching call runs inside. {@link HudiConnector} hands over
+     *                 its own, which pins the plugin classloader and runs the call under the connector's
+     *                 filesystem scope - the UGI whose cached filesystems {@code HudiConnector.close()}
+     *                 releases. That is what ties the planning path's filesystems to the connector's
+     *                 lifetime: built outside it, they would be cached under the FE login user, where
+     *                 nothing ever closes them, and every catalog configuration that came and went
+     *                 would leave its S3 client and executor threads behind for the life of the FE.
+     */
+    HudiScanPlanProvider(Map<String, String> properties, ConnectorContext context,
+            HudiMetaClientExecutor executor) {
         this.properties = properties;
         this.context = context;
+        this.executor = executor;
+    }
+
+    /** What the planning runs inside; see the constructor. For tests. */
+    HudiMetaClientExecutor planningExecutor() {
+        return executor;
     }
 
     @Override
@@ -158,8 +184,19 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         return true;
     }
 
+    /**
+     * Plans inside {@link #executor}: the metaClient, the timeline, the file-system view and the
+     * partition listing all open filesystems, and where those are cached is decided by the UGI current
+     * at that moment. The engine only pins the plugin classloader around this call
+     * ({@code PluginDrivenScanNode.onPluginClassLoader}); the executor adds the connector's filesystem
+     * scope, so that what this opens is closed with the connector rather than kept until FE restart.
+     */
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
+        return executor.execute(() -> planScanInScope(session, request));
+    }
+
+    private List<ConnectorScanRange> planScanInScope(ConnectorSession session, ConnectorScanRequest request) {
         HudiTableHandle hudiHandle = (HudiTableHandle) request.getTableHandle();
         String basePath = hudiHandle.getBasePath();
 
@@ -380,29 +417,8 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         // hard scan failure. populateScanLevelParams copies it onto the real params.
         if (!isForceJniScannerEnabled(session)) {
             try {
-                HoodieTableMetaClient metaClient = buildMetaClient(buildHadoopConf(), hudiHandle.getBasePath());
-                TableSchemaResolver schemaResolver = new TableSchemaResolver(metaClient);
-                // HD-C5b: FOR TIME AS OF over a schema-on-read table -> re-resolve the native -1 overlay from the
-                // FULL schema AT the pinned instant. The requested column HANDLES are latest-keyed
-                // (getColumnHandles runs before the MVCC pin), so a column renamed after the pin is absent from
-                // them under its pinned name; building the overlay from them would drop that BE scan slot (BE's
-                // field-id reader SIGABRTs on a scan slot missing from the overlay). A plain read (no pin) or a
-                // non-evolution FOR TIME AS OF (latest == at-instant, D3) uses the steady-state dict keyed off the
-                // requested columns. NOTE: no meta column can reach the pinned path — the at-instant bound schema
-                // (HD-C5a, from the InternalSchema) has no `_hoodie_*` columns, so the query cannot project one.
-                String pin = hudiHandle.getQueryInstant();
-                Optional<InternalSchema> pinnedSchema = pin == null
-                        ? Optional.empty()
-                        : HudiSchemaUtils.resolveInternalSchemaAtInstant(schemaResolver, metaClient, pin);
-                Optional<String> dict;
-                if (pinnedSchema.isPresent()) {
-                    dict = Optional.of(
-                            HudiSchemaUtils.buildSchemaEvolutionDictAtInstant(metaClient, pinnedSchema.get()));
-                } else {
-                    Schema latestAvro = schemaResolver.getTableAvroSchema(true);
-                    dict = HudiSchemaUtils.buildSchemaEvolutionProp(metaClient, schemaResolver, latestAvro,
-                            castHudiColumns(columns));
-                }
+                // Inside the executor for the same reason planScan is: the metaClient opens filesystems.
+                Optional<String> dict = executor.execute(() -> schemaEvolutionDict(hudiHandle, columns));
                 dict.ifPresent(v -> props.put(SCHEMA_EVOLUTION_PROP, v));
             } catch (Exception e) {
                 LOG.warn("Failed to build Hudi schema-evolution dict for {}.{}; native reads fall back to BY_NAME: {}",
@@ -411,6 +427,31 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         return props;
+    }
+
+    /** The native-reader schema-evolution dictionary of {@code getScanNodeProperties}, or empty. */
+    private Optional<String> schemaEvolutionDict(HudiTableHandle hudiHandle, List<ConnectorColumnHandle> columns)
+            throws Exception {
+        HoodieTableMetaClient metaClient = buildMetaClient(buildHadoopConf(), hudiHandle.getBasePath());
+        TableSchemaResolver schemaResolver = new TableSchemaResolver(metaClient);
+        // HD-C5b: FOR TIME AS OF over a schema-on-read table -> re-resolve the native -1 overlay from the
+        // FULL schema AT the pinned instant. The requested column HANDLES are latest-keyed
+        // (getColumnHandles runs before the MVCC pin), so a column renamed after the pin is absent from
+        // them under its pinned name; building the overlay from them would drop that BE scan slot (BE's
+        // field-id reader SIGABRTs on a scan slot missing from the overlay). A plain read (no pin) or a
+        // non-evolution FOR TIME AS OF (latest == at-instant, D3) uses the steady-state dict keyed off the
+        // requested columns. NOTE: no meta column can reach the pinned path — the at-instant bound schema
+        // (HD-C5a, from the InternalSchema) has no `_hoodie_*` columns, so the query cannot project one.
+        String pin = hudiHandle.getQueryInstant();
+        Optional<InternalSchema> pinnedSchema = pin == null
+                ? Optional.empty()
+                : HudiSchemaUtils.resolveInternalSchemaAtInstant(schemaResolver, metaClient, pin);
+        if (pinnedSchema.isPresent()) {
+            return Optional.of(HudiSchemaUtils.buildSchemaEvolutionDictAtInstant(metaClient, pinnedSchema.get()));
+        }
+        Schema latestAvro = schemaResolver.getTableAvroSchema(true);
+        return HudiSchemaUtils.buildSchemaEvolutionProp(metaClient, schemaResolver, latestAvro,
+                castHudiColumns(columns));
     }
 
     /** The requested column handles as {@link HudiColumnHandle}s (this connector's own handle type). */

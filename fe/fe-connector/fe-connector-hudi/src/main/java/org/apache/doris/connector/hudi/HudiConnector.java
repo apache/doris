@@ -212,6 +212,16 @@ public class HudiConnector implements Connector {
      * {@code catalog-spi-plugin-tccl-classloader-gotcha}.
      */
     private HudiMetaClientExecutor metaClientExecutor() {
+        return metaClientExecutor(true);
+    }
+
+    /**
+     * @param wrapUnchecked whether a {@link RuntimeException} out of the action is wrapped with the catalog
+     *                      name like a checked one. The metadata path always has been; the scan-planning path
+     *                      is not, so that {@code planScan} keeps reporting its own failures - "Failed to list
+     *                      partitions for ..." and the like - the way it did before it ran in here.
+     */
+    private HudiMetaClientExecutor metaClientExecutor(boolean wrapUnchecked) {
         return new HudiMetaClientExecutor() {
             @Override
             public <T> T execute(Callable<T> action) {
@@ -227,6 +237,12 @@ public class HudiConnector implements Connector {
                         return scope.doAs((PrivilegedExceptionAction<T>) action::call);
                     }
                     return context.executeAuthenticated(action);
+                } catch (RuntimeException e) {
+                    if (!wrapUnchecked) {
+                        throw e;
+                    }
+                    throw new DorisConnectorException("Hudi metadata operation failed for catalog '"
+                            + context.getCatalogName() + "'", e);
                 } catch (Exception e) {
                     throw new DorisConnectorException("Hudi metadata operation failed for catalog '"
                             + context.getCatalogName() + "'", e);
@@ -248,9 +264,15 @@ public class HudiConnector implements Connector {
         return handle instanceof HudiTableHandle;
     }
 
+    /**
+     * The provider plans inside this connector's execute-wrapper (see {@link #metaClientExecutor()}), so the
+     * filesystems its metaClients open are cached under {@link #fileSystemScope()} - or the Kerberos
+     * authenticator's UGI - and {@link #close()} lets them go with the rest. Unwrapped: the provider's own
+     * exceptions are what the engine reports.
+     */
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
-        return new HudiScanPlanProvider(properties, context);
+        return new HudiScanPlanProvider(properties, context, metaClientExecutor(false));
     }
 
     /**
@@ -516,19 +538,15 @@ public class HudiConnector implements Connector {
      * side moved to the credential fingerprint ({@code FsCacheKeys}), and only the HDFS family still
      * carries {@code fs.hdfs.impl.disable.cache=true} and its siblings.
      *
-     * <p>What separates the catalogs instead is the cache key, and which UGI supplies it depends on the
-     * caller. The two call sites are NOT the same:
-     * <ul>
-     *   <li>the metadata path ({@code HudiConnectorMetadata}) runs inside {@code metaClientExecutor()},
-     *       so its filesystems are cached under {@link #fileSystemScope()} for a non-Kerberos catalog or
-     *       under the connector's own authenticator for a Kerberos one, and {@link #close()} releases
-     *       them;</li>
-     *   <li>the scan-planning path ({@code HudiScanPlanProvider.buildHadoopConf}) runs with NO
-     *       {@code doAs} at all, so its filesystems are cached under the FE's login user. Those are NOT
-     *       covered by the release in {@link #close()} - they are shared with whatever else runs under
-     *       that user, so closing them on a DROP CATALOG would close filesystems that belong to another
-     *       catalog. They are bounded the way they always were, by the number of distinct cache keys.</li>
-     * </ul>
+     * <p>What separates the catalogs instead is the cache key, and which UGI supplies it is the same for
+     * both callers: the metadata path ({@code HudiConnectorMetadata}) and the scan-planning path
+     * ({@code HudiScanPlanProvider}) both run inside {@code metaClientExecutor()}, so their filesystems are
+     * cached under {@link #fileSystemScope()} for a non-Kerberos catalog or under the connector's own
+     * authenticator for a Kerberos one, and {@link #close()} releases the former with the scope. The
+     * planning path used to run with no {@code doAs} at all, which cached its filesystems under the FE's
+     * login user - shared with every other catalog, so nothing could ever close them, and each catalog
+     * configuration that came and went (ALTER CATALOG, CREATE/query/DROP) left its S3 client and executor
+     * threads behind for the life of the FE.
      */
     static void enableFileSystemCache(Configuration conf) {
         List<String> disabled = new ArrayList<>();

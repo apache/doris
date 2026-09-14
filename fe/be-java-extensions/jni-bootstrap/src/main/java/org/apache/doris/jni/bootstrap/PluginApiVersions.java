@@ -113,6 +113,22 @@ final class PluginApiVersions {
         return new Declared(false, null);
     }
 
+    /**
+     * One main attribute of a jar's manifest, or null when the URL is not a jar file on disk, the
+     * jar has no manifest, or the manifest has no such attribute. Reads the manifest only; no class
+     * is loaded, which is what lets the callers run before the plugin's classloader exists.
+     */
+    static String mainAttribute(URL jar, String attribute) throws IOException {
+        Path path = pathOf(jar);
+        if (path == null || !Files.isRegularFile(path)) {
+            return null;
+        }
+        try (JarFile jarFile = new JarFile(path.toFile())) {
+            Manifest manifest = jarFile.getManifest();
+            return manifest == null ? null : manifest.getMainAttributes().getValue(attribute);
+        }
+    }
+
     private static Path pathOf(URL jar) {
         try {
             return Paths.get(jar.toURI());

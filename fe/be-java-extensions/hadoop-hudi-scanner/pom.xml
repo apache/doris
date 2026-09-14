@@ -199,6 +199,34 @@ under the License.
         </dependency>
 
         <!--
+          The Doris-patched org.apache.hadoop.fs.FileSystem, to be found AHEAD of hadoop-common's
+          copy. Its Cache.Key carries the credential fingerprint FE tags every storage map with
+          (doris.fs.cache.key.<scheme>); the vanilla class ignores that property, and this
+          plugin's simple-auth scans all run under one UGI per hadoop.username
+          (PreExecutionAuthenticatorCache), so on the vanilla key two catalogs reaching the same
+          scheme://authority with different credentials or namenode addresses would share one
+          cached filesystem and read through whichever was built first. Before this module was a
+          plugin the patched class arrived from BE's system classpath, where start_be.sh puts
+          hadoop-deps.jar first; a plugin cannot see that classpath, so it carries the jar itself,
+          and the jar's Doris-Shadows-Classes manifest entry is what makes PluginRuntime search it
+          before hadoop-common (by name, hadoop-common-*.jar would win). Declared BEFORE
+          hadoop-common because surefire's classpath follows declaration order, so the tests run
+          on the copy the deployed plugin runs on - HadoopHudiPluginTest asserts that.
+          Every transitive is excluded: they are the libhdfs runtime that module deploys to
+          lib/hadoop_hdfs, and this plugin declares the hadoop artifacts it needs itself.
+        -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>hadoop-deps</artifactId>
+            <version>${project.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!--
           Hadoop, declared here rather than taken transitively so this plugin has exactly one copy
           at depth one. Until this module became a plugin it declared hadoop provided and let BE's
           system classpath - lib/hadoop_hdfs, which a plugin cannot see - answer at runtime.

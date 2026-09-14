@@ -223,6 +223,47 @@ class PluginRuntimeTest {
                 "the plugin's own jar must win; the shared filesystem jars are appended last");
     }
 
+    /**
+     * A jar declaring {@code Doris-Shadows-Classes} is searched before every other jar of its
+     * directory. hadoop-deps is the one that does: it holds the Doris-patched
+     * {@code org.apache.hadoop.fs.FileSystem}, and "hadoop-common-*.jar" sorts before it, so on
+     * name order alone the vanilla copy would win and the credential-aware cache key FE sends
+     * would be silently ignored inside the plugin.
+     */
+    @Test
+    void shadowingJarIsSearchedFirstWhateverItsName(@TempDir Path plugins) throws Exception {
+        Path sample = PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+        // Named so the shadowing jar sorts LAST: an implementation that only sorted by name would
+        // hand back the other copy and fail here.
+        PluginJars.addClassJar(sample, "aaa-vanilla.jar", "com.example.fs.Shadowed");
+        PluginJars.addShadowingClassJar(sample, "zzz-patched.jar", "com.example.fs.Shadowed");
+
+        PluginHandle handle = new PluginRuntime(plugins, getClass().getClassLoader()).plugin("sample");
+
+        Assertions.assertEquals(PluginHandle.State.READY, handle.state(), handle.failure());
+        Class<?> loaded = handle.classLoader().loadClass("com.example.fs.Shadowed");
+        Assertions.assertEquals(sample.resolve("zzz-patched.jar").toUri().toURL().toString(),
+                loaded.getProtectionDomain().getCodeSource().getLocation().toString(),
+                "the jar that declares it shadows the class must be the one the class comes from");
+    }
+
+    /** The attribute reorders nothing else: jars without it keep their name order among themselves. */
+    @Test
+    void jarsWithoutTheShadowingAttributeKeepNameOrder(@TempDir Path plugins) throws Exception {
+        Path sample = PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+        PluginJars.addClassJar(sample, "aaa-first.jar", "com.example.fs.Contested");
+        PluginJars.addClassJar(sample, "bbb-second.jar", "com.example.fs.Contested");
+        PluginJars.addShadowingClassJar(sample, "zzz-patched.jar", "com.example.fs.Unrelated");
+
+        PluginHandle handle = new PluginRuntime(plugins, getClass().getClassLoader()).plugin("sample");
+
+        Assertions.assertEquals(PluginHandle.State.READY, handle.state(), handle.failure());
+        Class<?> loaded = handle.classLoader().loadClass("com.example.fs.Contested");
+        Assertions.assertEquals(sample.resolve("aaa-first.jar").toUri().toURL().toString(),
+                loaded.getProtectionDomain().getCodeSource().getLocation().toString(),
+                "a class no shadowing jar carries still resolves by name order");
+    }
+
     /** An absent directory is the ordinary case: both filesystems are opt-in build flags. */
     @Test
     void anAbsentSharedFilesystemDirectoryChangesNothing(@TempDir Path plugins) throws IOException {

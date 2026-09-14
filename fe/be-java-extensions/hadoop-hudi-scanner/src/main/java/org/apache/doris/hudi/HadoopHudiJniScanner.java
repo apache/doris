@@ -43,7 +43,6 @@ import org.apache.hadoop.mapred.InputFormat;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapred.RecordReader;
 import org.apache.hadoop.mapred.Reporter;
-import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.util.Option;
@@ -64,7 +63,6 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.TreeMap;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -79,12 +77,6 @@ public class HadoopHudiJniScanner extends JniScanner {
 
     // fs.s3a.impl.disable.cache and its per-scheme siblings, as the FE emits them.
     private static final Pattern FS_DISABLE_CACHE = Pattern.compile("fs\\..+\\.impl\\.disable\\.cache");
-
-    // One UGI per distinct filesystem configuration, which is what keys Hadoop's FileSystem cache to
-    // the credentials that opened it. See createFileSystemScope. Never evicted on purpose: an entry is
-    // one UGI, there is one per catalog storage config, and dropping one would strand the filesystems
-    // cached under it - a live scan may still be reading through them.
-    private static final ConcurrentHashMap<String, UserGroupInformation> FS_SCOPES = new ConcurrentHashMap<>();
 
     // Hudi data info
     private final String basePath;
@@ -115,8 +107,12 @@ public class HadoopHudiJniScanner extends JniScanner {
     private final int fetchSize;
 
     private final PreExecutionAuthenticator preExecutionAuthenticator;
-    // Null when this scanner does not own its filesystems; see createFileSystemScope.
-    private final UserGroupInformation fileSystemScope;
+    // The configuration this scanner reads under, digested, and the user name its scope carries;
+    // both null when the scanner does not own its filesystems. See fileSystemScopeKey.
+    private final String fileSystemScopeKey;
+    private final String fileSystemScopeUser;
+    // Held from open to close; null outside that window. See HudiFileSystemScopes.
+    private HudiFileSystemScopes.Hold fileSystemScope;
 
     public HadoopHudiJniScanner(int fetchSize, Map<String, String> params) {
         this.basePath = params.get("base_path");
@@ -152,10 +148,12 @@ public class HadoopHudiJniScanner extends JniScanner {
             }
         }
         this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(fsOptionsProps);
-        this.fileSystemScope = createFileSystemScope();
-        if (fileSystemScope != null) {
+        this.fileSystemScopeUser = fileSystemScopeUser();
+        this.fileSystemScopeKey = fileSystemScopeUser == null ? null : fileSystemScopeKey(fsOptionsProps);
+        if (fileSystemScopeKey != null) {
             // Hadoop's FileSystem cache is the only thing standing between this scanner and a
-            // filesystem leaked on every get(); the scope above is what makes it safe to use.
+            // filesystem leaked on every get(); the scope acquired in openInternal is what makes the
+            // cached filesystems closable again.
             fsOptionsProps.replaceAll((key, value) -> FS_DISABLE_CACHE.matcher(key).matches() ? "false" : value);
         }
 
@@ -171,44 +169,40 @@ public class HadoopHudiJniScanner extends JniScanner {
     }
 
     /**
-     * The {@link UserGroupInformation} this scanner reads under, chosen so that Hadoop's
-     * {@link FileSystem} cache can stay ON without letting two catalogs share one filesystem.
+     * The user name of the {@code UserGroupInformation} this scanner reads under, or null when it
+     * reads under the authenticator's own.
      *
-     * <p>The FE hands every S3-compatible catalog {@code fs.s3a.impl.disable.cache=true} (the HDFS
-     * builder does the same for {@code fs.hdfs.}), because that cache is keyed on
-     * (scheme, authority, ugi) and ignores credentials - and every non-Kerberos catalog arrives here
-     * under the SAME ugi, {@code HadoopSimpleAuthenticator}'s {@code createRemoteUser(hadoop.username)},
-     * whose own cache key is just that user name. Two catalogs on one bucket would otherwise read
-     * through whichever S3AFileSystem was built first, with its credentials.
+     * <p>Hadoop's {@link FileSystem} cache stays ON in this scanner, and that is a lifecycle decision
+     * before it is anything else. The FE used to hand every S3-compatible catalog
+     * {@code fs.s3a.impl.disable.cache=true}, and with the cache off every {@code FileSystem.get()}
+     * inside hudi-hadoop-mr built a fresh S3AFileSystem and a fresh AWS SDK client that nobody closed:
+     * one query reaches for the base file, each log file and the timeline through some two dozen of
+     * those calls, and each SDK client leaves a scheduled executor its own worker threads keep alive
+     * - about 118 threads per query, measured - until the JVM cannot start a thread and the BE aborts
+     * with {@code std::system_error: thread constructor failed}.
      *
-     * <p>Disabling the cache does stop that, and leaks instead. Every {@code FileSystem.get()} inside
-     * hudi-hadoop-mr then builds a fresh S3AFileSystem and a fresh AWS SDK client, and nobody closes
-     * them: one query reaches for the base file, each log file and the timeline through some two dozen
-     * of those calls. The filesystems are collected, but each SDK client leaves a scheduled executor
-     * that its own worker threads keep alive - about 118 threads per query, measured - until the JVM
-     * cannot start a thread and the BE aborts with
-     * {@code std::system_error: thread constructor failed}.
+     * <p>With the cache on, what keeps two catalogs from sharing one filesystem is the cache key. This
+     * plugin carries the Doris-patched {@code FileSystem} (hadoop-deps), whose key includes the
+     * {@code doris.fs.cache.key.<scheme>} fingerprint FE derives from each catalog's storage
+     * configuration - so same credentials reuse a filesystem and different ones cannot, whichever UGI
+     * the scan runs under. What the per-configuration UGI adds is a handle to CLOSE with: the cached
+     * filesystems are keyed on it, {@code FileSystem.closeAllForUGI} is the only way Hadoop offers to
+     * let a set of them go, and {@link HudiFileSystemScopes} closes each configuration's set once no
+     * scanner has read through it for a while. The UGI carries the SAME user name the simple
+     * authenticator would have used - it is a second Subject for one user, not another user - so an
+     * {@code hdfs://} warehouse still sees the identity it always saw.
      *
-     * <p>So the cache goes back on, and the credential separation it was disabled for is provided by
-     * the cache key itself: one UGI per distinct filesystem configuration, from {@link #FS_SCOPES}.
-     * Same credentials reuse a filesystem, different credentials cannot. The UGI carries the SAME user
-     * name the simple authenticator would have used - it is a second Subject for one user, not another
-     * user - so an {@code hdfs://} warehouse still sees the identity it always saw.
-     *
-     * <p>Kerberos is the case this cannot serve: {@code createRemoteUser} would drop the credentials the
-     * ticket carries. There the scanner keeps the authenticator's own UGI, which is already cached per
-     * principal and so already partitions the filesystem cache; this returns null and the FE's setting
-     * is left alone.
+     * <p>Kerberos is the case this cannot serve: {@code createRemoteUser} would drop the credentials
+     * the ticket carries. There the scanner keeps the authenticator's own UGI, which is cached per
+     * principal, and the FE's cache setting is left alone; this returns null.
      */
-    private UserGroupInformation createFileSystemScope() {
+    private String fileSystemScopeUser() {
         HadoopAuthenticator authenticator = preExecutionAuthenticator.getHadoopAuthenticator();
         if (authenticator == null || authenticator instanceof HadoopKerberosAuthenticator) {
             return null;
         }
         try {
-            String userName = authenticator.getUGI().getUserName();
-            return FS_SCOPES.computeIfAbsent(fileSystemScopeKey(),
-                    key -> UserGroupInformation.createRemoteUser(userName));
+            return authenticator.getUGI().getUserName();
         } catch (Exception e) {
             LOG.warn("failed to derive a FileSystem scope for the hudi scanner, keeping the shared one", e);
             return null;
@@ -217,15 +211,23 @@ public class HadoopHudiJniScanner extends JniScanner {
 
     /**
      * Identifies a filesystem configuration - endpoint, credentials, everything the FE sent - so that
-     * {@link #FS_SCOPES} hands the same UGI to two scanners exactly when they may share a filesystem.
-     * Digested rather than used directly because the properties hold secrets and a map key is easy to
-     * print by accident.
+     * {@link HudiFileSystemScopes} hands the same UGI to two scanners exactly when they may share a
+     * filesystem. Digested rather than used directly because the properties hold secrets and a map key
+     * is easy to print by accident. Null when the digest cannot be computed, in which case the scanner
+     * reads under the authenticator's UGI like a Kerberos one. Package-private so a test can name the
+     * scope a scanner built from a given configuration holds.
      */
-    private String fileSystemScopeKey() throws NoSuchAlgorithmException {
+    static String fileSystemScopeKey(Map<String, String> fsOptionsProps) {
         StringBuilder canonical = new StringBuilder();
         new TreeMap<>(fsOptionsProps).forEach((k, v) -> canonical.append(k).append('=').append(v).append('\n'));
-        byte[] digest = MessageDigest.getInstance("SHA-256")
-                .digest(canonical.toString().getBytes(StandardCharsets.UTF_8));
+        byte[] digest;
+        try {
+            digest = MessageDigest.getInstance("SHA-256")
+                    .digest(canonical.toString().getBytes(StandardCharsets.UTF_8));
+        } catch (NoSuchAlgorithmException e) {
+            LOG.warn("failed to derive a FileSystem scope for the hudi scanner, keeping the shared one", e);
+            return null;
+        }
         StringBuilder hex = new StringBuilder(digest.length * 2);
         for (byte b : digest) {
             hex.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
@@ -241,11 +243,12 @@ public class HadoopHudiJniScanner extends JniScanner {
      * {@code createRemoteUser} of the same name, and the simple authenticator adds nothing else.
      */
     private <T> T executeInFileSystemScope(Callable<T> task) throws Exception {
-        if (fileSystemScope == null) {
+        HudiFileSystemScopes.Hold hold = fileSystemScope;
+        if (hold == null) {
             return preExecutionAuthenticator.execute(task);
         }
         try {
-            return fileSystemScope.doAs((PrivilegedExceptionAction<T>) task::call);
+            return hold.ugi().doAs((PrivilegedExceptionAction<T>) task::call);
         } catch (UndeclaredThrowableException e) {
             // doAs only wraps checked exceptions it does not declare; the callers report the cause.
             Throwable cause = e.getUndeclaredThrowable();
@@ -253,8 +256,31 @@ public class HadoopHudiJniScanner extends JniScanner {
         }
     }
 
+    /**
+     * Takes this scanner's hold on its configuration's scope. From here until {@link #closeInternal}
+     * the filesystems it opens are cached under that scope's UGI and cannot be closed from under it;
+     * see {@link HudiFileSystemScopes}.
+     */
+    private void acquireFileSystemScope() {
+        if (fileSystemScopeKey != null && fileSystemScope == null) {
+            fileSystemScope = HudiFileSystemScopes.shared().acquire(fileSystemScopeKey, fileSystemScopeUser);
+        }
+    }
+
+    /** Gives the hold back. Idempotent, like the close that calls it. */
+    private void releaseFileSystemScope() {
+        HudiFileSystemScopes.Hold hold = fileSystemScope;
+        fileSystemScope = null;
+        if (hold != null) {
+            hold.release();
+        }
+    }
+
     @Override
     protected void openInternal() throws IOException {
+        // Acquired here and not in the constructor: BE only closes a scanner whose open succeeded, so
+        // a hold taken before this point would have no release when construction failed midway.
+        acquireFileSystemScope();
         try {
             executeInFileSystemScope(() -> {
                 initRequiredColumnsAndTypes();
@@ -316,6 +342,9 @@ public class HadoopHudiJniScanner extends JniScanner {
         } catch (IOException e) {
             LOG.warn("failed to close hadoop hudi jni scanner", e);
             throw new IOException("failed to close hadoop hudi jni scanner: " + e.getMessage(), e);
+        } finally {
+            // After the reader: the reader reads through the filesystems the scope keeps open.
+            releaseFileSystemScope();
         }
     }
 

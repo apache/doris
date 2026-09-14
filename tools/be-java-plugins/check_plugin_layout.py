@@ -21,7 +21,7 @@ Run it on a built output tree:
 
     tools/be-java-plugins/check_plugin_layout.py [output/be/lib/jni/spi] [output/be/plugins/jni]
 
-Five checks, four of which have caught a real regression during the plugin migration:
+Six checks, four of which have caught a real regression during the plugin migration:
 
   spi-jar-purity        doris-jni-spi.jar carries only the SPI packages. Everything in that jar
                         is shared by BE and by every plugin at once, so a class that slips in
@@ -31,7 +31,16 @@ Five checks, four of which have caught a real regression during the plugin migra
                         type; the loader rejects it, but only when someone runs a query.
   duplicate-classes     Within one plugin directory, a class name that resolves to different
                         bytes in different jars. One directory is one flat classloader, so the
-                        winner is jar-name order - not a decision anyone made.
+                        winner is jar-name order - not a decision anyone made. The one decided
+                        case is a SHADOWING jar: one whose manifest names, in
+                        Doris-Shadows-Classes, the classes it exists to replace (hadoop-deps,
+                        carrying the Doris-patched org.apache.hadoop.fs.FileSystem). PluginRuntime
+                        searches such a jar first whatever its name, so those classes - nested
+                        ones included - may duplicate a sibling's.
+  shadowing-jar         A jar that declares Doris-Shadows-Classes carries every class it names
+                        and nothing else. The loader trusts the attribute for search order; this
+                        is what keeps it honest, so a jar cannot ride to the front of the
+                        classpath with more than the classes it declares.
   closure-self-contained
                         Every class referenced from a plugin's ROOT jars resolves inside that
                         plugin directory (plus the SPI jar and the JDK). The roots are Doris's own
@@ -263,15 +272,62 @@ def check_plugin_ships_no_spi(plugin, jars, fail):
                  % (plugin, os.path.basename(jar), len(carried), carried[0]))
 
 
+SHADOWS_CLASSES_ATTRIBUTE = "Doris-Shadows-Classes"
+
+
+def _shadowed(cls_paths, name):
+    """Whether class-file entry `name` is one of `cls_paths` or nested inside one of them."""
+    for cls in cls_paths:
+        if name == cls + ".class" or name.startswith(cls + "$"):
+            return True
+    return False
+
+
+def shadowed_classes(plugin, jars, fail):
+    """
+    The class paths (org/apache/hadoop/fs/FileSystem, without .class) that the shadowing jars of
+    this directory declare, after holding each jar to its declaration. PluginRuntime moves a jar
+    carrying the attribute to the front of the classpath on the attribute's presence alone, so
+    this is the only place the VALUE is checked: every named class must be in the jar (a
+    declaration that shadows nothing is a build mistake, most likely a rename), and the jar must
+    hold nothing beyond the named classes and their nested classes (anything else would shadow a
+    sibling silently, which is the accident duplicate-classes exists to catch).
+    """
+    shadowed = []
+    for jar in jars:
+        declared = _manifest_attribute(jar, SHADOWS_CLASSES_ATTRIBUTE)
+        if declared is None:
+            continue
+        cls_paths = [c.strip().replace(".", "/") for c in declared.split(",") if c.strip()]
+        entries = [n for n in _names(jar) if n.endswith(".class")]
+        for cls in cls_paths:
+            if cls + ".class" not in entries:
+                fail("shadowing-jar",
+                     "plugin '%s': %s declares %s: %s but carries no %s.class; the attribute "
+                     "names classes the jar replaces, and this one is not in it."
+                     % (plugin, os.path.basename(jar), SHADOWS_CLASSES_ATTRIBUTE, declared, cls))
+        stray = sorted(n for n in entries if not _shadowed(cls_paths, n))
+        if stray:
+            fail("shadowing-jar",
+                 "plugin '%s': %s declares %s: %s but also carries %d undeclared class(es), e.g. %s. "
+                 "A shadowing jar is searched before every other jar in the directory, so it may hold "
+                 "only the classes it declares (and their nested classes)."
+                 % (plugin, os.path.basename(jar), SHADOWS_CLASSES_ATTRIBUTE, declared, len(stray),
+                    stray[0]))
+        shadowed.extend(cls_paths)
+    return shadowed
+
+
 def check_duplicate_classes(plugin, jars, fail):
     rules = DUPLICATE_ALLOWLIST.get("*", []) + DUPLICATE_ALLOWLIST.get(plugin, [])
+    shadowed = shadowed_classes(plugin, jars, fail)
     by_name = collections.defaultdict(lambda: collections.defaultdict(list))
     for jar in jars:
         for name, crc in _class_entries(jar):
             by_name[name][crc].append(os.path.basename(jar))
     for name in sorted(by_name):
         by_crc = by_name[name]
-        if len(by_crc) < 2 or _allowed(rules, name):
+        if len(by_crc) < 2 or _allowed(rules, name) or _shadowed(shadowed, name):
             continue
         where = "; ".join("%08x in %s" % (crc, ", ".join(sorted(set(js))))
                           for crc, js in sorted(by_crc.items()))
@@ -523,7 +579,7 @@ def main(argv):
         check_api_version_stamp(plugin, jars, served, fail)
 
     if not failures:
-        print("\nOK: %d plugins pass all five checks. This does NOT prove the closures are "
+        print("\nOK: %d plugins pass all six checks. This does NOT prove the closures are "
               "complete - see the note at the top of this file." % len(plugins))
         return 0
     print("\n%d problem(s):" % len(failures))

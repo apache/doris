@@ -45,6 +45,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -152,6 +153,37 @@ public class PaimonPluginTest {
             Assertions.assertEquals(scheme.getValue(), FileSystem.getFileSystemClass(scheme.getKey(), conf).getName(),
                     scheme.getKey() + ":// must resolve inside the plugin");
         }
+    }
+
+    /**
+     * The {@code FileSystem} class in this plugin is the Doris-patched one from hadoop-deps, not
+     * hadoop-common's. FE tags every storage map it sends with a per-scheme credential fingerprint
+     * ({@code doris.fs.cache.key.<scheme>}) and relies on the cache key honouring it; the vanilla
+     * class ignores the property, and since every simple-auth scan in this plugin runs under one
+     * UGI per {@code hadoop.username}, two catalogs reaching the same {@code scheme://authority}
+     * with different credentials or namenode addresses would then share one cached filesystem.
+     *
+     * <p>Surefire orders the classpath as the pom declares the dependencies, which is why
+     * hadoop-deps is declared ahead of hadoop-common there; in the deployed plugin directory the
+     * jar's {@code Doris-Shadows-Classes} manifest entry does the same job. On the vanilla class the
+     * first assertion fails: both lookups hit one entry keyed on (scheme, authority, UGI).
+     */
+    @Test
+    public void keysTheFilesystemCacheByTheFingerprintFeSends() throws IOException {
+        URI uri = URI.create("file:///");
+        FileSystem catalogA = FileSystem.get(uri, withFingerprint("catalog-a"));
+        FileSystem catalogB = FileSystem.get(uri, withFingerprint("catalog-b"));
+        Assertions.assertNotSame(catalogA, catalogB,
+                "two fingerprints must key two cache entries - this plugin is running on hadoop-common's "
+                        + "FileSystem, not hadoop-deps' patched copy");
+        Assertions.assertSame(catalogA, FileSystem.get(uri, withFingerprint("catalog-a")),
+                "the same fingerprint keys the same entry, so the cache still caches");
+    }
+
+    private static Configuration withFingerprint(String fingerprint) {
+        Configuration conf = new Configuration();
+        conf.set("doris.fs.cache.key.file", fingerprint);
+        return conf;
     }
 
     /**

@@ -52,6 +52,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -184,6 +185,37 @@ public class HadoopHudiPluginTest {
     }
 
     /**
+     * The {@code FileSystem} class in this plugin is the Doris-patched one from hadoop-deps, not
+     * hadoop-common's. FE tags every storage map it sends with a per-scheme credential fingerprint
+     * ({@code doris.fs.cache.key.<scheme>}) and relies on the cache key honouring it; the vanilla
+     * class ignores the property, and since every simple-auth scan in this plugin runs under one
+     * UGI per {@code hadoop.username}, two catalogs reaching the same {@code scheme://authority}
+     * with different credentials or namenode addresses would then share one cached filesystem.
+     *
+     * <p>Surefire orders the classpath as the pom declares the dependencies, which is why
+     * hadoop-deps is declared ahead of hadoop-common there; in the deployed plugin directory the
+     * jar's {@code Doris-Shadows-Classes} manifest entry does the same job. On the vanilla class the
+     * first assertion fails: both lookups hit one entry keyed on (scheme, authority, UGI).
+     */
+    @Test
+    public void keysTheFilesystemCacheByTheFingerprintFeSends() throws IOException {
+        URI uri = URI.create("file:///");
+        FileSystem catalogA = FileSystem.get(uri, withFingerprint("catalog-a"));
+        FileSystem catalogB = FileSystem.get(uri, withFingerprint("catalog-b"));
+        Assertions.assertNotSame(catalogA, catalogB,
+                "two fingerprints must key two cache entries - this plugin is running on hadoop-common's "
+                        + "FileSystem, not hadoop-deps' patched copy");
+        Assertions.assertSame(catalogA, FileSystem.get(uri, withFingerprint("catalog-a")),
+                "the same fingerprint keys the same entry, so the cache still caches");
+    }
+
+    private static Configuration withFingerprint(String fingerprint) {
+        Configuration conf = new Configuration();
+        conf.set("doris.fs.cache.key.file", fingerprint);
+        return conf;
+    }
+
+    /**
      * The four classes a Hive UDF is written against exist twice in a BE: hive-udf-shade cuts them
      * out of hive-exec 3.1.3 for java-udf, and the repackaged hive this scanner deserializes rows
      * with carries 3.1.2-22's. java-udf's jar sits on BE's system classpath, so parent-first used to
@@ -245,6 +277,60 @@ public class HadoopHudiPluginTest {
     public void readsBackWhatItWrote() throws Exception {
         File baseFile = createCopyOnWriteTableWithTwoRows();
 
+        JniScanner scanner = loadPlugin().getScannerFactories().iterator().next().create(16, scanParams(baseFile));
+        scanner.open();
+        try {
+            Assertions.assertNotEquals(0, scanner.getNextBatchMeta());
+            Assertions.assertEquals(2, scanner.getTable().getNumRows());
+            scanner.releaseTable();
+            Assertions.assertEquals(0, scanner.getNextBatchMeta(),
+                    "0 means end of stream");
+        } finally {
+            scanner.close();
+        }
+    }
+
+    /**
+     * The scanner holds its configuration's filesystem scope exactly while it is open. That window
+     * is what {@link HudiFileSystemScopes} counts: a hold outside it would keep the configuration's
+     * filesystems from ever being closed, and a missing hold inside it would let a sweep close them
+     * under a running scan. The hold is taken in open rather than in the constructor because BE only
+     * closes a scanner whose open succeeded.
+     */
+    @Test
+    public void holdsItsFilesystemScopeOnlyWhileOpen() throws Exception {
+        File baseFile = createCopyOnWriteTableWithTwoRows();
+        // These params carry no hadoop_conf.*, so the configuration is the empty one.
+        String key = HadoopHudiJniScanner.fileSystemScopeKey(Collections.emptyMap());
+        HudiFileSystemScopes scopes = HudiFileSystemScopes.shared();
+        int before = scopes.owners(key);
+
+        JniScanner scanner = loadPlugin().getScannerFactories().iterator().next().create(16, scanParams(baseFile));
+        Assertions.assertEquals(before, scopes.owners(key), "constructing a scanner takes no hold");
+        scanner.open();
+        Assertions.assertEquals(before + 1, scopes.owners(key), "an open scanner holds its scope");
+        scanner.close();
+        Assertions.assertEquals(before, scopes.owners(key), "close gives the hold back");
+        scanner.close();
+        Assertions.assertEquals(before, scopes.owners(key), "closing twice releases once");
+    }
+
+    /** BE never closes a scanner whose open failed, so the scanner has to let go of the hold itself. */
+    @Test
+    public void failedOpenReleasesTheHold() throws Exception {
+        File baseFile = createCopyOnWriteTableWithTwoRows();
+        String key = HadoopHudiJniScanner.fileSystemScopeKey(Collections.emptyMap());
+        HudiFileSystemScopes scopes = HudiFileSystemScopes.shared();
+        int before = scopes.owners(key);
+
+        Map<String, String> params = scanParams(baseFile);
+        params.put("data_file_path", new File(tableRoot, "no-such-file.parquet").getAbsolutePath());
+        JniScanner scanner = loadPlugin().getScannerFactories().iterator().next().create(16, params);
+        Assertions.assertThrows(IOException.class, scanner::open);
+        Assertions.assertEquals(before, scopes.owners(key), "a failed open must not leave a hold behind");
+    }
+
+    private Map<String, String> scanParams(File baseFile) {
         Map<String, String> params = new HashMap<>();
         params.put("base_path", tableRoot.getAbsolutePath());
         params.put("data_file_path", baseFile.getAbsolutePath());
@@ -257,18 +343,7 @@ public class HadoopHudiPluginTest {
         params.put("input_format", "org.apache.hudi.hadoop.HoodieParquetInputFormat");
         params.put("serde", "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe");
         params.put("time_zone", "UTC");
-
-        JniScanner scanner = loadPlugin().getScannerFactories().iterator().next().create(16, params);
-        scanner.open();
-        try {
-            Assertions.assertNotEquals(0, scanner.getNextBatchMeta());
-            Assertions.assertEquals(2, scanner.getTable().getNumRows());
-            scanner.releaseTable();
-            Assertions.assertEquals(0, scanner.getNextBatchMeta(),
-                    "0 means end of stream");
-        } finally {
-            scanner.close();
-        }
+        return params;
     }
 
     /**

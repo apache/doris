@@ -62,6 +62,29 @@ final class PluginRuntime {
 
     private static final Logger LOG = Logger.getLogger(PluginRuntime.class.getName());
 
+    /**
+     * Manifest attribute a jar sets to be searched AHEAD of every other jar in its plugin directory.
+     *
+     * <p>A plugin directory is one flat classloader, and when two of its jars carry the same class
+     * name the winner is the earlier URL - which, with nothing else said, is jar-name order. That
+     * is deterministic and good enough for the accidental duplicates the layout check adjudicates,
+     * but it is the wrong answer for a jar whose whole purpose is to shadow: hadoop-deps holds the
+     * Doris-patched {@code org.apache.hadoop.fs.FileSystem} (its cache key carries the credential
+     * fingerprint FE sends as {@code doris.fs.cache.key.<scheme>}), and "hadoop-common-*.jar"
+     * sorts before "hadoop-deps.jar". On BE's system classpath the same jar is put first by
+     * start_be.sh; this attribute is the plugin-directory equivalent of that line.
+     *
+     * <p>The value is the comma-separated list of the classes the jar shadows, nested classes
+     * implied. The loader only needs the attribute's presence, and logs the value; the layout
+     * check ({@code tools/be-java-plugins/check_plugin_layout.py}) holds the jar to it - the jar
+     * must carry those classes and no others may duplicate a sibling jar's. Set from
+     * {@code <manifestEntries>} in the shadowing artifact's own pom, not by the plugins that bundle
+     * it: the artifact knows what it replaces, and every plugin then gets the same answer. Shared
+     * filesystem jars ({@link #sharedFilesystemJars()}) are appended after everything and never
+     * take part: they are not in the plugin directory.
+     */
+    static final String SHADOWS_CLASSES_ATTRIBUTE = "Doris-Shadows-Classes";
+
     private final Path pluginDir;
     private final ClassLoader spiClassLoader;
     private final ClassLoader hadoopConfResources;
@@ -423,7 +446,7 @@ final class PluginRuntime {
     }
 
     private PluginHandle loadDeployed(String name, Path dir) throws IOException {
-        List<URL> jars = jarsIn(dir);
+        List<URL> jars = shadowingJarsFirst(name, jarsIn(dir));
         if (jars.isEmpty()) {
             throw new IllegalStateException("no jars in " + dir);
         }
@@ -585,6 +608,31 @@ final class PluginRuntime {
         }
         names.sort(String::compareTo);
         return names;
+    }
+
+    /**
+     * Moves the jars that declare {@link #SHADOWS_CLASSES_ATTRIBUTE} to the front, keeping the
+     * sorted order within each group, so that a class they shadow resolves to their copy no matter
+     * what the shadowed jar is called.
+     */
+    private static List<URL> shadowingJarsFirst(String pluginName, List<URL> sorted) throws IOException {
+        List<URL> shadowing = new ArrayList<>();
+        List<URL> rest = new ArrayList<>(sorted.size());
+        for (URL jar : sorted) {
+            String shadows = PluginApiVersions.mainAttribute(jar, SHADOWS_CLASSES_ATTRIBUTE);
+            if (shadows == null) {
+                rest.add(jar);
+            } else {
+                shadowing.add(jar);
+                LOG.info("Java plugin '" + pluginName + "': " + jar + " is searched first; it shadows "
+                        + shadows);
+            }
+        }
+        if (shadowing.isEmpty()) {
+            return sorted;
+        }
+        shadowing.addAll(rest);
+        return shadowing;
     }
 
     private static List<URL> jarsIn(Path dir) throws IOException {

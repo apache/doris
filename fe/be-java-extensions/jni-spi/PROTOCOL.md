@@ -276,6 +276,14 @@ rather than a runtime error.
   `oss-hdfs://`, JuiceFS for `jfs://`. Those are appended, never prepended, so a plugin's own copy
   of a class always wins; each plugin still loads them in its own classloader, so nothing is shared
   but the files on disk. They are not part of the plugin's API contract and declare no service.
+- Within the directory the jars are searched in name order, with one exception: a jar whose
+  MANIFEST carries `Doris-Shadows-Classes` (a comma-separated list of the classes it replaces) is
+  searched before every other jar in the directory, whatever its name. `hadoop-deps.jar` sets it
+  for the Doris-patched `org.apache.hadoop.fs.FileSystem`, whose cache key honours the
+  `doris.fs.cache.key.<scheme>` fingerprint FE sends; a plugin that bundles hadoop-common declares
+  that artifact so the patched copy lands beside the vanilla one and wins. The attribute is set by
+  the shadowing artifact's own pom, and `tools/be-java-plugins/check_plugin_layout.py` verifies
+  the jar carries exactly the classes it names.
 - The entry point is found by `ServiceLoader`, from
   `META-INF/services/org.apache.doris.jni.spi.DorisPlugin` inside the plugin's own jars.
 - Within a plugin, each factory is addressed by its `getName()`. BE sends the pair

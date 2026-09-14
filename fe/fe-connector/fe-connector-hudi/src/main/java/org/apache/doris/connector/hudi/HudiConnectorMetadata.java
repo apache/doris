@@ -267,10 +267,23 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         // names ("year=2024/month=01") unconditionally; for a non-hive-style table (Hudi default) the physical
         // layout is positional ("2024/01"), so fsView (keyed by relative storage paths) matched nothing -> 0
         // splits for any filtered query. Keep maxParts=-1 (unlimited): no silent partition truncation.
+        //
+        // A pinned read (FOR TIME AS OF: the engine stamps queryInstant onto the handle in doInitialize,
+        // before this runs) never prunes against HMS, hive-sync or not. HMS holds the partitions of NOW,
+        // and a partition that held data at the pin but was dropped - and hive-unsynced - since is not
+        // among them: pruning `part1 = 'GONE'` against that universe yields an EMPTY list, which
+        // resolvePartitions reads as "zero paths", and the query silently returns no rows. That is the
+        // same argument listsPartitionsAtSnapshot makes for the generic listing, and it has to hold here
+        // too, because applySnapshot preserves prunedPartitionPaths. The Hudi metadata listing below is
+        // the universe the unpruned pinned scan itself walks (resolvePartitions -> listAllPartitionPaths,
+        // then the file-system view AT the instant), so pruning it by the predicate can never drop a
+        // partition the scan would have read - and it costs nothing extra: resolvePartitions
+        // short-circuits on the pruned list, so the listing happens here instead of there.
         boolean hiveSync = useHiveSyncPartition();
+        boolean pinned = hudiHandle.getQueryInstant() != null;
         List<String> allPartPaths;
         List<String> matchedPartPaths;
-        if (hiveSync) {
+        if (hiveSync && !pinned) {
             // hive-sync: HMS registers the hive-style names, which ARE the relative storage layout, so fsView
             // accepts them directly (no relativization, matching legacy / collectPartitions). Prune the HMS names.
             allPartPaths = hmsClient.listPartitionNames(
@@ -280,10 +293,11 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             }
             matchedPartPaths = prunePartitionNames(allPartPaths, partKeyNames, partitionPredicates);
         } else {
-            // non-hive-sync (Hudi default): list the RELATIVE storage paths from Hudi metadata -- the SAME source
-            // the unpruned scan (resolvePartitions -> listAllPartitionPaths) uses -- under the plugin auth + TCCL
-            // pin. Net-neutral: resolvePartitions short-circuits once prunedPaths is set, so a filtered query lists
-            // exactly once (here) instead of there. parsePartitionValues handles the positional layout ("2024/01").
+            // non-hive-sync (Hudi default), or any pinned read: list the RELATIVE storage paths from Hudi
+            // metadata -- the SAME source the unpruned scan (resolvePartitions -> listAllPartitionPaths) uses --
+            // under the plugin auth + TCCL pin. Net-neutral: resolvePartitions short-circuits once prunedPaths is
+            // set, so a filtered query lists exactly once (here) instead of there. parsePartitionValues handles
+            // the positional layout ("2024/01") and the hive-style one a hive-sync table has.
             allPartPaths = metaClientExecutor.execute(() ->
                     HudiScanPlanProvider.listAllPartitionPaths(
                             HudiScanPlanProvider.buildMetaClient(buildHadoopConf(), hudiHandle.getBasePath())));
@@ -297,9 +311,9 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             return Optional.empty();
         }
 
-        LOG.info("Partition pruning: {}.{} hiveSync={} all={} pruned={}",
+        LOG.info("Partition pruning: {}.{} hiveSync={} pinned={} all={} pruned={}",
                 hudiHandle.getDbName(), hudiHandle.getTableName(),
-                hiveSync, allPartPaths.size(), matchedPartPaths.size());
+                hiveSync, pinned, allPartPaths.size(), matchedPartPaths.size());
 
         // Build updated handle carrying only the matched (relative-shape) partition paths for scan planning.
         HudiTableHandle updatedHandle = hudiHandle.toBuilder()
@@ -578,6 +592,9 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
      * unsynced from HMS is not in that subset, and pruning against it would silently drop rows a
      * {@code FOR TIME AS OF} query must read. False means "this listing knows nothing about snapshots", which
      * leaves the pinned partition set empty and scans everything - coarse, but never short.
+     *
+     * <p>This guards the engine's pruning only. The connector's own, {@link #applyFilter}, makes the same
+     * promise on its own: a pinned hive-sync read prunes the Hudi metadata listing rather than HMS.
      */
     @Override
     public boolean listsPartitionsAtSnapshot(ConnectorSession session, ConnectorTableHandle handle) {
@@ -587,8 +604,10 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     /**
      * Threads a resolved pin onto the handle BEFORE planScan, reading the FE-internal carrier properties set by
      * {@link #resolveTimeTravel} and stamping via {@code toBuilder()}, which PRESERVES any
-     * {@code prunedPartitionPaths} applyFilter set earlier (applyFilter runs before applySnapshot at scan time,
-     * so a rebuild-from-scratch would drop the pruning). Two mutually exclusive carriers:
+     * {@code prunedPartitionPaths} applyFilter set. The engine calls this at every consumption point of the
+     * handle - first in {@code PluginDrivenScanNode.doInitialize}, before applyFilter, and again before
+     * planScan - so applyFilter sees the pin (which is what lets it refuse to prune a pinned read against
+     * HMS) and a rebuild-from-scratch here would drop the pruning. Two mutually exclusive carriers:
      *
      * <ul>
      *   <li>{@link #HUDI_QUERY_INSTANT_PROPERTY} ({@code FOR TIME AS OF}) &rarr; stamp {@code queryInstant}.</li>

@@ -96,8 +96,23 @@ final class PluginJars {
      * reach proves nothing.
      */
     static void addClassJar(Path dir, String jarName, String className) throws IOException {
-        try (JarOutputStream jar = new JarOutputStream(
-                Files.newOutputStream(dir.resolve(jarName)), new Manifest())) {
+        addClassJar(dir, jarName, className, new Manifest());
+    }
+
+    /**
+     * {@link #addClassJar}, with the manifest declaring that the jar shadows {@code className}:
+     * the shape hadoop-deps takes in a plugin directory.
+     */
+    static void addShadowingClassJar(Path dir, String jarName, String className) throws IOException {
+        Manifest manifest = new Manifest();
+        manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+        manifest.getMainAttributes().putValue(PluginRuntime.SHADOWS_CLASSES_ATTRIBUTE, className);
+        addClassJar(dir, jarName, className, manifest);
+    }
+
+    private static void addClassJar(Path dir, String jarName, String className, Manifest manifest)
+            throws IOException {
+        try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(dir.resolve(jarName)), manifest)) {
             write(jar, className.replace('.', '/') + ".class", emptyClass(className));
         }
     }
