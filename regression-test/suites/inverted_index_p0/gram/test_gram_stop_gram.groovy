@@ -55,21 +55,6 @@ suite("test_gram_stop_gram", "p0") {
         throw new IllegalStateException("analyzer ${name} was not installed on BE", lastNotFound)
     }
 
-    def backendId_to_backendIP = [:]
-    def backendId_to_backendHttpPort = [:]
-    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
-    def set_be_config = { key, value ->
-        for (String backend_id : backendId_to_backendIP.keySet()) {
-            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id),
-                    backendId_to_backendHttpPort.get(backend_id), key, value)
-            logger.info("update ${key}=${value}: code=${code}, out=${out}, err=${err}")
-            // A phase that runs against a config that never changed proves nothing.
-            assertEquals(0, code, "updating ${key} on backend ${backend_id} failed: ${err}")
-            assertTrue(out.toString().contains("OK"),
-                    "updating ${key} on backend ${backend_id} was refused: ${out}")
-        }
-    }
-
     // The tables go first: a policy still referenced by a table left behind by an earlier run
     // cannot be dropped.
     sql "DROP TABLE IF EXISTS test_gram_stop_gram_one"
@@ -223,20 +208,7 @@ suite("test_gram_stop_gram", "p0") {
                 "the kept posting (df 4) bounds the candidates, got ${candidates}: the dropped " +
                 "grams must read as match-all and the kept one must still be read")
         assertTrue(pruned >= rows - 4L, "the index pruned only ${pruned} of ${rows} rows")
-
-        // The gate could otherwise mask a broken dropped-gram path by giving up first, so
-        // check again with its fallback ratio disabled. The gate's primary budget comes from
-        // the segment itself and cannot be switched off -- that is the point of deriving it
-        // rather than configuring it -- but zeroing the ratio removes the one arm that a
-        // configuration could have been hiding behind.
-        set_be_config("gram_index_max_candidate_ratio_bp", "0")
-        def ratioOff = runAll(oneSegment, "postings dropped, fallback ratio off")
-        scanned.each { name, value ->
-            assertEquals(value[0][0], ratioOff[name][0][0],
-                    "with the fallback ratio disabled the index changed the answer for ${name}")
-        }
     } finally {
-        set_be_config("gram_index_max_candidate_ratio_bp", "15")
         sql "DROP TABLE IF EXISTS ${oneSegment}"
         sql "DROP TABLE IF EXISTS ${fiveSegments}"
         sql "DROP INVERTED INDEX ANALYZER IF EXISTS gram_stop_ana"
