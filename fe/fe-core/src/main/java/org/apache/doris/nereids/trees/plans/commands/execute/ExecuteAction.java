@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.execute;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.info.TableNameInfo;
@@ -52,6 +53,10 @@ public interface ExecuteAction {
      * @throws UserException if execution fails
      */
     ResultSet execute(TableIf table) throws UserException;
+
+    /** Cancel this invocation's work, if the action supports cancellation. */
+    default void cancel(Status reason) {
+    }
 
     /**
      * Check if this action is supported for the given table.

@@ -41,6 +41,7 @@ public class IcebergExecuteActionFactory {
     public static final String REWRITE_DATA_FILES = "rewrite_data_files";
     public static final String PUBLISH_CHANGES = "publish_changes";
     public static final String REWRITE_MANIFESTS = "rewrite_manifests";
+    public static final String REMOVE_ORPHAN_FILES = "remove_orphan_files";
 
     /**
      * Create an Iceberg-specific ExecuteAction instance.
@@ -61,6 +62,8 @@ public class IcebergExecuteActionFactory {
             IcebergExternalTable table) throws DdlException {
 
         switch (actionType.toLowerCase()) {
+            case REMOVE_ORPHAN_FILES:
+                return new IcebergRemoveOrphanFilesAction(properties, partitionNamesInfo, whereCondition);
             case ROLLBACK_TO_SNAPSHOT:
                 return new IcebergRollbackToSnapshotAction(properties, partitionNamesInfo,
                         whereCondition);
@@ -109,7 +112,8 @@ public class IcebergExecuteActionFactory {
                 EXPIRE_SNAPSHOTS,
                 REWRITE_DATA_FILES,
                 PUBLISH_CHANGES,
-                REWRITE_MANIFESTS
+                REWRITE_MANIFESTS,
+                REMOVE_ORPHAN_FILES
         };
     }
 }

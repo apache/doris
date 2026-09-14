@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -75,6 +76,18 @@ public class ExecuteActionCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        if (isRemoveOrphanFiles()) {
+            // Older FEs still forward arbitrary EXECUTE names, without all session inputs.
+            // Check the context (also retained by proxy prepared statements), not just the executor.
+            if (ctx.isProxy()) {
+                throw new AnalysisException("remove_orphan_files must be submitted directly to an upgraded, "
+                        + "readable FE; forwarded execution does not preserve the complete calling session");
+            }
+            if (!Env.getCurrentEnv().canRead()) {
+                throw new AnalysisException("remove_orphan_files requires a readable FE; "
+                        + "retry on an upgraded FE whose metadata replay is ready");
+            }
+        }
         tableNameInfo.analyze(ctx);
         CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableNameInfo.getCtl());
         if (catalog == null) {
@@ -98,6 +111,7 @@ public class ExecuteActionCommand extends Command implements ForwardWithSync {
         try {
             ExecuteAction action = ExecuteActionFactory.createAction(
                     actionName, properties, partitionNamesInfo, whereCondition, table);
+            executor.setExecuteAction(action);
 
             if (!action.isSupported(table)) {
                 throw new AnalysisException("Action '" + actionName + "' is not supported for this table engine");
@@ -105,13 +119,29 @@ public class ExecuteActionCommand extends Command implements ForwardWithSync {
 
             action.validate(tableNameInfo, ctx.getCurrentUserIdentity());
             ResultSet resultSet = action.execute(table);
-            logRefreshTable(table, System.currentTimeMillis());
+            // Orphan removal does not commit metadata. In particular, its local follower
+            // execution must not write a refresh journal (Spark also skips cache refresh).
+            if (!isRemoveOrphanFiles()) {
+                logRefreshTable(table, System.currentTimeMillis());
+            }
             if (resultSet != null) {
                 executor.sendResultSet(resultSet);
             }
         } catch (UserException e) {
             throw new DdlException("Failed to execute action: " + e.getMessage(), e);
+        } finally {
+            executor.setExecuteAction(null);
         }
+    }
+
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        // Keep the original session for inventory views. No metadata commit or journal is needed.
+        return isRemoveOrphanFiles() ? RedirectStatus.NO_FORWARD : ForwardWithSync.super.toRedirectStatus();
+    }
+
+    private boolean isRemoveOrphanFiles() {
+        return "remove_orphan_files".equalsIgnoreCase(actionName);
     }
 
     @Override

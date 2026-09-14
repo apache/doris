@@ -97,6 +97,7 @@ import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.commands.Redirect;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
+import org.apache.doris.nereids.trees.plans.commands.execute.ExecuteAction;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
@@ -162,6 +163,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -182,6 +184,8 @@ public class StmtExecutor {
     private MysqlSerializer serializer;
     private OriginStatement originStmt;
     private StatementBase parsedStmt;
+    private volatile Status cancellationReason;
+    private volatile ExecuteAction activeExecuteAction;
     // Snapshot of changed session variables taken BEFORE per-query SET_VAR hint values are
     // reverted, so the audit log (built after execute() returns) can reflect the values that
     // were actually in effect for this statement. Null when no SET_VAR hint was used.
@@ -1197,6 +1201,7 @@ public class StmtExecutor {
 
     // Because this is called by other thread
     public void cancel(Status cancelReason, boolean needWaitCancelComplete) {
+        cancellationReason = cancelReason;
         if (masterOpExecutor != null) {
             try {
                 masterOpExecutor.cancel();
@@ -1204,6 +1209,10 @@ public class StmtExecutor {
                 throw new RuntimeException(e);
             }
             return;
+        }
+        ExecuteAction action = activeExecuteAction;
+        if (action != null) {
+            action.cancel(cancelReason);
         }
         Optional<InsertOverwriteTableCommand> insertOverwriteTableCommand = getInsertOverwriteTableCommand();
         if (insertOverwriteTableCommand.isPresent()) {
@@ -1225,6 +1234,15 @@ public class StmtExecutor {
 
     public void cancel(Status cancelReason) {
         cancel(cancelReason, true);
+    }
+
+    /** Publish an invocation's cancellation target, replaying cancellation received before parsing. */
+    public void setExecuteAction(ExecuteAction action) {
+        activeExecuteAction = action;
+        Status reason = cancellationReason;
+        if (action != null && reason != null) {
+            action.cancel(reason);
+        }
     }
 
     private Optional<InsertOverwriteTableCommand> getInsertOverwriteTableCommand() {
@@ -2083,6 +2101,17 @@ public class StmtExecutor {
     }
 
     public List<ResultRow> executeInternalQuery() {
+        List<ResultRow> rows = new ArrayList<>();
+        executeInternalQuery(() -> { }, rows::addAll);
+        return rows;
+    }
+
+    /**
+     * Execute under this executor's caller identity and consume batches without retaining all rows.
+     * The validation hook runs after analysis (including privileges), before starting the coordinator.
+     */
+    public void executeInternalQuery(Runnable validateSchema,
+            Consumer<List<ResultRow>> consumeRows) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("INTERNAL QUERY: {}", originStmt.toString());
         }
@@ -2097,7 +2126,7 @@ public class StmtExecutor {
         context.getState().setIsQuery(true);
         context.getState().setInternal(true);
         try {
-            List<ResultRow> resultRows = new ArrayList<>();
+            long resultRowCount = 0;
             try {
                 parseByNereids();
                 Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
@@ -2105,6 +2134,7 @@ public class StmtExecutor {
                                 + " but parsedStmt is " + parsedStmt.getClass().getName());
                 planner = new NereidsPlanner(statementContext);
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
+                validateSchema.run();
             } catch (Exception e) {
                 LOG.warn("Failed to run internal SQL: {}", originStmt, e);
                 throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
@@ -2124,6 +2154,11 @@ public class StmtExecutor {
             }
             updateProfile(false);
             try {
+                if (cancellationReason != null) {
+                    coord.cancel(cancellationReason);
+                    throw new IllegalStateException("Internal query cancelled: "
+                            + cancellationReason.getErrorMsg());
+                }
                 coord.exec();
             } catch (Exception e) {
                 throw new InternalQueryExecutionException(e.getMessage() + Util.getRootCauseMessage(e), e);
@@ -2133,26 +2168,20 @@ public class StmtExecutor {
                 while (true) {
                     batch = coord.getNext();
                     Preconditions.checkNotNull(batch, "Batch is Null.");
-                    if (batch.isEos()) {
-                        LOG.info("Result rows for query {} is {}", DebugUtil.printId(queryId), resultRows.size());
-                        return resultRows;
-                    } else {
-                        // For null and not EOS batch, continue to get the next batch.
-                        if (batch.getBatch() == null) {
-                            continue;
-                        }
-                        if (batch.getBatch().getRows() != null) {
-                            context.updateReturnRows(batch.getBatch().getRows().size());
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug("Batch size for query {} is {}",
-                                        DebugUtil.printId(queryId), batch.getBatch().rows.size());
-                            }
-                        }
-                        resultRows.addAll(convertResultBatchToResultRows(batch.getBatch()));
+                    // LIMIT may mark a nonempty final batch EOS. Consume its payload first.
+                    if (batch.getBatch() != null && batch.getBatch().getRows() != null) {
+                        context.updateReturnRows(batch.getBatch().getRows().size());
+                        List<ResultRow> rows = convertResultBatchToResultRows(batch.getBatch());
+                        consumeRows.accept(rows);
+                        resultRowCount += rows.size();
                         if (LOG.isDebugEnabled()) {
                             LOG.debug("Result size for query {} is currently {}",
-                                    DebugUtil.printId(queryId), resultRows.size());
+                                    DebugUtil.printId(queryId), resultRowCount);
                         }
+                    }
+                    if (batch.isEos()) {
+                        LOG.info("Result rows for query {} is {}", DebugUtil.printId(queryId), resultRowCount);
+                        return;
                     }
                 }
             } catch (Exception e) {
@@ -2160,6 +2189,13 @@ public class StmtExecutor {
             }
         } catch (Exception e) {
             // Surface failure into ConnectContext state so AuditLogHelper records ERR instead of OK.
+            if (coord != null) {
+                try {
+                    coord.cancel(new Status(TStatusCode.CANCELLED, "Internal query failed: " + e.getMessage()));
+                } catch (Exception cancelError) {
+                    e.addSuppressed(cancelError);
+                }
+            }
             if (context.getState().getStateType() != MysqlStateType.ERR) {
                 String msg = e.getMessage();
                 if (Strings.isNullOrEmpty(msg)) {
@@ -2321,7 +2357,6 @@ public class StmtExecutor {
     public void setProfileType(ProfileType profileType) {
         this.profileType = profileType;
     }
-
 
     public void setProxyShowResultSet(ShowResultSet proxyShowResultSet) {
         this.proxyShowResultSet = proxyShowResultSet;
