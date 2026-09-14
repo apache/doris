@@ -4715,6 +4715,20 @@ protected:
     std::string _file_path;
 };
 
+TEST_F(NewOrcReaderTest, UuidBinaryRequiresLogicalTypeAttribute) {
+    auto reader = create_reader();
+    auto binary = ::orc::createPrimitiveType(::orc::BINARY);
+    EXPECT_EQ(remove_nullable(reader->_convert_to_doris_type(*binary))->get_primitive_type(),
+              TYPE_STRING);
+    binary->setAttribute("doris.logical_type", "uuid");
+    EXPECT_EQ(remove_nullable(reader->_convert_to_doris_type(*binary))->get_primitive_type(),
+              TYPE_UUID);
+    auto list = ::orc::createListType(std::move(binary));
+    const auto array = remove_nullable(reader->_convert_to_doris_type(*list));
+    const auto& array_type = assert_cast<const DataTypeArray&>(*array);
+    EXPECT_EQ(remove_nullable(array_type.get_nested_type())->get_primitive_type(), TYPE_UUID);
+}
+
 TEST_F(NewOrcReaderTest, AggregatePushdownReturnsCountFromFileMetadata) {
     auto reader = create_reader();
     RuntimeState state {TQueryOptions(), TQueryGlobals()};

@@ -17,6 +17,7 @@
 
 #include "udf/python/python_udf_meta.h"
 
+#include <arrow/extension/uuid.h>
 #include <arrow/io/memory.h>
 #include <arrow/ipc/reader.h>
 #include <arrow/util/base64.h>
@@ -27,6 +28,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/define_primitive_type.h"
 
@@ -379,6 +381,31 @@ TEST_F(PythonUDFMetaTest, SerializeToJsonMultipleInputTypes) {
     EXPECT_TRUE(input_schema->field(0)->nullable());
     EXPECT_TRUE(input_schema->field(1)->nullable());
     EXPECT_TRUE(input_schema->field(2)->nullable());
+}
+
+TEST_F(PythonUDFMetaTest, UuidSchemaPreservesBinaryExtensionRecursively) {
+    const auto uuid_type = DataTypeFactory::instance().create_data_type(TYPE_UUID, true);
+    PythonUDFMeta meta;
+    meta.name = "uuid_identity";
+    meta.symbol = "evaluate";
+    meta.runtime_version = "3.11.13";
+    meta.type = PythonUDFLoadType::INLINE;
+    meta.client_type = PythonClientType::UDF;
+    meta.input_types = {uuid_type, std::make_shared<DataTypeArray>(uuid_type), nullable_string_};
+    meta.return_type = uuid_type;
+    std::string serialized;
+    ASSERT_TRUE(meta.serialize_to_json(&serialized).ok());
+    rapidjson::Document document;
+    document.Parse(serialized.c_str());
+    ASSERT_FALSE(document.HasParseError());
+    auto input = decode_arrow_schema(document["input_types"].GetString());
+    auto output = decode_arrow_schema(document["return_type"].GetString());
+    ASSERT_TRUE(input.ok());
+    ASSERT_TRUE(output.ok());
+    EXPECT_TRUE((*input)->field(0)->type()->Equals(arrow::extension::uuid()));
+    EXPECT_TRUE((*input)->field(1)->type()->field(0)->type()->Equals(arrow::extension::uuid()));
+    EXPECT_TRUE((*input)->field(2)->type()->Equals(arrow::utf8()));
+    EXPECT_TRUE((*output)->field(0)->type()->Equals(arrow::extension::uuid()));
 }
 
 TEST_F(PythonUDFMetaTest, SerializeToJsonEmptyInputTypesForUdf) {
