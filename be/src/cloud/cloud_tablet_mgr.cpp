@@ -496,7 +496,7 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
         return is_recent_failure || is_recent_no_suitable_version || is_frozen;
     };
     // We don't schedule tablets that are disabled for compaction
-    auto disable = [](CloudTablet* t) { return t->tablet_meta()->tablet_schema()->disable_auto_compaction(); };
+    auto disable = [](CloudTablet* t) { return t->disable_auto_compaction(); };
 
     auto [num_filtered, num_disabled, num_skipped] = std::make_tuple(0, 0, 0);
 
