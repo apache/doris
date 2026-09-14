@@ -28,7 +28,6 @@ import com.google.common.base.Preconditions;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.io.CloseableIterator;
-import org.apache.iceberg.util.SerializationUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,7 +54,7 @@ public class IcebergSysTableJniScanner extends JniScanner {
         String serializedSplitParams = params.get("serialized_split");
         Preconditions.checkArgument(serializedSplitParams != null && !serializedSplitParams.isEmpty(),
                 "serialized_split should not be empty");
-        this.scanTask = SerializationUtil.deserializeFromBase64(serializedSplitParams);
+        this.scanTask = IcebergSerializationCompat.deserializeFromBase64(serializedSplitParams);
         String requiredFieldsParam = params.get("required_fields");
         Preconditions.checkArgument(requiredFieldsParam != null && !requiredFieldsParam.isEmpty(),
                 "required_fields should not be empty");
