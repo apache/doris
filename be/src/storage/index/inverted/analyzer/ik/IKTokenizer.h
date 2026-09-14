@@ -29,6 +29,9 @@
 using namespace lucene::analysis;
 
 namespace doris::segment_v2 {
+namespace inverted_index {
+class DorisCharFilter;
+}
 
 class IKTokenizer : public inverted_index::DorisTokenizer {
 public:
@@ -59,6 +62,7 @@ private:
     std::unique_ptr<IKSegmenter> ik_segmenter_;
     TokenData* current_token_ {nullptr};
     std::vector<int32_t> current_source_byte_offsets_;
+    const inverted_index::DorisCharFilter* source_char_filter_ {nullptr};
     bool source_byte_offsets_enabled_ {false};
 };
 

@@ -232,6 +232,10 @@ public class AnalyzerIdentityBuilderTest {
 
         Assertions.assertEquals("pinyin", resolveTokenFilters.invoke(null, "PINYIN"));
         Assertions.assertEquals("icu_normalizer", resolveCharFilters.invoke(null, "ICU_NORMALIZER"));
+        Assertions.assertEquals("lowercase,pinyin",
+                resolveTokenFilters.invoke(null, "empty, lowercase, empty, pinyin"));
+        Assertions.assertEquals("char_replace",
+                resolveCharFilters.invoke(null, "empty, char_replace, empty"));
     }
 
     @Test
@@ -249,6 +253,57 @@ public class AnalyzerIdentityBuilderTest {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             Assertions.assertEquals(resolve.invoke(null, "ik_smart", IndexPolicyTypeEnum.TOKENIZER),
                     resolve.invoke(null, "named_ik", IndexPolicyTypeEnum.TOKENIZER));
+        }
+    }
+
+    @Test
+    public void testNamedEmptyFiltersAreOmittedFromIdentity() {
+        IndexPolicyMgr policyMgr = Mockito.mock(IndexPolicyMgr.class);
+        Mockito.when(policyMgr.getPolicyByName("empty_token_filter")).thenReturn(new IndexPolicy(
+                1, "empty_token_filter", IndexPolicyTypeEnum.TOKEN_FILTER, Map.of("type", "empty")));
+        Mockito.when(policyMgr.getPolicyByName("empty_char_filter")).thenReturn(new IndexPolicy(
+                2, "empty_char_filter", IndexPolicyTypeEnum.CHAR_FILTER, Map.of("type", "empty")));
+        Mockito.when(policyMgr.getPolicyByName("plain")).thenReturn(new IndexPolicy(
+                3, "plain", IndexPolicyTypeEnum.ANALYZER, Map.of("tokenizer", "ik_smart")));
+        Mockito.when(policyMgr.getPolicyByName("padded")).thenReturn(new IndexPolicy(
+                4, "padded", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "ik_smart", "token_filter", "empty_token_filter,empty",
+                        "char_filter", "empty,empty_char_filter")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertEquals(
+                    AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                            Map.of("analyzer", "plain"), "plain", "none", "__default__", "none", null),
+                    AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                            Map.of("analyzer", "padded"), "padded", "none", "__default__", "none", null));
+        }
+    }
+
+    @Test
+    public void testOuterCharFilterDistinguishesNamedAnalyzerIdentity() {
+        IndexPolicyMgr policyMgr = Mockito.mock(IndexPolicyMgr.class);
+        Mockito.when(policyMgr.getPolicyByName("smart")).thenReturn(new IndexPolicy(
+                1, "smart", IndexPolicyTypeEnum.ANALYZER, Map.of("tokenizer", "ik_smart")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            String plain = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("analyzer", "smart"), "smart", "none", "__default__", "none", null);
+            String filtered = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("analyzer", "smart", "char_filter_type", "char_replace",
+                            "char_filter_pattern", "-", "char_filter_replacement", " "),
+                    "smart", "none", "__default__", "none", null);
+            String defaultReplacement = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("analyzer", "smart", "char_filter_type", "char_replace",
+                            "char_filter_pattern", "-"),
+                    "smart", "none", "__default__", "none", null);
+            Assertions.assertNotEquals(plain, filtered);
+            Assertions.assertEquals(filtered, defaultReplacement);
         }
     }
 

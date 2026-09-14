@@ -34,6 +34,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.lang.reflect.Method;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -324,9 +325,11 @@ public class PolicyValidatorTests {
 
         manager.replayCreateIndexPolicy(older);
         manager.replayCreateIndexPolicy(newer);
+        Assertions.assertEquals(List.of(newer), manager.getCopiedIndexPolicies());
         manager.replayDropIndexPolicy(new DropIndexPolicyLog(older.getId()));
 
         Assertions.assertEquals(newer.getId(), manager.getPolicyByName("IK_SMART").getId());
+        Assertions.assertEquals(List.of(newer), manager.getCopiedIndexPolicies());
     }
 
     @Test
@@ -342,6 +345,7 @@ public class PolicyValidatorTests {
         manager.replayDropIndexPolicy(new DropIndexPolicyLog(newer.getId()));
 
         Assertions.assertEquals(older.getId(), manager.getPolicyByName("ik_smart").getId());
+        Assertions.assertEquals(List.of(older), manager.getCopiedIndexPolicies());
     }
 
     @Test

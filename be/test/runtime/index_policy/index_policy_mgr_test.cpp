@@ -31,7 +31,41 @@
 #include "util/defer_op.h"
 
 namespace doris {
-namespace {} // namespace
+namespace {
+
+TIndexPolicy make_analyzer_policy(int64_t id, std::string name, std::string tokenizer) {
+    TIndexPolicy policy;
+    policy.id = id;
+    policy.name = std::move(name);
+    policy.type = TIndexPolicyType::ANALYZER;
+    policy.properties["tokenizer"] = std::move(tokenizer);
+    return policy;
+}
+
+size_t count_analyzer_terms(IndexPolicyMgr& manager) {
+    auto analyzer = manager.get_policy_by_name("COLLIDING_ANALYZER");
+    auto reader = segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader({});
+    const std::string text = "one two";
+    reader->init(text.data(), static_cast<int32_t>(text.size()), false);
+    return segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(reader,
+                                                                                 analyzer.get())
+            .size();
+}
+
+void assert_collision_sequence(const std::vector<TIndexPolicy>& updates, int64_t older_id,
+                               int64_t newer_id) {
+    IndexPolicyMgr manager;
+    manager.apply_policy_changes(updates, {});
+    EXPECT_EQ(count_analyzer_terms(manager), 2);
+    EXPECT_EQ(manager.get_index_policys().size(), 2);
+
+    manager.apply_policy_changes({}, {older_id});
+    EXPECT_EQ(count_analyzer_terms(manager), 2);
+    manager.apply_policy_changes({}, {newer_id});
+    EXPECT_THROW(manager.get_policy_by_name("colliding_analyzer"), Exception);
+}
+
+} // namespace
 
 class IndexPolicyMgrTest : public testing::Test {
 protected:
@@ -119,13 +153,26 @@ TEST_F(IndexPolicyMgrTest, TestApplyPolicyChanges) {
         ASSERT_NE(policies[duplicateId.id].name, "duplicate_id");
     }
 
-    // Test duplicate name
+    // Legacy duplicate names are retained, with the higher ID authoritative.
     TIndexPolicy duplicateName;
     duplicateName.id = 8;
     duplicateName.name = "tokenizer2"; // Same as tokenizer2
     mgr.apply_policy_changes({duplicateName}, {});
     policies = mgr.get_index_policys();
-    ASSERT_FALSE(policies.contains(duplicateName.id));
+    ASSERT_TRUE(policies.contains(duplicateName.id));
+}
+
+TEST_F(IndexPolicyMgrTest, NormalizedNameCollisionUsesHigherIdIndependentOfArrivalOrder) {
+    TIndexPolicy older = make_analyzer_policy(100, "COLLIDING_ANALYZER", "keyword");
+    TIndexPolicy newer = make_analyzer_policy(101, "colliding_analyzer", "standard");
+
+    assert_collision_sequence({older, newer}, older.id, newer.id);
+    assert_collision_sequence({newer, older}, older.id, newer.id);
+
+    IndexPolicyMgr manager;
+    manager.apply_policy_changes({older, newer}, {});
+    manager.apply_policy_changes({}, {newer.id});
+    EXPECT_EQ(count_analyzer_terms(manager), 1);
 }
 
 TEST_F(IndexPolicyMgrTest, TestGetPolicyByName) {
