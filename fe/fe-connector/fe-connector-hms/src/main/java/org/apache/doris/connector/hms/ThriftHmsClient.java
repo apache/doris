@@ -242,12 +242,41 @@ public class ThriftHmsClient implements HmsClient {
 
     @Override
     public List<HmsPartitionInfo> listPartitionsByFilter(String dbName, String tableName, String filter) {
-        List<Partition> partitions = execute(client -> client.listPartitionsByFilter(
-                dbName, tableName, filter, (short) (MAX_FILTERED_PARTITIONS + 1)));
-        if (isFilteredPartitionResponseSaturated(partitions.size())) {
+        FilteredPartitionPage page = execute(client ->
+                fetchFilteredPartitionPage(client, dbName, tableName, filter));
+        // The saturation decision MUST use the RAW metastore page size, not the hook-filtered list: the
+        // metastore filter hook runs after the raw cap, so a hidden entry in a truncated first page would
+        // otherwise make the response look complete and silently drop matching partitions.
+        if (isFilteredPartitionResponseSaturated(page.rawCount)) {
             throw new HmsPartitionFilterSaturatedException(MAX_FILTERED_PARTITIONS);
         }
-        return partitions.stream().map(ThriftHmsClient::convertPartition).collect(Collectors.toList());
+        return page.partitions.stream().map(ThriftHmsClient::convertPartition).collect(Collectors.toList());
+    }
+
+    private static FilteredPartitionPage fetchFilteredPartitionPage(IMetaStoreClient client, String dbName,
+            String tableName, String filter) throws Exception {
+        int pageLimit = MAX_FILTERED_PARTITIONS + 1;
+        if (client instanceof HmsRawPartitionFilterPageSource) {
+            HmsRawPartitionFilterPage page = ((HmsRawPartitionFilterPageSource) client)
+                    .listPartitionsByFilterRawPage(dbName, tableName, filter, pageLimit);
+            return new FilteredPartitionPage(page.getPartitions(), page.getRawCount());
+        }
+        // A client without the raw-page contract can only report its post-hook size; keep the previous
+        // best-effort behavior for it.
+        List<Partition> partitions = client.listPartitionsByFilter(
+                dbName, tableName, filter, (short) pageLimit);
+        return new FilteredPartitionPage(partitions, partitions.size());
+    }
+
+    /** One raw partition-filter page: the hook-filtered partitions plus the raw (pre-hook) page size. */
+    private static final class FilteredPartitionPage {
+        private final List<Partition> partitions;
+        private final int rawCount;
+
+        private FilteredPartitionPage(List<Partition> partitions, int rawCount) {
+            this.partitions = partitions;
+            this.rawCount = rawCount;
+        }
     }
 
     static boolean isFilteredPartitionResponseSaturated(int partitionCount) {

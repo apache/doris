@@ -18,9 +18,12 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.connector.converter.NereidsToConnectorExpressionConverter;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
@@ -118,6 +121,9 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
 
         Map<String, PartitionItem> nameToPartitionItem = scan.getSelectedPartitions().selectedPartitions;
         boolean connectorFilteredPartitions = false;
+        Optional<FilterApplicationResult<ConnectorTableHandle>> connectorFilterResult = Optional.empty();
+        Optional<MvccSnapshot> snapshot = ctx.getStatementContext().getSnapshot(externalTable,
+                scan.getTableSnapshot(), scan.getScanParams());
         if (nameToPartitionItem.isEmpty()
                 && scan.getSelectedPartitions().isDeferredPartitionPruning()
                 && externalTable instanceof PluginDrivenExternalTable
@@ -125,12 +131,15 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
             ConnectorExpression connectorPredicate =
                     NereidsToConnectorExpressionConverter.convert(filter.getPredicate());
             if (connectorPredicate != null) {
-                Optional<Map<String, PartitionItem>> connectorPartitions =
-                        ((PluginDrivenExternalTable) externalTable).getNameToPartitionItemsByFilter(
-                                ctx.getStatementContext().getSnapshot(externalTable,
-                                        scan.getTableSnapshot(), scan.getScanParams()), connectorPredicate);
+                Optional<PluginDrivenExternalTable.ConnectorFilteredPartitionView> connectorPartitions =
+                        ((PluginDrivenExternalTable) externalTable)
+                                .applyPartitionFilterForScan(snapshot, connectorPredicate);
                 if (connectorPartitions.isPresent()) {
-                    nameToPartitionItem = connectorPartitions.get();
+                    nameToPartitionItem = connectorPartitions.get().getItems();
+                    // Carry the handle the selection was materialized from into physical planning: applying
+                    // the same predicate a second time could observe a different remote generation and mix
+                    // this name set with another handle's partition metadata.
+                    connectorFilterResult = Optional.of(connectorPartitions.get().getFilterResult());
                     connectorFilteredPartitions = true;
                 }
             }
@@ -138,9 +147,17 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         if (!connectorFilteredPartitions && nameToPartitionItem.isEmpty()
                 && (scan.getSelectedPartitions().isNotPruned()
                 || scan.getSelectedPartitions().isDeferredPartitionPruning())) {
-            nameToPartitionItem = externalTable.getNameToPartitionItems(
-                    ctx.getStatementContext().getSnapshot(externalTable,
-                            scan.getTableSnapshot(), scan.getScanParams()));
+            // The plugin-driven scan path degrades instead of failing: a connector entry that cannot be
+            // represented as a Doris partition item makes the whole view unavailable, and pruning is then
+            // skipped (every partition is read) rather than pruning against a partial/empty set.
+            Optional<Map<String, PartitionItem>> scanView =
+                    externalTable instanceof PluginDrivenExternalTable
+                            ? ((PluginDrivenExternalTable) externalTable).getNameToPartitionItemsForScan(snapshot)
+                            : Optional.of(externalTable.getNameToPartitionItems(snapshot));
+            if (!scanView.isPresent()) {
+                return SelectedPartitions.NOT_PRUNED;
+            }
+            nameToPartitionItem = scanView.get();
         }
         final Map<String, PartitionItem> partitionItems = nameToPartitionItem;
         Optional<SortedPartitionRanges<String>> sortedPartitionRanges = Optional.empty();
@@ -172,7 +189,11 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         }
         long totalPartitionNum = connectorFilteredPartitions
                 ? SelectedPartitions.UNKNOWN_TOTAL_PARTITION_NUM : partitionItems.size();
-        return new SelectedPartitions(totalPartitionNum, selectedPartitionItems, true,
-                connectorFilteredPartitions || result.hasPartitionPredicate);
+        boolean hasPartitionPredicate = connectorFilteredPartitions || result.hasPartitionPredicate;
+        if (connectorFilterResult.isPresent()) {
+            return SelectedPartitions.connectorFiltered(totalPartitionNum, selectedPartitionItems,
+                    hasPartitionPredicate, connectorFilterResult.get());
+        }
+        return new SelectedPartitions(totalPartitionNum, selectedPartitionItems, true, hasPartitionPredicate);
     }
 }
