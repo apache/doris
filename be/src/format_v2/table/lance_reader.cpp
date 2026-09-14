@@ -37,7 +37,9 @@
 #include "exec/common/endian.h"
 #include "format_v2/lance/lance_reader_helper.h"
 #include "format_v2/lance/lance_runtime_filter_helper.h"
+#include "runtime/exec_env.h"
 #include "runtime/file_scan_profile.h"
+#include "runtime/runtime_state.h"
 #include "storage/utils.h"
 
 namespace doris::format::lance {
@@ -61,6 +63,17 @@ Status import_dataset_schema(LanceDataset* dataset, std::shared_ptr<arrow::Schem
     }
     *schema = std::move(imported_schema).ValueUnsafe();
     return Status::OK();
+}
+
+// Return the query-tracked Arrow pool, falling back only for standalone unit-test states.
+arrow::MemoryPool* get_lance_arrow_memory_pool(RuntimeState* runtime_state) {
+    if (runtime_state != nullptr && runtime_state->exec_env() != nullptr) {
+        auto* memory_pool = runtime_state->exec_env()->arrow_memory_pool();
+        if (memory_pool != nullptr) {
+            return memory_pool;
+        }
+    }
+    return arrow::default_memory_pool();
 }
 
 } // namespace
@@ -1208,11 +1221,20 @@ Status LanceTableReader::_fill_block_from_record_batch(
         }
         const auto output_idx = output_it->second;
         try {
+            const auto& arrow_column = record_batch->column(arrow_idx);
+            if (arrow_column->type_id() == arrow::Type::NA) {
+                columns[output_idx]->insert_many_defaults(row_count);
+                continue;
+            }
+            std::shared_ptr<arrow::Array> normalized_column;
+            RETURN_IF_ERROR(normalize_lance_arrow_array(field, arrow_column,
+                                                        get_lance_arrow_memory_pool(_runtime_state),
+                                                        &normalized_column));
             RETURN_IF_ERROR(columns_guard.get_datatype_by_position(output_idx)
                                     ->get_serde()
                                     ->read_column_from_arrow(*columns[output_idx],
-                                                             record_batch->column(arrow_idx).get(),
-                                                             0, row_count, _ctz));
+                                                             normalized_column.get(), 0, row_count,
+                                                             _ctz));
         } catch (const Exception& e) {
             return Status::InternalError("convert Lance Arrow column '{}' failed: {}",
                                          field->name(), e.what());

@@ -142,6 +142,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     private long tableId;
     private long lanceDatasetVersion = -1;
     private List<LanceFragmentInfo> lanceFragments = Collections.emptyList();
+    private Set<String> lanceCurrentReaderColumns = Collections.emptySet();
 
     public abstract TFileType getTFileType();
 
@@ -167,6 +168,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     public List<LanceFragmentInfo> getLanceFragments() {
         return lanceFragments;
+    }
+
+    /** Returns whether a Lance column needs the current BE materialization logic. */
+    public boolean requiresCurrentLanceReader(String columnName) {
+        return lanceCurrentReaderColumns.contains(columnName.toLowerCase(Locale.ROOT));
     }
 
     public Map<String, String> getBackendConnectProperties() {
@@ -385,10 +391,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         List<Column> lanceColumns = new ArrayList<>(metadata.getSchema().getFields().size());
         Set<String> columnLowerNames = new HashSet<>();
+        Set<String> currentReaderColumns = new HashSet<>();
         for (Field field : metadata.getSchema().getFields()) {
             String lowerName = field.getName().toLowerCase(Locale.ROOT);
             if (!columnLowerNames.add(lowerName)) {
                 throw new NotSupportedException("Repeated lowercase column names: " + lowerName);
+            }
+            if (LanceTypeConverter.requiresCurrentBeReader(field)) {
+                currentReaderColumns.add(lowerName);
             }
             Type type;
             try {
@@ -403,6 +413,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         lanceDatasetVersion = metadata.getVersion();
         lanceFragments = Collections.unmodifiableList(fragments);
+        lanceCurrentReaderColumns = Collections.unmodifiableSet(currentReaderColumns);
         columns = lanceColumns;
     }
 
