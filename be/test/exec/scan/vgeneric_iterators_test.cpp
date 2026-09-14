@@ -285,7 +285,7 @@ protected:
 
         auto state = std::make_unique<RuntimeState>();
         TQueryOptions query_options;
-        query_options.__set_enable_pushdown_string_minmax(accept_cut_bound);
+        query_options.__set_force_pushdown_zonemap_minmax(accept_cut_bound);
         state->set_query_options(query_options);
         read_options.runtime_state = state.get();
         // The iterator keeps a copy of read_options, so the state has to outlive it.

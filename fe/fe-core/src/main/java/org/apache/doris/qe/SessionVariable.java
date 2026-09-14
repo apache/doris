@@ -794,7 +794,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String KEEP_CARRIAGE_RETURN = "keep_carriage_return";
 
-    public static final String ENABLE_PUSHDOWN_STRING_MINMAX = "enable_pushdown_string_minmax";
+    public static final String FORCE_PUSHDOWN_ZONEMAP_MINMAX = "force_pushdown_zonemap_minmax";
 
     public static final String ENABLE_MOR_VALUE_PREDICATE_PUSHDOWN_TABLES
             = "enable_mor_value_predicate_pushdown_tables";
@@ -2380,11 +2380,13 @@ public class SessionVariable implements Serializable, Writable {
             + "pushdown minmax on unique table.")
     public boolean enablePushDownMinMaxOnUnique = false;
 
-    // Whether a cut string zone map bound may answer MIN/MAX. A bound is cut at 512 bytes, so a
-    // cut one is a prefix, not a value the column holds. Statistics collection takes it anyway.
-    @VarAttrDef.VarAttr(name = ENABLE_PUSHDOWN_STRING_MINMAX, needForward = true, description = "Set whether a cut "
-            + "string zone map bound may answer a pushed down minmax.")
-    public boolean enablePushDownStringMinMax = false;
+    // Whether to force MIN/MAX onto the zone map when its bound is not a value the data holds now:
+    // a cut string bound, or one covering rows a delete predicate removed. The alias is the old
+    // name, from when this only governed string bounds.
+    @VarAttrDef.VarAttr(name = FORCE_PUSHDOWN_ZONEMAP_MINMAX, alias = {"enable_pushdown_string_minmax"},
+            needForward = true, description = "Set whether to force a pushed down minmax onto the zone map when its "
+            + "bound is a cut string prefix, or still covers rows a delete predicate removed.")
+    public boolean forcePushDownZonemapMinMax = false;
 
     // Comma-separated list of MOR tables to enable value predicate pushdown.
     @VarAttrDef.VarAttr(name = ENABLE_MOR_VALUE_PREDICATE_PUSHDOWN_TABLES, needForward = true, description = "Comma-sep"
@@ -5094,8 +5096,8 @@ public class SessionVariable implements Serializable, Writable {
         this.enablePushDownMinMaxOnUnique = enablePushDownMinMaxOnUnique;
     }
 
-    public boolean isEnablePushDownStringMinMax() {
-        return enablePushDownStringMinMax;
+    public boolean isForcePushDownZonemapMinMax() {
+        return forcePushDownZonemapMinMax;
     }
 
     public String getEnableMorValuePredicatePushdownTables() {
@@ -5580,7 +5582,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableInvertedIndexQuery(enableInvertedIndexQuery);
         tResult.setEnableNoNeedReadDataOpt(enableNoNeedReadDataOpt);
-        tResult.setEnablePushdownStringMinmax(enablePushDownStringMinMax);
+        tResult.setForcePushdownZonemapMinmax(forcePushDownZonemapMinMax);
 
         if (dryRunQuery) {
             tResult.setDryRunQuery(true);
