@@ -27,19 +27,29 @@ import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -49,7 +59,9 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -239,5 +251,160 @@ public class PushDownProjectTest implements MemoPatternMatchSupported {
                                     && rewrittenPredicate.anyMatch(SlotReference.class::isInstance)
                                     && !rewrittenPredicate.anyMatch(PreferPushDownProject.class::isInstance);
                         }));
+    }
+
+    @Test
+    public void shouldRejectNullToNonNullProjectOnNullableJoinSide() {
+        ArrayJoinFixture fixture = new ArrayJoinFixture();
+
+        assertChildProjected(fixture.rewriteProject(JoinType.LEFT_OUTER_JOIN,
+                fixture.nullToValue(fixture.rightSlot)), 1, false);
+        assertChildProjected(fixture.rewriteProject(JoinType.RIGHT_OUTER_JOIN,
+                fixture.nullToValue(fixture.leftSlot)), 0, false);
+        assertChildProjected(fixture.rewriteProject(JoinType.FULL_OUTER_JOIN,
+                fixture.nullToValue(fixture.leftSlot)), 0, false);
+        assertChildProjected(fixture.rewriteProject(JoinType.FULL_OUTER_JOIN,
+                fixture.nullToValue(fixture.rightSlot)), 1, false);
+    }
+
+    @Test
+    public void shouldRejectNullToNonNullProjectInFilterOnNullableJoinSide() {
+        ArrayJoinFixture fixture = new ArrayJoinFixture();
+
+        assertChildProjected(fixture.rewriteFilter(JoinType.LEFT_OUTER_JOIN,
+                fixture.nullToValue(fixture.rightSlot)), 1, false);
+        assertChildProjected(fixture.rewriteFilter(JoinType.RIGHT_OUTER_JOIN,
+                fixture.nullToValue(fixture.leftSlot)), 0, false);
+        assertChildProjected(fixture.rewriteFilter(JoinType.FULL_OUTER_JOIN,
+                fixture.nullToValue(fixture.leftSlot)), 0, false);
+        assertChildProjected(fixture.rewriteFilter(JoinType.FULL_OUTER_JOIN,
+                fixture.nullToValue(fixture.rightSlot)), 1, false);
+    }
+
+    @Test
+    public void shouldAllowPreservedSideAndNullPropagatingProjects() {
+        ArrayJoinFixture fixture = new ArrayJoinFixture();
+
+        assertChildProjected(fixture.rewriteProject(JoinType.LEFT_OUTER_JOIN,
+                fixture.nullToValue(fixture.leftSlot)), 0, true);
+        assertChildProjected(fixture.rewriteProject(JoinType.RIGHT_OUTER_JOIN,
+                fixture.nullToValue(fixture.rightSlot)), 1, true);
+        assertChildProjected(fixture.rewriteProject(JoinType.LEFT_OUTER_JOIN,
+                fixture.nullPropagating(fixture.rightSlot)), 1, true);
+        assertChildProjected(fixture.rewriteFilter(JoinType.RIGHT_OUTER_JOIN,
+                fixture.nullPropagating(fixture.leftSlot)), 0, true);
+        assertChildProjected(fixture.rewriteProject(JoinType.FULL_OUTER_JOIN,
+                fixture.nullPropagating(fixture.leftSlot)), 0, true);
+        assertChildProjected(fixture.rewriteProject(JoinType.LEFT_OUTER_JOIN,
+                fixture.nullDespiteNonNullNestedChild(fixture.rightSlot)), 1, true);
+    }
+
+    @Test
+    public void shouldHandleAsofOuterJoinNullableSides() {
+        ArrayJoinFixture fixture = new ArrayJoinFixture();
+
+        assertChildProjected(fixture.rewriteProject(JoinType.ASOF_LEFT_OUTER_JOIN,
+                fixture.nullToValue(fixture.rightSlot)), 1, false);
+        assertChildProjected(fixture.rewriteProject(JoinType.ASOF_RIGHT_OUTER_JOIN,
+                fixture.nullToValue(fixture.leftSlot)), 0, false);
+        assertChildProjected(fixture.rewriteProject(JoinType.ASOF_LEFT_OUTER_JOIN,
+                fixture.nullPropagating(fixture.rightSlot)), 1, true);
+        assertChildProjected(fixture.rewriteProject(JoinType.ASOF_RIGHT_OUTER_JOIN,
+                fixture.nullPropagating(fixture.leftSlot)), 0, true);
+    }
+
+    @Test
+    public void shouldStillPushProjectUsedByOuterJoinConjunct() {
+        ArrayJoinFixture fixture = new ArrayJoinFixture();
+
+        Plan rewritten = fixture.rewriteJoinConjunct(JoinType.LEFT_OUTER_JOIN,
+                fixture.nullToValue(fixture.rightSlot));
+        Assertions.assertTrue(rewritten instanceof LogicalJoin);
+        Assertions.assertTrue(rewritten.child(1) instanceof LogicalProject,
+                () -> rewritten.treeString());
+    }
+
+    @Test
+    public void shouldKeepNonNullConstantOffNullableJoinSide() {
+        ArrayJoinFixture fixture = new ArrayJoinFixture();
+        Expression constant = fixture.nonNullConstant();
+
+        Plan leftJoin = fixture.rewriteProject(JoinType.LEFT_OUTER_JOIN, constant);
+        assertChildProjected(leftJoin, 0, true);
+        assertChildProjected(leftJoin, 1, false);
+
+        Plan rightJoin = fixture.rewriteProject(JoinType.RIGHT_OUTER_JOIN, constant);
+        assertChildProjected(rightJoin, 0, false);
+        assertChildProjected(rightJoin, 1, true);
+
+        Plan fullJoin = fixture.rewriteProject(JoinType.FULL_OUTER_JOIN, constant);
+        assertChildProjected(fullJoin, 0, false);
+        assertChildProjected(fullJoin, 1, false);
+    }
+
+    private void assertChildProjected(Plan rewritten, int childIndex, boolean expected) {
+        Assertions.assertTrue(rewritten instanceof LogicalProject || rewritten instanceof LogicalFilter);
+        Plan join = rewritten.child(0);
+        Assertions.assertTrue(join instanceof LogicalJoin);
+        Assertions.assertEquals(expected, join.child(childIndex) instanceof LogicalProject,
+                () -> join.treeString());
+    }
+
+    private class ArrayJoinFixture {
+        private final SlotReference leftSlot = new SlotReference(
+                new ExprId(201), "left_array", ArrayType.of(IntegerType.INSTANCE), true, ImmutableList.of());
+        private final SlotReference rightSlot = new SlotReference(
+                new ExprId(202), "right_array", ArrayType.of(IntegerType.INSTANCE), true, ImmutableList.of());
+        private final LogicalPlan left = new LogicalOneRowRelation(
+                new RelationId(201), ImmutableList.of(leftSlot));
+        private final LogicalPlan right = new LogicalOneRowRelation(
+                new RelationId(202), ImmutableList.of(rightSlot));
+
+        private Expression nullToValue(Slot slot) {
+            return new ElementAt(
+                    new Coalesce(slot, new ArrayLiteral(ImmutableList.of(new IntegerLiteral(99)))),
+                    new IntegerLiteral(1));
+        }
+
+        private Expression nullPropagating(Slot slot) {
+            return new ElementAt(slot, new IntegerLiteral(1));
+        }
+
+        private Expression nullDespiteNonNullNestedChild(Slot slot) {
+            return new ElementAt(
+                    new Coalesce(slot, new ArrayLiteral(ImmutableList.of(new IntegerLiteral(99)))),
+                    new NullLiteral(BigIntType.INSTANCE));
+        }
+
+        private Expression nonNullConstant() {
+            return new ElementAt(
+                    new ArrayLiteral(ImmutableList.of(new IntegerLiteral(99))), new IntegerLiteral(1));
+        }
+
+        private Plan rewriteProject(JoinType joinType, Expression expression) {
+            LogicalPlan join = new LogicalPlanBuilder(left).joinEmptyOn(right, joinType).build();
+            LogicalPlan project = new LogicalProject<>(
+                    ImmutableList.of(new Alias(expression, "value")), join);
+            return PlanChecker.from(connectContext, project)
+                    .applyTopDown(new PushDownProject())
+                    .getPlan();
+        }
+
+        private Plan rewriteFilter(JoinType joinType, Expression expression) {
+            LogicalPlan join = new LogicalPlanBuilder(left).joinEmptyOn(right, joinType).build();
+            LogicalPlan filter = new LogicalFilter<>(
+                    ImmutableSet.of(new GreaterThan(expression, new IntegerLiteral(0))), join);
+            return PlanChecker.from(connectContext, filter)
+                    .applyTopDown(new PushDownProject())
+                    .getPlan();
+        }
+
+        private Plan rewriteJoinConjunct(JoinType joinType, Expression expression) {
+            LogicalPlan join = new LogicalPlanBuilder(left).join(right, joinType, ImmutableList.of(),
+                    ImmutableList.of(new GreaterThan(expression, new IntegerLiteral(0)))).build();
+            return PlanChecker.from(connectContext, join)
+                    .applyTopDown(new PushDownProject())
+                    .getPlan();
+        }
     }
 }

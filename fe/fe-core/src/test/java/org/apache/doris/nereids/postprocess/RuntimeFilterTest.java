@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -165,6 +166,25 @@ public class RuntimeFilterTest extends SSBTestBase {
         checkRuntimeFilterExprs(filters, ImmutableList.of(
                 Pair.of("c_custkey", "lo_custkey"),
                 Pair.of("s_suppkey", "c_custkey")));
+    }
+
+    @Test
+    public void testPushDownExpressionThatEvaluatesToNullThroughOuterJoin() {
+        String sql = "select * from lineorder left outer join customer on lo_custkey = c_custkey"
+                + " inner join supplier"
+                + " on c_custkey + cast(c_custkey is null as int) = s_suppkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(2, filters.size());
+        RuntimeFilter nestedExpressionFilter = filters.stream()
+                .filter(filter -> filter.getTargetScan() instanceof PhysicalOlapScan)
+                .filter(filter -> ((PhysicalOlapScan) filter.getTargetScan()).getTable().getName().equals("customer"))
+                .filter(filter -> filter.getTargetExpression().anyMatch(IsNull.class::isInstance))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("nested expression was not pushed to the customer scan; actual="
+                        + runtimeFilterPairs(filters)));
+        Assertions.assertTrue(nestedExpressionFilter.getTargetExpression().anyMatch(Add.class::isInstance),
+                "expected nested probe expression; actual=" + runtimeFilterPairs(filters));
+        Assertions.assertEquals("c_custkey", nestedExpressionFilter.getTargetSlot().getName());
     }
 
     @Test
@@ -359,10 +379,17 @@ public class RuntimeFilterTest extends SSBTestBase {
     private void checkRuntimeFilterExprs(List<RuntimeFilter> filters, List<Pair<String, String>> colNames) {
         Assertions.assertEquals(filters.size(), colNames.size());
         for (RuntimeFilter filter : filters) {
-            Assertions.assertTrue(colNames.contains(Pair.of(
-                    filter.getSrcExpr().toSql(),
-                    filter.getTargetSlot().getName())));
+            Pair<String, String> actual = Pair.of(
+                    filter.getSrcExpr().toSql(), filter.getTargetSlot().getName());
+            Assertions.assertTrue(colNames.contains(actual),
+                    "unexpected runtime-filter pair " + actual + "; all actual=" + runtimeFilterPairs(filters));
         }
+    }
+
+    private List<Pair<String, String>> runtimeFilterPairs(List<RuntimeFilter> filters) {
+        return filters.stream()
+                .map(filter -> Pair.of(filter.getSrcExpr().toSql(), filter.getTargetSlot().getName()))
+                .collect(Collectors.toList());
     }
 
     @Test
