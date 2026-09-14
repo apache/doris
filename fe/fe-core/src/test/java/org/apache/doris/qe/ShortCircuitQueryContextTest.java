@@ -19,7 +19,6 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Queriable;
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -125,7 +124,7 @@ public class ShortCircuitQueryContextTest {
 
         ShortCircuitQueryContext context =
                 new ShortCircuitQueryContext(planner, Mockito.mock(Queriable.class),
-                        new SecurityDependencyContext(UserIdentity.ROOT));
+                        new SecurityDependencyContext());
         TQueryOptions serializedQueryOptions = new TQueryOptions();
         new TDeserializer().deserialize(serializedQueryOptions, context.serializedQueryOptions.toByteArray());
 
