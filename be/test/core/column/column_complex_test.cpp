@@ -23,10 +23,10 @@
 #include <cstring>
 #include <vector>
 
+#include "core/string_ref.h"
 #include "core/value/bitmap_value.h"
 #include "core/value/hll.h"
 #include "core/value/quantile_state.h"
-#include "core/string_ref.h"
 
 namespace doris {
 
@@ -45,6 +45,7 @@ TEST(ColumnComplexTest, InsertBinaryDataZeroLengthBitmap) {
     col->insert_binary_data(garbage.data(), 0);
 
     ASSERT_EQ(col->size(), 1);
+    EXPECT_EQ(col->get_element(0).get_type_code(), BitmapTypeCode::EMPTY);
     EXPECT_EQ(col->get_element(0).cardinality(), 0);
 }
 
