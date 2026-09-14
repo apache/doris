@@ -52,6 +52,10 @@ size_t PartialBlockWritebackManager::BlockKeyHash::operator()(const BlockKey& ke
 }
 
 struct PartialBlockWritebackManager::Task {
+    // Allocate one tracked block buffer and copy the first fragment into it.
+    static TaskPtr create(PartialBlockWritebackRequest request, const BlockKey& task_key,
+                          size_t block_size);
+
     // A queued task may merge while the manager lock is free. Once activate() wins, later
     // fragments are deduplicated and the worker obtains their bytes from the source read instead.
     std::optional<PartialBlockSubmitResult> try_merge(size_t fragment_offset, Slice data) {
@@ -79,6 +83,10 @@ struct PartialBlockWritebackManager::Task {
         const FileRange block {.offset = key.block_offset, .size = block_valid_size};
         return HoleFillPlanner::plan(block, covered_intervals, options, read_ranges);
     }
+
+    // Read a single range on the block worker; submit multiple ranges through its reusable token
+    // and join them, including on failure.
+    Status read_holes(const std::vector<FileRange>& read_ranges, ThreadPoolToken& token);
 
     void activate() {
         bool expected = false;
@@ -114,6 +122,10 @@ struct PartialBlockWritebackManager::Task {
     // A queued task may absorb foreground fragments while unrelated queue operations proceed.
     std::mutex fragment_mutex;
     std::atomic<bool> active {false};
+
+private:
+    // Read one buffer slice with per-call IO statistics on a block worker or remote-read thread.
+    Status _read_hole(const FileRange& range);
 };
 
 class PartialBlockWritebackManager::Worker : public std::enable_shared_from_this<Worker> {
@@ -232,7 +244,7 @@ Status PartialBlockWritebackManager::_start() {
 
 PartialBlockSubmitResult PartialBlockWritebackManager::try_submit(
         PartialBlockWritebackRequest request) {
-    _validate_request(request);
+    request.sanity_check(_options.block_size);
 
     if (!request.write_manager->accepting()) {
         return PartialBlockSubmitResult::REJECTED;
@@ -272,7 +284,7 @@ PartialBlockSubmitResult PartialBlockWritebackManager::try_submit(
         }
     }
 
-    auto candidate = _create_task(std::move(request), key);
+    auto candidate = Task::create(std::move(request), key, _options.block_size);
     if (candidate == nullptr) {
         return PartialBlockSubmitResult::BUFFER_ALLOCATION_FAILED;
     }
@@ -294,32 +306,31 @@ PartialBlockSubmitResult PartialBlockWritebackManager::try_submit(
     }
 }
 
-void PartialBlockWritebackManager::_validate_request(
-        const PartialBlockWritebackRequest& request) const {
-    DORIS_CHECK(request.write_manager != nullptr);
-    DORIS_CHECK(request.source_reader != nullptr);
-    DORIS_CHECK(request.write_epoch.key_token != nullptr);
-    DORIS_CHECK(request.block_offset % _options.block_size == 0);
-    DORIS_CHECK(request.block_valid_size > 0);
-    DORIS_CHECK(request.block_valid_size <= _options.block_size);
-    DORIS_CHECK(request.block_offset <= request.source_reader->size());
-    DORIS_CHECK(request.block_valid_size <= request.source_reader->size() - request.block_offset);
-    DORIS_CHECK(request.data.data != nullptr);
-    DORIS_CHECK(request.data.size > 0);
-    DORIS_CHECK(request.fragment_offset < request.block_valid_size);
-    DORIS_CHECK(request.data.size <= request.block_valid_size - request.fragment_offset);
+void PartialBlockWritebackRequest::sanity_check(size_t block_size) const {
+    DORIS_CHECK(write_manager != nullptr);
+    DORIS_CHECK(source_reader != nullptr);
+    DORIS_CHECK(write_epoch.key_token != nullptr);
+    DORIS_CHECK(block_offset % block_size == 0);
+    DORIS_CHECK(block_valid_size > 0);
+    DORIS_CHECK(block_valid_size <= block_size);
+    DORIS_CHECK(block_offset <= source_reader->size());
+    DORIS_CHECK(block_valid_size <= source_reader->size() - block_offset);
+    DORIS_CHECK(data.data != nullptr);
+    DORIS_CHECK(data.size > 0);
+    DORIS_CHECK(fragment_offset < block_valid_size);
+    DORIS_CHECK(data.size <= block_valid_size - fragment_offset);
 }
 
-PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::_create_task(
-        PartialBlockWritebackRequest request, const BlockKey& key) {
+PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::Task::create(
+        PartialBlockWritebackRequest request, const BlockKey& task_key, size_t block_size) {
     AsyncCacheWriteBufferPtr buffer;
-    if (!request.write_manager->allocate_tracked_buffer(_options.block_size, &buffer).ok()) {
+    if (!request.write_manager->allocate_tracked_buffer(block_size, &buffer).ok()) {
         return nullptr;
     }
     std::memcpy(buffer->data() + request.fragment_offset, request.data.data, request.data.size);
 
     auto task = std::make_shared<Task>();
-    task->key = key;
+    task->key = task_key;
     task->inflight_index = request.inflight_index;
     task->source_reader = std::move(request.source_reader);
     task->block_valid_size = request.block_valid_size;
@@ -644,7 +655,7 @@ void PartialBlockWritebackManager::_process_task(const TaskPtr& task, ThreadPool
         return;
     }
 
-    status = _read_holes(task, read_ranges, token);
+    status = task->read_holes(read_ranges, token);
     if (!status.ok()) {
         read_ahead_bvars().hole_fill_failed_blocks << 1;
         LOG(WARNING) << "Read partial block holes failed, hash=" << task->key.cache_hash.to_string()
@@ -669,19 +680,18 @@ void PartialBlockWritebackManager::_process_task(const TaskPtr& task, ThreadPool
     }
 }
 
-Status PartialBlockWritebackManager::_read_holes(const TaskPtr& task,
-                                                 const std::vector<FileRange>& read_ranges,
-                                                 ThreadPoolToken& token) {
+Status PartialBlockWritebackManager::Task::read_holes(const std::vector<FileRange>& read_ranges,
+                                                      ThreadPoolToken& token) {
     if (read_ranges.empty()) {
         return Status::OK();
     }
     if (read_ranges.size() == 1) {
-        return _read_hole(task, read_ranges.front());
+        return _read_hole(read_ranges.front());
     }
     std::vector<Status> results(read_ranges.size());
     for (size_t index = 0; index < read_ranges.size(); ++index) {
         Status status = token.submit_func(
-                [&, index]() { results[index] = _read_hole(task, read_ranges[index]); });
+                [&, index]() { results[index] = _read_hole(read_ranges[index]); });
         if (!status.ok()) {
             results[index] = std::move(status);
             break;
@@ -695,22 +705,21 @@ Status PartialBlockWritebackManager::_read_holes(const TaskPtr& task,
     return Status::OK();
 }
 
-Status PartialBlockWritebackManager::_read_hole(const TaskPtr& task, const FileRange& range) {
+Status PartialBlockWritebackManager::Task::_read_hole(const FileRange& range) {
     FileCacheStatistics file_cache_stats;
     FileReaderStats file_reader_stats;
-    auto io_context = task->io_context;
-    io_context.io_context.file_cache_stats = &file_cache_stats;
-    io_context.io_context.file_reader_stats = &file_reader_stats;
+    auto read_context = io_context;
+    read_context.io_context.file_cache_stats = &file_cache_stats;
+    read_context.io_context.file_reader_stats = &file_reader_stats;
     size_t bytes_read = 0;
     int64_t read_ns = 0;
     Status status;
     read_ahead_bvars().hole_fill_remote_requests << 1;
     {
         SCOPED_RAW_TIMER(&read_ns);
-        status = task->source_reader->read_at(
-                range.offset,
-                Slice(task->buffer->data() + range.offset - task->key.block_offset, range.size),
-                &bytes_read, &io_context.io_context);
+        status = source_reader->read_at(
+                range.offset, Slice(buffer->data() + range.offset - key.block_offset, range.size),
+                &bytes_read, &read_context.io_context);
     }
     read_ahead_bvars().hole_fill_remote_read_time_ns << read_ns;
     read_ahead_bvars().hole_fill_remote_bytes << static_cast<int64_t>(bytes_read);

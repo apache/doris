@@ -310,6 +310,23 @@ testing::AssertionResult has_worker_owned_contexts(const std::vector<ObservedIOC
 
 } // namespace
 
+TEST(FileRangeReadSchedulerTest, RejectedResultPreservesReasonAndStatus) {
+    const auto budget_rejection =
+            FileRangeReadSubmitResult::rejected(FileRangeReadRejectReason::QUERY_BYTE_LIMIT);
+    EXPECT_FALSE(budget_rejection.accepted());
+    EXPECT_TRUE(budget_rejection.reads.empty());
+    EXPECT_EQ(budget_rejection.reject_reason, FileRangeReadRejectReason::QUERY_BYTE_LIMIT);
+    EXPECT_TRUE(budget_rejection.status.ok());
+
+    const auto status = Status::InvalidArgument("invalid read range");
+    const auto invalid_request =
+            FileRangeReadSubmitResult::rejected(FileRangeReadRejectReason::INVALID_REQUEST, status);
+    EXPECT_FALSE(invalid_request.accepted());
+    EXPECT_TRUE(invalid_request.reads.empty());
+    EXPECT_EQ(invalid_request.reject_reason, FileRangeReadRejectReason::INVALID_REQUEST);
+    EXPECT_EQ(invalid_request.status.to_string(), status.to_string());
+}
+
 TEST(FileRangeReadSchedulerTest, ReadsExactRangesWithWorkerOwnedIOContext) {
     auto scheduler = create_scheduler();
     auto file_reader = std::make_shared<ControllableFileReader>(alphabet(128));
