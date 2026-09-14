@@ -36,6 +36,8 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
+
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -58,17 +60,23 @@ public final class UnionDataTraitUtils {
         List<Plan> children = unionPlan.children();
         List<List<SlotReference>> childrenOutputs = union.getRegularChildrenOutputs();
         List<List<NamedExpression>> constantRows = union.getConstantExprsList();
+        Preconditions.checkState(children.size() == childrenOutputs.size(),
+                "Union child count %s does not match regular child output mapping count %s",
+                children.size(), childrenOutputs.size());
+        for (int childIndex = 0; childIndex < childrenOutputs.size(); childIndex++) {
+            List<SlotReference> childOutputs = childrenOutputs.get(childIndex);
+            Preconditions.checkState(childOutputs.size() == outputs.size(),
+                    "Union child output mapping at index %s has width %s, expected %s",
+                    childIndex, childOutputs.size(), outputs.size());
+        }
+        for (int rowIndex = 0; rowIndex < constantRows.size(); rowIndex++) {
+            List<NamedExpression> row = constantRows.get(rowIndex);
+            Preconditions.checkState(row.size() == outputs.size(),
+                    "Union constant row at index %s has width %s, expected %s",
+                    rowIndex, row.size(), outputs.size());
+        }
         if (outputs.size() < 2 || (children.isEmpty() && constantRows.isEmpty())) {
             return;
-        }
-        if (children.size() != childrenOutputs.size()) {
-            return;
-        }
-        // An incomplete or over-complete mapping cannot prove anything about union ordinals.
-        for (List<SlotReference> childOutputs : childrenOutputs) {
-            if (childOutputs.size() != outputs.size()) {
-                return;
-            }
         }
 
         List<List<Integer>> equalGroups = children.isEmpty()
@@ -136,9 +144,6 @@ public final class UnionDataTraitUtils {
 
     private static List<List<Integer>> refineByConstantRow(List<List<Integer>> equalGroups,
             List<NamedExpression> row, Optional<ExpressionRewriteContext> context, int outputSize) {
-        if (row.size() != outputSize) {
-            return new ArrayList<>();
-        }
         List<Optional<Literal>> literals = new ArrayList<>(outputSize);
         for (NamedExpression expression : row) {
             literals.add(foldConstant(unwrapAlias(expression), context));
