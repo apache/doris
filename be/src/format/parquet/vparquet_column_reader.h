@@ -462,6 +462,44 @@ private:
     //Need to use vector instead of set,see `get_rep_level()` for the reason.
 };
 
+// Reads an unshredded Parquet VARIANT group (parquet-format VariantEncoding.md) through its
+// metadata/value carrier and appends the encoded rows to ColumnVariantV2 as they are. Shredded
+// (typed_value) layouts are only decoded by FileScannerV2.
+class VariantColumnReader : public ParquetColumnReader {
+    ENABLE_FACTORY_CREATOR(VariantColumnReader)
+public:
+    VariantColumnReader(const RowRanges& row_ranges, size_t total_rows, const cctz::time_zone* ctz,
+                        io::IOContext* io_ctx)
+            : ParquetColumnReader(row_ranges, total_rows, ctz, io_ctx) {}
+    ~VariantColumnReader() override { close(); }
+
+    Status init(std::unique_ptr<ParquetColumnReader> carrier_reader, FieldSchema* field);
+    Status read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
+                            const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node,
+                            FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,
+                            bool is_dict_filter, int64_t real_column_size = -1) override;
+
+    const std::vector<level_t>& get_rep_level() const override {
+        return _carrier_reader->get_rep_level();
+    }
+
+    const std::vector<level_t>& get_def_level() const override {
+        return _carrier_reader->get_def_level();
+    }
+
+    ColumnStatistics column_statistics() override { return _carrier_reader->column_statistics(); }
+
+    void close() override {}
+
+    void reset_filter_map_index() override { _carrier_reader->reset_filter_map_index(); }
+
+private:
+    // StructColumnReader over the metadata/value leaves.
+    std::unique_ptr<ParquetColumnReader> _carrier_reader;
+    // Nullable(Struct<metadata: Nullable(String), value: Nullable(String)>)
+    DataTypePtr _carrier_type;
+};
+
 // A special reader that skips actual reading but provides empty data with correct structure
 // This is used when a column is not needed but its structure is required (e.g., for map keys)
 class SkipReadingReader : public ParquetColumnReader {

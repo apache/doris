@@ -75,6 +75,14 @@ enum TParquetVersion {
     PARQUET_2_LATEST = 1,
 }
 
+// How Doris VARIANT columns are written to Parquet.
+enum TParquetVariantEncoding {
+    // A UTF-8 STRING column holding the JSON text of every value.
+    JSON = 0,
+    // The Parquet VARIANT logical type: the binary metadata/value encoding.
+    VARIANT = 1,
+}
+
 enum TParquetDataType {
     BOOLEAN = 0,
     INT32 = 1,
@@ -159,6 +167,8 @@ struct TResultFileSinkOptions {
     // currently only for csv
     // TODO: merge with parquet_compression_type and orc_compression_type
     22: optional PlanNodes.TFileCompressType compression_type
+    // only for parquet: how VARIANT columns are written, default JSON
+    23: optional TParquetVariantEncoding parquet_variant_encoding
 }
 
 struct TMemoryScratchSink {

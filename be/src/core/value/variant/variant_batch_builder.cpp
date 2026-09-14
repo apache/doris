@@ -78,7 +78,11 @@ void validate_string_ref(StringRef value, const char* description) {
     }
 }
 
-void validate_import_root(VariantRef value) {
+// Imported values of one batch usually share a dictionary (a Parquet row group repeats it for
+// every row), so the dictionary bytes are validated once per distinct blob. `validated_metadata`
+// holds the bytes that passed last; comparing content keeps the shortcut correct even when a
+// caller reuses buffers.
+void validate_import_root(VariantRef value, StringRef* validated_metadata) {
     if (value.metadata.data == nullptr && value.metadata.size != 0) {
         throw Exception(ErrorCode::CORRUPTION,
                         "Variant imported metadata has a null data pointer for {} bytes",
@@ -89,7 +93,12 @@ void validate_import_root(VariantRef value) {
                         "Variant imported value has a null data pointer for {} bytes",
                         value.value.size);
     }
+    const StringRef metadata {value.metadata.data, value.metadata.size};
+    if (validated_metadata->data != nullptr && metadata == *validated_metadata) {
+        return;
+    }
     value.metadata.validate();
+    *validated_metadata = metadata;
 }
 
 void require_import_depth(uint32_t depth) {
@@ -584,7 +593,7 @@ public:
     void add_value(VariantRef value) {
         ensure_can_add_value();
         DCHECK(planned_object_children.empty());
-        validate_import_root(value);
+        validate_import_root(value, &validated_import_metadata);
         if (scope_stack.size() > VARIANT_MAX_NESTING_DEPTH) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "Variant import exceeds maximum nesting depth {}",
@@ -1260,6 +1269,8 @@ public:
     DorisVector<uint32_t> object_id_scratch;
     DorisVector<ContainerPlan> container_plans;
     DorisVector<FinalChild> planned_object_children;
+    // Bytes of the last imported metadata dictionary that passed validation.
+    StringRef validated_import_metadata;
     DorisVector<uint32_t>* previous_object_tokens = nullptr;
     DorisVector<uint32_t>* pending_object_tokens = nullptr;
 #ifdef BE_TEST

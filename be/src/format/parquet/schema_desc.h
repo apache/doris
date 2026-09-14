@@ -104,6 +104,11 @@ private:
     Status parse_struct_field(const std::vector<tparquet::SchemaElement>& t_schemas,
                               size_t curr_pos, FieldSchema* struct_field);
 
+    // Exposes a VARIANT annotated group as a Variant column whose children stay the physical
+    // metadata/value (and optional typed_value) carrier leaves.
+    Status parse_variant_field(const std::vector<tparquet::SchemaElement>& t_schemas,
+                               size_t curr_pos, FieldSchema* variant_field);
+
     Status parse_group_field(const std::vector<tparquet::SchemaElement>& t_schemas, size_t curr_pos,
                              FieldSchema* group_field);
 

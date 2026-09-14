@@ -401,6 +401,9 @@ void encode_variant_range(const ParquetColumnSchema& schema, const IColumn& wrap
                           bool require_metadata, ColumnVariantV2& variants) {
     try {
         VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = end - begin});
+        // Writers repeat one dictionary for many rows (dictionary encoded pages), so each
+        // distinct metadata blob is validated once instead of once per row.
+        StringRef validated_metadata;
         for (size_t row = begin; row < end; ++row) {
             auto output_row = builder.begin_row();
             if (outer_nullable != nullptr && outer_nullable->get_null_map_data()[row] != 0) {
@@ -419,7 +422,10 @@ void encode_variant_range(const ParquetColumnSchema& schema, const IColumn& wrap
                 }
                 const StringRef metadata_bytes = metadata_cell.column->get_data_at(row);
                 metadata = {metadata_bytes.data, metadata_bytes.size};
-                metadata.validate();
+                if (metadata_bytes != validated_metadata) {
+                    metadata.validate();
+                    validated_metadata = metadata_bytes;
+                }
             } else if (require_metadata) {
                 throw Exception(ErrorCode::CORRUPTION, "Parquet Variant {} has no root metadata",
                                 schema.name);
@@ -918,6 +924,54 @@ private:
     mutable ColumnVariantV2::MutablePtr _serialized;
 };
 
+// The plain unshredded layout: a metadata leaf and a value leaf, nothing shredded.
+bool is_plain_carrier(const ParquetColumnSchema& schema) {
+    return find_child(schema, "metadata", nullptr) != nullptr &&
+           find_child(schema, "value", nullptr) != nullptr &&
+           find_child(schema, "typed_value", nullptr) == nullptr;
+}
+
+// An unshredded carrier already holds the encoded Variant of every row: its metadata/value
+// leaves are handed over as they are. A row whose wrapper is present but whose value leaf is
+// null is the Variant null value; a present row without metadata is corrupt.
+ColumnVariantV2::MutablePtr copy_plain_carrier(const ParquetColumnSchema& schema,
+                                               const IColumn& physical) {
+    const auto* outer_nullable = check_and_get_column<ColumnNullable>(physical);
+    const IColumn& wrapper =
+            outer_nullable == nullptr ? physical : outer_nullable->get_nested_column();
+    const auto& structure = assert_cast<const ColumnStruct&>(wrapper);
+    size_t metadata_index = 0;
+    size_t value_index = 0;
+    DORIS_CHECK(find_child(schema, "metadata", &metadata_index) != nullptr);
+    DORIS_CHECK(find_child(schema, "value", &value_index) != nullptr);
+    const auto* metadata_nullable =
+            check_and_get_column<ColumnNullable>(structure.get_column(metadata_index));
+    const auto* value_nullable =
+            check_and_get_column<ColumnNullable>(structure.get_column(value_index));
+    const auto& metadata = assert_cast<const ColumnString&>(
+            metadata_nullable == nullptr ? structure.get_column(metadata_index)
+                                         : metadata_nullable->get_nested_column());
+    const auto& values = assert_cast<const ColumnString&>(
+            value_nullable == nullptr ? structure.get_column(value_index)
+                                      : value_nullable->get_nested_column());
+    const size_t rows = physical.size();
+    NullMap absent_rows(rows, 0);
+    for (size_t row = 0; row < rows; ++row) {
+        const bool root_null =
+                outer_nullable != nullptr && outer_nullable->get_null_map_data()[row] != 0;
+        if (!root_null && metadata_nullable != nullptr &&
+            metadata_nullable->get_null_map_data()[row] != 0) {
+            throw Exception(ErrorCode::CORRUPTION, "Parquet Variant {} has null metadata at row {}",
+                            schema.name, row);
+        }
+        absent_rows[row] = root_null || (value_nullable != nullptr &&
+                                         value_nullable->get_null_map_data()[row] != 0);
+    }
+    auto variants = ColumnVariantV2::create();
+    variants->insert_encoded_pairs(metadata, values, &absent_rows);
+    return variants;
+}
+
 MutableColumnPtr build_variant_column(std::shared_ptr<const ParquetColumnSchema> schema,
                                       ColumnPtr physical, bool complete,
                                       const ParquetColumnReaderProfile& profile) {
@@ -928,9 +982,21 @@ MutableColumnPtr build_variant_column(std::shared_ptr<const ParquetColumnSchema>
     }
 
     const auto* outer_nullable = check_and_get_column<ColumnNullable>(*physical);
-    MutableColumnPtr variants =
-            ColumnVariantV2::create_shredded(std::make_shared<ParquetVariantShreddedState>(
-                    std::move(schema), physical, complete, profile));
+    MutableColumnPtr variants;
+    if (complete && is_plain_carrier(*schema)) {
+        // An unshredded carrier has no typed leaf to serve lazily, so its bytes are copied over
+        // right away: that skips the per-row rebuild through the batch builder and keeps the
+        // per-row dictionary copies of the metadata leaf out of every later block copy.
+        SCOPED_TIMER(profile.variant_reconstruction_time.get());
+        variants = copy_plain_carrier(*schema, *physical);
+        if (profile.variant_reconstructed_rows != nullptr) {
+            COUNTER_UPDATE(profile.variant_reconstructed_rows.get(),
+                           static_cast<int64_t>(physical->size()));
+        }
+    } else {
+        variants = ColumnVariantV2::create_shredded(std::make_shared<ParquetVariantShreddedState>(
+                std::move(schema), physical, complete, profile));
+    }
     if (outer_nullable == nullptr) {
         return variants;
     }

@@ -46,6 +46,7 @@ struct ResultFileOptions {
     TParquetVersion::type parquet_version;
     bool parquert_disable_dictionary = false;
     bool enable_int96_timestamps = true;
+    TParquetVariantEncoding::type parquet_variant_encoding = TParquetVariantEncoding::JSON;
     //note: use outfile with parquet format, have deprecated 9:schema and 10:file_properties
     //But in order to consider the compatibility when upgrading, so add a bool to check
     //Now the code version is 1.1.2, so when the version is after 1.2, could remove this code.
@@ -111,6 +112,9 @@ struct ResultFileOptions {
         }
         if (t_opt.__isset.enable_int96_timestamps) {
             enable_int96_timestamps = t_opt.enable_int96_timestamps;
+        }
+        if (t_opt.__isset.parquet_variant_encoding) {
+            parquet_variant_encoding = t_opt.parquet_variant_encoding;
         }
         if (t_opt.__isset.orc_schema) {
             orc_schema = t_opt.orc_schema;

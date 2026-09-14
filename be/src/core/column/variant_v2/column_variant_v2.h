@@ -194,6 +194,13 @@ public:
     // without validating the encoded tree a second time.
     void insert_encoded_batch(const VariantBatchBuilder& block);
 
+    // Appends Parquet Variant carrier rows: one metadata blob and one value blob per row, as
+    // decoded from an unshredded VARIANT group. A row flagged in `absent_rows` has no encoded
+    // bytes and is stored as the Variant null value. Writers repeat one dictionary for many rows,
+    // so each distinct metadata blob of the batch is validated and registered once.
+    void insert_encoded_pairs(const ColumnString& metadatas, const ColumnString& values,
+                              const NullMap* absent_rows);
+
     // The returned view borrows this column's metadata and value buffers. Any structural mutation,
     // including insert, clear, COW mutation, or future row transformations, may invalidate it.
     VariantRef get_value_ref(size_t row) const;

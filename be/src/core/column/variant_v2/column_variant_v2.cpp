@@ -17,6 +17,8 @@
 
 #include "core/column/variant_v2/column_variant_v2.h"
 
+#include <parallel_hashmap/phmap.h>
+
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -28,6 +30,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/check.h"
 #include "common/exception.h"
 #include "core/assert_cast.h"
@@ -1020,6 +1023,58 @@ void ColumnVariantV2::insert_encoded_batch(const VariantBatchBuilder& block) {
 
     DCHECK_EQ(_meta_ids->size(), _values->size());
     _check_invariants();
+}
+
+void ColumnVariantV2::insert_encoded_pairs(const ColumnString& metadatas,
+                                           const ColumnString& values, const NullMap* absent_rows) {
+    const size_t rows = values.size();
+    DORIS_CHECK_EQ(metadatas.size(), rows) << "metadata and value row counts differ";
+    DORIS_CHECK(absent_rows == nullptr || absent_rows->size() == rows)
+            << "absent row map size differs from the row count";
+    if (rows == 0) {
+        return;
+    }
+    // Primitive header of the Variant null value: basic type PRIMITIVE, type id NULL_VALUE.
+    static constexpr char VARIANT_NULL_VALUE = 0;
+    DorisVector<char> metadata_bytes;
+    DorisVector<char> value_bytes;
+    DorisVector<uint32_t> metadata_offsets(1, 0);
+    DorisVector<uint32_t> value_offsets(1, 0);
+    DorisVector<uint32_t> meta_ids;
+    // Keys borrow the input column bytes, which outlive this call.
+    phmap::flat_hash_map<StringRef, uint32_t, StringRefHash> metadata_ids;
+    value_bytes.reserve(values.get_chars().size() + rows);
+    value_offsets.reserve(rows + 1);
+    meta_ids.reserve(rows);
+    for (size_t row = 0; row < rows; ++row) {
+        StringRef metadata {VARIANT_EMPTY_METADATA.data(), VARIANT_EMPTY_METADATA.size()};
+        StringRef value {&VARIANT_NULL_VALUE, 1};
+        if (absent_rows == nullptr || (*absent_rows)[row] == 0) {
+            metadata = metadatas.get_data_at(row);
+            value = values.get_data_at(row);
+        }
+        const auto [entry, inserted] =
+                metadata_ids.try_emplace(metadata, cast_set<uint32_t>(metadata_ids.size()));
+        if (inserted) {
+            metadata_bytes.insert(metadata_bytes.end(), metadata.data,
+                                  metadata.data + metadata.size);
+            metadata_offsets.push_back(cast_set<uint32_t>(metadata_bytes.size()));
+        }
+        meta_ids.push_back(entry->second);
+        value_bytes.insert(value_bytes.end(), value.data, value.data + value.size);
+        value_offsets.push_back(cast_set<uint32_t>(value_bytes.size()));
+    }
+    if (metadata_ids.size() == 1) {
+        // The compact representation: every row of the batch uses the single blob.
+        meta_ids.clear();
+    }
+    insert_encoded_rows({
+            .metadata_bytes = {metadata_bytes.data(), metadata_bytes.size()},
+            .metadata_offsets = metadata_offsets,
+            .meta_ids = meta_ids,
+            .value_bytes = {value_bytes.data(), value_bytes.size()},
+            .value_offsets = value_offsets,
+    });
 }
 
 VariantRef ColumnVariantV2::get_value_ref(size_t row) const {

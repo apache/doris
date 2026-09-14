@@ -490,7 +490,8 @@ TEST(VariantColumnReaderTest, UnshreddedRowsPreserveSqlNullAndVariantNull) {
     const auto& nullable = assert_cast<const ColumnNullable&>(*output);
     EXPECT_EQ(nullable.get_null_map_data(), (NullMap {0, 1, 0}));
     const auto& variants = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
-    EXPECT_TRUE(variants.is_shredded());
+    // Unshredded rows are encoded by the reader instead of being materialized lazily.
+    EXPECT_FALSE(variants.is_shredded());
     EXPECT_EQ(variants.get_value_ref(0).get_int(), 7);
     EXPECT_TRUE(variants.get_value_ref(2).is_null());
 }

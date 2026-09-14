@@ -22,6 +22,7 @@ import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TParquetCompressionType;
+import org.apache.doris.thrift.TParquetVariantEncoding;
 import org.apache.doris.thrift.TParquetVersion;
 import org.apache.doris.thrift.TResultFileSinkOptions;
 
@@ -37,11 +38,14 @@ public class ParquetFileFormatProperties extends FileFormatProperties {
     public static final String PARQUET_DISABLE_DICTIONARY = "disable_dictionary";
     public static final String PARQUET_VERSION = "version";
     public static final String ENABLE_INT96_TIMESTAMPS = "enable_int96_timestamps";
+    // "json" writes VARIANT columns as UTF-8 JSON text, "variant" as the Parquet VARIANT logical type.
+    public static final String PARQUET_VARIANT_ENCODING = "variant_encoding";
     public static final String PARQUET_PROP_PREFIX = "parquet.";
 
     public static final Logger LOG = LogManager.getLogger(ParquetFileFormatProperties.class);
     public static final Map<String, TParquetCompressionType> PARQUET_COMPRESSION_TYPE_MAP = Maps.newHashMap();
     public static final Map<String, TParquetVersion> PARQUET_VERSION_MAP = Maps.newHashMap();
+    public static final Map<String, TParquetVariantEncoding> PARQUET_VARIANT_ENCODING_MAP = Maps.newHashMap();
 
     static {
         PARQUET_COMPRESSION_TYPE_MAP.put("snappy", TParquetCompressionType.SNAPPY);
@@ -56,12 +60,16 @@ public class ParquetFileFormatProperties extends FileFormatProperties {
 
         PARQUET_VERSION_MAP.put("v1", TParquetVersion.PARQUET_1_0);
         PARQUET_VERSION_MAP.put("latest", TParquetVersion.PARQUET_2_LATEST);
+
+        PARQUET_VARIANT_ENCODING_MAP.put("json", TParquetVariantEncoding.JSON);
+        PARQUET_VARIANT_ENCODING_MAP.put("variant", TParquetVariantEncoding.VARIANT);
     }
 
     private TParquetCompressionType parquetCompressionType = TParquetCompressionType.SNAPPY;
     private boolean parquetDisableDictionary = false;
     private TParquetVersion parquetVersion = TParquetVersion.PARQUET_1_0;
     private boolean enableInt96Timestamps = false;
+    private TParquetVariantEncoding parquetVariantEncoding = TParquetVariantEncoding.JSON;
 
     public ParquetFileFormatProperties() {
         super(TFileFormatType.FORMAT_PARQUET, FileFormatProperties.FORMAT_PARQUET);
@@ -105,9 +113,21 @@ public class ParquetFileFormatProperties extends FileFormatProperties {
                     } else {
                         LOG.debug("not set parquet version type or is invalid, set default to PARQUET_1.0 version.");
                     }
+                } else if (entry.getKey().substring(PARQUET_PROP_PREFIX.length())
+                        .equals(PARQUET_VARIANT_ENCODING)) {
+                    this.parquetVariantEncoding = parseVariantEncoding(entry.getValue());
                 }
             }
         }
+    }
+
+    public static TParquetVariantEncoding parseVariantEncoding(String value) {
+        TParquetVariantEncoding encoding = PARQUET_VARIANT_ENCODING_MAP.get(value.toLowerCase());
+        if (encoding == null) {
+            throw new AnalysisException(PARQUET_PROP_PREFIX + PARQUET_VARIANT_ENCODING
+                    + " should be json or variant, but is " + value);
+        }
+        return encoding;
     }
 
     public static boolean parseEnableInt96Timestamps(String value) {
@@ -127,6 +147,7 @@ public class ParquetFileFormatProperties extends FileFormatProperties {
         sinkOptions.setParquetDisableDictionary(parquetDisableDictionary);
         sinkOptions.setParquetVersion(parquetVersion);
         sinkOptions.setEnableInt96Timestamps(enableInt96Timestamps);
+        sinkOptions.setParquetVariantEncoding(parquetVariantEncoding);
     }
 
     @Override
@@ -147,5 +168,9 @@ public class ParquetFileFormatProperties extends FileFormatProperties {
 
     public boolean isEnableInt96Timestamps() {
         return enableInt96Timestamps;
+    }
+
+    public TParquetVariantEncoding getParquetVariantEncoding() {
+        return parquetVariantEncoding;
     }
 }
