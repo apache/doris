@@ -270,6 +270,7 @@ protected:
                             .ok());
 
         std::vector<ColumnId> column_ids {0, 1};
+        // VStatisticsIterator keeps a reference to the schema, so it has to outlive the iterator.
         auto schema = std::make_shared<ReadSchema>(
                 project_columns_by_ordinal(tablet_schema->columns(), column_ids));
         StorageReadOptions read_options;
@@ -290,6 +291,7 @@ protected:
         read_options.runtime_state = state.get();
         // The iterator keeps a copy of read_options, so the state has to outlive it.
         _states.push_back(std::move(state));
+        _schemas.push_back(schema);
 
         std::unique_ptr<RowwiseIterator> iter;
         EXPECT_TRUE(segment->new_iterator(schema, read_options, &iter).ok());
@@ -299,6 +301,7 @@ protected:
     std::shared_ptr<io::FileSystem> _fs;
     OlapReaderStatistics _stats;
     std::vector<std::unique_ptr<RuntimeState>> _states;
+    std::vector<ReadSchemaSPtr> _schemas;
 };
 
 TEST_F(StatisticsIteratorStringBoundsTest, ShortBoundsAnswerFromTheZoneMap) {
@@ -330,6 +333,32 @@ TEST_F(StatisticsIteratorStringBoundsTest, CutBoundsAnswerWhenTheCallerTakesAnAp
                                     /*accept_cut_bound=*/true);
     EXPECT_NE(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr)
             << "statistics collection reads the cut bound rather than scanning the rows";
+}
+
+// A max raised from 0xff wraps to 0x00, so the read side turns pass_all on for that zone. The
+// bounds were parsed before that happened, so statistics collection still reads them.
+TEST_F(StatisticsIteratorStringBoundsTest, PassAllZoneMapAnswersWhenApproximationIsAccepted) {
+    std::string wrapping(MAX_ZONE_MAP_INDEX_SIZE - 1, 'a');
+    wrapping.push_back(static_cast<char>(0xff));
+    auto iter = minmax_iterator_for("pass_all_approx", {"aaa", wrapping},
+                                    /*accept_cut_bound=*/true);
+    EXPECT_NE(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr)
+            << "a zone map that gave up its range on read still carries the bounds it parsed";
+
+    Block block;
+    for (const auto& column : iter->schema().columns()) {
+        auto data_type = column->get_vec_type();
+        block.insert(ColumnWithTypeAndName(data_type->create_column(), data_type, column->name()));
+    }
+    EXPECT_TRUE(iter->next_batch(&block).ok()) << "reading the bounds must not trip an assertion";
+}
+
+// With the switch off the same zone map sends the query back to the rows.
+TEST_F(StatisticsIteratorStringBoundsTest, PassAllZoneMapFallsBackToReadingTheData) {
+    std::string wrapping(MAX_ZONE_MAP_INDEX_SIZE - 1, 'a');
+    wrapping.push_back(static_cast<char>(0xff));
+    auto iter = minmax_iterator_for("pass_all_exact", {"aaa", wrapping});
+    EXPECT_EQ(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr);
 }
 
 // A delete predicate leaves the zone map covering rows that are gone, so its min/max may name a
