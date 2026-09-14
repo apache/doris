@@ -32,8 +32,10 @@
 
 #include "core/arena.h"
 #include "core/assert_cast.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_varbinary.h"
+#include "core/column/column_vector.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_varbinary_serde.h"
 #include "core/string_buffer.hpp"
@@ -337,6 +339,128 @@ TEST_F(DataTypeVarbinarySerDeTest, OrcWriteSupported) {
     EXPECT_EQ(batch->numElements, 1);
     EXPECT_EQ(batch->length[0], 3);
     EXPECT_EQ(memcmp(batch->data[0], v.data(), 3), 0);
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, OrcReadBytesNullsSelectionAndOwnership) {
+    std::vector<std::string> values = {std::string(16, '\0'), make_bytes(16),         "", "",
+                                       make_bytes(64),        std::string(16, '\xff')};
+    const auto expected = values;
+    orc::StringVectorBatch batch(values.size(), *orc::getDefaultPool());
+    batch.numElements = values.size();
+    batch.hasNulls = true;
+    for (size_t row = 0; row < values.size(); ++row) {
+        batch.notNull[row] = row != 3;
+        batch.data[row] = values[row].data();
+        batch.length[row] = values[row].size();
+    }
+    batch.data[3] = nullptr;
+    batch.length[3] = -1;
+    auto file_type = orc::createPrimitiveType(orc::BINARY);
+    OrcDecodedColumnView view;
+    view.file_type = file_type.get();
+    view.selected_type = file_type.get();
+    view.batch = &batch;
+    view.rows = values.size();
+    DataTypeNullableSerDe serde(std::make_shared<DataTypeVarbinarySerDe>());
+    auto column = ColumnNullable::create(ColumnVarbinary::create(), ColumnUInt8::create());
+    ASSERT_TRUE(serde.read_column_from_orc(*column, view).ok());
+    const std::vector<size_t> selected_rows = {0, 2, 3, 4, 5};
+    view.selected_rows = &selected_rows;
+    ASSERT_TRUE(serde.read_column_from_orc(*column, view).ok());
+    values.clear();
+    ASSERT_EQ(column->size(), expected.size() + selected_rows.size());
+    for (size_t row = 0; row < column->size(); ++row) {
+        const auto source_row = row < expected.size() ? row : selected_rows[row - expected.size()];
+        EXPECT_EQ(column->is_null_at(row), source_row == 3);
+        EXPECT_EQ(column->get_nested_column().get_data_at(row).to_string(), expected[source_row]);
+    }
+    const std::vector<size_t> empty_selection;
+    view.selected_rows = &empty_selection;
+    ASSERT_TRUE(serde.read_column_from_orc(*column, view).ok());
+    EXPECT_EQ(column->size(), expected.size() + selected_rows.size());
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, OrcReadDictionaryBinary) {
+    const auto bytes = make_bytes(32);
+    orc::EncodedStringVectorBatch batch(4, *orc::getDefaultPool());
+    batch.numElements = 4;
+    batch.isEncoded = true;
+    batch.hasNulls = true;
+    batch.dictionary = std::make_shared<orc::StringDictionary>(*orc::getDefaultPool());
+    batch.dictionary->dictionaryBlob.resize(bytes.size());
+    memcpy(batch.dictionary->dictionaryBlob.data(), bytes.data(), bytes.size());
+    batch.dictionary->dictionaryOffset.resize(3);
+    batch.dictionary->dictionaryOffset[0] = 0;
+    batch.dictionary->dictionaryOffset[1] = 0;
+    batch.dictionary->dictionaryOffset[2] = bytes.size();
+    for (size_t row = 0; row < 4; ++row) {
+        batch.notNull[row] = row != 2;
+        batch.index[row] = row == 1 ? 0 : 1;
+    }
+    batch.index[2] = -1;
+    const auto file_type = orc::createPrimitiveType(orc::BINARY);
+    const std::vector<size_t> selected_rows = {1, 2, 3};
+    OrcDecodedColumnView view;
+    view.file_type = file_type.get();
+    view.selected_type = file_type.get();
+    view.batch = &batch;
+    view.rows = 4;
+    view.selected_rows = &selected_rows;
+    DataTypeNullableSerDe serde(std::make_shared<DataTypeVarbinarySerDe>());
+    auto column = ColumnNullable::create(ColumnVarbinary::create(), ColumnUInt8::create());
+    ASSERT_TRUE(serde.read_column_from_orc(*column, view).ok());
+    batch.dictionary.reset();
+    ASSERT_EQ(column->size(), 3);
+    EXPECT_FALSE(column->is_null_at(0));
+    EXPECT_TRUE(column->is_null_at(1));
+    EXPECT_EQ(column->get_nested_column().get_data_at(0).size, 0);
+    EXPECT_EQ(column->get_nested_column().get_data_at(2).to_string(), bytes);
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, OrcReadDecodedDictionaryBatch) {
+    std::string bytes = make_bytes(16);
+    orc::EncodedStringVectorBatch batch(1, *orc::getDefaultPool());
+    batch.numElements = 1;
+    batch.isEncoded = false;
+    batch.hasNulls = false;
+    batch.data[0] = bytes.data();
+    batch.length[0] = bytes.size();
+    const auto file_type = orc::createPrimitiveType(orc::BINARY);
+    OrcDecodedColumnView view;
+    view.file_type = file_type.get();
+    view.selected_type = file_type.get();
+    view.batch = &batch;
+    view.rows = 1;
+    DataTypeVarbinarySerDe serde;
+    auto column = ColumnVarbinary::create();
+    ASSERT_TRUE(serde.read_column_from_orc(*column, view).ok());
+    ASSERT_EQ(column->size(), 1);
+    EXPECT_EQ(column->get_data_at(0).to_string(), bytes);
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, OrcReadRejectsNegativeLengthAndRollsBack) {
+    orc::StringVectorBatch batch(2, *orc::getDefaultPool());
+    batch.numElements = 2;
+    batch.hasNulls = false;
+    std::string bytes = make_bytes(16);
+    batch.data[0] = bytes.data();
+    batch.length[0] = bytes.size();
+    batch.data[1] = nullptr;
+    batch.length[1] = -1;
+    const auto file_type = orc::createPrimitiveType(orc::BINARY);
+    OrcDecodedColumnView view;
+    view.file_type = file_type.get();
+    view.selected_type = file_type.get();
+    view.batch = &batch;
+    view.rows = 2;
+    DataTypeNullableSerDe serde(std::make_shared<DataTypeVarbinarySerDe>());
+    auto column = ColumnNullable::create(ColumnVarbinary::create(), ColumnUInt8::create());
+    column->insert_default();
+    const auto status = serde.read_column_from_orc(*column, view);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Invalid negative ORC binary length"), std::string::npos);
+    EXPECT_EQ(column->size(), 1);
+    EXPECT_TRUE(column->is_null_at(0));
 }
 
 TEST_F(DataTypeVarbinarySerDeTest, ArrowBinaryAndStringWithNullsAndInvalidType) {
