@@ -17,8 +17,9 @@
 
 #include "storage/index/inverted/char_filter/icu_normalizer_char_filter.h"
 
+#include <unicode/bytestream.h>
 #include <unicode/normalizer2.h>
-#include <unicode/unistr.h>
+#include <unicode/stringpiece.h>
 
 #include "common/exception.h"
 #include "common/logging.h"
@@ -64,28 +65,31 @@ void ICUNormalizerCharFilter::fill() {
 
 void ICUNormalizerCharFilter::normalize_text(const std::string& input, std::string& output) {
     output.clear();
+    _edits.reset();
     if (input.empty()) {
         return;
     }
 
     UErrorCode status = U_ZERO_ERROR;
-    icu::UnicodeString src16 = icu::UnicodeString::fromUTF8(input);
-    UNormalizationCheckResult quick_result = _normalizer->quickCheck(src16, status);
-    if (U_SUCCESS(status) && quick_result == UNORM_YES) {
-        output = input;
-        return;
-    }
-
-    icu::UnicodeString result16;
-    status = U_ZERO_ERROR;
-    _normalizer->normalize(src16, result16, status);
+    icu::StringByteSink<std::string> sink(&output);
+    _normalizer->normalizeUTF8(0, icu::StringPiece(input), sink, &_edits, status);
     if (U_FAILURE(status)) {
         LOG(WARNING) << "ICU normalize failed: " << u_errorName(status) << ", using original text";
         output = input;
+        _edits.reset();
+        _edits.addUnchanged(static_cast<int32_t>(input.size()));
         return;
     }
+}
 
-    result16.toUTF8String(output);
+int32_t ICUNormalizerCharFilter::correct_offset(int32_t current_offset) const {
+    UErrorCode status = U_ZERO_ERROR;
+    auto iterator = _edits.getFineIterator();
+    const int32_t source_offset = iterator.sourceIndexFromDestinationIndex(current_offset, status);
+    if (U_FAILURE(status)) {
+        return DorisCharFilter::correct_offset(current_offset);
+    }
+    return DorisCharFilter::correct_offset(source_offset);
 }
 
 } // namespace doris::segment_v2::inverted_index

@@ -22,6 +22,8 @@
 #include <tuple>
 #include <utility>
 
+#include "storage/index/inverted/char_filter/char_filter.h"
+
 namespace doris::segment_v2 {
 
 namespace {
@@ -99,6 +101,16 @@ Token* IKTokenizer::next(Token* token) {
         current_source_byte_offsets_.clear();
     }
     current_token_ = &token_data;
+    const int32_t corrected_start =
+            source_char_filter_ == nullptr
+                    ? token_data.start_offset
+                    : source_char_filter_->correct_offset(token_data.start_offset);
+    if (source_char_filter_ != nullptr && source_byte_offsets_enabled_) {
+        for (int32_t& offset : current_source_byte_offsets_) {
+            offset = source_char_filter_->correct_offset(token_data.start_offset + offset) -
+                     corrected_start;
+        }
+    }
     size_t published_size = token_data.text.size();
     size_t published_runes = current_source_byte_offsets_.size();
     if (published_size > static_cast<size_t>(LUCENE_MAX_WORD_LEN)) {
@@ -106,15 +118,17 @@ Token* IKTokenizer::next(Token* token) {
                 utf8_prefix_at_most(token_data.text, static_cast<size_t>(LUCENE_MAX_WORD_LEN));
     }
     set(token, std::string_view(token_data.text.data(), published_size));
-    token->setStartOffset(token_data.start_offset);
+    token->setStartOffset(corrected_start);
     if (source_byte_offsets_enabled_ && published_size < token_data.text.size()) {
         DORIS_CHECK_LT(published_runes, current_source_byte_offsets_.size());
         current_source_byte_offsets_.resize(published_runes + 1);
         // A clipped term represents only this source prefix, so its end offset must not claim the
         // unpublished suffix. The provenance vector uses the same exclusive source boundary.
-        token->setEndOffset(token_data.start_offset + current_source_byte_offsets_.back());
+        token->setEndOffset(corrected_start + current_source_byte_offsets_.back());
     } else {
-        token->setEndOffset(token_data.end_offset);
+        token->setEndOffset(source_char_filter_ == nullptr
+                                    ? token_data.end_offset
+                                    : source_char_filter_->correct_offset(token_data.end_offset));
     }
     return token;
 }
@@ -136,6 +150,7 @@ void IKTokenizer::reset() {
 void IKTokenizer::reset(lucene::util::Reader* reader) {
     _in_pending.reset();
     this->input = reader;
+    source_char_filter_ = dynamic_cast<const inverted_index::DorisCharFilter*>(reader);
     this->buffer_index_ = 0;
     this->data_length_ = 0;
     this->tokens_.clear();

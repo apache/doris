@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <unicode/edits.h>
 #include <unicode/normalizer2.h>
 
 #include <string>
@@ -37,12 +38,14 @@ public:
     int32_t readCopy(void* start, int32_t off, int32_t len) override;
 
     size_t size() override { return _buf.size(); }
+    int32_t correct_offset(int32_t current_offset) const override;
 
 private:
     void fill();
     void normalize_text(const std::string& input, std::string& output);
 
     std::shared_ptr<const icu::Normalizer2> _normalizer;
+    icu::Edits _edits;
     std::string _buf;
     lucene::util::SStringReader<char> _transformed_input;
 };

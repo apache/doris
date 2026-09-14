@@ -52,7 +52,8 @@ public final class AnalyzerIdentityBuilder {
                 return builtinIkIdentity;
             }
             // For custom analyzer/normalizer, resolve to underlying config to build identity
-            return resolveAnalyzerIdentity(preferredAnalyzer, defaultAnalyzerKey, log);
+            return appendOuterCharFilterIdentity(
+                    resolveAnalyzerIdentity(preferredAnalyzer, defaultAnalyzerKey, log), properties);
         }
 
         if (Strings.isNullOrEmpty(parser) || parserNone.equalsIgnoreCase(parser)) {
@@ -62,7 +63,7 @@ public final class AnalyzerIdentityBuilder {
         if (legacyIkIdentity != null) {
             return legacyIkIdentity;
         }
-        return parser;
+        return appendOuterCharFilterIdentity(parser, properties);
     }
 
     private static String resolveBuiltinIkAnalyzerIdentity(
@@ -181,16 +182,19 @@ public final class AnalyzerIdentityBuilder {
         for (Map.Entry<String, String> entry : sortedProps.entrySet()) {
             String key = entry.getKey();
             String value = entry.getValue();
+            String resolved = null;
 
             // For tokenizer, token_filter, char_filter - resolve recursively if needed
             if (IndexPolicy.PROP_TOKENIZER.equals(key)) {
-                sb.append("tokenizer=").append(resolveComponentIdentity(value, IndexPolicyTypeEnum.TOKENIZER));
+                resolved = resolveComponentIdentity(value, IndexPolicyTypeEnum.TOKENIZER);
             } else if (IndexPolicy.PROP_TOKEN_FILTER.equals(key)) {
-                sb.append("token_filter=").append(resolveTokenFilterIdentity(value));
+                resolved = resolveTokenFilterIdentity(value);
             } else if (IndexPolicy.PROP_CHAR_FILTER.equals(key)) {
-                sb.append("char_filter=").append(resolveCharFilterIdentity(value));
+                resolved = resolveCharFilterIdentity(value);
             }
-            sb.append(";");
+            if (!Strings.isNullOrEmpty(resolved)) {
+                sb.append(key).append("=").append(resolved).append(";");
+            }
         }
 
         return sb.toString();
@@ -219,6 +223,9 @@ public final class AnalyzerIdentityBuilder {
                         String type = sortedProps.get(IndexPolicy.PROP_TYPE);
                         String normalizedType = normalizeBuiltinComponentName(type, expectedType);
                         if (normalizedType != null) {
+                            if ("empty".equals(normalizedType)) {
+                                return "";
+                            }
                             if (sortedProps.size() == 1) {
                                 return normalizedType;
                             }
@@ -238,7 +245,7 @@ public final class AnalyzerIdentityBuilder {
         }
 
         String normalizedName = normalizeBuiltinComponentName(name, expectedType);
-        return normalizedName == null ? name : normalizedName;
+        return "empty".equals(normalizedName) ? "" : normalizedName == null ? name : normalizedName;
     }
 
     private static String normalizeBuiltinComponentName(String name, IndexPolicyTypeEnum expectedType) {
@@ -270,13 +277,15 @@ public final class AnalyzerIdentityBuilder {
         String[] filters = filterList.split(",\\s*");
         // DO NOT sort - filter order is semantically significant
 
-        for (int i = 0; i < filters.length; i++) {
-            String filter = filters[i].trim();
-            if (i > 0) {
+        for (String filterName : filters) {
+            String filter = resolveComponentIdentity(filterName.trim(), IndexPolicyTypeEnum.TOKEN_FILTER);
+            if (Strings.isNullOrEmpty(filter)) {
+                continue;
+            }
+            if (sb.length() > 0) {
                 sb.append(",");
             }
-
-            sb.append(resolveComponentIdentity(filter, IndexPolicyTypeEnum.TOKEN_FILTER));
+            sb.append(filter);
         }
         return sb.toString();
     }
@@ -294,14 +303,30 @@ public final class AnalyzerIdentityBuilder {
         String[] filters = filterList.split(",\\s*");
         // DO NOT sort - filter order is semantically significant
 
-        for (int i = 0; i < filters.length; i++) {
-            String filter = filters[i].trim();
-            if (i > 0) {
+        for (String filterName : filters) {
+            String filter = resolveComponentIdentity(filterName.trim(), IndexPolicyTypeEnum.CHAR_FILTER);
+            if (Strings.isNullOrEmpty(filter)) {
+                continue;
+            }
+            if (sb.length() > 0) {
                 sb.append(",");
             }
-
-            sb.append(resolveComponentIdentity(filter, IndexPolicyTypeEnum.CHAR_FILTER));
+            sb.append(filter);
         }
         return sb.toString();
+    }
+
+    private static String appendOuterCharFilterIdentity(
+            String analyzerIdentity, Map<String, String> properties) {
+        String type = properties.get(InvertedIndexProperties.INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE);
+        String pattern = properties.get(InvertedIndexProperties.INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN);
+        if (!"char_replace".equals(type) || Strings.isNullOrEmpty(pattern)) {
+            return analyzerIdentity;
+        }
+        String replacement = properties.getOrDefault(
+                InvertedIndexProperties.INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
+        return analyzerIdentity + "|outer_char_filter=char_replace:"
+                + pattern.length() + ":" + pattern + ":"
+                + replacement.length() + ":" + replacement + ";";
     }
 }

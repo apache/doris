@@ -115,7 +115,10 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         List<IndexPolicy> copiedPolicies = Lists.newArrayList();
         readLock();
         try {
-            copiedPolicies.addAll(idToIndexPolicy.values());
+            // Only transmit the authoritative policy for each normalized name. Legacy images may
+            // contain collisions, but sending both definitions would make BE choose based on
+            // arrival order and repeatedly diverge from FE during reconciliation.
+            copiedPolicies.addAll(nameToIndexPolicy.values());
         } finally {
             readUnlock();
         }

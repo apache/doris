@@ -60,11 +60,23 @@ void IndexPolicyMgr::apply_policy_changes(const std::vector<TIndexPolicy>& polic
 
     for (auto id : policys_to_delete) {
         if (auto it = _policys.find(id); it != _policys.end()) {
+            const std::string normalized_name = normalize_name(it->second.name);
             LOG(INFO) << "Deleting policy - "
                       << "ID: " << id << ", "
                       << "Name: " << it->second.name;
-            _name_to_id.erase(normalize_name(it->second.name));
+            const bool was_authoritative =
+                    _name_to_id.contains(normalized_name) && _name_to_id.at(normalized_name) == id;
             _policys.erase(it);
+            if (was_authoritative) {
+                _name_to_id.erase(normalized_name);
+                for (const auto& [remaining_id, remaining] : _policys) {
+                    if (normalize_name(remaining.name) == normalized_name &&
+                        (!_name_to_id.contains(normalized_name) ||
+                         remaining_id > _name_to_id.at(normalized_name))) {
+                        _name_to_id[normalized_name] = remaining_id;
+                    }
+                }
+            }
             ++success_deletes;
         } else {
             LOG(WARNING) << "Delete failed - Policy ID not found: " << id;
@@ -80,14 +92,15 @@ void IndexPolicyMgr::apply_policy_changes(const std::vector<TIndexPolicy>& polic
         }
         std::string normalized_name = normalize_name(policy.name);
         if (_name_to_id.contains(normalized_name)) {
-            LOG(ERROR) << "Reject update - Duplicate policy name: " << policy.name
-                       << " | Existing ID: " << _name_to_id[normalized_name]
-                       << " | New ID: " << policy.id;
-            continue;
+            LOG(WARNING) << "Policies have the same normalized name: " << policy.name
+                         << " | Existing authoritative ID: " << _name_to_id[normalized_name]
+                         << " | New ID: " << policy.id << " | The higher ID is authoritative";
         }
 
         _policys.emplace(policy.id, policy);
-        _name_to_id.emplace(normalized_name, policy.id);
+        if (!_name_to_id.contains(normalized_name) || policy.id > _name_to_id.at(normalized_name)) {
+            _name_to_id[normalized_name] = policy.id;
+        }
         ++success_updates;
         LOG(INFO) << "Successfully applied policy - "
                   << "ID: " << policy.id << ", "
