@@ -1833,6 +1833,83 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testDeleteFileSizePropagatedToThrift() throws Exception {
+        Types.NestedField id = Types.NestedField.required(1, "id", Types.LongType.get());
+        Schema schema = new Schema(1, ImmutableList.of(id));
+        Snapshot snapshot = mockSnapshot(1001L, schema, null);
+        TableMetadata metadata = Mockito.mock(TableMetadata.class);
+        Mockito.when(metadata.schemas()).thenReturn(ImmutableList.of(schema));
+        Mockito.when(metadata.schemasById()).thenReturn(ImmutableMap.of(1, schema));
+        Mockito.when(metadata.snapshot(1001L)).thenReturn(snapshot);
+        TableOperations operations = Mockito.mock(TableOperations.class);
+        Mockito.when(operations.current()).thenReturn(metadata);
+        BaseTable table = new BaseTable(operations, "test");
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        Mockito.when(tableScan.snapshot()).thenReturn(snapshot);
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergTable(node, table);
+        node.setTableScan(tableScan);
+        setPrivateField(node, "plannedScanSchema", schema);
+        setPrivateField(node, "storagePropertiesMap", Collections.emptyMap());
+        setPrivateField(node, "formatVersion", 2);
+        setPrivateField(node, "orderedPathPartitionKeys", Collections.emptyList());
+        setPrivateField(node, "orderedPartitionMetadataKeys", Collections.emptyList());
+
+        DeleteFile positionDelete = Mockito.mock(DeleteFile.class);
+        Mockito.when(positionDelete.content()).thenReturn(FileContent.POSITION_DELETES);
+        Mockito.when(positionDelete.recordCount()).thenReturn(1L);
+        Mockito.when(positionDelete.path()).thenReturn("file:///tmp/pos-delete.parquet");
+        Mockito.when(positionDelete.fileSizeInBytes()).thenReturn(96L);
+        Mockito.when(positionDelete.format()).thenReturn(FileFormat.PARQUET);
+
+        DeleteFile deletionVector = Mockito.mock(DeleteFile.class);
+        Mockito.when(deletionVector.content()).thenReturn(FileContent.POSITION_DELETES);
+        Mockito.when(deletionVector.recordCount()).thenReturn(1L);
+        Mockito.when(deletionVector.path()).thenReturn("file:///tmp/dv.puffin");
+        Mockito.when(deletionVector.fileSizeInBytes()).thenReturn(256L);
+        Mockito.when(deletionVector.format()).thenReturn(FileFormat.PUFFIN);
+        Mockito.when(deletionVector.contentOffset()).thenReturn(16L);
+        Mockito.when(deletionVector.contentSizeInBytes()).thenReturn(64L);
+        Mockito.when(deletionVector.referencedDataFile()).thenReturn("file:///tmp/data.parquet");
+
+        DeleteFile equalityDelete = equalityDeleteFile(1, "file:///tmp/eq-delete.parquet");
+
+        DataFile dataFile = Mockito.mock(DataFile.class);
+        Mockito.when(dataFile.path()).thenReturn("file:///tmp/data.parquet");
+        Mockito.when(dataFile.fileSizeInBytes()).thenReturn(128L);
+        Mockito.when(dataFile.format()).thenReturn(FileFormat.PARQUET);
+        FileScanTask task = Mockito.mock(FileScanTask.class);
+        Mockito.when(task.file()).thenReturn(dataFile);
+        Mockito.when(task.start()).thenReturn(0L);
+        Mockito.when(task.length()).thenReturn(128L);
+        Mockito.when(task.deletes())
+                .thenReturn(ImmutableList.of(positionDelete, deletionVector, equalityDelete));
+
+        IcebergSplit split = createIcebergSplit(node, task);
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        setIcebergParams(node, rangeDesc, split);
+
+        List<TIcebergDeleteFileDesc> deletes = rangeDesc.getTableFormatParams().getIcebergParams()
+                .getDeleteFiles();
+        Assert.assertEquals(3, deletes.size());
+        TIcebergDeleteFileDesc posDesc = deletes.get(0);
+        Assert.assertEquals(1, posDesc.getContent());
+        Assert.assertTrue(posDesc.isSetFileSize());
+        Assert.assertEquals(96L, posDesc.getFileSize());
+        TIcebergDeleteFileDesc dvDesc = deletes.get(1);
+        Assert.assertEquals(3, dvDesc.getContent());
+        Assert.assertEquals(16L, dvDesc.getContentOffset());
+        Assert.assertEquals(64L, dvDesc.getContentSizeInBytes());
+        Assert.assertTrue(dvDesc.isSetFileSize());
+        Assert.assertEquals(256L, dvDesc.getFileSize());
+        TIcebergDeleteFileDesc eqDesc = deletes.get(2);
+        Assert.assertEquals(2, eqDesc.getContent());
+        Assert.assertTrue(eqDesc.isSetFileSize());
+        Assert.assertEquals(64L, eqDesc.getFileSize());
+    }
+
+    @Test
     public void testSchemaCarrierKeepsDroppedNestedEqualityFieldPath() throws Exception {
         Types.NestedField id = Types.NestedField.required(1, "id", Types.LongType.get());
         Types.NestedField existing = Types.NestedField.optional(
