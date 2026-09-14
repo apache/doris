@@ -93,6 +93,8 @@ public:
                                int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override;
 
+    Status read_column_from_orc(IColumn& column, const OrcDecodedColumnView& view) const override;
+
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                    const FormatOptions& options) const override;
 };

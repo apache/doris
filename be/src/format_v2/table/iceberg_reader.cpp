@@ -1614,9 +1614,9 @@ Status IcebergTableReader::_create_delete_file_reader(const TIcebergDeleteFileDe
                 system_properties, file_description, io_ctx, _scanner_profile, std::nullopt,
                 enable_mapping_timestamp_tz, enable_mapping_varbinary, "", preserve_binary_uuid());
     } else {
-        *reader = std::make_unique<format::orc::OrcReader>(system_properties, file_description,
-                                                           io_ctx, _scanner_profile, std::nullopt,
-                                                           enable_mapping_timestamp_tz);
+        *reader = std::make_unique<format::orc::OrcReader>(
+                system_properties, file_description, io_ctx, _scanner_profile, std::nullopt,
+                enable_mapping_timestamp_tz, enable_mapping_varbinary);
     }
     RETURN_IF_ERROR((*reader)->init(_runtime_state));
     return Status::OK();
