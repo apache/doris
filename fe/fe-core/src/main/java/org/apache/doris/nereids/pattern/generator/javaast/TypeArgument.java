@@ -34,6 +34,14 @@ public class TypeArgument implements JavaAstNode {
         this.typeType = Optional.ofNullable(typeType);
     }
 
+    public ArgType getArgType() {
+        return argType;
+    }
+
+    public Optional<TypeType> getTypeType() {
+        return typeType;
+    }
+
     @Override
     public String toString() {
         switch (argType) {

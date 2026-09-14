@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.pattern.generator;
 
 import org.apache.doris.nereids.pattern.generator.javaast.ClassDeclaration;
+import org.apache.doris.nereids.pattern.generator.javaast.TypeDeclaration;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -41,15 +43,20 @@ public class PlanPatternGeneratorAnalyzer {
 
     /** generate pattern methods. */
     public String generatePatterns(String className, String parentClassName, boolean isMemoPattern) {
-        Map<ClassDeclaration, Set<String>> planClassMap = analyzer.getParentClassMap().entrySet().stream()
+        // Pre-sort the plan classes by their fully qualified name. The parent class map is an identity
+        // map, so its iteration order is not stable, and the sort below is not a total order (two
+        // classes in different packages may share the same simple name). Ordering the input first
+        // makes the generated code reproducible.
+        List<Map.Entry<TypeDeclaration, Set<String>>> planClasses = analyzer.getParentClassMap().entrySet().stream()
                 .filter(kv -> kv.getValue().contains("org.apache.doris.nereids.trees.plans.Plan"))
                 .filter(kv -> !kv.getKey().name.equals("GroupPlan"))
                 .filter(kv -> kv.getKey() instanceof ClassDeclaration)
-                .collect(Collectors.toMap(kv -> (ClassDeclaration) kv.getKey(), kv -> kv.getValue()));
+                .sorted(Comparator.comparing(kv -> kv.getKey().getFullQualifiedName()))
+                .collect(Collectors.toList());
 
-        List<PlanPatternGenerator> generators = planClassMap.entrySet()
-                .stream()
-                .map(kv -> PlanPatternGenerator.create(this, kv.getKey(), kv.getValue(), isMemoPattern))
+        List<PlanPatternGenerator> generators = planClasses.stream()
+                .map(kv -> PlanPatternGenerator.create(this, (ClassDeclaration) kv.getKey(), kv.getValue(),
+                        isMemoPattern))
                 .filter(Optional::isPresent)
                 .map(Optional::get)
                 .sorted((g1, g2) -> {
