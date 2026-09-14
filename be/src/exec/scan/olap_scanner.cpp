@@ -45,6 +45,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "io/cache/block_file_cache_profile.h"
+#include "io/fs/read_ahead_metrics.h"
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -723,6 +724,9 @@ void OlapScanner::update_realtime_counters() {
     }
     OlapScanLocalState* local_state = static_cast<OlapScanLocalState*>(_local_state);
     const OlapReaderStatistics& stats = _tablet_reader->stats();
+    if (stats.read_ahead_stats != nullptr) {
+        stats.read_ahead_stats->update_profile(local_state->_segment_profile.get());
+    }
     COUNTER_UPDATE(local_state->_read_compressed_counter, stats.compressed_bytes_read);
     COUNTER_UPDATE(local_state->_read_uncompressed_counter, stats.uncompressed_bytes_read);
     COUNTER_UPDATE(local_state->_scan_bytes, stats.uncompressed_bytes_read);
@@ -916,6 +920,10 @@ void OlapScanner::_collect_profile_before_close() {
     InvertedIndexProfileReporter inverted_index_profile;
     inverted_index_profile.update(local_state->_index_filter_profile.get(),
                                   &stats.inverted_index_stats);
+
+    if (stats.read_ahead_stats != nullptr) {
+        stats.read_ahead_stats->update_profile(local_state->_segment_profile.get());
+    }
 
     if (has_file_cache_statistics(stats.file_cache_stats)) {
         io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());

@@ -39,6 +39,8 @@ struct AsyncCacheWriteEpoch;
 struct IOContext;
 struct FileCacheStatistics;
 struct PeerFetchResult;
+class PartialBlockWritebackManager;
+class RangeCacheWriteback;
 
 } // namespace doris::io
 
@@ -86,6 +88,12 @@ public:
     /// Expose the wrapped remote reader.
     /// @return Raw pointer to the underlying reader owned by this object.
     FileReader* get_remote_reader() { return _remote_file_reader.get(); }
+
+    /// Build the immutable cache metadata used to write back consumed query read-ahead ranges.
+    /// The returned object retains the underlying remote reader for background hole fills. A
+    /// no-write request returns nullptr.
+    std::shared_ptr<RangeCacheWriteback> make_range_cache_writeback(
+            const IOContext& io_context, PartialBlockWritebackManager* partial_block_manager) const;
 
     /// Align a read range to file-cache block boundaries.
     /// @param[in] offset Requested read offset in bytes.
@@ -149,7 +157,7 @@ private:
     /// Resolve the write policy for the current read instead of freezing a global setting in the
     /// reader constructor. Explicit cache-population reads always remain synchronous.
     /// @param[in] io_ctx Per-read flags and an optional write-mode override.
-    /// @return The effective synchronous or asynchronous cache-write mode for this read.
+    /// @return The effective no-write, synchronous, or asynchronous cache-write mode.
     CacheWriteMode _resolve_cache_write_mode(const IOContext* io_ctx) const;
 
     /// Serve a normal read while moving cache-miss writes off the query thread. The method uses
@@ -335,8 +343,13 @@ private:
                                      SourceReadBreakdown& source_read_breakdown,
                                      const IOContext* io_ctx);
 
-    /// Read local cache only when downloaded blocks fully cover the request; otherwise read remote
-    /// data directly without writing file cache.
+    /// Try to read the complete request from indexed async-write buffers. Return false without
+    /// modifying `result` when any covered cache block has no in-flight entry.
+    bool _try_read_from_inflight_buffers(size_t offset, Slice result, size_t bytes_req,
+                                         bool is_dryrun, ReadStatistics& stats);
+
+    /// Read in-flight buffers or downloaded cache blocks only when one source fully covers the
+    /// request; otherwise read remote data directly without writing file cache.
     /// @param[in] offset Original request offset.
     /// @param[out] result Destination buffer for the original request.
     /// @param[in] bytes_req Original request size.
