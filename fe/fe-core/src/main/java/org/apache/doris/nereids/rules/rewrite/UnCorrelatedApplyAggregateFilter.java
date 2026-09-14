@@ -35,8 +35,12 @@ import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullIgnoringAggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -205,11 +209,14 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         // The original rewrite appends the inner side of the correlated predicate to the group by of
         // the aggregation and pulls the predicate into the apply, so the join conditions of the apply
         // reference the correlation key which the aggregation returns. A projection between the apply
-        // and the aggregation hides that key from the join, so the aggregation has to be built on the
-        // outer side instead.
+        // and the aggregation hides that key from the join, and a filter which sits above the HAVING
+        // clause (a predicate over the projection of the select list, which filter pushdown cannot
+        // push below that projection) can keep the row of the empty input, so the aggregation has to
+        // be built on the outer side in both cases.
         boolean aggregationOnOuter = needCorrelatedAggregationOnOuter(
                 apply, agg, havingFilter.isEmpty(), correlatedPredicate, predicates)
-                || (apply.isExist() && hasProjectionAboveAggregate(apply, agg));
+                || (apply.isExist() && (hasProjectionAboveAggregate(apply, agg)
+                        || (havingFilter.isPresent() && hasFilterAboveHavingFilter(apply, havingFilter.get()))));
         if (aggregationOnOuter) {
             Plan aggregatedOuter = pullUpCorrelatedPredicateByAggregatingOuter(
                     apply, agg, filter, unCorrelatedPredicate, predicates);
@@ -272,6 +279,24 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
     }
 
     /**
+     * Whether a filter sits between the apply and the HAVING clause of the subquery (the filter which
+     * holds the predicates of the HAVING clause which were not pulled into the apply). Filter
+     * pushdown creates such a filter above the projection of the select list when a predicate reads a
+     * column of that projection which cannot be pushed below it (eg. a volatile column), and the
+     * filter decides on the rows which the projection produces, so the rewrite has to keep it.
+     */
+    private static boolean hasFilterAboveHavingFilter(LogicalApply<?, ?> apply, LogicalFilter<Plan> havingFilter) {
+        Plan below = apply.right();
+        while (below != havingFilter) {
+            if (below instanceof LogicalFilter) {
+                return true;
+            }
+            below = below.child(0);
+        }
+        return false;
+    }
+
+    /**
      * Keep the nodes which wrap the aggregate (the HAVING clause, the projection of the subquery)
      * when the aggregate is replaced.
      */
@@ -280,6 +305,37 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             return newAggregate;
         }
         return plan.withChildren(replaceAggregate(plan.child(0), newAggregate));
+    }
+
+    /**
+     * The join which pairs an outer row with its correlation keys reads the keys from the output of
+     * the right side, so every projection which sits above the aggregate has to expose them: the
+     * keys which a projection does not carry are added to its output (nothing else reads the output
+     * of an EXISTS subquery).
+     */
+    private static Plan exposeCorrelationKeys(Plan plan, Set<Slot> keys) {
+        if (plan instanceof LogicalAggregate) {
+            // the aggregation of the rewrite outputs the correlation keys itself
+            return plan;
+        }
+        Plan child = exposeCorrelationKeys(plan.child(0), keys);
+        if (plan instanceof LogicalProject) {
+            LogicalProject<?> project = (LogicalProject<?>) plan;
+            Set<Slot> exposed = project.getProjects().stream()
+                    .map(NamedExpression::toSlot).collect(ImmutableSet.toImmutableSet());
+            List<NamedExpression> projects = Lists.newArrayList(project.getProjects());
+            boolean added = false;
+            for (Slot key : keys) {
+                if (!exposed.contains(key)) {
+                    projects.add(key);
+                    added = true;
+                }
+            }
+            if (added) {
+                return new LogicalProject<>(projects, project.isDistinct(), project.getAsteriskOutputs(), child);
+            }
+        }
+        return plan.withChildren(child);
     }
 
     /**
@@ -331,6 +387,10 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
                     .build();
         }
 
+        private List<Expression> pulledPredicates() {
+            return ImmutableList.copyOf(aggregatePredicates);
+        }
+
         private Set<Expression> havingConjuncts() {
             return havingConjuncts;
         }
@@ -368,7 +428,9 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
 
         /**
          * Whether every predicate can be evaluated by the plan of the aggregation, that is if it only
-         * uses the correlation keys, the inner rows and the output of the aggregate.
+         * uses the correlation keys, the inner rows and the output of the aggregate. The predicates
+         * which are still in the plan of the subquery keep their node, so only the predicates which
+         * were pulled into the apply have to be evaluated above the aggregation of the rewrite.
          */
         private boolean isResolvable(LogicalApply<?, ?> apply, LogicalAggregate<?> agg,
                 LogicalFilter<Plan> filter) {
@@ -377,7 +439,7 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             agg.getOutput().forEach(slot -> allowed.add(slot.getExprId()));
             filter.child().getOutput().forEach(slot -> allowed.add(slot.getExprId()));
             return domainPredicates().stream().allMatch(conjunct -> allowed.containsAll(conjunct.getInputSlotExprIds()))
-                    && havingPredicates().stream()
+                    && pulledPredicates().stream()
                             .allMatch(conjunct -> allowed.containsAll(conjunct.getInputSlotExprIds()));
         }
     }
@@ -525,7 +587,7 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         if (containsSensitiveExpression(apply.left(), correlationSlots)
                 || hasNonDeterministicRows(apply.left())
                 || containsNoneMovableFunction(apply.right())
-                || containsSensitiveSubqueryExpression(agg, filter, predicates)
+                || containsSensitiveSubqueryExpression(apply, predicates)
                 || referencesOuterSlot(apply.right(), ImmutableSet.copyOf(predicates.whereConjuncts),
                         apply.getCorrelationSlot())
                 || !predicates.isResolvable(apply, agg, filter)) {
@@ -540,6 +602,16 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         List<Slot> outerCopyOutput = outerCopy.getOutput();
         Preconditions.checkState(outerOutput.size() == outerCopyOutput.size(),
                 "the deep copy of the outer plan changed its output size");
+        Set<ExprId> outerExprIds = outerOutput.stream().map(Slot::getExprId).collect(ImmutableSet.toImmutableSet());
+        for (Slot copySlot : outerCopyOutput) {
+            if (outerExprIds.contains(copySlot.getExprId())) {
+                // the deep copier does not always separate the slots of the copy from the plan it
+                // copied (eg. LogicalTVFRelation.withRelationId reuses the logical properties of the
+                // relation): the join which pairs an outer row with its correlation key would then
+                // compare a slot with itself and keep every outer row
+                return null;
+            }
+        }
         Map<Expression, Expression> slotToKey = Maps.newLinkedHashMap();
         for (Slot slot : correlationSlots) {
             int index = outerOutput.indexOf(slot);
@@ -611,12 +683,21 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         }
         LogicalAggregate<Plan> newAggregate = new LogicalAggregate<>(newGroupBy, newOutputs, domainJoin);
 
-        Set<Expression> newHavingConjuncts = Sets.newLinkedHashSet();
-        for (Expression conjunct : havingPredicates) {
-            newHavingConjuncts.add(ExpressionUtils.replace(ExpressionUtils.replace(conjunct, compensated), slotToKey));
+        // the predicates which were pulled into the apply are not part of the plan of the subquery
+        // any more: they were evaluated on the rows of the old aggregation and have to be evaluated
+        // on the rows of the new one
+        Set<Expression> movedPredicates = Sets.newLinkedHashSet();
+        for (Expression conjunct : predicates.pulledPredicates()) {
+            movedPredicates.add(ExpressionUtils.replace(ExpressionUtils.replace(conjunct, compensated), slotToKey));
         }
-        Plan newRight = newHavingConjuncts.isEmpty() ? newAggregate
-                : new LogicalFilter<>(newHavingConjuncts, newAggregate);
+        Plan newBase = movedPredicates.isEmpty() ? newAggregate
+                : new LogicalFilter<>(movedPredicates, newAggregate);
+        // the nodes above the aggregation of the subquery (the HAVING clause, the filters over the
+        // projection of the select list, that projection) are kept as they are: they are evaluated on
+        // the rows of the new aggregation, which are the rows of the aggregation of the subquery for
+        // the correlation key of one outer row
+        Plan newRight = exposeCorrelationKeys(replaceAggregate(apply.right(), newBase),
+                slotToKey.values().stream().map(key -> (Slot) key).collect(ImmutableSet.toImmutableSet()));
 
         // the aggregate of the subquery is now computed for the correlation keys of every outer row,
         // so the outer rows which own one of those groups are the rows for which the subquery has rows
@@ -675,16 +756,15 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             }
         }
         for (Expression conjunct : havingConjuncts) {
-            Expression substituted = emptyValues.isEmpty() ? conjunct
-                    : ExpressionUtils.replace(conjunct, emptyValues);
-            Expression folded = FoldConstantRuleOnFE.evaluateWithoutContext(substituted);
-            if (!(folded instanceof Literal)) {
-                // the aggregate returns an unknown value for an empty input, rewrite conservatively
-                return true;
-            }
-            if (!BooleanLiteral.TRUE.equals(folded)) {
-                // false or null: this conjunct filters the row of the empty input out
-                return false;
+            for (Expression simpleConjunct : ExpressionUtils.extractConjunction(conjunct)) {
+                Expression substituted = emptyValues.isEmpty() ? simpleConjunct
+                        : ExpressionUtils.replace(simpleConjunct, emptyValues);
+                Expression folded = FoldConstantRuleOnFE.evaluateWithoutContext(substituted);
+                if (folded instanceof Literal && !BooleanLiteral.TRUE.equals(folded)) {
+                    // false or null: this conjunct rejects the row of the empty input, no matter what
+                    // the other conjuncts evaluate to, even the ones whose value is unknown
+                    return false;
+                }
             }
         }
         return true;
@@ -698,7 +778,12 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         if (function instanceof Count) {
             return new BigIntLiteral(0);
         }
-        // only count is known to return a non null value for an empty input
+        if (function instanceof Sum || function instanceof Avg
+                || function instanceof Min || function instanceof Max) {
+            // these aggregations return null for an empty input
+            return new NullLiteral(function.getDataType());
+        }
+        // only the aggregations above are known to return a fixed value for an empty input
         return null;
     }
 
@@ -744,9 +829,8 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
     }
 
     /**
-     * The slots of the plan whose value is computed from a volatile expression, directly or through
-     * the slots of the expressions of the plan, or null if a volatile expression contributes to the
-     * rows which the plan returns.
+     * The slots of the plan whose value is computed from a volatile expression, at any level of the
+     * plan, or null if a volatile expression contributes to the rows which the plan returns.
      */
     private static Set<Slot> collectVolatileSlots(Plan plan) {
         Set<Slot> volatileInput = Sets.newHashSet();
@@ -757,8 +841,10 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             }
             volatileInput.addAll(volatileChild);
         }
+        Set<Slot> volatileSlots = Sets.newHashSet(volatileInput);
         if (plan instanceof LogicalProject) {
-            return volatileSlotsOfOutputs(((LogicalProject<?>) plan).getProjects(), volatileInput);
+            volatileSlots.addAll(volatileSlotsOfOutputs(((LogicalProject<?>) plan).getProjects(), volatileInput));
+            return volatileSlots;
         }
         if (plan instanceof LogicalAggregate) {
             LogicalAggregate<?> aggregate = (LogicalAggregate<?>) plan;
@@ -766,14 +852,15 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
                 // the grouping decides which rows the aggregate returns
                 return null;
             }
-            return volatileSlotsOfOutputs(aggregate.getOutputExpressions(), volatileInput);
+            volatileSlots.addAll(volatileSlotsOfOutputs(aggregate.getOutputExpressions(), volatileInput));
+            return volatileSlots;
         }
         if (plan instanceof LogicalFilter) {
             if (usesVolatile(((LogicalFilter<?>) plan).getConjuncts(), volatileInput)) {
                 // the predicate decides which rows the filter returns
                 return null;
             }
-            return volatileInput;
+            return volatileSlots;
         }
         if (plan instanceof LogicalJoin) {
             LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
@@ -783,11 +870,11 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
                 // the conditions decide which rows the join returns
                 return null;
             }
-            return volatileInput;
+            return volatileSlots;
         }
         if (plan instanceof LogicalSort) {
             // the order of the rows does not change the values of the slots
-            return volatileInput;
+            return volatileSlots;
         }
         // this rewrite does not know how the other plans compute their output from the values below
         // them, so it cannot prove that a volatile value which reaches one of them cannot change the
@@ -800,7 +887,7 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
                 return null;
             }
         }
-        return ImmutableSet.of();
+        return volatileSlots;
     }
 
     /** the slots of the given outputs whose value is computed from one of the given volatile slots */
@@ -822,20 +909,20 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
     }
 
     /**
-     * The predicates, the grouping and the aggregation of the subquery are evaluated once for every
-     * correlation key by this rewrite, while the original subquery evaluates them once for every
-     * outer row: two outer rows with the same correlation key share one evaluation, so no value
-     * which the result of the subquery depends on may change between two evaluations.
+     * Every node of the subquery is evaluated once for every correlation key by this rewrite, while
+     * the original subquery evaluates it once for every outer row: two outer rows with the same
+     * correlation key share one evaluation, so no value which the result of the subquery depends on
+     * may change between two evaluations.
      * <p>
-     * The volatile values of the inner plan are followed through its slots: a volatile expression
-     * which decides which inner rows belong to the domain of a correlation key (the predicates of
-     * the WHERE clause of the subquery, the rows of its inner plan), which decides the grouping, or
-     * which reaches the HAVING clause (directly or through the output of an aggregate) is rejected.
-     * A volatile value which only decorates an output of the aggregation which neither the HAVING
-     * clause nor the subquery reads is accepted, because such a value is not observed by the EXISTS.
+     * The volatile values of the subquery are followed through the slots of its plan (see
+     * {@link #collectVolatileSlots}): a volatile value which only decorates an output that nothing
+     * reads is accepted, while a volatile value which decides the rows of a node, the grouping of the
+     * aggregation or the value of a predicate which decides the result of the subquery is rejected.
+     * The predicates which were pulled into the apply are not part of the plan of the subquery any
+     * more, so they are checked against the volatile values of the aggregation they read as well.
      */
-    private static boolean containsSensitiveSubqueryExpression(LogicalAggregate<?> agg,
-            LogicalFilter<Plan> filter, CorrelatedAggregatePredicates predicates) {
+    private static boolean containsSensitiveSubqueryExpression(LogicalApply<?, ?> apply,
+            CorrelatedAggregatePredicates predicates) {
         for (Expression conjunct : predicates.havingPredicates()) {
             if (conjunct.containsType(NoneMovableFunction.class)) {
                 // the pulled predicates live on the apply instead of the plan of the subquery, whose
@@ -843,18 +930,8 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
                 return true;
             }
         }
-        Set<Slot> volatileInner = collectVolatileSlots(filter.child());
-        if (volatileInner == null
-                || usesVolatile(filter.getConjuncts(), volatileInner)
-                || usesVolatile(agg.getGroupByExpressions(), volatileInner)) {
-            // a volatile expression which decides which inner rows belong to the domain of a
-            // correlation key or which rows the grouping produces must not be shared by the
-            // evaluation of two outer rows with the same correlation key
-            return true;
-        }
-        Set<Slot> volatileValues = volatileSlotsOfOutputs(agg.getOutputExpressions(), volatileInner);
-        volatileValues.addAll(volatileInner);
-        return usesVolatile(predicates.havingPredicates(), volatileValues);
+        Set<Slot> volatileSlots = collectVolatileSlots(apply.right());
+        return volatileSlots == null || usesVolatile(predicates.havingPredicates(), volatileSlots);
     }
 
     /**
