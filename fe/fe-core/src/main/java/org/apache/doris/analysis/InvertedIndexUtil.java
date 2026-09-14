@@ -25,6 +25,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
@@ -36,6 +37,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -337,21 +339,31 @@ public class InvertedIndexUtil {
             // dict_compression now silently ignores by V2/V3 inverted index
         }
 
-        // Normalize analyzer and normalizer names to lowercase for case-insensitive matching
+        // Canonicalize built-ins while retaining the exact spelling of a resolved legacy policy.
         normalizeInvertedIndexProperties(properties);
     }
 
     /**
-     * Normalize analyzer and normalizer names in index properties to lowercase.
-     * This ensures case-insensitive matching between table creation and query time.
+     * Canonicalize analyzer and normalizer names in index properties. Legacy metadata may contain
+     * case-distinct policy names, so a resolved custom policy must keep its exact stored name.
      */
     private static void normalizeInvertedIndexProperties(Map<String, String> properties) {
+        normalizeResolvedPolicyName(properties, INVERTED_INDEX_ANALYZER_NAME_KEY);
+        normalizeResolvedPolicyName(properties, INVERTED_INDEX_NORMALIZER_NAME_KEY);
         AnalyzerKeyNormalizer.normalizeInvertedIndexProperties(
                 properties,
-                INVERTED_INDEX_ANALYZER_NAME_KEY,
-                INVERTED_INDEX_NORMALIZER_NAME_KEY,
                 INVERTED_INDEX_PARSER_KEY,
                 INVERTED_INDEX_PARSER_KEY_ALIAS);
+    }
+
+    private static void normalizeResolvedPolicyName(Map<String, String> properties, String key) {
+        String name = properties.get(key);
+        if (name == null || name.isEmpty()) {
+            return;
+        }
+        String trimmedName = name.trim();
+        IndexPolicy policy = Env.getCurrentEnv().getIndexPolicyMgr().getPolicyByName(trimmedName);
+        properties.put(key, policy == null ? trimmedName.toLowerCase(Locale.ROOT) : policy.getName());
     }
 
     private static void checkAnalyzerName(String analyzerName, PrimitiveType colType) throws AnalysisException {
