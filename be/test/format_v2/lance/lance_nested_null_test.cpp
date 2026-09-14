@@ -80,11 +80,15 @@ TEST_F(LanceNestedNullTest, MapsNestedNullSchemas) {
             arrow::field("struct", arrow::struct_({null_field})),
             arrow::field("map", arrow::map(arrow::utf8(), null_field)),
             arrow::field("nested", arrow::list(arrow::struct_({null_field}))),
+            arrow::field("list_list", arrow::list(arrow::list(null_field))),
+            arrow::field("struct_list",
+                         arrow::struct_({arrow::field("list", arrow::list(null_field))})),
+            arrow::field("list_map", arrow::list(arrow::map(arrow::utf8(), null_field))),
     });
     std::vector<std::string> names;
     std::vector<DataTypePtr> types;
     ASSERT_TRUE(convert_arrow_schema_to_doris(schema, &names, &types).ok());
-    ASSERT_EQ(6, types.size());
+    ASSERT_EQ(9, types.size());
     for (const auto& type : types) {
         EXPECT_NE(INVALID_TYPE, type->get_primitive_type());
     }
@@ -93,6 +97,24 @@ TEST_F(LanceNestedNullTest, MapsNestedNullSchemas) {
         EXPECT_TRUE(assert_cast<const DataTypeArray&>(*remove_nullable(types[i]))
                             .get_nested_type()
                             ->is_null_literal());
+    }
+}
+
+TEST_F(LanceNestedNullTest, RejectsNonNullableNullLeaves) {
+    const auto leaf = arrow::field("item", arrow::null(), false);
+    for (const auto& type : std::vector<std::shared_ptr<arrow::DataType>> {
+                 arrow::null(), arrow::list(leaf), arrow::large_list(leaf),
+                 arrow::fixed_size_list(leaf, 2), arrow::struct_({leaf}),
+                 arrow::map(arrow::null(), arrow::utf8()), arrow::map(arrow::utf8(), leaf),
+                 arrow::list(arrow::map(arrow::utf8(), leaf))}) {
+        SCOPED_TRACE(type->ToString());
+        std::vector<std::string> names;
+        std::vector<DataTypePtr> types;
+        ASSERT_TRUE(convert_arrow_schema_to_doris(
+                            arrow::schema({arrow::field("value", type, false)}), &names, &types)
+                            .ok());
+        ASSERT_EQ(1, types.size());
+        EXPECT_EQ(INVALID_TYPE, types[0]->get_primitive_type());
     }
 }
 

@@ -28,6 +28,7 @@ every "indexed" query in test_lance_vector_search silently ran a flat KNN scan.
 The generated catalog contains:
   - __manifest            Directory Namespace V2 manifest table (with its scalar indexes).
   - all_types.lance       The pre-existing compatibility-mode root table, re-registered as-is.
+  - nested_null.lance     Nullable Null leaves inside lists, structs, and maps.
   - The `doris` namespace with two full-text-search fixtures, one indexed vector table per cell of the
     algorithm x element type x metric matrix (hash-prefixed directories), listed in
     VECTOR_TABLES below; BREADTH_TABLE, one table carrying the remaining cells at plan
@@ -85,6 +86,7 @@ import lance
 import lance_namespace
 import pyarrow as pa
 import pyarrow.ipc as ipc
+from lance_build_nested_null import build as build_nested_null, check as check_nested_null
 from lance_namespace_urllib3_client.models import (
     CreateNamespaceRequest,
     CreateTableRequest,
@@ -99,6 +101,7 @@ FRAGMENT_ROWS = 512
 NUM_PARTITIONS = 4
 NAMESPACE = "doris"
 ALL_TYPES_DIR = "all_types.lance"
+NESTED_NULL_DIR = "nested_null.lance"
 MANIFEST_DIR = "__manifest"
 
 # 4-bit PQ keeps codebook training comfortable on 1024 rows. This only serves fixture
@@ -918,7 +921,8 @@ def build_multi_frag(root: Path) -> None:
     location = str(root / MULTI_FRAG_DIR)
     for index in range(MULTI_FRAG_NUM_FRAGMENTS):
         offset = index * MULTI_FRAG_FRAGMENT_ROWS
-        fragment = make_fragment_table(offset, offset + MULTI_FRAG_FRAGMENT_ROWS)
+        # The shared builder requires a vector profile even though embedding is dropped below.
+        fragment = make_fragment_table(COLLINEAR, pa.float32(), offset, offset + MULTI_FRAG_FRAGMENT_ROWS)
         fragment = fragment.drop_columns(["embedding"])
         # Match all_types.lance (data storage version 2.2) so every committed Lance data file
         # shares one on-disk format and the oldest reader (lance-rs 4.0.1) can open it.
@@ -933,6 +937,8 @@ def build_multi_frag(root: Path) -> None:
 def build(root: Path, all_types_source: Path) -> None:
     shutil.copytree(all_types_source, root / ALL_TYPES_DIR)
     build_multi_frag(root)
+    # Recreate this fixture in staging because promotion replaces the entire catalog tree.
+    build_nested_null(root / NESTED_NULL_DIR)
     namespace = lance_namespace.connect("dir", {"root": str(root)})
     namespace.register_table(
         RegisterTableRequest(id=["all_types"], location=ALL_TYPES_DIR)
@@ -1721,6 +1727,7 @@ def check_catalog(root: Path) -> None:
     assert nested_path.is_dir(), f"{NESTED_TABLE} location missing: {nested.location}"
     check_nested_dataset(nested.location)
     check_multi_frag(root)
+    check_nested_null(root / NESTED_NULL_DIR)
 
     full_fts = namespace.describe_table(DescribeTableRequest(id=[NAMESPACE, FTS_TABLE]))
     check_fts_dataset(

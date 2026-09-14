@@ -15,7 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-"""Generate the nested Null regression fixture with pylance 7.0.0 and PyArrow 21.0.0."""
+"""Generate the nested Null regression fixture using lance_fixture_requirements.txt."""
 
 import argparse
 from pathlib import Path
@@ -24,7 +24,7 @@ import lance
 import pyarrow as pa
 
 
-def build(output: Path) -> None:
+def expected_table() -> pa.Table:
     null_struct = pa.struct([("empty", pa.null()), ("value", pa.int32())])
     schema = pa.schema([
         ("id", pa.int32()),
@@ -50,9 +50,18 @@ def build(output: Path) -> None:
          "nested_list": [{"empty": None, "value": 41}], "null_map": [("c", None)]},
     ]
     # pylance 7 cannot encode a null parent struct with a Null child; BE tests cover that shape.
-    table = pa.Table.from_pylist(rows, schema=schema)
-    dataset = lance.write_dataset(table, str(output), data_storage_version="2.2")
-    assert dataset.to_table().equals(table)
+    return pa.Table.from_pylist(rows, schema=schema)
+
+
+def check(output: Path) -> None:
+    # Validate the persisted schema and values, including empty collections and null parents.
+    actual = lance.dataset(str(output)).to_table()
+    assert actual.equals(expected_table()), f"nested Null fixture differs from expected data: {output}"
+
+
+def build(output: Path) -> None:
+    lance.write_dataset(expected_table(), str(output), data_storage_version="2.2")
+    check(output)
 
 
 if __name__ == "__main__":

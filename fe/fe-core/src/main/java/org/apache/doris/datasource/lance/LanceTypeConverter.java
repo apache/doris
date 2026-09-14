@@ -84,7 +84,8 @@ public final class LanceTypeConverter {
         ArrowType arrowType = field.getType();
         switch (arrowType.getTypeID()) {
             case Null:
-                return Type.NULL;
+                // Required Null leaves cannot use the nullable SerDe that handles Arrow NA buffers.
+                return field.isNullable() ? Type.NULL : Type.UNSUPPORTED;
             case Bool:
                 return Type.BOOLEAN;
             case Int:
@@ -131,7 +132,8 @@ public final class LanceTypeConverter {
             case FixedSizeList:
                 requireChildren(field, 1);
                 Type itemType = toDorisType(field.getChildren().get(0));
-                return itemType.isSupported() ? new ArrayType(itemType) : Type.UNSUPPORTED;
+                // Generic isSupported() rejects Null items even inside successfully converted composites.
+                return itemType.equals(Type.UNSUPPORTED) ? Type.UNSUPPORTED : new ArrayType(itemType);
             case Map:
                 requireChildren(field, 1);
                 Field entries = field.getChildren().get(0);
@@ -140,14 +142,14 @@ public final class LanceTypeConverter {
                 Field value = entries.getChildren().get(1);
                 Type keyType = toDorisType(key);
                 Type valueType = toDorisType(value);
-                return keyType.isSupported() && valueType.isSupported()
+                return !keyType.equals(Type.UNSUPPORTED) && !valueType.equals(Type.UNSUPPORTED)
                         ? new MapType(keyType, valueType, key.isNullable(), value.isNullable())
                         : Type.UNSUPPORTED;
             case Struct:
                 List<StructField> fields = new ArrayList<>();
                 for (Field child : field.getChildren()) {
                     Type childType = toDorisType(child);
-                    if (!childType.isSupported()) {
+                    if (childType.equals(Type.UNSUPPORTED)) {
                         return Type.UNSUPPORTED;
                     }
                     fields.add(new StructField(child.getName(), childType,

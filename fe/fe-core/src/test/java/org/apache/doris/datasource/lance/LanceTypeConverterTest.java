@@ -162,6 +162,59 @@ public class LanceTypeConverterTest {
                 ((StructType) convertedNested.getItemType()).getFields().get(1).getType());
     }
 
+    @Test
+    public void testDeepNullComposites() {
+        Field leaf = Field.nullable("item", ArrowType.Null.INSTANCE);
+        Field list = new Field("item", FieldType.nullable(ArrowType.List.INSTANCE),
+                Collections.singletonList(leaf));
+        Field entries = new Field("entries", FieldType.notNullable(ArrowType.Struct.INSTANCE),
+                Arrays.asList(Field.notNullable("key", ArrowType.Utf8.INSTANCE), leaf));
+        Field map = new Field("item", FieldType.nullable(new ArrowType.Map(false)),
+                Collections.singletonList(entries));
+        for (Field child : Arrays.asList(list, map)) {
+            Type childType = LanceTypeConverter.toDorisType(child);
+            for (ArrowType outer : Arrays.asList(ArrowType.List.INSTANCE,
+                    ArrowType.LargeList.INSTANCE, new ArrowType.FixedSizeList(2))) {
+                Field nested = new Field("nested", FieldType.nullable(outer),
+                        Collections.singletonList(child));
+                Assertions.assertEquals(new ArrayType(childType), LanceTypeConverter.toDorisType(nested));
+            }
+            Field struct = new Field("nested", FieldType.nullable(ArrowType.Struct.INSTANCE),
+                    Collections.singletonList(child));
+            Type converted = LanceTypeConverter.toDorisType(struct);
+            Assertions.assertInstanceOf(StructType.class, converted);
+            Assertions.assertEquals(childType, ((StructType) converted).getFields().get(0).getType());
+            Field nestedEntries = new Field("entries", FieldType.notNullable(ArrowType.Struct.INSTANCE),
+                    Arrays.asList(Field.notNullable("key", ArrowType.Utf8.INSTANCE), child));
+            Field nestedMap = new Field("nested", FieldType.nullable(new ArrowType.Map(false)),
+                    Collections.singletonList(nestedEntries));
+            Assertions.assertEquals(new MapType(Type.STRING, childType, false, true),
+                    LanceTypeConverter.toDorisType(nestedMap));
+        }
+    }
+
+    @Test
+    public void testNonNullableNullLeavesAreUnsupported() {
+        Field leaf = Field.notNullable("item", ArrowType.Null.INSTANCE);
+        Assertions.assertEquals(Type.UNSUPPORTED, LanceTypeConverter.toDorisType(leaf));
+        for (ArrowType outer : Arrays.asList(ArrowType.List.INSTANCE,
+                ArrowType.LargeList.INSTANCE, new ArrowType.FixedSizeList(2), ArrowType.Struct.INSTANCE)) {
+            Field nested = new Field("nested", FieldType.nullable(outer), Collections.singletonList(leaf));
+            Assertions.assertEquals(Type.UNSUPPORTED, LanceTypeConverter.toDorisType(nested));
+        }
+        for (boolean nullKey : Arrays.asList(false, true)) {
+            Field entries = new Field("entries", FieldType.notNullable(ArrowType.Struct.INSTANCE),
+                    Arrays.asList(nullKey ? leaf : Field.notNullable("key", ArrowType.Utf8.INSTANCE),
+                            nullKey ? Field.nullable("value", ArrowType.Utf8.INSTANCE) : leaf));
+            Field map = new Field("map", FieldType.nullable(new ArrowType.Map(false)),
+                    Collections.singletonList(entries));
+            Assertions.assertEquals(Type.UNSUPPORTED, LanceTypeConverter.toDorisType(map));
+            Field nested = new Field("nested", FieldType.nullable(ArrowType.List.INSTANCE),
+                    Collections.singletonList(map));
+            Assertions.assertEquals(Type.UNSUPPORTED, LanceTypeConverter.toDorisType(nested));
+        }
+    }
+
     /** Verifies known extension mappings and storage validation. */
     @Test
     public void testKnownExtensionMappingsAndStorageValidation() {

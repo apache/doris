@@ -166,6 +166,11 @@ Status arrow_field_to_doris_type(const std::shared_ptr<arrow::Field>& field,
 
     switch (arrow_type->id()) {
     case arrow::Type::NA:
+        // Required Null leaves can bypass NullableSerDe through FE schema reconstruction.
+        // Reject them before Arrow NA buffers reach the Boolean-backed physical SerDe.
+        if (!field->nullable()) {
+            return Status::NotSupported("non-nullable Lance Arrow Null field: {}", field->name());
+        }
         return nullable_primitive(TYPE_NULL);
     case arrow::Type::BOOL:
         return nullable_primitive(TYPE_BOOLEAN);
