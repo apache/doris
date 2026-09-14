@@ -332,7 +332,8 @@ Status DataTypeVarbinarySerDe::from_string(StringRef& str, IColumn& column,
         str.size - 2 > std::numeric_limits<int>::max()) {
         return Status::InvalidArgument("Invalid VARBINARY hex representation");
     }
-    const size_t hex_size = str.size - 2;
+    // The INT_MAX guard also makes narrowing to the decoder's 32-bit offset type safe.
+    const auto hex_size = cast_set<ColumnString::Offset>(str.size - 2);
     std::string bytes(hex_size / 2, '\0');
     if (string_hex::hex_decode(str.data + 2, hex_size, bytes.data()) != bytes.size()) {
         return Status::InvalidArgument("Invalid VARBINARY hex representation");
