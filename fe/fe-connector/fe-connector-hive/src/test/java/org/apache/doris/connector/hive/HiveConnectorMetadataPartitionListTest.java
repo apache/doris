@@ -30,6 +30,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -55,7 +56,10 @@ import java.util.Optional;
  *       legacy decoded Hive path-escaping ({@code %2F} -&gt; {@code /}); getting either wrong corrupts the
  *       partition-value view.</li>
  *   <li><b>Unpartitioned tables list nothing without any metastore call</b> (parity guard).</li>
- *   <li><b>The filter is ignored</b> (legacy materialized the full set and pruned FE-side).</li>
+ *   <li><b>A partition predicate is resolved before listing.</b> A filter carrying partition equality / IN
+ *       predicates is pushed to the metastore; when the client cannot serve that dialect the connector falls
+ *       back to listing names locally and fetching ONLY the surviving partitions by name. A filter with no
+ *       usable partition predicate still returns the full set.</li>
  * </ul>
  */
 public class HiveConnectorMetadataPartitionListTest {
@@ -138,15 +142,19 @@ public class HiveConnectorMetadataPartitionListTest {
     }
 
     @Test
-    public void testFilterIsIgnored() {
+    public void testPartitionPredicateResolvesThroughLocalFallback() {
         FakeHmsClient client = new FakeHmsClient(PARTITIONS);
         ConnectorExpression filter = new ConnectorComparison(ConnectorComparison.Operator.EQ,
                 new ConnectorColumnRef("year", org.apache.doris.connector.spi.ConnectorType.of("STRING")),
                 new ConnectorLiteral(org.apache.doris.connector.spi.ConnectorType.of("STRING"), "2024"));
         List<ConnectorPartitionInfo> parts =
                 metadata(client).listPartitions(null, partitionedHandle(), Optional.of(filter));
-        // Full set returned despite the predicate: pruning is a separate applyFilter concern.
-        Assertions.assertEquals(3, parts.size());
+        // The predicate is now resolved by the connector: this client serves no HMS filter dialect, so the
+        // connector falls back to listing names locally and fetching only the surviving partitions by name.
+        Assertions.assertEquals(2, parts.size());
+        Assertions.assertEquals("year=2024/month=01", parts.get(0).getPartitionName());
+        Assertions.assertTrue(client.getPartitionsCalled,
+                "the local fallback fetches only the surviving partitions by name");
     }
 
     @Test
@@ -196,8 +204,9 @@ public class HiveConnectorMetadataPartitionListTest {
 
     /**
      * Minimal {@link HmsClient} double: {@code listPartitionNames} returns a fixed list and records the
-     * requested {@code maxParts}; {@code getPartitions} fails loud (the per-partition round-trip this path
-     * must never make). The rest are unsupported.
+     * requested {@code maxParts}; {@code getPartitions} echoes the requested names back and records the call,
+     * so an unfiltered listing can assert it never paid that per-partition round-trip while a predicate
+     * fallback can assert it did. The rest are unsupported.
      */
     private static final class FakeHmsClient implements HmsClient {
         private final List<String> partitionNames;
@@ -219,7 +228,12 @@ public class HiveConnectorMetadataPartitionListTest {
         @Override
         public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> partNames) {
             getPartitionsCalled = true;
-            throw new AssertionError("get_partitions_by_names must not be called by partition listing");
+            List<HmsPartitionInfo> result = new ArrayList<>();
+            for (String name : partNames) {
+                result.add(new HmsPartitionInfo(HiveWriteUtils.toPartitionValues(name), name,
+                        null, null, null, Collections.emptyMap()));
+            }
+            return result;
         }
 
         @Override
