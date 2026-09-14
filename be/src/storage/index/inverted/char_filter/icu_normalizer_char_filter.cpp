@@ -60,6 +60,7 @@ void ICUNormalizerCharFilter::fill() {
     input.resize(_reader->size());
     _reader->readCopy(input.data(), 0, static_cast<int32_t>(input.size()));
     normalize_text(input, _buf);
+    build_source_byte_offset_map();
     _transformed_input.init(_buf.data(), static_cast<int32_t>(_buf.size()), false);
 }
 
@@ -82,14 +83,45 @@ void ICUNormalizerCharFilter::normalize_text(const std::string& input, std::stri
     }
 }
 
-int32_t ICUNormalizerCharFilter::correct_offset(int32_t current_offset) const {
+void ICUNormalizerCharFilter::build_source_byte_offset_map() {
+    _source_byte_offsets.clear();
+    _source_byte_offsets.reserve(_buf.size() + 1);
+    _source_byte_offsets.push_back(0);
+
     UErrorCode status = U_ZERO_ERROR;
     auto iterator = _edits.getFineIterator();
-    const int32_t source_offset = iterator.sourceIndexFromDestinationIndex(current_offset, status);
-    if (U_FAILURE(status)) {
+    while (iterator.next(status)) {
+        if (U_FAILURE(status) ||
+            iterator.destinationIndex() != static_cast<int32_t>(_source_byte_offsets.size() - 1)) {
+            _source_byte_offsets.clear();
+            return;
+        }
+
+        const int32_t source_start = iterator.sourceIndex();
+        const int32_t source_end = source_start + iterator.oldLength();
+        if (iterator.hasChange()) {
+            // ICU maps the start of a replacement to the start of its source span, and every
+            // later destination boundary in that replacement to the end of the source span.
+            for (int32_t i = 0; i < iterator.newLength(); ++i) {
+                _source_byte_offsets.push_back(source_end);
+            }
+        } else {
+            for (int32_t i = 1; i <= iterator.newLength(); ++i) {
+                _source_byte_offsets.push_back(source_start + i);
+            }
+        }
+    }
+
+    if (U_FAILURE(status) || _source_byte_offsets.size() != _buf.size() + 1) {
+        _source_byte_offsets.clear();
+    }
+}
+
+int32_t ICUNormalizerCharFilter::correct_offset(int32_t current_offset) const {
+    if (current_offset < 0 || static_cast<size_t>(current_offset) >= _source_byte_offsets.size()) {
         return DorisCharFilter::correct_offset(current_offset);
     }
-    return DorisCharFilter::correct_offset(source_offset);
+    return DorisCharFilter::correct_offset(_source_byte_offsets[current_offset]);
 }
 
 } // namespace doris::segment_v2::inverted_index

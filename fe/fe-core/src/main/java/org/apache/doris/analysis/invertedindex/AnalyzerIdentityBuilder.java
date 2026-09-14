@@ -49,7 +49,7 @@ public final class AnalyzerIdentityBuilder {
         if (!Strings.isNullOrEmpty(preferredAnalyzer)) {
             String builtinIkIdentity = resolveBuiltinIkAnalyzerIdentity(properties, preferredAnalyzer);
             if (builtinIkIdentity != null) {
-                return builtinIkIdentity;
+                return appendOuterCharFilterIdentity(builtinIkIdentity, properties);
             }
             // For custom analyzer/normalizer, resolve to underlying config to build identity
             return appendOuterCharFilterIdentity(
@@ -61,18 +61,17 @@ public final class AnalyzerIdentityBuilder {
         }
         String legacyIkIdentity = resolveLegacyIkIdentity(properties, parser);
         if (legacyIkIdentity != null) {
-            return legacyIkIdentity;
+            return appendOuterCharFilterIdentity(legacyIkIdentity, properties);
         }
         return appendOuterCharFilterIdentity(parser, properties);
     }
 
     private static String resolveBuiltinIkAnalyzerIdentity(
             Map<String, String> properties, String analyzer) {
-        // BE defaults analyzer=ik to max-word mode. It is equivalent to the built-in
-        // ik_max_word tokenizer only when no index-level option changes its behavior.
-        if (!InvertedIndexProperties.INVERTED_INDEX_PARSER_IK.equalsIgnoreCase(analyzer.trim())
-                || !Strings.isNullOrEmpty(properties.get(
-                        InvertedIndexProperties.INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE))) {
+        // BE defaults analyzer=ik to max-word mode. It has the built-in ik_max_word base
+        // identity when no index-level tokenizer option changes its behavior; the caller
+        // appends any outer char-filter identity separately.
+        if (!InvertedIndexProperties.INVERTED_INDEX_PARSER_IK.equalsIgnoreCase(analyzer.trim())) {
             return null;
         }
         String lowerCase = properties.get(InvertedIndexProperties.INVERTED_INDEX_PARSER_LOWERCASE_KEY);
@@ -83,9 +82,7 @@ public final class AnalyzerIdentityBuilder {
     }
 
     private static String resolveLegacyIkIdentity(Map<String, String> properties, String parser) {
-        if (!InvertedIndexProperties.INVERTED_INDEX_PARSER_IK.equalsIgnoreCase(parser)
-                || !Strings.isNullOrEmpty(properties.get(
-                        InvertedIndexProperties.INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE))) {
+        if (!InvertedIndexProperties.INVERTED_INDEX_PARSER_IK.equalsIgnoreCase(parser)) {
             return null;
         }
         String lowerCase = properties.get(InvertedIndexProperties.INVERTED_INDEX_PARSER_LOWERCASE_KEY);
@@ -325,8 +322,51 @@ public final class AnalyzerIdentityBuilder {
         }
         String replacement = properties.getOrDefault(
                 InvertedIndexProperties.INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
+        String canonicalPattern = canonicalizeCharReplacePattern(
+                pattern, replacement, isDefaultLowercaseBuiltinIkIdentity(analyzerIdentity));
+        if (canonicalPattern.isEmpty()) {
+            return analyzerIdentity;
+        }
         return analyzerIdentity + "|outer_char_filter=char_replace:"
-                + pattern.length() + ":" + pattern + ":"
+                + canonicalPattern.length() + ":" + canonicalPattern + ":"
                 + replacement.length() + ":" + replacement + ";";
+    }
+
+    /**
+     * Returns the byte-set representation used by the BE char_replace filter.
+     *
+     * <p>The DDL validator admits only ASCII input, so every Java char below corresponds to one
+     * BE byte. The filter uses a bitset: pattern order and duplicate bytes do not affect its
+     * behavior, and replacing a byte with itself has no effect.</p>
+     */
+    private static String canonicalizeCharReplacePattern(
+            String pattern, String replacement, boolean lowercaseBuiltinIk) {
+        if (replacement.length() != 1) {
+            return pattern;
+        }
+        char replacementByte = replacement.charAt(0);
+        boolean[] replacedBytes = new boolean[256];
+        for (int i = 0; i < pattern.length(); ++i) {
+            char patternByte = pattern.charAt(i);
+            if (patternByte < replacedBytes.length && patternByte != replacementByte) {
+                replacedBytes[patternByte] = true;
+            }
+        }
+        if (lowercaseBuiltinIk && replacementByte >= 'a' && replacementByte <= 'z') {
+            replacedBytes[replacementByte - ('a' - 'A')] = false;
+        }
+
+        StringBuilder canonical = new StringBuilder();
+        for (int i = 0; i < replacedBytes.length; ++i) {
+            if (replacedBytes[i]) {
+                canonical.append((char) i);
+            }
+        }
+        return canonical.toString();
+    }
+
+    private static boolean isDefaultLowercaseBuiltinIkIdentity(String analyzerIdentity) {
+        return (IndexPolicyTypeEnum.ANALYZER.name() + ":tokenizer=ik_smart;").equals(analyzerIdentity)
+                || (IndexPolicyTypeEnum.ANALYZER.name() + ":tokenizer=ik_max_word;").equals(analyzerIdentity);
     }
 }

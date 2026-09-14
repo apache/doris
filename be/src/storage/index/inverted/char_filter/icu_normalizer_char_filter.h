@@ -21,6 +21,7 @@
 #include <unicode/normalizer2.h>
 
 #include <string>
+#include <vector>
 
 #include "storage/index/inverted/char_filter/char_filter.h"
 
@@ -43,10 +44,12 @@ public:
 private:
     void fill();
     void normalize_text(const std::string& input, std::string& output);
+    void build_source_byte_offset_map();
 
     std::shared_ptr<const icu::Normalizer2> _normalizer;
     icu::Edits _edits;
     std::string _buf;
+    std::vector<int32_t> _source_byte_offsets;
     lucene::util::SStringReader<char> _transformed_input;
 };
 using ICUNormalizerCharFilterPtr = std::shared_ptr<ICUNormalizerCharFilter>;
