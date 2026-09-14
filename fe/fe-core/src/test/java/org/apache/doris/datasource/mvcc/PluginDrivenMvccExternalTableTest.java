@@ -42,6 +42,7 @@ import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.mvcc.ConnectorTableFreshness;
 import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -733,8 +734,61 @@ public class PluginDrivenMvccExternalTableTest {
         Assertions.assertEquals(2, materialized.getNameToPartitionItem().size());
         Assertions.assertEquals(materialized.getNameToPartitionItem(),
                 f.table.getNameToPartitionItems(Optional.of(materialized)));
+        // The full view must be enumerated from the SNAPSHOT-PINNED handle: the MTMV alignment then sees the
+        // generation this statement pinned, not whatever the latest handle happens to list.
+        Mockito.verify(f.metadata).applySnapshot(Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any());
         Mockito.verify(f.metadata).listPartitions(
-                Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.eq(Optional.empty()));
+                Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.eq(Optional.empty()));
+    }
+
+    @Test
+    public void testConnectorPartitionPruningPinsSnapshotBeforeFilteredMaterialization() {
+        Fixture f = Fixture.connectorPartitionPruning();
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
+                Optional.empty(), Optional.empty());
+        Mockito.when(f.metadata.applyFilter(
+                Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any()))
+                .thenReturn(Optional.empty());
+
+        Optional<PluginDrivenExternalTable.ConnectorFilteredPartitionView> view =
+                f.table.applyPartitionFilterForScan(Optional.of(pin),
+                        new ConnectorLiteral(ConnectorType.of("STRING"), "2024-01-01"));
+
+        // A declined filter falls back to the unfiltered view, and the predicate must have been applied to the
+        // SNAPSHOT-PINNED handle: pruning against the freshly resolved base handle could describe a generation
+        // the data scan will never read (e.g. list nothing after a partition was dropped).
+        Assertions.assertFalse(view.isPresent(), "a declined filter falls back to the unfiltered view");
+        Mockito.verify(f.metadata).applySnapshot(Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any());
+        Mockito.verify(f.metadata).applyFilter(
+                Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any());
+        Mockito.verify(f.metadata, Mockito.never()).applyFilter(
+                Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any());
+    }
+
+    @Test
+    public void testScanPartitionViewDegradesWhenATypedValueIsUnrepresentable() {
+        // A value that cannot be represented in its partition column type must NOT abort the query: the scan
+        // view becomes UNAVAILABLE so the caller reads every partition (pruning is only an optimization).
+        Fixture f = Fixture.connectorPartitionPruning(Type.DATEV2, Arrays.asList(
+                cpiWithPartitionValueMap("dt=2024-01-01", TS_2024_01_01),
+                cpiWithPartitionValueMap("dt=not-a-date", TS_2024_02_02)));
+
+        Optional<Map<String, PartitionItem>> view = f.table.getNameToPartitionItemsForScan(Optional.empty());
+
+        Assertions.assertFalse(view.isPresent(), "an unrepresentable entry disables pruning instead of failing");
+    }
+
+    @Test
+    public void testScanPartitionViewKeepsExplicitlyNonNullSentinelValue() {
+        // A connector-supplied sentinel string marked NOT NULL is a real value, so the view stays available.
+        // (The same string flagged NULL would instead become a typed NullLiteral.)
+        Fixture f = Fixture.connectorPartitionPruning(Type.STRING, Collections.singletonList(
+                cpiNull("dt=__HIVE_DEFAULT_PARTITION__", TS_2024_01_01, false)));
+
+        Optional<Map<String, PartitionItem>> view = f.table.getNameToPartitionItemsForScan(Optional.empty());
+
+        Assertions.assertTrue(view.isPresent(), "an explicitly non-NULL sentinel is a representable value");
+        Assertions.assertEquals(1, view.get().size());
     }
 
     @Test
@@ -1678,9 +1732,13 @@ public class PluginDrivenMvccExternalTableTest {
         }
 
         static Fixture connectorPartitionPruning() {
-            return build(Arrays.asList(
+            return connectorPartitionPruning(Type.DATEV2, Arrays.asList(
                     cpiWithPartitionValueMap("dt=2024-01-01", TS_2024_01_01),
-                    cpiWithPartitionValueMap("dt=2024-02-02", TS_2024_02_02)), false, Type.DATEV2, true);
+                    cpiWithPartitionValueMap("dt=2024-02-02", TS_2024_02_02)));
+        }
+
+        static Fixture connectorPartitionPruning(Type partitionColType, List<ConnectorPartitionInfo> partitions) {
+            return build(partitions, false, partitionColType, true);
         }
 
         static Fixture with(List<ConnectorPartitionInfo> partitions) {

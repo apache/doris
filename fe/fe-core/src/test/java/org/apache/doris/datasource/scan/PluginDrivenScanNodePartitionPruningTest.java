@@ -18,6 +18,8 @@
 package org.apache.doris.datasource.scan;
 
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 
 import org.junit.jupiter.api.Assertions;
@@ -29,6 +31,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * FIX-PRUNE-PUSHDOWN (P4-T06e / DG-1) — guards {@link PluginDrivenScanNode#resolveRequiredPartitions},
@@ -172,5 +175,28 @@ public class PluginDrivenScanNodePartitionPruningTest {
 
         Assertions.assertNull(PluginDrivenScanNode.resolveRequiredPartitions(emptyUniverse),
                 "a pruned-empty selection over an empty partition universe (time-travel pin) must scan all");
+    }
+
+    @Test
+    public void testPhysicalScanReusesThePruningHandleInsteadOfReapplyingTheFilter() {
+        // The logical pruning rule applied the connector predicate and materialized the selection from that
+        // handle ("generation A"). The physical scan must reuse it: applying the predicate a second time could
+        // observe a different remote generation ("generation B") and leave the batched split path resolving
+        // generation A's partition names through generation B's pruned-partition metadata.
+        ConnectorTableHandle generationA = Mockito.mock(ConnectorTableHandle.class);
+        FilterApplicationResult<ConnectorTableHandle> pruned =
+                new FilterApplicationResult<>(generationA, null, false);
+        SelectedPartitions selection = SelectedPartitions.connectorFiltered(
+                SelectedPartitions.UNKNOWN_TOTAL_PARTITION_NUM,
+                Collections.singletonMap("p=1", Mockito.mock(PartitionItem.class)), true, pruned);
+
+        Optional<FilterApplicationResult<ConnectorTableHandle>> reused =
+                PluginDrivenScanNode.reusedConnectorFilterResult(selection);
+
+        Assertions.assertTrue(reused.isPresent(), "a connector-pruned selection carries its filter result");
+        Assertions.assertSame(generationA, reused.get().getHandle(),
+                "the physical scan must reuse the handle the selection was materialized from");
+        Assertions.assertFalse(PluginDrivenScanNode.reusedConnectorFilterResult(
+                SelectedPartitions.NOT_PRUNED).isPresent(), "a plain selection has nothing to reuse");
     }
 }
