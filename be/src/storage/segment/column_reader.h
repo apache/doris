@@ -88,6 +88,7 @@ class ZoneMapIndexReader;
 class IndexIterator;
 class ColumnMetaAccessor;
 class ColumnReadAhead;
+class SegmentReadAhead;
 struct ColumnReadAheadContext;
 struct ColumnReadAheadRequest;
 struct ColumnReadAheadPlan;
@@ -629,6 +630,9 @@ private:
     // Materialize compressed data-page ranges from the ordinal index once. Later calls must keep
     // the same window options and scan direction for this iterator.
     Status _init_read_ahead(const ColumnReadAheadRequest& request);
+    // Run before PageIO so both buffered reads and Page Cache hits advance the scan window.
+    void _advance_read_ahead(int32_t page_index);
+    void _record_read_ahead_plan(const ColumnReadAheadPlan& plan);
     void _trigger_prefetch_if_eligible(ordinal_t ord);
 
     std::shared_ptr<ColumnReader> _reader = nullptr;
@@ -661,6 +665,8 @@ private:
     std::unique_ptr<SegmentPrefetcher> _prefetcher;
     std::shared_ptr<io::CachedRemoteFileReader> _cached_remote_file_reader {nullptr};
     std::unique_ptr<ColumnReadAhead> _read_ahead;
+    // Set only for page-driven scans; owned by the enclosing SegmentIterator.
+    SegmentReadAhead* _read_ahead_segment {nullptr};
 };
 
 class EmptyFileColumnIterator final : public ColumnIterator {

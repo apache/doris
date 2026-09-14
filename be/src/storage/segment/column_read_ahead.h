@@ -61,7 +61,7 @@ struct ColumnReadAheadPlan {
     std::vector<ColumnReadAheadPage> released_pages;
     /// Per-call elapsed times, collected even when no pages enter or leave the window.
     int64_t window_discard_ns {0};
-    /// Includes window_extend_ns; their difference isolates the remaining current-rowid loop.
+    /// Exact-rowid planning, including extensions triggered by this call.
     int64_t current_batch_plan_ns {0};
     int64_t window_extend_ns {0};
 
@@ -87,11 +87,13 @@ struct ColumnReadAheadRequest {
     /// Sorted row IDs needed by the current batch; all their pages are included in the plan.
     const rowid_t* current_rowids {nullptr};
     size_t current_rowid_count {0};
-    /// All eligible scan row IDs, used to select pages when extending a window.
+    /// Eligible rows used to build the candidate-page sequence.
     const roaring::Roaring* scan_rowids {nullptr};
     const ColumnReadAheadContext* context {nullptr};
     ColumnReadAheadRole role {ColumnReadAheadRole::EAGER};
     bool reverse {false};
+    /// Initialize a scan once; later data-page reads advance its window without batch row IDs.
+    bool page_driven {false};
 
     const ColumnReadAheadOptions& options() const;
     void sanity_check() const;
@@ -115,6 +117,12 @@ public:
     void plan(const rowid_t* current_rowids, size_t count, const roaring::Roaring& scan_rowids,
               ColumnReadAheadPlan* output);
 
+    /// Build the scan's candidate pages once and plan its first byte-sized window.
+    void start(const roaring::Roaring& scan_rowids, ColumnReadAheadPlan* output);
+    /// Advance from a physical page index already resolved by the column reader. This also
+    /// retires skipped predictions and restarts the window after a large seek.
+    void advance(int32_t page_index, ColumnReadAheadPlan* output);
+
     /// Stop counting a planned page toward the byte window. The completed entry remains in the
     /// window until the scan passes it, so repeated row IDs in the same page do not submit it
     /// again.
@@ -134,19 +142,24 @@ private:
                     bool reverse);
 
     const ColumnReadAheadPage& _page_for_ordinal(rowid_t ordinal) const;
+    void _select_candidate_pages(const roaring::Roaring& scan_rowids);
+    void _reset_plan(ColumnReadAheadPlan* output);
+    void _plan_page(int32_t page_index, ColumnReadAheadPlan* output);
     /// Add one page only if the window has not already seen it.
     void _add_page(const ColumnReadAheadPage& page, ColumnReadAheadPlan* output);
-    /// Remove window entries strictly behind the current batch in the configured scan direction.
-    void _discard_passed_pages(const rowid_t* current_rowids, size_t count,
-                               ColumnReadAheadPlan* output);
-    /// Add one window from _next_page_index using only pages selected by scan_rowids. Its second
+    /// Remove window entries strictly behind the given page in the configured scan direction.
+    void _discard_passed_pages(int32_t page_index, ColumnReadAheadPlan* output);
+    /// Add one window from _next_page_index using the candidate-page sequence. Its second
     /// selected page triggers the next window; a one-page window uses its only page.
-    void _extend_window(const roaring::Roaring& scan_rowids, ColumnReadAheadPlan* output);
+    void _extend_window(ColumnReadAheadPlan* output);
     void _complete(const ColumnReadAheadPage& page, WindowEntry* entry);
 
     const std::vector<ColumnReadAheadPage> _pages;
     const ColumnReadAheadOptions _options;
     const bool _reverse;
+    /// Physical page indexes in file order. Scan mode builds this once; exact-rowid requests
+    /// replace it with their current selection. No scan bitmap is retained by the window.
+    std::vector<int32_t> _candidate_pages;
     std::map<int32_t, WindowEntry> _window;
     /// Pending-page accounting only; completing a page does not advance the scan position.
     size_t _pending_bytes {0};
@@ -154,6 +167,9 @@ private:
     int64_t _next_page_index;
     /// Scan position that triggers the next window; -1 means there is no trigger.
     int32_t _next_trigger_page_index {-1};
+    /// Reverse scanners visit batches backwards but read each batch forwards. Keep predictions
+    /// above this low page until a new lower page is reached by the next batch.
+    int32_t _reverse_low_page_index;
 };
 
 } // namespace doris::segment_v2

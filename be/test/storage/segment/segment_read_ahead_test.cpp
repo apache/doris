@@ -364,6 +364,33 @@ TEST(SegmentReadAheadTest, UpdatesColumnsInOneCoalescedSubmission) {
     EXPECT_EQ(source->reads(), (std::vector<io::FileRange> {{.offset = 0, .size = 40}}));
 }
 
+TEST(SegmentReadAheadTest, ReusesBufferedPageAcrossIndependentWindowSubmissions) {
+    auto source = std::make_shared<TestFileReader>(std::string(64, 'x'));
+    auto scheduler = make_scheduler();
+    auto read_ahead = make_segment_read_ahead(
+            source, scheduler.get(),
+            {.range_plan = plan_options(), .page_cache_probe = {}, .range_consumer_factory = {}});
+    auto first = make_window(1, 16, 8);
+    auto second = make_window(1, 16, 8);
+    ColumnReadAheadPlan first_plan;
+    ColumnReadAheadPlan second_plan;
+    first->start(rows(100), &first_plan);
+    second->start(rows(100), &second_plan);
+    auto result = read_ahead->apply_plans({std::move(first_plan)});
+    ASSERT_TRUE(result.accepted()) << result.status;
+    ASSERT_EQ(result.submitted_ranges, 1);
+
+    result = read_ahead->apply_plans({std::move(second_plan)});
+    ASSERT_TRUE(result.accepted()) << result.status;
+    EXPECT_EQ(result.submitted_ranges, 0);
+    char data[16] {};
+    size_t bytes_read = 0;
+    ASSERT_TRUE(read_ahead->file_reader()->read_at(8, Slice(data, sizeof(data)), &bytes_read).ok());
+    EXPECT_FALSE(first->pending(0));
+    EXPECT_FALSE(second->pending(0));
+    EXPECT_EQ(source->reads(), (std::vector<io::FileRange> {{.offset = 8, .size = 16}}));
+}
+
 TEST(SegmentReadAheadTest, PageCacheHitCompletesWindowWithoutSubmission) {
     auto source = std::make_shared<TestFileReader>(std::string(64, 'p'));
     auto scheduler = make_scheduler();

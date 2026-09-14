@@ -371,8 +371,14 @@ public:
                               std::vector<ColumnReadAheadPlan>* plans) override {
         request.sanity_check();
         DORIS_CHECK(plans != nullptr);
-        read_ahead_batches.emplace_back(request.current_rowids,
-                                        request.current_rowids + request.current_rowid_count);
+        if (request.page_driven) {
+            EXPECT_EQ(request.current_rowids, nullptr);
+            read_ahead_batches.emplace_back(request.scan_rowids->begin(),
+                                            request.scan_rowids->end());
+        } else {
+            read_ahead_batches.emplace_back(request.current_rowids,
+                                            request.current_rowids + request.current_rowid_count);
+        }
         read_ahead_roles.push_back(request.role);
         return Status::OK();
     }
@@ -430,8 +436,9 @@ public:
                               std::vector<ColumnReadAheadPlan>* plans) override {
         request.sanity_check();
         DORIS_CHECK(plans != nullptr);
-        read_ahead_batches.emplace_back(request.current_rowids,
-                                        request.current_rowids + request.current_rowid_count);
+        EXPECT_TRUE(request.page_driven);
+        EXPECT_EQ(request.current_rowids, nullptr);
+        read_ahead_batches.emplace_back(request.scan_rowids->begin(), request.scan_rowids->end());
         return Status::OK();
     }
 
@@ -557,9 +564,146 @@ protected:
         return fs->open_file(path, file_reader);
     }
 
+    void check_page_driven_scan(bool reverse, bool cached, bool reject) {
+        constexpr size_t num_rows = 64;
+        ColumnMetaPB meta;
+        io::FileReaderSPtr source;
+        auto status = create_int_column_file("page_driven_scan", num_rows, sizeof(int32_t) * 2,
+                                             &meta, &source);
+        ASSERT_TRUE(status.ok()) << status;
+        ColumnReaderOptions reader_options;
+        std::shared_ptr<ColumnReader> reader;
+        status = ColumnReader::create(reader_options, meta, num_rows, source, &reader);
+        ASSERT_TRUE(status.ok()) << status;
+        if (cached) {
+            // Populate real PageIO cache entries before installing read-ahead. Repeat for LRU-K
+            // admission; subsequent reads must progress without going through the range buffer.
+            for (int pass = 0; pass < 2; ++pass) {
+                ColumnIteratorUPtr warmup;
+                ASSERT_TRUE(reader->new_iterator(&warmup, nullptr).ok());
+                OlapReaderStatistics warmup_stats;
+                ASSERT_TRUE(warmup->init({.use_page_cache = true,
+                                          .file_reader = source.get(),
+                                          .stats = &warmup_stats,
+                                          .io_ctx = {}})
+                                    .ok());
+                ASSERT_TRUE(warmup->seek_to_ordinal(0).ok());
+                MutableColumnPtr column = ColumnInt32::create();
+                size_t count = num_rows;
+                ASSERT_TRUE(warmup->next_batch(&count, column).ok());
+                ASSERT_EQ(count, num_rows);
+            }
+        }
+
+        std::unique_ptr<io::FileRangeReadScheduler> scheduler;
+        status = io::FileRangeReadScheduler::create(
+                {.max_bytes_per_query = reject ? 1UL : 1024 * 1024UL,
+                 .max_bytes_per_be = 2 * 1024 * 1024},
+                read_ahead_test_executor(), &scheduler);
+        ASSERT_TRUE(status.ok()) << status;
+        auto segment = std::make_unique<SegmentReadAhead>(
+                source, scheduler.get(), scheduler->create_context(), io::FileRangeReadIOContext {},
+                SegmentReadAheadOptions {
+                        .range_plan = {.coalesce_options = {.max_gap_bytes = 64 * 1024,
+                                                            .max_range_bytes = 1024 * 1024,
+                                                            .max_read_amplification_ratio = 2.0},
+                                       .cache_block_size = 1024 * 1024,
+                                       .block_fill_min_coverage = 1.0},
+                        .page_cache_probe = cached ? make_storage_page_cache_probe(source)
+                                                   : ReadAheadPageCacheProbe {},
+                        .range_consumer_factory = {}});
+        OlapReaderStatistics stats;
+        stats.read_ahead_stats = segment->_statistics;
+        ColumnIteratorUPtr iterator;
+        ASSERT_TRUE(reader->new_iterator(&iterator, nullptr).ok());
+        ASSERT_TRUE(iterator->init({.use_page_cache = cached,
+                                    .file_reader = segment->file_reader().get(),
+                                    .stats = &stats,
+                                    .io_ctx = {}})
+                            .ok());
+        ColumnReadAheadContext context {.eager_options = {.window_bytes = 1},
+                                        .lazy_options = {.window_bytes = 1},
+                                        .segment = segment.get()};
+        roaring::Roaring rows;
+        rows.addRange(0, num_rows);
+        ColumnReadAheadRequest request {
+                .scan_rowids = &rows, .context = &context, .reverse = reverse, .page_driven = true};
+        std::vector<ColumnReadAheadPlan> plans;
+        ASSERT_TRUE(iterator->prepare_read_ahead(request, &plans).ok());
+        ASSERT_EQ(plans.size(), 1);
+        ASSERT_EQ(plans[0].new_pages.size(), 2);
+        const auto result = segment->apply_plans(std::move(plans));
+        EXPECT_TRUE(reject ? !result.accepted() : result.accepted());
+        const int64_t init_ns = stats.read_ahead_stats->column_init_time.value();
+        EXPECT_GT(init_ns, 0);
+
+        // A repeated initialization (e.g. another complex-column read phase) does no work.
+        plans.clear();
+        ASSERT_TRUE(iterator->prepare_read_ahead(request, &plans).ok());
+        EXPECT_TRUE(plans.empty());
+        // No later call can rely on the scanner's original row bitmap or current batch.
+        rows = roaring::Roaring {};
+        const std::vector<rowid_t> rowids =
+                reverse ? std::vector<rowid_t> {60, 61, 62, 63, 40, 41, 42, 43, 0, 1, 2, 3}
+                        : std::vector<rowid_t> {0, 1, 2, 3, 20, 21, 22, 23, 60, 61, 62, 63};
+        MutableColumnPtr output = ColumnInt32::create();
+        for (size_t begin = 0; begin < rowids.size(); begin += 4) {
+            // Exercise both sequential page loading and exact-rowid page loading.
+            if (begin == 0) {
+                ASSERT_TRUE(iterator->seek_to_ordinal(rowids[begin]).ok());
+                size_t count = 4;
+                ASSERT_TRUE(iterator->next_batch(&count, output).ok());
+                ASSERT_EQ(count, 4);
+            } else {
+                ASSERT_TRUE(iterator->read_by_rowids(rowids.data() + begin, 4, output).ok());
+            }
+        }
+        ASSERT_EQ(output->size(), rowids.size());
+        const auto& values = assert_cast<const ColumnInt32&>(*output).get_data();
+        for (size_t index = 0; index < rowids.size(); ++index) {
+            EXPECT_EQ(values[index], rowids[index]);
+        }
+        auto& metrics = *stats.read_ahead_stats;
+        EXPECT_EQ(metrics.current_batch_plan_time.value(), 0);
+        EXPECT_EQ(metrics.column_init_time.value(), init_ns);
+        EXPECT_GT(metrics.page_advance_time.value(), 0);
+        EXPECT_GT(metrics.candidate_pages.value(), 2);
+        EXPECT_GE(metrics.column_plan_time.value(), init_ns + metrics.page_advance_time.value());
+        if (cached) {
+            EXPECT_GT(stats.cached_pages_num, 0);
+            EXPECT_EQ(metrics.page_cache_hits.value(), metrics.candidate_pages.value());
+            EXPECT_EQ(metrics.submitted_ranges.value(), 0);
+            EXPECT_EQ(metrics.consumed_page_bytes.value(), 0);
+            EXPECT_EQ(metrics.fallback_pages.value(), 0);
+        } else if (reject) {
+            EXPECT_GT(metrics.rejected_batches.value(), 0);
+            EXPECT_GT(metrics.fallback_pages.value(), 0);
+            EXPECT_EQ(metrics.consumed_page_bytes.value(), 0);
+        } else {
+            EXPECT_GT(metrics.consumed_page_bytes.value(), 0);
+            EXPECT_EQ(metrics.fallback_pages.value(), 0);
+        }
+    }
+
 private:
     bool _old_disable_storage_page_cache = false;
 };
+
+TEST_F(ColumnReaderTest, FileColumnIteratorAdvancesReadAheadOnPageReads) {
+    check_page_driven_scan(false, false, false);
+}
+
+TEST_F(ColumnReaderTest, FileColumnIteratorAdvancesReadAheadInReverseBatches) {
+    check_page_driven_scan(true, false, false);
+}
+
+TEST_F(ColumnReaderTest, FileColumnIteratorAdvancesReadAheadThroughPageCacheHits) {
+    check_page_driven_scan(false, true, false);
+}
+
+TEST_F(ColumnReaderTest, FileColumnIteratorAdvancesReadAheadAfterBudgetRejection) {
+    check_page_driven_scan(false, false, true);
+}
 
 TEST_F(ColumnReaderTest, FileColumnIteratorPreparesCompressedPageByteWindow) {
     constexpr size_t num_rows = 64;
@@ -970,16 +1114,15 @@ TEST_F(ColumnReaderTest, MapReadAheadPlansDependentChildrenAfterOffsets) {
             .lazy_options = {.window_bytes = 128 * 1024},
     };
     std::vector<ColumnReadAheadPlan> prepared;
-    auto status = iterator.prepare_read_ahead({.current_rowids = current_rowids,
-                                               .current_rowid_count = std::size(current_rowids),
-                                               .scan_rowids = &scan_rowids,
+    auto status = iterator.prepare_read_ahead({.scan_rowids = &scan_rowids,
                                                .context = &context,
                                                .role = ColumnReadAheadRole::EAGER,
-                                               .reverse = true},
+                                               .reverse = true,
+                                               .page_driven = true},
                                               &prepared);
     ASSERT_TRUE(status.ok()) << status;
     EXPECT_THAT(offsets_tracker->read_ahead_batches,
-                ::testing::ElementsAre(::testing::ElementsAre(1, 3)));
+                ::testing::ElementsAre(::testing::ElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9)));
     EXPECT_TRUE(key_tracker->read_ahead_batches.empty());
     EXPECT_TRUE(value_tracker->read_ahead_batches.empty());
 
@@ -1012,21 +1155,19 @@ TEST_F(ColumnReaderTest, ArrayReadAheadPlansDependentItemsAfterOffsets) {
 
     roaring::Roaring scan_rowids;
     scan_rowids.addRange(0, 3);
-    const rowid_t current_rowids[] = {0, 1};
     ColumnReadAheadContext context {
             .eager_options = {.window_bytes = 4 * 1024 * 1024},
             .lazy_options = {.window_bytes = 128 * 1024},
     };
     std::vector<ColumnReadAheadPlan> prepared;
-    auto status = iterator.prepare_read_ahead({.current_rowids = current_rowids,
-                                               .current_rowid_count = std::size(current_rowids),
-                                               .scan_rowids = &scan_rowids,
+    auto status = iterator.prepare_read_ahead({.scan_rowids = &scan_rowids,
                                                .context = &context,
-                                               .role = ColumnReadAheadRole::EAGER},
+                                               .role = ColumnReadAheadRole::EAGER,
+                                               .page_driven = true},
                                               &prepared);
     ASSERT_TRUE(status.ok()) << status;
     EXPECT_THAT(offsets_tracker->read_ahead_batches,
-                ::testing::ElementsAre(::testing::ElementsAre(0, 1)));
+                ::testing::ElementsAre(::testing::ElementsAre(0, 1, 2)));
     EXPECT_TRUE(item_tracker->read_ahead_batches.empty());
 
     status = iterator.seek_to_ordinal(0);
