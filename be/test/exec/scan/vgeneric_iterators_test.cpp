@@ -242,10 +242,10 @@ protected:
 
         io::FileWriterPtr file_writer;
         EXPECT_TRUE(_fs->create_file(segment_path, &file_writer).ok());
-        SegmentWriterOptions writer_options;
+        VerticalSegmentWriterOptions writer_options;
         writer_options.num_rows_per_block = 1024;
-        TestSegmentWriter writer(file_writer.get(), 0, tablet_schema, nullptr, nullptr,
-                                 writer_options, nullptr);
+        TestVerticalSegmentWriter writer(file_writer.get(), 0, tablet_schema, nullptr, nullptr,
+                                         writer_options, nullptr);
         EXPECT_TRUE(writer.init().ok());
 
         RowCursor row;
@@ -261,7 +261,8 @@ protected:
         }
         uint64_t file_size = 0;
         uint64_t index_size = 0;
-        EXPECT_TRUE(writer.finalize(&file_size, &index_size).ok());
+        EXPECT_TRUE(writer.finalize_columns(&index_size).ok());
+        EXPECT_TRUE(writer.finalize_footer(&file_size).ok());
         EXPECT_TRUE(file_writer->close().ok());
 
         std::shared_ptr<segment_v2::Segment> segment;
