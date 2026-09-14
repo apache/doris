@@ -354,6 +354,32 @@ public class MysqlResultSender implements ResultSender {
                             // MYSQL_TYPE_STRING, so encode the result as length-encoded text.
                             serializer.writeLenEncodedString(item);
                             break;
+                        case TIMESTAMPTZ: {
+                            // The text form carries a trailing timezone offset ("+08:00") that the MySQL
+                            // binary temporal format cannot represent. The wall-clock part is already
+                            // rendered in the session time zone, so encode it as a TIMESTAMP value and
+                            // drop the offset, mirroring how clients interpret MySQL TIMESTAMP.
+                            int tzOffsetIndex = item.length() - 6;
+                            String datetimePart = item;
+                            if (tzOffsetIndex > 10
+                                    && (item.charAt(tzOffsetIndex) == '+' || item.charAt(tzOffsetIndex) == '-')) {
+                                datetimePart = item.substring(0, tzOffsetIndex);
+                            }
+                            DateTimeV2Literal tzDatetime = new DateTimeV2Literal(datetimePart);
+                            long tzMicroSecond = tzDatetime.getMicroSecond();
+                            int tzLength = tzMicroSecond == 0 ? 7 : 11;
+                            serializer.writeInt1(tzLength);
+                            serializer.writeInt2((int) (tzDatetime.getYear()));
+                            serializer.writeInt1((int) tzDatetime.getMonth());
+                            serializer.writeInt1((int) tzDatetime.getDay());
+                            serializer.writeInt1((int) tzDatetime.getHour());
+                            serializer.writeInt1((int) tzDatetime.getMinute());
+                            serializer.writeInt1((int) tzDatetime.getSecond());
+                            if (tzMicroSecond > 0) {
+                                serializer.writeInt4((int) tzMicroSecond);
+                            }
+                            break;
+                        }
                         default:
                             serializer.writeLenEncodedString(item);
                     }

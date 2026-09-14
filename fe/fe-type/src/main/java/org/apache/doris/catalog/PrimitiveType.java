@@ -438,7 +438,13 @@ public enum PrimitiveType {
             case DATEV2:
                 return MysqlColType.MYSQL_TYPE_DATE;
             case TIMESTAMPTZ:
+                // A TIMESTAMPTZ is an instant rendered in the session time zone, the same
+                // semantics as MySQL TIMESTAMP. Advertising MYSQL_TYPE_STRING made every
+                // client report the column as CHAR/VARCHAR and broke type-based scanning
+                // (e.g. golang gorm scanning into time.Time).
+                return MysqlColType.MYSQL_TYPE_TIMESTAMP;
             case TIMESTAMP_NS:
+                // Nanoseconds cannot be represented by any MySQL type; keep string.
                 return MysqlColType.MYSQL_TYPE_STRING;
             case DATETIME:
             case DATETIMEV2: {

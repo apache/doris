@@ -18,6 +18,7 @@
 package org.apache.doris.mysql;
 
 import org.apache.doris.catalog.MysqlColType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 
 import org.junit.jupiter.api.Assertions;
@@ -68,5 +69,38 @@ public class MysqlSerializerDateTimeTest {
             Assertions.assertEquals(MysqlColType.MYSQL_TYPE_DATETIME.getCode(),
                     field[mysqlTypeOffset] & 0xFF);
         }
+    }
+
+    @Test
+    public void testTimestampTzMetadata() {
+        for (int scale = 0; scale <= 6; scale++) {
+            MysqlSerializer serializer = MysqlSerializer.newInstance();
+            ScalarType type = ScalarType.createTimeStampTzType(scale);
+            Assertions.assertEquals(scale, serializer.getMysqlDecimals(type));
+            Assertions.assertEquals(32, serializer.getMysqlTypeLength(type));
+
+            serializer.writeField("ts", type);
+            byte[] field = serializer.toArray();
+            int metadataOffset = fieldMetadataOffset(field);
+            int mysqlTypeOffset = metadataOffset + 2 + 4;
+            // A TIMESTAMPTZ must be advertised as MySQL TIMESTAMP, not STRING
+            // (which clients report as CHAR/VARCHAR).
+            Assertions.assertEquals(MysqlColType.MYSQL_TYPE_TIMESTAMP.getCode(),
+                    field[mysqlTypeOffset] & 0xFF);
+            int decimalsOffset = mysqlTypeOffset + 1 + 2;
+            Assertions.assertEquals(scale, field[decimalsOffset] & 0xFF);
+        }
+    }
+
+    @Test
+    public void testTimestampTzTypeMapping() {
+        // Regression for #66953: clients used to see DatabaseTypeName "char".
+        Assertions.assertEquals(MysqlColType.MYSQL_TYPE_TIMESTAMP,
+                PrimitiveType.TIMESTAMPTZ.toMysqlType());
+        Assertions.assertEquals("TIMESTAMP",
+                MysqlColType.MYSQL_TYPE_TIMESTAMP.getJdbcColumnTypeName());
+        // TIMESTAMP_NS cannot fit a MySQL temporal type and must stay a string.
+        Assertions.assertEquals(MysqlColType.MYSQL_TYPE_STRING,
+                PrimitiveType.TIMESTAMP_NS.toMysqlType());
     }
 }
