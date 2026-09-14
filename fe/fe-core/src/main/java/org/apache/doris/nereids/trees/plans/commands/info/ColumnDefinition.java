@@ -381,11 +381,11 @@ public class ColumnDefinition {
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
-        type.validateDataType();
-        type = updateCharacterTypeLength(type);
         if (isOlap && containsSpatialType(type)) {
             throw new AnalysisException("GEOMETRY and GEOGRAPHY are not supported for Doris internal tables");
         }
+        type.validateDataType();
+        type = updateCharacterTypeLength(type);
         if (type.isArrayType()) {
             int depth = 0;
             DataType curType = type;

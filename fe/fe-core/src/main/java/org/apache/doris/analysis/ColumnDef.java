@@ -421,13 +421,11 @@ public class ColumnDef {
         FeNameFormat.checkColumnName(name);
         FeNameFormat.checkColumnCommentLength(comment);
 
-        typeDef.analyze();
-
         Type type = typeDef.getType();
-
         if (isOlap && containsSpatialType(type)) {
             throw new AnalysisException("GEOMETRY and GEOGRAPHY are not supported for Doris internal tables");
         }
+        typeDef.analyze();
 
         if (!Config.enable_quantile_state_type && type.isQuantileStateType()) {
             throw new AnalysisException("quantile_state is disabled"
