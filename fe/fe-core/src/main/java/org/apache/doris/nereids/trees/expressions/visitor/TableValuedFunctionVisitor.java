@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.GroupCommit;
 import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Http;
 import org.apache.doris.nereids.trees.expressions.functions.table.HttpStream;
+import org.apache.doris.nereids.trees.expressions.functions.table.IndexDiskUsage;
 import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
@@ -66,6 +67,10 @@ public interface TableValuedFunctionVisitor<R, C> {
 
     default R visitPartitions(Partitions partitions, C context) {
         return visitTableValuedFunction(partitions, context);
+    }
+
+    default R visitIndexDiskUsage(IndexDiskUsage indexDiskUsage, C context) {
+        return visitTableValuedFunction(indexDiskUsage, context);
     }
 
     default R visitPartitionValues(PartitionValues partitionValues, C context) {
