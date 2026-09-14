@@ -260,10 +260,9 @@ Status IndexDiskUsageCollector::_collect_snii(const IndexDiskUsageOptions& optio
             RETURN_IF_ERROR(reader.snii_core_metadata(entry.index_id, entry.index_suffix, &core));
             const auto& refs = core.section_refs;
             record.structure = IndexDiskUsageStructure::kTerm;
-            record.dict_bytes = cast_set<int64_t>(refs.dict_region.length +
-                                                  entry.sampled_term_index.length +
-                                                  entry.dict_block_directory.length +
-                                                  refs.bsbf.length);
+            record.dict_bytes =
+                    cast_set<int64_t>(refs.dict_region.length + entry.sampled_term_index.length +
+                                      entry.dict_block_directory.length + refs.bsbf.length);
             record.posting_bytes = cast_set<int64_t>(refs.posting_region.length);
             record.stats_bytes = cast_set<int64_t>(entry.core_metadata.length + refs.norms.length);
             record.other_bytes = cast_set<int64_t>(refs.null_bitmap.length);
@@ -279,8 +278,8 @@ Status IndexDiskUsageCollector::_collect_snii(const IndexDiskUsageOptions& optio
                 record.position_bytes = -1;
             }
             record.total_bytes = record.dict_bytes + record.posting_bytes +
-                                 std::max<int64_t>(record.position_bytes, 0) +
-                                 record.stats_bytes + record.other_bytes;
+                                 std::max<int64_t>(record.position_bytes, 0) + record.stats_bytes +
+                                 record.other_bytes;
         } else {
             record.structure = entry.kind == snii::format::LogicalIndexKind::kBkd
                                        ? IndexDiskUsageStructure::kBkd

@@ -87,7 +87,8 @@ public:
     Status collect(const IndexDiskUsageOptions& options, std::vector<IndexDiskUsageRecord>* out);
 
 private:
-    Status _collect_v1(const IndexDiskUsageOptions& options, std::vector<IndexDiskUsageRecord>* out);
+    Status _collect_v1(const IndexDiskUsageOptions& options,
+                       std::vector<IndexDiskUsageRecord>* out);
     Status _collect_compound(const IndexDiskUsageOptions& options,
                              std::vector<IndexDiskUsageRecord>* out);
     Status _collect_snii(const IndexDiskUsageOptions& options,
