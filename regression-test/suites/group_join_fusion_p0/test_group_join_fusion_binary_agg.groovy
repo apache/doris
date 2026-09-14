@@ -82,6 +82,10 @@ suite("test_group_join_fusion_binary_agg") {
     // no sql cache so the run always exercises the same execution path.
     sql "SET runtime_filter_mode = 'OFF'"
     sql "SET enable_sql_cache = false"
+    // Spill disables GroupJoin fusion by design (the fused operator cannot spill) and the
+    // P0 pipeline runs every session with fuzzy session variables, where enable_spill is
+    // randomized, so pin it to keep the fused plan deterministic.
+    sql "SET enable_spill = false"
 
     def binaryAggQuery = """
         SELECT l.k1,
