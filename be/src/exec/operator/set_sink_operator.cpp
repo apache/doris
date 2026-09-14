@@ -20,6 +20,7 @@
 #include <memory>
 
 #include "core/block/materialize_block.h"
+#include "exec/common/hash_table/hash_key_normalize.h"
 #include "exec/common/hash_table/hash_table_set_build.h"
 #include "exec/common/set_utils.h"
 #include "exec/operator/operator.h"
@@ -136,6 +137,7 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
         data.column = std::move(*data.column).mutate()->convert_column_if_overflow();
     }
     ColumnRawPtrs raw_ptrs(_child_exprs.size());
+    local_state._key_columns_holder.clear();
     RETURN_IF_ERROR(_extract_build_column(local_state, block, raw_ptrs, rows));
     auto st = Status::OK();
     std::visit(
@@ -152,6 +154,8 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
             },
             local_state._shared_state->hash_table_variants->method_variant);
 
+    // The keys are copied into the hash table / its arena, the normalized copies are no longer needed.
+    local_state._key_columns_holder.clear();
     return st;
 }
 
@@ -190,7 +194,16 @@ Status SetSinkOperatorX<is_intersect>::_extract_build_column(
             result_col_id = block.columns() - 1;
         }
 
-        raw_ptrs[i] = block.get_by_position(result_col_id).column.get();
+        // The hash table compares keys by raw bits, so -0.0/+0.0 and NaN payloads must be
+        // collapsed on both the build and the probe side. The result rows are copied out of
+        // `build_col_idx`, so the block keeps the stored values and only the copy that is
+        // hashed is normalized.
+        ColumnPtr key_column = block.get_by_position(result_col_id).column;
+        normalize_float_hash_key(key_column, child_expr[i]->root()->data_type());
+        if (key_column.get() != block.get_by_position(result_col_id).column.get()) {
+            local_state._key_columns_holder.emplace_back(key_column);
+        }
+        raw_ptrs[i] = key_column.get();
         DCHECK_GE(result_col_id, 0);
         local_state._shared_state->build_col_idx.insert({i, result_col_id});
     }

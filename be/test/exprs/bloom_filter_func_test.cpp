@@ -21,14 +21,22 @@
 #include <gtest/gtest-test-part.h>
 
 #include <array>
+#include <bit>
 #include <cstdint>
+#include <limits>
+#include <numeric>
 #include <string>
+#include <vector>
 
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "core/assert_cast.h"
 #include "core/column/column_decimal.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
+#include "core/field.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/block_bloom_filter.hpp"
 #include "exprs/create_predicate_function.h"
@@ -125,6 +133,194 @@ TEST_F(BloomFilterFuncTest, FixedLenToUInt32) {
 
         ASSERT_EQ(fixed_lenv2(max), (uint32_t)max.to_date_int_val());
     }
+}
+
+// -0.0 == +0.0 and every NaN compares equal, so from NORMALIZE_FLOAT_HASH_KEY_VERSION on a
+// bloom filter built from one form must accept the other form; the legacy v2 convention is
+// kept for older query versions so mixed-version producers and consumers still agree.
+TEST_F(BloomFilterFuncTest, FixedLenToUInt32FloatSpecialValues) {
+    fixed_len_to_uint32_v2 fixed_lenv2;
+    fixed_len_to_uint32_v3 fixed_lenv3;
+    const auto quiet_nan = std::numeric_limits<double>::quiet_NaN();
+    const auto payload_nan = std::bit_cast<double>(std::bit_cast<uint64_t>(quiet_nan) | 0x1234ULL);
+    ASSERT_NE(fixed_lenv2(-0.0), fixed_lenv2(0.0));
+    ASSERT_EQ(fixed_lenv3(-0.0), fixed_lenv3(0.0));
+    ASSERT_EQ(fixed_lenv3(payload_nan), fixed_lenv3(quiet_nan));
+    ASSERT_EQ(fixed_lenv3(-quiet_nan), fixed_lenv3(quiet_nan));
+    ASSERT_NE(fixed_lenv3(1.5), fixed_lenv3(-1.5));
+    ASSERT_EQ(fixed_lenv3(1.5), fixed_lenv2(1.5));
+
+    const auto quiet_nan_f = std::numeric_limits<float>::quiet_NaN();
+    const auto payload_nan_f = std::bit_cast<float>(std::bit_cast<uint32_t>(quiet_nan_f) | 0x12U);
+    ASSERT_EQ(fixed_lenv3(-0.0F), fixed_lenv3(0.0F));
+    ASSERT_EQ(fixed_lenv3(payload_nan_f), fixed_lenv3(quiet_nan_f));
+    ASSERT_NE(fixed_lenv3(1.5F), fixed_lenv3(2.5F));
+    // Non-float types keep the v2 convention.
+    ASSERT_EQ(fixed_lenv3(int32_t(42)), fixed_lenv2(int32_t(42)));
+    ASSERT_EQ(fixed_lenv3(int64_t(-7)), fixed_lenv2(int64_t(-7)));
+}
+
+TEST_F(BloomFilterFuncTest, FindFixedLenDoubleSignedZero) {
+    for (bool normalize_float_keys : {true, false}) {
+        BloomFilterFunc<PrimitiveType::TYPE_DOUBLE> bloom_filter_func(true);
+        RuntimeFilterParams params {1,
+                                    RuntimeFilterType::BLOOM_FILTER,
+                                    PrimitiveType::TYPE_DOUBLE,
+                                    false,
+                                    0,
+                                    0,
+                                    0,
+                                    256,
+                                    0,
+                                    0,
+                                    normalize_float_keys};
+        bloom_filter_func.init_params(&params);
+        auto st = bloom_filter_func.init_with_fixed_length(1024);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+
+        const auto quiet_nan = std::numeric_limits<double>::quiet_NaN();
+        const auto payload_nan =
+                std::bit_cast<double>(std::bit_cast<uint64_t>(quiet_nan) | 0x1234ULL);
+        // Build with +0.0 / quiet NaN, probe with -0.0 / payload NaN.
+        bloom_filter_func.insert_fixed_len(
+                ColumnHelper::create_column<DataTypeFloat64>({0.0, 1.0, quiet_nan}), 0);
+
+        auto probe_column =
+                ColumnHelper::create_column<DataTypeFloat64>({-0.0, 1.0, payload_nan, 0.0});
+        PODArray<uint16_t> offsets(4);
+        std::iota(offsets.begin(), offsets.end(), 0);
+        auto find_count = bloom_filter_func.find_fixed_len_olap_engine(*probe_column, nullptr,
+                                                                       offsets.data(), 4, false);
+        if (normalize_float_keys) {
+            ASSERT_EQ(find_count, 4);
+            ASSERT_EQ(offsets[0], 0);
+            ASSERT_EQ(offsets[2], 2);
+        } else {
+            // Legacy convention: only the bit-identical values are guaranteed to pass.
+            ASSERT_GE(find_count, 2);
+        }
+        ASSERT_TRUE(bloom_filter_func.test_field(Field::create_field<TYPE_DOUBLE>(1.0)));
+        if (normalize_float_keys) {
+            ASSERT_TRUE(bloom_filter_func.test_field(Field::create_field<TYPE_DOUBLE>(-0.0)));
+            ASSERT_TRUE(
+                    bloom_filter_func.test_field(Field::create_field<TYPE_DOUBLE>(payload_nan)));
+            std::vector<uint8_t> matches(4, 1);
+            st = bloom_filter_func.find_batch_raw_fixed(
+                    reinterpret_cast<const uint8_t*>(
+                            assert_cast<const ColumnFloat64&>(*probe_column).get_data().data()),
+                    4, sizeof(double), matches.data());
+            ASSERT_TRUE(st.ok()) << st.to_string();
+            ASSERT_EQ(std::vector<uint8_t>({1, 1, 1, 1}), matches);
+        }
+    }
+}
+
+// IN_OR_BLOOM filters are converted from a HybridSet whose raw values keep their sign and
+// payload; the conversion must hash them with the same canonical convention.
+TEST_F(BloomFilterFuncTest, InsertSetKeepsFloatConvention) {
+    BloomFilterFunc<PrimitiveType::TYPE_FLOAT> bloom_filter_func(false);
+    RuntimeFilterParams params {1,
+                                RuntimeFilterType::BLOOM_FILTER,
+                                PrimitiveType::TYPE_FLOAT,
+                                false,
+                                0,
+                                0,
+                                0,
+                                256,
+                                0,
+                                0,
+                                true};
+    bloom_filter_func.init_params(&params);
+    ASSERT_TRUE(bloom_filter_func.init_with_fixed_length(1024).ok());
+
+    const auto quiet_nan = std::numeric_limits<float>::quiet_NaN();
+    const auto payload_nan = std::bit_cast<float>(std::bit_cast<uint32_t>(quiet_nan) | 0x12U);
+    auto set = std::make_shared<HybridSet<PrimitiveType::TYPE_FLOAT>>(false);
+    for (float value : {-0.0F, 1.5F, payload_nan}) {
+        set->insert(&value);
+    }
+    bloom_filter_func.insert_set(set);
+
+    auto probe_column = ColumnHelper::create_column<DataTypeFloat32>({0.0F, 1.5F, quiet_nan});
+    std::vector<uint8_t> results(3, 0);
+    bloom_filter_func.find_fixed_len(probe_column, results.data());
+    ASSERT_EQ(std::vector<uint8_t>({1, 1, 1}), results);
+}
+
+TEST_F(BloomFilterFuncTest, FindFixedLenFloatSpecialValues) {
+    BloomFilterFunc<PrimitiveType::TYPE_FLOAT> bloom_filter_func(true);
+    RuntimeFilterParams params {1,
+                                RuntimeFilterType::BLOOM_FILTER,
+                                PrimitiveType::TYPE_FLOAT,
+                                false,
+                                0,
+                                0,
+                                0,
+                                256,
+                                0,
+                                0,
+                                true};
+    bloom_filter_func.init_params(&params);
+    auto st = bloom_filter_func.init_with_fixed_length(1024);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    const auto quiet_nan = std::numeric_limits<float>::quiet_NaN();
+    const auto payload_nan = std::bit_cast<float>(std::bit_cast<uint32_t>(quiet_nan) | 0x12U);
+    bloom_filter_func.insert_fixed_len(
+            ColumnHelper::create_column<DataTypeFloat32>({0.0F, 1.5F, quiet_nan}), 0);
+
+    auto probe_column =
+            ColumnHelper::create_column<DataTypeFloat32>({-0.0F, 1.5F, payload_nan, -quiet_nan});
+    PODArray<uint16_t> offsets(4);
+    std::iota(offsets.begin(), offsets.end(), 0);
+    auto find_count = bloom_filter_func.find_fixed_len_olap_engine(*probe_column, nullptr,
+                                                                   offsets.data(), 4, false);
+    ASSERT_EQ(find_count, 4);
+
+    std::vector<uint8_t> results(4, 0);
+    bloom_filter_func.find_fixed_len(probe_column, results.data());
+    ASSERT_EQ(std::vector<uint8_t>({1, 1, 1, 1}), results);
+
+    std::vector<uint8_t> matches(4, 1);
+    st = bloom_filter_func.find_batch_raw_fixed(
+            reinterpret_cast<const uint8_t*>(
+                    assert_cast<const ColumnFloat32&>(*probe_column).get_data().data()),
+            4, sizeof(float), matches.data());
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_EQ(std::vector<uint8_t>({1, 1, 1, 1}), matches);
+    ASSERT_TRUE(bloom_filter_func.test_field(Field::create_field<TYPE_FLOAT>(-0.0F)));
+    ASSERT_TRUE(bloom_filter_func.test_field(Field::create_field<TYPE_FLOAT>(payload_nan)));
+}
+
+// The storage-layer predicate is built from a light copy of the consumer's filter
+// (create_bloom_filter_predicate), so the copy must probe with the producer's convention.
+TEST_F(BloomFilterFuncTest, LightCopyKeepsFloatConvention) {
+    RuntimeFilterParams params {1,
+                                RuntimeFilterType::BLOOM_FILTER,
+                                PrimitiveType::TYPE_FLOAT,
+                                false,
+                                0,
+                                0,
+                                0,
+                                256,
+                                0,
+                                0,
+                                true};
+    auto producer = std::make_shared<BloomFilterFunc<PrimitiveType::TYPE_FLOAT>>(false);
+    producer->init_params(&params);
+    ASSERT_TRUE(producer->init_with_fixed_length(1024).ok());
+    producer->insert_fixed_len(ColumnHelper::create_column<DataTypeFloat32>({0.0F, 1.5F}), 0);
+
+    BloomFilterFunc<PrimitiveType::TYPE_FLOAT> storage_copy(false);
+    storage_copy.light_copy(producer.get());
+
+    auto probe_column = ColumnHelper::create_column<DataTypeFloat32>({-0.0F, 1.5F});
+    PODArray<uint16_t> offsets(2);
+    std::iota(offsets.begin(), offsets.end(), 0);
+    ASSERT_EQ(storage_copy.find_fixed_len_olap_engine(*probe_column, nullptr, offsets.data(), 2,
+                                                      false),
+              2);
+    ASSERT_TRUE(storage_copy.test_field(Field::create_field<TYPE_FLOAT>(-0.0F)));
 }
 
 TEST_F(BloomFilterFuncTest, InsertSet) {

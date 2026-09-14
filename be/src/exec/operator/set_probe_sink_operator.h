@@ -55,6 +55,9 @@ private:
 
     //record insert column id during probe
     std::vector<uint16_t> _probe_column_inserted_id;
+    // Columns hashed instead of the block's own ones (nullable wrappers and normalized float
+    // keys); valid for the current probe block.
+    std::vector<ColumnPtr> _key_columns_holder;
     ColumnRawPtrs _probe_columns;
     // every child has its result expr list
     VExprContextSPtrs _child_exprs;

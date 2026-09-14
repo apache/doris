@@ -55,6 +55,9 @@ struct RuntimeFilterParams {
     bool build_bf_by_runtime_size {};
     // Whether an estimated size by NDV is used to build bloom filter
     bool bloom_filter_size_calculated_by_ndv {};
+    // Whether bloom filters hash canonical float values (-0.0 as +0.0, NaN as quiet NaN).
+    // Producer and consumer of one query share the be_exec_version, so both sides agree.
+    bool normalize_float_keys {};
 };
 
 class MinMaxFuncBase;

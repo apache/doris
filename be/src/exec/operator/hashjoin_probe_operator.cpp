@@ -28,6 +28,7 @@
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_nullable.h"
+#include "exec/common/hash_table/hash_key_normalize.h"
 #include "exec/common/join_utils.h"
 #include "exec/operator/operator.h"
 #include "runtime/descriptors.h"
@@ -356,7 +357,14 @@ Status HashJoinProbeLocalState::_extract_join_column(Block& block,
 
     auto& shared_state = *_shared_state;
     for (size_t i = 0; i < shared_state.build_exprs_size; ++i) {
-        const auto& column_ptr = block.get_by_position(res_col_ids[i]).column;
+        ColumnPtr column_ptr = block.get_by_position(res_col_ids[i]).column;
+        // Probe keys are normalized the same way as the build keys (see
+        // HashJoinBuildSinkLocalState::_extract_join_column): a float key is hashed from a copy
+        // kept in `_key_columns_holder` for this batch and the probe block stays untouched.
+        normalize_float_hash_key(column_ptr, _probe_expr_ctxs[i]->root()->data_type());
+        if (column_ptr.get() != block.get_by_position(res_col_ids[i]).column.get()) {
+            _key_columns_holder.emplace_back(column_ptr);
+        }
         const auto* column = column_ptr.get();
         const bool serialize_null_into_key =
                 _parent->cast<HashJoinProbeOperatorX>()._serialize_null_into_key[i];
@@ -366,8 +374,7 @@ Status HashJoinProbeLocalState::_extract_join_column(Block& block,
         DORIS_CHECK(const_column == nullptr ||
                     !is_column_nullable(const_column->get_data_column()));
         if (!column->is_nullable() && serialize_null_into_key) {
-            _key_columns_holder.emplace_back(
-                    make_nullable(block.get_by_position(res_col_ids[i]).column));
+            _key_columns_holder.emplace_back(make_nullable(column_ptr));
             _probe_columns[i] = _key_columns_holder.back().get();
         } else if (const auto* nullable = check_and_get_column<ColumnNullable>(*column);
                    nullable && !serialize_null_into_key) {
