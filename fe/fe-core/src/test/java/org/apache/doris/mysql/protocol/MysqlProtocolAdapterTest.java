@@ -105,6 +105,16 @@ public class MysqlProtocolAdapterTest {
         ctx.getResultSender().sendRow(first);
         ctx.getResultSender().sendRow(second);
         Assertions.assertEquals(Lists.newArrayList(first, second), protocol.proxyResultPackets());
+
+        // A failed attempt of the forwarded query may be retried: nothing reached the client, and
+        // what the attempt wrote is dropped when the next one resets the channel, so the client
+        // gets the packets of one attempt only.
+        Assertions.assertTrue(protocol.canRetryQuery(ctx));
+        ctx.getResultSender().reset();
+        Assertions.assertTrue(protocol.proxyResultPackets().isEmpty());
+        ByteBuffer retried = ByteBuffer.wrap(new byte[] {4});
+        ctx.getResultSender().sendRow(retried);
+        Assertions.assertEquals(Lists.newArrayList(retried), protocol.proxyResultPackets());
     }
 
     @Test
