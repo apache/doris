@@ -120,11 +120,10 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 .withSizeEstimator(this::prepareTableForCachePublication)
                 .withReplacementListener(this::retireTableGeneration)
                 .withUnpublishedValueRetirer(IcebergTableCacheValue::retire)
-                .withRemovalListener(value -> value, (key, value) -> {
-                    if (value != null) {
-                        retireRemovedTableGeneration(key, value);
-                    }
-                })
+                .withRemovalListener(value -> {
+                    value.retire();
+                    return Boolean.TRUE;
+                }, (key, token) -> invalidateRelatedEntriesOnTableRemoval(key))
                 .withStrongValues());
         snapshotEntry = registerEntry(MetaCacheEntryDef.contextualOnly(ENTRY_SNAPSHOT,
                 IcebergSnapshotEntryKey.class, IcebergSnapshotCacheValue.class, defaultEntryCacheSpec(),
@@ -910,20 +909,16 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         }
     }
 
-    private void retireRemovedTableGeneration(NameMapping nameMapping, IcebergTableCacheValue removedValue) {
-        try {
-            MetaCacheEntry<IcebergSnapshotEntryKey, IcebergSnapshotCacheValue> snapshots =
-                    snapshotEntry.getIfInitialized(nameMapping.getCtlId());
-            if (snapshots != null) {
-                snapshots.invalidateIf(key -> key.getNameMapping().equals(nameMapping));
-            }
-            MetaCacheEntry<IcebergSchemaCacheKey, SchemaCacheValue> schemas =
-                    schemaEntry.getIfInitialized(nameMapping.getCtlId());
-            if (schemas != null) {
-                schemas.invalidateIf(key -> key.getNameMapping().equals(nameMapping));
-            }
-        } finally {
-            removedValue.retire();
+    private void invalidateRelatedEntriesOnTableRemoval(NameMapping nameMapping) {
+        MetaCacheEntry<IcebergSnapshotEntryKey, IcebergSnapshotCacheValue> snapshots =
+                snapshotEntry.getIfInitialized(nameMapping.getCtlId());
+        if (snapshots != null) {
+            snapshots.invalidateIf(key -> key.getNameMapping().equals(nameMapping));
+        }
+        MetaCacheEntry<IcebergSchemaCacheKey, SchemaCacheValue> schemas =
+                schemaEntry.getIfInitialized(nameMapping.getCtlId());
+        if (schemas != null) {
+            schemas.invalidateIf(key -> key.getNameMapping().equals(nameMapping));
         }
     }
 

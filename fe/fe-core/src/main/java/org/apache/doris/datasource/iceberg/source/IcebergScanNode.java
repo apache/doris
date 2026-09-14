@@ -1758,6 +1758,11 @@ public class IcebergScanNode extends FileQueryScanNode {
                     submitted = true;
                 }
                 executor.execute(this);
+                synchronized (this) {
+                    if (finished && executor instanceof ThreadPoolExecutor) {
+                        ((ThreadPoolExecutor) executor).remove(this);
+                    }
+                }
             } catch (RuntimeException | Error e) {
                 finish();
                 throw e;
