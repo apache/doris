@@ -33,6 +33,8 @@ import org.apache.arrow.flight.FlightServer;
 import org.apache.arrow.flight.Location;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.extension.UuidType;
+import org.apache.arrow.vector.types.pojo.ExtensionTypeRegistry;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -76,6 +78,7 @@ public class DorisFlightSqlService {
     }
 
     public DorisFlightSqlService(int port) {
+        ExtensionTypeRegistry.register(UuidType.INSTANCE);
         BufferAllocator allocator = new RootAllocator();
         int flightMaxConnections = ConnectPoolMgr.effectiveFlightMaxConnections(
                 Config.qe_max_connection, Config.arrow_flight_max_connections);

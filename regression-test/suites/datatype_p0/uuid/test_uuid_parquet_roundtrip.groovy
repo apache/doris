@@ -16,7 +16,6 @@
 // under the License.
 
 // Checklist: G08 G09 G11 G13 H08.
-// Parquet/ORC output maps UUID leaves to strings; target UUID columns restore the type.
 suite("test_uuid_parquet_roundtrip", "p0,external") {
 
     String localPath = context.config.otherConfigs.get("uuidLocalExportPath")
@@ -63,5 +62,7 @@ suite("test_uuid_parquet_roundtrip", "p0,external") {
     sql """INSERT INTO uuid_file_reload_parquet ${columns}
            SELECT * FROM ${tvf}("${pathKey}"="${path}", "format"="parquet", ${sourceProperties})"""
     qt_roundtrip "SELECT ${projection} FROM uuid_file_reload_parquet ORDER BY id"
+    order_qt_inferred_types """DESC FUNCTION ${tvf}(
+        "${pathKey}"="${path}", "format"="parquet", ${sourceProperties})"""
 
 }

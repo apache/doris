@@ -19,10 +19,17 @@
 
 #include <arrow/array.h>
 #include <arrow/builder.h>
+#include <arrow/extension/uuid.h>
+#include <arrow/io/memory.h>
+#include <arrow/ipc/reader.h>
+#include <arrow/ipc/writer.h>
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/types.pb.h>
 #include <gtest/gtest.h>
 
+#include <array>
+#include <cstring>
+#include <orc/Type.hh>
 #include <orc/Vector.hh>
 #include <string>
 #include <tuple>
@@ -35,9 +42,14 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_uuid_serde.h"
 #include "core/value/uuid_value.h"
+#include "format/arrow/arrow_block_convertor.h"
+#include "format/arrow/arrow_row_batch.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_writer.h"
 
@@ -296,7 +308,7 @@ TEST_F(DataTypeUUIDTest, ArrowRangeNullsAndAppend) {
     NullMap nulls {0, 0, 1, 0, 0};
     cctz::time_zone utc;
     ASSERT_TRUE(cctz::load_time_zone("UTC", &utc));
-    arrow::StringBuilder builder;
+    arrow::FixedSizeBinaryBuilder builder(arrow::fixed_size_binary(16));
     ASSERT_TRUE(serde->write_column_to_arrow(*source, &nulls, &builder, 1, 4, utc).ok());
     std::shared_ptr<arrow::Array> array;
     ASSERT_TRUE(builder.Finish(&array).ok());
@@ -325,11 +337,212 @@ TEST_F(DataTypeUUIDTest, OrcRangeNullsAndArenaOwnership) {
             serde->write_column_to_orc("UTC", *source, &nulls, batch.get(), 1, 5, arena, {}).ok());
     source->clear();
     EXPECT_EQ(batch->numElements, 4);
-    EXPECT_EQ(std::string(batch->data[1], batch->length[1]),
+    EXPECT_EQ(batch->length[1], 16);
+    EXPECT_EQ(UUIDValue::to_string(
+                      UUIDValue::from_big_endian(reinterpret_cast<const uint8_t*>(batch->data[1]))),
               "00112233-4455-6677-8899-aabbccddeeff");
-    EXPECT_EQ(std::string(batch->data[4], batch->length[4]),
+    EXPECT_EQ(batch->length[4], 16);
+    EXPECT_EQ(UUIDValue::to_string(
+                      UUIDValue::from_big_endian(reinterpret_cast<const uint8_t*>(batch->data[4]))),
               "ffffffff-ffff-ffff-ffff-ffffffffffff");
     EXPECT_EQ(batch->notNull[2], 0);
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): GTest assertions expand to branches.
+TEST_F(DataTypeUUIDTest, ArrowBinaryEndianSliceAndValidation) {
+    auto source = boundary_column();
+    arrow::FixedSizeBinaryBuilder builder(arrow::fixed_size_binary(16));
+    cctz::time_zone timezone;
+    ASSERT_TRUE(
+            serde->write_column_to_arrow(*source, nullptr, &builder, 0, source->size(), timezone)
+                    .ok());
+    std::shared_ptr<arrow::Array> storage;
+    ASSERT_TRUE(builder.Finish(&storage).ok());
+    const auto& binary = assert_cast<const arrow::FixedSizeBinaryArray&>(*storage);
+    const std::array<uint8_t, 16> expected {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                                            0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+    EXPECT_EQ(std::memcmp(binary.GetValue(1), expected.data(), expected.size()), 0);
+    auto logical = arrow::ExtensionType::WrapArray(arrow::extension::uuid(), storage);
+    ASSERT_TRUE(logical->ValidateFull().ok());
+    auto sliced = logical->Slice(1, 3);
+    auto restored = type->create_column();
+    ASSERT_TRUE(serde->read_column_from_arrow(*restored, sliced.get(), 0, 3, timezone).ok());
+    for (size_t row = 0; row < restored->size(); ++row) {
+        EXPECT_EQ((*restored)[row], (*source)[row + 1]);
+    }
+    arrow::StringBuilder text_builder;
+    ASSERT_TRUE(text_builder.Append("00112233-4455-6677-8899-aabbccddeeff").ok());
+    std::shared_ptr<arrow::Array> text;
+    ASSERT_TRUE(text_builder.Finish(&text).ok());
+    EXPECT_FALSE(serde->read_column_from_arrow(*restored, text.get(), 0, 1, timezone).ok());
+    arrow::FixedSizeBinaryBuilder short_builder(arrow::fixed_size_binary(15));
+    ASSERT_TRUE(short_builder.Append(expected.data()).ok());
+    std::shared_ptr<arrow::Array> short_array;
+    ASSERT_TRUE(short_builder.Finish(&short_array).ok());
+    EXPECT_FALSE(serde->read_column_from_arrow(*restored, short_array.get(), 0, 1, timezone).ok());
+    EXPECT_EQ(restored->size(), 3);
+    EXPECT_THROW(
+            THROW_IF_ERROR(serde->read_column_from_arrow(*restored, sliced.get(), -1, 1, timezone)),
+            Exception);
+    EXPECT_THROW(
+            THROW_IF_ERROR(serde->read_column_from_arrow(*restored, sliced.get(), 0, 4, timezone)),
+            Exception);
+    auto truncated_data = storage->data()->Copy();
+    truncated_data->buffers[1] = arrow::Buffer::FromString(std::string(15, '\0'));
+    arrow::FixedSizeBinaryArray truncated(truncated_data);
+    EXPECT_THROW(
+            THROW_IF_ERROR(serde->read_column_from_arrow(*restored, &truncated, 0, 1, timezone)),
+            Exception);
+    auto missing_validity_data = storage->data()->Copy();
+    missing_validity_data->null_count = 1;
+    missing_validity_data->buffers[0] = nullptr;
+    arrow::FixedSizeBinaryArray missing_validity(missing_validity_data);
+    EXPECT_THROW(THROW_IF_ERROR(serde->read_column_from_arrow(*restored, &missing_validity, 0, 1,
+                                                              timezone)),
+                 Exception);
+    EXPECT_EQ(restored->size(), 3);
+}
+
+TEST_F(DataTypeUUIDTest, OrcBinarySelectionNullAndInvalidLength) {
+    auto source = boundary_column();
+    auto expected = UUIDValue::to_big_endian(source->get_element(1));
+    auto maximum = UUIDValue::to_big_endian(source->get_element(4));
+    orc::EncodedStringVectorBatch batch(5, *orc::getDefaultPool());
+    batch.numElements = 5;
+    batch.hasNulls = true;
+    batch.notNull[1] = 1;
+    batch.notNull[3] = 0;
+    batch.notNull[4] = 1;
+    batch.data[1] = reinterpret_cast<char*>(expected.data());
+    batch.data[4] = reinterpret_cast<char*>(maximum.data());
+    batch.length[1] = 16;
+    batch.length[4] = 16;
+    const auto file_type = orc::createPrimitiveType(orc::BINARY);
+    const std::vector<size_t> selected_rows {1, 3, 4};
+    OrcDecodedColumnView view;
+    view.file_type = file_type.get();
+    view.selected_type = file_type.get();
+    view.batch = &batch;
+    view.rows = 5;
+    view.selected_rows = &selected_rows;
+    const auto nullable_type = make_nullable(type);
+    auto column = nullable_type->create_column();
+    const auto nullable_serde = nullable_type->get_serde();
+    ASSERT_TRUE(nullable_serde->read_column_from_orc(*column, view).ok());
+    EXPECT_EQ((*column)[0], (*source)[1]);
+    EXPECT_TRUE(column->is_null_at(1));
+    EXPECT_EQ((*column)[2], (*source)[4]);
+    batch.length[1] = 15;
+    EXPECT_FALSE(nullable_serde->read_column_from_orc(*column, view).ok());
+    EXPECT_EQ(column->size(), 3);
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): GTest assertions expand to branches.
+TEST_F(DataTypeUUIDTest, ArrowNestedBinaryIpcRoundTrip) {
+    const auto nullable_uuid = make_nullable(type);
+    const auto array_type = std::make_shared<DataTypeArray>(nullable_uuid);
+    const auto map_type = std::make_shared<DataTypeMap>(nullable_uuid, nullable_uuid);
+    const auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {nullable_uuid, array_type},
+                                                              Strings {"u", "items"});
+    const std::vector<std::pair<DataTypePtr, std::string>> cases {
+            {nullable_uuid, "00112233-4455-6677-8899-aabbccddeeff"},
+            {make_nullable(array_type), R"(["00112233-4455-6677-8899-aabbccddeeff",null])"},
+            {make_nullable(map_type), R"({"00112233-4455-6677-8899-aabbccddeeff":null})"},
+            {make_nullable(struct_type),
+             R"({"u":"ffffffff-ffff-ffff-ffff-ffffffffffff","items":[null,"00000000-0000-0000-0000-000000000000"]})"},
+            {make_nullable(std::make_shared<DataTypeArray>(make_nullable(map_type))),
+             R"([{"00112233-4455-6677-8899-aabbccddeeff":"80000000-0000-0000-0000-000000000000"},null,{}])"},
+            {std::make_shared<DataTypeString>(), "00112233-4455-6677-8899-aabbccddeeff"}};
+    Block block;
+    DataTypes types;
+    for (const auto& [data_type, text] : cases) {
+        auto column = data_type->create_column();
+        auto data_serde = data_type->get_serde();
+        Slice input(text);
+        ASSERT_TRUE(data_serde->deserialize_one_cell_from_json(*column, input, {}).ok())
+                << data_type->get_name();
+        column->insert_default();
+        input = Slice(text);
+        ASSERT_TRUE(data_serde->deserialize_one_cell_from_json(*column, input, {}).ok());
+        block.insert({std::move(column), data_type, std::to_string(types.size())});
+        types.push_back(data_type);
+    }
+    std::shared_ptr<arrow::Schema> schema;
+    ASSERT_TRUE(get_arrow_schema_from_block(block, &schema, "UTC").ok());
+    EXPECT_TRUE(schema->field(0)->type()->Equals(arrow::extension::uuid()));
+    EXPECT_TRUE(schema->field(5)->type()->Equals(arrow::utf8()));
+    std::string serialized_schema;
+    ASSERT_TRUE(serialize_arrow_schema(&schema, &serialized_schema).ok());
+    auto schema_reader =
+            arrow::ipc::RecordBatchStreamReader::Open(std::make_shared<arrow::io::BufferReader>(
+                    arrow::Buffer::FromString(serialized_schema)));
+    ASSERT_TRUE(schema_reader.ok());
+    EXPECT_TRUE((*schema_reader)->schema()->Equals(*schema, true));
+    std::shared_ptr<arrow::RecordBatch> schema_batch;
+    ASSERT_TRUE((*schema_reader)->ReadNext(&schema_batch).ok());
+    ASSERT_NE(schema_batch, nullptr);
+    EXPECT_EQ(schema_batch->num_rows(), 0);
+    ASSERT_TRUE(schema_batch->ValidateFull().ok());
+    cctz::time_zone timezone;
+    DorisArrowBlockConvertor converter(schema, timezone);
+    ASSERT_TRUE(converter.init().ok());
+    for (const size_t start : {0, 1, 3}) {
+        std::shared_ptr<arrow::RecordBatch> batch;
+        ASSERT_TRUE(
+                converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch, start, 3)
+                        .ok());
+        ASSERT_TRUE(batch->ValidateFull().ok());
+        auto sink_result = arrow::io::BufferOutputStream::Create();
+        ASSERT_TRUE(sink_result.ok());
+        auto sink = *sink_result;
+        auto writer_result = arrow::ipc::MakeStreamWriter(sink, schema);
+        ASSERT_TRUE(writer_result.ok());
+        auto writer = *writer_result;
+        ASSERT_TRUE(writer->WriteRecordBatch(*batch).ok());
+        ASSERT_TRUE(writer->Close().ok());
+        auto buffer_result = sink->Finish();
+        ASSERT_TRUE(buffer_result.ok());
+        auto reader_result = arrow::ipc::RecordBatchStreamReader::Open(
+                std::make_shared<arrow::io::BufferReader>(*buffer_result));
+        ASSERT_TRUE(reader_result.ok());
+        std::shared_ptr<arrow::RecordBatch> received;
+        ASSERT_TRUE((*reader_result)->ReadNext(&received).ok());
+        ASSERT_TRUE(received->ValidateFull().ok());
+        EXPECT_TRUE(received->schema()->Equals(*schema, true));
+        Block restored;
+        ASSERT_TRUE(converter.convert_from_arrow(received, types, &restored).ok());
+        ASSERT_EQ(restored.rows(), 3 - start);
+        for (size_t column = 0; column < types.size(); ++column) {
+            for (size_t row = 0; row < restored.rows(); ++row) {
+                EXPECT_EQ((*restored.get_by_position(column).column)[row],
+                          (*block.get_by_position(column).column)[row + start]);
+            }
+        }
+    }
+}
+
+TEST_F(DataTypeUUIDTest, ArrowConstantNilAndAllNullRemainDistinct) {
+    const auto nullable_type = make_nullable(type);
+    Block source {
+            {type->create_column_const_with_default_value(4), type, "nil"},
+            {nullable_type->create_column_const_with_default_value(4), nullable_type, "nulls"}};
+    std::shared_ptr<arrow::Schema> schema;
+    ASSERT_TRUE(get_arrow_schema_from_block(source, &schema, "UTC").ok());
+    std::shared_ptr<arrow::RecordBatch> batch;
+    cctz::time_zone timezone;
+    DorisArrowBlockConvertor converter(schema, timezone);
+    ASSERT_TRUE(converter.init().ok());
+    ASSERT_TRUE(converter.convert_to_arrow(source, arrow::default_memory_pool(), &batch).ok());
+    ASSERT_TRUE(batch->ValidateFull().ok());
+    EXPECT_EQ(batch->column(0)->null_count(), 0);
+    EXPECT_EQ(batch->column(1)->null_count(), 4);
+    Block restored;
+    ASSERT_TRUE(converter.convert_from_arrow(batch, {type, nullable_type}, &restored).ok());
+    for (size_t row = 0; row < restored.rows(); ++row) {
+        EXPECT_EQ(type->to_string(*restored.get_by_position(0).column, row),
+                  "00000000-0000-0000-0000-000000000000");
+        EXPECT_TRUE(restored.get_by_position(1).column->is_null_at(row));
+    }
 }
 
 TEST_F(DataTypeUUIDTest, CompactBinaryKeepsUuidStorageTagAndBits) {

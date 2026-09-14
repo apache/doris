@@ -9,3 +9,9 @@
 2	ffffffff-ffff-ffff-ffff-ffffffffffff	[]	{"k":null}
 3	\N	\N	\N
 
+-- !inferred_types --
+a	array<text>	Yes	false	\N	NONE
+id	int	Yes	false	\N	NONE
+s	struct<k:text>	Yes	false	\N	NONE
+u	text	Yes	false	\N	NONE
+

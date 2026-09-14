@@ -63,6 +63,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_uuid.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/types.h"
 #include "core/value/timestamptz_value.h"
@@ -1027,8 +1028,15 @@ DataTypePtr OrcReader::_convert_to_doris_type(const ::orc::Type& type) const {
         data_type = std::make_shared<DataTypeFloat64>();
         break;
     case ::orc::TypeKind::STRING:
-    case ::orc::TypeKind::BINARY:
         data_type = std::make_shared<DataTypeString>();
+        break;
+    case ::orc::TypeKind::BINARY:
+        if (type.hasAttributeKey("doris.logical_type") &&
+            type.getAttributeValue("doris.logical_type") == "uuid") {
+            data_type = std::make_shared<DataTypeUUID>();
+        } else {
+            data_type = std::make_shared<DataTypeString>();
+        }
         break;
     case ::orc::TypeKind::VARCHAR:
         data_type = std::make_shared<DataTypeString>(cast_set<int>(type.getMaximumLength()),
