@@ -226,8 +226,9 @@ public class HiveConnectorMetadataPartitionViewCacheTest {
 
     /**
      * Minimal {@link HmsClient} double: {@code listPartitionNames} returns a fixed list and counts calls;
-     * {@code getPartitions} fails loud (the per-partition round-trip {@link HiveConnectorMetadata#listPartitions}
-     * must never make — mirrors {@link HiveConnectorMetadataPartitionListTest}'s FakeHmsClient).
+     * {@code getPartitions} echoes the requested names back (a filtered listing resolves its surviving
+     * partitions by name through the local fallback — mirrors
+     * {@link HiveConnectorMetadataPartitionListTest}'s FakeHmsClient).
      */
     private static final class CountingHmsClient implements HmsClient {
         private final List<String> partitionNames;
@@ -245,7 +246,12 @@ public class HiveConnectorMetadataPartitionViewCacheTest {
 
         @Override
         public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> partNames) {
-            throw new AssertionError("get_partitions_by_names must not be called by partition listing");
+            List<HmsPartitionInfo> result = new ArrayList<>();
+            for (String name : partNames) {
+                result.add(new HmsPartitionInfo(HiveWriteUtils.toPartitionValues(name), name,
+                        null, null, null, Collections.emptyMap()));
+            }
+            return result;
         }
 
         @Override
