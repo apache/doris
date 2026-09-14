@@ -73,6 +73,16 @@ public:
         _agent_server->submit_tasks(return_value, tasks);
     }
 
+    // One-shot Lance index mutation dispatch. The isolated worker lands in a later
+    // slice; until then the request is answered as definitively NOT enqueued, so the
+    // FE classifies a trusted pre-invocation rejection (terminal NOT_COMMITTED)
+    // instead of an ambiguous result.
+    void submit_lance_index_job(TStatus& _return,
+                                const TLanceIndexJobDispatch& dispatch) override {
+        _return.__set_status_code(TStatusCode::NOT_IMPLEMENTED_ERROR);
+        _return.__set_error_msgs({"lance index worker is not available in this build"});
+    }
+
     void publish_cluster_state(TAgentResult& result, const TAgentPublishRequest& request) override {
         _agent_server->publish_cluster_state(result, request);
     }
