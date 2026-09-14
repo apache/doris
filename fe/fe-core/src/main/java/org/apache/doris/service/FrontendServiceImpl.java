@@ -94,6 +94,7 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SplitSource;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.lance.job.LanceIndexJobReportHandler;
 import org.apache.doris.datasource.maxcompute.MCTransaction;
 import org.apache.doris.encryption.EncryptionKey;
 import org.apache.doris.ha.FrontendNodeType;
@@ -1143,8 +1144,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     /**
      * Typed result envelope of one Lance index mutation invocation. Stale or
      * identity-mismatched reports are logged and dropped; a complete matched
-     * report is classified into the durable job state. Wiring lands with the
-     * dispatcher; until then reports cannot exist (no backend submits dispatches).
+     * report is classified into the durable job state. This layer stays thin:
+     * only the master accepts reports, and everything beyond identity checking
+     * and classification lives in the report handler.
      */
     @Override
     public TStatus reportLanceIndexJobResult(TLanceIndexJobReport report) throws TException {
@@ -1152,8 +1154,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (status.getStatusCode() != TStatusCode.OK) {
             return status;
         }
-        LOG.warn("lance index job report received before the dispatcher lands, job id {}",
-                report.getJobId());
+        new LanceIndexJobReportHandler(Env.getCurrentEnv().getLanceIndexJobManager()).handle(report);
         return new TStatus(TStatusCode.OK);
     }
 
