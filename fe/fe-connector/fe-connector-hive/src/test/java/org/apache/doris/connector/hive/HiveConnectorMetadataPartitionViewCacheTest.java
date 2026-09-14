@@ -151,6 +151,30 @@ public class HiveConnectorMetadataPartitionViewCacheTest {
         Assertions.assertEquals(names(first), names(second), "the cached list is returned verbatim");
         Assertions.assertEquals(1, client.listPartitionNamesCalls,
                 "a cache hit must not re-enumerate (listPartitionNames once)");
+        Assertions.assertFalse(client.getPartitionsCalled,
+                "an unfiltered listing must never pay the per-partition round-trip");
+    }
+
+    @Test
+    public void listPartitionsFetchesPerPartitionMetadataOnlyWhenAPredicateResolves() {
+        // WHY: the unfiltered listing is the hot partition-pruning path and must stay names-only; only a
+        // predicate the connector resolves may fetch the surviving partitions by name. MUTATION: making the
+        // unfiltered path call get_partitions_by_names -> the first assertion goes red.
+        CountingHmsClient client = new CountingHmsClient(PARTITIONS);
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
+        HiveConnectorMetadata md = metadataWithCache(client, cache);
+        HiveTableHandle h = handle();
+
+        md.listPartitions(null, h, Optional.empty());
+        Assertions.assertFalse(client.getPartitionsCalled,
+                "an unfiltered listing must list names only, not get_partitions_by_names");
+
+        ConnectorExpression filter = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("year", ConnectorType.of("STRING")),
+                new ConnectorLiteral(ConnectorType.of("STRING"), "2024"));
+        md.listPartitions(null, h, Optional.of(filter));
+        Assertions.assertTrue(client.getPartitionsCalled,
+                "a resolved predicate fetches the surviving partitions by name");
     }
 
     @Test
@@ -226,13 +250,14 @@ public class HiveConnectorMetadataPartitionViewCacheTest {
 
     /**
      * Minimal {@link HmsClient} double: {@code listPartitionNames} returns a fixed list and counts calls;
-     * {@code getPartitions} echoes the requested names back (a filtered listing resolves its surviving
-     * partitions by name through the local fallback — mirrors
-     * {@link HiveConnectorMetadataPartitionListTest}'s FakeHmsClient).
+     * {@code getPartitions} echoes the requested names back and records the call, so an unfiltered listing can
+     * assert it never paid that per-partition round-trip while a predicate fallback can assert it did
+     * (mirrors {@link HiveConnectorMetadataPartitionListTest}'s FakeHmsClient).
      */
     private static final class CountingHmsClient implements HmsClient {
         private final List<String> partitionNames;
         int listPartitionNamesCalls;
+        boolean getPartitionsCalled;
 
         CountingHmsClient(List<String> partitionNames) {
             this.partitionNames = partitionNames;
@@ -246,6 +271,7 @@ public class HiveConnectorMetadataPartitionViewCacheTest {
 
         @Override
         public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> partNames) {
+            getPartitionsCalled = true;
             List<HmsPartitionInfo> result = new ArrayList<>();
             for (String name : partNames) {
                 result.add(new HmsPartitionInfo(HiveWriteUtils.toPartitionValues(name), name,

@@ -973,7 +973,25 @@ public class PluginDrivenExternalTable extends ExternalTable {
 
     @Override
     public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
-        return getNameToPartitionItems(snapshot, Optional.empty());
+        List<Column> partitionColumns = getPartitionColumns(snapshot);
+        if (partitionColumns.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+        if (!handleOpt.isPresent()) {
+            return Collections.emptyMap();
+        }
+        // Thread the statement's MVCC pin onto the handle this view is enumerated from (see
+        // pinPartitionViewHandle): materializing the latest generation for a time-travel / @options query
+        // would describe a partition set the data scan never reads. The connector-FILTERED shape does not
+        // come through here - it is served by applyPartitionFilterForScan - so this eager path is always
+        // unfiltered.
+        ConnectorTableHandle handle = pinPartitionViewHandle(handleOpt.get(), metadata, session, snapshot);
+        return buildNameToPartitionItems(snapshot, metadata, session, handle, partitionColumns);
     }
 
     /**
@@ -1175,44 +1193,14 @@ public class PluginDrivenExternalTable extends ExternalTable {
         return new ListPartitionItem(Lists.newArrayList(key));
     }
 
-    private Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot,
-            Optional<ConnectorExpression> partitionFilter) {
-        List<Column> partitionColumns = getPartitionColumns(snapshot);
-        if (partitionColumns.isEmpty()) {
-            return Collections.emptyMap();
-        }
-        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
-        Connector connector = pluginCatalog.getConnector();
-        ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
-        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
-        if (!handleOpt.isPresent()) {
-            return Collections.emptyMap();
-        }
-
-        // Thread the statement's MVCC pin onto the handle this view is enumerated from (see
-        // pinPartitionViewHandle): materializing the latest generation for a time-travel / @options query
-        // would describe a partition set the data scan never reads.
-        ConnectorTableHandle handle = partitionFilter.isPresent()
-                ? handleOpt.get() : pinPartitionViewHandle(handleOpt.get(), metadata, session, snapshot);
-        return buildNameToPartitionItems(snapshot, metadata, session, handle, partitionColumns,
-                partitionFilter);
-    }
-
     private Map<String, PartitionItem> buildNameToPartitionItems(Optional<MvccSnapshot> snapshot,
             ConnectorMetadata metadata, ConnectorSession session, ConnectorTableHandle handle,
             List<Column> partitionColumns) {
-        return buildNameToPartitionItems(snapshot, metadata, session, handle, partitionColumns, Optional.empty());
-    }
-
-    private Map<String, PartitionItem> buildNameToPartitionItems(Optional<MvccSnapshot> snapshot,
-            ConnectorMetadata metadata, ConnectorSession session, ConnectorTableHandle handle,
-            List<Column> partitionColumns, Optional<ConnectorExpression> partitionFilter) {
         List<String> remoteNames = getSchemaCacheValue(snapshot)
                 .map(value -> ((PluginDrivenSchemaCacheValue) value).getPartitionColumnRemoteNames())
                 .orElse(Collections.emptyList());
         List<Type> types = partitionColumns.stream().map(Column::getType).collect(Collectors.toList());
-        List<ConnectorPartitionInfo> partitions = metadata.listPartitions(session, handle, partitionFilter);
+        List<ConnectorPartitionInfo> partitions = metadata.listPartitions(session, handle, Optional.empty());
         List<String> partitionNames = new ArrayList<>(partitions.size());
         List<List<String>> partitionValues = new ArrayList<>(partitions.size());
         for (ConnectorPartitionInfo partition : partitions) {
