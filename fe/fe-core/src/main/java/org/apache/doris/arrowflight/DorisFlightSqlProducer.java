@@ -43,6 +43,7 @@ import org.apache.arrow.flight.Criteria;
 import org.apache.arrow.flight.FlightDescriptor;
 import org.apache.arrow.flight.FlightEndpoint;
 import org.apache.arrow.flight.FlightInfo;
+import org.apache.arrow.flight.FlightRuntimeException;
 import org.apache.arrow.flight.FlightStream;
 import org.apache.arrow.flight.Location;
 import org.apache.arrow.flight.PutResult;
@@ -317,6 +318,10 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             return FlightProtocolAdapter.of(connectContext).callCommand(connectContext,
                     () -> executeQueryStatement(context.peerIdentity(), connectContext, request.getQuery(),
                             descriptor));
+        } catch (FlightRuntimeException e) {
+            // Already carries the status meant for the client, e.g. UNAVAILABLE from the session's
+            // command lock; wrapping it as INTERNAL would hide that.
+            throw e;
         } catch (Throwable e) {
             String errMsg = "get flight info statement failed, " + e.getMessage();
             LOG.error(errMsg, e);
@@ -660,6 +665,11 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         try {
             ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
             FlightProtocolAdapter.of(connectContext).runCommand(connectContext, () -> stream.send(connectContext));
+        } catch (FlightRuntimeException e) {
+            // Same as in getFlightInfoStatement: keep the status the session's command lock chose.
+            LOG.error("stream metadata failed", e);
+            listener.error(e);
+            throw e;
         } catch (final Throwable e) {
             handleStreamException(e, "", listener);
         }

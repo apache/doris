@@ -17,15 +17,23 @@
 
 package org.apache.doris.arrowflight.protocol;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectScheduler;
+import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TResultSinkType;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.collect.Lists;
 import org.apache.arrow.flight.FlightRuntimeException;
 import org.apache.arrow.flight.FlightStatusCode;
 import org.apache.thrift.TException;
@@ -33,12 +41,16 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -73,6 +85,20 @@ public class FlightProtocolAdapterTest {
             adapter.runCommand(ctx, command);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+        }
+    }
+
+    // Runs a trivial command of the session from another thread and returns what it answered, or
+    // rethrows what it failed with (UNAVAILABLE if the session was still held).
+    private static String callFromAnotherThread(FlightProtocolAdapter adapter, ConnectContext ctx)
+            throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            return executor.submit(() -> adapter.callCommand(ctx, () -> "ok")).get(10, TimeUnit.SECONDS);
+        } catch (ExecutionException e) {
+            throw (Exception) e.getCause();
+        } finally {
+            executor.shutdownNow();
         }
     }
 
@@ -172,7 +198,7 @@ public class FlightProtocolAdapterTest {
     }
 
     @Test
-    public void testFailedCommandReleasesTheSession() {
+    public void testFailedCommandReleasesTheSession() throws Exception {
         ConnectContext ctx = flightSession();
         FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
         ConnectContext.remove();
@@ -184,9 +210,36 @@ public class FlightProtocolAdapterTest {
         Assertions.assertThrows(TException.class, () -> adapter.runCommand(ctx, () -> {
             throw new TException("boom");
         }));
-        // ... the thread is clean, and the next command of the session is not blocked.
+        // ... the thread is clean, and the next command of the session is not blocked. That next
+        // command runs on another thread: the lock is reentrant, so this thread would get through
+        // even if the failed command had left the lock held.
         Assertions.assertNull(ConnectContext.get());
-        Assertions.assertEquals("ok", adapter.callCommand(ctx, () -> "ok"));
+        ctx.getSessionVariable().setQueryTimeoutS(1);
+        Assertions.assertEquals("ok", callFromAnotherThread(adapter, ctx));
+    }
+
+    @Test
+    public void testOnlyTheLastStatementOfARequestMayReturnAResult() throws Exception {
+        ConnectContext ctx = flightSession();
+        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        ShowResultSet resultSet = new ShowResultSet(
+                ShowResultSetMetaData.builder().addColumn(new Column("c", ScalarType.createVarchar(20))).build(),
+                Lists.<List<String>>newArrayList(Lists.newArrayList("v")));
+
+        // A statement without a result lets the request go on.
+        Assertions.assertTrue(adapter.finishStatement(ctx, executor, 0, 2));
+
+        // A result produced by the last statement is fine ...
+        ctx.setQueryId(new TUniqueId(1, 1));
+        ctx.getResultSender().sendResultSet(resultSet, null, false);
+        Assertions.assertTrue(adapter.finishStatement(ctx, executor, 1, 2));
+        Assertions.assertNotEquals(MysqlStateType.ERR, ctx.getState().getStateType());
+
+        // ... one produced earlier stops the request with the error the client will see.
+        Assertions.assertFalse(adapter.finishStatement(ctx, executor, 0, 2));
+        Assertions.assertEquals(MysqlStateType.ERR, ctx.getState().getStateType());
+        Assertions.assertEquals(ErrorCode.ERR_ARROW_FLIGHT_SQL_MUST_ONLY_RESULT_STMT, ctx.getState().getErrorCode());
     }
 
     @Test

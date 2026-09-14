@@ -70,6 +70,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.qe.protocol.ProtocolAdapter;
+import org.apache.doris.qe.protocol.ResultSender;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.BackendSelectionProfile;
@@ -320,6 +321,11 @@ public class ConnectContext {
 
     public ProtocolAdapter getProtocolAdapter() {
         return protocolAdapter;
+    }
+
+    /** How a statement's result reaches this connection's client. */
+    public ResultSender getResultSender() {
+        return protocolAdapter.resultSender(this);
     }
 
     public MysqlSslContext getMysqlSslContext() {

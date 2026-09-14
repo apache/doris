@@ -33,6 +33,7 @@ import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Partitioning;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
@@ -42,6 +43,7 @@ import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types.NestedField;
+import org.apache.iceberg.types.Types.StructType;
 import org.apache.iceberg.types.Types.TimestampType;
 import org.apache.iceberg.util.JsonUtil;
 import org.apache.iceberg.util.StructProjection;
@@ -502,8 +504,6 @@ final class IcebergPartitionUtils {
     private static final String DAY = "day";
     private static final String HOUR = "hour";
 
-    // Iceberg partition field id starts at PARTITION_DATA_ID_START (org.apache.iceberg.PartitionSpec).
-    private static final int PARTITION_DATA_ID_START = 1000;
     // Master IcebergUtils.UNKNOWN_SNAPSHOT_ID: an empty table / a null last_updated_snapshot_id row.
     private static final long UNKNOWN_SNAPSHOT_ID = -1;
 
@@ -758,30 +758,45 @@ final class IcebergPartitionUtils {
     /**
      * The cross-query PARTITIONS-scan de-duplication seam (PERF-02): when {@code cache} is non-null the raw
      * partition list is served from / populated into the per-catalog {@link IcebergPartitionCache} keyed by
-     * {@code (id, snapshotId)} — a snapshot is immutable, so the derived partitions are a pure function of that
-     * key and safe to reuse across queries (restoring the legacy IcebergExternalMetaCache partition-info cache).
+     * {@code (id, snapshotId, schemaId, specId)}. The schema/spec generation is required because metadata-only
+     * evolution can change the unified partition projection without creating a snapshot.
      * A {@code null} cache (offline unit tests / the no-cache catalog) reads live every call. The cached list is
-     * unmodifiable so a shared entry cannot be mutated by a concurrent reader; the loader's exception (e.g. the
-     * dropped-partition-source-column {@link ValidationException}) propagates verbatim so callers keep their own
-     * degradation, and a failed scan is not cached.
+     * unmodifiable so a shared entry cannot be mutated by a concurrent reader; loader exceptions propagate
+     * verbatim so callers keep their own degradation, and a failed scan is not cached.
      */
     private static List<IcebergRawPartition> loadRawPartitions(TableIdentifier id, Table table, long snapshotId,
             IcebergPartitionCache cache) {
         if (cache == null) {
             return loadRawPartitionsUncached(table, snapshotId);
         }
-        return cache.getOrLoad(new IcebergPartitionCache.Key(id, snapshotId),
+        return cache.getOrLoad(new IcebergPartitionCache.Key(
+                        id, snapshotId, table.schema().schemaId(), table.spec().specId()),
                 () -> Collections.unmodifiableList(loadRawPartitionsUncached(table, snapshotId)));
     }
 
     private static List<IcebergRawPartition> loadRawPartitionsUncached(Table table, long snapshotId) {
+        StructType unifiedPartitionType = Partitioning.partitionType(table);
+        Map<Integer, Integer> partitionFieldOrdinals = new HashMap<>();
+        for (int i = 0; i < unifiedPartitionType.fields().size(); i++) {
+            partitionFieldOrdinals.put(unifiedPartitionType.fields().get(i).fieldId(), i);
+        }
         Table partitionsTable = MetadataTableUtils.createMetadataTableInstance(table, MetadataTableType.PARTITIONS);
         List<IcebergRawPartition> partitions = new ArrayList<>();
         try (CloseableIterable<FileScanTask> tasks = partitionsTable.newScan().useSnapshot(snapshotId).planFiles()) {
             for (FileScanTask task : tasks) {
                 CloseableIterable<StructLike> rows = task.asDataTask().rows();
                 for (StructLike row : rows) {
-                    partitions.add(generateRawPartition(table, row));
+                    PartitionSpec liveSpec = table.specs().get(row.get(1, Integer.class));
+                    boolean hasUnrepresentableField = liveSpec.fields().stream()
+                            .anyMatch(field -> !partitionFieldOrdinals.containsKey(field.fieldId()));
+                    if (hasUnrepresentableField) {
+                        // Only specs represented by live partition rows affect this snapshot. Rejecting an
+                        // orphaned but file-free historical spec would hide otherwise valid current partitions.
+                        LOG.warn("Cannot represent a live historical partition spec for iceberg table {}; "
+                                + "reporting an empty partition display.", table.name());
+                        return Collections.emptyList();
+                    }
+                    partitions.add(generateRawPartition(table, row, partitionFieldOrdinals));
                 }
             }
         } catch (IOException e) {
@@ -790,7 +805,8 @@ final class IcebergPartitionUtils {
         return partitions;
     }
 
-    private static IcebergRawPartition generateRawPartition(Table table, StructLike row) {
+    private static IcebergRawPartition generateRawPartition(
+            Table table, StructLike row, Map<Integer, Integer> partitionFieldOrdinals) {
         // PARTITIONS row layout: 0 partitionData, 1 spec_id, 2 record_count, 3 file_count,
         // 4 total_data_file_size_in_bytes, 5..8 position/equality delete stats, 9 last_updated_at,
         // 10 last_updated_snapshot_id. Only 0/1/9/10 are needed by the MTMV partition view.
@@ -805,11 +821,10 @@ final class IcebergPartitionUtils {
         for (int i = 0; i < partitionSpec.fields().size(); ++i) {
             PartitionField partitionField = partitionSpec.fields().get(i);
             Class<?> fieldClass = partitionSpec.javaClasses()[i];
-            int fieldId = partitionField.fieldId();
-            // Iceberg partition field id starts at PARTITION_DATA_ID_START, so the index into partitionData is
-            // fieldId - PARTITION_DATA_ID_START.
-            int index = fieldId - PARTITION_DATA_ID_START;
-            Object o = partitionData.get(index, fieldClass);
+            // Iceberg 1.11 projects every metadata row into the table-wide unified partition struct; a spec-local
+            // position can therefore point at a different evolved field, so resolve the ordinal by field ID.
+            int ordinal = partitionFieldOrdinals.get(partitionField.fieldId());
+            Object o = partitionData.get(ordinal, fieldClass);
             String fieldValue = o == null ? null : o.toString();
             sb.append(partitionField.name()).append("=").append(fieldValue).append("/");
             // Resolve the partition field's SOURCE column name (case-preserved), matching the generic

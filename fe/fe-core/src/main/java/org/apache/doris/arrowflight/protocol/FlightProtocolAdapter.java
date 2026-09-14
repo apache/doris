@@ -21,20 +21,26 @@ import org.apache.doris.arrowflight.auth2.FlightRemoteIpServerStreamTracer;
 import org.apache.doris.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectPoolMgr;
 import org.apache.doris.qe.ConnectScheduler;
+import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.protocol.ProtocolAdapter;
 import org.apache.doris.thrift.TResultSinkType;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.arrow.flight.CallStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -84,7 +90,8 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
         if (adapter instanceof FlightProtocolAdapter) {
             return (FlightProtocolAdapter) adapter;
         }
-        throw new IllegalStateException("not an Arrow Flight SQL connection: " + adapter.type());
+        throw new IllegalStateException("not an Arrow Flight SQL connection: "
+                + (adapter == null ? "no protocol adapter" : adapter.type()));
     }
 
     @Override
@@ -107,8 +114,74 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     }
 
     @Override
+    public FlightResultSender resultSender(ConnectContext ctx) {
+        return new FlightResultSender(ctx, this);
+    }
+
+    /**
+     * The SQL cache keeps the result rows in MySQL wire format, which cannot be turned into the
+     * Arrow batches a Flight client needs; the cached rows would be wrong for it anyway (object
+     * types such as HLL / BITMAP / QUANTILE_STATE were serialized as NULL under
+     * return_object_data_as_binary=false). A Flight session always re-executes the query.
+     */
+    @Override
+    public boolean supportsSqlCacheReplay() {
+        return false;
+    }
+
+    @Override
     public ConnectPoolMgr connectPool(ConnectScheduler scheduler) {
         return scheduler.getFlightSqlConnectPoolMgr();
+    }
+
+    /**
+     * A statement forwarded to the master has its outcome carried into this session here, the
+     * way {@code MysqlProtocolAdapter.finishCommand} replays it to a MySQL client. And of the
+     * statements of one request only the last may produce a result: the FlightInfo returned for
+     * the request describes exactly one.
+     */
+    @Override
+    public boolean finishStatement(ConnectContext ctx, StmtExecutor executor, int stmtIndex, int stmtCount)
+            throws IOException {
+        if (executor.hasForwardedToMaster()) {
+            carryForwardedOutcome(ctx, executor);
+        }
+        Preconditions.checkState(channel.resultNum() <= 1);
+        if (channel.resultNum() == 1 && stmtIndex != stmtCount - 1) {
+            String errMsg = "Only be one stmt that returns the result and it is at the end. "
+                    + "stmts.size(): " + stmtCount;
+            LOG.warn(errMsg);
+            ctx.getState().setError(ErrorCode.ERR_ARROW_FLIGHT_SQL_MUST_ONLY_RESULT_STMT, errMsg);
+            ctx.getState().setErrType(QueryState.ErrType.OTHER_ERR);
+            return false;
+        }
+        return true;
+    }
+
+    // The master answers a forwarded statement with its status and, for a SHOW, its rows. Without
+    // this a forwarded statement leaves ctx.getState() at the OK that executeQuery() set with
+    // reset() and leaves the FlightSqlChannel empty, so DorisFlightSqlProducer answers with
+    // addOKResult()'s synthesized StatusResult=0 -- reporting success for a statement that failed
+    // on the master, and an empty status row instead of the rows a forwarded SHOW produced.
+    @VisibleForTesting
+    void carryForwardedOutcome(ConnectContext ctx, StmtExecutor executor) throws IOException {
+        if (executor.getProxyStatusCode() != 0) {
+            // The master rejected the statement, e.g. CREATE TABLE on a table that already exists.
+            // TMasterOpResult carries the master's error code as a plain int and ErrorCode has no
+            // reverse lookup, so the master's code travels in the message instead.
+            String errMsg = "forwarded statement failed on master FE, error code: "
+                    + executor.getProxyStatusCode() + ", error message: " + executor.getProxyErrMsg();
+            LOG.warn(errMsg);
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, errMsg);
+            return;
+        }
+        // Set exactly when the forwarded statement produced rows: proxyExecute() fills
+        // TMasterOpResult.resultSet from getProxyShowResultSet(). A forwarded DDL produces none,
+        // and the synthesized StatusResult=0 is the right answer for it.
+        ShowResultSet resultSet = executor.getShowResultSet();
+        if (resultSet != null) {
+            executor.sendResultSet(resultSet);
+        }
     }
 
     @Override
@@ -238,7 +311,7 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
      * Runs one command of the session, and no other one at the same time: a statement, a prepared
      * statement action, a DoGet of a frontend-side result, a metadata request. The session's
      * {@link ConnectContext} is the thread's current context while the command runs. A command
-     * that finds another one still running waits for it up to the session's query timeout and
+     * that finds another one still running waits for it up to the session's execution timeout and
      * then fails with {@code UNAVAILABLE} instead of running concurrently on the same context.
      *
      * <p>Session teardown (bearer token expiry, CloseSession, KILL) does not go through here.
@@ -268,16 +341,22 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     }
 
     private void acquireCommandLock(ConnectContext ctx) {
-        long waitS = ctx.getQueryTimeoutS();
+        // Wait as long as the running command is allowed to run: for a synchronous load statement
+        // that is max(insert_timeout, query_timeout), the bound the timeout checker applies to it.
+        long waitS = ctx.getExecTimeoutS();
         boolean locked;
         try {
             locked = commandLock.tryLock(waitS, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            LOG.warn("interrupted while waiting for the running command of Arrow Flight SQL connection {}",
+                    ctx.getConnectionId());
             throw CallStatus.CANCELLED.withDescription("interrupted while waiting for the previous command of "
                     + "this Arrow Flight SQL session to finish").withCause(e).toRuntimeException();
         }
         if (!locked) {
+            LOG.warn("a command of Arrow Flight SQL connection {} gave up after waiting {}s for the running one",
+                    ctx.getConnectionId(), waitS);
             throw CallStatus.UNAVAILABLE.withDescription(String.format("another command of this Arrow Flight SQL "
                     + "session is still running after %d seconds, connection id: %d", waitS, ctx.getConnectionId()))
                     .toRuntimeException();
