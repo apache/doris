@@ -1446,6 +1446,10 @@ message GetRowsetRequest {
     optional SchemaOp schema_op = 8  [default = FILL_WITH_DICT];
     optional string request_ip = 9;
     optional int64 full_compaction_cnt = 10;
+    // Set by BE when the locally cached tablet is in NOT_READY state, asking MS
+    // to additionally report whether the tablet still has an active alter job,
+    // see GetRowsetResponse.has_alter_job
+    optional bool need_alter_job_info = 11;
 }
 
 message GetRowsetResponse {
@@ -1458,6 +1462,12 @@ message GetRowsetResponse {
     optional int64 partition_max_version = 5;
     // The cluster_id of the requester
     optional string requester_cluster_id = 6;
+    // Only filled when GetRowsetRequest.need_alter_job_info is set: whether the
+    // tablet still has an active schema change job registered in MS. A NOT_READY
+    // tablet without an alter job is an abandoned shadow tablet (its schema
+    // change job has been cancelled or removed) waiting to be recycled; it will
+    // never be converted or compacted.
+    optional bool has_alter_job = 7;
 }
 
 message GetSchemaDictRequest {

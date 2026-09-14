@@ -499,6 +499,7 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
     auto disable = [](CloudTablet* t) { return t->tablet_meta()->tablet_schema()->disable_auto_compaction(); };
 
     auto [num_filtered, num_disabled, num_skipped] = std::make_tuple(0, 0, 0);
+    int num_zombie = 0;
 
     auto weak_tablets = get_weak_tablets();
     std::vector<std::pair<std::shared_ptr<CloudTablet>, int64_t>> buf;
@@ -506,6 +507,11 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
     for (auto& weak_tablet : weak_tablets) {
         auto t = weak_tablet.lock();
         if (t == nullptr) { continue; }
+
+        // Abandoned shadow tablets of cancelled schema change jobs will never be
+        // converted or compacted, exclude them from both the max score metrics and
+        // compaction candidates so that they don't masquerade as real backlog.
+        if (t->is_zombie_tablet()) { ++num_zombie; continue; }
 
         int64_t s = score(t.get());
         if (s <= 0) { continue; }
@@ -535,6 +541,7 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
     LOG_EVERY_N(INFO, 1000) << "get_topn_compaction_score, n=" << n << " type=" << compaction_type
                << " num_tablets=" << weak_tablets.size() << " num_skipped=" << num_skipped
                << " num_disabled=" << num_disabled << " num_filtered=" << num_filtered
+               << " num_zombie=" << num_zombie
                << " max_score=" << score_stats->max_score << " max_score_tablet=" << max_score_tablet_id
                << " tablets=[" << [&buf] { std::stringstream ss; for (auto& i : buf) ss << i.first->tablet_id() << ":" << i.second << ","; return ss.str(); }() << "]"
                ;
