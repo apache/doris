@@ -20,6 +20,7 @@ package org.apache.doris.datasource.lance.job;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
@@ -48,9 +49,10 @@ import java.util.UUID;
  * Master-only daemon that drives the durable Lance index job records through
  * the lifecycle after admission. Each round runs in a fixed order: converge
  * expired RUNNING jobs to UNKNOWN, release possible-live slots whose backend
- * process was replaced, then dispatch PENDING jobs. Every durable transition
- * goes through {@link LanceIndexJobManager} under its own lock; the daemon
- * holds no catalog or manager lock across any call.
+ * process was replaced, drive the refresh a terminal job still owes, then
+ * dispatch PENDING jobs. Every durable transition goes through
+ * {@link LanceIndexJobManager} under its own lock; the daemon holds no catalog
+ * or manager lock across any call.
  *
  * <p>The daemon does not read the admission gate: a job that is already durable
  * must be driven to its terminal state, whatever the gate says now, so the
@@ -94,6 +96,7 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
         long nowMs = System.currentTimeMillis();
         sweepExpiredRunningJobs(nowMs);
         sweepReplacedProcessEpochs();
+        driveRequiredRefreshes(nowMs);
         dispatchPendingJobs();
     }
 
@@ -156,6 +159,65 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
                 LOG.warn("failed to sweep possible-live slot of lance index job " + job.getJobId(), t);
             }
         }
+    }
+
+    /**
+     * Refresh driver for terminal jobs with an unfinished refresh obligation.
+     * Completing the refresh is the protocol duty that releases the same-name
+     * fence and the unresolved quota once DONE; it is not a read-visibility
+     * action, because index metadata is never cached. Each job is driven
+     * through markRefreshRunning, the idempotent external-table refresh, then
+     * DONE or FAILED: a FAILED job keeps its fence and is retried, throttled to
+     * one attempt per retry interval, while a first REQUIRED refresh is never
+     * delayed. UNKNOWN jobs never appear here; they owe no refresh.
+     */
+    private void driveRequiredRefreshes(long nowMs) {
+        for (LanceIndexJob job : jobManager.getJobsNeedingRefresh()) {
+            try {
+                if (job.getRefreshState() == LanceIndexJobRefreshState.RUNNING) {
+                    // In flight elsewhere; the master-transfer sweep downgrades a stale
+                    // RUNNING back to REQUIRED, so a lost driver cannot strand it.
+                    continue;
+                }
+                if (job.getRefreshState() == LanceIndexJobRefreshState.FAILED
+                        && nowMs - job.getUpdateTimeMs()
+                                < Config.lance_index_job_refresh_retry_second * 1000L) {
+                    continue;
+                }
+                if (!jobManager.markRefreshRunning(job.getJobId(), job.getRevision())) {
+                    // A concurrent driver won the compare-and-set; nothing to do here.
+                    continue;
+                }
+                driveOneRefresh(job);
+            } catch (Throwable t) {
+                LOG.warn("failed to drive the refresh of lance index job " + job.getJobId(), t);
+            }
+        }
+    }
+
+    private void driveOneRefresh(LanceIndexJob job) {
+        long refreshRevision = job.getRevision() + 1;
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(job.getCatalogId());
+        if (catalog == null) {
+            // Unreachable while the unresolved-job guard blocks catalog drops; kept as a
+            // fail-closed fallback so the job still transitions and retries later.
+            LOG.warn("catalog of lance index job {} is gone; marking its refresh FAILED", job.getJobId());
+            jobManager.markRefreshFailed(job.getJobId(), refreshRevision);
+            return;
+        }
+        try {
+            // A half-orphan target (its db or table already dropped externally) is a
+            // silent no-op: nothing is left to invalidate, and DONE is the correct end
+            // state for the job.
+            Env.getCurrentEnv().getRefreshManager().handleRefreshTable(catalog.getName(),
+                    job.getDbName(), job.getTableName(), true);
+        } catch (DdlException e) {
+            LOG.warn("refresh of lance index job {} failed; keeping the fence for a retry: {}",
+                    job.getJobId(), e.getMessage());
+            jobManager.markRefreshFailed(job.getJobId(), refreshRevision);
+            return;
+        }
+        jobManager.markRefreshDone(job.getJobId(), refreshRevision);
     }
 
     /**
