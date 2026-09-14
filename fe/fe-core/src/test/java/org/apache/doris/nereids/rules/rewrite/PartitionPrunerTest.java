@@ -23,11 +23,13 @@ import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.rules.OneListPartitionEvaluator;
 import org.apache.doris.nereids.rules.expression.rules.OnePartitionEvaluator;
+import org.apache.doris.nereids.rules.expression.rules.OneRangePartitionEvaluator;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionPruneResult;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionTableType;
@@ -39,20 +41,24 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Range;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -64,6 +70,7 @@ public class PartitionPrunerTest extends TestWithFeService {
     private final SlotReference slotA = new SlotReference("a", IntegerType.INSTANCE);
     private final SlotReference slotB = new SlotReference("b", IntegerType.INSTANCE);
     private final SlotReference slotC = new SlotReference("c", IntegerType.INSTANCE);
+    private final SlotReference slotD = new SlotReference("d", IntegerType.INSTANCE);
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -342,6 +349,90 @@ public class PartitionPrunerTest extends TestWithFeService {
 
         Assertions.assertEquals(1, result.partitions.size());
         Assertions.assertTrue(result.hasPartitionPredicate);
+    }
+
+    @Test
+    public void testThreeColumnLexicographicRangeBoundaries()
+            throws AnalysisException, InvocationTargetException, IllegalAccessException {
+        List<Column> columns = ImmutableList.of(
+                new Column("a", PrimitiveType.INT),
+                new Column("b", PrimitiveType.INT),
+                new Column("c", PrimitiveType.INT));
+        List<Slot> slots = ImmutableList.of(slotA, slotB, slotC);
+        RangePartitionItem partitionItem = createRangePartitionItem(
+                columns, new int[] {1, 10, 100}, new int[] {100, 20, 200});
+
+        for (int expandThreshold : new int[] {1, 200}) {
+            assertRangeTuplePruned(partitionItem, slots, expandThreshold, false, 1, 11, 50);
+            assertRangeTuplePruned(partitionItem, slots, expandThreshold, false, 100, 19, 250);
+            assertRangeTuplePruned(partitionItem, slots, expandThreshold, false, 100, 20, 199);
+            assertRangeTuplePruned(partitionItem, slots, expandThreshold, false, 1, 10, 100);
+
+            assertRangeTuplePruned(partitionItem, slots, expandThreshold, true, 1, 10, 99);
+            assertRangeTuplePruned(partitionItem, slots, expandThreshold, true, 100, 20, 200);
+            assertRangeTuplePruned(partitionItem, slots, expandThreshold, true, 100, 20, 250);
+        }
+    }
+
+    @Test
+    public void testFourColumnLexicographicRangeBoundaries()
+            throws AnalysisException, InvocationTargetException, IllegalAccessException {
+        List<Column> columns = ImmutableList.of(
+                new Column("a", PrimitiveType.INT),
+                new Column("b", PrimitiveType.INT),
+                new Column("c", PrimitiveType.INT),
+                new Column("d", PrimitiveType.INT));
+        List<Slot> slots = ImmutableList.of(slotA, slotB, slotC, slotD);
+        RangePartitionItem partitionItem = createRangePartitionItem(
+                columns, new int[] {1, 10, 100, 1000}, new int[] {4, 20, 200, 2000});
+
+        for (int expandThreshold : new int[] {1, 10}) {
+            // Once an earlier column diverges, all suffix columns are unbounded.
+            assertRangeTuplePruned(partitionItem, slots, expandThreshold, false, 2, -1000, -1000, -1000);
+            assertRangeTuplePruned(partitionItem, slots, expandThreshold, false, 3, 9999, 9999, 9999);
+            assertRangeTuplePruned(partitionItem, slots, expandThreshold, false, 1, 11, -1, -1);
+            assertRangeTuplePruned(partitionItem, slots, expandThreshold, false, 4, 19, 9999, 9999);
+            assertRangeTuplePruned(partitionItem, slots, expandThreshold, false, 1, 10, 101, -1);
+            assertRangeTuplePruned(partitionItem, slots, expandThreshold, false, 4, 20, 199, 9999);
+
+            // An equal prefix leaves the final column to decide the inclusive lower and exclusive upper bounds.
+            assertRangeTuplePruned(partitionItem, slots, expandThreshold, false, 1, 10, 100, 1000);
+            assertRangeTuplePruned(partitionItem, slots, expandThreshold, false, 4, 20, 200, 1999);
+            assertRangeTuplePruned(partitionItem, slots, expandThreshold, true, 1, 10, 100, 999);
+            assertRangeTuplePruned(partitionItem, slots, expandThreshold, true, 4, 20, 200, 2000);
+            assertRangeTuplePruned(partitionItem, slots, expandThreshold, true, 4, 20, 200, 2001);
+        }
+    }
+
+    private void assertRangeTuplePruned(RangePartitionItem partitionItem, List<Slot> slots,
+            int expandThreshold, boolean expectedPruned, int... values)
+            throws InvocationTargetException, IllegalAccessException {
+        ImmutableList.Builder<Expression> equalities = ImmutableList.builderWithExpectedSize(values.length);
+        for (int i = 0; i < values.length; i++) {
+            equalities.add(new EqualTo(slots.get(i), Literal.of(values[i])));
+        }
+        Expression predicate = ExpressionUtils.and(equalities.build());
+        OneRangePartitionEvaluator<String> evaluator = new OneRangePartitionEvaluator<>(
+                "p1", slots, partitionItem, cascadesContext, expandThreshold);
+        Pair<Boolean, Boolean> result =
+                (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate, evaluator);
+        Assertions.assertEquals(expectedPruned, result.first,
+                "tuple=" + Arrays.toString(values) + ", expandThreshold=" + expandThreshold);
+    }
+
+    private RangePartitionItem createRangePartitionItem(
+            List<Column> columns, int[] lowerValues, int[] upperValues) throws AnalysisException {
+        ImmutableList.Builder<PartitionValue> lower = ImmutableList.builderWithExpectedSize(lowerValues.length);
+        ImmutableList.Builder<PartitionValue> upper = ImmutableList.builderWithExpectedSize(upperValues.length);
+        for (int value : lowerValues) {
+            lower.add(new PartitionValue(Integer.toString(value)));
+        }
+        for (int value : upperValues) {
+            upper.add(new PartitionValue(Integer.toString(value)));
+        }
+        PartitionKey lowerKey = PartitionKey.createPartitionKey(lower.build(), columns);
+        PartitionKey upperKey = PartitionKey.createPartitionKey(upper.build(), columns);
+        return new RangePartitionItem(Range.closedOpen(lowerKey, upperKey));
     }
 
     private ListPartitionItem createListPartitionItem(String... values) throws AnalysisException {
