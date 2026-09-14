@@ -362,3 +362,13 @@ Iceberg V3 schema
 - 范围复查发现 Connector changelog UPDATE/MERGE 在普通 sink 校验之前返回。现将相同空间 metadata 校验接入 UPDATE 的 bindColumn 及 MERGE 各分支 coercion 前，增加真实 plan builder CRS 拒绝测试，FE 测试进行中。
 - 当前阶段 5 尚未完成：仍需 BE UT、真实 SQL 分析测试覆盖、Iceberg 外部读写回归及自动输出、格式和静态检查证据。现有通过证据仅支持 FE 定向测试和完整构建，不支持端到端验收完成。
 - 环境残留为 contrib/apache-orc、contrib/datasketches-cpp，未纳入源码提交。
+
+## 执行记录：2026-10-13 BE 定向测试收敛
+
+- 标准 `run-be-ut.sh` 最终通过 86/86，日志 `be-spatial-ut-current-4.log`，XML 位于 `be/ut_build_ASAN/gtest_output`。覆盖 DataTypeSpatial、VGeoFunctions、GeoTypes、ArrowSchemaUtil 全套和 Parquet native geospatial BYTE_ARRAY 解码。
+- 本机验证显式使用 ASAN、GLIBC_COMPATIBILITY=OFF；通过临时 Git config 跳过已解包 apache-orc/faiss/openblas 的重复更新，不修改仓库脚本或提交依赖目录。默认 glibc compatibility ON 的工具链冲突仍需单独处理。
+- 实际执行暴露并修复：Geography 默认 algorithm 规范化为 spherical；序列化大小多算一个 size_t；S2 Geography 函数必须拒绝 Geometry 和不支持的 CRS/algorithm；Geometry accessor 必须直接处理原始 WKB，支持投影坐标；Parquet root/group 没有 logical annotation 时必须传 nullptr；numeric sphere 函数保留原有 NULL 传播。
+- 旧 PR 的兼容性补丁直接套用会删除 master 新增函数并重复已有 WKB accessor。已恢复 ST_Within、ST_IsClosed、ST_NumGeometries、ST_NumPoints/alias 和 ST_Geometries，保留当前 FE 的 typed WKB constructor 名称，并保留旧 STRING 返回 plan 的 EWKB 兼容路径。
+- legacy EWKB fixture 的错误坐标预期已按独立 little-endian 解码修正。投影 Geometry 和 legacy SRID 测试现均通过。
+- 本轮修改已用隔离安装的 clang-format 16.0.6 格式化；diff whitespace 与 build hygiene 检查通过。clang-tidy 改用正确 compiler resource-dir，正在分析，尚未记录通过。
+- FE changelog/空间 validator 13/13 已通过。仍缺真实 SQL 分析范围补齐、Iceberg V3 外部端到端回归及自动结果、完整范围静态/格式检查和最终评审；阶段 0–5 的总体目标保持未完成。

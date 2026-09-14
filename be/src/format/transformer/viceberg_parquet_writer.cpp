@@ -26,10 +26,10 @@
 #include <numeric>
 #include <string>
 
-#include "format/table/iceberg/iceberg_arrow_block_convertor.h"
-#include "runtime/exec_env.h"
-#include "format/table/parquet_utils.h"
 #include "exprs/function/geo/functions_geo.h"
+#include "format/table/iceberg/iceberg_arrow_block_convertor.h"
+#include "format/table/parquet_utils.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
@@ -49,8 +49,9 @@ namespace {
     for (int index = 0; index < group.field_count(); ++index) {
         fields.push_back(clone_parquet_node(*group.field(index)));
     }
-    return ::parquet::schema::GroupNode::Make(group.name(), group.repetition(), fields,
-                                               group.logical_type(), group.field_id());
+    return ::parquet::schema::GroupNode::Make(
+            group.name(), group.repetition(), fields,
+            group.logical_type()->is_none() ? nullptr : group.logical_type(), group.field_id());
 }
 
 arrow::Result<::parquet::LogicalType::EdgeInterpolationAlgorithm> geography_algorithm(
@@ -101,8 +102,8 @@ arrow::Result<std::shared_ptr<::parquet::schema::GroupNode>> make_iceberg_parque
         const std::shared_ptr<::parquet::WriterProperties>& writer_properties,
         const std::shared_ptr<::parquet::ArrowWriterProperties>& arrow_properties) {
     std::shared_ptr<::parquet::SchemaDescriptor> parquet_schema;
-    ARROW_RETURN_NOT_OK(::parquet::arrow::ToParquetSchema(
-            arrow_schema.get(), *writer_properties, *arrow_properties, &parquet_schema));
+    ARROW_RETURN_NOT_OK(::parquet::arrow::ToParquetSchema(arrow_schema.get(), *writer_properties,
+                                                          *arrow_properties, &parquet_schema));
 
     const auto* source_root = parquet_schema->group_node();
     ::parquet::schema::NodeVector fields;
@@ -135,8 +136,7 @@ arrow::Result<std::shared_ptr<::parquet::schema::GroupNode>> make_iceberg_parque
     }
     return std::static_pointer_cast<::parquet::schema::GroupNode>(
             ::parquet::schema::GroupNode::Make(source_root->name(), source_root->repetition(),
-                                                fields, source_root->logical_type(),
-                                                source_root->field_id()));
+                                               fields, nullptr, source_root->field_id()));
 }
 
 } // namespace
