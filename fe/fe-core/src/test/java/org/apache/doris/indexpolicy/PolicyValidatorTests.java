@@ -394,6 +394,42 @@ public class PolicyValidatorTests {
         Assertions.assertEquals(3, restored.getCopiedIndexPolicies().size());
     }
 
+    @Test
+    public void testExactLegacyNameControlsValidationAndDropDependencies() throws Exception {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        IndexPolicy exactAnalyzer = new IndexPolicy(
+                10, "LEGACY_ANALYZER", IndexPolicyTypeEnum.ANALYZER, Map.of("tokenizer", "keyword"));
+        IndexPolicy normalizedNormalizer = new IndexPolicy(
+                11, "legacy_analyzer", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "lowercase"));
+        IndexPolicy historicalTokenizer = new IndexPolicy(
+                20, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard"));
+        IndexPolicy normalizedTokenizer = new IndexPolicy(
+                21, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "keyword"));
+        IndexPolicy dependentAnalyzer = new IndexPolicy(
+                22, "legacy_exact_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "IK_SMART"));
+
+        manager.replayCreateIndexPolicy(exactAnalyzer);
+        manager.replayCreateIndexPolicy(normalizedNormalizer);
+        manager.replayCreateIndexPolicy(historicalTokenizer);
+        manager.replayCreateIndexPolicy(normalizedTokenizer);
+        manager.replayCreateIndexPolicy(dependentAnalyzer);
+
+        Assertions.assertDoesNotThrow(() -> manager.validateAnalyzerExists("LEGACY_ANALYZER"));
+        Assertions.assertDoesNotThrow(() -> manager.validateNormalizerExists("legacy_analyzer"));
+
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertDoesNotThrow(() -> manager.dropIndexPolicy(
+                    false, "ik_smart", IndexPolicyTypeEnum.TOKENIZER));
+            Assertions.assertEquals(historicalTokenizer.getId(), manager.getPolicyByName("ik_smart").getId());
+            Assertions.assertThrows(DdlException.class, () -> manager.dropIndexPolicy(
+                    false, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER));
+        }
+    }
+
     // StandardTokenizerValidator Tests
     @Test
     public void testStandardTokenizerValidator_ValidProperties() throws Exception {

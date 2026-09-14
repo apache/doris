@@ -20,7 +20,9 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.indexpolicy.IndexPolicyMgr;
+import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import org.junit.jupiter.api.Assertions;
@@ -389,6 +391,27 @@ public class InvertedIndexPropertiesTest {
                 () -> InvertedIndexUtil.checkInvertedIndexParser("c", PrimitiveType.VARIANT,
                         new HashMap<>(Map.of("analyzer", "plain_analyzer")),
                         TInvertedIndexFileStorageFormat.V3)));
+    }
+
+    @Test
+    public void testResolvedCustomPolicyKeepsExactLegacyNameInIndexProperties() throws Exception {
+        IndexPolicyMgr manager = Mockito.mock(IndexPolicyMgr.class);
+        IndexPolicy exactPolicy = new IndexPolicy(
+                1, "IK_SMART", IndexPolicyTypeEnum.ANALYZER, Map.of("tokenizer", "standard"));
+        Mockito.when(manager.getPolicyByName("IK_SMART")).thenReturn(exactPolicy);
+
+        Map<String, String> properties = new HashMap<>(Map.of("analyzer", " IK_SMART "));
+        withIndexPolicyManager(manager, () -> Assertions.assertDoesNotThrow(
+                () -> InvertedIndexUtil.checkInvertedIndexParser("c", PrimitiveType.VARCHAR, properties,
+                        TInvertedIndexFileStorageFormat.V3)));
+
+        Assertions.assertEquals("IK_SMART", properties.get("analyzer"));
+
+        Map<String, String> normalizerProperties = new HashMap<>(Map.of("normalizer", " IK_SMART "));
+        withIndexPolicyManager(manager, () -> Assertions.assertDoesNotThrow(
+                () -> InvertedIndexUtil.checkInvertedIndexParser("c", PrimitiveType.VARCHAR,
+                        normalizerProperties, TInvertedIndexFileStorageFormat.V3)));
+        Assertions.assertEquals("IK_SMART", normalizerProperties.get("normalizer"));
     }
 
     // --- buildAnalyzerSqlFragment (migrated from InvertedIndexSqlGeneratorTest) ---
