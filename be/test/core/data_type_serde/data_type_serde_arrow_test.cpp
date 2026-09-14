@@ -790,6 +790,32 @@ TEST(DataTypeSerDeArrowTest, TargetConvertersWriteNullableTimestampTz) {
     EXPECT_TRUE(timestamps.IsNull(1));
 }
 
+TEST(DataTypeSerDeArrowTest, PaimonTimestampTzPreservesBothSidesOfDstFold) {
+    auto values = ColumnTimeStampTz::create();
+    for (int hour : {8, 9}) {
+        TimestampTzValue value;
+        value.unchecked_set_time(2023, 11, 5, hour, 30, 0, 123456);
+        values->insert_value(value);
+    }
+    Block block;
+    block.insert(ColumnWithTypeAndName(std::move(values), std::make_shared<DataTypeTimeStampTz>(6),
+                                       "event_time"));
+    auto schema = arrow::schema({arrow::field(
+            "event_time", arrow::timestamp(arrow::TimeUnit::MICRO, "America/Los_Angeles"), false)});
+    cctz::time_zone timezone;
+    ASSERT_TRUE(cctz::load_time_zone("America/Los_Angeles", &timezone));
+    std::shared_ptr<arrow::RecordBatch> batch;
+    ASSERT_TRUE(convert_to_arrow_batch(block, schema, arrow::default_memory_pool(), &batch,
+                                       timezone, 0, block.rows(),
+                                       paimon::paimon_arrow_write_converter())
+                        .ok());
+    ASSERT_TRUE(batch->ValidateFull().ok());
+    const auto& timestamps = assert_cast<const arrow::TimestampArray&>(*batch->column(0));
+    // Both instants display as 01:30 locally, but must remain one hour apart on the wire.
+    EXPECT_EQ(1699173000123456LL, timestamps.Value(0));
+    EXPECT_EQ(1699176600123456LL, timestamps.Value(1));
+}
+
 TEST(DataTypeSerDeArrowTest, IcebergUuidStringToFixedSizeBinary) {
     auto block = std::make_shared<Block>();
     auto strcol = ColumnString::create();

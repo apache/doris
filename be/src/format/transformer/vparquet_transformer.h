@@ -20,6 +20,7 @@
 #include <arrow/io/interfaces.h>
 #include <arrow/result.h>
 #include <arrow/status.h>
+#include <cctz/time_zone.h>
 #include <gen_cpp/DataSinks_types.h>
 #include <parquet/arrow/writer.h>
 #include <parquet/file_writer.h>
@@ -27,6 +28,7 @@
 #include <parquet/types.h>
 
 #include <cstdint>
+#include <optional>
 
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/table/iceberg/schema.h"
@@ -84,6 +86,8 @@ struct ParquetFileOptions {
     TParquetVersion::type parquet_version;
     bool parquet_disable_dictionary = false;
     bool enable_int96_timestamps = false;
+    // Overrides only INT96 normalization; UTC preserves a wall-clock carrier.
+    std::optional<std::string> int96_timezone = std::nullopt;
 };
 
 // a wrapper of parquet output stream
@@ -130,6 +134,8 @@ private:
     std::vector<std::string> _column_names;
     std::vector<TParquetSchema> _parquet_schemas;
     const ParquetFileOptions _parquet_options;
+    std::string _timezone;
+    cctz::time_zone _timezone_obj;
     const std::string* _iceberg_schema_json;
     uint64_t _write_size = 0;
     const iceberg::Schema* _iceberg_schema;

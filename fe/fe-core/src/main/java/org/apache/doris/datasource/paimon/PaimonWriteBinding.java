@@ -23,6 +23,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.plans.commands.insert.PaimonInsertCommandContext;
 import org.apache.doris.nereids.types.DataType;
 
@@ -35,6 +36,7 @@ import org.apache.paimon.types.DataTypeRoot;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Collections;
 import java.util.HashMap;
@@ -194,13 +196,14 @@ public class PaimonWriteBinding {
             return value;
         }
 
-        // Doris writes an LTZ literal as civil time in the session zone. Paimon 1.3
-        // parses the string accepted by withOverwrite in the FE JVM default zone.
-        // Translate the same instant into that zone so the overwrite predicate and
-        // the row written by the JNI writer identify the same typed partition.
-        LocalDateTime sessionValue = LocalDateTime.parse(
-                value.replace(' ', 'T'), DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-        return sessionValue.atZone(TimeUtils.getDorisZoneId())
+        // The write boundary now carries UTC instants. Do not parse its display string as
+        // session-local time: that loses the offset and makes a DST fold ambiguous again.
+        ZonedDateTime instant = literal instanceof TimestampTzLiteral
+                ? ((TimestampTzLiteral) literal).toJavaDateType().atZone(ZoneId.of("UTC"))
+                : LocalDateTime.parse(value.replace(' ', 'T'), DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+                        .atZone(TimeUtils.getDorisZoneId());
+        // Paimon 1.3 parses withOverwrite strings in the FE JVM default zone.
+        return instant
                 .withZoneSameInstant(ZoneId.systemDefault())
                 .toLocalDateTime()
                 // Paimon 1.3's timestamp parser accepts a space, but not ISO's

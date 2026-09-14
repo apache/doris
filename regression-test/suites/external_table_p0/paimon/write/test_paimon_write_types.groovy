@@ -83,6 +83,11 @@ suite("test_paimon_write_types", "p0,external,paimon") {
         CREATE TABLE paimon.${dbName}.t_types_ntz (
             id INT, event_time TIMESTAMP_NTZ
         ) USING paimon;
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_types_fold;
+        CREATE TABLE paimon.${dbName}.t_types_fold (
+            id INT, event_time TIMESTAMP
+        ) USING paimon;
     """
 
     sql """drop catalog if exists ${catalogName}"""
@@ -196,6 +201,27 @@ suite("test_paimon_write_types", "p0,external,paimon") {
         sql """SET time_zone = 'UTC'"""
         order_qt_types_ntz """SELECT id, event_time FROM t_types_ntz ORDER BY id"""
         assertTableEquals("t_types_ntz", "*", "ORDER BY id")
+
+        // Both UTC instants render as 01:30 in Los Angeles. INSERT SELECT must
+        // reach the LTZ writer without a lossy intermediate civil-time cast.
+        sql """SET time_zone = 'America/Los_Angeles'"""
+        sql """INSERT INTO t_types_fold
+            SELECT 1, CAST('2023-11-05 08:30:00.123456+00:00' AS TIMESTAMPTZ(6))
+            UNION ALL
+            SELECT 2, CAST('2023-11-05 09:30:00.123456+00:00' AS TIMESTAMPTZ(6))"""
+        sql """SET time_zone = 'UTC'"""
+        def originalJniScanner = sql """SELECT @@force_jni_scanner"""
+        try {
+            for (boolean jni : [false, true]) {
+                sql """SET force_jni_scanner = ${jni}"""
+                assertEquals([
+                    [1, "2023-11-05 08:30:00.123456"],
+                    [2, "2023-11-05 09:30:00.123456"]
+                ], sql("""SELECT id, CAST(event_time AS STRING) FROM t_types_fold ORDER BY id"""))
+            }
+        } finally {
+            sql """SET force_jni_scanner = ${originalJniScanner[0][0]}"""
+        }
     } finally {
         sql """SET time_zone = '${originalTimeZone[0][0]}'"""
         sql """drop catalog if exists ${catalogName}"""
