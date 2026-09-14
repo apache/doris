@@ -72,8 +72,19 @@ bool RowsetMeta::init(const RowsetMeta* rowset_meta) {
 }
 
 bool RowsetMeta::init_from_pb(const RowsetMetaPB& rowset_meta_pb) {
+    if (rowset_meta_pb.has_inverted_index_storage_format()) {
+        _rowset_meta_pb.set_inverted_index_storage_format(
+                rowset_meta_pb.inverted_index_storage_format());
+    } else {
+        _rowset_meta_pb.clear_inverted_index_storage_format();
+    }
     if (rowset_meta_pb.has_tablet_schema()) {
-        set_tablet_schema(rowset_meta_pb.tablet_schema());
+        TabletSchemaPB schema_pb = rowset_meta_pb.tablet_schema();
+        if (rowset_meta_pb.has_inverted_index_storage_format()) {
+            schema_pb.set_inverted_index_storage_format(
+                    rowset_meta_pb.inverted_index_storage_format());
+        }
+        set_tablet_schema(schema_pb);
     }
     // Release ownership of TabletSchemaPB from `rowset_meta_pb` and then set it back to `rowset_meta_pb`,
     // this won't break const semantics of `rowset_meta_pb`, because `rowset_meta_pb` is not changed
@@ -211,6 +222,10 @@ void RowsetMeta::to_rowset_pb(RowsetMetaPB* rs_meta_pb, bool skip_schema) const 
         if (!skip_schema) {
             // For cloud, separate tablet schema from rowset meta to reduce persistent size.
             _schema->to_schema_pb(rs_meta_pb->mutable_tablet_schema());
+            if (rs_meta_pb->has_inverted_index_storage_format()) {
+                rs_meta_pb->mutable_tablet_schema()->set_inverted_index_storage_format(
+                        rs_meta_pb->inverted_index_storage_format());
+            }
         }
     }
     rs_meta_pb->set_has_variant_type_in_schema(has_variant_type_in_schema());
@@ -223,6 +238,12 @@ RowsetMetaPB RowsetMeta::get_rowset_pb(bool skip_schema) const {
 }
 
 void RowsetMeta::set_tablet_schema(const TabletSchemaSPtr& tablet_schema) {
+    if (_rowset_meta_pb.has_inverted_index_storage_format()) {
+        TabletSchemaPB schema_pb;
+        tablet_schema->to_schema_pb(&schema_pb);
+        set_tablet_schema(schema_pb);
+        return;
+    }
     if (_handle) {
         TabletSchemaCache::instance()->release(_handle);
     }
@@ -232,13 +253,28 @@ void RowsetMeta::set_tablet_schema(const TabletSchemaSPtr& tablet_schema) {
 }
 
 void RowsetMeta::set_tablet_schema(const TabletSchemaPB& tablet_schema) {
+    TabletSchemaPB resolved_schema = tablet_schema;
+    if (_rowset_meta_pb.has_inverted_index_storage_format()) {
+        resolved_schema.set_inverted_index_storage_format(
+                _rowset_meta_pb.inverted_index_storage_format());
+    }
     if (_handle) {
         TabletSchemaCache::instance()->release(_handle);
     }
     auto pair = TabletSchemaCache::instance()->insert(
-            TabletSchema::deterministic_string_serialize(tablet_schema));
+            TabletSchema::deterministic_string_serialize(resolved_schema));
     _handle = pair.first;
     _schema = pair.second;
+}
+
+void RowsetMeta::set_inverted_index_storage_format(InvertedIndexStorageFormatPB format) {
+    _rowset_meta_pb.set_inverted_index_storage_format(format);
+    if (_schema && _schema->get_inverted_index_storage_format() != format) {
+        TabletSchemaPB schema_pb;
+        _schema->to_schema_pb(&schema_pb);
+        schema_pb.set_inverted_index_storage_format(format);
+        set_tablet_schema(schema_pb);
+    }
 }
 
 bool RowsetMeta::_deserialize_from_pb(std::string_view value) {
@@ -247,7 +283,12 @@ bool RowsetMeta::_deserialize_from_pb(std::string_view value) {
         return false;
     }
     if (_rowset_meta_pb.has_tablet_schema()) {
-        set_tablet_schema(_rowset_meta_pb.tablet_schema());
+        TabletSchemaPB schema_pb = _rowset_meta_pb.tablet_schema();
+        if (_rowset_meta_pb.has_inverted_index_storage_format()) {
+            schema_pb.set_inverted_index_storage_format(
+                    _rowset_meta_pb.inverted_index_storage_format());
+        }
+        set_tablet_schema(schema_pb);
         _rowset_meta_pb.set_allocated_tablet_schema(nullptr);
     }
     return true;
@@ -260,6 +301,10 @@ bool RowsetMeta::_serialize_to_pb(std::string* value) {
     RowsetMetaPB rowset_meta_pb = _rowset_meta_pb;
     if (_schema) {
         _schema->to_schema_pb(rowset_meta_pb.mutable_tablet_schema());
+        if (rowset_meta_pb.has_inverted_index_storage_format()) {
+            rowset_meta_pb.mutable_tablet_schema()->set_inverted_index_storage_format(
+                    rowset_meta_pb.inverted_index_storage_format());
+        }
     }
     return rowset_meta_pb.SerializeToString(value);
 }

@@ -28,8 +28,8 @@ import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -88,12 +88,12 @@ public class SpiSwitchingFileSystemTest {
             SpiSwitchingFileSystem spiFs = new SpiSwitchingFileSystem(Collections.emptyMap());
             try {
                 spiFs.forPath("broker://host/path");
-                Assert.fail("Expected IOException but no exception was thrown");
+                Assertions.fail("Expected IOException but no exception was thrown");
             } catch (IOException e) {
                 // Correct: IOException propagated as-is.
-                Assert.assertSame("forPath() must rethrow the original IOException", rootCause, e);
+                Assertions.assertSame(rootCause, e, "forPath() must rethrow the original IOException");
             } catch (RuntimeException e) {
-                Assert.fail("forPath() wrapped IOException in RuntimeException: "
+                Assertions.fail("forPath() wrapped IOException in RuntimeException: "
                         + e.getClass().getName());
             }
         }
@@ -107,7 +107,7 @@ public class SpiSwitchingFileSystemTest {
     public void testForPathWithTestDelegateBypasses() throws IOException {
         SpiSwitchingFileSystem spiFs = new SpiSwitchingFileSystem(mockDelegate);
         FileSystem result = spiFs.forPath("s3://bucket/key");
-        Assert.assertSame("Test-delegate constructor must return the injected delegate", mockDelegate, result);
+        Assertions.assertSame(mockDelegate, result, "Test-delegate constructor must return the injected delegate");
     }
 
     // -----------------------------------------------------------------------
@@ -145,7 +145,7 @@ public class SpiSwitchingFileSystemTest {
 
         spiFs.close();
 
-        Assert.assertEquals("close() must have been called once per cached FileSystem", 2, closeCount.get());
+        Assertions.assertEquals(2, closeCount.get(), "close() must have been called once per cached FileSystem");
     }
 
     /**
@@ -168,7 +168,7 @@ public class SpiSwitchingFileSystemTest {
         spiFs.close(); // first close — should close the cached FS
         spiFs.close(); // second close — must be a no-op
 
-        Assert.assertEquals("second close() must not close FileSystems again", 1, closeCount.get());
+        Assertions.assertEquals(1, closeCount.get(), "second close() must not close FileSystems again");
     }
 
     /**
@@ -201,20 +201,18 @@ public class SpiSwitchingFileSystemTest {
 
         try {
             spiFs.close();
-            Assert.fail("Expected IOException from close()");
+            Assertions.fail("Expected IOException from close()");
         } catch (IOException thrown) {
             // The thrown exception must be one of the two, and the other must be suppressed.
             boolean firstIsThrown = thrown == ex1;
             boolean secondIsThrown = thrown == ex2;
-            Assert.assertTrue("Thrown exception must be one of the two IOExceptions",
-                    firstIsThrown || secondIsThrown);
-            Assert.assertEquals("Exactly one exception must be suppressed", 1,
-                    thrown.getSuppressed().length);
+            Assertions.assertTrue(firstIsThrown || secondIsThrown, "Thrown exception must be one of the two IOExceptions");
+            Assertions.assertEquals(1, thrown.getSuppressed().length, "Exactly one exception must be suppressed");
             Throwable suppressed = thrown.getSuppressed()[0];
             if (firstIsThrown) {
-                Assert.assertSame("Second exception must be suppressed", ex2, suppressed);
+                Assertions.assertSame(ex2, suppressed, "Second exception must be suppressed");
             } else {
-                Assert.assertSame("First exception must be suppressed", ex1, suppressed);
+                Assertions.assertSame(ex1, suppressed, "First exception must be suppressed");
             }
         }
     }
@@ -257,30 +255,30 @@ public class SpiSwitchingFileSystemTest {
 
             // Inbound: single-location operations are translated to the native scheme.
             spiFs.exists(Location.of("cos://bucket/dir/file1"));
-            Assert.assertEquals("s3://bucket/dir/file1", fake.lastUri);
+            Assertions.assertEquals("s3://bucket/dir/file1", fake.lastUri);
 
             // Inbound: rename translates both endpoints.
             spiFs.rename(Location.of("cos://bucket/dir/a"), Location.of("cos://bucket/dir/b"));
-            Assert.assertEquals("s3://bucket/dir/a", fake.lastRenameSrc);
-            Assert.assertEquals("s3://bucket/dir/b", fake.lastRenameDst);
+            Assertions.assertEquals("s3://bucket/dir/a", fake.lastRenameSrc);
+            Assertions.assertEquals("s3://bucket/dir/b", fake.lastRenameDst);
 
             // Outbound: listing results are translated back to the caller's scheme.
             fake.entries = List.of(
                     new FileEntry(Location.of("s3://bucket/dir/f1"), 1, false, 0, null),
                     new FileEntry(Location.of("s3://bucket/dir/sub/"), 0, true, 0, null));
             List<FileEntry> files = spiFs.listFiles(Location.of("cos://bucket/dir"));
-            Assert.assertEquals("s3://bucket/dir", fake.lastUri);
-            Assert.assertEquals(1, files.size());
-            Assert.assertEquals("cos://bucket/dir/f1", files.get(0).location().uri());
+            Assertions.assertEquals("s3://bucket/dir", fake.lastUri);
+            Assertions.assertEquals(1, files.size());
+            Assertions.assertEquals("cos://bucket/dir/f1", files.get(0).location().uri());
 
             Set<String> dirs = spiFs.listDirectories(Location.of("cos://bucket/dir"));
-            Assert.assertEquals(Collections.singleton("cos://bucket/dir/sub/"), dirs);
+            Assertions.assertEquals(Collections.singleton("cos://bucket/dir/sub/"), dirs);
 
             // Outbound: newInputFile reports the caller's location, while the delegate
             // was opened with the native scheme.
             DorisInputFile inputFile = spiFs.newInputFile(Location.of("cos://bucket/dir/f1"));
-            Assert.assertEquals("s3://bucket/dir/f1", fake.lastUri);
-            Assert.assertEquals("cos://bucket/dir/f1", inputFile.location().uri());
+            Assertions.assertEquals("s3://bucket/dir/f1", fake.lastUri);
+            Assertions.assertEquals("cos://bucket/dir/f1", inputFile.location().uri());
         }
     }
 
@@ -312,7 +310,7 @@ public class SpiSwitchingFileSystemTest {
 
             SpiSwitchingFileSystem spiFs = new SpiSwitchingFileSystem(Collections.emptyMap());
             spiFs.exists(Location.of("cos://bucket/dir/file1"));
-            Assert.assertEquals("cos://bucket/dir/file1", fake.lastUri);
+            Assertions.assertEquals("cos://bucket/dir/file1", fake.lastUri);
         }
     }
 
@@ -342,7 +340,7 @@ public class SpiSwitchingFileSystemTest {
 
             SpiSwitchingFileSystem spiFs = new SpiSwitchingFileSystem(Collections.emptyMap());
             spiFs.exists(Location.of("s3://bucket/key"));
-            Assert.assertEquals("s3://bucket/key", fake.lastUri);
+            Assertions.assertEquals("s3://bucket/key", fake.lastUri);
         }
     }
 

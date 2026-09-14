@@ -849,6 +849,9 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_rowset_writer(
         context.write_binlog_opt().set_need_before(
                 tablet_meta()->binlog_config().need_historical_value());
     }
+    context.inverted_index_storage_format = tablet_meta()->inverted_index_storage_format();
+    context.persist_inverted_index_storage_format =
+            tablet_meta()->has_inverted_index_storage_format();
     return RowsetFactory::create_rowset_writer(_engine, context, vertical);
 }
 
@@ -898,6 +901,9 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     context.txn_expiration = txn_expiration;
     context.encrypt_algorithm = tablet_meta()->encryption_algorithm();
+    context.inverted_index_storage_format = tablet_meta()->inverted_index_storage_format();
+    context.persist_inverted_index_storage_format =
+            tablet_meta()->has_inverted_index_storage_format();
     // TODO(liaoxin) enable packed file for transient rowset
     context.allow_packed_file = false;
 
@@ -1496,13 +1502,36 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
 
 void CloudTablet::agg_delete_bitmap_for_compaction(
         int64_t start_version, int64_t end_version, const std::vector<RowsetSharedPtr>& pre_rowsets,
-        DeleteBitmapPtr& new_delete_bitmap,
-        std::map<std::string, int64_t>& pre_rowset_to_versions) {
-    for (auto& rowset : pre_rowsets) {
+        DeleteBitmapPtr& new_delete_bitmap, std::map<std::string, int64_t>& pre_rowset_to_versions,
+        PreRowsetDeleteBitmapStats* pre_rowset_delete_bitmap_stats) {
+    auto& delete_bitmap = tablet_meta()->delete_bitmap();
+    for (const auto& rowset : pre_rowsets) {
+        if (pre_rowset_delete_bitmap_stats != nullptr) {
+            auto& rowset_delete_bitmap_stats =
+                    (*pre_rowset_delete_bitmap_stats)[rowset->rowset_id().to_string()];
+            std::shared_lock lock(delete_bitmap.lock);
+            const auto bitmap_start_version = static_cast<DeleteBitmap::Version>(start_version);
+            const auto bitmap_end_version = static_cast<DeleteBitmap::Version>(end_version);
+            for (auto seg : rowset->segments()) {
+                auto seg_id = cast_set<uint32_t>(seg.id());
+                DeleteBitmap::BitmapKey segment_start {rowset->rowset_id(), seg_id,
+                                                       bitmap_start_version};
+                for (auto it = delete_bitmap.delete_bitmap.lower_bound(segment_start);
+                     it != delete_bitmap.delete_bitmap.end(); ++it) {
+                    const auto& [key, bitmap] = *it;
+                    if (std::get<0>(key) != rowset->rowset_id() || std::get<1>(key) != seg_id ||
+                        std::get<2>(key) >= bitmap_end_version) {
+                        break;
+                    }
+                    rowset_delete_bitmap_stats.emplace_back(seg_id, std::get<2>(key),
+                                                            bitmap.getSizeInBytes());
+                }
+            }
+        }
         for (auto seg : rowset->segments()) {
             auto seg_id = cast_set<uint32_t>(seg.id());
-            auto d = tablet_meta()->delete_bitmap().get_agg_without_cache(
-                    {rowset->rowset_id(), seg_id, end_version}, start_version);
+            auto d = delete_bitmap.get_agg_without_cache({rowset->rowset_id(), seg_id, end_version},
+                                                         start_version);
             if (d->isEmpty()) {
                 continue;
             }

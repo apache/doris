@@ -22,8 +22,8 @@ import org.apache.doris.meta.MetaContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -59,9 +59,9 @@ public class BatchRemoveTransactionOperationTest {
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         BatchRemoveTransactionsOperation op2 = BatchRemoveTransactionsOperation.read(dis);
-        Assert.assertEquals(1, op2.getDbTxnIds().size());
-        Assert.assertEquals(3, op2.getDbTxnIds().get(1000L).size());
-        Assert.assertTrue(op2.getDbTxnIds().get(1000L).contains(1L));
+        Assertions.assertEquals(1, op2.getDbTxnIds().size());
+        Assertions.assertEquals(3, op2.getDbTxnIds().get(1000L).size());
+        Assertions.assertTrue(op2.getDbTxnIds().get(1000L).contains(1L));
 
         // 3. delete files
         dis.close();

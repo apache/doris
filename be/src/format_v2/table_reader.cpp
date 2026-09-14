@@ -955,6 +955,14 @@ Status TableReader::init(TableReadOptions&& options) {
                                                                 TUnit::UNIT, table_profile, 1);
         _profile.parse_delete_file_time = ADD_CHILD_TIMER_WITH_LEVEL(
                 _scanner_profile, "ParseDeleteFileTime", table_profile, 1);
+        _profile.equality_delete_index_cache_hit_count =
+                ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "EqualityDeleteIndexCacheHitCount",
+                                             TUnit::UNIT, table_profile, 1);
+        _profile.equality_delete_index_cache_miss_count =
+                ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "EqualityDeleteIndexCacheMissCount",
+                                             TUnit::UNIT, table_profile, 1);
+        _profile.equality_delete_hash_index_memory = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _scanner_profile, "EqualityDeleteHashIndexMemory", TUnit::BYTES, table_profile, 1);
         _profile.decoded_dv_cache_hit_count =
                 ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "DeletionVectorDecodedCacheHitCount",
                                              TUnit::UNIT, table_profile, 1);
@@ -1153,6 +1161,7 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
             _file_scan_request == nullptr ? nullptr : &_file_scan_request->local_positions,
             _file_scan_request == nullptr ? nullptr
                                           : &_file_scan_request->non_predicate_positions));
+    refreshed_request->row_ids = _row_ids;
     // A refresh does not prove that every future runtime filter has arrived. Keep carrier values
     // available whenever the split started with pending filters.
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
@@ -1162,6 +1171,8 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
         }
     }
     RETURN_IF_ERROR(customize_file_scan_request(refreshed_request.get()));
+    RETURN_IF_ERROR(
+            refreshed_mapper->reconcile_scan_request_after_customization(refreshed_request.get()));
     if (_file_scan_request == nullptr ||
         !same_physical_scan_layout(*refreshed_request, *_file_scan_request)) {
         // A reader cannot reinterpret columns already materialized with another block layout.
@@ -1460,6 +1471,7 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
                                      ? std::make_optional(options.current_range.load_id)
                                      : std::nullopt;
     _global_rowid_context = options.global_rowid_context;
+    _row_ids = options.row_ids;
     _delete_rows = nullptr;
     _deletion_vector = nullptr;
     _aggregate_pushdown_tried = false;
@@ -1484,9 +1496,10 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     // the NULL state of a COUNT argument. Require the new FE's explicit empty argument list, which
     // means COUNT(*)/COUNT(1). A non-empty list means COUNT(col), while nullopt comes from an old FE
     // whose COUNT semantics are unknown during a BE-first rolling upgrade.
-    if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
-        _push_down_count_columns->empty() && options.all_runtime_filters_applied &&
-        _conjuncts.empty() && options.current_range.__isset.table_format_params &&
+    if (!_row_ids.has_value() && _push_down_agg_type == TPushAggOp::type::COUNT &&
+        _push_down_count_columns.has_value() && _push_down_count_columns->empty() &&
+        options.all_runtime_filters_applied && _conjuncts.empty() &&
+        options.current_range.__isset.table_format_params &&
         options.current_range.table_format_params.__isset.table_level_row_count) {
         DORIS_CHECK(options.current_range.table_format_params.table_level_row_count >= -1);
         _remaining_table_level_count =

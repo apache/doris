@@ -23,9 +23,8 @@
 // and modified by Doris
 #pragma once
 
+#include <bit>
 #include <cassert>
-#include <cfloat>
-#include <cmath>
 #include <compare>
 #include <limits>
 #include <tuple>
@@ -33,32 +32,6 @@
 
 #include "common/exception.h"
 // NOLINTBEGIN(*)
-
-/// Use same extended double for all platforms
-#if (LDBL_MANT_DIG == 64)
-#include <boost/math/special_functions/fpclassify.hpp>
-
-#define CONSTEXPR_FROM_DOUBLE constexpr
-#define DORIS_WIDE_FROM_DOUBLE_INLINE 1
-using FromDoubleIntermediateType = long double;
-#elif defined(DORIS_WIDE_INTEGER_FROM_DOUBLE_IMPL_TU)
-#include <boost/math/special_functions/fpclassify.hpp>
-#include <boost/multiprecision/cpp_bin_float.hpp>
-/// `wide_integer_from_builtin` can't be constexpr with non-literal `cpp_bin_float_double_extended`
-#define CONSTEXPR_FROM_DOUBLE
-#define DORIS_WIDE_FROM_DOUBLE_INLINE 1
-using FromDoubleIntermediateType = boost::multiprecision::cpp_bin_float_double_extended;
-#else
-/// Platforms without an 80-bit long double emulate the intermediate type with
-/// boost::multiprecision, which drags ~4.3MB of preprocessed closure into every
-/// TU. Ordinary TUs therefore see only declarations of the two from-double
-/// members below; the bodies are compiled once in
-/// core/wide_integer_from_double.cpp (which defines the *_IMPL_TU macro above
-/// and emits explicit instantiations). wide_integer_from_builtin(double) was
-/// never constexpr on these platforms, so no constant evaluation is lost.
-#define CONSTEXPR_FROM_DOUBLE
-#define DORIS_WIDE_FROM_DOUBLE_INLINE 0
-#endif
 
 namespace wide {
 
@@ -313,91 +286,108 @@ struct integer<Bits, Signed>::_impl {
         }
     }
 
-    /**
-     * N.B. t is constructed from double, so max(t) = max(double) ~ 2^310
-     * the recursive call happens when t / 2^64 > 2^64, so there won't be more than 5 of them.
-     *
-     * t = a1 * max_int + b1,   a1 > max_int, b1 < max_int
-     * a1 = a2 * max_int + b2,  a2 > max_int, b2 < max_int
-     * a_(n - 1) = a_n * max_int + b2, a_n <= max_int <- base case.
-     */
-    template <class T>
-    CONSTEXPR_FROM_DOUBLE static void set_multiplier(integer<Bits, Signed>& self, T t) noexcept
-#if !DORIS_WIDE_FROM_DOUBLE_INLINE
-            ;
-#else
-    {
-        constexpr uint64_t max_int = std::numeric_limits<uint64_t>::max();
-        static_assert(std::is_same_v<T, double> || std::is_same_v<T, FromDoubleIntermediateType>);
-        /// Implementation specific behaviour on overflow (if we don't check here, stack overflow will triggered in bigint_cast).
-        if constexpr (std::is_same_v<T, double>) {
-            if (!std::isfinite(t)) {
-                self = 0;
-                return;
-            }
-        } else {
-            if (!boost::math::isfinite(t)) {
-                self = 0;
-                return;
-            }
-        }
-
-        const T alpha = t / static_cast<T>(max_int);
-
-        /** Here we have to use strict comparison.
-          * The max_int is 2^64 - 1.
-          * When casted to floating point type, it will be rounded to the closest representable number,
-          * which is 2^64.
-          * But 2^64 is not representable in uint64_t,
-          * so the maximum representable number will be strictly less.
-          */
-        if (alpha < static_cast<T>(max_int)) {
-            self = static_cast<uint64_t>(alpha);
-        } else { // max(double) / 2^64 will surely contain less than 52 precision bits, so speed up computations.
-            set_multiplier<double>(self, static_cast<double>(alpha));
-        }
-
-        self *= max_int;
-        self += static_cast<uint64_t>(t - floor(static_cast<double>(alpha)) *
-                                                  static_cast<T>(max_int)); // += b_i
-    }
-#endif
-
-    CONSTEXPR_FROM_DOUBLE static void wide_integer_from_builtin(integer<Bits, Signed>& self,
-                                                                double rhs) noexcept
-#if !DORIS_WIDE_FROM_DOUBLE_INLINE
-            ;
-#else
-    {
-        constexpr int64_t max_int = std::numeric_limits<int64_t>::max();
-        constexpr int64_t min_int = std::numeric_limits<int64_t>::lowest();
-
-        /// There are values in int64 that have more than 53 significant bits (in terms of double
-        /// representation). Such values, being promoted to double, are rounded up or down. If they are rounded up,
-        /// the result may not fit in 64 bits.
-        /// The example of such a number is 9.22337e+18.
-        /// As to_Integral does a static_cast to int64_t, it may result in UB.
-        /// The necessary check here is that FromDoubleIntermediateType has enough significant (mantissa) bits to store the
-        /// int64_t max value precisely.
-
-        if (rhs > static_cast<FromDoubleIntermediateType>(min_int) &&
-            rhs < static_cast<FromDoubleIntermediateType>(max_int)) {
+    constexpr static void wide_integer_from_builtin(integer<Bits, Signed>& self,
+                                                    double rhs) noexcept {
+        constexpr double int64_min = -0x1p63;
+        constexpr double int64_limit = 0x1p63;
+        if (rhs >= int64_min && rhs < int64_limit) {
             self = static_cast<int64_t>(rhs);
             return;
         }
 
-        const FromDoubleIntermediateType rhs_long_double =
-                (static_cast<FromDoubleIntermediateType>(rhs) < 0)
-                        ? -static_cast<FromDoubleIntermediateType>(rhs)
-                        : rhs;
+        // Reconstruct the integer from the IEEE-754 binary64 encoding instead of converting any
+        // out-of-range intermediate floating-point value to uint64_t or int64_t. A built-in
+        // floating-to-integer conversion is undefined when the truncated value is outside the
+        // destination type's range, which is exactly the case this fallback must support for wide
+        // integers.
+        //
+        // These assertions document the binary64 layout assumed by the masks below: one sign bit,
+        // an 11-bit biased exponent, and 52 explicitly stored fraction bits. Applying masks to the
+        // numeric result of bit_cast is independent of the machine's byte order.
+        static_assert(sizeof(double) == sizeof(uint64_t));
+        static_assert(std::numeric_limits<double>::is_iec559);
+        static_assert(std::numeric_limits<double>::digits == 53);
 
-        set_multiplier(self, rhs_long_double);
+        constexpr unsigned fraction_bits = std::numeric_limits<double>::digits - 1;
+        constexpr uint64_t fraction_mask = (uint64_t(1) << fraction_bits) - 1;
+        constexpr uint64_t exponent_mask = uint64_t(0x7ff) << fraction_bits;
+        constexpr uint64_t sign_mask = uint64_t(1) << 63;
+        constexpr int exponent_bias = 1023;
 
-        if (rhs < 0) {
+        const uint64_t bits = std::bit_cast<uint64_t>(rhs);
+        const uint64_t biased_exponent = (bits & exponent_mask) >> fraction_bits;
+
+        // An all-zero exponent represents zero or a subnormal value. Every binary64 subnormal has
+        // magnitude below one, so truncation toward zero produces zero. An all-one exponent
+        // represents infinity or NaN; mapping those values to zero preserves the established wide
+        // integer conversion behavior without performing an invalid built-in integer conversion.
+        if (biased_exponent == 0 || biased_exponent == 0x7ff) {
+            self = 0;
+            return;
+        }
+
+        // For a normal value, exponent is the power of two associated with the implicit leading
+        // one. A negative exponent therefore also means that the magnitude is below one.
+        const int exponent = static_cast<int>(biased_exponent) - exponent_bias;
+        if (exponent < 0) {
+            self = 0;
+            return;
+        }
+
+        // Turn the encoded 1.fraction into its exact 53-bit integer significand. The original
+        // magnitude is then:
+        //
+        //     significand * 2^(exponent - fraction_bits)
+        //
+        // Right shifting discards only fractional bits and implements truncation toward zero;
+        // left shifting constructs larger values directly in the wide integer. Wide-integer shift
+        // semantics also retain the previous modulo-2^Bits result for values wider than self.
+        //
+        // For example, 13.75 = 1101.11b = 1.10111b * 2^3. Its significand is
+        // 1.10111b * 2^52 and shift is 3 - 52 = -49. Shifting the significand right by 49
+        // produces 1101b = 13 and discards .11b = 0.75.
+        //
+        // As a left-shift example, 2^60 + 256 = (1 + 2^-52) * 2^60 is exactly representable as
+        // binary64. Its significand is 2^52 + 1 and shift is 60 - 52 = 8, so the result is
+        // (2^52 + 1) << 8 = 2^60 + 256. By contrast, the binary64 spacing at 2^60 is 256;
+        // a mathematical value 2^60 + 1 has already rounded to 2^60 before this function runs, and
+        // no conversion routine can recover that lost bit.
+        //
+        // Finally, converting 2^300 to Int256 gives significand = 2^52 and shift = 248. The
+        // mathematical result is 2^300, but retaining only the low 256 bits is equivalent to
+        // 2^300 modulo 2^256, which is zero.
+        const uint64_t significand = (bits & fraction_mask) | (uint64_t(1) << fraction_bits);
+        self = significand;
+
+        const int shift = exponent - static_cast<int>(fraction_bits);
+        if (shift < 0) {
+            self >>= -shift;
+        } else {
+            self <<= shift;
+        }
+
+        // Build the truncated magnitude first, then apply the sign in wide-integer arithmetic.
+        // This avoids converting a negative floating-point value through a bounded signed type and
+        // gives both signed and unsigned wide integers their existing two's-complement/modulo
+        // behavior. For example, -13.75 first produces the truncated magnitude 13 here, then
+        // becomes -13 rather than being rounded down to -14.
+        if ((bits & sign_mask) != 0) {
             self = -self;
         }
     }
-#endif
+
+    constexpr static void wide_integer_from_builtin(integer<Bits, Signed>& self,
+                                                    float rhs) noexcept {
+        // Keep this exact float overload: otherwise overload resolution prefers the unconstrained
+        // wide_integer_from_builtin<Integral> template over a float-to-double conversion, and that
+        // template eventually casts the value through a 64-bit built-in integer.
+        //
+        // binary64 has enough exponent and significand bits to represent every finite binary32
+        // value exactly, including binary32 subnormals. Infinity and NaN remain non-finite after
+        // promotion and follow the zero-result policy above. Reusing that implementation therefore
+        // preserves every conversion-relevant property without introducing another integer cast.
+        wide_integer_from_builtin(self, static_cast<double>(rhs));
+    }
 
     template <size_t Bits2, typename Signed2>
     constexpr static void wide_integer_from_wide_integer(

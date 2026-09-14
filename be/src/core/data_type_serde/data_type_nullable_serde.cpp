@@ -585,13 +585,10 @@ Status DataTypeNullableSerDe::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
+// A zone map bound is never a null Field -- nullness lives in has_null/has_not_null, not in
+// min/max -- so there is no null to fall back to here: defer to the nested serde as is.
 Status DataTypeNullableSerDe::from_zonemap_string(const std::string& str, Field& field) const {
-    if (!nested_serde->from_zonemap_string(str, field).ok()) {
-        // fill null if fail
-        field = Field();
-        return Status::OK();
-    }
-    return Status::OK();
+    return nested_serde->from_zonemap_string(str, field);
 }
 
 Status DataTypeNullableSerDe::from_fe_string(const std::string& str, Field& field) const {

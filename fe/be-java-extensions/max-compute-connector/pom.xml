@@ -104,6 +104,9 @@ under the License.
             <plugin>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
+                    <argLine>
+                        --add-opens=java.base/java.nio=ALL-UNNAMED -Dio.netty.tryReflectionSetAccessible=true @{argLine}
+                    </argLine>
                     <forkCount>${fe_ut_parallel}</forkCount>
                     <reuseForks>false</reuseForks>
                     <useFile>false</useFile>

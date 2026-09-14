@@ -20,6 +20,7 @@
 #include <gtest/gtest-test-part.h>
 #include <stddef.h>
 
+#include <limits>
 #include <memory>
 #include <ostream>
 
@@ -28,10 +29,12 @@
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/string_buffer.hpp"
 #include "core/value/vdatetime_value.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
+#include "exprs/aggregate/aggregate_function_window_funnel_v2.h"
 #include "gtest/gtest_pred_impl.h"
 
 namespace doris {
@@ -64,6 +67,26 @@ public:
 
     Arena arena;
 };
+
+TEST(VWindowFunnelV2TimeStampNsTest, FactoryCreatesFunction) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    DataTypes data_types = {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeString>(),
+                            std::make_shared<DataTypeTimeStampNs>(),
+                            std::make_shared<DataTypeUInt8>(), std::make_shared<DataTypeUInt8>()};
+    EXPECT_NE(factory.get("window_funnel_v2", data_types, nullptr, false,
+                          BeExecVersionManager::get_newest_version()),
+              nullptr);
+}
+
+TEST(VWindowFunnelV2TimeStampNsTest, HandlesUpperBoundaryWindow) {
+    WindowFunnelStateV2<TYPE_TIMESTAMP_NS> state(2);
+    state.window = 1;
+    state.window_funnel_mode = WindowFunnelMode::DEFAULT;
+    state.events_list.push_back({std::numeric_limits<int64_t>::max() - 500000000, 1});
+    state.events_list.push_back({std::numeric_limits<int64_t>::max(), 2});
+
+    EXPECT_EQ(2, state.get());
+}
 
 TEST_F(VWindowFunnelV2Test, testEmpty) {
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);

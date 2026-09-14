@@ -23,7 +23,7 @@
 
 namespace doris::snii::format {
 
-Status read_prx_frame(ByteSource* source, PrxFrameView* frame) {
+Status read_prx_frame(ByteSource* source, PrxFrameView* frame, bool verify_crc) {
     const size_t start = source->position();
     uint8_t codec = 0;
     RETURN_IF_ERROR(source->get_u8(&codec));
@@ -48,7 +48,7 @@ Status read_prx_frame(ByteSource* source, PrxFrameView* frame) {
     const size_t framed_length = source->position() - start;
     uint32_t stored_crc = 0;
     RETURN_IF_ERROR(source->get_fixed32(&stored_crc));
-    if (crc32c(source->slice_from(start, framed_length)) != stored_crc) {
+    if (verify_crc && crc32c(source->slice_from(start, framed_length)) != stored_crc) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "prx: window crc mismatch");
     }

@@ -19,8 +19,8 @@ package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.job.common.DataSourceType;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class StreamingJdbcUrlNormalizerTest {
 
@@ -29,10 +29,10 @@ public class StreamingJdbcUrlNormalizerTest {
         String jdbcUrl = StreamingJdbcUrlNormalizer.normalize(
                 DataSourceType.MYSQL, "jdbc:mysql://127.0.0.1:3306/test");
 
-        Assert.assertEquals("jdbc:mysql://127.0.0.1:3306/test?yearIsDateType=false"
+        Assertions.assertEquals("jdbc:mysql://127.0.0.1:3306/test?yearIsDateType=false"
                         + "&tinyInt1isBit=false&useUnicode=true&characterEncoding=utf-8",
                 jdbcUrl);
-        Assert.assertFalse(jdbcUrl.contains("rewriteBatchedStatements"));
+        Assertions.assertFalse(jdbcUrl.contains("rewriteBatchedStatements"));
     }
 
     @Test
@@ -40,11 +40,11 @@ public class StreamingJdbcUrlNormalizerTest {
         String jdbcUrl = "jdbc:mysql://127.0.0.1:3306/test?tinyInt1isBit=true"
                 + "&yearIsDateType=true&useUnicode=false&characterEncoding=GBK";
 
-        Assert.assertEquals(jdbcUrl,
+        Assertions.assertEquals(jdbcUrl,
                 StreamingJdbcUrlNormalizer.normalize(DataSourceType.MYSQL, jdbcUrl));
 
         String partialJdbcUrl = "jdbc:mysql://127.0.0.1:3306/test?yearIsDateType=true";
-        Assert.assertEquals(partialJdbcUrl + "&tinyInt1isBit=false"
+        Assertions.assertEquals(partialJdbcUrl + "&tinyInt1isBit=false"
                         + "&useUnicode=true&characterEncoding=utf-8",
                 StreamingJdbcUrlNormalizer.normalize(DataSourceType.MYSQL, partialJdbcUrl));
     }
@@ -54,7 +54,7 @@ public class StreamingJdbcUrlNormalizerTest {
         String jdbcUrl = "jdbc:mysql://127.0.0.1:3306/test?YEARISDATETYPE=true"
                 + "&custom=characterEncoding=utf-8";
 
-        Assert.assertEquals(jdbcUrl + "&yearIsDateType=false&tinyInt1isBit=false"
+        Assertions.assertEquals(jdbcUrl + "&yearIsDateType=false&tinyInt1isBit=false"
                         + "&useUnicode=true&characterEncoding=utf-8",
                 StreamingJdbcUrlNormalizer.normalize(DataSourceType.MYSQL, jdbcUrl));
     }
@@ -64,7 +64,7 @@ public class StreamingJdbcUrlNormalizerTest {
         String jdbcUrl = "jdbc:mysql://127.0.0.1:3306/test?yearIsDateType=false"
                 + "&tinyInt1isBit=false&useUnicode=true&characterEncoding=utf-8";
 
-        Assert.assertEquals(jdbcUrl,
+        Assertions.assertEquals(jdbcUrl,
                 StreamingJdbcUrlNormalizer.normalize(DataSourceType.MYSQL, jdbcUrl));
     }
 
@@ -73,7 +73,7 @@ public class StreamingJdbcUrlNormalizerTest {
         String jdbcUrl = StreamingJdbcUrlNormalizer.normalize(
                 DataSourceType.OCEANBASE, "jdbc:mysql://127.0.0.1:2883/test");
 
-        Assert.assertEquals("jdbc:mysql://127.0.0.1:2883/test?yearIsDateType=false"
+        Assertions.assertEquals("jdbc:mysql://127.0.0.1:2883/test?yearIsDateType=false"
                         + "&tinyInt1isBit=false&useUnicode=true&characterEncoding=utf-8",
                 jdbcUrl);
     }
@@ -82,7 +82,7 @@ public class StreamingJdbcUrlNormalizerTest {
     public void testNormalizePostgresJdbcUrlDoesNotChange() {
         String jdbcUrl = "jdbc:postgresql://127.0.0.1:5432/test";
 
-        Assert.assertEquals(jdbcUrl,
+        Assertions.assertEquals(jdbcUrl,
                 StreamingJdbcUrlNormalizer.normalize(DataSourceType.POSTGRES, jdbcUrl));
     }
 }

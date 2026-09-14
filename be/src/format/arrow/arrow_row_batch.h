@@ -54,7 +54,7 @@ std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
         bool is_nullable, PrimitiveType primitive_type);
 
 Status get_arrow_schema_from_block(const Block& block, std::shared_ptr<arrow::Schema>* result,
-                                   const std::string& timezone);
+                                   const std::string& timezone, bool datetime_naive = false);
 
 Status get_arrow_schema_from_expr_ctxs(const VExprContextSPtrs& output_vexpr_ctxs,
                                        std::shared_ptr<arrow::Schema>* result,

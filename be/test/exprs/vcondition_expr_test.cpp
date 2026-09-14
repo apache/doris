@@ -29,8 +29,10 @@
 
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 
@@ -38,7 +40,7 @@ namespace doris {
 
 // Build a minimal TExprNode as the input of VectorizedCoalesceExpr.
 // Only fields required by the VExpr base ctor (so that create_data_type works) are set.
-static TExprNode make_coalesce_node(TPrimitiveType::type ptype, bool is_nullable) {
+static TExprNode make_coalesce_node(TPrimitiveType::type ptype, bool is_nullable, int scale = -1) {
     TExprNode node;
     node.node_type = TExprNodeType::FUNCTION_CALL;
     node.num_children = 0;
@@ -49,6 +51,9 @@ static TExprNode make_coalesce_node(TPrimitiveType::type ptype, bool is_nullable
     type_node.type = TTypeNodeType::SCALAR;
     TScalarType scalar_type;
     scalar_type.__set_type(ptype);
+    if (scale >= 0) {
+        scalar_type.__set_scale(scale);
+    }
     type_node.__set_scalar_type(scalar_type);
     type_desc.types.push_back(type_node);
     node.__set_type(type_desc);
@@ -353,6 +358,55 @@ TEST_F(VConditionExprCoalesceTest, Int32_NormalPathStillWorks) {
     EXPECT_FALSE(is_null);
     EXPECT_EQ(get_int(1, &is_null), 22);
     EXPECT_FALSE(is_null);
+}
+
+TEST_F(VConditionExprCoalesceTest, TimeStampNs) {
+    auto coalesce_node =
+            make_coalesce_node(TPrimitiveType::TIMESTAMP_NS, /*is_nullable=*/true, /*scale=*/9);
+    auto coalesce_expr = VectorizedCoalesceExpr::create_shared(coalesce_node);
+    auto nano_type = std::make_shared<DataTypeTimeStampNs>();
+    coalesce_expr->data_type() = std::make_shared<DataTypeNullable>(nano_type);
+
+    auto nested0 = ColumnTimeStampNs::create();
+    nested0->insert_value(TimeStampNsValue(11));
+    nested0->insert_value(TimeStampNsValue(0));
+    nested0->insert_value(TimeStampNsValue(-17));
+    nested0->insert_value(TimeStampNsValue(0));
+    auto null_map0 = ColumnUInt8::create();
+    null_map0->insert_value(0);
+    null_map0->insert_value(1);
+    null_map0->insert_value(0);
+    null_map0->insert_value(1);
+    ColumnPtr col0 = ColumnNullable::create(std::move(nested0), std::move(null_map0));
+
+    auto col1 = ColumnTimeStampNs::create();
+    col1->insert_value(TimeStampNsValue(99));
+    col1->insert_value(TimeStampNsValue(22));
+    col1->insert_value(TimeStampNsValue(std::numeric_limits<int64_t>::max()));
+    col1->insert_value(TimeStampNsValue(std::numeric_limits<int64_t>::min()));
+
+    coalesce_expr->add_child(
+            std::make_shared<MockChildVExpr>(col0, std::make_shared<DataTypeNullable>(nano_type)));
+    coalesce_expr->add_child(std::make_shared<MockChildVExpr>(std::move(col1), nano_type));
+
+    VExprContext context(coalesce_expr);
+    ColumnPtr result;
+    auto st = coalesce_expr->execute_column_impl(&context, /*block=*/nullptr,
+                                                 /*selector=*/nullptr, /*count=*/4, result);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_EQ(result->size(), 4);
+
+    const auto& nullable = assert_cast<const ColumnNullable&>(*result);
+    const auto& values =
+            assert_cast<const ColumnTimeStampNs&>(nullable.get_nested_column()).get_data();
+    EXPECT_FALSE(nullable.is_null_at(0));
+    EXPECT_EQ(values[0].epoch_nanos(), 11);
+    EXPECT_FALSE(nullable.is_null_at(1));
+    EXPECT_EQ(values[1].epoch_nanos(), 22);
+    EXPECT_FALSE(nullable.is_null_at(2));
+    EXPECT_EQ(values[2].epoch_nanos(), -17);
+    EXPECT_FALSE(nullable.is_null_at(3));
+    EXPECT_EQ(values[3].epoch_nanos(), std::numeric_limits<int64_t>::min());
 }
 
 } // namespace doris

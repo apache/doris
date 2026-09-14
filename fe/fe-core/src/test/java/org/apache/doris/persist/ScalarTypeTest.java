@@ -22,8 +22,8 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.VariantType;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class ScalarTypeTest {
     @Test
@@ -32,10 +32,10 @@ public class ScalarTypeTest {
         String json = GsonUtils.GSON.toJson(scalarType);
         System.out.println(json);
         ScalarType scalarType2 = GsonUtils.GSON.fromJson(json, ScalarType.class);
-        Assert.assertFalse(scalarType2 instanceof VariantType);
-        Assert.assertEquals(scalarType.getPrimitiveType(), scalarType2.getPrimitiveType());
-        Assert.assertEquals(scalarType.getVariantMaxSubcolumnsCount(), 0);
-        Assert.assertEquals(scalarType.getVariantEnableTypedPathsToSparse(), false);
-        Assert.assertEquals(scalarType.getVariantMaxSparseColumnStatisticsSize(), 0);
+        Assertions.assertFalse(scalarType2 instanceof VariantType);
+        Assertions.assertEquals(scalarType.getPrimitiveType(), scalarType2.getPrimitiveType());
+        Assertions.assertEquals(scalarType.getVariantMaxSubcolumnsCount(), 0);
+        Assertions.assertEquals(scalarType.getVariantEnableTypedPathsToSparse(), false);
+        Assertions.assertEquals(scalarType.getVariantMaxSparseColumnStatisticsSize(), 0);
     }
 }

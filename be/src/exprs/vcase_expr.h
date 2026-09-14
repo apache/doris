@@ -28,10 +28,8 @@
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_struct.h"
-#include "core/column/column_variant.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_nullable.h"
-#include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
@@ -87,7 +85,6 @@ private:
                       std::is_same_v<ColumnType, ColumnArray> ||
                       std::is_same_v<ColumnType, ColumnMap> ||
                       std::is_same_v<ColumnType, ColumnStruct> ||
-                      std::is_same_v<ColumnType, ColumnVariant> ||
                       std::is_same_v<ColumnType, ColumnVariantV2> ||
                       std::is_same_v<ColumnType, ColumnHLL> ||
                       std::is_same_v<ColumnType, ColumnQuantileState> ||
@@ -143,6 +140,7 @@ private:
             CASE_TYPE(TYPE_DATETIME, ColumnDateTime)
             CASE_TYPE(TYPE_DATEV2, ColumnDateV2)
             CASE_TYPE(TYPE_DATETIMEV2, ColumnDateTimeV2)
+            CASE_TYPE(TYPE_TIMESTAMP_NS, ColumnTimeStampNs)
             CASE_TYPE(TYPE_TIMESTAMPTZ, ColumnTimeStampTz)
             CASE_TYPE(TYPE_IPV6, ColumnIPv6)
             CASE_TYPE(TYPE_IPV4, ColumnIPv4)
@@ -154,13 +152,9 @@ private:
             CASE_TYPE(TYPE_QUANTILE_STATE, ColumnQuantileState)
         case PrimitiveType::TYPE_VARIANT: {
             const IDataType* variant_type = remove_nullable(data_type()).get();
-            if (dynamic_cast<const DataTypeVariantV2*>(variant_type) != nullptr) {
-                return _execute_update_result_impl<IndexType, ColumnVariantV2>(
-                        then_idx, then_columns, rows_count);
-            }
-            DORIS_CHECK(dynamic_cast<const DataTypeVariant*>(variant_type) != nullptr);
-            return _execute_update_result_impl<IndexType, ColumnVariant>(then_idx, then_columns,
-                                                                         rows_count);
+            DORIS_CHECK(dynamic_cast<const DataTypeVariantV2*>(variant_type) != nullptr);
+            return _execute_update_result_impl<IndexType, ColumnVariantV2>(then_idx, then_columns,
+                                                                           rows_count);
         }
         default:
             throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "argument_type {} not supported",
@@ -231,6 +225,7 @@ private:
                           std::is_same_v<ColumnType, ColumnDateTime> ||
                           std::is_same_v<ColumnType, ColumnDateV2> ||
                           std::is_same_v<ColumnType, ColumnDateTimeV2> ||
+                          std::is_same_v<ColumnType, ColumnTimeStampNs> ||
                           std::is_same_v<ColumnType, ColumnTimeStampTz>) {
                 result_raw_data[i] = ColumnType::default_value();
             } else {
@@ -251,6 +246,7 @@ private:
                           std::is_same_v<ColumnType, ColumnDateTime> ||
                           std::is_same_v<ColumnType, ColumnDateV2> ||
                           std::is_same_v<ColumnType, ColumnDateTimeV2> ||
+                          std::is_same_v<ColumnType, ColumnTimeStampNs> ||
                           std::is_same_v<ColumnType, ColumnTimeStampTz>) {
                 for (int row_idx = 0; row_idx < rows_count; row_idx++) {
                     result_raw_data[row_idx] = (then_idx[row_idx] == i) ? column_raw_data[row_idx]

@@ -204,10 +204,10 @@ bool PipelineFragmentContext::notify_close() {
     return all_closed;
 }
 
-// Must not add lock in this method. Because it will call query ctx cancel. And
-// QueryCtx cancel will call fragment ctx cancel. And Also Fragment ctx's running
-// Method like exchange sink buffer will call query ctx cancel. If we add lock here
-// There maybe dead lock.
+// QueryContext is the sole cancellation entry point and invokes this method to apply the accepted
+// cancellation to this fragment. Do not call QueryContext::cancel() from here: doing so would make
+// cancellation bidirectional and allow every task closed with the query error to repeat the whole
+// fragment's timeout diagnostics and dependency-unblocking work.
 void PipelineFragmentContext::cancel(const Status reason) {
     LOG_INFO("PipelineFragmentContext::cancel")
             .tag("query_id", print_id(_query_id))
@@ -241,7 +241,6 @@ void PipelineFragmentContext::cancel(const Status reason) {
         _query_ctx->set_first_error_msg(first_error_msg);
     }
 
-    _query_ctx->cancel(reason, _fragment_id);
     if (!reason.is<ErrorCode::LIMIT_REACH>() && !reason.is<ErrorCode::FINISHED>()) {
         for (auto& id : _fragment_instance_ids) {
             LOG(WARNING) << "PipelineFragmentContext cancel instance: " << print_id(id);
@@ -2188,7 +2187,7 @@ Status PipelineFragmentContext::submit() {
             DBUG_EXECUTE_IF("PipelineFragmentContext.submit.failed",
                             { st = Status::Aborted("PipelineFragmentContext.submit.failed"); });
             if (!st) {
-                cancel(Status::InternalError("submit context to executor fail"));
+                _query_ctx->cancel(Status::InternalError("submit context to executor fail"));
                 std::lock_guard<std::mutex> l(_task_mutex);
                 _total_tasks = submit_tasks;
                 break;
@@ -2656,7 +2655,9 @@ Status PipelineFragmentContext::send_report(bool done) {
                              .runtime_state = _runtime_state.get(),
                              .load_error_url = load_eror_url,
                              .first_error_msg = first_error_msg,
-                             .cancel_fn = [this](const Status& reason) { cancel(reason); }};
+                             .cancel_fn = [query_ctx = _query_ctx](const Status& reason) {
+                                 query_ctx->cancel(reason);
+                             }};
     auto ctx = std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this());
     Status submit_status =
             _exec_env->fragment_mgr()->get_thread_pool()->submit_func([this, req, ctx]() {

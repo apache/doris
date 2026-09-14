@@ -28,9 +28,20 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapAgg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MapAgg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MapAggV2;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NullIgnoringAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -71,12 +82,32 @@ class InferAggNotNullTest implements MemoPatternMatchSupported {
     }
 
     @Test
+    void testNotInferWhenAggregateArgumentReturnsFalseForNullInput() {
+        Expression isNotNull = new Not(new IsNull(scan1.getOutput().get(1)));
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .aggGroupUsingIndex(ImmutableList.of(),
+                        ImmutableList.of(new Alias(new Count(false, isNotNull), "cnt")))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new InferAggNotNull())
+                .matches(
+                        logicalAggregate(
+                                logicalOlapScan()
+                        )
+                );
+    }
+
+    @Test
     void testInferMultipleAggregateSameInput() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .aggGroupUsingIndex(ImmutableList.of(),
                         ImmutableList.of(
+                                new Alias(new Count(false, scan1.getOutput().get(1)), "count_k"),
                                 new Alias(new Avg(scan1.getOutput().get(1)), "avg_k"),
-                                new Alias(new Sum(scan1.getOutput().get(1)), "sum_k")))
+                                new Alias(new Sum(scan1.getOutput().get(1)), "sum_k"),
+                                new Alias(new Max(scan1.getOutput().get(1)), "max_k"),
+                                new Alias(new Min(scan1.getOutput().get(1)), "min_k")))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
@@ -86,6 +117,66 @@ class InferAggNotNullTest implements MemoPatternMatchSupported {
                                 logicalFilter().when(filter -> filter.getConjuncts().size() == 1
                                         && filter.getConjuncts().stream()
                                         .allMatch(e -> ((Not) e).isGeneratedIsNotNull()))
+                        )
+                );
+    }
+
+    @Test
+    void testNotInferForNullSensitiveAggregate() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .aggGroupUsingIndex(ImmutableList.of(),
+                        ImmutableList.of(new Alias(new ArrayAgg(scan1.getOutput().get(1)), "values")))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new InferAggNotNull())
+                .matches(
+                        logicalAggregate(
+                                logicalOlapScan()
+                        )
+                );
+    }
+
+    @Test
+    void testAuditedNullInputContractMarkers() {
+        Expression key = scan1.getOutput().get(0);
+        Expression value = scan1.getOutput().get(1);
+
+        List<AggregateFunction> nullIgnoring = ImmutableList.of(
+                new Sum(value),
+                new Sum0(value),
+                new CollectList(value),
+                new BitmapAgg(value));
+        nullIgnoring.forEach(function -> Assertions.assertTrue(
+                function instanceof NullIgnoringAggregateFunction,
+                function.getName() + " must declare the audited null-row contract"));
+
+        // NotNullableAggregateFunction does not imply that NULL argument rows can be removed.
+        List<AggregateFunction> withoutClassWideProof = ImmutableList.of(
+                new ArrayAgg(value),
+                new MapAgg(key, value),
+                new MapAggV2(key, value),
+                new CountByEnum(value),
+                new GroupConcat(value));
+        withoutClassWideProof.forEach(function -> Assertions.assertFalse(
+                function instanceof NullIgnoringAggregateFunction,
+                function.getName() + " must remain conservative until every mode is proven"));
+    }
+
+    @Test
+    void testNullSensitiveAggregateBlocksCommonInference() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .aggGroupUsingIndex(ImmutableList.of(),
+                        ImmutableList.of(
+                                new Alias(new Count(false, scan1.getOutput().get(1)), "count_k"),
+                                new Alias(new ArrayAgg(scan1.getOutput().get(1)), "values")))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new InferAggNotNull())
+                .matches(
+                        logicalAggregate(
+                                logicalOlapScan()
                         )
                 );
     }

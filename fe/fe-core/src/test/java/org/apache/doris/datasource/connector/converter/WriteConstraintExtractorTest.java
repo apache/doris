@@ -40,9 +40,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.Optional;
@@ -66,7 +66,7 @@ public class WriteConstraintExtractorTest {
 
     private TableIf targetTable;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         targetTable = Mockito.mock(TableIf.class);
         Mockito.when(targetTable.getId()).thenReturn(TARGET_ID);
@@ -90,12 +90,12 @@ public class WriteConstraintExtractorTest {
 
         Optional<ConnectorPredicate> result = WriteConstraintExtractor.extract(plan, TARGET_ID, NO_EXCLUSION);
 
-        Assert.assertTrue(result.isPresent());
+        Assertions.assertTrue(result.isPresent());
         ConnectorExpression expr = result.get().getExpression();
-        Assert.assertTrue(expr instanceof ConnectorComparison);
+        Assertions.assertTrue(expr instanceof ConnectorComparison);
         ConnectorComparison cmp = (ConnectorComparison) expr;
-        Assert.assertEquals(ConnectorComparison.Operator.EQ, cmp.getOperator());
-        Assert.assertEquals("id", ((ConnectorColumnRef) cmp.getLeft()).getColumnName());
+        Assertions.assertEquals(ConnectorComparison.Operator.EQ, cmp.getOperator());
+        Assertions.assertEquals("id", ((ConnectorColumnRef) cmp.getLeft()).getColumnName());
     }
 
     @Test
@@ -105,7 +105,7 @@ public class WriteConstraintExtractorTest {
         SlotReference slot = slot(other, "id", ScalarType.INT);
         Plan plan = filterOver(ImmutableSet.of(new EqualTo(slot, new IntegerLiteral(1))), slot);
 
-        Assert.assertFalse(WriteConstraintExtractor.extract(plan, TARGET_ID, NO_EXCLUSION).isPresent());
+        Assertions.assertFalse(WriteConstraintExtractor.extract(plan, TARGET_ID, NO_EXCLUSION).isPresent());
     }
 
     @Test
@@ -121,9 +121,9 @@ public class WriteConstraintExtractorTest {
 
         Optional<ConnectorPredicate> result = WriteConstraintExtractor.extract(plan, TARGET_ID, NO_EXCLUSION);
 
-        Assert.assertTrue(result.isPresent());
+        Assertions.assertTrue(result.isPresent());
         // only the single target-arm survives -> a lone comparison, not an AND of both
-        Assert.assertTrue(result.get().getExpression() instanceof ConnectorComparison);
+        Assertions.assertTrue(result.get().getExpression() instanceof ConnectorComparison);
     }
 
     @Test
@@ -137,9 +137,9 @@ public class WriteConstraintExtractorTest {
 
         Optional<ConnectorPredicate> result = WriteConstraintExtractor.extract(plan, TARGET_ID, NO_EXCLUSION);
 
-        Assert.assertTrue(result.isPresent());
-        Assert.assertTrue(result.get().getExpression() instanceof ConnectorAnd);
-        Assert.assertEquals(2, ((ConnectorAnd) result.get().getExpression()).getConjuncts().size());
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertTrue(result.get().getExpression() instanceof ConnectorAnd);
+        Assertions.assertEquals(2, ((ConnectorAnd) result.get().getExpression()).getConjuncts().size());
     }
 
     @Test
@@ -150,12 +150,10 @@ public class WriteConstraintExtractorTest {
         SlotReference synthetic = slot(targetTable, "rowid_col", ScalarType.INT);
         Plan plan = filterOver(ImmutableSet.of(new EqualTo(synthetic, new IntegerLiteral(1))), synthetic);
 
-        Assert.assertTrue("without exclusion the synthetic-column conjunct slips through",
-                WriteConstraintExtractor.extract(plan, TARGET_ID, NO_EXCLUSION).isPresent());
+        Assertions.assertTrue(WriteConstraintExtractor.extract(plan, TARGET_ID, NO_EXCLUSION).isPresent(), "without exclusion the synthetic-column conjunct slips through");
 
         Predicate<SlotReference> excludeRowId = s -> "rowid_col".equalsIgnoreCase(s.getName());
-        Assert.assertFalse("the injected exclusion predicate must drop the synthetic-column conjunct",
-                WriteConstraintExtractor.extract(plan, TARGET_ID, excludeRowId).isPresent());
+        Assertions.assertFalse(WriteConstraintExtractor.extract(plan, TARGET_ID, excludeRowId).isPresent(), "the injected exclusion predicate must drop the synthetic-column conjunct");
     }
 
     @Test
@@ -165,7 +163,7 @@ public class WriteConstraintExtractorTest {
         SlotReference b = slot(targetTable, "v", ScalarType.INT);
         Plan plan = filterOver(ImmutableSet.of(new EqualTo(a, b)), a);
 
-        Assert.assertFalse(WriteConstraintExtractor.extract(plan, TARGET_ID, NO_EXCLUSION).isPresent());
+        Assertions.assertFalse(WriteConstraintExtractor.extract(plan, TARGET_ID, NO_EXCLUSION).isPresent());
     }
 
     @Test
@@ -185,10 +183,9 @@ public class WriteConstraintExtractorTest {
         Optional<ConnectorPredicate> result =
                 WriteConstraintExtractor.extract(filterOver(conjuncts, id), TARGET_ID, NO_EXCLUSION);
 
-        Assert.assertTrue("the convertible target conjunct survives", result.isPresent());
-        Assert.assertTrue("only the convertible arm remains -> a lone comparison, not an AND of one",
-                result.get().getExpression() instanceof ConnectorComparison);
-        Assert.assertEquals("id",
+        Assertions.assertTrue(result.isPresent(), "the convertible target conjunct survives");
+        Assertions.assertTrue(result.get().getExpression() instanceof ConnectorComparison, "only the convertible arm remains -> a lone comparison, not an AND of one");
+        Assertions.assertEquals("id",
                 ((ConnectorColumnRef) ((ConnectorComparison) result.get().getExpression()).getLeft())
                         .getColumnName());
     }
@@ -198,7 +195,7 @@ public class WriteConstraintExtractorTest {
         SlotReference slot = slot(targetTable, "id", ScalarType.INT);
         Plan plan = filterOver(ImmutableSet.of(BooleanLiteral.of(true)), slot);
 
-        Assert.assertFalse(WriteConstraintExtractor.extract(plan, TARGET_ID, NO_EXCLUSION).isPresent());
+        Assertions.assertFalse(WriteConstraintExtractor.extract(plan, TARGET_ID, NO_EXCLUSION).isPresent());
     }
 
     @Test
@@ -213,9 +210,9 @@ public class WriteConstraintExtractorTest {
 
         Optional<ConnectorPredicate> result = WriteConstraintExtractor.extract(outer, TARGET_ID, NO_EXCLUSION);
 
-        Assert.assertTrue(result.isPresent());
-        Assert.assertTrue(result.get().getExpression() instanceof ConnectorAnd);
-        Assert.assertEquals(2, ((ConnectorAnd) result.get().getExpression()).getConjuncts().size());
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertTrue(result.get().getExpression() instanceof ConnectorAnd);
+        Assertions.assertEquals(2, ((ConnectorAnd) result.get().getExpression()).getConjuncts().size());
     }
 
     @Test
@@ -223,11 +220,11 @@ public class WriteConstraintExtractorTest {
         SlotReference slot = slot(targetTable, "id", ScalarType.INT);
         Plan plan = new LogicalEmptyRelation(new RelationId(0), ImmutableList.of((NamedExpression) slot));
 
-        Assert.assertFalse(WriteConstraintExtractor.extract(plan, TARGET_ID, NO_EXCLUSION).isPresent());
+        Assertions.assertFalse(WriteConstraintExtractor.extract(plan, TARGET_ID, NO_EXCLUSION).isPresent());
     }
 
     @Test
     public void nullPlanReturnsEmpty() {
-        Assert.assertFalse(WriteConstraintExtractor.extract(null, TARGET_ID, NO_EXCLUSION).isPresent());
+        Assertions.assertFalse(WriteConstraintExtractor.extract(null, TARGET_ID, NO_EXCLUSION).isPresent());
     }
 }

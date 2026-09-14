@@ -21,22 +21,22 @@ import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlErrPacket;
 import org.apache.doris.mysql.MysqlOkPacket;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class QueryStateTest {
     @Test
     public void testNormal() {
         QueryState state = new QueryState();
-        Assert.assertTrue(state.toResponsePacket() instanceof MysqlOkPacket);
+        Assertions.assertTrue(state.toResponsePacket() instanceof MysqlOkPacket);
         state.setEof();
-        Assert.assertTrue(state.toResponsePacket() instanceof MysqlEofPacket);
+        Assertions.assertTrue(state.toResponsePacket() instanceof MysqlEofPacket);
         state.setError("abc");
-        Assert.assertTrue(state.toResponsePacket() instanceof MysqlErrPacket);
-        Assert.assertEquals("abc", state.getErrorMessage());
+        Assertions.assertTrue(state.toResponsePacket() instanceof MysqlErrPacket);
+        Assertions.assertEquals("abc", state.getErrorMessage());
 
         state.reset();
-        Assert.assertTrue(state.toResponsePacket() instanceof MysqlOkPacket);
+        Assertions.assertTrue(state.toResponsePacket() instanceof MysqlOkPacket);
 
     }
 

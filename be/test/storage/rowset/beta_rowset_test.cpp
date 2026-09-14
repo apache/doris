@@ -294,6 +294,11 @@ class S3ClientMockGetErrorData : public S3ClientMock {
     }
 };
 
+class TestBetaRowsetWriter final : public BaseBetaRowsetWriter {
+public:
+    Status build(RowsetSharedPtr& rowset) override { return Status::OK(); }
+};
+
 TEST_F(BetaRowsetTest, ReadTest) {
     RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
     BetaRowset rowset(nullptr, rowset_meta, "");
@@ -372,6 +377,32 @@ TEST_F(BetaRowsetTest, AddToBinlogTest) {
     ASSERT_TRUE(s.ok()) << "first add_to_binlog(): " << s;
     s = rowset.add_to_binlog();
     ASSERT_TRUE(s.ok()) << "second add_to_binlog(): " << s;
+}
+
+TEST_F(BetaRowsetTest, PersistInvertedIndexStorageFormatInRowsetMeta) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema);
+
+    RowsetWriterContext context;
+    create_rowset_writer_context(tablet_schema, &context);
+    context.inverted_index_storage_format = InvertedIndexStorageFormatPB::SNII;
+
+    context.persist_inverted_index_storage_format = false;
+    TestBetaRowsetWriter disabled_writer;
+    ASSERT_TRUE(disabled_writer.init(context).ok());
+    EXPECT_FALSE(disabled_writer.rowset_meta()->has_inverted_index_storage_format());
+
+    context.persist_inverted_index_storage_format = true;
+    TestBetaRowsetWriter enabled_writer;
+    ASSERT_TRUE(enabled_writer.init(context).ok());
+    ASSERT_TRUE(enabled_writer.rowset_meta()->has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
+              enabled_writer.rowset_meta()->inverted_index_storage_format());
+
+    context.inverted_index_storage_format.reset();
+    TestBetaRowsetWriter missing_format_writer;
+    ASSERT_TRUE(missing_format_writer.init(context).ok());
+    EXPECT_FALSE(missing_format_writer.rowset_meta()->has_inverted_index_storage_format());
 }
 
 TEST_F(BetaRowsetTest, GetIndexFileNames) {

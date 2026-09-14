@@ -174,12 +174,16 @@ TEST(CastVariantV2ToTest, StringTypesAreStringScalarsAndAreNotParsed) {
         source->insert_data(R"({"a":1})", 7);
         CastResult cast = execute_to_variant(source->get_ptr(), source_type);
         ASSERT_TRUE(cast.status.ok()) << source_type->get_name() << ": " << cast.status;
-        auto encoded = IColumn::mutate(cast.column);
-        auto& variant = assert_cast<ColumnVariantV2&>(*encoded);
-        variant.ensure_encoded();
-        ASSERT_EQ(variant.get_value_ref(0).basic_type(), VariantBasicType::SHORT_STRING)
+        const auto& variant = assert_cast<const ColumnVariantV2&>(*cast.column);
+        ASSERT_TRUE(variant.is_typed()) << source_type->get_name();
+        EXPECT_EQ(variant.typed_type()->get_primitive_type(), source_type->get_primitive_type())
                 << source_type->get_name();
-        EXPECT_EQ(variant.get_value_ref(0).get_string(), StringRef(R"({"a":1})"))
+        auto encoded = IColumn::mutate(cast.column);
+        auto& encoded_variant = assert_cast<ColumnVariantV2&>(*encoded);
+        encoded_variant.ensure_encoded();
+        ASSERT_EQ(encoded_variant.get_value_ref(0).basic_type(), VariantBasicType::SHORT_STRING)
+                << source_type->get_name();
+        EXPECT_EQ(encoded_variant.get_value_ref(0).get_string(), StringRef(R"({"a":1})"))
                 << source_type->get_name();
     }
 }
@@ -317,7 +321,7 @@ TEST(CastVariantV2ToTest, UnsupportedMapAndConstInputLeaveResultUntouched) {
     value->insert_value(1);
     ColumnPtr constant = ColumnConst::create(std::move(value), 3);
     CastResult const_result = execute_to_variant(constant, std::make_shared<DataTypeInt32>());
-    EXPECT_TRUE(const_result.status.is<ErrorCode::INVALID_ARGUMENT>());
+    EXPECT_TRUE(const_result.status.is<ErrorCode::INTERNAL_ERROR>());
     EXPECT_EQ(const_result.column.get(), const_result.initial_result.get());
 }
 

@@ -226,6 +226,8 @@ public:
 private:
     // txn rowset builder will manage txn; other builders will add their
     // rowsets into here.
+    StorageEngine& _engine;
+    int64_t _row_binlog_tablet_id;
     std::shared_ptr<RowsetBuilder> _txn_rs_builder;
     std::shared_ptr<RowsetBuilder> _row_binlog_rowset_builder;
 };

@@ -16,6 +16,7 @@
 // under the License.
 
 #include <CLucene.h>
+#include <errno.h>
 #include <gtest/gtest.h>
 #include <unistd.h>
 
@@ -24,6 +25,7 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "storage/data_dir.h"
@@ -39,6 +41,7 @@
 #include "storage/options.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/debug_points.h"
 
 namespace doris::segment_v2 {
 
@@ -295,6 +298,30 @@ TEST_F(InvertedIndexFileReaderTest, TestUnknownIndexFormatError) {
     // since reading invalid data may trigger CLucene exceptions
     EXPECT_TRUE(status.msg().find("unknown inverted index format") != std::string::npos ||
                 status.msg().find("CLuceneError") != std::string::npos);
+}
+
+// A read-stage NotFound must surface as INVERTED_INDEX_FILE_NOT_FOUND so callers can downgrade.
+TEST_F(InvertedIndexFileReaderTest, TestV2ReadNotFoundReturnsFileNotFound) {
+    std::string index_path = kTestDir + "/read_not_found_index_file";
+    create_invalid_version_file(index_path + ".idx", 1);
+
+    InvertedIndexFileInfo file_info;
+    file_info.set_index_size(1024); // size known: init() skips stat, open succeeds
+
+    IndexFileReader reader(io::global_local_filesystem(), index_path,
+                           InvertedIndexStorageFormatPB::V2, file_info);
+
+    const auto old_enable = config::enable_debug_points;
+    config::enable_debug_points = true;
+    const std::string point = "LocalFileReader::read_at_impl.io_error";
+    DebugPoints::instance()->add_with_params(
+            point, {{"errno", std::to_string(ENOENT)}, {"sub_path", "read_not_found"}});
+    Status status = reader.init(4096);
+    DebugPoints::instance()->remove(point);
+    config::enable_debug_points = old_enable;
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
 }
 
 // Test case for V1 format file not found error

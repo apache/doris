@@ -33,18 +33,19 @@ import org.apache.doris.system.Frontend;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.springframework.http.ResponseEntity;
 
 import java.io.File;
 import java.lang.reflect.Field;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 public class MetaServiceTest {
     // Value configured via Config.fe_meta_auth_token -- the cluster meta auth token.
@@ -56,8 +57,8 @@ public class MetaServiceTest {
     private static final String FE_HOST = "127.0.0.1";
     private static final int FE_EDIT_LOG_PORT = 9010;
 
-    @Rule
-    public TemporaryFolder temporaryFolder = new TemporaryFolder();
+    @TempDir
+    public Path temporaryFolder;
 
     private String oldMetaAuthToken;
     private boolean oldEnableAllHttpAuth;
@@ -67,7 +68,7 @@ public class MetaServiceTest {
     private Env env;
     private MockedStatic<Env> envStatic;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         oldMetaAuthToken = Config.fe_meta_auth_token;
         oldEnableAllHttpAuth = Config.enable_all_http_auth;
@@ -87,10 +88,10 @@ public class MetaServiceTest {
 
         Frontend frontend = new Frontend(FrontendNodeType.FOLLOWER, "fe1", FE_HOST, FE_EDIT_LOG_PORT);
         Mockito.when(env.checkFeExist(FE_HOST, FE_EDIT_LOG_PORT)).thenReturn(frontend);
-        Mockito.when(env.getImageDir()).thenReturn(temporaryFolder.getRoot().getAbsolutePath());
+        Mockito.when(env.getImageDir()).thenReturn(temporaryFolder.toFile().getAbsolutePath());
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         Config.fe_meta_auth_token = oldMetaAuthToken;
         Config.enable_all_http_auth = oldEnableAllHttpAuth;
@@ -112,7 +113,7 @@ public class MetaServiceTest {
 
         Object result = service.role(request, response);
 
-        Assert.assertEquals(RestApiStatusCode.OK.code, responseCode(result));
+        Assertions.assertEquals(RestApiStatusCode.OK.code, responseCode(result));
         Mockito.verify(response).setHeader("role", FrontendNodeType.FOLLOWER.name());
     }
 
@@ -127,7 +128,7 @@ public class MetaServiceTest {
 
         Object result = service.role(request, response);
 
-        Assert.assertEquals(RestApiStatusCode.OK.code, responseCode(result));
+        Assertions.assertEquals(RestApiStatusCode.OK.code, responseCode(result));
         Mockito.verify(response).setHeader("role", FrontendNodeType.FOLLOWER.name());
     }
 
@@ -141,7 +142,7 @@ public class MetaServiceTest {
 
         Object result = service.check(request, response);
 
-        Assert.assertEquals(RestApiStatusCode.OK.code, responseCode(result));
+        Assertions.assertEquals(RestApiStatusCode.OK.code, responseCode(result));
         Mockito.verify(response).setHeader(MetaBaseAction.TOKEN, STORAGE_TOKEN);
     }
 
@@ -152,7 +153,7 @@ public class MetaServiceTest {
         HttpServletRequest request = newRequest(FE_HOST, FE_HOST, BAD_TOKEN);
         HttpServletResponse response = Mockito.mock(HttpServletResponse.class);
 
-        Assert.assertThrows(UnauthorizedException.class, () -> service.role(request, response));
+        Assertions.assertThrows(UnauthorizedException.class, () -> service.role(request, response));
     }
 
     // A missing token is rejected when a cluster token is configured.
@@ -162,7 +163,7 @@ public class MetaServiceTest {
         HttpServletRequest request = newRequest(FE_HOST, FE_HOST, null);
         HttpServletResponse response = Mockito.mock(HttpServletResponse.class);
 
-        Assert.assertThrows(UnauthorizedException.class, () -> service.role(request, response));
+        Assertions.assertThrows(UnauthorizedException.class, () -> service.role(request, response));
     }
 
     // The node-host check is always enforced: an unknown FE host is rejected even with a
@@ -173,7 +174,7 @@ public class MetaServiceTest {
         HttpServletRequest request = newRequest("192.0.2.99", "192.0.2.99", META_TOKEN);
         HttpServletResponse response = Mockito.mock(HttpServletResponse.class);
 
-        Assert.assertThrows(UnauthorizedException.class, () -> service.role(request, response));
+        Assertions.assertThrows(UnauthorizedException.class, () -> service.role(request, response));
     }
 
     @Test
@@ -185,13 +186,13 @@ public class MetaServiceTest {
         Mockito.when(request.getParameter("port")).thenReturn(Integer.toString(Config.http_port + 1));
 
         try (MockedStatic<MetaHelper> metaHelper = Mockito.mockStatic(MetaHelper.class)) {
-            File partialFile = temporaryFolder.newFile("image.100.part");
+            File partialFile = Files.createFile(temporaryFolder.resolve("image.100.part")).toFile();
             metaHelper.when(() -> MetaHelper.getFile(Mockito.anyString(), Mockito.any(File.class)))
                     .thenReturn(partialFile);
 
             Object result = service.put(request, response);
 
-            Assert.assertEquals(RestApiStatusCode.BAD_REQUEST.code, responseCode(result));
+            Assertions.assertEquals(RestApiStatusCode.BAD_REQUEST.code, responseCode(result));
             metaHelper.verify(() -> MetaHelper.getRemoteFile(Mockito.anyString(), Mockito.anyInt(),
                     Mockito.any(File.class)), Mockito.never());
         }
@@ -209,14 +210,14 @@ public class MetaServiceTest {
         Mockito.when(request.getParameter("port")).thenReturn(Integer.toString(Config.https_port));
 
         try (MockedStatic<MetaHelper> metaHelper = Mockito.mockStatic(MetaHelper.class)) {
-            File partialFile = temporaryFolder.newFile("image.100.part");
+            File partialFile = Files.createFile(temporaryFolder.resolve("image.100.part")).toFile();
             metaHelper.when(() -> MetaHelper.getFile(Mockito.anyString(), Mockito.any(File.class)))
                     .thenReturn(partialFile);
 
             Object result = service.put(request, response);
 
             // Passes the port check and proceeds to fetch the remote image (no BAD_REQUEST).
-            Assert.assertEquals(RestApiStatusCode.OK.code, responseCode(result));
+            Assertions.assertEquals(RestApiStatusCode.OK.code, responseCode(result));
             metaHelper.verify(() -> MetaHelper.getRemoteFile(Mockito.anyString(), Mockito.anyInt(),
                     Mockito.any(File.class)), Mockito.times(1));
         }
@@ -253,7 +254,7 @@ public class MetaServiceTest {
         Mockito.when(env.getAccessManager()).thenReturn(accessManager);
         Mockito.when(accessManager.checkGlobalPriv(nonAdmin, PrivPredicate.ADMIN)).thenReturn(false);
 
-        Assert.assertThrows(UnauthorizedException.class, () -> service.dump(request, response));
+        Assertions.assertThrows(UnauthorizedException.class, () -> service.dump(request, response));
         Mockito.verify(env, Mockito.never()).dumpImage();
     }
 
@@ -264,7 +265,7 @@ public class MetaServiceTest {
     }
 
     private MetaService serviceWithImageDir() throws Exception {
-        File imageDir = temporaryFolder.newFolder("image");
+        File imageDir = Files.createDirectories(temporaryFolder.resolve("image")).toFile();
         Storage storage = new Storage(12345, STORAGE_TOKEN, imageDir.getAbsolutePath());
         storage.writeClusterIdAndToken();
 

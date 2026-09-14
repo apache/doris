@@ -27,6 +27,7 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
@@ -39,6 +40,7 @@ import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
@@ -68,7 +70,7 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.ShortCircuitQueryContext;
 import org.apache.doris.qe.cache.CacheAnalyzer;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.system.Backend;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -97,6 +99,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Set;
@@ -125,6 +128,7 @@ public class StatementContext implements Closeable {
     }
 
     private ConnectContext connectContext;
+    private Optional<IvmRewriteContext> ivmRewriteContext = Optional.empty();
 
     private final Stopwatch stopwatch = Stopwatch.createUnstarted();
     private final Stopwatch materializedViewStopwatch = Stopwatch.createUnstarted();
@@ -351,6 +355,7 @@ public class StatementContext implements Closeable {
 
     private final Set<CTEId> mustInlineCTE = new HashSet<>();
     private final Set<String> usedAIResourceNames = new LinkedHashSet<>();
+    private final Set<TableNameInfo> excludedTriggerTables = new HashSet<>();
 
     private final Map<String, Integer> lowerCaseTableNamesCache = Maps.newHashMap();
     private final Map<String, Integer> lowerCaseDatabaseNamesCache = Maps.newHashMap();
@@ -393,6 +398,53 @@ public class StatementContext implements Closeable {
         } else {
             this.sqlCacheContext = null;
         }
+    }
+
+    /**
+     * Create a fresh StatementContext for the next EXECUTE of a prepared statement.
+     *
+     * <p>A prepared statement keeps its StatementContext inside {@code PreparedStatementContext}
+     * for the whole lifetime of the connection. Reusing the same object across executions makes
+     * its per-statement state (bound tables, CTE maps, statistics, snapshots, connector scope,
+     * ...) accumulate and it is only released when the connection closes, which can OOM
+     * long-lived connections. Instead of clearing in place, allocate a brand-new context per
+     * EXECUTE and copy over only the state that must survive between executions, so the previous
+     * context becomes unreachable and is promptly GC'd.
+     *
+     * <p>Carried over:
+     * <ul>
+     *   <li>id generator positions, so ids generated during this execution never collide with
+     *       ids already present in the cached analyzed plan from PREPARE;</li>
+     *   <li>the placeholder real expressions bound by this EXECUTE (the protocol layer fills
+     *       them on the previous context before this method runs) and the placeholder list;</li>
+     *   <li>the placeholder to comparison-slot registry used by the short-circuit fast path;</li>
+     *   <li>the short-circuit and nondeterministic flags that gate the short-circuit fast path
+     *       before this execution re-plans.</li>
+     * </ul>
+     * Everything else (tables, CTEs, statistics, snapshots, planner resources, connector
+     * scope, ...) starts empty/fresh on the new context.
+     */
+    public StatementContext createNextExecuteContext() {
+        // Continue the id generators from the previous context. The cached analyzed plan from
+        // PREPARE (and every prior execution) already consumed ids from them, so a fresh
+        // generator starting at 0 would collide with those ids during this execution's planning.
+        StatementContext next = new StatementContext(connectContext, originStatement,
+                exprIdGenerator.getCurrentId());
+        next.objectIdGenerator.resetId(objectIdGenerator.getCurrentId());
+        next.relationIdGenerator.resetId(relationIdGenerator.getCurrentId());
+        next.cteIdGenerator.resetId(cteIdGenerator.getCurrentId());
+        next.talbeIdGenerator.resetId(talbeIdGenerator.getCurrentId());
+        next.placeHolderIdGenerator.resetId(placeHolderIdGenerator.getCurrentId());
+        // Placeholder bindings of this EXECUTE, and the comparison-slot registry used to replace
+        // conjuncts on the cached short-circuit plan without re-planning.
+        next.idToPlaceholderRealExpr.putAll(idToPlaceholderRealExpr);
+        next.idToComparisonSlot.putAll(idToComparisonSlot);
+        next.placeholders = new ArrayList<>(placeholders);
+        // Short-circuit gating flags are computed by the previous execution's planning and gate
+        // the fast path of this execution before any re-planning happens.
+        next.isShortCircuitQuery = isShortCircuitQuery;
+        next.hasNondeterministic = hasNondeterministic;
+        return next;
     }
 
     public void setNeedLockTables(boolean needLockTables) {
@@ -444,6 +496,17 @@ public class StatementContext implements Closeable {
 
     public Map<List<String>, TableIf> getOneLevelTables() {
         return oneLevelTables;
+    }
+
+    public Set<TableNameInfo> getExcludedTriggerTables() {
+        return excludedTriggerTables;
+    }
+
+    public void setExcludedTriggerTables(Set<TableNameInfo> excludedTriggerTables) {
+        this.excludedTriggerTables.clear();
+        if (excludedTriggerTables != null) {
+            this.excludedTriggerTables.addAll(excludedTriggerTables);
+        }
     }
 
     public Set<MTMV> getCandidateMTMVs() {
@@ -514,6 +577,18 @@ public class StatementContext implements Closeable {
 
     public ConnectContext getConnectContext() {
         return connectContext;
+    }
+
+    public Optional<IvmRewriteContext> getIvmRewriteContext() {
+        return ivmRewriteContext;
+    }
+
+    public void setIvmRewriteContext(Optional<IvmRewriteContext> ivmRewriteContext) {
+        this.ivmRewriteContext = Objects.requireNonNull(ivmRewriteContext, "ivmRewriteContext can not be null");
+    }
+
+    public boolean isIvmMTMVRewrite() {
+        return getIvmRewriteContext().isPresent();
     }
 
     public Set<String> getUsedAIResourceNames() {

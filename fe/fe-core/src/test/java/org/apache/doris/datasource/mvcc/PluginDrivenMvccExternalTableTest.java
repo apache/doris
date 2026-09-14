@@ -51,6 +51,7 @@ import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenSchemaCacheValue;
 import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
+import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
@@ -66,10 +67,12 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 
 /**
  * Tests for {@link PluginDrivenMvccExternalTable}, the generic MVCC/MTMV-capable plugin table.
@@ -196,6 +199,43 @@ public class PluginDrivenMvccExternalTableTest {
         // which would make every partition compare equal forever (stale MV at partition granularity).
         Assertions.assertEquals(TS_2024_01_01, ts.getSnapshotVersion(),
                 "a last-modified connector's partition snapshot must use the on-demand millis, not the pin's -1");
+    }
+
+    @Test
+    public void testGetPartitionSnapshotsUsesOneBulkFreshnessCall() throws AnalysisException {
+        Fixture f = Fixture.partitioned();
+        flagPinLastModified(f);
+        Set<String> names = new LinkedHashSet<>(Arrays.asList("dt=2024-01-01", "dt=2024-02-02"));
+        Map<String, Long> freshness = new HashMap<>();
+        freshness.put("dt=2024-01-01", TS_2024_01_01);
+        freshness.put("dt=2024-02-02", TS_2024_02_02);
+        Mockito.when(f.metadata.getPartitionsFreshnessMillis(
+                Mockito.any(), Mockito.any(), Mockito.anyList())).thenReturn(freshness);
+
+        Map<String, MTMVSnapshotIf> snapshots =
+                f.table.getPartitionSnapshots(names, null, Optional.empty());
+
+        Assertions.assertEquals(names, snapshots.keySet());
+        Mockito.verify(f.metadata).getPartitionsFreshnessMillis(
+                Mockito.any(), Mockito.any(), Mockito.eq(new ArrayList<>(names)));
+        Mockito.verify(f.metadata, Mockito.never())
+                .getPartitionFreshnessMillis(Mockito.any(), Mockito.any(), Mockito.anyString());
+    }
+
+    @Test
+    public void testGetPartitionSnapshotsReturnsPresentSubsetWhenOnePartitionVanished()
+            throws AnalysisException {
+        Fixture f = Fixture.partitioned();
+        flagPinLastModified(f);
+        Set<String> names = new LinkedHashSet<>(Arrays.asList("dt=2024-01-01", "dt=2024-02-02"));
+        Mockito.when(f.metadata.getPartitionsFreshnessMillis(
+                Mockito.any(), Mockito.any(), Mockito.anyList())).thenReturn(
+                        Collections.singletonMap("dt=2024-02-02", TS_2024_02_02));
+
+        Map<String, MTMVSnapshotIf> snapshots =
+                f.table.getPartitionSnapshots(names, null, Optional.empty());
+
+        Assertions.assertEquals(Collections.singleton("dt=2024-02-02"), snapshots.keySet());
     }
 
     @Test

@@ -24,10 +24,12 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -75,13 +77,14 @@ public class RewriteRuleSuiteTest extends SqlTestBase {
     void testPruneOlapScanTablet() {
         OlapTable olapTable = Mockito.mock(OlapTable.class);
         Partition partition = Mockito.mock(Partition.class);
-        MaterializedIndex index = Mockito.mock(MaterializedIndex.class);
+        MaterializedIndex index = new MaterializedIndex();
         HashDistributionInfo distributionInfo = Mockito.mock(HashDistributionInfo.class);
 
-        List<Long> tabletIds = Lists.newArrayListWithExpectedSize(300);
+        List<Tablet> tablets = Lists.newArrayListWithExpectedSize(300);
         for (long i = 0; i < 300; i++) {
-            tabletIds.add(i);
+            tablets.add(new LocalTablet(i));
         }
+        index.appendTablets(tablets);
 
         List<Column> columns = Lists.newArrayList(
                 new Column("k0", PrimitiveType.DATE, false),
@@ -128,10 +131,9 @@ public class RewriteRuleSuiteTest extends SqlTestBase {
         Mockito.when(partition.getIndex(Mockito.anyLong())).thenReturn(index);
         Mockito.when(olapTable.getPartitionIndex(Mockito.eq(partition), Mockito.anyLong())).thenReturn(index);
         Mockito.when(partition.getDistributionInfo()).thenReturn(distributionInfo);
-        Mockito.when(index.getTabletIdsInOrder()).thenReturn(tabletIds);
         Mockito.when(distributionInfo.getDistributionColumns()).thenReturn(columns);
         Mockito.when(distributionInfo.getType()).thenReturn(DistributionInfo.DistributionInfoType.HASH);
-        Mockito.when(distributionInfo.getBucketNum()).thenReturn(tabletIds.size());
+        Mockito.when(distributionInfo.getBucketNum()).thenReturn(tablets.size());
 
         LogicalOlapScan scan = new LogicalOlapScan(RelationId.createGenerator().getNextId(), olapTable);
 

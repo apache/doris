@@ -17,16 +17,13 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.LambdaType;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableList.Builder;
 
 import java.util.List;
 import java.util.Objects;
@@ -38,7 +35,6 @@ import java.util.stream.Collectors;
  * After bind, x -> x : arguments("x") -> children: Expression(x) ArrayItemReference(x)
  */
 public class Lambda extends Expression {
-
     private final List<String> argumentNames;
 
     /**
@@ -56,39 +52,6 @@ public class Lambda extends Expression {
         super(children);
         this.argumentNames = ImmutableList.copyOf(Objects.requireNonNull(
                 argumentNames, "argumentNames should not null"));
-    }
-
-    /**
-     * make slot according array expression
-     * @param functionName function name
-     * @param arrays array expression
-     * @return item slots of array expression
-     */
-    public ImmutableList<ArrayItemReference> makeArguments(String functionName, List<Expression> arrays) {
-        Builder<ArrayItemReference> builder = new ImmutableList.Builder<>();
-        if (arrays.size() != argumentNames.size()) {
-            // In the lambda expression of array_sort, x and y point to the same slot.
-            if (functionName.equalsIgnoreCase("array_sort") && arrays.size() == 1 && argumentNames.size() == 2) {
-                Expression array = arrays.get(0);
-                if (!(array.getDataType() instanceof ArrayType)) {
-                    throw new AnalysisException(String.format("lambda argument must be array but is %s", array));
-                }
-                builder.add(new ArrayItemReference(argumentNames.get(0), array));
-                builder.add(new ArrayItemReference(argumentNames.get(1), array));
-                return builder.build();
-            }
-            throw new AnalysisException(String.format("lambda %s arguments' size is not equal parameters' size",
-                    toSql()));
-        }
-        for (int i = 0; i < arrays.size(); i++) {
-            Expression array = arrays.get(i);
-            if (!(array.getDataType() instanceof ArrayType)) {
-                throw new AnalysisException(String.format("lambda argument must be array but is %s", array));
-            }
-            String name = argumentNames.get(i);
-            builder.add(new ArrayItemReference(name, array));
-        }
-        return builder.build();
     }
 
     public String getLambdaArgumentName(int i) {

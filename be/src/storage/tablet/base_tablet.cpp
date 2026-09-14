@@ -482,8 +482,7 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
             delete_bitmap == nullptr ? _tablet_meta->delete_bitmap_ptr() : delete_bitmap;
     for (size_t i = 0; i < specified_rowsets.size(); i++) {
         const auto& rs = specified_rowsets[i];
-        std::vector<KeyBoundsPB> segments_key_bounds;
-        rs->rowset_meta()->get_segments_key_bounds(&segments_key_bounds);
+        const auto& segments_key_bounds = rs->rowset_meta()->get_segments_key_bounds();
         int num_segments = cast_set<int>(rs->num_segments());
         // MOW lookup requires per-segment bounds. Aggregation must be disabled
         // for MOW writers, but enforce at runtime too — indexing segments_key_bounds[j]

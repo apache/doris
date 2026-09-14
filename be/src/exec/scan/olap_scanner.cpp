@@ -332,13 +332,14 @@ Status OlapScanner::_init_tso_predicates() {
 
     const auto* tso_column = read_schema->column(tso_ordinal);
     const auto& tso_data_type = read_schema->data_type(tso_ordinal);
+    // The TSO scan range is left-closed right-open [start_tso, end_tso).
     if (_start_tso.has_value()) {
-        _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
+        _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::GE>(
                 tso_ordinal, tso_column->name(), tso_data_type,
                 Field::create_field<TYPE_BIGINT>(*_start_tso), false));
     }
     if (_end_tso.has_value()) {
-        _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::LE>(
+        _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::LT>(
                 tso_ordinal, tso_column->name(), tso_data_type,
                 Field::create_field<TYPE_BIGINT>(*_end_tso), false));
     }
@@ -551,7 +552,7 @@ Status OlapScanner::_init_variant_columns() {
             continue;
         }
         // Materialized paths are absent from the persisted frontend schema. Build their transient
-        // read-schema entries from the slot type so V1 and V2 share the same path/type mapping.
+        // read-schema entries from the slot type.
         const PathInData path(tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
                               slot->column_paths());
         // Keep transient paths nullable so an absent path preserves the existing NULL result.
@@ -562,13 +563,6 @@ Status OlapScanner::_init_variant_columns() {
         const int32_t column_index = tablet_schema->field_index(path);
         if (column_index < 0) {
             tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
-            continue;
-        }
-        if (subcol.variant_is_v2()) {
-            // TODO: Remove this promotion after legacy ColumnVariant read destinations are
-            // deleted. Persisted metadata describes the shared storage layout; this transient
-            // marker only makes the current scan construct a ColumnVariantV2 destination.
-            tablet_schema->mutable_column(column_index).set_variant_is_v2(true);
         }
     }
     variant_util::inherit_column_attributes(tablet_schema);
@@ -881,6 +875,8 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.inverted_index_searcher_cache_miss);
     COUNTER_UPDATE(local_state->_inverted_index_downgrade_count_counter,
                    stats.inverted_index_downgrade_count);
+    COUNTER_UPDATE(local_state->_inverted_index_conjuncts_short_circuited_counter,
+                   stats.inverted_index_conjuncts_short_circuited);
     COUNTER_UPDATE(local_state->_inverted_index_analyzer_timer,
                    stats.inverted_index_analyzer_timer);
     COUNTER_UPDATE(local_state->_inverted_index_lookup_timer, stats.inverted_index_lookup_timer);

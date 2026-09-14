@@ -159,7 +159,7 @@ public class IcebergFormatCacheTest {
     @Test
     public void loaderFailureIsNotCachedSoNextQueryRetries() {
         // A transient remote-IO failure during inference (planFiles/close) must NOT be memoized, or the parquet
-        // fallback would stick for the whole TTL. The MetaCacheEntry manual-miss-load path re-throws the loader's
+        // fallback would stick for the whole TTL. The MetaCache manual-miss-load path re-throws the loader's
         // RuntimeException verbatim and does not store it. MUTATION: caching on failure -> the second call would
         // not re-run the loader / size==1 -> red.
         IcebergFormatCache c = new IcebergFormatCache(100, 1000);

@@ -50,6 +50,7 @@ import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
@@ -65,6 +66,7 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -1069,7 +1071,12 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         //   node's sink, e.g. Exchange is in AGG_Sink pipeline).
         // For non-splitting operators (shouldReset=false, e.g. streaming AGG):
         //   Inherit parent's serial flag + this node's own.
-        boolean inheritedSerial = shouldResetSerialFlagForChild(childIndex)
+        boolean startsNewPipeline = shouldResetSerialFlagForChild(childIndex);
+        Supplier<Boolean> currentNodeSerialOnBe = Suppliers.memoize(
+                () -> isSerialOperatorOnBe(translatorContext.getConnectContext()));
+        boolean currentPipelineSerial = translatorContext.hasSerialAncestorInPipeline(this)
+                || currentNodeSerialOnBe.get();
+        boolean inheritedSerial = startsNewPipeline
                 ? false : translatorContext.hasSerialAncestorInPipeline(this);
         // Use isSerialOperatorOnBe (= isSerialNode && fragment.useSerialSource) instead of the
         // raw isSerialNode().  BE's OperatorBase reads the Thrift `is_serial_operator` flag —
@@ -1078,8 +1085,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         // Using isSerialNode here would set the child's serial-ancestor flag wider than BE's
         // view and over-skip required LocalExchanges downstream.
         boolean childHasSerialAncestor = inheritedSerial
-                || isSerialOperatorOnBe(translatorContext.getConnectContext());
+                || currentNodeSerialOnBe.get();
         translatorContext.setHasSerialAncestorInPipeline(child, childHasSerialAncestor);
+        translatorContext.setHasSerialParentPipeline(child, startsNewPipeline
+                ? currentPipelineSerial : translatorContext.hasSerialParentPipeline(this));
 
         // 1b. Propagate shuffle-for-correctness-ancestor flag to child.
         // Mirrors BE's _followed_by_shuffled_operator: a downstream operator needs hash
@@ -1140,7 +1149,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         // Use isSerialOperatorOnBe (not isSerialNode) because BE's Pipeline::need_to_local_exchange
         // checks op->is_serial_operator() which reads the Thrift flag set from isSerialOperatorOnBe;
         // when fragment.useSerialSource is false, BE treats this node as non-serial.
-        if (translatorContext.hasSerialAncestorInPipeline(this)
+        if (translatorContext.hasSerialParentPipeline(this)
+                || translatorContext.hasSerialAncestorInPipeline(this)
                 || isSerialOperatorOnBe(translatorContext.getConnectContext())) {
             return childOutput;
         }

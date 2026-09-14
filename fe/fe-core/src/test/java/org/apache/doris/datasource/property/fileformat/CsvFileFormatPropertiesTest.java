@@ -21,9 +21,9 @@ import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.thrift.TFileCompressType;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -32,7 +32,7 @@ public class CsvFileFormatPropertiesTest {
 
     private CsvFileFormatProperties csvFileFormatProperties;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         csvFileFormatProperties = new CsvFileFormatProperties("csv");
     }
@@ -46,9 +46,9 @@ public class CsvFileFormatPropertiesTest {
 
         csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
 
-        Assert.assertEquals(",", csvFileFormatProperties.getColumnSeparator());
-        Assert.assertEquals("\n", csvFileFormatProperties.getLineDelimiter());
-        Assert.assertEquals(1, csvFileFormatProperties.getSkipLines());
+        Assertions.assertEquals(",", csvFileFormatProperties.getColumnSeparator());
+        Assertions.assertEquals("\n", csvFileFormatProperties.getLineDelimiter());
+        Assertions.assertEquals(1, csvFileFormatProperties.getSkipLines());
     }
 
     @Test
@@ -56,7 +56,7 @@ public class CsvFileFormatPropertiesTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR, "");
 
-        Assert.assertThrows(AnalysisException.class, () -> {
+        Assertions.assertThrows(AnalysisException.class, () -> {
             csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
         });
     }
@@ -66,7 +66,7 @@ public class CsvFileFormatPropertiesTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(CsvFileFormatProperties.PROP_LINE_DELIMITER, "");
 
-        Assert.assertThrows(AnalysisException.class, () -> {
+        Assertions.assertThrows(AnalysisException.class, () -> {
             csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
         });
     }
@@ -76,7 +76,7 @@ public class CsvFileFormatPropertiesTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(CsvFileFormatProperties.PROP_ENCLOSE, "invalid");
 
-        Assert.assertThrows(AnalysisException.class, () -> {
+        Assertions.assertThrows(AnalysisException.class, () -> {
             csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
         });
     }
@@ -87,7 +87,7 @@ public class CsvFileFormatPropertiesTest {
         properties.put(CsvFileFormatProperties.PROP_ENCLOSE, "\"");
 
         csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals((byte) '"', csvFileFormatProperties.getEnclose());
+        Assertions.assertEquals((byte) '"', csvFileFormatProperties.getEnclose());
     }
 
     @Test
@@ -95,7 +95,7 @@ public class CsvFileFormatPropertiesTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(CsvFileFormatProperties.PROP_SKIP_LINES, "-1");
 
-        Assert.assertThrows(AnalysisException.class, () -> {
+        Assertions.assertThrows(AnalysisException.class, () -> {
             csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
         });
     }
@@ -106,7 +106,7 @@ public class CsvFileFormatPropertiesTest {
         properties.put(CsvFileFormatProperties.PROP_SKIP_LINES, "1000");
 
         csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(1000, csvFileFormatProperties.getSkipLines());
+        Assertions.assertEquals(1000, csvFileFormatProperties.getSkipLines());
     }
 
     @Test
@@ -115,7 +115,7 @@ public class CsvFileFormatPropertiesTest {
         properties.put(CsvFileFormatProperties.PROP_TRIM_DOUBLE_QUOTES, "true");
 
         csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(true, csvFileFormatProperties.isTrimDoubleQuotes());
+        Assertions.assertEquals(true, csvFileFormatProperties.isTrimDoubleQuotes());
     }
 
     @Test
@@ -124,7 +124,7 @@ public class CsvFileFormatPropertiesTest {
         properties.put(CsvFileFormatProperties.PROP_TRIM_DOUBLE_QUOTES, "false");
 
         csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(false, csvFileFormatProperties.isTrimDoubleQuotes());
+        Assertions.assertEquals(false, csvFileFormatProperties.isTrimDoubleQuotes());
     }
 
     @Test
@@ -141,7 +141,7 @@ public class CsvFileFormatPropertiesTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(CsvFileFormatProperties.PROP_COMPRESS_TYPE, "gz");
         csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(TFileCompressType.GZ, csvFileFormatProperties.getCompressionType());
+        Assertions.assertEquals(TFileCompressType.GZ, csvFileFormatProperties.getCompressionType());
         ExceptionChecker.expectThrowsNoException(() -> csvFileFormatProperties.checkSupportedCompressionType(true));
     }
 
@@ -157,7 +157,7 @@ public class CsvFileFormatPropertiesTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(CsvFileFormatProperties.PROP_ENCLOSE, "\"\"");
 
-        Assert.assertThrows(AnalysisException.class, () -> {
+        Assertions.assertThrows(AnalysisException.class, () -> {
             csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
         });
     }
@@ -168,7 +168,7 @@ public class CsvFileFormatPropertiesTest {
         properties.put(CsvFileFormatProperties.PROP_ENCLOSE, "");
 
         csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(0, csvFileFormatProperties.getEnclose());
+        Assertions.assertEquals(0, csvFileFormatProperties.getEnclose());
     }
 
     @Test
@@ -176,7 +176,7 @@ public class CsvFileFormatPropertiesTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(CsvFileFormatProperties.PROP_SKIP_LINES, "abc");
 
-        Assert.assertThrows(NumberFormatException.class, () -> {
+        Assertions.assertThrows(NumberFormatException.class, () -> {
             csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
         });
     }
@@ -187,7 +187,7 @@ public class CsvFileFormatPropertiesTest {
         properties.put(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR, ";");
 
         csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(";", csvFileFormatProperties.getColumnSeparator());
+        Assertions.assertEquals(";", csvFileFormatProperties.getColumnSeparator());
     }
 
     @Test
@@ -203,7 +203,7 @@ public class CsvFileFormatPropertiesTest {
         properties.put(CsvFileFormatProperties.PROP_LINE_DELIMITER, "\r\n");
 
         csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals("\r\n", csvFileFormatProperties.getLineDelimiter());
+        Assertions.assertEquals("\r\n", csvFileFormatProperties.getLineDelimiter());
     }
 
     @Test
@@ -212,7 +212,7 @@ public class CsvFileFormatPropertiesTest {
         properties.put(CsvFileFormatProperties.PROP_TRIM_DOUBLE_QUOTES, "true");
 
         csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(true, csvFileFormatProperties.isTrimDoubleQuotes());
+        Assertions.assertEquals(true, csvFileFormatProperties.isTrimDoubleQuotes());
     }
 
     @Test
@@ -221,6 +221,6 @@ public class CsvFileFormatPropertiesTest {
         properties.put(CsvFileFormatProperties.PROP_TRIM_DOUBLE_QUOTES, "invalid");
 
         csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(false, csvFileFormatProperties.isTrimDoubleQuotes());
+        Assertions.assertEquals(false, csvFileFormatProperties.isTrimDoubleQuotes());
     }
 }

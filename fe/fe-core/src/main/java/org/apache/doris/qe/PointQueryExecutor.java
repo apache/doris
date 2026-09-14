@@ -173,8 +173,7 @@ public class PointQueryExecutor implements CoordInterface {
         updateScanNodeConjuncts(shortCircuitQueryContext.scanNode, colNameToConjunct);
         // short circuit plan and execution
         executor.executeAndSendResult(false, false,
-                shortCircuitQueryContext.analzyedQuery, executor.getContext()
-                        .getMysqlChannel(), null, null);
+                shortCircuitQueryContext.analzyedQuery, executor.getContext().getResultSender(), null, null);
     }
 
     private static void updateScanNodeConjuncts(OlapScanNode scanNode,
@@ -384,7 +383,7 @@ public class PointQueryExecutor implements CoordInterface {
             try {
                 deserializer.deserialize(resultBatch, serialResult);
             } catch (TException e) {
-                if (e.getMessage().contains("MaxMessageSize reached")) {
+                if (ResultReceiver.isMessageSizeExceeded(e)) {
                     throw new TException("MaxMessageSize reached, try increase max_msg_size_of_result_receiver");
                 } else {
                     throw e;

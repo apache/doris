@@ -37,10 +37,10 @@ import org.apache.doris.thrift.TWarmUpTabletsRequest;
 import org.apache.doris.thrift.TWarmUpTabletsRequestType;
 import org.apache.doris.thrift.TWarmUpTabletsResponse;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -66,7 +66,7 @@ public class CloudWarmUpJobTest {
     private boolean originalRunningUnitTest;
 
     @SuppressWarnings("unchecked")
-    @Before
+    @BeforeEach
     public void setUp() {
         originalRunningUnitTest = FeConstants.runningUnitTest;
         FeConstants.runningUnitTest = true;
@@ -75,7 +75,7 @@ public class CloudWarmUpJobTest {
         ClientPool.backendPool = mockBackendPool;
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         ClientPool.backendPool = originalBackendPool;
         FeConstants.runningUnitTest = originalRunningUnitTest;
@@ -111,10 +111,10 @@ public class CloudWarmUpJobTest {
             warmUpJob.refreshEventDrivenBeToThriftAddress();
         }
 
-        Assert.assertEquals("src_cluster", requestedCluster.get());
-        Assert.assertEquals(2, warmUpJob.getBeToThriftAddress().size());
-        Assert.assertEquals("host1:9060", warmUpJob.getBeToThriftAddress().get(1L));
-        Assert.assertEquals("host2:9061", warmUpJob.getBeToThriftAddress().get(2L));
+        Assertions.assertEquals("src_cluster", requestedCluster.get());
+        Assertions.assertEquals(2, warmUpJob.getBeToThriftAddress().size());
+        Assertions.assertEquals("host1:9060", warmUpJob.getBeToThriftAddress().get(1L));
+        Assertions.assertEquals("host2:9061", warmUpJob.getBeToThriftAddress().get(2L));
     }
 
     @Test
@@ -128,7 +128,7 @@ public class CloudWarmUpJobTest {
         Mockito.when(mockBackendPool.borrowObject(firstAddress)).thenReturn(firstClient);
         Mockito.when(mockBackendPool.borrowObject(secondAddress)).thenThrow(new RuntimeException("down"));
 
-        Assert.assertThrows(RuntimeException.class, job::initClients);
+        Assertions.assertThrows(RuntimeException.class, job::initClients);
         Mockito.verify(mockBackendPool).returnObject(firstAddress, firstClient);
         Mockito.verify(mockBackendPool).invalidateObject(secondAddress, null);
     }
@@ -151,8 +151,8 @@ public class CloudWarmUpJobTest {
         ArgumentCaptor<TWarmUpTabletsRequest> captor = ArgumentCaptor.forClass(TWarmUpTabletsRequest.class);
         Mockito.verify(availableClient).warmUpTablets(captor.capture());
         TWarmUpTabletsRequest request = captor.getValue();
-        Assert.assertEquals(TWarmUpTabletsRequestType.CLEAR_JOB, request.getType());
-        Assert.assertEquals(jobId, request.getJobId());
+        Assertions.assertEquals(TWarmUpTabletsRequestType.CLEAR_JOB, request.getType());
+        Assertions.assertEquals(jobId, request.getJobId());
         Mockito.verify(mockBackendPool).returnObject(availableAddress, availableClient);
         Mockito.verify(mockBackendPool).invalidateObject(unavailableAddress, null);
     }
@@ -181,8 +181,8 @@ public class CloudWarmUpJobTest {
             invokeRunPendingJob(job);
         }
 
-        Assert.assertEquals(JobState.RUNNING, job.getJobState());
-        Assert.assertEquals("previous failure", job.getJobInfo(null).get(COL_ERR_MSG));
+        Assertions.assertEquals(JobState.RUNNING, job.getJobState());
+        Assertions.assertEquals("previous failure", job.getJobInfo(null).get(COL_ERR_MSG));
         Mockito.verify(editLog).logModifyCloudWarmUpJob(job);
     }
 
@@ -226,11 +226,11 @@ public class CloudWarmUpJobTest {
             FeConstants.runningUnitTest = runningUnitTest;
         }
 
-        Assert.assertEquals("", job.getJobInfo(null).get(COL_ERR_MSG));
+        Assertions.assertEquals("", job.getJobInfo(null).get(COL_ERR_MSG));
         ArgumentCaptor<CloudWarmUpJob> jobCaptor = ArgumentCaptor.forClass(CloudWarmUpJob.class);
         Mockito.verify(editLog, Mockito.times(1)).logModifyCloudWarmUpJob(jobCaptor.capture());
         CloudWarmUpJob replayedJob = copyBySerialization(jobCaptor.getValue());
-        Assert.assertEquals("", replayedJob.getJobInfo(null).get(COL_ERR_MSG));
+        Assertions.assertEquals("", replayedJob.getJobInfo(null).get(COL_ERR_MSG));
         Mockito.verify(client, Mockito.times(2)).warmUpTablets(Mockito.any(TWarmUpTabletsRequest.class));
         Mockito.verify(mockBackendPool, Mockito.times(2)).returnObject(address, client);
     }
@@ -270,7 +270,7 @@ public class CloudWarmUpJobTest {
             FeConstants.runningUnitTest = runningUnitTest;
         }
 
-        Assert.assertEquals("previous failure", job.getJobInfo(null).get(COL_ERR_MSG));
+        Assertions.assertEquals("previous failure", job.getJobInfo(null).get(COL_ERR_MSG));
         Mockito.verify(client).warmUpTablets(Mockito.any(TWarmUpTabletsRequest.class));
         Mockito.verify(mockBackendPool).returnObject(address, client);
     }
@@ -318,8 +318,8 @@ public class CloudWarmUpJobTest {
             FeConstants.runningUnitTest = runningUnitTest;
         }
 
-        Assert.assertEquals(JobState.PENDING, job.getJobState());
-        Assert.assertEquals("", job.getJobInfo(null).get(COL_ERR_MSG));
+        Assertions.assertEquals(JobState.PENDING, job.getJobState());
+        Assertions.assertEquals("", job.getJobInfo(null).get(COL_ERR_MSG));
         Mockito.verify(cacheHotspotManager).notifyJobStop(job);
         Mockito.verify(editLog, Mockito.atLeastOnce()).logModifyCloudWarmUpJob(job);
         Mockito.verify(mockBackendPool).returnObject(address, client);

@@ -95,7 +95,7 @@ public:
         io::FileWriterPtr writer;
         THdfsParams hdfs_params = parse_properties(_conf_map);
         auto fs = DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name,
-                                                       io::FileSystem::TMP_FS_ID, nullptr));
+                                                       io::FileSystem::TMP_FS_ID));
         RETURN_IF_ERROR(fs->create_file(file_path, &writer));
         return write(state, writer.get());
     }
@@ -116,7 +116,7 @@ public:
         auto new_file_path = file_path + "_new";
         THdfsParams hdfs_params = parse_properties(_conf_map);
         auto fs = DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name,
-                                                       io::FileSystem::TMP_FS_ID, nullptr));
+                                                       io::FileSystem::TMP_FS_ID));
 
         auto start = std::chrono::high_resolution_clock::now();
         RETURN_IF_ERROR(fs->rename(file_path, new_file_path));
@@ -143,7 +143,7 @@ public:
 
         THdfsParams hdfs_params = parse_properties(_conf_map);
         auto fs = DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name,
-                                                       io::FileSystem::TMP_FS_ID, nullptr));
+                                                       io::FileSystem::TMP_FS_ID));
 
         auto start = std::chrono::high_resolution_clock::now();
         bool res = false;

@@ -25,7 +25,7 @@
 #include "common/status.h"
 #include "storage/rowset/beta_rowset_writer.h"
 #include "storage/segment/segment_index_file_cache_loader.h"
-#include "storage/segment/segment_writer.h"
+#include "storage/segment/vertical_segment_writer.h"
 
 namespace doris {
 class Block;
@@ -56,14 +56,14 @@ public:
     Status _close_file_writers() override;
 
 private:
-    Status _flush_columns(segment_v2::SegmentWriter* segment_writer, bool is_key = false);
+    Status _flush_columns(segment_v2::VerticalSegmentWriter* segment_writer, bool is_key = false);
     Status _create_segment_writer(const std::vector<uint32_t>& column_ids, bool is_key,
-                                  std::unique_ptr<segment_v2::SegmentWriter>* writer);
+                                  std::unique_ptr<segment_v2::VerticalSegmentWriter>* writer);
     void _record_segment_index_file_cache_preload(
             uint32_t segment_id, const segment_v2::SegmentIndexFileCacheInfo& info);
     Status _preload_segment_indexes_to_file_cache();
 
-    std::vector<std::unique_ptr<segment_v2::SegmentWriter>> _segment_writers;
+    std::vector<std::unique_ptr<segment_v2::VerticalSegmentWriter>> _segment_writers;
     size_t _cur_writer_idx = 0;
     size_t _total_key_group_rows = 0;
     std::mutex _segment_index_file_cache_preloads_lock;

@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.hive;
 
+import org.apache.doris.connector.hms.HmsPartitionBatchStats;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
@@ -59,6 +60,7 @@ public class HiveTableHandle implements ConnectorTableHandle {
 
     // Set after applyFilter for partition pruning
     private final List<HmsPartitionInfo> prunedPartitions;
+    private final HmsPartitionBatchStats pruningBatchStats;
 
     private HiveTableHandle(Builder builder) {
         this.dbName = builder.dbName;
@@ -78,6 +80,7 @@ public class HiveTableHandle implements ConnectorTableHandle {
                 : Collections.emptyMap();
         this.firstColumnIsString = builder.firstColumnIsString;
         this.prunedPartitions = builder.prunedPartitions;
+        this.pruningBatchStats = builder.pruningBatchStats;
     }
 
     /** Legacy constructor for Phase 1 compatibility (metadata-only). */
@@ -168,6 +171,10 @@ public class HiveTableHandle implements ConnectorTableHandle {
         return prunedPartitions;
     }
 
+    public HmsPartitionBatchStats getPruningBatchStats() {
+        return pruningBatchStats;
+    }
+
     /** Returns a builder pre-populated with this handle's state, for creating modified copies. */
     public Builder toBuilder() {
         Builder b = new Builder(dbName, tableName, tableType);
@@ -179,6 +186,7 @@ public class HiveTableHandle implements ConnectorTableHandle {
         b.tableParameters = this.tableParameters;
         b.firstColumnIsString = this.firstColumnIsString;
         b.prunedPartitions = this.prunedPartitions;
+        b.pruningBatchStats = this.pruningBatchStats;
         return b;
     }
 
@@ -202,6 +210,7 @@ public class HiveTableHandle implements ConnectorTableHandle {
         private Map<String, String> tableParameters;
         private boolean firstColumnIsString;
         private List<HmsPartitionInfo> prunedPartitions;
+        private HmsPartitionBatchStats pruningBatchStats;
 
         public Builder(String dbName, String tableName, HiveTableType tableType) {
             this.dbName = dbName;
@@ -246,6 +255,11 @@ public class HiveTableHandle implements ConnectorTableHandle {
 
         public Builder prunedPartitions(List<HmsPartitionInfo> val) {
             this.prunedPartitions = val;
+            return this;
+        }
+
+        public Builder pruningBatchStats(HmsPartitionBatchStats val) {
+            this.pruningBatchStats = val;
             return this;
         }
 

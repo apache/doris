@@ -20,9 +20,9 @@ package org.apache.doris.load.routineload;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -34,7 +34,7 @@ public class KafkaAwsMskIamAuthTest {
 
     private Map<String, String> dataSourceProperties;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         dataSourceProperties = new HashMap<>();
         dataSourceProperties.put("kafka_broker_list", "b-1.msk-cluster.xxx.kafka.us-east-1.amazonaws.com:9098");
@@ -53,10 +53,10 @@ public class KafkaAwsMskIamAuthTest {
         props.setTimezone("UTC");
         props.analyze();
 
-        Assert.assertNotNull(props.getCustomKafkaProperties());
-        Assert.assertEquals("SASL_SSL", props.getCustomKafkaProperties().get("security.protocol"));
-        Assert.assertEquals("OAUTHBEARER", props.getCustomKafkaProperties().get("sasl.mechanism"));
-        Assert.assertEquals("us-east-1", props.getCustomKafkaProperties().get("aws.region"));
+        Assertions.assertNotNull(props.getCustomKafkaProperties());
+        Assertions.assertEquals("SASL_SSL", props.getCustomKafkaProperties().get("security.protocol"));
+        Assertions.assertEquals("OAUTHBEARER", props.getCustomKafkaProperties().get("sasl.mechanism"));
+        Assertions.assertEquals("us-east-1", props.getCustomKafkaProperties().get("aws.region"));
     }
 
     @Test
@@ -69,9 +69,9 @@ public class KafkaAwsMskIamAuthTest {
         props.setTimezone("UTC");
         props.analyze();
 
-        Assert.assertNotNull(props.getCustomKafkaProperties());
-        Assert.assertEquals("SASL_SSL", props.getCustomKafkaProperties().get("security.protocol"));
-        Assert.assertEquals("OAUTHBEARER", props.getCustomKafkaProperties().get("sasl.mechanism"));
+        Assertions.assertNotNull(props.getCustomKafkaProperties());
+        Assertions.assertEquals("SASL_SSL", props.getCustomKafkaProperties().get("security.protocol"));
+        Assertions.assertEquals("OAUTHBEARER", props.getCustomKafkaProperties().get("sasl.mechanism"));
     }
 
     @Test
@@ -85,10 +85,10 @@ public class KafkaAwsMskIamAuthTest {
 
         try {
             props.analyze();
-            Assert.fail("Should throw AnalysisException for missing security.protocol");
+            Assertions.fail("Should throw AnalysisException for missing security.protocol");
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("security.protocol"));
-            Assert.assertTrue(e.getMessage().contains("SASL_SSL"));
+            Assertions.assertTrue(e.getMessage().contains("security.protocol"));
+            Assertions.assertTrue(e.getMessage().contains("SASL_SSL"));
         }
     }
 
@@ -104,9 +104,9 @@ public class KafkaAwsMskIamAuthTest {
 
         try {
             props.analyze();
-            Assert.fail("Should throw AnalysisException for invalid security.protocol");
+            Assertions.fail("Should throw AnalysisException for invalid security.protocol");
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("SASL_SSL"));
+            Assertions.assertTrue(e.getMessage().contains("SASL_SSL"));
         }
     }
 
@@ -121,10 +121,10 @@ public class KafkaAwsMskIamAuthTest {
 
         try {
             props.analyze();
-            Assert.fail("Should throw AnalysisException for missing sasl.mechanism");
+            Assertions.fail("Should throw AnalysisException for missing sasl.mechanism");
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("sasl.mechanism"));
-            Assert.assertTrue(e.getMessage().contains("OAUTHBEARER"));
+            Assertions.assertTrue(e.getMessage().contains("sasl.mechanism"));
+            Assertions.assertTrue(e.getMessage().contains("OAUTHBEARER"));
         }
     }
 
@@ -140,9 +140,9 @@ public class KafkaAwsMskIamAuthTest {
 
         try {
             props.analyze();
-            Assert.fail("Should throw AnalysisException for invalid sasl.mechanism with AWS config");
+            Assertions.fail("Should throw AnalysisException for invalid sasl.mechanism with AWS config");
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("OAUTHBEARER"));
+            Assertions.assertTrue(e.getMessage().contains("OAUTHBEARER"));
         }
     }
 
@@ -158,10 +158,10 @@ public class KafkaAwsMskIamAuthTest {
 
         try {
             props.analyze();
-            Assert.fail("Should throw AnalysisException for missing region with AWS properties");
+            Assertions.fail("Should throw AnalysisException for missing region with AWS properties");
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("aws.region"));
-            Assert.assertTrue(e.getMessage().contains("required"));
+            Assertions.assertTrue(e.getMessage().contains("aws.region"));
+            Assertions.assertTrue(e.getMessage().contains("required"));
         }
     }
 
@@ -179,11 +179,11 @@ public class KafkaAwsMskIamAuthTest {
         props.analyze();
 
         Map<String, String> customProps = props.getCustomKafkaProperties();
-        Assert.assertEquals("SASL_SSL", customProps.get("security.protocol"));
-        Assert.assertEquals("OAUTHBEARER", customProps.get("sasl.mechanism"));
-        Assert.assertEquals("us-east-1", customProps.get("aws.region"));
-        Assert.assertEquals("arn:aws:iam::123456789012:role/MyMskRole", customProps.get("aws.role_arn"));
-        Assert.assertEquals("default", customProps.get("aws.profile_name"));
+        Assertions.assertEquals("SASL_SSL", customProps.get("security.protocol"));
+        Assertions.assertEquals("OAUTHBEARER", customProps.get("sasl.mechanism"));
+        Assertions.assertEquals("us-east-1", customProps.get("aws.region"));
+        Assertions.assertEquals("arn:aws:iam::123456789012:role/MyMskRole", customProps.get("aws.role_arn"));
+        Assertions.assertEquals("default", customProps.get("aws.profile_name"));
     }
 
     @Test
@@ -199,7 +199,7 @@ public class KafkaAwsMskIamAuthTest {
         props.analyze();
 
         Map<String, String> customProps = props.getCustomKafkaProperties();
-        Assert.assertEquals("external-id-123", customProps.get("aws.external_id"));
+        Assertions.assertEquals("external-id-123", customProps.get("aws.external_id"));
     }
 
     @Test
@@ -214,10 +214,10 @@ public class KafkaAwsMskIamAuthTest {
 
         try {
             props.analyze();
-            Assert.fail("Should throw AnalysisException for external_id without role_arn");
+            Assertions.fail("Should throw AnalysisException for external_id without role_arn");
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("aws.external_id"));
-            Assert.assertTrue(e.getMessage().contains("aws.role_arn"));
+            Assertions.assertTrue(e.getMessage().contains("aws.external_id"));
+            Assertions.assertTrue(e.getMessage().contains("aws.role_arn"));
         }
     }
 
@@ -233,9 +233,9 @@ public class KafkaAwsMskIamAuthTest {
         props.setTimezone("UTC");
         props.analyze();
 
-        Assert.assertNotNull(props.getCustomKafkaProperties());
-        Assert.assertEquals("SASL_SSL", props.getCustomKafkaProperties().get("security.protocol"));
-        Assert.assertEquals("SCRAM-SHA-256", props.getCustomKafkaProperties().get("sasl.mechanism"));
+        Assertions.assertNotNull(props.getCustomKafkaProperties());
+        Assertions.assertEquals("SASL_SSL", props.getCustomKafkaProperties().get("security.protocol"));
+        Assertions.assertEquals("SCRAM-SHA-256", props.getCustomKafkaProperties().get("sasl.mechanism"));
     }
 
     @Test
@@ -247,8 +247,8 @@ public class KafkaAwsMskIamAuthTest {
         props.setTimezone("UTC");
         props.analyze();
 
-        Assert.assertNotNull(props.getCustomKafkaProperties());
-        Assert.assertEquals("PLAINTEXT", props.getCustomKafkaProperties().get("security.protocol"));
+        Assertions.assertNotNull(props.getCustomKafkaProperties());
+        Assertions.assertEquals("PLAINTEXT", props.getCustomKafkaProperties().get("security.protocol"));
     }
 
     @Test
@@ -263,8 +263,8 @@ public class KafkaAwsMskIamAuthTest {
         props.setTimezone("UTC");
         props.analyze();
 
-        Assert.assertNotNull(props.getCustomKafkaProperties());
-        Assert.assertEquals("SSL", props.getCustomKafkaProperties().get("security.protocol"));
+        Assertions.assertNotNull(props.getCustomKafkaProperties());
+        Assertions.assertEquals("SSL", props.getCustomKafkaProperties().get("security.protocol"));
     }
 
     @Test
@@ -281,9 +281,9 @@ public class KafkaAwsMskIamAuthTest {
         props.setTimezone("UTC");
         props.analyze();
 
-        Assert.assertNotNull(props.getCustomKafkaProperties());
-        Assert.assertEquals("us-east-1", props.getCustomKafkaProperties().get("aws.region"));
-        Assert.assertEquals("AKIAIOSFODNN7EXAMPLE", props.getCustomKafkaProperties().get("aws.access_key"));
+        Assertions.assertNotNull(props.getCustomKafkaProperties());
+        Assertions.assertEquals("us-east-1", props.getCustomKafkaProperties().get("aws.region"));
+        Assertions.assertEquals("AKIAIOSFODNN7EXAMPLE", props.getCustomKafkaProperties().get("aws.access_key"));
     }
 
     @Test
@@ -299,10 +299,10 @@ public class KafkaAwsMskIamAuthTest {
 
         try {
             props.analyze();
-            Assert.fail("Should throw AnalysisException for public access without credentials");
+            Assertions.fail("Should throw AnalysisException for public access without credentials");
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("public"));
-            Assert.assertTrue(e.getMessage().contains("credentials"));
+            Assertions.assertTrue(e.getMessage().contains("public"));
+            Assertions.assertTrue(e.getMessage().contains("credentials"));
         }
     }
 
@@ -318,8 +318,8 @@ public class KafkaAwsMskIamAuthTest {
         props.setTimezone("UTC");
         props.analyze();
 
-        Assert.assertNotNull(props.getCustomKafkaProperties());
-        Assert.assertEquals("INSTANCE_PROFILE", props.getCustomKafkaProperties().get("aws.credentials_provider"));
+        Assertions.assertNotNull(props.getCustomKafkaProperties());
+        Assertions.assertEquals("INSTANCE_PROFILE", props.getCustomKafkaProperties().get("aws.credentials_provider"));
     }
 
     @Test
@@ -334,10 +334,10 @@ public class KafkaAwsMskIamAuthTest {
         props.setTimezone("UTC");
         props.analyze();
 
-        Assert.assertNotNull(props.getCustomKafkaProperties());
-        Assert.assertEquals("arn:aws:iam::123456789012:role/MyMskRole",
+        Assertions.assertNotNull(props.getCustomKafkaProperties());
+        Assertions.assertEquals("arn:aws:iam::123456789012:role/MyMskRole",
                 props.getCustomKafkaProperties().get("aws.role_arn"));
-        Assert.assertEquals("ENV", props.getCustomKafkaProperties().get("aws.credentials_provider"));
+        Assertions.assertEquals("ENV", props.getCustomKafkaProperties().get("aws.credentials_provider"));
     }
 
     @Test
@@ -352,8 +352,8 @@ public class KafkaAwsMskIamAuthTest {
         props.setTimezone("UTC");
         props.analyze();
 
-        Assert.assertNotNull(props.getCustomKafkaProperties());
-        Assert.assertEquals("default", props.getCustomKafkaProperties().get("aws.profile_name"));
+        Assertions.assertNotNull(props.getCustomKafkaProperties());
+        Assertions.assertEquals("default", props.getCustomKafkaProperties().get("aws.profile_name"));
     }
 
     @Test
@@ -371,8 +371,8 @@ public class KafkaAwsMskIamAuthTest {
         props.analyze();
 
         Map<String, String> customProps = props.getCustomKafkaProperties();
-        Assert.assertEquals("AKIAIOSFODNN7EXAMPLE", customProps.get("aws.access_key"));
-        Assert.assertEquals("arn:aws:iam::111111111111:role/AccountAMskRole", customProps.get("aws.role_arn"));
+        Assertions.assertEquals("AKIAIOSFODNN7EXAMPLE", customProps.get("aws.access_key"));
+        Assertions.assertEquals("arn:aws:iam::111111111111:role/AccountAMskRole", customProps.get("aws.role_arn"));
     }
 
     @Test
@@ -389,11 +389,11 @@ public class KafkaAwsMskIamAuthTest {
 
         try {
             props.analyze();
-            Assert.fail("Should throw AnalysisException for missing access key");
+            Assertions.fail("Should throw AnalysisException for missing access key");
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("aws.access_key"));
-            Assert.assertTrue(e.getMessage().contains("aws.secret_key"));
-            Assert.assertTrue(e.getMessage().contains("together"));
+            Assertions.assertTrue(e.getMessage().contains("aws.access_key"));
+            Assertions.assertTrue(e.getMessage().contains("aws.secret_key"));
+            Assertions.assertTrue(e.getMessage().contains("together"));
         }
     }
 
@@ -411,11 +411,11 @@ public class KafkaAwsMskIamAuthTest {
 
         try {
             props.analyze();
-            Assert.fail("Should throw AnalysisException for missing secret key");
+            Assertions.fail("Should throw AnalysisException for missing secret key");
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("aws.access_key"));
-            Assert.assertTrue(e.getMessage().contains("aws.secret_key"));
-            Assert.assertTrue(e.getMessage().contains("together"));
+            Assertions.assertTrue(e.getMessage().contains("aws.access_key"));
+            Assertions.assertTrue(e.getMessage().contains("aws.secret_key"));
+            Assertions.assertTrue(e.getMessage().contains("together"));
         }
     }
 
@@ -434,11 +434,11 @@ public class KafkaAwsMskIamAuthTest {
 
         try {
             props.analyze();
-            Assert.fail("Should throw AnalysisException for public access without explicit credentials");
+            Assertions.fail("Should throw AnalysisException for public access without explicit credentials");
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("aws.access_key"));
-            Assert.assertTrue(e.getMessage().contains("aws.secret_key"));
-            Assert.assertTrue(e.getMessage().contains("together"));
+            Assertions.assertTrue(e.getMessage().contains("aws.access_key"));
+            Assertions.assertTrue(e.getMessage().contains("aws.secret_key"));
+            Assertions.assertTrue(e.getMessage().contains("together"));
         }
     }
 
@@ -457,11 +457,11 @@ public class KafkaAwsMskIamAuthTest {
 
         try {
             props.analyze();
-            Assert.fail("Should throw AnalysisException for public access without explicit credentials");
+            Assertions.fail("Should throw AnalysisException for public access without explicit credentials");
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("aws.access_key"));
-            Assert.assertTrue(e.getMessage().contains("aws.secret_key"));
-            Assert.assertTrue(e.getMessage().contains("together"));
+            Assertions.assertTrue(e.getMessage().contains("aws.access_key"));
+            Assertions.assertTrue(e.getMessage().contains("aws.secret_key"));
+            Assertions.assertTrue(e.getMessage().contains("together"));
         }
     }
 
@@ -483,9 +483,9 @@ public class KafkaAwsMskIamAuthTest {
 
         // All properties should be preserved (BE will use them in priority order)
         Map<String, String> customProps = props.getCustomKafkaProperties();
-        Assert.assertEquals("AKIAIOSFODNN7EXAMPLE", customProps.get("aws.access_key"));
-        Assert.assertEquals("arn:aws:iam::123456789012:role/MyRole", customProps.get("aws.role_arn"));
-        Assert.assertEquals("external-id-123", customProps.get("aws.external_id"));
-        Assert.assertEquals("default", customProps.get("aws.profile_name"));
+        Assertions.assertEquals("AKIAIOSFODNN7EXAMPLE", customProps.get("aws.access_key"));
+        Assertions.assertEquals("arn:aws:iam::123456789012:role/MyRole", customProps.get("aws.role_arn"));
+        Assertions.assertEquals("external-id-123", customProps.get("aws.external_id"));
+        Assertions.assertEquals("default", customProps.get("aws.profile_name"));
     }
 }

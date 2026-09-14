@@ -31,7 +31,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
  * filesystem-resolution failure ({@code FileSystem.get}: unknown scheme, bad credentials/endpoint, which
  * affects every partition of the table) — propagate and fail the query loud, exactly as legacy did before the
  * listing cache folded the two failure modes together. Never cached (the cache loader throws, and
- * {@code MetaCacheEntry} never caches a failed load).</p>
+ * the shared MetaCache never caches a failed load).</p>
  */
 public class HiveDirectoryListingException extends DorisConnectorException {
 

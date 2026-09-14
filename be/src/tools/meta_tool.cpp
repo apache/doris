@@ -415,6 +415,8 @@ std::string get_field_type_string(doris::FieldType type) {
         return "DATEV2";
     case doris::FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
         return "DATETIMEV2";
+    case doris::FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS:
+        return "TIMESTAMP_NS";
     case doris::FieldType::OLAP_FIELD_TYPE_BOOL:
         return "BOOLEAN";
     case doris::FieldType::OLAP_FIELD_TYPE_STRUCT:
@@ -541,6 +543,14 @@ std::string format_column_value(const doris::IColumn& column, size_t row,
                 return std::to_string(val);
             }
             return "<invalid datetime>";
+        }
+        case FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS: {
+            const StringRef& data = column.get_data_at(row);
+            if (data.size == sizeof(int64_t)) {
+                int64_t val = *reinterpret_cast<const int64_t*>(data.data);
+                return std::to_string(val);
+            }
+            return "<invalid timestamp_ns>";
         }
         case FieldType::OLAP_FIELD_TYPE_CHAR:
         case FieldType::OLAP_FIELD_TYPE_VARCHAR:

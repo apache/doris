@@ -58,10 +58,6 @@ public class IndexPolicy implements Writable, GsonPostProcessable {
     public static final String PROP_TOKENIZER = "tokenizer";
     public static final String PROP_TOKEN_FILTER = "token_filter";
     public static final String PROP_CHAR_FILTER = "char_filter";
-    // Marks the token filter whose grams only SNII can read. The word list itself is a BE-local
-    // config, so no policy property names it -- this constant is only used to recognise the type.
-    public static final String COMMON_GRAMS_TYPE = "common_grams";
-
     public static final Set<String> BUILTIN_TOKENIZERS = ImmutableSet.of(
             "empty", "ngram", "edge_ngram", "keyword", "standard", "char_group", "basic", "icu", "pinyin");
 
@@ -72,7 +68,7 @@ public class IndexPolicy implements Writable, GsonPostProcessable {
             "empty", "char_replace", "icu_normalizer");
 
     public static final Set<String> BUILTIN_ANALYZERS = ImmutableSet.of(
-            "none", "standard", "unicode", "english", "chinese", "icu", "basic", "ik");
+            "none", "standard", "unicode", "english", "chinese", "icu", "basic", "ik", "kuromoji");
 
     public static final Set<String> BUILTIN_NORMALIZERS = ImmutableSet.of("lowercase");
 
@@ -127,13 +123,14 @@ public class IndexPolicy implements Writable, GsonPostProcessable {
                 GsonUtils.GSON.toJson(this.properties));
     }
 
-    public boolean isInvalid() {
-        return false;
-    }
+    // Token filter types removed from BE but possibly retained in older images or edit logs.
+    // Load these policies so FE can start, but reject analyzers that reference them.
+    public static final Set<String> LEGACY_UNSUPPORTED_TOKEN_FILTER_TYPES =
+            ImmutableSet.of("common_grams");
 
-    public boolean isCommonGramsPolicy() {
+    public boolean isInvalid() {
         return type == IndexPolicyTypeEnum.TOKEN_FILTER
                 && properties != null
-                && COMMON_GRAMS_TYPE.equals(properties.get(PROP_TYPE));
+                && LEGACY_UNSUPPORTED_TOKEN_FILTER_TYPES.contains(properties.get(PROP_TYPE));
     }
 }

@@ -28,10 +28,10 @@ import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.rpc.RpcException;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 import java.util.Collections;
@@ -53,7 +53,7 @@ public class MetaServiceRpcRateLimiterTest {
 
     private MetaServiceRpcRateLimiter rateLimiter;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         originRateLimitEnabled = Config.meta_service_rpc_rate_limit_enabled;
         originRateLimitDryRun = Config.meta_service_rpc_rate_limit_dry_run;
@@ -78,7 +78,7 @@ public class MetaServiceRpcRateLimiterTest {
         enableRateLimit(1, "", 1, 0);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         Config.meta_service_rpc_rate_limit_enabled = originRateLimitEnabled;
         Config.meta_service_rpc_rate_limit_dry_run = originRateLimitDryRun;
@@ -117,14 +117,14 @@ public class MetaServiceRpcRateLimiterTest {
         consumePermits("dryRun", CPU_CORES);
 
         rateLimiter.acquire("dryRun");
-        Assert.assertEquals(1L, CloudMetrics.META_SERVICE_RPC_ALL_RATE_LIMITED.getValue().longValue());
-        Assert.assertEquals(1L,
+        Assertions.assertEquals(1L, CloudMetrics.META_SERVICE_RPC_ALL_RATE_LIMITED.getValue().longValue());
+        Assertions.assertEquals(1L,
                 CloudMetrics.META_SERVICE_RPC_RATE_LIMITED.getOrAdd("dryRun").getValue().longValue());
 
         Config.meta_service_rpc_rate_limit_dry_run = false;
         assertRateLimited("dryRun");
-        Assert.assertEquals(2L, CloudMetrics.META_SERVICE_RPC_ALL_RATE_LIMITED.getValue().longValue());
-        Assert.assertEquals(2L,
+        Assertions.assertEquals(2L, CloudMetrics.META_SERVICE_RPC_ALL_RATE_LIMITED.getValue().longValue());
+        Assertions.assertEquals(2L,
                 CloudMetrics.META_SERVICE_RPC_RATE_LIMITED.getOrAdd("dryRun").getValue().longValue());
     }
 
@@ -134,8 +134,8 @@ public class MetaServiceRpcRateLimiterTest {
         Config.meta_service_rpc_rate_limit_dry_run = true;
         consumePermits("dryRunWait", CPU_CORES);
 
-        Assert.assertEquals(0, rateLimiter.acquire("dryRunWait"));
-        Assert.assertEquals(1L, CloudMetrics.META_SERVICE_RPC_RATE_LIMIT_WAIT_LATENCY.getOrAdd("dryRunWait")
+        Assertions.assertEquals(0, rateLimiter.acquire("dryRunWait"));
+        Assertions.assertEquals(1L, CloudMetrics.META_SERVICE_RPC_RATE_LIMIT_WAIT_LATENCY.getOrAdd("dryRunWait")
                 .getHistogram().getCount());
     }
 
@@ -178,7 +178,7 @@ public class MetaServiceRpcRateLimiterTest {
 
         long waitNs = rateLimiter.acquire("timeoutCapacity", CPU_CORES * 2);
 
-        Assert.assertTrue(waitNs > 0);
+        Assertions.assertTrue(waitNs > 0);
     }
 
     @Test
@@ -205,7 +205,7 @@ public class MetaServiceRpcRateLimiterTest {
 
         long startTimeMs = System.currentTimeMillis();
         assertRateLimited("waitTimeout");
-        Assert.assertTrue(System.currentTimeMillis() - startTimeMs < TimeUnit.SECONDS.toMillis(1));
+        Assertions.assertTrue(System.currentTimeMillis() - startTimeMs < TimeUnit.SECONDS.toMillis(1));
     }
 
     @Test
@@ -215,7 +215,7 @@ public class MetaServiceRpcRateLimiterTest {
 
         long waitNs = rateLimiter.acquire("wait");
 
-        Assert.assertTrue(waitNs > 0);
+        Assertions.assertTrue(waitNs > 0);
     }
 
     @Test
@@ -249,7 +249,7 @@ public class MetaServiceRpcRateLimiterTest {
         assertConfigHandlerRejects(handler, field, "-1", "must be positive");
 
         handler.handle(field, " 2 ");
-        Assert.assertEquals(2, Config.meta_service_rpc_rate_limit_burst_seconds);
+        Assertions.assertEquals(2, Config.meta_service_rpc_rate_limit_burst_seconds);
     }
 
     @Test
@@ -269,7 +269,7 @@ public class MetaServiceRpcRateLimiterTest {
         assertConfigHandlerRejects(handler, field, "-1", "must be non-negative");
 
         handler.handle(field, " 0 ");
-        Assert.assertEquals(0, Config.meta_service_rpc_rate_limit_wait_timeout_ms);
+        Assertions.assertEquals(0, Config.meta_service_rpc_rate_limit_wait_timeout_ms);
     }
 
     @Test
@@ -309,9 +309,9 @@ public class MetaServiceRpcRateLimiterTest {
             String expectedMessage) throws Exception {
         try {
             handler.handle(field, config);
-            Assert.fail("should throw exception");
+            Assertions.fail("should throw exception");
         } catch (Exception e) {
-            Assert.assertTrue(e.getMessage().contains(expectedMessage));
+            Assertions.assertTrue(e.getMessage().contains(expectedMessage));
         }
     }
 
@@ -322,9 +322,9 @@ public class MetaServiceRpcRateLimiterTest {
     private void assertRpcException(String expectedMessage, RpcCall rpcCall) throws RpcException {
         try {
             rpcCall.run();
-            Assert.fail("should throw RpcException");
+            Assertions.fail("should throw RpcException");
         } catch (RpcException e) {
-            Assert.assertTrue(e.getMessage().contains(expectedMessage));
+            Assertions.assertTrue(e.getMessage().contains(expectedMessage));
         }
     }
 

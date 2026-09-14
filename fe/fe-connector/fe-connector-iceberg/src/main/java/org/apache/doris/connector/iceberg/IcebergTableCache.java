@@ -18,13 +18,21 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.CacheSpec;
-import org.apache.doris.connector.cache.MetaCacheEntry;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.JvmSizeUtils;
+import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimate;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimator;
+import org.apache.doris.connector.cache.ScopePath;
 
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableMetadataParser;
+import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.catalog.TableIdentifier;
 
-import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
@@ -39,7 +47,7 @@ import java.util.function.Supplier;
  * lets consecutive queries — and the analysis/planning phases of one query, whose handles have distinct memo
  * lineages — reuse a single loaded table, exactly as the legacy with-cache catalog did.
  *
- * <p><b>Backing.</b> Reuses the shared {@link MetaCacheEntry} framework identically to
+ * <p><b>Backing.</b> Reuses the shared {@link MetaCache} framework identically to
  * {@link IcebergLatestSnapshotCache}: a contextual, access-TTL entry whose per-key loader is supplied at
  * {@link #getOrLoad}, with manual miss-load on so the loader runs OUTSIDE Caffeine's compute lock
  * (single-flight per key) and propagates its exception verbatim (a concurrent-drop
@@ -49,9 +57,11 @@ import java.util.function.Supplier;
  * {@code expireAfterAccess} with a {@code maxSize} capacity. Lives on the long-lived per-catalog
  * {@link IcebergConnector}; a REFRESH CATALOG rebuilds the connector and thus the cache.
  *
- * <p><b>Values are RAW tables.</b> The scan provider applies {@code wrapTableForScan} (the Kerberos
+ * <p><b>Values own RAW tables.</b> The scan provider applies {@code wrapTableForScan} (the Kerberos
  * {@code doAs} FileIO wrap) per call on the way out, so no per-request authenticator is ever frozen into a
- * shared entry.
+ * shared entry. A weight-bounded owner also retains and accounts for one serialized metadata generation;
+ * each statement parses that generation into a private read table so Iceberg's lazy manifest fields cannot
+ * grow the already-admitted cache value.
  *
  * <p><b>Credential isolation.</b> A raw table carries its FileIO's credentials, so this cross-query layer is
  * built ONLY when the connector's credentials are query-independent — it is left disabled (the connector
@@ -61,33 +71,46 @@ import java.util.function.Supplier;
  */
 final class IcebergTableCache {
 
-    private final MetaCacheEntry<TableIdentifier, TableOwner> entry;
+    private final CatalogMetaCache owner;
+    private final MetaCache<TableIdentifier, TableOwner> entry;
     private final Function<Table, Runnable> cleanupFactory;
     private final IcebergCatalogResourceTracker resourceTracker;
     private final AtomicBoolean closed = new AtomicBoolean();
 
     IcebergTableCache(long ttlSeconds, int maxSize) {
-        this(ttlSeconds, maxSize, table -> () -> { }, null);
+        this(CatalogMetaCache.unmanaged(), ttlSeconds, maxSize, table -> () -> { }, null);
     }
 
     IcebergTableCache(long ttlSeconds, int maxSize, Function<Table, Runnable> cleanupFactory) {
-        this(ttlSeconds, maxSize, cleanupFactory, null);
+        this(CatalogMetaCache.unmanaged(), ttlSeconds, maxSize, cleanupFactory, null);
     }
 
     IcebergTableCache(long ttlSeconds, int maxSize, Function<Table, Runnable> cleanupFactory,
             IcebergCatalogResourceTracker resourceTracker) {
+        this(CatalogMetaCache.unmanaged(), ttlSeconds, maxSize, cleanupFactory, resourceTracker);
+    }
+
+    IcebergTableCache(CatalogMetaCache owner, long ttlSeconds, int maxSize,
+            Function<Table, Runnable> cleanupFactory, IcebergCatalogResourceTracker resourceTracker) {
+        this(owner, CacheSpec.ofConnectorTtl(ttlSeconds, maxSize), cleanupFactory, resourceTracker);
+    }
+
+    IcebergTableCache(CatalogMetaCache owner, CacheSpec spec,
+            Function<Table, Runnable> cleanupFactory, IcebergCatalogResourceTracker resourceTracker) {
+        this.owner = owner;
         this.cleanupFactory = cleanupFactory;
         this.resourceTracker = resourceTracker;
-        // "<= 0 disables" connector TTL contract, folded to CacheSpec's disable sentinel (CacheSpec.ofConnectorTtl).
-        CacheSpec spec = CacheSpec.ofConnectorTtl(ttlSeconds, maxSize);
-        this.entry = new MetaCacheEntry<>("iceberg-table", null, spec,
-                ForkJoinPool.commonPool(), false, true, 0L, true,
-                (identifier, owner) -> owner.release());
+        this.entry = owner.create(MetaCacheDefinition
+                .<TableIdentifier, TableOwner>builder("iceberg-table", spec, IcebergTableCache::scope)
+                .removalListener((identifier, tableOwner, reason) -> tableOwner.release())
+                .discardListener((identifier, tableOwner) -> tableOwner.release())
+                .sizeEstimator(IcebergCacheSizeEstimator::estimateTableEntry)
+                .build());
     }
 
     /** Caching is on only when the TTL is positive; ttl-second &lt;= 0 means "always read live". */
     boolean isEnabled() {
-        return entry.stats().isEffectiveEnabled();
+        return entry.isEnabled();
     }
 
     /**
@@ -120,7 +143,8 @@ final class IcebergTableCache {
                             }
                         }
                     };
-                    TableOwner loaded = new TableOwner(table, cleanup, true);
+                    TableOwner loaded = new TableOwner(table, cleanup, true,
+                            entry.isEnabled() && entry.isWeightBounded());
                     loadedHere[0] = loaded;
                     return loaded;
                 } finally {
@@ -158,7 +182,7 @@ final class IcebergTableCache {
 
     /** Drops the cached entry for one table so the next read goes live (REFRESH TABLE). */
     void invalidate(TableIdentifier identifier) {
-        entry.invalidateKey(identifier);
+        owner.invalidateTable(identifier.namespace().toString(), identifier.name());
     }
 
     /**
@@ -168,27 +192,28 @@ final class IcebergTableCache {
      * namespace equality — mirroring {@link IcebergLatestSnapshotCache#invalidateDb}.
      */
     void invalidateDb(String dbName) {
-        Namespace ns = Namespace.of(dbName);
-        entry.invalidateIf(id -> id.namespace().equals(ns));
+        owner.invalidateDatabase(dbName);
     }
 
     /** Drops all cached entries. */
     void invalidateAll() {
-        entry.invalidateAll();
+        owner.invalidateCatalog();
     }
 
     /** Seals new borrows and retires every cache owner, including loaders that publish after invalidation. */
     void close() {
         if (closed.compareAndSet(false, true)) {
-            entry.invalidateAll();
+            owner.invalidateCatalog();
         }
     }
 
     /** Test-only: current number of cached entries (accurate map membership, not Caffeine's estimate). */
     int size() {
-        int[] count = {0};
-        entry.forEach((key, value) -> count[0]++);
-        return count[0];
+        return Math.toIntExact(entry.size());
+    }
+
+    private static ScopePath scope(TableIdentifier identifier) {
+        return ScopePath.table(identifier.namespace().toString(), identifier.name());
     }
 
     static final class TableLease implements AutoCloseable {
@@ -203,6 +228,10 @@ final class IcebergTableCache {
             return owner.table;
         }
 
+        Table snapshotReadTable() {
+            return owner.snapshotReadTable();
+        }
+
         @Override
         public void close() {
             if (closed.compareAndSet(false, true)) {
@@ -211,17 +240,58 @@ final class IcebergTableCache {
         }
     }
 
-    private static final class TableOwner {
+    static final class TableOwner {
         private final Table table;
         private final Runnable cleanup;
+        private final String snapshotMetadataJson;
+        private final String snapshotMetadataLocation;
+        final MetaCacheSizeEstimate sizeEstimate;
         // A newly loaded value starts with a cache reference and a temporary loader reference. The temporary
         // reference bridges publication/discard to the first borrow, including invalidation-before-publication.
         private final AtomicInteger references;
 
-        private TableOwner(Table table, Runnable cleanup, boolean loading) {
+        private TableOwner(Table table, Runnable cleanup, boolean loading, boolean estimateWeight) {
             this.table = table;
             this.cleanup = cleanup;
+            String[] metadataJson = {null};
+            String[] metadataLocation = {null};
+            this.sizeEstimate = estimateWeight
+                    ? MetaCacheSizeEstimator.estimateSafely("iceberg_table_estimator_failure",
+                            () -> {
+                                long serializedMetadataBytes = 0L;
+                                if (table instanceof BaseTable) {
+                                    TableMetadata metadata = ((BaseTable) table).operations().current();
+                                    String json = TableMetadataParser.toJson(metadata);
+                                    metadataJson[0] = json;
+                                    metadataLocation[0] = metadata.metadataFileLocation();
+                                    serializedMetadataBytes =
+                                            IcebergCacheSizeEstimator.estimateSerializedTableMetadata(json);
+                                }
+                                // Iceberg v1 serialization materializes lazy embedded-manifest state on the
+                                // retained BaseSnapshot, so weigh the table only after serialization completes.
+                                long bytes = JvmSizeUtils.saturatedAdd(
+                                        IcebergCacheSizeEstimator.estimateTable(table), serializedMetadataBytes);
+                                return MetaCacheSizeEstimate.complete(bytes);
+                            })
+                    : MetaCacheSizeEstimate.complete(0L);
+            // Serialization materializes v1 manifests with dummy InputFiles. Even an uncached borrower
+            // needs the successful JSON to reconstruct snapshots that can resolve manifests with real IO.
+            this.snapshotMetadataJson = metadataJson[0];
+            this.snapshotMetadataLocation = metadataLocation[0];
             this.references = new AtomicInteger(loading ? 2 : 1);
+        }
+
+        private Table snapshotReadTable() {
+            if (!(table instanceof BaseTable)) {
+                return table;
+            }
+            BaseTable baseTable = (BaseTable) table;
+            TableOperations operations = baseTable.operations();
+            TableMetadata metadata = snapshotMetadataJson == null
+                    ? operations.current()
+                    : TableMetadataParser.fromJson(snapshotMetadataLocation, snapshotMetadataJson);
+            return new BaseTable(new IcebergSnapshotTableOperations(operations, metadata),
+                    table.name(), baseTable.reporter());
         }
 
         private TableLease tryBorrow() {

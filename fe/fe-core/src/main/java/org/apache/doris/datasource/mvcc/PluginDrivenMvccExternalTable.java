@@ -68,6 +68,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -630,7 +631,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
      * <p>Why bypass rather than rely on the cache TTL: the SPI routes the latest schema through the generic
      * {@code DefaultExternalMetaCache} schema entry keyed by table NAME only (no schemaId, unlike master's
      * {@code PaimonSchemaCacheKey(nameMapping, schemaId)}), and that entry's TTL spec is frozen at first build
-     * ({@code AbstractExternalMetaCache.initCatalog} computeIfAbsent), so a {@code ttl-second=0} cannot reliably
+     * ({@code ExternalCatalogMetaCache.initCatalog} computeIfAbsent), so a {@code ttl-second=0} cannot reliably
      * bust it after an external schema change. Reading fresh restores master's single-knob semantics
      * ({@code meta.cache.paimon.table.ttl-second=0} -> always-fresh schema) and is cheap at ttl=0 by definition;
      * {@code initSchema()} reloads via the connector's live {@code catalog.getTable} (master parity). The cached
@@ -798,6 +799,35 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     }
 
     @Override
+    public Map<String, MTMVSnapshotIf> getPartitionSnapshots(Set<String> partitionNames,
+            MTMVRefreshContext context, Optional<MvccSnapshot> snapshot) throws AnalysisException {
+        PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
+        Map<String, MTMVSnapshotIf> snapshots = new LinkedHashMap<>();
+        if (pin.getConnectorSnapshot().isLastModifiedFreshness()) {
+            List<String> existingPartitionNames = partitionNames.stream()
+                    .filter(pin.getNameToLastModifiedMillis()::containsKey)
+                    .collect(Collectors.toList());
+            Map<String, Long> freshness = queryPartitionFreshnessMillis(existingPartitionNames);
+            for (String partitionName : partitionNames) {
+                Long value = freshness.get(partitionName);
+                if (value != null) {
+                    snapshots.put(partitionName, new MTMVTimestampSnapshot(value));
+                }
+            }
+            return snapshots;
+        }
+
+        for (String partitionName : partitionNames) {
+            Long value = pin.getNameToLastModifiedMillis().get(partitionName);
+            if (value != null) {
+                snapshots.put(partitionName, pin.isSnapshotIdFreshness()
+                        ? new MTMVSnapshotIdSnapshot(value) : new MTMVTimestampSnapshot(value));
+            }
+        }
+        return snapshots;
+    }
+
+    @Override
     public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
         return getTableSnapshot(snapshot);
@@ -851,6 +881,15 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         }
         FreshnessProbe p = probe.get();
         return p.metadata.getPartitionFreshnessMillis(p.session, p.handle, partitionName);
+    }
+
+    private Map<String, Long> queryPartitionFreshnessMillis(List<String> partitionNames) {
+        Optional<FreshnessProbe> probe = resolveFreshnessProbe();
+        if (!probe.isPresent()) {
+            return Collections.emptyMap();
+        }
+        FreshnessProbe p = probe.get();
+        return p.metadata.getPartitionsFreshnessMillis(p.session, p.handle, partitionNames);
     }
 
     /**

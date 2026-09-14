@@ -17,7 +17,9 @@
 
 package org.apache.doris.connector.hive;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
+import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.connector.hms.CachingHmsClient;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientConfig;
@@ -85,6 +87,7 @@ public class HiveConnector implements Connector {
     // every (re)build of the connector, including the lazy one an FE does after replaying the edit log.
     private final HiveCatalogProperties props;
     private final ConnectorContext context;
+    private final CatalogMetaCache metaCache;
     private volatile HmsClient hmsClient;
 
     // Lazily-built plugin-side Kerberos authenticator (single-owner auth), null for a non-Kerberos catalog.
@@ -130,15 +133,24 @@ public class HiveConnector implements Connector {
     // NEVER cast (a cast would CCE across the loader split).
     private volatile Connector hudiSibling;
 
+    // Writes are guarded by this; the volatile read rejects post-close fast paths. Closing and lazy sibling
+    // publication share the same monitor so a sibling can never be published after the gateway has released its
+    // managed metadata-cache owner.
+    private volatile boolean closed;
+
     public HiveConnector(Map<String, String> properties, ConnectorContext context) {
         HmsConfHelper.initializeHadoopConfigDir(context);
         this.props = HiveCatalogProperties.of(properties);
         this.properties = props.getRaw();
         this.context = context;
-        this.fileListingCache = new HiveFileListingCache(props);
+        this.metaCache = CatalogMetaCache.managed(context.getCatalogId(), "hive", this.properties);
+        this.fileListingCache = new HiveFileListingCache(metaCache, props);
         // Reads its own meta.cache.hive.partition_view.(enable|ttl-second|capacity) from the catalog properties
         // via the framework's CacheSpec (default ON / 24h / 1000).
-        this.partitionViewCache = new ConnectorMetadataCache<>("hive", "partition_view", this.properties);
+        this.partitionViewCache = new ConnectorMetadataCache<>(metaCache, "hive-partition-view",
+                "hive", "partition_view", this.properties,
+                key -> ScopePath.partitionCollection(key.getDb(), key.getTable()),
+                HivePartitionViewSizeEstimator::estimateEntry);
     }
 
     @Override
@@ -254,7 +266,11 @@ public class HiveConnector implements Connector {
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider(ConnectorTableHandle handle) {
         if (handle instanceof HiveTableHandle) {
-            return getScanPlanProvider();
+            ConnectorScanPlanProvider provider = getScanPlanProvider();
+            if (provider instanceof HiveScanPlanProvider) {
+                ((HiveScanPlanProvider) provider).recordPruningProfile((HiveTableHandle) handle);
+            }
+            return provider;
         }
         return resolveSiblingOwner(handle).getScanPlanProvider(handle);
     }
@@ -349,7 +365,7 @@ public class HiveConnector implements Connector {
 
     /**
      * REFRESH TABLE hook: drop this table's connector-owned scan caches. Clears BOTH cache layers for the table —
-     * the metastore-metadata entries ({@link CachingHmsClient#flush}: table meta, partition names, partition
+     * the metastore-metadata entries (table meta, partition names, partition
      * objects, column stats) AND the {@link HiveFileListingCache} directory listings — because a hive table's
      * schema, partitions AND files are all mutable, so a REFRESH must re-read all of them (unlike iceberg, whose
      * manifests are immutable and kept across REFRESH TABLE). fe-core already routes {@code REFRESH TABLE} to
@@ -358,66 +374,32 @@ public class HiveConnector implements Connector {
      */
     @Override
     public void invalidateTable(String dbName, String tableName) {
-        // Read the client field WITHOUT building it (getOrCreateClient would force a real ThriftHmsClient just to
-        // flush an empty cache): a never-built client means no metastore cache exists to flush. The file cache is
-        // a final field and always present.
-        invalidateTable(hmsClient, dbName, tableName);
+        metaCache.invalidateTable(dbName, tableName);
         forEachBuiltSibling(sibling -> sibling.invalidateTable(dbName, tableName));
-    }
-
-    // Package-private seam: the metastore half needs an observable CachingHmsClient, which a unit test can build
-    // via wrapWithCache (the hmsClient field is otherwise only set by getOrCreateClient building a real client).
-    void invalidateTable(HmsClient client, String dbName, String tableName) {
-        if (client instanceof CachingHmsClient) {
-            ((CachingHmsClient) client).flush(dbName, tableName);
-        }
-        fileListingCache.invalidateTable(dbName, tableName);
-        // PERF-06: also drop this table's cached derived partition-view entry, so the next listPartitions
-        // re-derives live.
-        partitionViewCache.invalidateTable(dbName, tableName);
     }
 
     /**
      * REFRESH DATABASE hook: drop the connector-owned scan caches for EVERY table in this database — both cache
-     * layers ({@link CachingHmsClient#flushDb} metastore-metadata + {@link HiveFileListingCache#invalidateDb}
+     * layers (metastore-metadata + {@link HiveFileListingCache#invalidateDb}
      * directory listings). Same no-force-build read of the client as {@link #invalidateTable(String, String)}.
      * fe-core routes {@code REFRESH DATABASE} to {@code connector.invalidateDb} for a plugin-driven catalog.
      * Also forwarded to the already-built embedded siblings — see {@link #forEachBuiltSibling}.
      */
     @Override
     public void invalidateDb(String dbName) {
-        invalidateDb(hmsClient, dbName);
+        metaCache.invalidateDatabase(dbName);
         forEachBuiltSibling(sibling -> sibling.invalidateDb(dbName));
-    }
-
-    // Package-private seam (see invalidateTable above).
-    void invalidateDb(HmsClient client, String dbName) {
-        if (client instanceof CachingHmsClient) {
-            ((CachingHmsClient) client).flushDb(dbName);
-        }
-        fileListingCache.invalidateDb(dbName);
-        partitionViewCache.invalidateDb(dbName);
     }
 
     /**
      * REFRESH CATALOG hook: drop ALL of this catalog's connector-owned scan caches — every metastore-metadata
-     * entry ({@link CachingHmsClient#flushAll}) and every directory listing. Same no-force-build read of the
-     * client as {@link #invalidateTable(String, String)}.
+     * entry and every directory listing.
      * Also forwarded to the already-built embedded siblings — see {@link #forEachBuiltSibling}.
      */
     @Override
     public void invalidateAll() {
-        invalidateAll(hmsClient);
+        metaCache.invalidateCatalog();
         forEachBuiltSibling(Connector::invalidateAll);
-    }
-
-    // Package-private seam (see invalidateTable above).
-    void invalidateAll(HmsClient client) {
-        if (client instanceof CachingHmsClient) {
-            ((CachingHmsClient) client).flushAll();
-        }
-        fileListingCache.invalidateAll();
-        partitionViewCache.invalidateAll();
     }
 
     /**
@@ -425,7 +407,7 @@ public class HiveConnector implements Connector {
      * {@code HiveExternalMetaCache}'s per-partition invalidation. The partition NAMES are parsed into VALUES
      * purely ({@link HiveWriteUtils#toPartitionValues}, no metastore round-trip), which key both connector
      * caches: the directory-listing cache ({@link HiveFileListingCache#invalidatePartitions}) and the metastore
-     * partition-metadata cache ({@link CachingHmsClient#invalidatePartitions}). Deriving values from the name
+     * partition-metadata cache. Deriving values from the name
      * (rather than looking the partition up) is exactly what stops an evicted partition-metadata entry from
      * leaving a stale file listing — the #65334 failure mode. Table-level column stats and the table object are
      * intentionally left intact (legacy did not drop them on a partition-level refresh). Also forwarded to the
@@ -433,23 +415,12 @@ public class HiveConnector implements Connector {
      */
     @Override
     public void invalidatePartition(String dbName, String tableName, List<String> partitionNames) {
-        invalidatePartition(hmsClient, dbName, tableName, partitionNames);
-        forEachBuiltSibling(sibling -> sibling.invalidatePartition(dbName, tableName, partitionNames));
-    }
-
-    // Package-private seam (mirrors invalidateTable): the metastore half needs an observable CachingHmsClient.
-    void invalidatePartition(HmsClient client, String dbName, String tableName, List<String> partitionNames) {
         Set<List<String>> partitionValues = new HashSet<>();
         for (String name : partitionNames) {
             partitionValues.add(HiveWriteUtils.toPartitionValues(name));
         }
-        if (client instanceof CachingHmsClient) {
-            ((CachingHmsClient) client).invalidatePartitions(dbName, tableName, partitionValues);
-        }
-        fileListingCache.invalidatePartitions(dbName, tableName, partitionValues);
-        // PERF-06: cache A's key carries no partition-name axis (only db/table/-1/-1), so a partition-level
-        // change cannot be scoped finer than the whole table's single cached entry — invalidate it wholesale.
-        partitionViewCache.invalidateTable(dbName, tableName);
+        metaCache.invalidatePartitions(dbName, tableName, partitionValues);
+        forEachBuiltSibling(sibling -> sibling.invalidatePartition(dbName, tableName, partitionNames));
     }
 
     /**
@@ -523,36 +494,40 @@ public class HiveConnector implements Connector {
      * memoized (a null sibling leaves the field unset), so a later-available plugin recovers on the next access.
      */
     Connector getOrCreateIcebergSibling() {
-        if (icebergSibling == null) {
-            synchronized (this) {
-                if (icebergSibling == null) {
-                    Connector sibling = context.createSiblingConnector(
-                            ICEBERG_CONNECTOR_TYPE, IcebergSiblingProperties.synthesize(properties));
-                    if (sibling == null) {
-                        throw new DorisConnectorException(
-                                "Cannot serve iceberg-on-HMS tables in catalog '" + context.getCatalogName()
-                                        + "': the iceberg connector plugin is not available");
-                    }
-                    // Fail-loud invariant guard for the cache-isolation security track: the hive gateway FRONT
-                    // DOOR never declares SUPPORTS_USER_SESSION, so fe-core keys its per-user schema/name cache
-                    // bypass off THIS (front-door) connector's capabilities and would NOT bypass for a delegated
-                    // sibling. The iceberg sibling is forced iceberg.catalog.type=hms (IcebergSiblingProperties
-                    // .synthesize) and can never be REST session=user, so this must hold today. If a future change
-                    // ever let the sibling be session=user, the front-door-only bypass would silently leak
-                    // cross-user metadata — fail here instead.
-                    if (sibling.getCapabilities().contains(ConnectorCapability.SUPPORTS_USER_SESSION)) {
-                        throw new DorisConnectorException(
-                                "iceberg-on-HMS sibling in catalog '" + context.getCatalogName()
-                                        + "' unexpectedly declares SUPPORTS_USER_SESSION: the hive gateway front "
-                                        + "door is not session=user, so fe-core's per-user schema/name cache bypass "
-                                        + "would not trigger and cross-user metadata would leak. The sibling must "
-                                        + "stay iceberg.catalog.type=hms (never REST session=user).");
-                    }
-                    icebergSibling = sibling;
-                }
-            }
+        checkOpenForSiblingCreation();
+        Connector current = icebergSibling;
+        if (current != null) {
+            return current;
         }
-        return icebergSibling;
+        synchronized (this) {
+            checkOpenForSiblingCreation();
+            if (icebergSibling == null) {
+                Connector sibling = context.createSiblingConnector(
+                        ICEBERG_CONNECTOR_TYPE, IcebergSiblingProperties.synthesize(properties));
+                if (sibling == null) {
+                    throw new DorisConnectorException(
+                            "Cannot serve iceberg-on-HMS tables in catalog '" + context.getCatalogName()
+                                    + "': the iceberg connector plugin is not available");
+                }
+                // Fail-loud invariant guard for the cache-isolation security track: the hive gateway FRONT
+                // DOOR never declares SUPPORTS_USER_SESSION, so fe-core keys its per-user schema/name cache
+                // bypass off THIS (front-door) connector's capabilities and would NOT bypass for a delegated
+                // sibling. The iceberg sibling is forced iceberg.catalog.type=hms (IcebergSiblingProperties
+                // .synthesize) and can never be REST session=user, so this must hold today. If a future change
+                // ever let the sibling be session=user, the front-door-only bypass would silently leak
+                // cross-user metadata — fail here instead.
+                if (sibling.getCapabilities().contains(ConnectorCapability.SUPPORTS_USER_SESSION)) {
+                    throw new DorisConnectorException(
+                            "iceberg-on-HMS sibling in catalog '" + context.getCatalogName()
+                                    + "' unexpectedly declares SUPPORTS_USER_SESSION: the hive gateway front "
+                                    + "door is not session=user, so fe-core's per-user schema/name cache bypass "
+                                    + "would not trigger and cross-user metadata would leak. The sibling must "
+                                    + "stay iceberg.catalog.type=hms (never REST session=user).");
+                }
+                icebergSibling = sibling;
+            }
+            return icebergSibling;
+        }
     }
 
     /**
@@ -567,21 +542,33 @@ public class HiveConnector implements Connector {
      * memoized (a null sibling leaves the field unset), so a later-available plugin recovers on the next access.
      */
     Connector getOrCreateHudiSibling() {
-        if (hudiSibling == null) {
-            synchronized (this) {
-                if (hudiSibling == null) {
-                    Connector sibling = context.createSiblingConnector(
-                            HUDI_CONNECTOR_TYPE, HudiSiblingProperties.synthesize(properties));
-                    if (sibling == null) {
-                        throw new DorisConnectorException(
-                                "Cannot serve hudi-on-HMS tables in catalog '" + context.getCatalogName()
-                                        + "': the hudi connector plugin is not available");
-                    }
-                    hudiSibling = sibling;
-                }
-            }
+        checkOpenForSiblingCreation();
+        Connector current = hudiSibling;
+        if (current != null) {
+            return current;
         }
-        return hudiSibling;
+        synchronized (this) {
+            checkOpenForSiblingCreation();
+            if (hudiSibling == null) {
+                Connector sibling = context.createSiblingConnector(
+                        HUDI_CONNECTOR_TYPE, HudiSiblingProperties.synthesize(properties));
+                if (sibling == null) {
+                    throw new DorisConnectorException(
+                            "Cannot serve hudi-on-HMS tables in catalog '" + context.getCatalogName()
+                                    + "': the hudi connector plugin is not available");
+                }
+                hudiSibling = sibling;
+            }
+            return hudiSibling;
+        }
+    }
+
+    private void checkOpenForSiblingCreation() {
+        if (closed) {
+            throw new DorisConnectorException(
+                    "Cannot create a sibling connector after Hive catalog '" + context.getCatalogName()
+                            + "' has been closed");
+        }
     }
 
     private HmsClient createClient() {
@@ -654,7 +641,7 @@ public class HiveConnector implements Connector {
      * {@code HiveConnector}, and {@link #createClient()} wraps its {@code ThriftHmsClient} here.
      */
     HmsClient wrapWithCache(HmsClient raw) {
-        return new CachingHmsClient(raw, properties);
+        return new CachingHmsClient(metaCache, raw, properties);
     }
 
     /**
@@ -737,23 +724,57 @@ public class HiveConnector implements Connector {
 
     @Override
     public void close() throws IOException {
-        HmsClient c = hmsClient;
-        if (c != null) {
-            c.close();
+        HmsClient client;
+        Connector sibling;
+        Connector hudi;
+        synchronized (this) {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            client = hmsClient;
             hmsClient = null;
+            sibling = icebergSibling;
+            icebergSibling = null;
+            hudi = hudiSibling;
+            hudiSibling = null;
+        }
+        metaCache.close();
+        IOException closeFailure = null;
+        try {
+            if (client != null) {
+                client.close();
+            }
+        } catch (IOException e) {
+            closeFailure = e;
         }
         // Forward close to the embedded iceberg sibling: the engine closes only a catalog's PRIMARY connector,
         // so the gateway owns the sibling's lifecycle. No-op when the sibling was never built (dormant path).
-        Connector sibling = icebergSibling;
-        if (sibling != null) {
-            sibling.close();
-            icebergSibling = null;
+        try {
+            if (sibling != null) {
+                sibling.close();
+            }
+        } catch (IOException e) {
+            if (closeFailure == null) {
+                closeFailure = e;
+            } else {
+                closeFailure.addSuppressed(e);
+            }
         }
         // Same for the embedded hudi sibling — the gateway owns its lifecycle too. No-op when never built.
-        Connector hudi = hudiSibling;
-        if (hudi != null) {
-            hudi.close();
-            hudiSibling = null;
+        try {
+            if (hudi != null) {
+                hudi.close();
+            }
+        } catch (IOException e) {
+            if (closeFailure == null) {
+                closeFailure = e;
+            } else {
+                closeFailure.addSuppressed(e);
+            }
+        }
+        if (closeFailure != null) {
+            throw closeFailure;
         }
     }
 }

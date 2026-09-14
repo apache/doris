@@ -265,11 +265,17 @@ public:
         const size_t lambda_batch_rows =
                 _calculate_lambda_batch_size(children[0], lambda_datas, block,
                                              required_input_column_ids, has_row_dependent_captures);
+        // Reuse the nested input columns directly when they fit within eight regular lambda
+        // batches. Larger inputs use the base batch size, while a smaller byte-budget-derived
+        // batch remains authoritative.
+        const size_t lambda_fast_path_rows = lambda_batch_rows == _lambda_block_budget.max_rows
+                                                     ? _lambda_block_budget.max_rows * 8
+                                                     : lambda_batch_rows;
 
         // Lambda arguments are already stored contiguously in the input arrays. When all nested
-        // rows fit in one lambda batch, reuse those columns directly and only materialize captured
-        // outer columns whose values depend on the outer row.
-        if (nested_array_column_rows > 0 && nested_array_column_rows <= lambda_batch_rows) {
+        // rows fit within the direct-execution limit, reuse those columns and only materialize
+        // captured outer columns whose values depend on the outer row.
+        if (nested_array_column_rows > 0 && nested_array_column_rows <= lambda_fast_path_rows) {
             Block lambda_block;
             PaddedPODArray<IColumn::ColumnIndex> captured_source_row_indices;
             MutableColumns captured_columns(lambda_argument_base);

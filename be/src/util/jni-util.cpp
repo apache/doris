@@ -323,7 +323,7 @@ Status Util::_init_jni_scanner_loader() {
             jni_scanner_loader_cls.get_method(env, "loadAllScannerJars", "()V", &load_jni_scanner));
 
     RETURN_IF_ERROR(jni_scanner_loader_cls.get_method(
-            env, "cleanUdfClassLoader", "(Ljava/lang/String;)V", &_clean_udf_cache_method_id));
+            env, "cleanUdfClassLoader", "(Ljava/lang/String;J)V", &_clean_udf_cache_method_id));
 
     RETURN_IF_ERROR(jni_scanner_loader_cls.new_object(env, jni_scanner_loader_constructor)
                             .call(&jni_scanner_loader_obj_));
@@ -332,7 +332,8 @@ Status Util::_init_jni_scanner_loader() {
     return Status::OK();
 }
 
-Status Util::clean_udf_class_load_cache(const std::string& function_signature) {
+Status Util::clean_udf_class_load_cache(const std::string& function_signature,
+                                        int64_t function_id) {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
 
@@ -342,6 +343,7 @@ Status Util::clean_udf_class_load_cache(const std::string& function_signature) {
 
     RETURN_IF_ERROR(jni_scanner_loader_obj_.call_void_method(env, _clean_udf_cache_method_id)
                             .with_arg(function_signature_jstr)
+                            .with_arg((jlong)function_id)
                             .call());
 
     return Status::OK();

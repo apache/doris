@@ -19,8 +19,10 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.CascadesContext;
@@ -29,6 +31,7 @@ import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
@@ -37,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate.PushDownAggOp;
@@ -46,6 +50,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -260,6 +265,31 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
     }
 
     @Test
+    public void testCountOnIndexRejectsIsNullOnProjectedCountSlot() {
+        LogicalOlapScan olapScan = PlanConstructor.newLogicalOlapScan(2, "count_alias", 0);
+        Index invertedIndex = new Index(1L, "idx_name", ImmutableList.of("name"),
+                IndexType.INVERTED, null, "");
+        olapScan.getTable().getIndexIdToMeta().values().forEach(
+                meta -> meta.setIndexes(ImmutableList.of(invertedIndex)));
+
+        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
+                ImmutableSet.of(new IsNull(olapScan.getOutput().get(1))), olapScan);
+        LogicalProject<LogicalFilter<LogicalOlapScan>> project = new LogicalProject<>(
+                ImmutableList.of(new Alias(olapScan.getOutput().get(1), "x")), filter);
+        LogicalAggregate<LogicalProject<LogicalFilter<LogicalOlapScan>>> aggregate = new LogicalAggregate<>(
+                Collections.emptyList(),
+                ImmutableList.of(new Alias(new Count(project.getOutput().get(0)), "count_x"),
+                        new Alias(new Count(), "count_star")),
+                true, Optional.empty(), project);
+        CascadesContext context = MemoTestUtils.createCascadesContext(aggregate);
+        context.getConnectContext().getSessionVariable().setEnablePushDownCountOnIndex(true);
+
+        PlanChecker.from(context)
+                .applyImplementation(countOnIndex())
+                .matches(logicalAggregate(logicalProject(logicalFilter(logicalOlapScan()))));
+    }
+
+    @Test
     void testProjectionCheck() {
         LogicalOlapScan olapScan = PlanConstructor.newLogicalOlapScan(1, "tbl", 0);
         LogicalProject<LogicalOlapScan> project = new LogicalProject<>(
@@ -306,6 +336,14 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
         return new AggregateStrategies().buildRules()
                 .stream()
                 .filter(rule -> rule.getRuleType() == RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT)
+                .findFirst()
+                .get();
+    }
+
+    private Rule countOnIndex() {
+        return new AggregateStrategies().buildRules()
+                .stream()
+                .filter(rule -> rule.getRuleType() == RuleType.COUNT_ON_INDEX)
                 .findFirst()
                 .get();
     }
