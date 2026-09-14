@@ -399,6 +399,11 @@ struct TPythonPackageInfo {
 service BackendService {
     AgentService.TAgentResult submit_tasks(1:list<AgentService.TAgentTaskRequest> tasks);
 
+    // Enqueue one one-shot Lance index mutation dispatch (see TLanceIndexJobDispatch).
+    // OK means enqueued exactly once; an ERROR status means NOT enqueued and never
+    // executed for this invocation id. Result arrives via report_lance_index_job_result.
+    Status.TStatus submit_lance_index_job(1:AgentService.TLanceIndexJobDispatch dispatch);
+
     AgentService.TAgentResult make_snapshot(1:AgentService.TSnapshotRequest snapshot_request);
 
     AgentService.TAgentResult release_snapshot(1:string snapshot_path);

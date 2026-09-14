@@ -1823,6 +1823,9 @@ service FrontendService {
     TReportExecStatusResult reportExecStatus(1: TReportExecStatusParams params)
 
     MasterService.TMasterResult finishTask(1: MasterService.TFinishTaskRequest request)
+    // Report the typed result envelope of one Lance index mutation invocation.
+    // Stale or identity-mismatched reports are logged and dropped on the FE side.
+    Status.TStatus reportLanceIndexJobResult(1: MasterService.TLanceIndexJobReport report)
     MasterService.TMasterResult report(1: MasterService.TReportRequest request)
     // Deprecated
     MasterService.TFetchResourceResult fetchResource()
