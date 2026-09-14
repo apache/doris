@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 
 /**
  * Tests {@link ThriftHmsClient#toThriftMaxParts}: the connector's {@code maxParts} contract mapped onto the
@@ -61,6 +62,45 @@ public class ThriftHmsClientMaxPartsTest {
         short mapped = ThriftHmsClient.toThriftMaxParts(100000);
         Assertions.assertEquals((short) 100000, mapped);
         Assertions.assertTrue(mapped < 0, "a value above Short.MAX_VALUE must narrow to a negative (unbounded) short");
+    }
+
+    @Test
+    public void testRawSaturatedPageFallsBackEvenWhenFilterHookHidesAnEntry() throws Exception {
+        // The metastore filter hook runs AFTER the raw page cap, so one hook-hidden entry makes the visible
+        // list one shorter than the raw page. Saturation must still be decided on the RAW size: otherwise a
+        // later visible partition beyond the cap would be silently dropped from the result.
+        int rawCount = HmsClientConfig.DEFAULT_PARTITION_BATCH_SIZE + 1;
+        List<Partition> hookFiltered = new ArrayList<>(Collections.nCopies(
+                HmsClientConfig.DEFAULT_PARTITION_BATCH_SIZE, new Partition()));
+        IMetaStoreClient metastore = (IMetaStoreClient) Proxy.newProxyInstance(
+                getClass().getClassLoader(),
+                new Class<?>[] {IMetaStoreClient.class, HmsRawPartitionFilterPageSource.class},
+                (proxy, method, args) -> {
+                    if ("listPartitionsByFilterRawPage".equals(method.getName())) {
+                        Assertions.assertEquals("db", args[0]);
+                        Assertions.assertEquals("tbl", args[1]);
+                        Assertions.assertEquals("p=1", args[2]);
+                        Assertions.assertEquals(rawCount, ((Integer) args[3]).intValue());
+                        return new HmsRawPartitionFilterPage(hookFiltered, rawCount);
+                    }
+                    if ("listPartitionsByFilter".equals(method.getName())) {
+                        return hookFiltered;
+                    }
+                    return null;
+                });
+        ThriftHmsClient client = new ThriftHmsClient(new HmsClientConfig(Collections.emptyMap(), 0),
+                new ThriftHmsClient.AuthAction() {
+                    @Override
+                    public <T> T execute(java.util.concurrent.Callable<T> callable) throws Exception {
+                        return callable.call();
+                    }
+                }, hiveConf -> metastore, HmsTypeMapping.Options.DEFAULT);
+        try {
+            Assertions.assertThrows(HmsPartitionFilterSaturatedException.class,
+                    () -> client.listPartitionsByFilter("db", "tbl", "p=1"));
+        } finally {
+            client.close();
+        }
     }
 
     @Test

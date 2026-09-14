@@ -17,11 +17,15 @@
 
 package org.apache.doris.datasource.plugin;
 
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.spi.Connector;
@@ -65,6 +69,8 @@ import org.apache.doris.statistics.model.ColumnStatisticBuilder;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -971,11 +977,103 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     /**
-     * Builds the generic partition map from a connector-filtered partition view. Callers use this only after
-     * converting a Nereids predicate into the neutral connector expression grammar.
+     * The SCAN-path partition view (Nereids pruning and scan finalization), built with the degradation
+     * contract: an entry that cannot be represented as a Doris partition item makes the whole view
+     * UNAVAILABLE ({@code Optional.empty()}) instead of aborting the query. Callers MUST treat empty as
+     * "partition pruning is unavailable" and read every partition - never as an empty partition set, and
+     * never as a query failure.
+     *
+     * <p>Kept separate from {@link #getNameToPartitionItems}, which fails loud: the non-scan consumers (MTMV
+     * partition alignment, UPDATE-by-partition) must not silently degrade to an empty partition view.</p>
      */
-    public Optional<Map<String, PartitionItem>> getNameToPartitionItemsByFilter(Optional<MvccSnapshot> snapshot,
+    public Optional<Map<String, PartitionItem>> getNameToPartitionItemsForScan(Optional<MvccSnapshot> snapshot) {
+        return buildPartitionView(snapshot, Optional.empty()).map(PartitionView::getItems);
+    }
+
+    /**
+     * A connector-filtered scan partition view: the built partition items plus the connector filter result they
+     * were materialized from.
+     */
+    public static final class ConnectorFilteredPartitionView {
+        private final Map<String, PartitionItem> items;
+        private final FilterApplicationResult<ConnectorTableHandle> filterResult;
+
+        private ConnectorFilteredPartitionView(Map<String, PartitionItem> items,
+                FilterApplicationResult<ConnectorTableHandle> filterResult) {
+            this.items = items;
+            this.filterResult = filterResult;
+        }
+
+        public Map<String, PartitionItem> getItems() {
+            return items;
+        }
+
+        public FilterApplicationResult<ConnectorTableHandle> getFilterResult() {
+            return filterResult;
+        }
+    }
+
+    /**
+     * Applies a Nereids-derived connector predicate for the SCAN path, returning both the built partition items
+     * and the filter result they were materialized from. The caller must carry that result into physical
+     * planning and reuse its handle: applying the same predicate a second time could observe a different remote
+     * generation, which would mix the selected partition names with another handle's partition metadata.
+     *
+     * <p>Empty when the connector declined the predicate OR the resulting view cannot be represented (see
+     * {@link #getNameToPartitionItemsForScan}); both cases fall back to the unfiltered view.</p>
+     */
+    public Optional<ConnectorFilteredPartitionView> applyPartitionFilterForScan(Optional<MvccSnapshot> snapshot,
             ConnectorExpression partitionFilter) {
+        return buildPartitionView(snapshot, Optional.of(partitionFilter)).map(view ->
+                new ConnectorFilteredPartitionView(view.getItems(), view.getFilterResult()));
+    }
+
+    /**
+     * Threads the statement's MVCC pin onto the handle a partition view is materialized from. The base class
+     * has no pin to apply; {@link org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable} overrides
+     * this so a time-travel / {@code @options} query enumerates the PINNED generation. Materializing from a
+     * freshly resolved latest handle instead could prune the selection against metadata the data scan will
+     * never read - e.g. list no partitions after one was dropped - and the stale (empty) selection would
+     * short-circuit before the pinned handle ever reaches {@code planScan}.
+     */
+    protected ConnectorTableHandle pinPartitionViewHandle(ConnectorTableHandle handle,
+            ConnectorMetadata metadata, ConnectorSession session, Optional<MvccSnapshot> snapshot) {
+        return handle;
+    }
+
+    /**
+     * One connector partition view: the partition items built from a single connector round-trip. A view is
+     * absent (empty Optional) when it cannot be built at all - no partition columns, no handle, a declined
+     * predicate, or an entry that is unrepresentable as a Doris partition item.
+     */
+    private static final class PartitionView {
+        private final Map<String, PartitionItem> items;
+        private final Optional<FilterApplicationResult<ConnectorTableHandle>> filterResult;
+
+        private PartitionView(Map<String, PartitionItem> items,
+                Optional<FilterApplicationResult<ConnectorTableHandle>> filterResult) {
+            this.items = items;
+            this.filterResult = filterResult;
+        }
+
+        private Map<String, PartitionItem> getItems() {
+            return items;
+        }
+
+        private FilterApplicationResult<ConnectorTableHandle> getFilterResult() {
+            return filterResult.orElseThrow(() -> new IllegalStateException(
+                    "a connector-filtered partition view must carry its filter result"));
+        }
+    }
+
+    /**
+     * Materializes one connector partition view, with or without a connector predicate. The stored item is
+     * built from the connector-supplied ordered values plus its SQL-NULL flags (the source-agnostic contract
+     * shared with the eager MVCC LIST path); a partition the connector renders in a way that cannot be
+     * represented in its Doris column type makes the whole view unavailable rather than failing the query.
+     */
+    private Optional<PartitionView> buildPartitionView(Optional<MvccSnapshot> snapshot,
+            Optional<ConnectorExpression> partitionFilter) {
         List<Column> partitionColumns = getPartitionColumns(snapshot);
         if (partitionColumns.isEmpty()) {
             return Optional.empty();
@@ -988,13 +1086,93 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (!handleOpt.isPresent()) {
             return Optional.empty();
         }
-        Optional<FilterApplicationResult<ConnectorTableHandle>> filterResult = metadata.applyFilter(
-                session, handleOpt.get(), new ConnectorFilterConstraint(partitionFilter));
-        if (!filterResult.isPresent()) {
-            return Optional.empty();
+        // Pin FIRST, in both shapes: a time-travel / @options query must apply the connector predicate to - and
+        // enumerate - the generation this statement pinned, never the latest one.
+        ConnectorTableHandle handle = pinPartitionViewHandle(handleOpt.get(), metadata, session, snapshot);
+        Optional<FilterApplicationResult<ConnectorTableHandle>> filterResult = Optional.empty();
+        if (partitionFilter.isPresent()) {
+            Optional<FilterApplicationResult<ConnectorTableHandle>> applied = metadata.applyFilter(
+                    session, handle, new ConnectorFilterConstraint(partitionFilter.get()));
+            if (!applied.isPresent()) {
+                return Optional.empty();
+            }
+            filterResult = applied;
+            handle = applied.get().getHandle();
         }
-        return Optional.of(buildNameToPartitionItems(snapshot, metadata, session,
-                filterResult.get().getHandle(), partitionColumns));
+        List<Type> types = partitionColumns.stream().map(Column::getType).collect(Collectors.toList());
+        List<String> remoteNames = getSchemaCacheValue(snapshot)
+                .map(value -> ((PluginDrivenSchemaCacheValue) value).getPartitionColumnRemoteNames())
+                .orElse(Collections.emptyList());
+        List<ConnectorPartitionInfo> partitions = metadata.listPartitions(session, handle, partitionFilter);
+        Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMapWithExpectedSize(partitions.size());
+        for (ConnectorPartitionInfo partition : partitions) {
+            try {
+                nameToPartitionItem.put(partition.getPartitionName(),
+                        toPartitionItem(partition, types, remoteNames));
+            } catch (Exception e) {
+                LOG.warn("Cannot represent connector partition as a Doris partition item, so partition pruning "
+                                + "is unavailable for this scan and every partition will be read: "
+                                + "partitionName={}, partitionColumns={}",
+                        partition.getPartitionName(), partitionColumns, e);
+                return Optional.empty();
+            }
+        }
+        return Optional.of(new PartitionView(nameToPartitionItem, filterResult));
+    }
+
+    /**
+     * Builds ONE partition item from the connector's partition view, using the source-agnostic contract the
+     * eager MVCC LIST path uses: the connector-supplied values in name-segment order plus its per-value
+     * SQL-NULL flags. A connector that supplies neither (its ordered values are empty) falls back to the raw
+     * per-column value map, whose entries are keyed by the cached remote column names.
+     */
+    private static ListPartitionItem toPartitionItem(ConnectorPartitionInfo partition, List<Type> types,
+            List<String> remoteNames) throws AnalysisException {
+        List<String> orderedValues = partition.getOrderedPartitionValues();
+        if (orderedValues.isEmpty()) {
+            List<String> values = new ArrayList<>(remoteNames.size());
+            for (String remoteName : remoteNames) {
+                values.add(partition.getPartitionValues().get(remoteName));
+            }
+            return toListPartitionItem(partition.getPartitionName(), types, values, Collections.emptyList());
+        }
+        return toListPartitionItem(partition.getPartitionName(), types, orderedValues,
+                partition.getPartitionValueNullFlags());
+    }
+
+    /**
+     * Builds a {@link ListPartitionItem} from the connector-supplied values (in name-segment order) and its
+     * per-value SQL-NULL flags. Source-agnostic: the connector - not fe-core - decides which values are
+     * genuine NULL, so a rendered NULL sentinel (hive's {@code __HIVE_DEFAULT_PARTITION__}, paimon's
+     * {@code partition.default-name}) becomes a typed {@code NullLiteral} instead of being parsed as its
+     * column type - which for a non-string column (INT/DATE/...) would throw and silently drop the partition
+     * (the table then mis-reported UNPARTITIONED, {@code partition=0/0}). The genuine-null partition prunes on
+     * {@code col IS NULL} and an MTMV refresh materializes its null rows. A connector that supplies no flags
+     * ({@code nullFlags} empty) treats every value as non-null - unchanged behavior for connectors that do not
+     * opt in. {@code fe-core} never string-compares a sentinel (iron rule): hive and paimon render the
+     * identical {@code __HIVE_DEFAULT_PARTITION__} string with connector-specific NULL semantics, so nullness
+     * must be connector-supplied.
+     *
+     * <p>Shared by the eager MVCC LIST path and the deferred scan path so both apply the same source-agnostic
+     * contract; only their failure policy differs (the eager LIST path skips a bad entry, the deferred scan
+     * path makes the whole view unavailable).</p>
+     */
+    protected static ListPartitionItem toListPartitionItem(String partitionName, List<Type> types,
+            List<String> connectorValues, List<Boolean> nullFlags) throws AnalysisException {
+        // This size check is LOAD-BEARING, not defensive: it is what turns a heterogeneous-arity partition
+        // (legitimate under e.g. iceberg partition spec evolution) into the caller's degrade-to-scan-all.
+        Preconditions.checkState(connectorValues.size() == types.size(), partitionName + " vs. " + types);
+        // Fail loud: a connector that opts in MUST supply one flag per value; a short list would silently
+        // default the tail to isNull=false and re-introduce the drop bug. Empty = not opted in = OK.
+        Preconditions.checkState(nullFlags.isEmpty() || nullFlags.size() == types.size(),
+                "nullFlags " + nullFlags + " vs. " + types);
+        List<PartitionValue> values = Lists.newArrayListWithExpectedSize(types.size());
+        for (int i = 0; i < connectorValues.size(); i++) {
+            boolean isNull = i < nullFlags.size() && nullFlags.get(i);
+            values.add(new PartitionValue(connectorValues.get(i), isNull));
+        }
+        PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types, true);
+        return new ListPartitionItem(Lists.newArrayList(key));
     }
 
     private Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot,
@@ -1012,7 +1190,12 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return Collections.emptyMap();
         }
 
-        return buildNameToPartitionItems(snapshot, metadata, session, handleOpt.get(), partitionColumns,
+        // Thread the statement's MVCC pin onto the handle this view is enumerated from (see
+        // pinPartitionViewHandle): materializing the latest generation for a time-travel / @options query
+        // would describe a partition set the data scan never reads.
+        ConnectorTableHandle handle = partitionFilter.isPresent()
+                ? handleOpt.get() : pinPartitionViewHandle(handleOpt.get(), metadata, session, snapshot);
+        return buildNameToPartitionItems(snapshot, metadata, session, handle, partitionColumns,
                 partitionFilter);
     }
 

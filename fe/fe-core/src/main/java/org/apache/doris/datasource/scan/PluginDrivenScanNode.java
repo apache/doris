@@ -1161,22 +1161,35 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         PluginDrivenExternalTable table = (PluginDrivenExternalTable) getTargetTable();
         Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(table,
                 Optional.ofNullable(getQueryTableSnapshot()), Optional.ofNullable(getScanParams()));
-        Map<String, PartitionItem> partitions = table.getNameToPartitionItems(snapshot);
+        Optional<Map<String, PartitionItem>> partitions = table.getNameToPartitionItemsForScan(snapshot);
         selectedPartitions = materializeDeferredSelectedPartitions(selectedPartitions, partitions);
     }
 
     static SelectedPartitions materializeDeferredSelectedPartitions(SelectedPartitions selectedPartitions,
-            Map<String, PartitionItem> partitions) {
+            Optional<Map<String, PartitionItem>> partitions) {
         if (!selectedPartitions.isDeferredPartitionPruning()) {
             return selectedPartitions;
         }
-        return new SelectedPartitions(partitions.size(), partitions, false);
+        // An UNAVAILABLE view (a connector entry that cannot be represented as a Doris partition item) must not
+        // become an empty selection: keep NOT_PRUNED so the scan reads every partition instead of none.
+        return partitions.map(items -> new SelectedPartitions(items.size(), items, false))
+                .orElse(SelectedPartitions.NOT_PRUNED);
     }
 
     @Override
     protected void convertPredicate() {
         // Attempt filter pushdown via the connector SPI
         if (conjuncts == null || conjuncts.isEmpty()) {
+            return;
+        }
+        // Reuse the connector filter result logical pruning already obtained for THIS scan: the partition
+        // selection was materialized from that exact handle, so applying the predicate again could observe a
+        // different remote generation and leave the batched split path resolving this selection's names
+        // through another handle's pruned-partition metadata.
+        Optional<FilterApplicationResult<ConnectorTableHandle>> reused =
+                reusedConnectorFilterResult(selectedPartitions);
+        if (reused.isPresent()) {
+            applyConnectorFilterResult(reused.get());
             return;
         }
         ConnectorMetadata metadata = metadata();
@@ -1196,27 +1209,40 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             throw failure;
         }
         if (result.isPresent()) {
-            FilterApplicationResult<ConnectorTableHandle> filterResult = result.get();
-            currentHandle = filterResult.getHandle();
-
-            // Consume remainingFilter to avoid duplicate predicate evaluation on BE:
-            // - null means all predicates were fully pushed down → clear conjuncts
-            // - non-null means some/all predicates remain → keep conjuncts (conservative)
-            ConnectorExpression remaining = filterResult.getRemainingFilter();
-            if (remaining == null) {
-                conjuncts.clear();
-                LOG.debug("Filter fully pushed down for plugin-driven scan, cleared conjuncts");
-            } else {
-                // Partial or full remaining: keep all conjuncts for BE-side evaluation.
-                // Fine-grained conjunct removal (matching individual remaining sub-expressions
-                // back to original Expr conjuncts) is deferred to a future enhancement.
-                LOG.debug("Filter pushdown accepted with remaining filter, keeping conjuncts");
-            }
+            applyConnectorFilterResult(result.get());
         }
         // Invalidate cached properties so they are rebuilt with the updated conjuncts/handle.
         scanNodeProperties = null;
         cachedPropertiesResult = null;
         filteredToOriginalIndex = null;
+    }
+
+    /**
+     * The connector filter result this scan's partition selection was materialized from, when logical pruning
+     * already applied the connector predicate. Empty for every other scan, which keeps the normal pushdown path.
+     */
+    static Optional<FilterApplicationResult<ConnectorTableHandle>> reusedConnectorFilterResult(
+            SelectedPartitions selectedPartitions) {
+        return selectedPartitions == null ? Optional.empty() : selectedPartitions.getConnectorFilterResult();
+    }
+
+    /** Consumes one connector filter result onto {@link #currentHandle} and the pushed-down conjuncts. */
+    private void applyConnectorFilterResult(FilterApplicationResult<ConnectorTableHandle> filterResult) {
+        currentHandle = filterResult.getHandle();
+
+        // Consume remainingFilter to avoid duplicate predicate evaluation on BE:
+        // - null means all predicates were fully pushed down → clear conjuncts
+        // - non-null means some/all predicates remain → keep conjuncts (conservative)
+        ConnectorExpression remaining = filterResult.getRemainingFilter();
+        if (remaining == null) {
+            conjuncts.clear();
+            LOG.debug("Filter fully pushed down for plugin-driven scan, cleared conjuncts");
+        } else {
+            // Partial or full remaining: keep all conjuncts for BE-side evaluation.
+            // Fine-grained conjunct removal (matching individual remaining sub-expressions
+            // back to original Expr conjuncts) is deferred to a future enhancement.
+            LOG.debug("Filter pushdown accepted with remaining filter, keeping conjuncts");
+        }
     }
 
     /**
