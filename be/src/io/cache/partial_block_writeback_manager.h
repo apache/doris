@@ -96,6 +96,9 @@ struct PartialBlockWritebackRequest {
     CacheAdmissionContext admission_ctx;
     AsyncCacheWriteEpoch write_epoch;
     FileRangeReadIOContext io_context;
+
+    /// Assert request invariants using the block size from validated manager options.
+    void sanity_check(size_t block_size) const;
 };
 
 /// BE-level bounded queue, block workers, and a shared remote-read pool for completing partial
@@ -180,9 +183,6 @@ private:
     Status _resize_workers_locked(size_t worker_count);
     /// Stop and join workers in `[keep_worker_count, _workers.size())` under the lifecycle lock.
     void _stop_workers_locked(size_t keep_worker_count);
-    void _validate_request(const PartialBlockWritebackRequest& request) const;
-    /// Allocate one tracked block buffer and copy the first fragment into it.
-    TaskPtr _create_task(PartialBlockWritebackRequest request, const BlockKey& key);
     /// Atomically install `candidate`, replace a stale queued task, or return a current same-key
     /// task. Destruction of a displaced task occurs after the manager lock is released.
     EnqueueResult _enqueue_or_get_existing(const TaskPtr& candidate, TaskPtr* existing);
@@ -198,12 +198,6 @@ private:
     /// Plan holes, wait for parallel source reads, and hand the completed buffer to the cache
     /// writer. Every failure drops this best-effort task after its reads finish.
     void _process_task(const TaskPtr& task, ThreadPoolToken& token);
-    /// Read a single range on the block worker; submit multiple ranges through its reusable token
-    /// and join them, including on failure.
-    Status _read_holes(const TaskPtr& task, const std::vector<FileRange>& read_ranges,
-                       ThreadPoolToken& token);
-    /// Read one buffer slice with per-call IO statistics on a block worker or remote-read thread.
-    Status _read_hole(const TaskPtr& task, const FileRange& range);
     /// Remove an active task and release its per-cache-writer slot accounting.
     void _complete_task(const TaskPtr& task);
 
