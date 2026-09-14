@@ -1566,15 +1566,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PhysicalHashJoin<PhysicalPlan, PhysicalPlan> physicalHashJoin
                 = (PhysicalHashJoin<PhysicalPlan, PhysicalPlan>) hashJoin;
         // NOTICE: We must visit from right to left, to ensure the last fragment is root fragment
-        context.enterFragmentMergeChild();
-        PlanFragment rightFragment;
-        PlanFragment leftFragment;
-        try {
-            rightFragment = hashJoin.child(1).accept(this, context);
-            leftFragment = hashJoin.child(0).accept(this, context);
-        } finally {
-            context.exitFragmentMergeChild();
-        }
+        PlanFragment rightFragment = translateMergeChild(hashJoin.child(1), context);
+        PlanFragment leftFragment = translateMergeChild(hashJoin.child(0), context);
         List<List<Expr>> distributeExprLists
                 = getDistributeExprs(physicalHashJoin.left(), physicalHashJoin.right());
 
@@ -1842,18 +1835,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> nestedLoopJoin,
             PlanTranslatorContext context) {
         // NOTICE: We must visit from right to left, to ensure the last fragment is root fragment
-        // TODO: we should add a helper method to wrap this logic.
-        //   Maybe something like private List<PlanFragment> postOrderVisitChildren(
-        //       PhysicalPlan plan, PlanVisitor visitor, Context context).
-        context.enterFragmentMergeChild();
-        PlanFragment rightFragment;
-        PlanFragment leftFragment;
-        try {
-            rightFragment = nestedLoopJoin.child(1).accept(this, context);
-            leftFragment = nestedLoopJoin.child(0).accept(this, context);
-        } finally {
-            context.exitFragmentMergeChild();
-        }
+        PlanFragment rightFragment = translateMergeChild(nestedLoopJoin.child(1), context);
+        PlanFragment leftFragment = translateMergeChild(nestedLoopJoin.child(0), context);
         List<List<Expr>> distributeExprLists
                 = getDistributeExprs(nestedLoopJoin.child(0), nestedLoopJoin.child(1));
         PlanNode leftFragmentPlanRoot = leftFragment.getPlanRoot();
@@ -2273,18 +2256,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalRecursiveUnion(PhysicalRecursiveUnion<? extends Plan, ? extends Plan> recursiveCte,
             PlanTranslatorContext context) {
-        List<PlanFragment> childrenFragments = new ArrayList<>();
-        // Like a join or a set operation, a recursive union consumes its children's fragments
-        // without an exchange boundary, so bucketed fusion must not delete the exchange that
-        // keeps an olap scan in a fragment of its own.
-        context.enterFragmentMergeChild();
-        try {
-            for (Plan plan : recursiveCte.children()) {
-                childrenFragments.add(plan.accept(this, context));
-            }
-        } finally {
-            context.exitFragmentMergeChild();
-        }
+        List<PlanFragment> childrenFragments = translateMergeChildren(recursiveCte.children(), context);
         List<List<Expr>> distributeExprLists = getDistributeExprs(recursiveCte.children().toArray(new Plan[0]));
         TupleDescriptor setTuple = generateTupleDesc(recursiveCte.getOutput(), null, context);
 
@@ -2355,15 +2327,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalSetOperation(
             PhysicalSetOperation setOperation, PlanTranslatorContext context) {
-        List<PlanFragment> childrenFragments = new ArrayList<>();
-        context.enterFragmentMergeChild();
-        try {
-            for (Plan plan : setOperation.children()) {
-                childrenFragments.add(plan.accept(this, context));
-            }
-        } finally {
-            context.exitFragmentMergeChild();
-        }
+        List<PlanFragment> childrenFragments = translateMergeChildren(setOperation.children(), context);
         List<List<Expr>> distributeExprLists = getDistributeExprs(setOperation.children().toArray(new Plan[0]));
         TupleDescriptor setTuple = generateTupleDesc(setOperation.getOutput(), null, context);
 
@@ -3301,6 +3265,37 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     /**
+     * Translates one child of a fragment-merging node (hash join / nested loop join / set operation /
+     * recursive union), which later absorbs that child's fragment.
+     *
+     * <p>While the child is translated, exchange elision is forbidden
+     * ({@link PlanTranslatorContext#forbidExchangeElision()}), because the exchange below an operator
+     * of the child is the only thing that keeps that operator's olap scan out of the parent fragment
+     * once the parent absorbs it. The returned fragment is declared as a merge child, which is what
+     * {@link PlanTranslatorContext#mergePlanFragment(PlanFragment, PlanFragment)} requires, so a
+     * merging node that translates its children some other way fails there instead of emitting a
+     * plan that only the scan assignment rejects.
+     */
+    private PlanFragment translateMergeChild(Plan child, PlanTranslatorContext context) {
+        context.forbidExchangeElision();
+        try {
+            PlanFragment childFragment = child.accept(this, context);
+            context.markMergeChildFragment(childFragment);
+            return childFragment;
+        } finally {
+            context.allowExchangeElision();
+        }
+    }
+
+    private List<PlanFragment> translateMergeChildren(List<? extends Plan> children, PlanTranslatorContext context) {
+        List<PlanFragment> childrenFragments = new ArrayList<>(children.size());
+        for (Plan child : children) {
+            childrenFragments.add(translateMergeChild(child, context));
+        }
+        return childrenFragments;
+    }
+
+    /**
      * Check whether the one-phase GLOBAL hash aggregate can be fused with its
      * distribute child into a BucketedAggregationNode. This eliminates exchange
      * overhead on single-BE deployments by using in-memory per-bucket merging.
@@ -3364,12 +3359,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (!isSingleOlapScanPipeline(aggregate.child(0).child(0))) {
             return false;
         }
-        // The parent is a fragment-merging node (join / set-op) that consumes this
-        // fragment without an exchange boundary: fusing removes the exchange that
-        // keeps the scan in its own fragment, so multiple scans would end up in the
-        // same fragment and the scan-assignment would fail. Only fuse when the
-        // parent chain keeps an exchange boundary (e.g. a top-level aggregate).
-        if (context.isInFragmentMergeChild()) {
+        // The parent is a fragment-merging node (join / set operation / recursive union) that
+        // consumes this fragment without an exchange boundary, and that node declared exchange
+        // elision forbidden while its children are translated: fusing here would remove the
+        // exchange that keeps the scan in its own fragment, so several scans would end up in the
+        // same fragment and the scan assignment would reject it. Only fuse when the parent chain
+        // keeps an exchange boundary (e.g. a top-level aggregate).
+        if (context.isExchangeElisionForbidden()) {
             return false;
         }
         DistributionSpec distSpec = ((PhysicalDistribute<?>) child).getDistributionSpec();
