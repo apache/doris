@@ -108,7 +108,7 @@ public interface ProtocolAdapter {
      * {@link #beforeStatement}, so the protocol drops here what the failed attempt left behind
      * and starts the new one as the statement started: its result comes from this frontend until
      * {@link #beforeQuery} moves it, and nothing the failed attempt registered for the client is
-     * delivered.
+     * delivered. What earlier statements of the request left is not touched.
      */
     void beforeAttempt(ConnectContext ctx);
 

@@ -67,6 +67,10 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     private final Map<String, String> preparedQuerys = new HashMap<>();
     private String runningQuery;
     private final List<FlightSqlEndpointsLocation> endpointsLocations = Lists.newArrayList();
+    // How many of endpointsLocations were registered before the statement being executed
+    // started: what an attempt of that statement registers comes after them, and only that is
+    // withdrawn when the statement is attempted again (beforeAttempt).
+    private int endpointsBeforeStatement = 0;
     // Whether the result of the statement being executed is on this frontend (a SHOW, a SET, an
     // EXPLAIN: cached on the channel for the client's DoGet) or on the backends the coordinator
     // ran the query on, registered in endpointsLocations for the client to pull from. Set by the
@@ -185,19 +189,24 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     @Override
     public void beforeStatement(ConnectContext ctx) {
         returnResultFromLocal = true;
+        endpointsBeforeStatement = endpointsLocations.size();
     }
 
     /**
-     * An attempt starts where the statement did: its result is on this frontend, and no endpoint
-     * is registered for the client. The attempt that failed before it may have moved the result
-     * to the backends ({@link #beforeQuery}) and registered where; nothing will be pulled from
+     * An attempt starts where the statement did: its result is on this frontend, and it has
+     * registered no endpoint yet. The attempt that failed before it may have moved the result to
+     * the backends ({@link #beforeQuery}) and registered where; nothing will be pulled from
      * there, and a stale "on the backends" state would keep the statement's cleanup (its query
-     * registration, its connector statement scope) waiting for a DoGet that never comes.
+     * registration, its connector statement scope) waiting for a DoGet that never comes. Only
+     * what that attempt registered is withdrawn: what an earlier statement of the request
+     * registered is left as it was.
      */
     @Override
     public void beforeAttempt(ConnectContext ctx) {
         returnResultFromLocal = true;
-        endpointsLocations.clear();
+        if (endpointsLocations.size() > endpointsBeforeStatement) {
+            endpointsLocations.subList(endpointsBeforeStatement, endpointsLocations.size()).clear();
+        }
     }
 
     /**
@@ -337,6 +346,7 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
         closeDeferredExecutors();
         channel.reset();
         endpointsLocations.clear();
+        endpointsBeforeStatement = 0;
         returnResultFromLocal = true;
     }
 

@@ -319,6 +319,28 @@ public class FlightProtocolAdapterTest {
         Assertions.assertFalse(ctx.isReturnResultFromLocal());
         Assertions.assertEquals(1, ctx.getFlightSqlEndpointsLocations().size());
         Assertions.assertEquals(new TUniqueId(2, 2), ctx.getFlightSqlEndpointsLocations().get(0).getFinstId());
+
+        // The next statement of the request leaves that endpoint as it was, whatever its own
+        // attempts do: a retried attempt withdraws only what the failed one registered.
+        adapter.beforeStatement(ctx);
+        adapter.beforeAttempt(ctx);
+        adapter.beforeQuery(ctx);
+        ctx.addFlightSqlEndpointsLocation(new FlightSqlEndpointsLocation(new TUniqueId(3, 3),
+                new TNetworkAddress("127.0.0.1", 8070), new TNetworkAddress("127.0.0.1", 8060), new ArrayList<>()));
+        adapter.beforeAttempt(ctx);
+        Assertions.assertEquals(1, ctx.getFlightSqlEndpointsLocations().size());
+        Assertions.assertEquals(new TUniqueId(2, 2), ctx.getFlightSqlEndpointsLocations().get(0).getFinstId());
+        adapter.beforeQuery(ctx);
+        ctx.addFlightSqlEndpointsLocation(new FlightSqlEndpointsLocation(new TUniqueId(4, 4),
+                new TNetworkAddress("127.0.0.1", 8070), new TNetworkAddress("127.0.0.1", 8060), new ArrayList<>()));
+        Assertions.assertEquals(2, ctx.getFlightSqlEndpointsLocations().size());
+        Assertions.assertEquals(new TUniqueId(4, 4), ctx.getFlightSqlEndpointsLocations().get(1).getFinstId());
+
+        // A new request starts from nothing.
+        adapter.beginRequest();
+        adapter.beforeStatement(ctx);
+        adapter.beforeAttempt(ctx);
+        Assertions.assertTrue(ctx.getFlightSqlEndpointsLocations().isEmpty());
     }
 
     @Test
