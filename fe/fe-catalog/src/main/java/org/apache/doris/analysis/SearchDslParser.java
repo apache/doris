@@ -289,7 +289,9 @@ public class SearchDslParser {
             }
             String segment = segments.get(i).getText();
             if (segment.startsWith("\"") && segment.endsWith("\"")) {
-                segment = segment.substring(1, segment.length() - 1);
+                // Preserve a literal @ in quoted field names until slot binding,
+                // where an unquoted @ selects the field's analyzer.
+                segment = segment.substring(1, segment.length() - 1).replace("@", "\\@");
             }
             fullPath.append(segment);
         }
@@ -1365,6 +1367,17 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
         @JsonProperty("slotIndex")
         private final int slotIndex;
 
+        @JsonProperty("analyzerName")
+        private String analyzerName;
+
+        public String getAnalyzerName() {
+            return analyzerName;
+        }
+
+        public void setAnalyzerName(String analyzerName) {
+            this.analyzerName = analyzerName;
+        }
+
         @JsonCreator
         public QsFieldBinding(@JsonProperty("fieldName") String fieldName,
                 @JsonProperty("slotIndex") int slotIndex) {
@@ -1390,7 +1403,7 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
 
         @Override
         public int hashCode() {
-            return Objects.hash(fieldName, slotIndex);
+            return Objects.hash(fieldName, slotIndex, analyzerName);
         }
 
         @Override
@@ -1403,7 +1416,8 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
             }
             QsFieldBinding that = (QsFieldBinding) o;
             return slotIndex == that.slotIndex
-                    && Objects.equals(fieldName, that.fieldName);
+                    && Objects.equals(fieldName, that.fieldName)
+                    && Objects.equals(analyzerName, that.analyzerName);
         }
     }
 

@@ -28,6 +28,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -42,8 +43,12 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -55,13 +60,13 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalFilter(logicalOlapScan())
+        return logicalFilter()
                 .when(filter -> ExpressionUtils.containsTypes(filter.getExpressions(), Search.class))
                 .then(this::rewriteSearchExpressions)
                 .toRule(RuleType.REWRITE_SEARCH_TO_SLOTS);
     }
 
-    private Plan rewriteSearchExpressions(LogicalFilter<LogicalOlapScan> filter) {
+    private Plan rewriteSearchExpressions(LogicalFilter<? extends Plan> filter) {
         List<Expression> newExpressions = new ArrayList<>();
 
         for (Expression expr : filter.getExpressions()) {
@@ -76,7 +81,7 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
         return filter;
     }
 
-    private Expression rewriteExpression(Expression expr, LogicalOlapScan scan) {
+    private Expression rewriteExpression(Expression expr, Plan scan) {
         if (expr instanceof Search) {
             return rewriteSearch((Search) expr, scan);
         }
@@ -93,7 +98,7 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
         return expr;
     }
 
-    private Expression rewriteSearch(Search search, LogicalOlapScan scan) {
+    private Expression rewriteSearch(Search search, Plan scan) {
         try {
             // Parse DSL to get field bindings
             SearchDslParser.QsPlan qsPlan = search.getQsPlan();
@@ -103,11 +108,27 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
             }
 
             Map<String, String> normalizedFields = new HashMap<>();
+            Map<String, String> fieldAnalyzers = new HashMap<>();
+            Set<List<String>> qualifiers = new HashSet<>();
 
             // Create slot reference children from field bindings
             List<Expression> slotChildren = new ArrayList<>();
             for (SearchDslParser.QsFieldBinding binding : qsPlan.getFieldBindings()) {
-                String originalFieldName = binding.getFieldName();
+                String bindingName = binding.getFieldName();
+                String originalFieldName = bindingName;
+                int analyzerSeparator = bindingName.lastIndexOf('@');
+                while (analyzerSeparator > 0 && bindingName.charAt(analyzerSeparator - 1) == '\\') {
+                    analyzerSeparator = bindingName.lastIndexOf('@', analyzerSeparator - 1);
+                }
+                if (analyzerSeparator >= 0 && findSlotByName(bindingName, scan) == null) {
+                    originalFieldName = bindingName.substring(0, analyzerSeparator);
+                    String analyzer = bindingName.substring(analyzerSeparator + 1);
+                    if (originalFieldName.isEmpty() || analyzer.isEmpty()) {
+                        throw new AnalysisException("SEARCH analyzer selector must be field@analyzer: " + bindingName);
+                    }
+                    binding.setAnalyzerName(analyzer);
+                }
+                originalFieldName = originalFieldName.replace("\\@", "@");
                 Expression childExpr;
                 String normalizedFieldName;
 
@@ -135,7 +156,7 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
                     // Check the parent variant column has at least one INVERTED index. The concrete
                     // subcolumn binding is resolved per-segment in BE, so we only enforce the parent
                     // level here. See function_search.cpp is_variant_sub branch.
-                    checkInvertedIndexExists(scan.getTable(), normalizedParentFieldName,
+                    checkInvertedIndexExists(tableForSlot(parentSlot, scan), normalizedParentFieldName,
                             search.getDslString(), true);
 
                     // Create ElementAt expression for variant subcolumn
@@ -156,12 +177,26 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
                                 "Field '%s' not found in table for search: %s",
                                 originalFieldName, search.getDslString()));
                     }
-                    checkInvertedIndexExists(scan.getTable(), slot.getName(), search.getDslString(), false);
+                    checkInvertedIndexExists(tableForSlot(slot, scan), slot.getName(), search.getDslString(), false);
                     childExpr = slot;
                     normalizedFieldName = slot.getName();
                 }
 
-                normalizedFields.put(originalFieldName, normalizedFieldName);
+                for (Slot input : childExpr.getInputSlots()) {
+                    qualifiers.add(input.getQualifier());
+                }
+                if (qualifiers.size() > 1) {
+                    throw new AnalysisException("Each SEARCH expression must reference fields from one table; "
+                            + "combine separate SEARCH expressions with SQL AND/OR");
+                }
+                String fieldKey = normalizedFieldName.toLowerCase(Locale.ROOT);
+                if (fieldAnalyzers.containsKey(fieldKey)
+                        && !Objects.equals(fieldAnalyzers.get(fieldKey), binding.getAnalyzerName())) {
+                    throw new AnalysisException("SEARCH supports one analyzer per field; use separate SEARCH "
+                            + "expressions for different analyzers on " + normalizedFieldName);
+                }
+                fieldAnalyzers.put(fieldKey, binding.getAnalyzerName());
+                normalizedFields.put(bindingName, normalizedFieldName);
                 binding.setFieldName(normalizedFieldName);
                 slotChildren.add(childExpr);
             }
@@ -226,14 +261,28 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
                 columnName, dsl));
     }
 
-    private Slot findSlotByName(String fieldName, LogicalOlapScan scan) {
-        // Direct match only - variant subcolumns are handled by caller
+    private Slot findSlotByName(String fieldName, Plan scan) {
+        Slot result = null;
         for (Slot slot : scan.getOutput()) {
             if (slot.getName().equalsIgnoreCase(fieldName)) {
-                return slot;
+                if (result != null) {
+                    throw new AnalysisException("Ambiguous field '" + fieldName + "' in search()");
+                }
+                result = slot;
             }
         }
-        return null;
+        return result;
+    }
+
+    private OlapTable tableForSlot(Slot slot, Plan plan) {
+        if (plan instanceof LogicalOlapScan) {
+            return ((LogicalOlapScan) plan).getTable();
+        }
+        if (slot instanceof SlotReference
+                && ((SlotReference) slot).getOriginalTable().orElse(null) instanceof OlapTable) {
+            return (OlapTable) ((SlotReference) slot).getOriginalTable().get();
+        }
+        throw new AnalysisException("search() requires a field from an OLAP table: " + slot.toSql());
     }
 
     private void normalizePlanFields(SearchDslParser.QsNode node, Map<String, String> normalized) {

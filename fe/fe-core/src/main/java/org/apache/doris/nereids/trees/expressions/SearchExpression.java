@@ -20,6 +20,8 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.analysis.SearchDslParser;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -72,11 +74,14 @@ public class SearchExpression extends Expression {
 
     @Override
     public SearchExpression withChildren(List<Expression> children) {
-        // Validate that all children are SlotReference or ElementAt (for variant subcolumns)
+        // Null-rejection inference temporarily replaces input slots with NULL.
+        // Such symbolic expressions are not execution-time field bindings.
         for (Expression child : children) {
-            if (!(child instanceof SlotReference || child instanceof ElementAt)) {
+            if (!(child instanceof SlotReference || child instanceof ElementAt
+                    || child instanceof NullLiteral)) {
                 throw new IllegalArgumentException(
-                        "SearchExpression children must be SlotReference or ElementAt instances");
+                        "SEARCH field binding must be a slot, subcolumn, or inference NULL, found "
+                                + child.getClass().getSimpleName());
             }
         }
         return new SearchExpression(dslString, qsPlan, children);
@@ -88,8 +93,13 @@ public class SearchExpression extends Expression {
     }
 
     @Override
+    public String computeToSql() {
+        return "search(" + new StringLiteral(dslString).toSql() + ")";
+    }
+
+    @Override
     public String toString() {
-        return "search('" + dslString + "')";
+        return computeToSql();
     }
 
     @Override
