@@ -28,6 +28,7 @@
 #include <thread>
 
 #include "common/config.h"
+#include "core/column/column_array.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
@@ -756,6 +757,69 @@ TEST(VariantPathBuilderTest, PreservesIncomingArrayWhenInferredDecimalPromotionO
               "[0.00000000000000000000000000000000000001]");
     EXPECT_EQ(builder.type()->to_string(*materialized, 1),
               "[9999999999999999999999999999999999999.9]");
+}
+
+TEST(VariantPathBuilderTest, ArrayPathReusesElementTypeAcrossRows) {
+    VariantBatchBuilder value_builder;
+    const auto append_array = [&](auto&& fill) {
+        auto row = value_builder.begin_row();
+        auto array = row.start_array();
+        fill(row);
+        array.finish();
+        row.finish();
+    };
+    append_array([](auto& row) {
+        row.add_float(1.0F);
+        row.add_float(2.0F);
+    });
+    append_array([](auto& row) {
+        row.add_float(3.0F);
+        row.add_null();
+    });
+    append_array([](auto& row) { row.add_null(); });
+    append_array([](auto& row) { row.add_double(4.5); });
+    append_array([](auto& row) { row.add_float(5.0F); });
+    VariantBatchBuilder values = value_builder.finish_batch();
+
+    const auto element_primitive = [](const DataTypePtr& type) {
+        const DataTypePtr array = remove_nullable(type);
+        return remove_nullable(assert_cast<const DataTypeArray&>(*array).get_nested_type())
+                ->get_primitive_type();
+    };
+    segment_v2::VariantPathBuilder builder(PathInData("metric"));
+    // FLOAT arrays, arrays with null elements, and all-null arrays share the first row's type.
+    for (size_t row = 0; row < 3; ++row) {
+        ASSERT_TRUE(builder.append(values.value_at(row), row).ok());
+        EXPECT_EQ(builder.promotion_count(), 0) << "row=" << row;
+        ASSERT_EQ(element_primitive(builder.type()), TYPE_FLOAT) << "row=" << row;
+    }
+    ASSERT_TRUE(builder.append(values.value_at(3), 3).ok());
+    EXPECT_EQ(builder.promotion_count(), 1);
+    ASSERT_EQ(element_primitive(builder.type()), TYPE_DOUBLE);
+    // A narrower FLOAT element after promotion reuses the promoted DOUBLE array type.
+    ASSERT_TRUE(builder.append(values.value_at(4), 4).ok());
+    EXPECT_EQ(builder.promotion_count(), 1);
+    ASSERT_EQ(element_primitive(builder.type()), TYPE_DOUBLE);
+
+    ColumnPtr materialized;
+    ASSERT_TRUE(builder.materialize(&materialized).ok());
+    const auto& array = assert_cast<const ColumnArray&>(
+            assert_cast<const ColumnNullable&>(*materialized).get_nested_column());
+    const auto& elements = assert_cast<const ColumnNullable&>(array.get_data());
+    const auto& doubles =
+            assert_cast<const ColumnFloat64&>(elements.get_nested_column()).get_data();
+    const std::vector<std::optional<double>> expected {1.0,          2.0, 3.0, std::nullopt,
+                                                       std::nullopt, 4.5, 5.0};
+    EXPECT_EQ(std::vector<uint64_t>(array.get_offsets().begin(), array.get_offsets().end()),
+              (std::vector<uint64_t> {2, 4, 5, 6, 7}));
+    ASSERT_EQ(elements.size(), expected.size());
+    for (size_t index = 0; index < expected.size(); ++index) {
+        SCOPED_TRACE(testing::Message() << "element=" << index);
+        EXPECT_EQ(elements.is_null_at(index), !expected[index].has_value());
+        if (expected[index].has_value()) {
+            EXPECT_DOUBLE_EQ(doubles[index], *expected[index]);
+        }
+    }
 }
 
 TEST(VariantPathBuilderTest, StringifiesArrayWithoutTreatingExistingNullAsCastFailure) {

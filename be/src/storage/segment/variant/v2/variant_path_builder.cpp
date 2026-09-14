@@ -310,7 +310,12 @@ DataTypePtr infer_type(VariantRef value, const DataTypePtr& reusable_type = null
     if (const auto* reusable_array =
                 reusable_type == nullptr ? nullptr
                                          : typeid_cast<const DataTypeArray*>(reusable_type.get())) {
-        const DataTypePtr& reusable_element = reusable_array->get_nested_type();
+        // DataTypeArray always wraps its element in Nullable, while inferred element types are
+        // never nullable. Compare the unwrapped element; otherwise every ARRAY value would miss
+        // the equality check and pay get_least_supertype_jsonb() only to rebuild the same type.
+        const DataTypePtr& reusable_element =
+                assert_cast<const DataTypeNullable&>(*reusable_array->get_nested_type())
+                        .get_nested_type();
         if (reusable_element.get() == element_type.get() ||
             reusable_element->equals(*element_type)) {
             return reusable_type;
