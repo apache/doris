@@ -21,11 +21,11 @@
 // opens no logical index and the segment's index file is closed with nothing in
 // it. The invariant, in both directions:
 //
-//     schema owns an inverted index  <=>  every segment owns an index file
+//     rowset schema owns an inverted index  <=>  every segment owns an index file
 //
-// An empty index file (E-6004 "is empty") is therefore expected wherever the
-// schema still has the index, and NO index file at all (E-6003 "not found") is
-// expected once the schema has none. Every producer has to keep the first half
+// An empty index file (E-6004 "is empty") is therefore expected wherever a
+// rowset's schema still has the index, and NO index file at all (E-6003 "not
+// found") is expected once it has none. Every producer has to keep the first half
 // true -- load, compaction, light and direct schema change, BUILD INDEX -- and
 // every consumer has to accept an empty index file instead of failing on it.
 suite("test_empty_index_file_lifecycle", "p0") {
@@ -79,8 +79,8 @@ suite("test_empty_index_file_lifecycle", "p0") {
         assertEquals([expected] as Set, observed, "after ${step}")
     }
 
-    def assert_readable = { String tableName ->
-        assertEquals(2, sql(" select count(*) from ${tableName} ")[0][0] as int)
+    def assert_readable = { String tableName, int rows = 2 ->
+        assertEquals(rows, sql(" select count(*) from ${tableName} ")[0][0] as int)
         assertEquals(1, sql(" select count(*) from ${tableName} where id = 1 ")[0][0] as int)
     }
 
@@ -112,6 +112,12 @@ suite("test_empty_index_file_lifecycle", "p0") {
         assert_index_file_status(tableName, "E-6004", "load")
         assert_readable(tableName)
 
+        // The steps below do not depend on the write path that loaded the rows, so
+        // they run once.
+        if (sinkNode) {
+            return
+        }
+
         // 2. compaction: two empty-index inputs produce one empty-index output
         trigger_and_wait_compaction(tableName, "full")
         assert_index_file_status(tableName, "E-6004", "full compaction")
@@ -125,8 +131,9 @@ suite("test_empty_index_file_lifecycle", "p0") {
         assert_readable(tableName)
 
         // 4. direct schema change: a type change rewrites every rowset, so the
-        //    output segments write their own empty index files
-        sql " ALTER TABLE ${tableName} MODIFY COLUMN c BIGINT "
+        //    output segments write their own empty index files. The default has
+        //    to be repeated, or FE rejects the statement as a default value change.
+        sql """ ALTER TABLE ${tableName} MODIFY COLUMN c BIGINT DEFAULT "7" """
         wait_alter_done(tableName)
         assert_index_file_status(tableName, "E-6004", "direct schema change")
         assert_readable(tableName)
@@ -152,18 +159,20 @@ suite("test_empty_index_file_lifecycle", "p0") {
             assert_readable(tableName)
         }
 
-        // 7. dropping the LAST index leaves a schema that owns no index file, so
-        //    the rewritten segments must carry none. An empty one here would be an
-        //    orphan: link, copy, upload, remove and CRC all skip the index file of
-        //    a rowset whose schema has no index, so nothing would ever carry it
-        //    along or clean it up.
+        // 7. dropping the LAST index: IndexBuilder does not remove a VARIANT index
+        //    from the rowsets it rewrites, so they keep their empty index file until
+        //    full compaction rewrites them with a schema that owns no index.
         sql " ALTER TABLE ${tableName} DROP INDEX v_idx "
         wait_alter_done(tableName)
         if (!isCloudMode()) {
-            assert_index_file_status(tableName, "E-6003", "dropping the last index")
+            assert_index_file_status(tableName, "E-6004", "dropping the last index")
+        }
+        // Full compaction needs a second rowset, or it has nothing to merge.
+        sql " insert into ${tableName} (id, v) values (3, NULL) "
+        if (!isCloudMode()) {
             trigger_and_wait_compaction(tableName, "full")
             assert_index_file_status(tableName, "E-6003", "compacting a table with no index")
         }
-        assert_readable(tableName)
+        assert_readable(tableName, 3)
     }
 }
