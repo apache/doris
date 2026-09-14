@@ -1321,6 +1321,11 @@ public abstract class ExternalCatalog
                     metaCache.refreshNames();
                     finalName = lowerCaseToDatabaseName.get(dbName.toLowerCase());
                 } catch (Exception e) {
+                    if (e instanceof java.util.concurrent.CompletionException
+                            && e.getCause() instanceof InterruptedException) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException(e);
+                    }
                     LOG.warn("Failed to refresh database list for catalog {}", getName(), e);
                 }
             }
