@@ -95,33 +95,17 @@ suite("push_down_top_n_distinct_through_join") {
             (1, 10), (2, 20), (3, 30), (4, 40), (5, 50), (6, 60), (7, 70), (8, 80)
     """
 
-    test {
-        sql """
-            SELECT DISTINCT l.id, l.k, r.s
-            FROM topn_distinct_left l LEFT JOIN topn_distinct_right r ON l.id = r.id
-            ORDER BY l.k ASC, r.s ASC
-            LIMIT 1
-        """
-        check { result, exception, startTime, endTime ->
-            if (exception != null) {
-                throw exception
-            }
-            assertEquals("[[1, 0, 10]]", result.toString())
-        }
-    }
+    order_qt_partial_prefix_asc """
+        SELECT DISTINCT l.id, l.k, r.s
+        FROM topn_distinct_left l LEFT JOIN topn_distinct_right r ON l.id = r.id
+        ORDER BY l.k ASC, r.s ASC
+        LIMIT 1
+    """
 
-    test {
-        sql """
-            SELECT DISTINCT l.id, l.k, r.s
-            FROM topn_distinct_left l LEFT JOIN topn_distinct_right r ON l.id = r.id
-            ORDER BY l.k ASC, r.s DESC
-            LIMIT 2 OFFSET 1
-        """
-        check { result, exception, startTime, endTime ->
-            if (exception != null) {
-                throw exception
-            }
-            assertEquals("[[7, 0, 70], [6, 0, 60]]", result.toString())
-        }
-    }
+    order_qt_partial_prefix_desc_offset """
+        SELECT DISTINCT l.id, l.k, r.s
+        FROM topn_distinct_left l LEFT JOIN topn_distinct_right r ON l.id = r.id
+        ORDER BY l.k ASC, r.s DESC
+        LIMIT 2 OFFSET 1
+    """
 }

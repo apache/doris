@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.properties.DataTrait;
+import org.apache.doris.nereids.properties.FuncDeps;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -33,7 +34,6 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 
 import java.util.HashSet;
 import java.util.List;
@@ -173,7 +173,7 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
     /**
      * return pushed order-keys. If top-n distinct cannot be pushed, return empty list.
      */
-    List<OrderKey> getPushedOrderKeys(Set<Slot> groupBySlots, Plan joinChild,
+    private List<OrderKey> getPushedOrderKeys(Set<Slot> groupBySlots, Plan joinChild,
             List<OrderKey> orderKeys) {
         Set<Slot> joinChildSlot = joinChild.getOutputSet();
         // NOTICE: Currently, we have implemented strict restrictions to ensure that the distinct columns is
@@ -217,12 +217,15 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
     private boolean isOrderKeyPrefixUniqueAfterDistinct(Plan joinChild, List<OrderKey> orderKeyPrefix) {
         Set<Slot> childOutput = joinChild.getOutputSet();
         DataTrait childTrait = joinChild.getLogicalProperties().getTrait();
+        FuncDeps validFuncDeps = childTrait.getAllValidFuncDeps(childOutput);
         Set<Slot> prefixSlots = new HashSet<>();
         for (OrderKey orderKey : orderKeyPrefix) {
             prefixSlots.add((Slot) orderKey.getExpr());
             if (prefixSlots.containsAll(childOutput) || childTrait.isUniqueAndNotNull(prefixSlots)
                     || childOutput.stream().allMatch(slot -> prefixSlots.contains(slot)
-                            || childTrait.isDependent(prefixSlots, ImmutableSet.of(slot)))) {
+                            || validFuncDeps.getItems().stream().anyMatch(funcDepsItem ->
+                                    prefixSlots.containsAll(funcDepsItem.determinants)
+                                            && funcDepsItem.dependencies.contains(slot)))) {
                 return true;
             }
         }
