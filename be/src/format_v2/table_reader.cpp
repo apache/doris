@@ -1343,6 +1343,7 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts,
             _table_filters, _projected_columns, refreshed_request.get(), _runtime_state,
             _file_scan_request == nullptr ? nullptr : &_file_scan_request->local_positions));
     refreshed_request->predicate_snapshot_digest = _predicate_snapshot_digest;
+    refreshed_request->row_ids = _row_ids;
     // A refresh does not prove that every future runtime filter has arrived. Keep carrier values
     // available whenever the split started with pending filters.
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
@@ -1751,6 +1752,7 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
                                      ? std::make_optional(options.current_range.load_id)
                                      : std::nullopt;
     _global_rowid_context = options.global_rowid_context;
+    _row_ids = options.row_ids;
     _delete_rows = nullptr;
     _deletion_vector = nullptr;
     _aggregate_pushdown_tried = false;
@@ -1779,9 +1781,10 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     // the NULL state of a COUNT argument. Require the new FE's explicit empty argument list, which
     // means COUNT(*)/COUNT(1). A non-empty list means COUNT(col), while nullopt comes from an old FE
     // whose COUNT semantics are unknown during a BE-first rolling upgrade.
-    if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
-        _push_down_count_columns->empty() && options.all_runtime_filters_applied &&
-        _conjuncts.empty() && options.current_range.__isset.table_format_params &&
+    if (!_row_ids.has_value() && _push_down_agg_type == TPushAggOp::type::COUNT &&
+        _push_down_count_columns.has_value() && _push_down_count_columns->empty() &&
+        options.all_runtime_filters_applied && _conjuncts.empty() &&
+        options.current_range.__isset.table_format_params &&
         options.current_range.table_format_params.__isset.table_level_row_count) {
         DORIS_CHECK(options.current_range.table_format_params.table_level_row_count >= -1);
         _remaining_table_level_count =

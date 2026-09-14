@@ -693,6 +693,9 @@ struct TFileScanRangeParams {
     35: optional string serialized_table_cache_key
     // 31-33 and 36 are used in master; do not allocate them in branch-4.1.
     37: optional TLanceScanParams lance_scan_params
+    // Non-regular columns in the pinned full schema, including columns pruned from phase one.
+    // When present, omitted names are REGULAR. Used to rebuild row-id fetch projections.
+    38: optional map<string, TColumnCategory> column_name_to_category
 }
 
 struct TFileRangeDesc {

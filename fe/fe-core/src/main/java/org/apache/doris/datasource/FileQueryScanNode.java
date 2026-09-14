@@ -276,12 +276,16 @@ public abstract class FileQueryScanNode extends FileScanNode {
         setColumnPositionMapping();
     }
 
+    protected TColumnCategory classifyColumn(SlotDescriptor slot, List<String> partitionKeys) {
+        return classifyColumn(slot.getColumn().getName(), partitionKeys);
+    }
+
     /**
-     * Classify a column's category for the BE reader.
+     * Classify projected and lazy columns with the same connector-specific rules.
      * Subclasses override this for format-specific classification.
      */
-    protected TColumnCategory classifyColumn(SlotDescriptor slot, List<String> partitionKeys) {
-        if (partitionKeys.contains(slot.getColumn().getName())) {
+    protected TColumnCategory classifyColumn(String columnName, List<String> partitionKeys) {
+        if (partitionKeys.contains(columnName)) {
             return TColumnCategory.PARTITION_KEY;
         }
         return TColumnCategory.REGULAR;
@@ -337,6 +341,25 @@ public abstract class FileQueryScanNode extends FileScanNode {
         Map<String, Integer> columnNameMap = new HashMap<>(columnNames.size());
         for (int i = 0; i < columnNames.size(); i++) {
             columnNameMap.putIfAbsent(columnNames.get(i), i);
+        }
+
+        boolean needsRowIdFetch = desc.getSlots().stream()
+                .anyMatch(slot -> slot.getColumn().getName().startsWith(Column.GLOBAL_ROWID_COL));
+        if (needsRowIdFetch) {
+            // Lazy slots are absent from the scan tuple. Use the relation's full schema so
+            // metadata categories survive pruning without changing physical file positions.
+            List<Column> columns = desc.getTable() instanceof ExternalTable
+                    ? ((ExternalTable) desc.getTable()).getFullSchema(getRelationSnapshot())
+                    : desc.getTable().getFullSchema();
+            List<String> partitionKeys = getPathPartitionKeys();
+            Map<String, TColumnCategory> columnCategories = new HashMap<>();
+            for (Column column : columns) {
+                TColumnCategory category = classifyColumn(column.getName(), partitionKeys);
+                if (category != TColumnCategory.REGULAR) {
+                    columnCategories.put(column.getName(), category);
+                }
+            }
+            params.setColumnNameToCategory(columnCategories);
         }
 
         for (TFileScanSlotInfo slot : params.getRequiredSlots()) {

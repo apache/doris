@@ -118,6 +118,23 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                     "_last_updated_sequence_number should be non-null for ${tableName}, row=${rowLineageRows[i]}")
         }
 
+        // Phase two must retain generated-column categories and file-level lineage metadata.
+        for (String projection : ["_row_id", "_last_updated_sequence_number",
+                                  "id, _row_id, _last_updated_sequence_number"]) {
+            String query = "select ${projection} from ${tableName} order by id limit 2"
+            sql "set enable_file_scanner_v2 = true"
+            sql "set topn_lazy_materialization_threshold = -1"
+            def eagerRows = sql query
+            sql "set topn_lazy_materialization_threshold = 10"
+            explain {
+                sql query
+                contains "VMaterializeNode"
+            }
+            assertEquals(eagerRows, sql(query))
+        }
+        sql "unset variable topn_lazy_materialization_threshold"
+        sql "unset variable enable_file_scanner_v2"
+
         long firstRowId = rowLineageRows[0][1].toString().toLong()
         long secondRowId = rowLineageRows[1][1].toString().toLong()
         assertTrue(firstRowId < secondRowId,
