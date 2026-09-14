@@ -33,6 +33,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -44,12 +46,12 @@ public class ShowConfigCommandTest extends TestWithFeService {
 
     private static final String MASK_VALUE = ConfigBase.SENSITIVE_CONF_MASK;
 
-    private static final List<String> SENSITIVE_KEYS = List.of(
+    private static final List<String> SENSITIVE_KEYS = Collections.unmodifiableList(Arrays.asList(
             "mysql_ssl_default_server_certificate_password",
             "key_store_password",
             "tls_private_key_password",
             "initial_root_password",
-            "mysql_ssl_default_ca_certificate_password");
+            "mysql_ssl_default_ca_certificate_password"));
 
     /**
      * Expected value shown by {@code SHOW FRONTEND CONFIG} for a config: ConfigBase masks a
