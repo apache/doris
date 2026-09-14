@@ -21,6 +21,10 @@ import org.apache.doris.regression.suite.ClusterOptions
 // Run with a cloud image containing the checker debug points below. For a pre-fix
 // reproduction, keep the debug points but revert the reconciliation changes.
 suite('test_compute_group_name_reconciliation', 'cloud_p0,docker') {
+    if (!isCloudMode()) {
+        return
+    }
+
     def options = new ClusterOptions()
     options.cloudMode = true
     options.setFeNum(1)
