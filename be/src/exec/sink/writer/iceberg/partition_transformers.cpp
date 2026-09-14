@@ -63,6 +63,8 @@ std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
                 return std::make_unique<BigintTruncatePartitionColumnTransform>(source_type,
                                                                                 parsed_width);
             }
+            case TYPE_VARBINARY:
+                return std::make_unique<BinaryTruncatePartitionColumnTransform>(parsed_width);
             case TYPE_VARCHAR:
             case TYPE_CHAR:
             case TYPE_STRING: {
@@ -105,6 +107,7 @@ std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
                 return std::make_unique<BigintBucketPartitionColumnTransform>(source_type,
                                                                               parsed_width);
             }
+            case TYPE_VARBINARY:
             case TYPE_VARCHAR:
             case TYPE_CHAR:
             case TYPE_STRING: {
@@ -250,6 +253,16 @@ std::string PartitionColumnTransform::get_partition_value(const DataTypePtr type
         case TYPE_CHAR:
         case TYPE_STRING: {
             return std::any_cast<std::string>(value);
+        }
+        case TYPE_VARBINARY: {
+            // Commit values are typed hexadecimal, never a potentially invalid UTF-8 string.
+            const auto& bytes = std::any_cast<const std::string&>(value);
+            std::string encoded = "0x";
+            for (unsigned char byte : bytes) {
+                encoded += "0123456789abcdef"[byte >> 4];
+                encoded += "0123456789abcdef"[byte & 15];
+            }
+            return encoded;
         }
         case TYPE_DATE: {
             char buf[64];
