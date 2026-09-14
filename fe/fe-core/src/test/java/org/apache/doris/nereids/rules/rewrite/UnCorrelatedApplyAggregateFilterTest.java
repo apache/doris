@@ -19,7 +19,9 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
@@ -27,8 +29,10 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
@@ -55,6 +59,7 @@ import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
@@ -149,7 +154,7 @@ class UnCorrelatedApplyAggregateFilterTest {
         // projection of the subquery, it has to be evaluated on the aggregation as well
         Plan rewritten = rewriteWithCorrelatedHaving(true, true);
         Plan right = assertCorrelatedHavingEvaluatedOnAggregatedOuter(rewritten);
-        Assertions.assertEquals(2, ((LogicalFilter<?>) right).getConjuncts().size(),
+        Assertions.assertEquals(2, havingConjunctsAboveAggregate(right).size(),
                 "both predicates of the HAVING clause have to be kept");
     }
 
@@ -165,15 +170,126 @@ class UnCorrelatedApplyAggregateFilterTest {
         Plan right = joins.stream()
                 .filter(join -> join.getJoinType() == JoinType.LEFT_SEMI_JOIN)
                 .findFirst().get().right();
-        Assertions.assertTrue(right instanceof LogicalFilter,
-                "the HAVING predicates have to be evaluated above the aggregate of the outer rows");
-        LogicalFilter<?> having = (LogicalFilter<?>) right;
-        Assertions.assertTrue(having.child() instanceof LogicalAggregate);
-        Assertions.assertTrue(having.getConjuncts().stream()
+        Plan below = right;
+        while (!(below instanceof LogicalAggregate)) {
+            below = below.child(0);
+        }
+        LogicalAggregate<?> aggregate = (LogicalAggregate<?>) below;
+        Assertions.assertTrue(havingConjunctsAboveAggregate(right).stream()
                         .flatMap(conjunct -> conjunct.getInputSlots().stream())
-                        .allMatch(slot -> having.child().getOutput().contains(slot)),
+                        .allMatch(slot -> aggregate.getOutput().contains(slot)),
                 "the HAVING predicates have to use the correlation key of the aggregated outer rows");
+        assertJoinConditionsResolvable(rewritten);
         return right;
+    }
+
+    /** whether every input of a condition of a join of the plan is produced by one of its children */
+    private static void assertJoinConditionsResolvable(Plan plan) {
+        for (LogicalJoin<?, ?> join : plan.<LogicalJoin>collectToList(LogicalJoin.class::isInstance)) {
+            List<Slot> available = new ArrayList<>(join.left().getOutput());
+            available.addAll(join.right().getOutput());
+            for (Expression condition : join.getOtherJoinConjuncts()) {
+                Assertions.assertTrue(available.containsAll(condition.getInputSlots()),
+                        "the condition " + condition + " has to be resolvable by the children of the join");
+            }
+        }
+    }
+
+    /** the predicates of the nodes which sit above the aggregate of the rewritten subquery */
+    private static List<Expression> havingConjunctsAboveAggregate(Plan right) {
+        List<Expression> conjuncts = new ArrayList<>();
+        Plan below = right;
+        while (!(below instanceof LogicalAggregate)) {
+            if (below instanceof LogicalFilter) {
+                conjuncts.addAll(((LogicalFilter<?>) below).getConjuncts());
+            }
+            below = below.child(0);
+        }
+        return conjuncts;
+    }
+
+    @Test
+    public void testFilterAboveTheHavingClauseIsKept() {
+        Plan rewritten = rewriteWithFilterAboveHaving(false);
+        // the filter above the HAVING clause reads the projection of the select list, so it has to
+        // survive the rewrite with that projection
+        Assertions.assertTrue(rewritten.collectToList(LogicalApply.class::isInstance).isEmpty());
+        List<LogicalJoin> joins = rewritten.collectToList(LogicalJoin.class::isInstance);
+        Assertions.assertTrue(joins.stream().anyMatch(join -> join.getJoinType() == JoinType.LEFT_SEMI_JOIN));
+        Plan right = joins.stream().filter(join -> join.getJoinType() == JoinType.LEFT_SEMI_JOIN)
+                .findFirst().get().right();
+        Assertions.assertTrue(havingConjunctsAboveAggregate(right).stream()
+                        .flatMap(conjunct -> conjunct.getInputSlots().stream())
+                        .anyMatch(slot -> "c2".equals(slot.getName())),
+                "the filter above the HAVING clause has to be kept");
+        Assertions.assertTrue(right.collectToList(LogicalProject.class::isInstance).stream()
+                        .flatMap(plan -> ((LogicalProject<?>) plan).getProjects().stream())
+                        .anyMatch(project -> "c2".equals(project.getName())),
+                "the projection of the select list has to be kept");
+        assertJoinConditionsResolvable(rewritten);
+    }
+
+    @Test
+    public void testFilterOverAVolatileAliasAboveTheHavingClauseIsRejected() {
+        // the filter above the HAVING clause reads a volatile column of the projection of the select
+        // list: two outer rows with the same correlation key would share its evaluation
+        Assertions.assertThrows(AnalysisException.class, () -> rewriteWithFilterAboveHaving(true));
+    }
+
+    @Test
+    public void testHavingWhichRejectsTheNullOfSumKeepsThePlan() {
+        Alias sum = new Alias(new Sum(new BigIntLiteral(1)), "s");
+        // sum returns null for an empty input, so `sum(...) is not null` rejects the row of the
+        // empty correlated domain: the original rewrite is still equivalent and has to be kept
+        Plan rewritten = rewriteWithGlobalAggregate(sum, slot -> new Not(new IsNull(sum.toSlot())), null);
+        Assertions.assertTrue(rewritten instanceof LogicalApply);
+    }
+
+    @Test
+    public void testRejectingConjunctDominatesAnUnknownConjunctOfTheHaving() {
+        Alias array = new Alias(new ArrayAgg(new BigIntLiteral(1)), "a");
+        Alias count = new Alias(new Count(), "c");
+        // the value of array_agg for an empty input is unknown for this rewrite, but the other
+        // conjunct rejects the row of the empty input, so the original rewrite is still equivalent
+        Plan rewritten = rewriteWithGlobalAggregate(ImmutableList.of(array, count),
+                slot -> new And(new Not(new IsNull(array.toSlot())),
+                        new EqualTo(count.toSlot(), new BigIntLiteral(999))), null, null);
+        Assertions.assertTrue(rewritten instanceof LogicalApply);
+    }
+
+    /**
+     * build `L exists (select x.c from (select count(*) c, c2 from R where r1 = x having count(*) = 0)
+     * x where x.c2 &lt; 0)` where `c2` is a volatile expression or a deterministic one, and apply the
+     * rule.
+     */
+    private Plan rewriteWithFilterAboveHaving(boolean overVolatileAlias) {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        Slot x = left.getOutput().get(0); // t1.id
+        LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "t2", 1);
+        Slot r1 = right.getOutput().get(0); // t2.id
+
+        LogicalFilter<LogicalOlapScan> where = new LogicalFilter<>(ImmutableSet.of(new EqualTo(r1, x)), right);
+        Alias count = new Alias(new Count(), "c");
+        LogicalAggregate<LogicalFilter<LogicalOlapScan>> agg =
+                new LogicalAggregate<>(ImmutableList.of(), ImmutableList.of(count), where);
+        LogicalFilter<LogicalAggregate<LogicalFilter<LogicalOlapScan>>> having = new LogicalFilter<>(
+                ImmutableSet.of(new EqualTo(count.toSlot(), new BigIntLiteral(0))), agg);
+        Alias projected = overVolatileAlias
+                ? new Alias(new Random(), "c2")
+                : new Alias(new Add(count.toSlot(), new BigIntLiteral(1)), "c2");
+        Plan projection = new LogicalProject<>(ImmutableList.of(count.toSlot(), projected), having);
+        Plan filterAboveHaving = new LogicalFilter<>(
+                ImmutableSet.of(new LessThan(projected.toSlot(), new BigIntLiteral(0))), projection);
+        LogicalApply<LogicalOlapScan, Plan> apply =
+                new LogicalApply<>(ImmutableList.of(x), LogicalApply.SubQueryType.EXITS_SUBQUERY, false,
+                        Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), false, false,
+                        left, filterAboveHaving);
+
+        ConnectContext connectContext = new ConnectContext();
+        Rule rule = new UnCorrelatedApplyAggregateFilter().buildRules().get(0);
+        List<Plan> transformed = rule.transform(apply, MemoTestUtils.createCascadesContext(connectContext, apply));
+        Assertions.assertEquals(1, transformed.size());
+        return transformed.get(0);
     }
 
     private static boolean containsCompensatedCount(Plan plan) {
@@ -359,10 +475,11 @@ class UnCorrelatedApplyAggregateFilterTest {
     public void testVolatileAggregateOutputWhichFeedsTheHavingIsRejected() {
         Alias count = new Alias(new Count(), "c");
         Alias sum = new Alias(new Sum(new Random()), "s");
-        // the HAVING clause uses the aggregated value, which would be computed once for two outer
-        // rows with the same correlation key
+        // the HAVING clause uses the aggregated value (`sum(<volatile>) is null` holds for the row of
+        // an empty input, so the aggregation has to be built on the outer side), which would be
+        // computed once for two outer rows with the same correlation key
         Assertions.assertThrows(AnalysisException.class, () -> rewriteWithGlobalAggregate(
-                ImmutableList.of(count, sum), slot -> new EqualTo(sum.toSlot(), new BigIntLiteral(1)), null, null));
+                ImmutableList.of(count, sum), slot -> new IsNull(sum.toSlot()), null, null));
     }
 
     @Test

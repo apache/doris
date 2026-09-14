@@ -356,4 +356,56 @@ suite("correlated_exists_having") {
                 " WHERE EXISTS (SELECT array_agg(i.k) FROM ceh_s_i i WHERE i.k = e.k HAVING count(*) = e.k)"
         exception "Unsupported correlated subquery with grouping and/or aggregation"
     }
+    // a filter which sits above the HAVING clause of the subquery (its predicate reads a volatile
+    // column of the projection of the select list, so filter pushdown cannot push it below that
+    // projection) was dropped by the rewrite: the subquery then returned a row for every outer row
+    test {
+        sql "SELECT e.k FROM ceh_s_e e" +
+                " WHERE EXISTS (SELECT x.c FROM (SELECT count(*) AS c, random() AS r FROM ceh_s_i i" +
+                " WHERE i.k < e.k HAVING count(*) = 0) x WHERE x.r < -1)"
+        exception "Unsupported correlated subquery with grouping and/or aggregation"
+    }
+    // sum/avg/min/max return null for an empty input: such a HAVING clause rejects the row of the
+    // empty correlated domain and the original rewrite stays valid, even when the outer plan cannot
+    // be evaluated twice
+    sql "DROP TABLE IF EXISTS ceh_n_e"
+    sql """
+        CREATE TABLE IF NOT EXISTS ceh_n_e (
+            k INT NULL
+        ) ENGINE = OLAP
+        DUPLICATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    sql "DROP TABLE IF EXISTS ceh_n_i"
+    sql """
+        CREATE TABLE IF NOT EXISTS ceh_n_i (
+            k INT NULL
+        ) ENGINE = OLAP
+        DUPLICATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    sql "INSERT INTO ceh_n_e VALUES (1), (2)"
+    sql "INSERT INTO ceh_n_i VALUES (1)"
+    order_qt_having_sum_is_not_null_of_the_empty_domain """
+        SELECT t.k FROM (SELECT e.k AS k FROM ceh_n_e e ORDER BY e.k LIMIT 1) t
+        WHERE EXISTS (SELECT sum(i.k) FROM ceh_n_i i WHERE i.k = t.k HAVING sum(i.k) IS NOT NULL)
+        ORDER BY t.k
+    """
+    // ... while a conjunct which rejects the row of the empty input dominates the conjuncts which
+    // are unknown for an empty input (the value of array_agg for an empty input is unknown here)
+    order_qt_having_with_a_rejecting_conjunct_dominates_unknown_conjuncts """
+        SELECT e.k FROM ceh_n_e e
+        WHERE EXISTS (SELECT array_agg(i.k), count(*) FROM ceh_n_i i WHERE i.k = e.k
+            HAVING array_agg(i.k) IS NOT NULL AND count(*) = 999)
+        ORDER BY e.k
+    """
+    // the outer plan of an apply can be a table valued function: a deep copy which reuses the slots
+    // of the copied relation cannot be used as an independent branch of the rewrite
+    test {
+        sql 'SELECT n.number FROM numbers("number" = "3") n' +
+                " WHERE EXISTS (SELECT count(*) FROM ceh_n_i i WHERE i.k < n.number HAVING count(*) = 0)"
+        exception "Unsupported correlated subquery with grouping and/or aggregation"
+    }
 }
