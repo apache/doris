@@ -727,23 +727,22 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
      * identity-less records are never dispatchable (their only exit is the
      * force-release transition by job id) and are skipped here. The dispatch
      * quad is deliberately not required: it is written by {@code markRunning},
-     * which is the step this query feeds.
+     * which is the step this query feeds. All matches are collected and ordered
+     * before truncating, so a stable subset of permanently undispatchable jobs
+     * can never crowd out later ids.
      */
     public List<LanceIndexJob> getJobsNeedingDispatch(int limit) {
         readLock();
         try {
             List<LanceIndexJob> result = new ArrayList<>();
             for (LanceIndexJob job : jobs.values()) {
-                if (result.size() >= limit) {
-                    break;
-                }
                 if (job != null && job.getMutationState() == LanceIndexJobMutationState.PENDING
                         && hasDispatchTarget(job)) {
                     result.add(new LanceIndexJob(job));
                 }
             }
             result.sort(Comparator.comparingLong(LanceIndexJob::getJobId));
-            return result;
+            return result.size() <= limit ? result : new ArrayList<>(result.subList(0, limit));
         } finally {
             readUnlock();
         }

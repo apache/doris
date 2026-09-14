@@ -189,6 +189,53 @@ public class LanceIndexJobRefreshDriverTest {
     }
 
     @Test
+    public void uncheckedExceptionStillMarksRefreshFailedInsteadOfStrandingRunning() throws Exception {
+        Config.lance_index_job_refresh_retry_second = 0;
+        admitTerminalCommitted(1L, "IdxA");
+        Mockito.doThrow(new IllegalStateException("metadata path exploded")).doAnswer(invocation -> {
+            events.add("refresh:" + invocation.getArgument(1) + "." + invocation.getArgument(2));
+            return null;
+        }).when(refreshManager).handleRefreshTable(Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
+                Mockito.anyBoolean());
+        LanceIndexFenceKey fenceKey = manager.getJob(1L).fenceKey();
+
+        dispatcher.runAfterCatalogReady();
+
+        // The failure face of the refresh path is not only the typed DdlException: an
+        // unchecked exception must still leave the durable refresh state FAILED, or the
+        // job would strand in refresh RUNNING until a master transfer.
+        Assertions.assertEquals(LanceIndexJobRefreshState.FAILED, manager.getJob(1L).getRefreshState());
+        Assertions.assertTrue(manager.isFenceHeld(fenceKey));
+        Assertions.assertTrue(containsJob(manager.getJobsNeedingRefresh(), 1L));
+
+        dispatcher.runAfterCatalogReady();
+
+        Assertions.assertEquals(LanceIndexJobRefreshState.DONE, manager.getJob(1L).getRefreshState());
+        Assertions.assertFalse(manager.isFenceHeld(fenceKey));
+    }
+
+    @Test
+    public void doneTransitionLosingTheCompareAndSetIsRetriedWithTheFreshRevision() throws Exception {
+        Config.lance_index_job_refresh_retry_second = 0;
+        FlakyDoneTestManager flaky = new FlakyDoneTestManager(events);
+        manager = flaky;
+        dispatcher = new TestDispatcher(flaky, events);
+        admitTerminalCommitted(1L, "IdxA");
+        flaky.failNextDone = 1;
+
+        dispatcher.runAfterCatalogReady();
+
+        // Losing the DONE compare-and-set once (as a concurrent revision bump would)
+        // must not strand the refresh in RUNNING: the driver re-reads the revision and
+        // retries within the same round.
+        LanceIndexJob stored = manager.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobRefreshState.DONE, stored.getRefreshState());
+        Assertions.assertFalse(manager.isFenceHeld(stored.fenceKey()));
+        Assertions.assertEquals(0L, manager.getQuota().getGlobalCount());
+        Assertions.assertTrue(manager.getUnresolvedJobs().isEmpty());
+    }
+
+    @Test
     public void freshFailedRefreshIsThrottledUntilTheRetryIntervalElapses() throws Exception {
         Config.lance_index_job_refresh_retry_second = 300;
         admitTerminalCommitted(1L, "IdxA");
@@ -374,6 +421,24 @@ public class LanceIndexJobRefreshDriverTest {
             editLog.add(job);
             events.add("journal:" + job.getJobId() + ":" + job.getMutationState() + ":" + job.getRefreshState()
                     + ":" + (job.isPossibleLiveOwned() ? "slot" : "noslot"));
+        }
+    }
+
+    /** Fails the DONE transition a bounded number of times, as a concurrent revision bump would. */
+    private static class FlakyDoneTestManager extends TestManager {
+        private int failNextDone = 0;
+
+        FlakyDoneTestManager(List<String> events) {
+            super(events);
+        }
+
+        @Override
+        public boolean markRefreshDone(long jobId, long expectedRevision) {
+            if (failNextDone > 0) {
+                failNextDone--;
+                return false;
+            }
+            return super.markRefreshDone(jobId, expectedRevision);
         }
     }
 
