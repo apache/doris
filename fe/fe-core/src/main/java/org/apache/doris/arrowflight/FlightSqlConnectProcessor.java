@@ -64,7 +64,6 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
     public FlightSqlConnectProcessor(ConnectContext context) {
         super(context);
         context.setThreadLocalInfo();
-        context.setReturnResultFromLocal(true);
     }
 
     public Schema getArrowSchema() {

@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NullIgnoringAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -57,6 +58,9 @@ public final class EliminateAggCaseWhen extends OneRewriteRuleFactory {
                 return null;
             }
             for (AggregateFunction aggFun : aggFunctions) {
+                if (!(aggFun instanceof NullIgnoringAggregateFunction)) {
+                    return null;
+                }
                 // check whether we only have on case when/if in aggregate function
                 if (aggFun.getArguments().size() != 1) {
                     return null;

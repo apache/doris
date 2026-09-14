@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeComb
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
@@ -66,6 +67,23 @@ class DataSketchesHllUnionAggTest {
             Assertions.assertFalse(rewritten.isDistinct());
             Assertions.assertTrue(function.getDistinctArguments().isEmpty());
             Assertions.assertTrue(rewritten.getDistinctArguments().isEmpty());
+        }
+    }
+
+    @Test
+    void testNullIgnoringContractSurvivesRewriting() {
+        for (DataSketchesHllUnionAgg function : ImmutableList.of(
+                new DataSketchesHllUnionAgg(SKETCH),
+                new DataSketchesHllUnionAgg(SKETCH, new IntegerLiteral(8)))) {
+            DataSketchesHllUnionAgg rewritten = function.withDistinctAndChildren(true, function.getArguments());
+
+            Assertions.assertInstanceOf(NullIgnoringAggregateFunction.class, function);
+            Assertions.assertInstanceOf(NullIgnoringAggregateFunction.class, rewritten);
+            Assertions.assertFalse(function.nullable());
+            Assertions.assertFalse(rewritten.nullable());
+            Assertions.assertEquals(new DoubleLiteral(0), function.resultForEmptyInput());
+            Assertions.assertEquals(function.resultForEmptyInput(), rewritten.resultForEmptyInput());
+            Assertions.assertEquals(function.getArguments(), rewritten.getArguments());
         }
     }
 

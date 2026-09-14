@@ -40,7 +40,8 @@ import java.util.List;
 
 /** datasketches_hll_union_agg agg function. */
 public class DataSketchesHllUnionAgg extends NotNullableAggregateFunction
-        implements ExplicitlyCastableSignature, FunctionTrait, RollUpTrait {
+        implements ExplicitlyCastableSignature, FunctionTrait, RollUpTrait,
+        NullIgnoringAggregateFunction {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(StringType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT),

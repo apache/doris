@@ -44,7 +44,7 @@ import java.util.List;
  * as (timestamp, event_index) pairs, dramatically reducing memory usage compared to V1.
  */
 public class WindowFunnelV2 extends NullableAggregateFunction
-        implements ExplicitlyCastableSignature {
+        implements ExplicitlyCastableSignature, NullIgnoringAggregateFunction {
 
     public static final int MAX_EVENT_CONDITIONS = 127;
 
