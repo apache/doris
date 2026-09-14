@@ -49,6 +49,28 @@
 
 namespace doris {
 
+Status validate_paimon_cpp_batch(const arrow::RecordBatch& batch, const arrow::Schema& schema) {
+    if (batch.num_columns() != schema.num_fields() ||
+        !batch.schema()->Equals(schema, /*check_metadata=*/true)) {
+        return Status::InvalidArgument(
+                "Paimon Arrow batch schema differs from the pinned table schema");
+    }
+    // RecordBatch::Make can associate a schema with arrays of different types. In particular,
+    // the generic converter may promote binary/string to large_binary/large_utf8. Never let
+    // the schema-less C Data boundary reinterpret their 64-bit offsets as 32-bit offsets.
+    for (int i = 0; i < batch.num_columns(); ++i) {
+        if (!batch.column(i)->type()->Equals(schema.field(i)->type(), /*check_metadata=*/true)) {
+            return Status::InvalidArgument(
+                    "Paimon Arrow column {} type mismatch: expected {}, got {}",
+                    schema.field(i)->name(), schema.field(i)->type()->ToString(),
+                    batch.column(i)->type()->ToString());
+        }
+    }
+    auto status = batch.Validate();
+    return status.ok() ? Status::OK()
+                       : Status::InvalidArgument("Paimon Arrow batch: {}", status.ToString());
+}
+
 Status frame_paimon_cpp_commit(const std::string& data, int32_t version,
                                TPaimonCommitMessage* message) {
     // Same per-frame bound as the JNI codec. This does NOT bound SDK metadata accumulation.
@@ -287,10 +309,7 @@ public:
         std::shared_ptr<arrow::RecordBatch> batch;
         RETURN_IF_ERROR(convert_to_arrow_batch(block, _schema, _arrow_pool.get(), &batch,
                                                state->timezone_obj()));
-        auto validation = batch->Validate();
-        if (!validation.ok()) {
-            return Status::InvalidArgument("Paimon Arrow batch: {}", validation.ToString());
-        }
+        RETURN_IF_ERROR(validate_paimon_cpp_batch(*batch, *_schema));
         ArrowArray data {};
         Defer release {[&] {
             if (data.release) data.release(&data);

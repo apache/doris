@@ -29,7 +29,11 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.MapType;
+import org.apache.paimon.types.RowType;
 
 import java.net.URI;
 import java.util.Collections;
@@ -42,7 +46,7 @@ public final class PaimonCppWriteSupport {
     private static final Set<String> OPTIONS = ImmutableSet.of(
             "bucket", "file.format", "manifest.format", "write-only", "path", "owner",
             "file.compression", "target-file-size", "write-buffer-size",
-            "page-size", "commit.force-create-snapshot");
+            "page-size", "commit.force-create-snapshot", "variant.inferShreddingSchema", "read.batch-size");
     private static final Set<String> TYPES = ImmutableSet.of(
             "BOOLEAN", "TINYINT", "SMALLINT", "INTEGER", "BIGINT", "FLOAT", "DOUBLE", "VARCHAR", "VARBINARY");
 
@@ -117,8 +121,39 @@ public final class PaimonCppWriteSupport {
         }
         for (int i = 0; i < fields.size(); i++) {
             DataField field = fields.get(i);
-            if (!columns.get(i).equals(field.name()) || !TYPES.contains(field.type().getTypeRoot().name())) {
-                return "v1 requires ordered primitive columns";
+            boolean variant = containsVariant(field.type());
+            if (variant) {
+                if (!"parquet".equalsIgnoreCase(fileFormat)) {
+                    return "native VARIANT writes require Parquet data files";
+                }
+                // Ordinary VARIANT fields retain IDs. Only the SDK-generated shredded physical
+                // fields lack the IDs required by Java readers. Decide before opening a writer.
+                if (options.containsKey("variant.shreddingSchema")
+                        || options.containsKey("parquet.variant.shreddingSchema")
+                        || "true".equalsIgnoreCase(options.get("variant.inferShreddingSchema"))) {
+                    return "native VARIANT shredding requires SDK Parquet field ID interoperability fixes";
+                }
+            }
+            if (!columns.get(i).equals(field.name())
+                    || !(TYPES.contains(field.type().getTypeRoot().name())
+                    || (variant && supportedVariantType(field.type())))) {
+                return "v1 requires ordered primitive or supported VARIANT columns";
+            }
+        }
+        if (options.containsKey("variant.inferShreddingSchema")
+                && !"false".equalsIgnoreCase(options.get("variant.inferShreddingSchema"))) {
+            return "native writes require variant.inferShreddingSchema=false";
+        }
+        // Reader capacity is independent of the native writer's input batch size. Preserve an
+        // explicitly configured value, using the same bounds as the Doris Paimon JNI reader.
+        if (options.containsKey("read.batch-size")) {
+            try {
+                int readBatchSize = Integer.parseInt(options.get("read.batch-size"));
+                if (readBatchSize < 1 || readBatchSize > 65536) {
+                    return "read.batch-size must be between 1 and 65536";
+                }
+            } catch (NumberFormatException e) {
+                return "read.batch-size must be an integer between 1 and 65536";
             }
         }
         for (String option : options.keySet()) {
@@ -127,6 +162,37 @@ public final class PaimonCppWriteSupport {
             }
         }
         return null;
+    }
+
+    private static boolean containsVariant(DataType type) {
+        if ("VARIANT".equals(type.getTypeRoot().name())) {
+            return true;
+        }
+        if (type instanceof ArrayType) {
+            return containsVariant(((ArrayType) type).getElementType());
+        }
+        if (type instanceof MapType) {
+            return containsVariant(((MapType) type).getKeyType())
+                    || containsVariant(((MapType) type).getValueType());
+        }
+        return type instanceof RowType && ((RowType) type).getFields().stream()
+                .anyMatch(field -> containsVariant(field.type()));
+    }
+
+    private static boolean supportedVariantType(DataType type) {
+        if (TYPES.contains(type.getTypeRoot().name()) || "VARIANT".equals(type.getTypeRoot().name())) {
+            return true;
+        }
+        if (type instanceof ArrayType) {
+            return supportedVariantType(((ArrayType) type).getElementType());
+        }
+        if (type instanceof MapType) {
+            MapType map = (MapType) type;
+            return TYPES.contains(map.getKeyType().getTypeRoot().name())
+                    && supportedVariantType(map.getValueType());
+        }
+        return type instanceof RowType && ((RowType) type).getFields().stream()
+                .allMatch(field -> supportedVariantType(field.type()));
     }
 
     private static TPaimonStorageDescriptor describeStorage(FileStoreTable table,

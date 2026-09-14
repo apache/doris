@@ -24,11 +24,19 @@
 
 #include "exec/sink/writer/paimon/paimon_write_backend.h"
 
+namespace arrow {
+class RecordBatch;
+class Schema;
+} // namespace arrow
+
 namespace doris {
 
 class ResourceContext;
 std::shared_ptr<paimon::MemoryPool> make_paimon_query_memory_pool(
         std::shared_ptr<ResourceContext> context, uint64_t limit);
+
+// The SDK imports only ArrowArray, using its pinned table schema to interpret every buffer.
+Status validate_paimon_cpp_batch(const arrow::RecordBatch& batch, const arrow::Schema& schema);
 
 class CppPaimonWriteBackend final : public IPaimonWriteBackend {
 public:

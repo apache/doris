@@ -22,6 +22,7 @@ suite("test_paimon_write_variant", "p0,external,paimon,nonConcurrent") {
         return
     }
 
+    def originalWriteBackend = sql("SELECT @@paimon_write_backend")[0][0]
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String catalogName = "test_pw_variant_catalog"
@@ -35,7 +36,8 @@ suite("test_paimon_write_variant", "p0,external,paimon,nonConcurrent") {
             payload VARIANT,
             secondary VARIANT
         ) USING paimon
-        TBLPROPERTIES ('file.format' = 'parquet');
+        TBLPROPERTIES ('file.format' = 'parquet', 'write-only' = 'true',
+                       'variant.inferShreddingSchema' = 'false');
     """
 
     sql """DROP CATALOG IF EXISTS ${catalogName}"""
@@ -54,6 +56,7 @@ suite("test_paimon_write_variant", "p0,external,paimon,nonConcurrent") {
     sql """USE ${dbName}"""
 
     try {
+        sql """SET paimon_write_backend = 'CPP'"""
         // Paimon Variant writes are deliberately V2-only.
         setFeConfigTemporary([enable_variant_v2: false]) {
             assertFalse(getFeConfig("enable_variant_v2").toBoolean())
@@ -66,6 +69,10 @@ suite("test_paimon_write_variant", "p0,external,paimon,nonConcurrent") {
         setFeConfigTemporary([enable_variant_v2: true]) {
             assertTrue(getFeConfig("enable_variant_v2").toBoolean())
             sql """SET force_jni_scanner = true"""
+            explain {
+                sql "INSERT INTO t_variant_basic VALUES (0, parse_to_variant('{}'), NULL)"
+                contains "backend: CPP"
+            }
 
         // JSON containers, JSON null and SQL NULL are different logical values.
         sql """
@@ -148,12 +155,29 @@ suite("test_paimon_write_variant", "p0,external,paimon,nonConcurrent") {
             WHERE id = 17
         """
 
+        // The Java/Spark reader must also decode native-written scalar type tags, including
+        // DATE and TIMESTAMP_NTZ; CPP self-read alone is not an interoperability assertion.
+        def scalarRows = { rows -> rows.collect { row ->
+            row.collect { value -> value == null ? null : value.toString() }
+        } }
+        String scalars = "id, CAST(payload AS STRING), CAST(secondary AS STRING)"
+        assertEquals(scalarRows(sql("SELECT ${scalars} FROM t_variant_basic WHERE id BETWEEN 11 AND 16 ORDER BY id")),
+                scalarRows(spark_paimon("""SELECT ${scalars} FROM paimon.${dbName}.t_variant_basic
+                    WHERE id BETWEEN 11 AND 16 ORDER BY id""")))
+        // Doris renders Variant booleans as 1/0 when cast to STRING; Spark uses true/false.
+        // Compare their boolean values explicitly, not their engine-specific text formatting.
+        String booleans = "CAST(CAST(payload AS BOOLEAN) AS INT), CAST(CAST(secondary AS BOOLEAN) AS INT)"
+        assertEquals([["1", "0"]], scalarRows(sql("SELECT ${booleans} FROM t_variant_basic WHERE id=10")))
+        assertEquals([["1", "0"]], scalarRows(spark_paimon(
+                "SELECT ${booleans} FROM paimon.${dbName}.t_variant_basic WHERE id=10")))
+
         // Refresh metadata and verify that all Doris-written rows remain readable through the
         // Paimon JNI Variant reader.
         sql """REFRESH TABLE t_variant_basic"""
         qt_variant_row_count """SELECT COUNT(*) FROM t_variant_basic"""
         }
     } finally {
+        sql """SET paimon_write_backend = '${originalWriteBackend}'"""
         sql """SET force_jni_scanner = false"""
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
     }

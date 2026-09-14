@@ -22,6 +22,7 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
         return
     }
 
+    def originalWriteBackend = sql("SELECT @@paimon_write_backend")[0][0]
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String catalogName = "test_pw_variant_shredding_catalog"
@@ -51,6 +52,19 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
             'write-only' = 'true',
             'parquet.variant.shreddingSchema' = '${shreddingSchema}',
             'variant.inferShreddingSchema' = 'true'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_variant_fallback;
+        CREATE TABLE paimon.${dbName}.t_variant_fallback (
+            id INT,
+            payload VARIANT
+        ) USING paimon
+        TBLPROPERTIES (
+            'bucket' = '-1',
+            'file.format' = 'parquet',
+            'write-only' = 'true',
+            'parquet.variant.shreddingSchema' = '${shreddingSchema}',
+            'variant.inferShreddingSchema' = 'false'
         );
 
         DROP TABLE IF EXISTS paimon.${dbName}.t_variant_inferred;
@@ -90,6 +104,7 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
         """
         sql """SWITCH ${catalogName}"""
         sql """USE ${dbName}"""
+        sql """SET paimon_write_backend = 'CPP'"""
         sql """SET force_jni_scanner = true"""
     }
 
@@ -136,6 +151,11 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
             assertTrue(getFeConfig("enable_variant_v2").toBoolean())
         // Cover typed fields, residual object fields, type mismatch fallback, nested ROW/ARRAY,
         // root scalars, empty objects, Variant null, and SQL null.
+        explain {
+            sql "INSERT INTO t_variant_shredded VALUES (0, parse_to_variant('{}'))"
+            contains "backend: JNI"
+            contains "native VARIANT shredding requires SDK Parquet field ID interoperability fixes"
+        }
         sql """
             INSERT INTO t_variant_shredded VALUES
                 (1, parse_to_variant('{"age":27,"city":"Beijing","active":true,"profile":{"name":"alice","scores":[10,20]},"other":"kept"}')),
@@ -147,6 +167,33 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
                 (7, CAST(NULL AS VARIANT)),
                 (8, parse_to_variant('{"profile":{"name":"bob","scores":[30],"extra":"nested-kept"},"other":"root-kept"}'))
         """
+
+        // Even an explicit schema with inference disabled must fall back before opening a CPP
+        // writer. Keep logical and physical readback checks: fallback must still produce shredding.
+        explain {
+            sql "INSERT INTO t_variant_fallback SELECT id, payload FROM t_variant_shredded"
+            contains "backend: JNI"
+            contains "native VARIANT shredding requires SDK Parquet field ID interoperability fixes"
+        }
+        sql "INSERT INTO t_variant_fallback SELECT id, payload FROM t_variant_shredded"
+        assertEquals(sql("SELECT id, CAST(payload AS STRING), payload IS NULL FROM t_variant_shredded ORDER BY id"),
+                sql("SELECT id, CAST(payload AS STRING), payload IS NULL FROM t_variant_fallback ORDER BY id"))
+        def logicalProjection = """id,
+            CAST(payload['age'] AS STRING), CAST(payload['city'] AS STRING),
+            CAST(payload['profile']['name'] AS STRING),
+            CAST(payload['profile']['extra'] AS STRING), CAST(payload['other'] AS STRING),
+            CAST(payload IS NULL AS INT)"""
+        assertEquals(sql("SELECT ${logicalProjection} FROM t_variant_shredded ORDER BY id"),
+                sql("SELECT ${logicalProjection} FROM t_variant_fallback ORDER BY id"))
+        assertEquals(sparkValues(sql("SELECT ${logicalProjection} FROM t_variant_fallback ORDER BY id")),
+                sparkValues(spark_paimon("""SELECT id,
+                    try_variant_get(payload, '\$.age', 'string'),
+                    try_variant_get(payload, '\$.city', 'string'),
+                    try_variant_get(payload, '\$.profile.name', 'string'),
+                    try_variant_get(payload, '\$.profile.extra', 'string'),
+                    try_variant_get(payload, '\$.other', 'string'),
+                    CAST(payload IS NULL AS INT)
+                    FROM paimon.${dbName}.t_variant_fallback ORDER BY id""")))
 
         // Doris's Paimon reader must unshred typed and residual components back into one logical
         // Variant value.
@@ -164,43 +211,49 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
             ORDER BY id
         """
 
-        def shreddedFiles = dataFiles("t_variant_shredded")
-        assertTrue(!shreddedFiles.isEmpty())
-        def physicalRows = []
-        shreddedFiles.each { filePath ->
-            String payloadType = rawPayloadType(filePath)
-            assertTrue(payloadType.contains("metadata:text"))
-            assertTrue(payloadType.contains("value:text"))
-            assertTrue(payloadType.contains("typed_value:struct"))
-            assertTrue(payloadType.contains("age:struct"))
-            assertTrue(payloadType.contains("profile:struct"))
-            // The explicit schema wins over inference; residual-only fields must not be promoted.
-            assertFalse(payloadType.contains("other:struct"))
+        ["t_variant_shredded", "t_variant_fallback"].each { tableName ->
+            def shreddedFiles = dataFiles(tableName)
+            assertTrue(!shreddedFiles.isEmpty())
+            def physicalRows = []
+            shreddedFiles.each { filePath ->
+                String payloadType = rawPayloadType(filePath)
+                assertTrue(payloadType.contains("metadata:text"))
+                assertTrue(payloadType.contains("value:text"))
+                assertTrue(payloadType.contains("typed_value:struct"))
+                assertTrue(payloadType.contains("age:struct"))
+                assertTrue(payloadType.contains("profile:struct"))
+                // The explicit schema wins over inference; residual-only fields must not be promoted.
+                assertFalse(payloadType.contains("other:struct"))
 
-            physicalRows.addAll(sql("""
-                SELECT id,
-                       payload.typed_value.age.typed_value,
-                       CAST(payload.typed_value.age.value IS NOT NULL AS INT),
-                       payload.typed_value.city.typed_value,
-                       CAST(payload.typed_value.active.typed_value AS INT),
-                       payload.typed_value.profile.typed_value.name.typed_value,
-                       payload.typed_value.profile.typed_value.scores.typed_value[1].typed_value,
-                       CAST(payload.value IS NOT NULL AS INT),
-                       CAST(payload.metadata IS NOT NULL AS INT)
-                FROM ${rawParquetSource(filePath)}
-                WHERE id IN (1, 3)
-            """))
+                physicalRows.addAll(sql("""
+                    SELECT id,
+                           payload.typed_value.age.typed_value,
+                           CAST(payload.typed_value.age.value IS NOT NULL AS INT),
+                           payload.typed_value.city.typed_value,
+                           CAST(payload.typed_value.active.typed_value AS INT),
+                           payload.typed_value.profile.typed_value.name.typed_value,
+                           payload.typed_value.profile.typed_value.scores.typed_value[1].typed_value,
+                           CAST(payload.value IS NOT NULL AS INT),
+                           CAST(payload.metadata IS NOT NULL AS INT)
+                    FROM ${rawParquetSource(filePath)}
+                    WHERE id IN (1, 3)
+                """))
+            }
+            physicalRows.sort { left, right ->
+                Integer.parseInt(left[0].toString()) <=> Integer.parseInt(right[0].toString())
+            }
+            assertEquals([
+                    ["1", "27", "0", "Beijing", "1", "alice", "10", "1", "1"],
+                    ["3", null, "1", null, null, null, null, "0", "1"]
+            ], sparkValues(physicalRows))
         }
-        physicalRows.sort { left, right ->
-            Integer.parseInt(left[0].toString()) <=> Integer.parseInt(right[0].toString())
-        }
-        assertEquals([
-                ["1", "27", "0", "Beijing", "1", "alice", "10", "1", "1"],
-                ["3", null, "1", null, null, null, null, "0", "1"]
-        ], sparkValues(physicalRows))
 
         // First create ordinary value/metadata files, then enable shredding for the same table.
         // Paimon's reader detects the physical schema per file and must read both layouts together.
+        explain {
+            sql "INSERT INTO t_variant_mixed VALUES (0, parse_to_variant('{}'))"
+            contains "backend: CPP"
+        }
         sql """
             INSERT INTO t_variant_mixed VALUES
                 (100, parse_to_variant('{"age":100,"city":"old"}')),
@@ -219,9 +272,14 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
             ALTER TABLE paimon.${dbName}.t_variant_mixed
             SET TBLPROPERTIES ('parquet.variant.shreddingSchema' = '${shreddingSchema}')
         """
-        // Reload the serialized Paimon table used by the JNI writer so the next write observes
-        // the new file-format option.
+        // Reload the table so planning switches from CPP to JNI for newly shredded files.
+        // The reader must combine old native ordinary files and new JNI shredded files.
         createDorisCatalog()
+        explain {
+            sql "INSERT INTO t_variant_mixed VALUES (200, parse_to_variant('{\"age\":200}'))"
+            contains "backend: JNI"
+            contains "native VARIANT shredding requires SDK Parquet field ID interoperability fixes"
+        }
         sql """
             INSERT INTO t_variant_mixed VALUES
                 (200, parse_to_variant('{"age":200,"city":"new","extra":"kept"}')),
@@ -248,6 +306,11 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
         // Paimon 1.4 can infer one shredding schema per file writer. Doris still sends the same
         // logical value/metadata pair; the SDK buffers the rows, chooses typed fields, and writes
         // typed_value without a caller-provided schema.
+        explain {
+            sql "INSERT INTO t_variant_inferred VALUES (0, parse_to_variant('{}'))"
+            contains "backend: JNI"
+            contains "native VARIANT shredding requires SDK Parquet field ID interoperability fixes"
+        }
         sql """
             INSERT INTO t_variant_inferred VALUES
                 (300, parse_to_variant('{"age":30,"profile":{"name":"alice"},"extra":"first"}')),
@@ -299,6 +362,7 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
         """
         }
     } finally {
+        sql """SET paimon_write_backend = '${originalWriteBackend}'"""
         sql """SET force_jni_scanner = false"""
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
     }

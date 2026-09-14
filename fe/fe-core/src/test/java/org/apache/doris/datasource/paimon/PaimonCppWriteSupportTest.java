@@ -27,6 +27,7 @@ import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.CatalogEnvironment;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypes;
 import org.junit.Assert;
 import org.junit.Test;
@@ -43,6 +44,8 @@ import java.util.stream.Collectors;
 
 public class PaimonCppWriteSupportTest {
     private static final List<String> COLUMNS = Arrays.asList("id", "name");
+    private static final String SHREDDING_SCHEMA = "{\"type\":\"ROW\",\"fields\":[{\"name\":\"name\","
+            + "\"type\":{\"type\":\"ROW\",\"fields\":[{\"name\":\"age\",\"type\":\"INT\"}]}}]}";
 
     private String unsupportedReason(FileStoreTable table, List<String> columns, TPaimonWriteMode mode) {
         return unsupportedReason(table, columns, mode, Collections.emptyMap());
@@ -87,6 +90,109 @@ public class PaimonCppWriteSupportTest {
 
     private FileStoreTable table(Map<String, String> overrides) {
         return table(overrides, Collections.emptyList(), Collections.emptyList(), "file:///tmp/paimon");
+    }
+
+    private FileStoreTable variantTable(Map<String, String> overrides, DataType type) {
+        FileStoreTable table = table(overrides);
+        TableSchema schema = new TableSchema(7,
+                Arrays.asList(new DataField(0, "id", DataTypes.INT().notNull()), new DataField(1, "name", type)),
+                1, Collections.emptyList(), Collections.emptyList(), table.options(), null);
+        Mockito.when(table.schema()).thenReturn(schema);
+        return table;
+    }
+
+    @Test
+    public void testVariantDecisionWithoutChangingDescriptor() {
+        for (String key : Arrays.asList("", "variant.shreddingSchema", "parquet.variant.shreddingSchema")) {
+            for (String infer : Arrays.asList("", "false", "true")) {
+                for (DataType type : Arrays.asList(DataTypes.VARIANT(), DataTypes.VARIANT().notNull())) {
+                    Map<String, String> options = new HashMap<>();
+                    if (!key.isEmpty()) {
+                        options.put(key, SHREDDING_SCHEMA);
+                    }
+                    if (!infer.isEmpty()) {
+                        options.put("variant.inferShreddingSchema", infer);
+                    }
+                    FileStoreTable table = variantTable(options, type);
+                    PaimonCppWriteSupport.Decision decision = PaimonCppWriteSupport.decide(
+                            table, COLUMNS, TPaimonWriteMode.APPEND, Collections.emptyMap());
+                    boolean ordinary = key.isEmpty() && !"true".equals(infer);
+                    Assert.assertEquals(ordinary, decision.isSupported());
+                    if (!ordinary) {
+                        Assert.assertEquals("native VARIANT shredding requires SDK Parquet field ID "
+                                + "interoperability fixes", decision.getFallbackReason());
+                    }
+                    TPaimonTableDescriptor descriptor = PaimonWriteBinding.describeTable(
+                            table, Collections.emptyMap(), Collections.emptyMap());
+                    TableSchema restored = TableSchema.fromJson(descriptor.getSchemaJson());
+                    Assert.assertEquals(table.schema().fields(), restored.fields());
+                    Assert.assertEquals(table.options(), restored.options());
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testVariantShreddingFallbackBoundaries() {
+        Assert.assertNull(unsupportedReason(variantTable(Collections.emptyMap(), DataTypes.VARIANT()),
+                COLUMNS, TPaimonWriteMode.APPEND));
+        Map<String, String> options = new HashMap<>();
+        options.put("parquet.variant.shreddingSchema", SHREDDING_SCHEMA);
+        for (String format : Arrays.asList("orc", "avro")) {
+            options.put("file.format", format);
+            Assert.assertNotNull(unsupportedReason(variantTable(options, DataTypes.VARIANT()),
+                    COLUMNS, TPaimonWriteMode.APPEND));
+        }
+        options.put("file.format", "parquet");
+        Assert.assertNotNull(unsupportedReason(variantTable(options, DataTypes.ARRAY(DataTypes.VARIANT())),
+                COLUMNS, TPaimonWriteMode.APPEND));
+        for (TPaimonWriteMode mode : Arrays.asList(TPaimonWriteMode.OVERWRITE, TPaimonWriteMode.CHANGELOG)) {
+            Assert.assertNotNull(unsupportedReason(variantTable(options, DataTypes.VARIANT()), COLUMNS, mode));
+        }
+    }
+
+    @Test
+    public void testOrdinaryNestedVariant() {
+        DataType row = DataTypes.ROW(new DataField(2, "label", DataTypes.STRING()),
+                new DataField(3, "payload", DataTypes.VARIANT()));
+        for (DataType type : Arrays.asList(DataTypes.ARRAY(DataTypes.VARIANT()),
+                DataTypes.MAP(DataTypes.STRING(), DataTypes.VARIANT()), row,
+                DataTypes.ROW(new DataField(4, "deep",
+                        DataTypes.ARRAY(DataTypes.MAP(DataTypes.STRING(), row)))))) {
+            FileStoreTable table = variantTable(Collections.emptyMap(), type);
+            Assert.assertNull(type.toString(), unsupportedReason(table, COLUMNS, TPaimonWriteMode.APPEND));
+            Assert.assertEquals(table.schema().fields(), TableSchema.fromJson(describe(table).getSchemaJson()).fields());
+            Assert.assertNotNull(unsupportedReason(variantTable(
+                    Collections.singletonMap("variant.inferShreddingSchema", "true"), type),
+                    COLUMNS, TPaimonWriteMode.APPEND));
+        }
+        // Do not broaden unrelated complex types or unsupported scalar children along with VARIANT.
+        for (DataType type : Arrays.asList(DataTypes.ARRAY(DataTypes.STRING()),
+                DataTypes.MAP(DataTypes.VARIANT(), DataTypes.STRING()),
+                DataTypes.ROW(new DataField(2, "v", DataTypes.VARIANT()),
+                        new DataField(3, "d", DataTypes.DECIMAL(10, 2))))) {
+            Assert.assertNotNull(unsupportedReason(variantTable(Collections.emptyMap(), type),
+                    COLUMNS, TPaimonWriteMode.APPEND));
+        }
+        Assert.assertNotNull(unsupportedReason(variantTable(
+                Collections.singletonMap("variant.inferShreddingSchema", "invalid"), DataTypes.VARIANT()),
+                COLUMNS, TPaimonWriteMode.APPEND));
+    }
+
+    @Test
+    public void testReadBatchSizeDoesNotDisableNativeVariant() {
+        for (String value : Arrays.asList("1", "16384", "65536")) {
+            FileStoreTable table = variantTable(Collections.singletonMap("read.batch-size", value),
+                    DataTypes.VARIANT());
+            Assert.assertNull(unsupportedReason(table, COLUMNS, TPaimonWriteMode.APPEND));
+            Assert.assertEquals(value, TableSchema.fromJson(describe(table).getSchemaJson())
+                    .options().get("read.batch-size"));
+        }
+        for (String value : Arrays.asList("0", "65537", "invalid", "2147483648")) {
+            Assert.assertNotNull(unsupportedReason(variantTable(
+                    Collections.singletonMap("read.batch-size", value), DataTypes.VARIANT()),
+                    COLUMNS, TPaimonWriteMode.APPEND));
+        }
     }
 
     @Test

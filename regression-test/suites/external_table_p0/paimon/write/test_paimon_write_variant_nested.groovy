@@ -22,6 +22,7 @@ suite("test_paimon_write_variant_nested", "p0,external,paimon,nonConcurrent") {
         return
     }
 
+    def originalWriteBackend = sql("SELECT @@paimon_write_backend")[0][0]
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String catalogName = "test_pw_variant_nested_catalog"
@@ -39,7 +40,7 @@ suite("test_paimon_write_variant_nested", "p0,external,paimon,nonConcurrent") {
             first_payload VARIANT,
             second_payload VARIANT
         ) USING paimon
-        TBLPROPERTIES ('file.format' = 'parquet');
+        TBLPROPERTIES ('file.format' = 'parquet', 'write-only' = 'true');
 
         DROP TABLE IF EXISTS paimon.${dbName}.t_variant_deep;
         CREATE TABLE paimon.${dbName}.t_variant_deep (
@@ -53,7 +54,7 @@ suite("test_paimon_write_variant_nested", "p0,external,paimon,nonConcurrent") {
                 >
             >
         ) USING paimon
-        TBLPROPERTIES ('file.format' = 'parquet');
+        TBLPROPERTIES ('file.format' = 'parquet', 'write-only' = 'true');
     """
 
     sql """DROP CATALOG IF EXISTS ${catalogName}"""
@@ -72,9 +73,18 @@ suite("test_paimon_write_variant_nested", "p0,external,paimon,nonConcurrent") {
     sql """USE ${dbName}"""
 
     try {
+        sql """SET paimon_write_backend = 'CPP'"""
         setFeConfigTemporary([enable_variant_v2: true]) {
             assertTrue(getFeConfig("enable_variant_v2").toBoolean())
             sql """SET force_jni_scanner = true"""
+            explain {
+                sql "INSERT INTO t_variant_nested VALUES (0, NULL, NULL, NULL, NULL, NULL)"
+                contains "backend: CPP"
+            }
+            explain {
+                sql "INSERT INTO t_variant_deep VALUES (0, NULL)"
+                contains "backend: CPP"
+            }
         // ARRAY, MAP, STRUCT and multiple Variant columns in one Arrow batch.
         sql """
             INSERT INTO t_variant_nested VALUES
@@ -186,11 +196,32 @@ suite("test_paimon_write_variant_nested", "p0,external,paimon,nonConcurrent") {
             WHERE id = 2
         """
 
+        // Read through a different SDK/engine, including the deepest SQL container path.
+        def strings = { rows -> rows.collect { row ->
+            row.collect { value -> value == null ? null : value.toString() }
+        } }
+        assertEquals([["array-object", "2", "struct-object", "first", "second"]],
+                strings(spark_paimon("""SELECT
+                    try_variant_get(variants[0], '\$.kind', 'string'),
+                    try_variant_get(variant_map['object'], '\$.n', 'int'),
+                    try_variant_get(variant_struct.payload, '\$.kind', 'string'),
+                    try_variant_get(first_payload, '\$.column', 'string'),
+                    try_variant_get(second_payload, '\$[0]', 'string')
+                    FROM paimon.${dbName}.t_variant_nested WHERE id=1""")))
+        assertEquals([["deep-ok"]], strings(spark_paimon("""SELECT
+                    try_variant_get(deep.level1[0]['outer'].payload,
+                        '\$.level2.level3.level4.value', 'string')
+                    FROM paimon.${dbName}.t_variant_deep WHERE id=1""")))
+        assertEquals([["1"]], strings(spark_paimon("""SELECT
+                    CAST(deep.level1[0]['null-leaf'].payload IS NULL AS INT)
+                    FROM paimon.${dbName}.t_variant_deep WHERE id=2""")))
+
         // Refreshing metadata must not affect nested Variant reads.
         sql """REFRESH TABLE t_variant_deep"""
         qt_variant_deep_count """SELECT COUNT(*) FROM t_variant_deep"""
         }
     } finally {
+        sql """SET paimon_write_backend = '${originalWriteBackend}'"""
         sql """SET force_jni_scanner = false"""
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
     }
