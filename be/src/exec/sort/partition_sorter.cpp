@@ -162,9 +162,42 @@ Status PartitionSorter::_read_row_rank(Block* output_block, bool* eos, int batch
     auto& m_block = scoped_mutable_block.mutable_block();
     MutableColumns& merged_columns = m_block.mutable_columns();
     size_t merged_rows = 0;
+    // Whether the requested rank/dense_rank groups have actually been fully
+    // emitted. Only set to true when (a) we hit the boundary to the next
+    // distinct group while _get_enough_data() is true, or (b) the input
+    // queue is exhausted. This guards the Defer below from incorrectly
+    // signaling EOS just because _get_enough_data() became true after
+    // emitting the very first row of the last allowed group.
+    bool finished = false;
 
     Defer defer {[&]() {
-        if (merged_rows == 0 || _get_enough_data()) {
+        // Previously this also set *eos = true whenever _get_enough_data()
+        // returned true. That is wrong for DENSE_RANK / RANK with a small
+        // partition_inner_limit (e.g. = 1):
+        //
+        //   - For DENSE_RANK, _get_enough_data() turns true after the first
+        //     row of the first group is emitted (since _output_distinct_rows
+        //     becomes 1 == limit). But the rest of the (potentially huge)
+        //     dense_rank=1 group has not been emitted yet -- it must be
+        //     drained across multiple get_next() calls.
+        //   - When the loop exits because merged_rows reached batch_size,
+        //     the old Defer would set *eos = true and the source operator
+        //     would immediately advance to the next sorter, silently
+        //     dropping all remaining rows of the current dense_rank=1
+        //     group. Concretely, a query like
+        //         SELECT ... FROM (
+        //           SELECT *, dense_rank() OVER (PARTITION BY p ORDER BY o
+        //                                        DESC) dr FROM t
+        //         ) WHERE dr = 1
+        //     returns roughly batch_size * #pipeline_instances rows
+        //     instead of the full dense_rank=1 group, with the loss
+        //     proportional to 1/batch_size.
+        //
+        // Correct behavior: only signal EOS when we are sure no more rows
+        // of the requested groups remain to be emitted -- either we
+        // reached the boundary to the next group with the limit already
+        // satisfied, or the input queue ran out of data.
+        if (merged_rows == 0 || finished) {
             *eos = true;
         }
     }};
@@ -182,6 +215,10 @@ Status PartitionSorter::_read_row_rank(Block* output_block, bool* eos, int batch
                 // rank() maybe need check when have get a distinct row
                 // so when the cmp_res is get a distinct row, need check have output all rows num
                 if (_get_enough_data()) {
+                    // Real boundary: we are about to start a new distinct
+                    // group beyond the limit. Stop here and let Defer set
+                    // *eos = true.
+                    finished = true;
                     scoped_mutable_block.restore();
                     return Status::OK();
                 }
@@ -199,6 +236,12 @@ Status PartitionSorter::_read_row_rank(Block* output_block, bool* eos, int batch
                 queue.remove_top();
             }
         }
+    }
+
+    // If the input queue is fully drained, there is no more data to emit;
+    // signal EOS via Defer.
+    if (!queue.is_valid()) {
+        finished = true;
     }
 
     return Status::OK();
