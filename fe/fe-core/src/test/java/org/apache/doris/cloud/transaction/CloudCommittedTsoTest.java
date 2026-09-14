@@ -23,10 +23,10 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
-import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.transaction.TransactionUtil;
 import org.apache.doris.tso.TSOService;
 
@@ -43,30 +43,10 @@ import java.util.List;
 
 public class CloudCommittedTsoTest {
     @Test
-    public void testLazyCommitResponseDoesNotReleaseTsoUntilReallyVisible() {
+    public void testOrdinarySubTransactionAndTwoPhaseCommitReuseTsoAcrossRpcRetries() throws Exception {
         Env env = Mockito.mock(Env.class);
         TSOService tsoService = Mockito.mock(TSOService.class);
         Mockito.when(env.getTSOService()).thenReturn(tsoService);
-        CommitTxnResponse.Builder response = CommitTxnResponse.newBuilder()
-                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK))
-                .setTxnInfo(TxnInfoPB.newBuilder().setStatus(Cloud.TxnStatusPB.TXN_STATUS_VISIBLE))
-                .setIsLazyCommit(true).setIsLazyCommitIncomplete(true);
-        try (MockedStatic<Env> mocked = Mockito.mockStatic(Env.class)) {
-            mocked.when(Env::getCurrentEnv).thenReturn(env);
-            CloudGlobalTransactionMgr.releaseFinishedTso(1, 10, response.build());
-            Mockito.verifyNoInteractions(tsoService);
-            response.setIsLazyCommitIncomplete(false);
-            CloudGlobalTransactionMgr.releaseFinishedTso(1, 10, response.build());
-            Mockito.verify(tsoService).transactionFinished(1, 10);
-            response.setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.TXN_ALREADY_ABORTED));
-            CloudGlobalTransactionMgr.releaseFinishedTso(2, 20, response.build());
-            Mockito.verify(tsoService).transactionFinished(2, 20);
-        }
-    }
-
-    @Test
-    public void testOrdinarySubTransactionAndTwoPhaseCommitReuseTsoAcrossRpcRetries() throws Exception {
-        Env env = Mockito.mock(Env.class);
         InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
         Database db = Mockito.mock(Database.class);
         Mockito.when(db.getId()).thenReturn(1L);
@@ -104,9 +84,50 @@ public class CloudCommittedTsoTest {
                 Assertions.assertEquals(500L, requests.get(0).getCommitTso());
                 Assertions.assertEquals(path == 1, requests.get(0).getIsTxnLoad());
                 Assertions.assertEquals(path == 2, requests.get(0).getIs2Pc());
+                Mockito.verify(tsoService).abandonCommitTso(1, 10, 500);
                 allocation.verify(() -> TransactionUtil.getCommitTSO(10L, db, Collections.emptySet()));
                 allocation.clearInvocations();
+                Mockito.clearInvocations(tsoService);
             }
+        }
+    }
+
+    @Test
+    public void testUncertainCommitResultsAreFencedBeforeRelease() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        TSOService tsoService = Mockito.mock(TSOService.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database db = Mockito.mock(Database.class);
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        Mockito.when(env.getTSOService()).thenReturn(tsoService);
+        Mockito.when(catalog.getDbOrMetaException(1L)).thenReturn(db);
+        Mockito.when(proxy.commitTxn(Mockito.any())).thenThrow(new RpcException("ms", "timeout"));
+        Method commit = CloudGlobalTransactionMgr.class.getDeclaredMethod("commitTxn",
+                Cloud.CommitTxnRequest.Builder.class, List.class, long.class, boolean.class, List.class, List.class);
+        commit.setAccessible(true);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class);
+                MockedStatic<TransactionUtil> allocation = Mockito.mockStatic(TransactionUtil.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            mockedEnv.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            allocation.when(() -> TransactionUtil.getCommitTSO(10L, db, Collections.emptySet())).thenReturn(500L);
+
+            Assertions.assertThrows(InvocationTargetException.class,
+                    () -> commit.invoke(new CloudGlobalTransactionMgr(),
+                            Cloud.CommitTxnRequest.newBuilder().setDbId(1).setTxnId(10),
+                            Collections.emptyList(), 10L, false, Collections.emptyList(), Collections.emptyList()));
+            Mockito.doReturn(CommitTxnResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(MetaServiceCode.KV_TXN_MAYBE_COMMITTED))
+                    .build()).when(proxy).commitTxn(Mockito.any());
+            Assertions.assertThrows(InvocationTargetException.class,
+                    () -> commit.invoke(new CloudGlobalTransactionMgr(),
+                            Cloud.CommitTxnRequest.newBuilder().setDbId(1).setTxnId(10),
+                            Collections.emptyList(), 10L, false, Collections.emptyList(), Collections.emptyList()));
+            Mockito.verify(tsoService, Mockito.times(2)).fenceAndAbandonCommitTso(1, 10, 500);
+            Mockito.verify(tsoService, Mockito.never()).abandonCommitTso(Mockito.anyLong(), Mockito.anyLong(),
+                    Mockito.anyLong());
         }
     }
 

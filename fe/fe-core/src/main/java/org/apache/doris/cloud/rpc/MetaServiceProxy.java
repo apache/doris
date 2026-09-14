@@ -243,6 +243,12 @@ public class MetaServiceProxy {
 
         public <Response> Response executeRequest(String methodName, Function<MetaServiceClient, Response> function,
                 Function<Response, Cloud.MetaServiceResponseStatus> statusExtractor) throws RpcException {
+            return executeRequest(methodName, function, statusExtractor, true);
+        }
+
+        public <Response> Response executeRequest(String methodName, Function<MetaServiceClient, Response> function,
+                Function<Response, Cloud.MetaServiceResponseStatus> statusExtractor, boolean retryRpcFailure)
+                throws RpcException {
             long maxRetries = Config.meta_service_rpc_retry_cnt;
             for (long tried = 1; tried <= maxRetries; tried++) {
                 MetaServiceClient client = null;
@@ -280,7 +286,7 @@ public class MetaServiceProxy {
                         default:
                             shouldRetry = false;
                     }
-                    if (!shouldRetry || tried >= maxRetries) {
+                    if (!retryRpcFailure || !shouldRetry || tried >= maxRetries) {
                         throw new RpcException("", sre.getMessage(), sre);
                     }
                 } catch (RpcException e) {
@@ -288,7 +294,7 @@ public class MetaServiceProxy {
                 } catch (Exception e) {
                     requestFailed = true;
                     LOG.warn("failed to request meta servive trycnt {}", tried, e);
-                    if (tried >= maxRetries) {
+                    if (!retryRpcFailure || tried >= maxRetries) {
                         throw new RpcException("", e.getMessage(), e);
                     }
                 } finally {
@@ -318,6 +324,12 @@ public class MetaServiceProxy {
      */
     private <Response> Response executeWithMetrics(String methodName, Function<MetaServiceClient, Response> function,
             Function<Response, Cloud.MetaServiceResponseStatus> statusExtractor) throws RpcException {
+        return executeWithMetrics(methodName, function, statusExtractor, true);
+    }
+
+    private <Response> Response executeWithMetrics(String methodName, Function<MetaServiceClient, Response> function,
+            Function<Response, Cloud.MetaServiceResponseStatus> statusExtractor, boolean retryRpcFailure)
+            throws RpcException {
         long startTime = System.currentTimeMillis();
         if (MetricRepo.isInit && Config.isCloudMode()) {
             CloudMetrics.META_SERVICE_RPC_ALL_TOTAL.increase(1L);
@@ -325,7 +337,7 @@ public class MetaServiceProxy {
         }
 
         try {
-            Response response = w.executeRequest(methodName, function, statusExtractor);
+            Response response = w.executeRequest(methodName, function, statusExtractor, retryRpcFailure);
             if (MetricRepo.isInit && Config.isCloudMode()) {
                 CloudMetrics.META_SERVICE_RPC_LATENCY.getOrAdd(methodName)
                         .update(System.currentTimeMillis() - startTime);
@@ -421,7 +433,7 @@ public class MetaServiceProxy {
     public Cloud.CommitTxnResponse commitTxn(Cloud.CommitTxnRequest request)
             throws RpcException {
         return executeWithMetrics("commitTxn", (client) -> client.commitTxn(request),
-                Cloud.CommitTxnResponse::getStatus);
+                Cloud.CommitTxnResponse::getStatus, !request.hasCommitTso() || request.getCommitTso() <= 0);
     }
 
     public Cloud.AbortTxnResponse abortTxn(Cloud.AbortTxnRequest request)
@@ -468,12 +480,6 @@ public class MetaServiceProxy {
             throws RpcException {
         return executeWithMetrics("checkTxnConflict", (client) -> client.checkTxnConflict(request),
                 Cloud.CheckTxnConflictResponse::getStatus);
-    }
-
-    public Cloud.GetTsoRecoveryTransactionsResponse getTsoRecoveryTransactions(
-            Cloud.GetTsoRecoveryTransactionsRequest request) throws RpcException {
-        return executeWithMetrics("getTsoRecoveryTransactions", (client) -> client.getTsoRecoveryTransactions(request),
-                Cloud.GetTsoRecoveryTransactionsResponse::getStatus);
     }
 
     public Cloud.AdvanceTsoFenceResponse advanceTsoFence(Cloud.AdvanceTsoFenceRequest request)

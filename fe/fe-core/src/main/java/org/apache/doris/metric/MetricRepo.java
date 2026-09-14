@@ -316,9 +316,7 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_TSO_CLOCK_GET_SUCCESS;
     public static LongCounterMetric COUNTER_TSO_STATE_PERSISTED;
     public static LongCounterMetric COUNTER_TSO_STATE_PERSIST_FAILED;
-    public static LongCounterMetric COUNTER_TSO_RECONCILE_FAILED;
     public static Histogram HISTO_TSO_STATE_PERSIST_LATENCY;
-    public static Histogram HISTO_TSO_RECONCILE_LATENCY;
 
     private static Map<Pair<EtlJobType, JobState>, Long> loadJobNum = Maps.newHashMap();
 
@@ -1184,11 +1182,7 @@ public final class MetricRepo {
         COUNTER_TSO_STATE_PERSIST_FAILED = new LongCounterMetric("tso_state_persist_failed", MetricUnit.NOUNIT,
                 "failed TSO state journal writes");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_TSO_STATE_PERSIST_FAILED);
-        COUNTER_TSO_RECONCILE_FAILED = new LongCounterMetric("tso_reconcile_failed", MetricUnit.NOUNIT,
-                "failed TSO transaction reconciliation cycles");
-        DORIS_METRIC_REGISTER.addMetrics(COUNTER_TSO_RECONCILE_FAILED);
         HISTO_TSO_STATE_PERSIST_LATENCY = METRIC_REGISTER.histogram("tso_state_persist_latency_ms");
-        HISTO_TSO_RECONCILE_LATENCY = METRIC_REGISTER.histogram("tso_reconcile_latency_ms");
         Env.getCurrentEnv().getTSOService().registerMetrics();
 
         // init system metrics

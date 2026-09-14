@@ -55,8 +55,6 @@ import org.apache.doris.cloud.proto.Cloud.GetDeleteBitmapUpdateLockRequest;
 import org.apache.doris.cloud.proto.Cloud.GetDeleteBitmapUpdateLockResponse;
 import org.apache.doris.cloud.proto.Cloud.GetPrepareTxnByCoordinatorRequest;
 import org.apache.doris.cloud.proto.Cloud.GetPrepareTxnByCoordinatorResponse;
-import org.apache.doris.cloud.proto.Cloud.GetTsoRecoveryTransactionsRequest;
-import org.apache.doris.cloud.proto.Cloud.GetTsoRecoveryTransactionsResponse;
 import org.apache.doris.cloud.proto.Cloud.GetTxnIdRequest;
 import org.apache.doris.cloud.proto.Cloud.GetTxnIdResponse;
 import org.apache.doris.cloud.proto.Cloud.GetTxnRequest;
@@ -142,7 +140,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.google.protobuf.ByteString;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.StopWatch;
 import org.apache.logging.log4j.LogManager;
@@ -863,7 +860,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         // when ready to send, while retaining the existing table locks and callback cleanup scope.
         Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(builder.getDbId());
         Set<Long> commitTsoTableIds = tableList.stream().map(Table::getId).collect(Collectors.toSet());
-        builder.setCommitTso(TransactionUtil.getCommitTSO(transactionId, database, commitTsoTableIds));
+        long commitTso = TransactionUtil.getCommitTSO(transactionId, database, commitTsoTableIds);
+        if (commitTso > 0) {
+            builder.setCommitTso(commitTso);
+        }
         CommitTxnRequest commitTxnRequest = builder.build();
         try {
             while (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.commitTxn.blockAfterTso")) {
@@ -871,6 +871,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            if (commitTxnRequest.hasCommitTso()) {
+                Env.getCurrentEnv().getTSOService().abandonCommitTso(
+                        commitTxnRequest.getDbId(), transactionId, commitTxnRequest.getCommitTso());
+            }
             throw new UserException("Interrupted before sending commit transaction", e);
         }
 
@@ -914,10 +918,31 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             Preconditions.checkNotNull(commitTxnResponse.getStatus());
         } catch (Exception e) {
             LOG.warn("commitTxn failed, transactionId:{}, exception:", transactionId, e);
-            throw new UserException("commitTxn() failed, errMsg:" + e.getMessage());
+            if (commitTxnRequest.hasCommitTso()) {
+                try {
+                    Env.getCurrentEnv().getTSOService().fenceAndAbandonCommitTso(
+                            commitTxnRequest.getDbId(), transactionId, commitTxnRequest.getCommitTso());
+                } catch (UserException fenceException) {
+                    fenceException.addSuppressed(e);
+                    throw fenceException;
+                }
+            }
+            throw new UserException("commitTxn() failed, errMsg:" + e.getMessage(), e);
         }
 
-        releaseFinishedTso(commitTxnRequest.getDbId(), transactionId, commitTxnResponse);
+        MetaServiceCode code = commitTxnResponse.getStatus().getCode();
+        if (commitTxnRequest.hasCommitTso()) {
+            if (code == MetaServiceCode.KV_TXN_MAYBE_COMMITTED) {
+                Env.getCurrentEnv().getTSOService().fenceAndAbandonCommitTso(
+                        commitTxnRequest.getDbId(), transactionId, commitTxnRequest.getCommitTso());
+            } else if (code == MetaServiceCode.OK || code == MetaServiceCode.TXN_ALREADY_VISIBLE
+                    || code == MetaServiceCode.TXN_ALREADY_ABORTED) {
+                Env.getCurrentEnv().getTSOService().transactionFinished(commitTxnRequest.getDbId(), transactionId);
+            } else {
+                Env.getCurrentEnv().getTSOService().abandonCommitTso(
+                        commitTxnRequest.getDbId(), transactionId, commitTxnRequest.getCommitTso());
+            }
+        }
 
         if (is2PC && (commitTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_ALREADY_VISIBLE
                 || commitTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_ALREADY_ABORTED)) {
@@ -949,20 +974,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         afterCommitTxnResp(commitTxnResponse, tabletCommitInfos, tabletIds);
         return txnState;
-    }
-
-    // A lazy commit response can report VISIBLE before the persistent transaction is visible.
-    static void releaseFinishedTso(long dbId, long txnId, CommitTxnResponse response) {
-        if (response.getIsLazyCommitIncomplete()) {
-            return;
-        }
-        MetaServiceCode code = response.getStatus().getCode();
-        if (code == MetaServiceCode.TXN_ALREADY_VISIBLE || code == MetaServiceCode.TXN_ALREADY_ABORTED
-                || (code == MetaServiceCode.OK && response.hasTxnInfo()
-                && (response.getTxnInfo().getStatus() == TxnStatusPB.TXN_STATUS_VISIBLE
-                || response.getTxnInfo().getStatus() == TxnStatusPB.TXN_STATUS_ABORTED))) {
-            Env.getCurrentEnv().getTSOService().transactionFinished(dbId, txnId);
-        }
     }
 
     private void checkCommitInfo(CommitTxnRequestOrBuilder commitTxnRequest) throws UserException {
@@ -2232,30 +2243,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             conflictTxns.add(TxnUtil.transactionStateFromPb(infoPb));
         }
         return conflictTxns;
-    }
-
-    @Override
-    public GetTsoRecoveryTransactionsResponse getTsoRecoveryTransactions(long endTransactionId,
-            long tsoFence, ByteString startKey) throws UserException {
-        GetTsoRecoveryTransactionsRequest request = GetTsoRecoveryTransactionsRequest.newBuilder()
-                .setCloudUniqueId(Config.cloud_unique_id)
-                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
-                .setEndTxnId(endTransactionId)
-                .setTsoFence(tsoFence)
-                .setBatchSize(256).setStartKey(startKey).build();
-        GetTsoRecoveryTransactionsResponse response;
-        try {
-            response = MetaServiceProxy.getInstance().getTsoRecoveryTransactions(request);
-        } catch (RpcException e) {
-            throw new UserException("Failed to fetch TSO recovery transactions", e);
-        }
-        if (response.getStatus().getCode() != MetaServiceCode.OK) {
-            throw new UserException(response.getStatus().getMsg());
-        }
-        if (!response.hasNextStartKey()) {
-            throw new UserException("MetaService returned an incomplete TSO recovery batch");
-        }
-        return response;
     }
 
     @Override

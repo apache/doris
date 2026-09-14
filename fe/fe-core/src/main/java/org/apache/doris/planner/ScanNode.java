@@ -690,7 +690,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
                 // A time-based change read may have just waited for an old transaction to finish.
                 // Bypass the FE cache so the scan uses the version made visible by that transaction.
                 versions = hasIncrementalRead
-                        ? CloudPartition.getSnapshotVisibleVersionFromMs(partitions, false)
+                        ? CloudPartition.getSnapshotVisibleVersionFromMs(partitions, true)
                         : CloudPartition.getSnapshotVisibleVersion(partitions);
             } catch (RpcException e) {
                 throw new UserException("get visible version for OlapScanNode failed", e);

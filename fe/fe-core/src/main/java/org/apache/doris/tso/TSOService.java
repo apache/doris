@@ -64,34 +64,6 @@ public class TSOService extends MasterDaemon {
     private long pendingCalibrationPhysicalTime;
     private long pendingCalibrationWindowEnd;
     private long lastPersistNanos;
-    private final MasterDaemon transactionChecker = new MasterDaemon("TSO-transaction-checker", 1000) {
-        private long lastFailureLogNanos;
-
-        @Override
-        protected void runAfterCatalogReady() {
-            if (!Config.isCloudMode() || !isTsoEnabled() || !isInitialized.get()
-                    || !Env.getCurrentEnv().isMaster()) {
-                return;
-            }
-            long startNanos = System.nanoTime();
-            try {
-                transactionTracker.checkTransactions(Env.getCurrentGlobalTransactionMgr(), startNanos);
-            } catch (Exception e) {
-                if (lastFailureLogNanos == 0 || startNanos - lastFailureLogNanos >= TimeUnit.MINUTES.toNanos(1)) {
-                    LOG.warn("Failed to reconcile TSO transactions; retaining the committed TSO", e);
-                    lastFailureLogNanos = startNanos;
-                }
-                if (MetricRepo.isInit) {
-                    MetricRepo.COUNTER_TSO_RECONCILE_FAILED.increase(1L);
-                }
-            } finally {
-                if (MetricRepo.isInit) {
-                    MetricRepo.HISTO_TSO_RECONCILE_LATENCY.update(
-                            TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos));
-                }
-            }
-        }
-    };
 
     /**
      * Immutable snapshot of the current TSO service status.
@@ -151,8 +123,6 @@ public class TSOService extends MasterDaemon {
         gauges.put("tso_oldest_pending_tso", transactionTracker::getOldestPendingTso);
         gauges.put("tso_oldest_pending_txn_id", transactionTracker::getOldestPendingTxnId);
         gauges.put("tso_oldest_pending_age_ms", transactionTracker::getOldestPendingAgeMs);
-        gauges.put("tso_recovery_ready", () -> transactionTracker.isRecoveryReady() ? 1 : 0);
-        gauges.put("tso_recovery_watermark", transactionTracker::getRecoveryWatermark);
         gauges.forEach((name, value) -> MetricRepo.DORIS_METRIC_REGISTER.addMetrics(
                 new GaugeMetric<Long>(name, MetricUnit.NOUNIT, name) {
                     @Override
@@ -160,15 +130,6 @@ public class TSOService extends MasterDaemon {
                         return value.getAsLong();
                     }
                 }));
-    }
-
-    /**
-     * Start the TSO service.
-     */
-    @Override
-    public synchronized void start() {
-        super.start();
-        transactionChecker.start();
     }
 
     /**
@@ -271,6 +232,21 @@ public class TSOService extends MasterDaemon {
 
     public void transactionFinished(long dbId, long txnId) {
         transactionTracker.transactionFinished(dbId, txnId);
+    }
+
+    public void abandonCommitTso(long dbId, long txnId, long tso) {
+        transactionTracker.abandonCommitTso(dbId, txnId, tso);
+    }
+
+    public void fenceAndAbandonCommitTso(long dbId, long txnId, long tso) throws UserException {
+        try {
+            long effectiveFenceTso = Env.getCurrentEnv().getGlobalTransactionMgr().advanceTsoFence(tso);
+            Preconditions.checkState(effectiveFenceTso >= tso, "MetaService TSO fence must not regress");
+            transactionTracker.abandonCommitTso(dbId, txnId, tso);
+        } catch (Exception e) {
+            deactivate();
+            throw new UserException("Failed to fence an uncertain commit TSO", e);
+        }
     }
 
     private long getTSO(Pair<Long, Long> transactionIdentity, Set<Long> tableIds) {
@@ -397,8 +373,8 @@ public class TSOService extends MasterDaemon {
                     TSOTimestamp.composePhysicalTimestamp(endTimestampMs),
                     TimeUnit.MILLISECONDS.toNanos(timeoutMs) - (System.nanoTime() - startNanos));
             snapshot = getStatusSnapshot();
-            if (result == TSOTransactionTracker.WaitResult.RECOVERING) {
-                throw windowError(ErrorCode.ERR_INCR_WINDOW_NOT_READY, "TSO_RECOVERING",
+            if (result == TSOTransactionTracker.WaitResult.RESET) {
+                throw windowError(ErrorCode.ERR_INCR_WINDOW_NOT_READY, "TSO_MASTER_CHANGED",
                         endTimestampMs, snapshot, timeoutMs);
             }
             if (!Env.getCurrentEnv().isMaster()) {
@@ -503,10 +479,9 @@ public class TSOService extends MasterDaemon {
     }
 
     private long persistCalibrationWindow(long physicalTime) {
-        long fenceTso = TSOTimestamp.composePhysicalTimestamp(physicalTime);
         lock.lock();
         try {
-            transactionTracker.reset(fenceTso);
+            transactionTracker.reset();
         } finally {
             lock.unlock();
         }
@@ -747,7 +722,7 @@ public class TSOService extends MasterDaemon {
         lock.lock();
         try {
             if (isInitialized.getAndSet(false)) {
-                transactionTracker.invalidate();
+                transactionTracker.reset();
             }
         } finally {
             lock.unlock();

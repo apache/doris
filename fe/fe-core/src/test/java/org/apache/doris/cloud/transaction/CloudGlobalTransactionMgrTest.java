@@ -33,7 +33,6 @@ import org.apache.doris.cloud.proto.Cloud.BeginTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.CheckTxnConflictResponse;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.GetCurrentMaxTxnResponse;
-import org.apache.doris.cloud.proto.Cloud.GetTsoRecoveryTransactionsResponse;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
@@ -43,7 +42,6 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
-import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TabletCommitInfo;
@@ -52,7 +50,6 @@ import org.apache.doris.transaction.TxnStateChangeCallback;
 import org.apache.doris.tso.TSOService;
 
 import com.google.common.collect.Lists;
-import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -97,45 +94,6 @@ public class CloudGlobalTransactionMgrTest {
         }
         if (fakeEditLog != null) {
             fakeEditLog.close();
-        }
-    }
-
-    @Test
-    public void testTsoRecoveryRequiresCompleteBatchResponse() throws Exception {
-        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
-        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
-            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
-            GetTsoRecoveryTransactionsResponse.Builder response = GetTsoRecoveryTransactionsResponse.newBuilder()
-                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK));
-            Mockito.when(proxy.getTsoRecoveryTransactions(Mockito.any())).thenReturn(response.build());
-            Assertions.assertThrows(UserException.class,
-                    () -> masterTransMgr.getTsoRecoveryTransactions(1000, 900, ByteString.EMPTY));
-            Mockito.when(proxy.getTsoRecoveryTransactions(Mockito.any())).thenReturn(
-                    response.setNextStartKey(ByteString.EMPTY).build());
-            ByteString startKey = ByteString.copyFromUtf8("next batch");
-            Assertions.assertTrue(masterTransMgr.getTsoRecoveryTransactions(1000, 900, startKey)
-                    .getNextStartKey().isEmpty());
-            ArgumentCaptor<Cloud.GetTsoRecoveryTransactionsRequest> capture =
-                    ArgumentCaptor.forClass(Cloud.GetTsoRecoveryTransactionsRequest.class);
-            Mockito.verify(proxy, Mockito.times(2)).getTsoRecoveryTransactions(capture.capture());
-            Assertions.assertEquals(256, capture.getValue().getBatchSize());
-            Assertions.assertEquals(1000, capture.getValue().getEndTxnId());
-            Assertions.assertEquals(900, capture.getValue().getTsoFence());
-            Assertions.assertEquals(startKey, capture.getValue().getStartKey());
-            Mockito.verify(proxy, Mockito.never()).checkTxnConflict(Mockito.any());
-        }
-    }
-
-    @Test
-    public void testTsoRecoveryRpcFailureDoesNotFallBackToConflictCheck() throws Exception {
-        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
-        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
-            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
-            Mockito.when(proxy.getTsoRecoveryTransactions(Mockito.any()))
-                    .thenThrow(new RpcException("ms", "unknown method"));
-            Assertions.assertThrows(UserException.class,
-                    () -> masterTransMgr.getTsoRecoveryTransactions(1000, 900, ByteString.EMPTY));
-            Mockito.verify(proxy, Mockito.never()).checkTxnConflict(Mockito.any());
         }
     }
 
@@ -325,6 +283,7 @@ public class CloudGlobalTransactionMgrTest {
             Mockito.verify(proxy, Mockito.times(2)).commitTxn(requests.capture());
             Assertions.assertEquals(100L, requests.getAllValues().get(0).getCommitTso());
             Assertions.assertEquals(201L, requests.getAllValues().get(1).getCommitTso());
+            Mockito.verify(tsoService).transactionFinished(CatalogTestUtil.testDbId1, 123533L);
         } finally {
             table.setBinlogConfig(originalBinlogConfig);
             Config.enable_feature_binlog = originalEnableFeatureBinlog;
@@ -391,7 +350,6 @@ public class CloudGlobalTransactionMgrTest {
             ArgumentCaptor<Cloud.CommitTxnRequest> requestCaptor =
                     ArgumentCaptor.forClass(Cloud.CommitTxnRequest.class);
             Mockito.verify(mockProxy).commitTxn(requestCaptor.capture());
-            Assertions.assertTrue(requestCaptor.getValue().hasCommitTso());
             Assertions.assertEquals(2, requestCaptor.getValue().getTableStreamUpdatesCount());
             Assertions.assertEquals(identity, requestCaptor.getValue().getTableStreamUpdates(0).getIdentity());
             Assertions.assertEquals(partitionUpdate,
