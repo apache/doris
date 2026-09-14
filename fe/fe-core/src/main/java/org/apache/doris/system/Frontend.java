@@ -49,7 +49,7 @@ public class Frontend implements Writable {
     @SerializedName("cloudUniqueId")
     private String cloudUniqueId;
 
-    private String version;
+    private volatile String version;
     private transient String localResourceGroup = "";
 
     private int queryPort;

@@ -19,7 +19,9 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
@@ -40,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -98,6 +101,15 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
         } else if (constraint.isUnique()) {
             addConstraintAndInvalidate(
                     tableNameInfo, new UniqueConstraint(name, ImmutableSet.copyOf(columns)));
+        } else if (constraint.isDistributionMapping()) {
+            Pair<ImmutableList<String>, TableIf> distributionColumnsAndTable =
+                    extractColumnsAndTable(ctx, constraint.toDistributionProject());
+            if (table != distributionColumnsAndTable.second) {
+                throw new AnalysisException("Table changed while adding constraint on " + tableNameInfo);
+            }
+            addDistributionMapping(tableNameInfo, table,
+                    new DistributionMappingConstraint(
+                            name, constraint.getMappingId(), columns, distributionColumnsAndTable.first));
         } else {
             throw new AnalysisException("Unsupported constraint type: " + constraint);
         }
@@ -120,6 +132,34 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
         Env.getCurrentEnv().getConstraintManager().addConstraint(tableNameInfo, name, constraint, false);
         MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
                 String.format("after add constraint %s on table %s", constraint.getName(), tableNameInfo));
+    }
+
+    private void addDistributionMapping(TableNameInfo tableNameInfo,
+            TableIf analyzedTable, DistributionMappingConstraint constraint) throws Exception {
+        if (!(analyzedTable instanceof OlapTable)) {
+            throw new AnalysisException("Distribution mapping constraint only supports OLAP tables");
+        }
+        EditLog.EditLogItem logItem;
+        analyzedTable.getDatabase().readLock();
+        try {
+            if (analyzedTable.getDatabase().getCatalog().getDbNullable(tableNameInfo.getDb())
+                    != analyzedTable.getDatabase()
+                    || analyzedTable.getDatabase().getTableNullable(tableNameInfo.getTbl()) != analyzedTable) {
+                throw new AnalysisException("Table changed while adding constraint on " + tableNameInfo);
+            }
+            analyzedTable.writeLock();
+            try {
+                OlapTable table = (OlapTable) analyzedTable;
+                table.checkNormalStateForAlter();
+                logItem = Env.getCurrentEnv().getConstraintManager()
+                        .addDistributionMappingConstraint(tableNameInfo, table, constraint);
+            } finally {
+                analyzedTable.writeUnlock();
+            }
+        } finally {
+            analyzedTable.getDatabase().readUnlock();
+        }
+        logItem.await();
     }
 
     private Pair<ImmutableList<String>, TableIf> extractColumnsAndTable(ConnectContext ctx, LogicalPlan plan) {
