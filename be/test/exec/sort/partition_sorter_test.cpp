@@ -366,6 +366,54 @@ TEST_P(PartitionSorterRankTest, IntermediatePruningResumesAfterPeersShrink) {
     check_retained_rows(*partition, batch_rows, -2);
 }
 
+TEST_P(PartitionSorterRankTest, IntermediatePruningReleasesRejectedBlocks) {
+    auto partition = create_partition_blocks();
+    const size_t batch_rows = PARTITION_SORT_ROWS_THRESHOLD;
+    for (size_t batch = 0; batch < 4; ++batch) {
+        ASSERT_NO_FATAL_FAILURE(append_rows(*partition, std::vector<int64_t>(batch_rows, 0)));
+    }
+
+    // Shrink the retained group from four to two batches, still above the base interval.
+    for (size_t batch = 0; batch < 4; ++batch) {
+        ASSERT_NO_FATAL_FAILURE(
+                append_rows(*partition, std::vector<int64_t>(batch_rows, batch < 2 ? -1 : 0)));
+    }
+    check_retained_rows(*partition, 2 * batch_rows, -1);
+    EXPECT_EQ(partition->_partition_sort_rows_threshold, 2 * batch_rows);
+    auto& rank_sorter = partition->_partition_topn_sorter;
+    // Early EOS leaves six rejected batches unread. Release the queue and saved peer cursor.
+    EXPECT_FALSE(rank_sorter->_state->get_queue().is_valid());
+    EXPECT_EQ(partition->_previous_row->impl, nullptr);
+
+    ASSERT_NO_FATAL_FAILURE(append_rows(*partition, std::vector<int64_t>(2 * batch_rows - 1, -2)));
+    EXPECT_EQ(partition->_current_input_rows, 2 * batch_rows - 1);
+    ASSERT_NO_FATAL_FAILURE(append_rows(*partition, {-2}));
+    EXPECT_EQ(partition->_current_input_rows, 0);
+    check_retained_rows(*partition, 2 * batch_rows, -2);
+    EXPECT_FALSE(rank_sorter->_state->get_queue().is_valid());
+    EXPECT_EQ(partition->_previous_row->impl, nullptr);
+
+    // Exercise the final sink preparation with the sorter already reset by pruning.
+    partition->create_sorter_if_needed();
+    for (const auto& block : partition->_blocks) {
+        ASSERT_TRUE(rank_sorter->append_block(block.get()).ok());
+    }
+    partition->_blocks.clear();
+    ASSERT_TRUE(rank_sorter->prepare_for_read(false).ok());
+    bool eos = false;
+    size_t output_rows = 0;
+    for (size_t batch = 0; !eos && batch < 3; ++batch) {
+        Block output;
+        ASSERT_TRUE(rank_sorter->get_next(&_state, &output, &eos).ok());
+        output_rows += output.rows();
+        EXPECT_TRUE(ColumnHelper::block_equal(output,
+                                              ColumnHelper::create_block<DataTypeInt64>(
+                                                      std::vector<int64_t>(output.rows(), -2))));
+    }
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(output_rows, 2 * batch_rows);
+}
+
 INSTANTIATE_TEST_SUITE_P(RankAlgorithms, PartitionSorterRankTest,
                          testing::Values(TopNAlgorithm::RANK, TopNAlgorithm::DENSE_RANK));
 

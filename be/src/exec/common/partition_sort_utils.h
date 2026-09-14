@@ -90,7 +90,7 @@ public:
 
     Status do_partition_topn_sort();
 
-    void create_or_reset_sorter_state();
+    void create_sorter_if_needed();
 
     void append_whole_block(Block* input_block, const RowDescriptor& row_desc) {
         auto empty_block = Block::create_unique(VectorizedUtils::create_empty_block(row_desc));
