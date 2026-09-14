@@ -69,6 +69,8 @@ public abstract class TableValuedFunctionIf {
                 return new MvInfosTableValuedFunction(params);
             case PartitionsTableValuedFunction.NAME:
                 return new PartitionsTableValuedFunction(params);
+            case IndexDiskUsageTableValuedFunction.NAME:
+                return new IndexDiskUsageTableValuedFunction(params);
             case JobsTableValuedFunction.NAME:
                 return new JobsTableValuedFunction(params);
             case TasksTableValuedFunction.NAME:
