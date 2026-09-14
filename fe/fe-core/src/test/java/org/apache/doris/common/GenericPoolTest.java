@@ -32,6 +32,7 @@ import org.apache.doris.thrift.TGetTopNHotPartitionsRequest;
 import org.apache.doris.thrift.TGetTopNHotPartitionsResponse;
 import org.apache.doris.thrift.TIngestBinlogRequest;
 import org.apache.doris.thrift.TIngestBinlogResult;
+import org.apache.doris.thrift.TLanceIndexJobDispatch;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPublishTopicRequest;
 import org.apache.doris.thrift.TPublishTopicResult;
@@ -118,6 +119,11 @@ public class GenericPoolTest {
     private static class InternalProcessor implements BackendService.Iface {
         public InternalProcessor() {
             //
+        }
+
+        @Override
+        public TStatus submitLanceIndexJob(TLanceIndexJobDispatch dispatch) throws TException {
+            return null;
         }
 
         @Override
