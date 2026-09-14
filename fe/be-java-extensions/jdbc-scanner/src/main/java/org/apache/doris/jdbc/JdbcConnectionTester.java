@@ -202,6 +202,9 @@ public class JdbcConnectionTester extends JniScanner {
     }
 
     private String createCacheKey() {
-        return catalogId + "#" + jdbcUrl + "#" + jdbcUser + "#" + jdbcDriverClass;
+        // The checksum for the same reason JdbcDataSource.createCacheKey carries it: a pool is
+        // bound to the driver it was created with, and this one is only ever short-lived because
+        // BE asks for clean_datasource - the key must not be what makes that true.
+        return catalogId + "#" + jdbcUrl + "#" + jdbcUser + "#" + jdbcDriverClass + "#" + jdbcDriverChecksum;
     }
 }

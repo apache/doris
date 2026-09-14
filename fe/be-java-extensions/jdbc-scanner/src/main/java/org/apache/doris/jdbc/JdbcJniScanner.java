@@ -395,7 +395,8 @@ public class JdbcJniScanner extends JniScanner {
 
     private String createCacheKey() {
         return JdbcDataSource.createCacheKey(catalogId, jdbcUrl, jdbcUser, jdbcPassword,
-                jdbcDriverUrl, jdbcDriverClass, connectionPoolMinSize, connectionPoolMaxSize,
-                connectionPoolMaxLifeTime, connectionPoolMaxWaitTime, connectionPoolKeepAlive);
+                jdbcDriverUrl, jdbcDriverClass, jdbcDriverChecksum, connectionPoolMinSize,
+                connectionPoolMaxSize, connectionPoolMaxLifeTime, connectionPoolMaxWaitTime,
+                connectionPoolKeepAlive);
     }
 }

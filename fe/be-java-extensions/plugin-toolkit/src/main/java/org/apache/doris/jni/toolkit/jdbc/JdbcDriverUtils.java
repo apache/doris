@@ -27,7 +27,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Locale;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -57,11 +56,14 @@ import java.util.concurrent.ConcurrentHashMap;
  * cached loader was verified under discards it, because otherwise the check would report success
  * against bytes the process is not running.
  *
- * <p>Whether a jar has been checked is remembered SEPARATELY from the classloader, keyed by jar and
- * expected checksum rather than by jar and parent. Folding the two together looks equivalent and is
- * not: the connection tester runs first, under the same parent as the scanner, so once it had built
- * the loader every later scan took the cache's early return and never reached its own verifier -
- * one un-checksummed CREATE CATALOG disabled the check for that jar for the life of the process.
+ * <p>Whether a jar has been checked is remembered SEPARATELY from the classloader, keyed by jar
+ * alone rather than by jar and parent: the checksum the jar's current loaders were verified under.
+ * Folding the two together looks equivalent and is not: the connection tester runs first, under
+ * the same parent as the scanner, so once it had built the loader every later scan took the
+ * cache's early return and never reached its own verifier - one un-checksummed CREATE CATALOG
+ * disabled the check for that jar for the life of the process. And it is ONE checksum per jar, not
+ * the set of every checksum that ever passed: a set answers "was A ever right for this jar", and
+ * after the jar had been A, then B, that answer handed back the loaders built from B.
  */
 public final class JdbcDriverUtils {
 
@@ -75,22 +77,28 @@ public final class JdbcDriverUtils {
     private static final ConcurrentHashMap<DriverKey, Object> LOAD_LOCKS = new ConcurrentHashMap<>();
 
     /**
-     * Jars already checked, as "<url>\0<expectation>". Not keyed by parent: the bytes behind a URL
-     * are the same bytes whichever plugin asked, so one read answers for all of them - which is the
-     * whole reason this is remembered at all. Two catalogs naming the same URL with DIFFERENT
-     * checksums are two entries and both get checked; exactly one of them can pass.
-     */
-    private static final Set<String> VERIFIED = ConcurrentHashMap.newKeySet();
-
-    /**
-     * Per driver jar URL, the expectation the classloaders cached for it were built under.
+     * Per driver jar URL, the expectation the classloaders cached for it were built under - and,
+     * by the same token, the one expectation that counts as already checked for that URL.
      *
-     * <p>This is what connects the two caches above, which are otherwise deliberately independent.
-     * A new expectation for a URL that already has a loader means the operator replaced the jar in
-     * place and told Doris its new checksum; the bytes just verified are then NOT the bytes the
-     * cached loader was built from. Without this the check reports success against the current jar
-     * while every query keeps using the old driver until BE restarts - a verification that passes
-     * for a driver the process is not running.
+     * <p>Not keyed by parent: the bytes behind a URL are the same bytes whichever plugin asked, so
+     * one read answers for all of them - which is the whole reason this is remembered at all. Two
+     * catalogs naming the same URL with DIFFERENT checksums both get checked; exactly one of them
+     * can pass, and only that one is recorded here.
+     *
+     * <p>This is what connects the loader cache above to the verifier. A new expectation for a URL
+     * that already has a loader means the operator replaced the jar in place and told Doris its
+     * new checksum; the bytes just verified are then NOT the bytes the cached loader was built
+     * from. Without this the check reports success against the current jar while every query keeps
+     * using the old driver until BE restarts - a verification that passes for a driver the process
+     * is not running.
+     *
+     * <p>ONE value per URL, deliberately, rather than the set of every checksum that ever passed.
+     * A set remembers "A was right once" past the point where the jar stopped being A: after A,
+     * then B, a request declaring A again found its answer in the set, skipped the comparison that
+     * would have noticed the loaders were built under B, and was handed the B loader - for a jar
+     * that had either been rolled back to A, where the loaders must be rebuilt, or was still B,
+     * where the declaration is wrong and must fail. Either way A is a question to ask the jar
+     * again, which "current expectation differs" is exactly the condition for.
      *
      * <p>An entry is written whenever a loader is created, NOT only when an expectation was stated:
      * a catalog defined without {@code jdbc_driver_checksum} produces no expectation at all, and
@@ -253,19 +261,20 @@ public final class JdbcDriverUtils {
         }
     }
 
-    /**
-     * Runs the verifier unless this exact question - this jar, this expectation - was already
-     * answered in this process.
-     *
-     * @param loaderIsNew whether the classloader is about to be created, which is the only thing a
-     *                    verifier that cannot state its expectation can be keyed on
-     */
     /** What {@link #LOADED_UNDER} records for a loader built under {@code verifier}. */
     private static String declaredExpectation(DriverJarVerifier verifier) {
         String expectation = verifier == null ? null : verifier.expectation();
         return expectation == null ? UNDECLARED : expectation;
     }
 
+    /**
+     * Runs the verifier unless this exact question - this jar, this expectation - is the one the
+     * jar's loaders currently stand on; see {@link #LOADED_UNDER} for why "was answered once" is
+     * not enough.
+     *
+     * @param loaderIsNew whether the classloader is about to be created, which is the only thing a
+     *                    verifier that cannot state its expectation can be keyed on
+     */
     private static void verifyOnce(URL driverJar, DriverJarVerifier verifier, boolean loaderIsNew) {
         if (verifier == null) {
             return;
@@ -277,23 +286,31 @@ public final class JdbcDriverUtils {
             }
             return;
         }
-        String token = driverJar.toString() + '\0' + expectation;
-        if (VERIFIED.contains(token)) {
+        String url = driverJar.toString();
+        // "Already checked" means checked AND still what the loaders were built under. A checksum
+        // that passed before the jar changed is not an answer any more (see LOADED_UNDER).
+        if (expectation.equals(LOADED_UNDER.get(url))) {
             return;
         }
         // Recorded after it passes, so a throw is not remembered as a pass. Two threads racing here
         // both read the jar once, which is a cheap price for not holding a lock across the read.
         verifier.verify(driverJar);
-        VERIFIED.add(token);
 
         // A DIFFERENT expectation than the cached loaders for this jar were built under means the
         // jar behind the URL changed and the operator said so (ALTER CATALOG ... driver_checksum).
         // The bytes just verified are the new ones; the loaders hold the old ones. Drop them so the
         // next request rebuilds from what was actually checked.
-        String previous = LOADED_UNDER.put(driverJar.toString(), expectation);
+        //
+        // Dropped BEFORE the new expectation is published, not after. In between the two, a thread
+        // declaring the new checksum finds it current, takes the early return above, and is handed
+        // whatever loader is still cached - which in the other order is the old one this drop is
+        // for, and it would then stay current until the next checksum change. In this order the
+        // worst that thread gets is a second read of the jar.
+        String previous = LOADED_UNDER.get(url);
         if (previous != null && !previous.equals(expectation)) {
             dropLoaders(driverJar);
         }
+        LOADED_UNDER.put(url, expectation);
     }
 
     /**
@@ -322,12 +339,10 @@ public final class JdbcDriverUtils {
         DriverKey key = new DriverKey(toUrl(driverUrl), parent);
         DRIVER_CLASS_LOADERS.remove(key);
         // ...and re-verifies it, which is what this promises. The jar behind the URL may well be a
-        // different one by now - that is a reason someone invalidates.
-        String prefix = key.driverUrl.toString() + '\0';
-        VERIFIED.removeIf(token -> token.startsWith(prefix));
-        // Forgotten too, so that the next verification is a first one rather than a change: with a
-        // stale entry left here, re-verifying the same expectation would look unchanged and
-        // re-verifying a new one would drop loaders that no longer exist.
+        // different one by now - that is a reason someone invalidates. Forgotten rather than kept,
+        // so that the next verification is a first one rather than a change: with a stale entry
+        // left here, re-verifying the same expectation would look already answered and skip the
+        // read, and re-verifying a new one would drop loaders that no longer exist.
         LOADED_UNDER.remove(key.driverUrl.toString());
     }
 

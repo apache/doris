@@ -120,12 +120,14 @@ final class PluginRuntime {
      * <p>ISOLATION IS PRESERVED: each plugin loads its own copy of these classes in its own
      * classloader, exactly as it does for hadoop-common. Nothing is shared but the files.
      *
-     * <p>CAVEAT, unchanged from when build.sh copied the JindoFS jars into two plugin directories:
-     * jindo-core carries a native library, and a JVM binds one of those to exactly one
-     * classloader. A BE that reads {@code oss://} through two different plugins at once makes the
-     * second bind, which fails. This is inherent to plugin isolation rather than to this
-     * directory - a single shared loader for these jars is not possible, since they need the
-     * hadoop that lives inside each plugin.
+     * <p>The native library inside jindo-core is not a reason to share more than the files. A JVM
+     * binds a given .so file to exactly one classloader, so every plugin after the first that
+     * resolves jindo from here looks like a second bind - but jindo's own loader
+     * ({@code com.aliyun.jindodata.jnative.NativeCodeLoader}, read in 6.10.4, the version
+     * thirdparty packages) expects exactly that: when {@code System.load} fails with "already
+     * loaded in another classloader" it copies the extracted library to a UUID-suffixed file,
+     * loads that copy for the asking classloader, and deletes the file. Each plugin, and libhdfs
+     * on the system classpath beside them, ends up with a binding of its own.
      */
     private List<URL> sharedFilesystemJars() {
         if (fsDir == null || !Files.isDirectory(fsDir)) {

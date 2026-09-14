@@ -661,22 +661,33 @@ if [[ -z "${RECORD_COMPILER_SWITCHES}" ]]; then
     RECORD_COMPILER_SWITCHES='OFF'
 fi
 
-if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && "${TARGET_SYSTEM}" == 'Darwin' ]]; then
+# A BE built on macOS needs a JDK for this machine's architecture, and it needs one whether or
+# not the Java extensions are built: be/ includes jni.h unconditionally and doris_be links
+# libjvm, so a missing JDK fails the C++ build at the first JNI header and a Rosetta JDK fails
+# it at link time. This used to be a fallback that skipped the Java extension build, wrote
+# enable_java_support=false into be.conf and carried on, on the theory that a BE without Java
+# was still a BE - it had libhdfs3, so it could at least read HDFS. Neither half holds any more:
+# libhdfs3 is gone and the only HDFS client is hadoop's libhdfs, which runs in the JVM, so a BE
+# that cannot start one has no HDFS either; and the C++ build never survived the missing JDK in
+# the first place, so what the fallback produced was a warning followed by an unrelated-looking
+# compile or link error some minutes later. Checked up front and fatal instead.
+if [[ "${BUILD_BE}" -eq 1 && "${TARGET_SYSTEM}" == 'Darwin' ]]; then
     if [[ -z "${JAVA_HOME}" ]]; then
         CAUSE='the environment variable JAVA_HOME is not set'
     else
         LIBJVM="$(find -L "${JAVA_HOME}/" -name 'libjvm.dylib')"
         if [[ -z "${LIBJVM}" ]]; then
-            CAUSE="the library libjvm.dylib is missing"
+            CAUSE="there is no libjvm.dylib under JAVA_HOME=${JAVA_HOME}"
         elif [[ "$(file "${LIBJVM}" | awk '{print $NF}')" != "$(uname -m)" ]]; then
-            CAUSE='the architecture which the library libjvm.dylib is built for does not match'
+            CAUSE="the libjvm.dylib under JAVA_HOME=${JAVA_HOME} is not built for $(uname -m)"
         fi
     fi
 
     if [[ -n "${CAUSE}" ]]; then
-        echo -e "\033[33;1mWARNNING: \033[37;1mSkip building with BE Java extensions due to ${CAUSE}.\033[0m"
-        BUILD_BE_JAVA_EXTENSIONS=0
-        BUILD_BE_JAVA_EXTENSIONS_FALSE_IN_CONF=1
+        echo -e "\033[31;1mERROR: \033[37;1mCannot build BE on macOS: ${CAUSE}.\033[0m"
+        echo "       BE includes jni.h and links libjvm unconditionally, so it needs a JDK built for"
+        echo "       $(uname -m) even with DISABLE_BE_JAVA_EXTENSIONS=ON. Point JAVA_HOME at one."
+        exit 1
     fi
 fi
 
@@ -1398,15 +1409,6 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
         cp -r -p "${DORIS_THIRDPARTY}/installed/lib/libz.so"* "${DORIS_OUTPUT}/be/lib/"
     fi
 
-    if [[ "${BUILD_BE_JAVA_EXTENSIONS_FALSE_IN_CONF}" -eq 1 ]]; then
-        echo -e "\033[33;1mWARNNING: \033[37;1mDisable Java UDF support in be.conf due to the BE was built without Java UDF.\033[0m"
-        cat >>"${DORIS_OUTPUT}/be/conf/be.conf" <<EOF
-
-# Java UDF and BE-JAVA-EXTENSION support
-enable_java_support = false
-EOF
-    fi
-
     # Fix Killed: 9 error on MacOS (arm64).
     # See: https://stackoverflow.com/questions/67378106/mac-m1-cping-binary-over-another-results-in-crash
     if [[ -f "${DORIS_HOME}/be/output/lib/doris_be" ]]; then
@@ -1453,8 +1455,7 @@ EOF
     fi
 
     # Everything from here to the end of this block deploys what the Java extension build
-    # produced, so it only runs when there was one. DISABLE_BE_JAVA_EXTENSIONS=ON (and the
-    # Darwin fallback that sets the same flag when JAVA_HOME has no usable libjvm) leaves every
+    # produced, so it only runs when there was one. DISABLE_BE_JAVA_EXTENSIONS=ON leaves every
     # target/ below empty, and the plugin loop is a hard failure when a jar is missing - which
     # is how a BE-only build, .github/workflows/be-ut-mac.yml included, died here.
     if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
@@ -1471,6 +1472,17 @@ EOF
                     break
                 fi
             done
+        fi
+        if [[ "${deploy_hadoop_deps}" -eq 0 ]]; then
+            # Named in BE_EXTENSION_IGNORE, which is a statement about what this BE must NOT carry -
+            # unlike DISABLE_BE_JAVA_EXTENSIONS=ON, which never reaches this block and is a
+            # statement about what was not built (see the wipe in the deploy branch below for why
+            # that case keeps the directory). An output directory reused from a build that did
+            # deploy the hadoop drop still holds it, and start_be.sh puts whatever is here on the
+            # classpath, so the explicit exclusion has to remove it or a fresh and a reused output
+            # would disagree about the same flags.
+            echo "Remove Be Extensions hadoop deps jars from ${DORIS_OUTPUT}/be/lib/hadoop_hdfs/: ${HADOOP_DEPS_NAME} is ignored"
+            rm -rf "${DORIS_OUTPUT}/be/lib/hadoop_hdfs"
         fi
 
         # The shared layer: the SPI a plugin compiles against and the loader that reads the plugin
@@ -1571,8 +1583,10 @@ EOF
             # Wiped HERE, inside the branch that refills it, and not earlier: a machine that built once
             # with Java extensions and then again with DISABLE_BE_JAVA_EXTENSIONS=ON into the same
             # output/ used to lose this directory for good, and with libhdfs3 gone that BE has no HDFS
-            # path left at all. Wiped rather than merged so that a version bump cannot leave two jar
-            # versions of the same dependency side by side for start_be.sh's *.jar glob to find.
+            # path left at all. (An EXPLICIT --be-extension-ignore hadoop-deps is the other case and
+            # is wiped above: there the operator asked for no hadoop, not for whatever was there.)
+            # Wiped rather than merged so that a version bump cannot leave two jar versions of the
+            # same dependency side by side for start_be.sh's *.jar glob to find.
             rm -rf "${BE_HADOOP_HDFS_DIR}"
             mkdir "${BE_HADOOP_HDFS_DIR}"
             HADOOP_DEPS_JAR_DIR="${DORIS_HOME}/fe/be-java-extensions/${HADOOP_DEPS_NAME}/target"
@@ -1642,11 +1656,12 @@ EOF
     # check below to adjudicate - which matters because the JuiceFS SDK is a 180 MB fat jar that
     # collides with about 1500 classes in a lake-format plugin.
     #
-    # CAVEAT, unchanged by that: jindo-core carries a native library, and a JVM binds one of those
-    # to exactly one classloader. A process that reaches jindo from two plugins at once, or from a
-    # plugin AND through libhdfs, makes the second bind and it fails. That is inherent to plugin
-    # isolation - a single shared loader for these jars is impossible, since they need the hadoop
-    # that lives inside each plugin.
+    # The native library in jindo-core is not an obstacle to this. A JVM binds a given .so to one
+    # classloader, so every plugin after the first that resolves jindo from here looks like a
+    # second bind - but jindo's own NativeCodeLoader (6.10.4, the version thirdparty packages)
+    # handles exactly that: on "already loaded in another classloader" it copies the extracted
+    # library to a UUID-suffixed file and loads that copy for the asking classloader. Each plugin,
+    # and libhdfs on the system classpath beside them, gets a binding of its own.
 
     # The layout the isolation rests on, checked on the tree that was just deployed: the SPI jars
     # carry nothing but the SPI, no plugin ships a copy of them, no plugin directory holds the same

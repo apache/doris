@@ -240,6 +240,57 @@ class JdbcDriverUtilsTest {
     }
 
     /**
+     * A checksum that passed once is not a verdict for the rest of the process: after A, then B,
+     * asking for A again has to go back to the jar.
+     *
+     * <p>Two things can be true of the jar at that point and they need opposite answers. It was
+     * rolled back to A - the operator reverted a bad driver and re-declared the old checksum - so
+     * the loaders built from B must go and A's bytes must be loaded. Or it is still B and the
+     * declaration is simply wrong, which must fail like any other mismatch. Remembering every
+     * checksum that ever passed answered "A, already checked" to both, never compared A against
+     * the loaders that were by then built under B, and handed back the B loader for either.
+     */
+    @Test
+    void rollingBackToAnEarlierChecksumReplacesTheClassLoaderAgain(@TempDir Path dir) throws IOException {
+        String jar = driverJar(dir, "rolled-back.jar");
+        Path file = Path.of(URI.create(jar));
+        ClassLoader parent = getClass().getClassLoader();
+        byte[] bytesA = Files.readAllBytes(file);
+        String checksumA = md5Of(jar);
+
+        ClassLoader underA = JdbcDriverUtils.driverClassLoader(jar, parent,
+                JdbcDriverUtils.checksumVerifier(checksumA));
+
+        Files.write(file, "a different driver".getBytes(StandardCharsets.UTF_8));
+        String checksumB = md5Of(jar);
+        ClassLoader underB = JdbcDriverUtils.driverClassLoader(jar, parent,
+                JdbcDriverUtils.checksumVerifier(checksumB));
+        Assertions.assertNotSame(underA, underB);
+
+        // Still B on disk, A declared again: a stale declaration, not a rollback. It must be
+        // compared against the jar and fail, not be waved through as already checked.
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> JdbcDriverUtils.driverClassLoader(jar, parent,
+                        JdbcDriverUtils.checksumVerifier(checksumA)),
+                "A passed once, but the jar is B now; declaring A is a mismatch");
+        Assertions.assertSame(underB, JdbcDriverUtils.driverClassLoader(jar, parent,
+                JdbcDriverUtils.checksumVerifier(checksumB)),
+                "a failed re-check of A must leave the B loader in place");
+
+        // Now an actual rollback: the bytes are A again and the operator says so.
+        Files.write(file, bytesA);
+        ClassLoader underAAgain = JdbcDriverUtils.driverClassLoader(jar, parent,
+                JdbcDriverUtils.checksumVerifier(checksumA));
+
+        Assertions.assertNotSame(underB, underAAgain,
+                "the loaders were built from B's bytes; a verified rollback to A must not hand"
+                        + " them back");
+        Assertions.assertSame(underAAgain, JdbcDriverUtils.driverClassLoader(jar, parent,
+                JdbcDriverUtils.checksumVerifier(checksumA)),
+                "and the rebuilt loader is the cached one, so A is not re-read on every request");
+    }
+
+    /**
      * The same discard, for the catalog that had NO checksum when it was created - which is the
      * ordinary way to get here and the way the discard used to miss entirely.
      *
