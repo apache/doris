@@ -4276,4 +4276,48 @@ public class Config extends ConfigBase {
                     "Static upper bound for num_sub_vectors of Lance IVF_PQ indexes."})
     public static int lance_index_max_num_sub_vectors = 256;
 
+    @ConfField(mutable = true, masterOnly = true,
+            callback = LanceIndexConfigValidator.PositiveIntConfigHandler.class,
+            description = {"Lance 索引 job 派发器(含 deadline/possible-live 扫掠与 refresh 驱动)的轮询周期(秒)。",
+                    "Polling interval in seconds of the Lance index job dispatcher "
+                    + "(dispatch sweep, deadline/possible-live sweeps, and refresh driver)."})
+    public static int lance_index_job_dispatch_interval_second = 10;
+
+    @ConfField(mutable = true, masterOnly = true,
+            callback = LanceIndexConfigValidator.PositiveLongConfigHandler.class,
+            description = {"单个 Lance 索引 job 派发后的结果等待上限(秒)。到期仍无完整可信结果即收敛为 UNKNOWN;"
+                    + "该期限只限定等待,不证明终止,也不释放 possible-live 槽位。",
+                    "Wait bound in seconds for the result of one dispatched Lance index job. Expiry without "
+                    + "a complete trusted result converges the job to UNKNOWN; the deadline bounds the wait "
+                    + "only, never proves termination, and never releases a possible-live slot."})
+    public static long lance_index_job_execute_deadline_second = 3600;
+
+    @ConfField(mutable = true, masterOnly = true,
+            callback = LanceIndexConfigValidator.PositiveIntConfigHandler.class,
+            description = {"派发器单轮最多新派发的 Lance 索引 job 数(背压上限)。",
+                    "Maximum number of Lance index jobs newly dispatched per dispatcher round (backpressure)."})
+    public static int lance_index_job_max_dispatch_per_round = 16;
+
+    @ConfField(mutable = true, masterOnly = true,
+            callback = LanceIndexConfigValidator.PositiveIntConfigHandler.class,
+            description = {"单个 BE 上允许同时在途(RUNNING)的 Lance 索引 job 数上限。",
+                    "Maximum number of in-flight (RUNNING) Lance index jobs per backend."})
+    public static int lance_index_job_max_inflight_per_backend = 2;
+
+    @ConfField(mutable = true, masterOnly = true,
+            callback = LanceIndexConfigValidator.PositiveIntConfigHandler.class,
+            description = {"refresh 失败的 Lance 索引 job 的最小重试间隔(秒);首次刷新不受此间隔限制。",
+                    "Minimum retry interval in seconds for a terminal Lance index job whose metadata "
+                    + "refresh FAILED; the first refresh attempt is never delayed by this interval."})
+    public static int lance_index_job_refresh_retry_second = 300;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否允许 file:// 本地路径上的 Lance 索引变更派发(运维断言,默认关闭)。开启后派发仍要求"
+                    + "集群恰一台 FE 且目标 BE 是唯一存活 BE;对象存储是生产形态。",
+            "Operator assertion allowing dispatch of Lance index mutations on local file:// datasets "
+                    + "(disabled by default). When enabled, dispatch still requires exactly one FE in the "
+                    + "cluster and the target backend to be the only alive backend. Object storage is the "
+                    + "production mode."})
+    public static boolean enable_lance_index_local_file_mutation = false;
+
 }
