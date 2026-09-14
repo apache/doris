@@ -118,7 +118,7 @@ TEST_F(VWindowFunnelV2Test, testEmpty) {
     agg_function->destroy(place2);
 }
 
-TEST_F(VWindowFunnelV2Test, testWindowOverflowThrows) {
+TEST_F(VWindowFunnelV2Test, testWindowOverflow) {
     AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
     DataTypes data_types = {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeString>(),
                             std::make_shared<DataTypeDateTimeV2>(),
@@ -159,8 +159,25 @@ TEST_F(VWindowFunnelV2Test, testWindowOverflowThrows) {
     }
 
     ColumnInt32 result;
-    EXPECT_THROW(overflow_agg_function->insert_result_into(place, result), Exception);
+    overflow_agg_function->insert_result_into(place, result);
+    EXPECT_EQ(result.get_element(0), 2);
     overflow_agg_function->destroy(place);
+}
+
+TEST(VWindowFunnelV2DateTimeV2Test, PreservesMicrosecondWindowBoundary) {
+    WindowFunnelStateV2<TYPE_DATETIMEV2> state(2);
+    state.window = 1;
+    state.window_funnel_mode = WindowFunnelMode::DEFAULT;
+    DateV2Value<DateTimeV2ValueType> base;
+    DateV2Value<DateTimeV2ValueType> exact;
+    DateV2Value<DateTimeV2ValueType> outside;
+    base.unchecked_set_time(9999, 12, 31, 23, 59, 58, 0);
+    exact.unchecked_set_time(9999, 12, 31, 23, 59, 59, 0);
+    outside.unchecked_set_time(9999, 12, 31, 23, 59, 59, 1);
+    EXPECT_TRUE(state._within_window(base.to_date_int_val(), exact.to_date_int_val()));
+    EXPECT_FALSE(state._within_window(base.to_date_int_val(), outside.to_date_int_val()));
+    state.window = std::numeric_limits<int64_t>::max();
+    EXPECT_TRUE(state._within_window(base.to_date_int_val(), outside.to_date_int_val()));
 }
 
 TEST_F(VWindowFunnelV2Test, testSerialize) {

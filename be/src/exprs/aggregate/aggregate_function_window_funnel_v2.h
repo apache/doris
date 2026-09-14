@@ -259,14 +259,10 @@ struct WindowFunnelStateV2 {
                     static_cast<__int128>(window) * TimeStampNsValue::NANOS_PER_SECOND;
             return elapsed_nanos <= window_nanos;
         } else {
-            DateValueType end_ts = _ts_from_int(base_ts);
-            TimeInterval interval(SECOND, window, false);
-            if (!end_ts.template date_add_interval<SECOND>(interval)) {
-                throw Exception(ErrorCode::OUT_OF_BOUND,
-                                "Operation window_funnel of {}, {} out of range",
-                                end_ts.debug_string(), window);
-            }
-            return current_ts <= end_ts.to_date_int_val();
+            const auto base = _ts_from_int(base_ts);
+            const auto current = _ts_from_int(current_ts);
+            return static_cast<__int128>(current.datetime_diff_in_microseconds(base)) <=
+                   static_cast<__int128>(window) * 1000000;
         }
     }
 
