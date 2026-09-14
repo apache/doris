@@ -137,6 +137,8 @@ private:
     /// Associate one exact page read with its location in a scheduled physical range.
     void _register_page(ColumnReadAhead* column, const ColumnReadAheadPage& page,
                         std::shared_ptr<BufferedRange> range, size_t buffer_offset);
+    /// Attach a column's independently advanced window to an already buffered physical page.
+    bool _reuse_page(ColumnReadAhead* column, const ColumnReadAheadPage& page);
     /// Drop one column's prediction after its scan has passed the page.
     void _release_page(ColumnReadAhead* column, const ColumnReadAheadPage& page);
     /// Remove a page from every owning column and invoke the range consumer once after a successful
