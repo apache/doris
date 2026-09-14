@@ -2316,4 +2316,40 @@ TEST_F(FunctionCastToIntTest, test_from_time) {
     from_time_test_func<TYPE_BIGINT>();
     from_time_test_func<TYPE_LARGEINT>();
 }
+
+// A row that the input null map marks as NULL may still carry an arbitrary hidden payload in the
+// nested column of a Nullable input. That payload has no SQL semantics, so strict cast must skip
+// such rows instead of reporting the hidden value as out of range.
+TEST_F(FunctionCastToIntTest, test_strict_cast_skips_null_covered_payload) {
+    auto ctx = create_context(true);
+    auto to_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt8>());
+
+    auto run_and_check = [&](const DataTypePtr& from_type, ColumnPtr from_column,
+                             int8_t non_null_expected) {
+        auto fn = get_cast_wrapper(ctx.get(), from_type, to_type);
+        ASSERT_TRUE(fn != nullptr);
+
+        Block block = {
+                {std::move(from_column), from_type, "from"},
+                {nullptr, to_type, "to"},
+        };
+        ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+
+        const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+        const auto& null_map = result.get_null_map_data();
+        // The row with the hidden out-of-range payload stays NULL.
+        EXPECT_EQ(null_map[0], 1);
+        EXPECT_EQ(null_map[1], 0);
+        EXPECT_EQ(assert_cast<const ColumnInt8&>(result.get_nested_column()).get_data()[1],
+                  non_null_expected);
+    };
+
+    // Nullable(INT) -> Nullable(TINYINT), row 0 is NULL with hidden payload 128.
+    run_and_check(std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()),
+                  ColumnHelper::create_nullable_column<DataTypeInt32>({128, 1}, {1, 0}), 1);
+
+    // Nullable(DOUBLE) -> Nullable(TINYINT), row 0 is NULL with hidden payload 128.0.
+    run_and_check(std::make_shared<DataTypeNullable>(std::make_shared<DataTypeFloat64>()),
+                  ColumnHelper::create_nullable_column<DataTypeFloat64>({128.0, 1.0}, {1, 0}), 1);
+}
 } // namespace doris
