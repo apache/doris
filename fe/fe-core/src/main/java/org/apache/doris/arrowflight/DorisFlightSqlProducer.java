@@ -45,10 +45,15 @@ import org.apache.arrow.flight.FlightEndpoint;
 import org.apache.arrow.flight.FlightInfo;
 import org.apache.arrow.flight.FlightRuntimeException;
 import org.apache.arrow.flight.FlightStream;
+import org.apache.arrow.flight.GetSessionOptionsRequest;
+import org.apache.arrow.flight.GetSessionOptionsResult;
 import org.apache.arrow.flight.Location;
 import org.apache.arrow.flight.PutResult;
 import org.apache.arrow.flight.Result;
 import org.apache.arrow.flight.SchemaResult;
+import org.apache.arrow.flight.SessionOptionValue;
+import org.apache.arrow.flight.SetSessionOptionsRequest;
+import org.apache.arrow.flight.SetSessionOptionsResult;
 import org.apache.arrow.flight.Ticket;
 import org.apache.arrow.flight.sql.FlightSqlProducer;
 import org.apache.arrow.flight.sql.SqlInfoBuilder;
@@ -92,6 +97,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -632,20 +638,72 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         throw CallStatus.UNIMPLEMENTED.withDescription("getStreamCrossReference unimplemented").toRuntimeException();
     }
 
+    /**
+     * Sets session options: the current catalog, the current database and session variables, see
+     * {@link FlightSessionOptions}. The ADBC Flight SQL driver sends these for the connection's
+     * {@code adbc.connection.catalog} / {@code adbc.connection.db_schema} and for its
+     * {@code adbc.flight.sql.session.option.*} options; the Flight SQL JDBC driver for its
+     * {@code catalog} property. Each option is set on its own and answered on its own: the result
+     * names the ones that could not be set and why, and the action itself only fails when the
+     * session cannot be reached.
+     */
+    @Override
+    public void setSessionOptions(final SetSessionOptionsRequest request, final CallContext context,
+            final StreamListener<SetSessionOptionsResult> listener) {
+        try {
+            ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+            Map<String, SetSessionOptionsResult.Error> errors = FlightProtocolAdapter.of(connectContext)
+                    .callCommand(connectContext,
+                            () -> FlightSessionOptions.set(connectContext, request.getSessionOptions()));
+            listener.onNext(new SetSessionOptionsResult(errors));
+            listener.onCompleted();
+        } catch (FlightRuntimeException e) {
+            // Same as in getFlightInfoStatement: keep the status the session's command lock chose.
+            LOG.error("set session options failed", e);
+            listener.onError(e);
+        } catch (Throwable e) {
+            String errMsg = "set session options failed, " + e.getMessage();
+            LOG.error(errMsg, e);
+            listener.onError(CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException());
+        }
+    }
+
+    /** The session's options, see {@link FlightSessionOptions#get}. */
+    @Override
+    public void getSessionOptions(final GetSessionOptionsRequest request, final CallContext context,
+            final StreamListener<GetSessionOptionsResult> listener) {
+        try {
+            ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+            Map<String, SessionOptionValue> options = FlightProtocolAdapter.of(connectContext)
+                    .callCommand(connectContext, () -> FlightSessionOptions.get(connectContext));
+            listener.onNext(new GetSessionOptionsResult(options));
+            listener.onCompleted();
+        } catch (FlightRuntimeException e) {
+            LOG.error("get session options failed", e);
+            listener.onError(e);
+        } catch (Throwable e) {
+            String errMsg = "get session options failed, " + e.getMessage();
+            LOG.error(errMsg, e);
+            listener.onError(CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException());
+        }
+    }
+
+    /**
+     * Closes the session: its bearer token is invalidated at once, which unregisters its
+     * ConnectContext (releasing the cached results, the deferred executors and the transaction), and
+     * every later call made with that token is refused as UNAUTHENTICATED. The ADBC Flight SQL driver
+     * calls this from Connection.Close() and the Flight SQL JDBC driver from Connection.close().
+     */
     @Override
     public void closeSession(CloseSessionRequest request, final CallContext context,
             final StreamListener<CloseSessionResult> listener) {
-        // https://github.com/apache/arrow-adbc/issues/2821
-        // currently FlightSqlConnection does not provide a separate interface for external calls to
-        // FlightSqlClient::closeSession(), nor will it automatically call closeSession
-        // when FlightSqlConnection::close(). Python flight sql Cursor.close() will call closeSession().
-        // Neither C++ nor Java seem to have similar behavior.
         try {
             flightSessionsManager.closeConnectContext(context.peerIdentity());
         } catch (final Throwable e) {
             LOG.error("closeSession failed", e);
             listener.onError(
                     CallStatus.INTERNAL.withDescription("closeSession failed").withCause(e).toRuntimeException());
+            return;
         }
         listener.onNext(new CloseSessionResult(CloseSessionResult.Status.CLOSED));
         listener.onCompleted();
