@@ -895,8 +895,11 @@ int InstanceRecycler::recycle_operation_logs() {
             return res;
         }
 
-        if (i % 1000 == 0 && is_multi_version_status_changed() != 0) {
-            return -1;
+        if (i % 1000 == 0) {
+            metrics_context.update_metrics();
+            if (is_multi_version_status_changed() != 0) {
+                return -1;
+            }
         }
     }
     if (iter->error_code() != TxnErrorCode::TXN_OK) {

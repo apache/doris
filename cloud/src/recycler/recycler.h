@@ -29,6 +29,8 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -56,9 +58,6 @@ class InstanceRecycler;
 class StorageVaultAccessor;
 class Checker;
 class SimpleThreadPool;
-class RecyclerMetricsContext;
-class TabletRecyclerMetricsContext;
-class SegmentRecyclerMetricsContext;
 
 int64_t calculate_tmp_rowset_expired_time(
         const std::string& instance_id_, const doris::RowsetMetaCloudPB& tmp_rowset_meta_pb,
@@ -152,138 +151,69 @@ struct RowsetDeleteTask {
     std::string rowset_ref_count_key;
 };
 
+class RecyclerMetricValue {
+public:
+    // Workers update counters concurrently; publishers read relaxed snapshots.
+    RecyclerMetricValue& operator+=(uint64_t delta) {
+        value_.fetch_add(delta, std::memory_order_relaxed);
+        return *this;
+    }
+
+    RecyclerMetricValue& operator++() {
+        *this += 1;
+        return *this;
+    }
+
+    uint64_t operator++(int) { return value_.fetch_add(1, std::memory_order_relaxed); }
+
+    void reset() { value_.store(0, std::memory_order_relaxed); }
+    void set(uint64_t v) { value_.store(v, std::memory_order_relaxed); }
+    uint64_t value() const { return value_.load(std::memory_order_relaxed); }
+
+private:
+    std::atomic_ullong value_ = 0;
+};
+
 class RecyclerMetricsContext {
 public:
-    enum class MetricType {
-        SCANNED_NUM,
-        EXPIRED_NUM,
-        RECYCLED_NUM,
-        RECYCLED_BYTES,
-    };
+    explicit RecyclerMetricsContext(std::string instance_id, std::string operation_type);
+    ~RecyclerMetricsContext();
 
-    class MetricValue {
-    public:
-        MetricValue(RecyclerMetricsContext* context, MetricType type)
-                : context_(context), type_(type) {}
+    void update_metrics();
 
-        MetricValue& operator+=(uint64_t delta) {
-            value_.fetch_add(delta);
-            context_->put(type_, value_.load());
-            return *this;
-        }
+    RecyclerMetricValue kv_scanned_num;
+    RecyclerMetricValue kv_expired_num;
+    RecyclerMetricValue kv_recycled_num;
+    RecyclerMetricValue kv_recycled_bytes;
 
-        MetricValue& operator++() {
-            *this += 1;
-            return *this;
-        }
-
-        uint64_t operator++(int) {
-            auto old_value = value_.fetch_add(1);
-            context_->put(type_, value_.load());
-            return old_value;
-        }
-
-        void reset() {
-            value_.store(0);
-            context_->put(type_, 0);
-        }
-
-        void set(uint64_t v) {
-            value_.store(v);
-            context_->put(type_, v);
-        }
-
-        uint64_t value() const { return value_.load(); }
-
-    private:
-        RecyclerMetricsContext* context_;
-        MetricType type_;
-        std::atomic_ullong value_ = 0;
-    };
-
-    RecyclerMetricsContext() = delete;
-
-    explicit RecyclerMetricsContext(std::string instance_id, std::string operation_type)
-            : operation_type(std::move(operation_type)),
-              instance_id(std::move(instance_id)),
-              start_time_(std::chrono::steady_clock::now()) {
-        reset_current_round_metrics();
-    }
-
-    ~RecyclerMetricsContext() {
-        update_elapsed_time();
-        if (auto num = kv_recycled_num.value(); num > 0) {
-            g_bvar_recycler_instance_recycle_total_num_since_started.put(
-                    {instance_id, operation_type}, static_cast<int64_t>(num));
-        }
-        if (auto bytes = kv_recycled_bytes.value(); bytes > 0) {
-            g_bvar_recycler_instance_recycle_total_bytes_since_started.put(
-                    {instance_id, operation_type}, static_cast<int64_t>(bytes));
-        }
-    }
-
-    MetricValue kv_scanned_num {this, MetricType::SCANNED_NUM};
-    MetricValue kv_expired_num {this, MetricType::EXPIRED_NUM};
-    MetricValue kv_recycled_num {this, MetricType::RECYCLED_NUM};
-    MetricValue kv_recycled_bytes {this, MetricType::RECYCLED_BYTES};
-
-    std::string operation_type;
-    std::string instance_id;
-
-    void reset_current_round_metrics() {
-        start_time_ = std::chrono::steady_clock::now();
-        kv_scanned_num.reset();
-        kv_expired_num.reset();
-        kv_recycled_num.reset();
-        kv_recycled_bytes.reset();
-        g_bvar_recycler_instance_current_round_recycle_duration_ms.put(
-                {instance_id, operation_type}, 0);
-    }
+    const std::string operation_type;
+    const std::string instance_id;
 
 private:
     std::chrono::steady_clock::time_point start_time_;
 
-    void update_elapsed_time() {
-        auto cost = duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
-                                                             start_time_)
-                            .count();
-        g_bvar_recycler_instance_current_round_recycle_duration_ms.put(
-                {instance_id, operation_type}, cost);
-    }
-
-    void put(MetricType type, uint64_t value) {
-        update_elapsed_time();
-        switch (type) {
-        case MetricType::SCANNED_NUM:
-            g_bvar_recycler_instance_recycle_current_round_kv_scanned.put(
-                    {instance_id, operation_type}, value);
-            break;
-        case MetricType::EXPIRED_NUM:
-            g_bvar_recycler_instance_recycle_current_round_kv_expired.put(
-                    {instance_id, operation_type}, value);
-            break;
-        case MetricType::RECYCLED_NUM:
-            g_bvar_recycler_instance_recycle_current_round_kv_recycled.put(
-                    {instance_id, operation_type}, value);
-            break;
-        case MetricType::RECYCLED_BYTES:
-            g_bvar_recycler_instance_current_round_recycled_object_bytes.put(
-                    {instance_id, operation_type}, value);
-            break;
-        }
-    }
+    void reset();
+    void finish();
+    void publish_current_round_metrics(int64_t elapsed_ms);
 };
 
-class TabletRecyclerMetricsContext : public RecyclerMetricsContext {
+// Per-instance tablet or segment totals for one do_recycle() round.
+class RecyclerResourceMetricsContext {
 public:
-    explicit TabletRecyclerMetricsContext(std::string instance_id)
-            : RecyclerMetricsContext(std::move(instance_id), "recycle_tablet") {}
-};
+    RecyclerResourceMetricsContext(std::string instance_id, std::string resource_type);
 
-class SegmentRecyclerMetricsContext : public RecyclerMetricsContext {
-public:
-    explicit SegmentRecyclerMetricsContext(std::string instance_id)
-            : RecyclerMetricsContext(std::move(instance_id), "recycle_segment") {}
+    void start_round();
+    void update_metrics();
+    void finish_round();
+
+    RecyclerMetricValue recycled_num;
+    RecyclerMetricValue recycled_bytes;
+
+private:
+    const std::string instance_id_;
+    const std::string resource_type_;
+    // Empty between recycle rounds, including monitor updates after finish_round().
+    std::optional<std::chrono::steady_clock::time_point> start_time_;
 };
 
 struct OplogRecycleStats;
@@ -475,7 +405,7 @@ private:
     int init_storage_vault_accessors();
 
     int recycle_stream(int64_t stream_id, const RecycleIndexPB& recycle_index,
-                       std::string_view recycle_key);
+                       std::string_view recycle_key, RecyclerMetricsContext& metrics_context);
 
     int recycle_table_stream_offset_prefix(std::string prefix,
                                            RecyclerMetricsContext* metrics_context);
@@ -485,7 +415,8 @@ private:
 
     int recycle_partition_table_stream_offsets(
             int64_t db_id, int64_t table_id, int64_t partition_id,
-            const google::protobuf::RepeatedPtrField<TableStreamIdentityPB>& table_streams);
+            const google::protobuf::RepeatedPtrField<TableStreamIdentityPB>& table_streams,
+            RecyclerMetricsContext& metrics_context);
 
     /**
      * Scan key-value pairs between [`begin`, `end`) with multiple rounds of range get(`RangeGetIterator`),
@@ -682,7 +613,8 @@ private:
 
     void submit_recycle_prepare_rowsets_job(SimpleThreadPool& worker_pool,
                                             std::vector<std::string> rowset_keys_to_abort,
-                                            std::atomic_long* num_recycled);
+                                            std::atomic_long* num_recycled,
+                                            RecyclerMetricsContext* metrics_context);
 
     void submit_recycle_tmp_rowsets_job(SimpleThreadPool& worker_pool,
                                         std::vector<std::string> rowset_keys_to_abort,
@@ -718,8 +650,8 @@ private:
     std::shared_ptr<DeleteBitmapLockWhiteList> delete_bitmap_lock_white_list_;
     std::shared_ptr<ResourceManager> resource_mgr_;
 
-    TabletRecyclerMetricsContext tablet_metrics_context_;
-    SegmentRecyclerMetricsContext segment_metrics_context_;
+    RecyclerResourceMetricsContext tablet_metrics_context_;
+    RecyclerResourceMetricsContext segment_metrics_context_;
 
     // Data tablets in the same partition have the same MoW setting. Cache both true and false so
     // subsequent rowsets can avoid reading the tablet index and tablet meta. Row-binlog tablets
