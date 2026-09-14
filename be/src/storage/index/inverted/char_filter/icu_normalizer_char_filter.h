@@ -41,15 +41,25 @@ public:
     size_t size() override { return _buf.size(); }
     int32_t correct_offset(int32_t current_offset) const override;
 
+    size_t offset_correction_run_count() const { return _offset_correction_runs.size(); }
+
 private:
+    struct OffsetCorrectionRun {
+        int32_t source_start;
+        int32_t destination_start;
+        int32_t source_length;
+        int32_t destination_length;
+        int32_t repeat_count;
+    };
+
     void fill();
     void normalize_text(const std::string& input, std::string& output);
-    void build_source_byte_offset_map();
+    void build_source_byte_offset_runs();
 
     std::shared_ptr<const icu::Normalizer2> _normalizer;
     icu::Edits _edits;
     std::string _buf;
-    std::vector<int32_t> _source_byte_offsets;
+    std::vector<OffsetCorrectionRun> _offset_correction_runs;
     lucene::util::SStringReader<char> _transformed_input;
 };
 using ICUNormalizerCharFilterPtr = std::shared_ptr<ICUNormalizerCharFilter>;

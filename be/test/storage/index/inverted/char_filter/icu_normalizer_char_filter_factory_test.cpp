@@ -265,4 +265,27 @@ TEST_F(ICUNormalizerCharFilterFactoryTest, InitializeOnlyFillsOnce) {
     filter->initialize();
 }
 
+TEST_F(ICUNormalizerCharFilterFactoryTest, SparseOffsetCorrectionsRemainCompact) {
+    constexpr size_t unchanged_bytes = 4 * 1024 * 1024;
+    std::string input(unchanged_bytes, 'a');
+    input += "Ｌ";
+    input.append(unchanged_bytes, 'a');
+
+    Settings settings;
+    ICUNormalizerCharFilterFactory factory;
+    factory.initialize(settings);
+
+    auto reader = make_reader(input);
+    auto filter = std::dynamic_pointer_cast<ICUNormalizerCharFilter>(factory.create(reader));
+    ASSERT_NE(filter, nullptr);
+    filter->init(input.data(), static_cast<int32_t>(input.size()), false);
+
+    EXPECT_EQ(filter->offset_correction_run_count(), 1);
+    EXPECT_EQ(filter->correct_offset(static_cast<int32_t>(unchanged_bytes)), unchanged_bytes);
+    EXPECT_EQ(filter->correct_offset(static_cast<int32_t>(unchanged_bytes + 1)),
+              unchanged_bytes + 3);
+    EXPECT_EQ(filter->correct_offset(static_cast<int32_t>(unchanged_bytes + 2)),
+              unchanged_bytes + 4);
+}
+
 } // namespace doris::segment_v2::inverted_index
