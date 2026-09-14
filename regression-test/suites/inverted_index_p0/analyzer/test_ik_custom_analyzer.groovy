@@ -37,6 +37,8 @@ suite("test_ik_custom_analyzer", "p0") {
     sql "DROP TABLE IF EXISTS test_ik_empty_custom_create"
     sql "DROP TABLE IF EXISTS test_ik_outer_filter_alter"
     sql "DROP TABLE IF EXISTS test_ik_outer_filter_create"
+    sql "DROP TABLE IF EXISTS test_ik_lowercase_outer_filter_alter"
+    sql "DROP TABLE IF EXISTS test_ik_lowercase_outer_filter_create"
     try_sql "DROP INVERTED INDEX ANALYZER IF EXISTS ${emptyPaddedAnalyzer}"
     try_sql "DROP INVERTED INDEX ANALYZER IF EXISTS ${smartAnalyzer}"
     try_sql "DROP INVERTED INDEX ANALYZER IF EXISTS ${maxWordAnalyzer}"
@@ -189,38 +191,87 @@ suite("test_ik_custom_analyzer", "p0") {
         exception "already exists"
     }
 
-    sql """
-        CREATE TABLE test_ik_outer_filter_create (
-            id INT,
-            content STRING,
-            INDEX idx_legacy (content) USING INVERTED
-                PROPERTIES("parser" = "ik", "parser_mode" = "ik_smart"),
-            INDEX idx_filtered (content) USING INVERTED
-                PROPERTIES("analyzer" = "${smartOnlyAnalyzer}",
-                    "char_filter_type" = "char_replace", "char_filter_pattern" = "-",
-                    "char_filter_replacement" = " ")
-        ) DUPLICATE KEY(id)
-        DISTRIBUTED BY HASH(id) BUCKETS 1
-        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
-    """
+    test {
+        sql """
+            CREATE TABLE test_ik_outer_filter_create (
+                id INT,
+                content STRING,
+                INDEX idx_legacy (content) USING INVERTED
+                    PROPERTIES("parser" = "ik", "parser_mode" = "ik_smart",
+                        "char_filter_type" = "char_replace", "char_filter_pattern" = "-",
+                        "char_filter_replacement" = " "),
+                INDEX idx_filtered (content) USING INVERTED
+                    PROPERTIES("analyzer" = "${smartOnlyAnalyzer}",
+                        "char_filter_type" = "char_replace", "char_filter_pattern" = "-",
+                        "char_filter_replacement" = " ")
+            ) DUPLICATE KEY(id)
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+        """
+        exception "cannot have multiple inverted indexes"
+    }
 
     sql """
         CREATE TABLE test_ik_outer_filter_alter (
             id INT,
             content STRING,
             INDEX idx_legacy (content) USING INVERTED
+                PROPERTIES("parser" = "ik", "parser_mode" = "ik_smart",
+                    "char_filter_type" = "char_replace", "char_filter_pattern" = "-",
+                    "char_filter_replacement" = " ")
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    test {
+        sql """
+            ALTER TABLE test_ik_outer_filter_alter
+            ADD INDEX idx_filtered (content) USING INVERTED
+                PROPERTIES("analyzer" = "${smartOnlyAnalyzer}",
+                    "char_filter_type" = "char_replace", "char_filter_pattern" = "-",
+                    "char_filter_replacement" = " ")
+        """
+        exception "already exists"
+    }
+
+    test {
+        sql """
+            CREATE TABLE test_ik_lowercase_outer_filter_create (
+                id INT,
+                content STRING,
+                INDEX idx_plain (content) USING INVERTED
+                    PROPERTIES("parser" = "ik", "parser_mode" = "ik_smart"),
+                INDEX idx_lowercase (content) USING INVERTED
+                    PROPERTIES("analyzer" = "${smartOnlyAnalyzer}",
+                        "char_filter_type" = "char_replace", "char_filter_pattern" = "AaA",
+                        "char_filter_replacement" = "a")
+            ) DUPLICATE KEY(id)
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+        """
+        exception "cannot have multiple inverted indexes"
+    }
+
+    sql """
+        CREATE TABLE test_ik_lowercase_outer_filter_alter (
+            id INT,
+            content STRING,
+            INDEX idx_plain (content) USING INVERTED
                 PROPERTIES("parser" = "ik", "parser_mode" = "ik_smart")
         ) DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES ("replication_allocation" = "tag.location.default: 1")
     """
-    sql """
-        ALTER TABLE test_ik_outer_filter_alter
-        ADD INDEX idx_filtered (content) USING INVERTED
-            PROPERTIES("analyzer" = "${smartOnlyAnalyzer}",
-                "char_filter_type" = "char_replace", "char_filter_pattern" = "-",
-                "char_filter_replacement" = " ")
-    """
+    test {
+        sql """
+            ALTER TABLE test_ik_lowercase_outer_filter_alter
+            ADD INDEX idx_lowercase (content) USING INVERTED
+                PROPERTIES("analyzer" = "${smartOnlyAnalyzer}",
+                    "char_filter_type" = "char_replace", "char_filter_pattern" = "AaA",
+                    "char_filter_replacement" = "a")
+        """
+        exception "already exists"
+    }
 
     test {
         sql """

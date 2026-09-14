@@ -308,6 +308,69 @@ public class AnalyzerIdentityBuilderTest {
     }
 
     @Test
+    public void testOuterCharFilterUsesCanonicalIkBaseAndByteSetSemantics() {
+        IndexPolicyMgr policyMgr = Mockito.mock(IndexPolicyMgr.class);
+        Mockito.when(policyMgr.getPolicyByName("smart")).thenReturn(new IndexPolicy(
+                1, "smart", IndexPolicyTypeEnum.ANALYZER, Map.of("tokenizer", "ik_smart")));
+        Mockito.when(policyMgr.getPolicyByName("shadowed_tokenizer")).thenReturn(new IndexPolicy(
+                2, "shadowed_tokenizer", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard")));
+        Mockito.when(policyMgr.getPolicyByName("shadowed")).thenReturn(new IndexPolicy(
+                3, "shadowed", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "shadowed_tokenizer")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            String legacyFiltered = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("parser", "ik", "parser_mode", "ik_smart", "char_filter_type", "char_replace",
+                            "char_filter_pattern", "-", "char_filter_replacement", " "),
+                    "", "ik", "__default__", "none", null);
+            String namedFiltered = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("analyzer", "smart", "char_filter_type", "char_replace",
+                            "char_filter_pattern", "-", "char_filter_replacement", " "),
+                    "smart", "none", "__default__", "none", null);
+            Assertions.assertEquals(legacyFiltered, namedFiltered);
+
+            String plainSmart = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("analyzer", "smart"), "smart", "none", "__default__", "none", null);
+            String lowercasedByIk = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("analyzer", "smart", "char_filter_type", "char_replace",
+                            "char_filter_pattern", "AaA", "char_filter_replacement", "a"),
+                    "smart", "none", "__default__", "none", null);
+            Assertions.assertEquals(plainSmart, lowercasedByIk);
+
+            String reordered = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("analyzer", "smart", "char_filter_type", "char_replace",
+                            "char_filter_pattern", "_--a", "char_filter_replacement", "a"),
+                    "smart", "none", "__default__", "none", null);
+            String canonical = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("analyzer", "smart", "char_filter_type", "char_replace",
+                            "char_filter_pattern", "-_", "char_filter_replacement", "a"),
+                    "smart", "none", "__default__", "none", null);
+            Assertions.assertEquals(canonical, reordered);
+
+            String lowerCaseDisabled = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("parser", "ik", "parser_mode", "ik_smart", "lower_case", "false",
+                            "char_filter_type", "char_replace", "char_filter_pattern", "A",
+                            "char_filter_replacement", "a"),
+                    "", "ik", "__default__", "none", null);
+            String lowerCaseDisabledPlain = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("parser", "ik", "parser_mode", "ik_smart", "lower_case", "false"),
+                    "", "ik", "__default__", "none", null);
+            Assertions.assertNotEquals(lowerCaseDisabledPlain, lowerCaseDisabled);
+
+            String shadowed = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("analyzer", "shadowed", "char_filter_type", "char_replace",
+                            "char_filter_pattern", "A", "char_filter_replacement", "a"),
+                    "shadowed", "none", "__default__", "none", null);
+            String shadowedPlain = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("analyzer", "shadowed"), "shadowed", "none", "__default__", "none", null);
+            Assertions.assertNotEquals(shadowedPlain, shadowed);
+        }
+    }
+
+    @Test
     public void testLegacyIkIdentityMatchesEquivalentCustomAnalyzer() {
         IndexPolicyMgr policyMgr = Mockito.mock(IndexPolicyMgr.class);
         Mockito.when(policyMgr.getPolicyByName("smart_analyzer")).thenReturn(new IndexPolicy(
@@ -336,13 +399,13 @@ public class AnalyzerIdentityBuilderTest {
             Assertions.assertEquals(customMaxWord, AnalyzerIdentityBuilder.buildAnalyzerIdentity(
                     Map.of("analyzer", "ik"), "ik", "none", "__default__", "none", null));
             Assertions.assertNotEquals(customSmart, AnalyzerIdentityBuilder.buildAnalyzerIdentity(
-                    Map.of("parser", "ik", "char_filter_type", "char_replace"), "", "ik",
+                    Map.of("parser", "ik", "char_filter_type", "char_replace", "char_filter_pattern", "-"), "", "ik",
                     "__default__", "none", null));
             Assertions.assertNotEquals(customSmart, AnalyzerIdentityBuilder.buildAnalyzerIdentity(
                     Map.of("parser", "ik", "lower_case", "false"), "", "ik",
                     "__default__", "none", null));
             Assertions.assertNotEquals(customMaxWord, AnalyzerIdentityBuilder.buildAnalyzerIdentity(
-                    Map.of("analyzer", "ik", "char_filter_type", "char_replace"), "ik", "none",
+                    Map.of("analyzer", "ik", "char_filter_type", "char_replace", "char_filter_pattern", "-"), "ik", "none",
                     "__default__", "none", null));
             Assertions.assertNotEquals(customMaxWord, AnalyzerIdentityBuilder.buildAnalyzerIdentity(
                     Map.of("analyzer", "ik", "lower_case", "false"), "ik", "none",
