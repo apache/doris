@@ -42,6 +42,7 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ZeroVector;
 import org.apache.arrow.vector.complex.BaseRepeatedValueVector;
 import org.apache.arrow.vector.complex.MapVector;
+import org.apache.arrow.vector.extension.UuidType;
 import org.apache.arrow.vector.ipc.WriteChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
 import org.apache.arrow.vector.types.DateUnit;
@@ -116,9 +117,10 @@ public class FlightSqlSchemaHelper {
             case DATE:
             case JSONB:
             case IPV6:
-            case UUID:
             case VARIANT:
                 return new ArrowType.Utf8();
+            case UUID:
+                return UuidType.INSTANCE;
             case DATEV2:
                 // DAY, not MILLISECOND: BE writes a DATEV2 column as arrow::Date32Type (a day number),
                 // so a MILLISECOND unit here describes the metadata as date64 while the data that
@@ -345,7 +347,8 @@ public class FlightSqlSchemaHelper {
                 Field entries = new Field(MapVector.DATA_VECTOR_NAME,
                         new FieldType(false, new ArrowType.Struct(), null),
                         Arrays.asList(new Field(key.getName(),
-                                        new FieldType(false, key.getType(), null), key.getChildren()),
+                                        new FieldType(false, key.getType(), null, key.getMetadata()),
+                                        key.getChildren()),
                                 value));
                 return Collections.singletonList(entries);
             case Struct:

@@ -29,9 +29,11 @@ suite("test_uuid_arrow_flight", "arrow_flight_sql") {
     qt_arrow_flight_sql_nested "SELECT id, a FROM uuid_flight_paths ORDER BY id"
     context.getArrowFlightSqlConnection().createStatement().withCloseable { statement ->
         statement.executeQuery("SELECT u FROM ${context.dbName}.uuid_flight_paths ORDER BY id").withCloseable { result ->
-            assertEquals(Types.VARCHAR, result.getMetaData().getColumnType(1))
+            assertEquals(Types.OTHER, result.getMetaData().getColumnType(1))
             assertTrue(result.next())
-            assertTrue(result.getObject(1) instanceof String)
+            assertTrue(result.getObject(1) instanceof java.util.UUID)
+            assertEquals('00112233-4455-6677-8899-aabbccddeeff', result.getString(1))
+            assertEquals(16, result.getBytes(1).length)
         }
     }
 }

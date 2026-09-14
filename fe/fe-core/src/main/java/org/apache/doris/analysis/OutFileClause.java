@@ -252,6 +252,7 @@ public class OutFileClause {
             case BITMAP:
             case QUANTILE_STATE:
             case VARBINARY:
+            case UUID:
                 orcType = "binary";
                 break;
             case DATEV2:
@@ -276,7 +277,6 @@ public class OutFileClause {
             case DATE:
             case DATETIME:
             case IPV6:
-            case UUID:
             case VARIANT:
             case JSONB:
                 orcType = "string";
@@ -404,7 +404,6 @@ public class OutFileClause {
                 case DATE:
                 case DATETIME:
                 case IPV6:
-                case UUID:
                 case VARIANT:
                 case JSONB:
                     checkOrcType(schema.second, "string", true, resultType.getPrimitiveType().toString());
@@ -419,6 +418,7 @@ public class OutFileClause {
                 case BITMAP:
                 case QUANTILE_STATE:
                 case VARBINARY:
+                case UUID:
                     checkOrcType(schema.second, "binary", true, resultType.getPrimitiveType().toString());
                     break;
                 case STRUCT:

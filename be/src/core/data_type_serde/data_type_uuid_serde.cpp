@@ -18,6 +18,7 @@
 #include "core/data_type_serde/data_type_uuid_serde.h"
 
 #include <arrow/builder.h>
+#include <arrow/extension/uuid.h>
 
 #include <cstring>
 #include <utility>
@@ -25,6 +26,7 @@
 #include "common/config.h"
 #include "core/column/column_const.h"
 #include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "core/value/uuid_value.h"
 #include "util/jsonb_writer.h"
@@ -202,15 +204,14 @@ Status DataTypeUUIDSerDe::write_column_to_arrow(const IColumn& column, const Nul
                                                 arrow::ArrayBuilder* array_builder, int64_t start,
                                                 int64_t end, const cctz::time_zone& ctz) const {
     const auto& data = assert_cast<const ColumnUUID&>(column).get_data();
-    auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
+    auto& builder = assert_cast<arrow::FixedSizeBinaryBuilder&>(*array_builder);
+    DORIS_CHECK_EQ(builder.byte_width(), UUIDValue::BINARY_LENGTH);
     for (int64_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[i]) {
             RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, *array_builder));
         } else {
-            const auto uuid = UUIDValue::to_string(data[i]);
-            RETURN_IF_ERROR(checkArrowStatus(
-                    builder.Append(uuid.data(), cast_set<int, size_t, false>(uuid.size())), column,
-                    *array_builder));
+            const auto uuid = UUIDValue::to_big_endian(data[i]);
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(uuid.data()), column, *array_builder));
         }
     }
     return Status::OK();
@@ -220,26 +221,36 @@ Status DataTypeUUIDSerDe::read_column_from_arrow(IColumn& column, const arrow::A
                                                  int64_t start, int64_t end,
                                                  const cctz::time_zone& ctz) const {
     if (config::enable_arrow_input_validation) {
-        check_arrow_no_offset(*arrow_array);
+        arrow_validation_detail::check_arrow_length_and_offset(*arrow_array);
+        if (UNLIKELY(start < 0 || end < start || end > arrow_array->length())) {
+            arrow_validation_detail::throw_invalid_arrow(
+                    *arrow_array, "read range is invalid: start={}, end={}, length={}", start, end,
+                    arrow_array->length());
+        }
+    }
+    if (arrow_array->type_id() == arrow::Type::EXTENSION) {
+        if (!arrow_array->type()->Equals(arrow::extension::uuid())) {
+            return Status::InvalidArgument("expected Arrow UUID, got {}",
+                                           arrow_array->type()->ToString());
+        }
+        arrow_array = static_cast<const arrow::ExtensionArray*>(arrow_array)->storage().get();
+    }
+    if (!arrow_array->type()->Equals(arrow::fixed_size_binary(UUIDValue::BINARY_LENGTH))) {
+        return Status::InvalidArgument("expected 16-byte Arrow UUID storage, got {}",
+                                       arrow_array->type()->ToString());
+    }
+    if (config::enable_arrow_input_validation) {
+        check_arrow_fixed_width_buffer(*arrow_array, UUIDValue::BINARY_LENGTH);
     }
     auto& data = assert_cast<ColumnUUID&>(column).get_data();
-    const auto* array = assert_cast<const arrow::StringArray*>(arrow_array);
-    const auto buffer = array->value_data();
+    const auto* array = assert_cast<const arrow::FixedSizeBinaryArray*>(arrow_array);
 
     for (auto i = start; i < end; ++i) {
         if (array->IsNull(i)) {
             data.emplace_back(0);
             continue;
         }
-        const char* raw_data =
-                reinterpret_cast<const char*>(buffer->data() + array->value_offset(i));
-        const auto raw_data_len = array->value_length(i);
-        UUIDValueType value;
-        if (!UUIDValue::from_string(value, raw_data, raw_data_len)) {
-            return Status::InvalidArgument("parse uuid failed, string: '{}'",
-                                           std::string(raw_data, raw_data_len));
-        }
-        data.emplace_back(value);
+        data.emplace_back(UUIDValue::from_big_endian(array->GetValue(i)));
     }
     return Status::OK();
 }
@@ -251,28 +262,39 @@ Status DataTypeUUIDSerDe::write_column_to_orc(const std::string& timezone, const
                                               const FormatOptions& options) const {
     const auto& data = assert_cast<const ColumnUUID&>(column).get_data();
     auto* batch = assert_cast<orc::StringVectorBatch*>(orc_col_batch);
-    std::vector<std::string> serialized_values;
-    std::vector<size_t> valid_row_indices;
-    size_t total_size = 0;
+    char* output = arena.alloc((end - start) * UUIDValue::BINARY_LENGTH);
     for (int64_t row_id = start; row_id < end; ++row_id) {
         if (batch->notNull[row_id] == 1) {
-            serialized_values.emplace_back(UUIDValue::to_string(data[row_id]));
-            total_size += serialized_values.back().size();
-            valid_row_indices.push_back(row_id);
+            const auto bytes = UUIDValue::to_big_endian(data[row_id]);
+            memcpy(output, bytes.data(), bytes.size());
+            batch->data[row_id] = output;
+            batch->length[row_id] = bytes.size();
+            output += bytes.size();
         }
     }
-
-    char* output = arena.alloc(total_size);
-    size_t offset = 0;
-    for (size_t i = 0; i < serialized_values.size(); ++i) {
-        const auto& value = serialized_values[i];
-        const size_t row_id = valid_row_indices[i];
-        memcpy(output + offset, value.data(), value.size());
-        batch->data[row_id] = output + offset;
-        batch->length[row_id] = value.size();
-        offset += value.size();
-    }
     batch->numElements = end - start;
+    return Status::OK();
+}
+
+Status DataTypeUUIDSerDe::read_column_from_orc(IColumn& column,
+                                               const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type->getKind() == orc::BINARY);
+    const auto& batch = static_cast<const orc::StringVectorBatch&>(*view.batch);
+    auto& data = assert_cast<ColumnUUID&>(column).get_data();
+    const auto rows = orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows);
+    for (size_t row = 0; row < rows; ++row) {
+        const auto source_row = orc_serde_utils::orc_source_row_at(row, view.selected_rows);
+        if (orc_serde_utils::orc_row_is_null(batch, source_row)) {
+            data.emplace_back(0);
+            continue;
+        }
+        if (std::cmp_not_equal(batch.length[source_row], UUIDValue::BINARY_LENGTH)) {
+            return Status::Corruption("invalid ORC UUID binary length: {}",
+                                      batch.length[source_row]);
+        }
+        data.emplace_back(UUIDValue::from_big_endian(
+                reinterpret_cast<const uint8_t*>(batch.data[source_row])));
+    }
     return Status::OK();
 }
 

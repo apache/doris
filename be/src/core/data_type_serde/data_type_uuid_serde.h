@@ -52,6 +52,7 @@ public:
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override;
+    Status read_column_from_orc(IColumn& column, const OrcDecodedColumnView& view) const override;
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                  const cctz::time_zone& ctz) const override;

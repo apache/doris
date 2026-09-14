@@ -23,6 +23,7 @@ import org.apache.doris.thrift.TPrimitiveType;
 
 import org.apache.arrow.vector.complex.BaseRepeatedValueVector;
 import org.apache.arrow.vector.complex.MapVector;
+import org.apache.arrow.vector.extension.UuidType;
 import org.apache.arrow.vector.ipc.ReadChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
 import org.apache.arrow.vector.types.DateUnit;
@@ -230,5 +231,29 @@ public class FlightSqlSchemaHelperArrowTypeTest {
                 schema.getFields().get(2).getChildren().get(0).getChildren().get(1).getType());
         Assertions.assertEquals(timestampNs,
                 schema.getFields().get(3).getChildren().get(0).getType());
+    }
+
+    @Test
+    public void serializedSchemaPreservesUuidAndStringTypes() throws IOException {
+        byte[] serialized = FlightSqlSchemaHelper.getSerializedSchema(Arrays.asList(
+                buildField(desc("u", TPrimitiveType.UUID)),
+                buildField(desc("items", TPrimitiveType.ARRAY, desc("item", TPrimitiveType.UUID))),
+                buildField(desc("mapping", TPrimitiveType.MAP,
+                        desc("key", TPrimitiveType.UUID), desc("value", TPrimitiveType.UUID))),
+                buildField(desc("record", TPrimitiveType.STRUCT, desc("u", TPrimitiveType.UUID))),
+                buildField(desc("text", TPrimitiveType.STRING))));
+        Schema schema = MessageSerializer.deserializeSchema(
+                new ReadChannel(Channels.newChannel(new ByteArrayInputStream(serialized))));
+        Assertions.assertEquals(UuidType.INSTANCE, schema.getFields().get(0).getType());
+        Assertions.assertEquals(new ArrowType.FixedSizeBinary(16), UuidType.INSTANCE.storageType());
+        Assertions.assertEquals(UuidType.INSTANCE,
+                schema.getFields().get(1).getChildren().get(0).getType());
+        List<Field> pair = schema.getFields().get(2).getChildren().get(0).getChildren();
+        Assertions.assertEquals(UuidType.INSTANCE, pair.get(0).getType());
+        Assertions.assertFalse(pair.get(0).isNullable());
+        Assertions.assertEquals(UuidType.INSTANCE, pair.get(1).getType());
+        Assertions.assertEquals(UuidType.INSTANCE,
+                schema.getFields().get(3).getChildren().get(0).getType());
+        Assertions.assertEquals(new ArrowType.Utf8(), schema.getFields().get(4).getType());
     }
 }
