@@ -292,6 +292,36 @@ TEST_P(PartitionSorterRankTest, ExhaustInputBelowLimit) {
     check_output(10, {}, {});
 }
 
+TEST_P(PartitionSorterRankTest, ResetStartsNewPeerGroup) {
+    _state._batch_size = 4;
+    SortCursorCmp previous_row;
+    auto rank_sorter = PartitionSorter::create_unique(ordering_expr_ctxs, -1, 0, &pool,
+                                                      is_asc_order, nulls_first, *row_desc, &_state,
+                                                      nullptr, false, 1, GetParam(), &previous_row);
+    rank_sorter->init_profile(&_profile);
+    for (int pass = 0; pass < 2; ++pass) {
+        SCOPED_TRACE(pass);
+        auto peers = ColumnHelper::create_block<DataTypeInt64>(std::vector<int64_t>(5, 0));
+        auto next_group = ColumnHelper::create_block<DataTypeInt64>(std::vector<int64_t>(9, 1));
+        ASSERT_TRUE(rank_sorter->append_block(&peers).ok());
+        ASSERT_TRUE(rank_sorter->append_block(&next_group).ok());
+        ASSERT_TRUE(rank_sorter->prepare_for_read(false).ok());
+
+        bool eos = false;
+        Block output;
+        ASSERT_TRUE(rank_sorter->get_next(&_state, &output, &eos).ok());
+        EXPECT_TRUE(ColumnHelper::block_equal(
+                output, ColumnHelper::create_block<DataTypeInt64>({0, 0, 0, 0})));
+        ASSERT_FALSE(eos);
+        output.clear_column_data();
+        ASSERT_TRUE(rank_sorter->get_next(&_state, &output, &eos).ok());
+        EXPECT_TRUE(
+                ColumnHelper::block_equal(output, ColumnHelper::create_block<DataTypeInt64>({0})));
+        EXPECT_TRUE(eos);
+        rank_sorter->reset_sorter_state(&_state);
+    }
+}
+
 TEST_P(PartitionSorterRankTest, IntermediatePruningAmortizesRetainedPeers) {
     auto partition = create_partition_blocks();
     const size_t input_batches = 16;
