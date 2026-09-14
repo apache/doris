@@ -54,12 +54,18 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Covers RESOLVE LANCE INDEX JOB jobId AS FORCE_RELEASE COMMENT 'note': the job is loaded
  * first and authorized against its persisted target before any state is revealed (a missing
  * job and an unauthorized job share the fixed ERR_LANCE_INDEX_JOB_NOT_FOUND text naming only
- * the job id); only an UNKNOWN job may be released; every failure before the durable
- * transfer is the typed ERR_LANCE_INDEX_JOB_RESOLUTION_INCOMPLETE that leaves the job, its
- * fence and its quota untouched; success and idempotent retries return the OK packet
- * triple (0 affected rows, 1 warning, LATE_COMMIT_WARNING).
+ * the job id); the target verdict is three-valued — resolved names plus a matching durable
+ * locator take table ALTER, a verifiably absent or repointed target takes the ADMIN orphan
+ * branch, and a resolution that fails outright keeps the fence; only an UNKNOWN job may be
+ * released; every failure before the durable transfer is the typed
+ * ERR_LANCE_INDEX_JOB_RESOLUTION_INCOMPLETE that leaves the job, its fence and its quota
+ * untouched; success and idempotent retries return the OK packet triple (0 affected rows,
+ * 1 warning, LATE_COMMIT_WARNING).
  */
 public class ResolveLanceIndexJobCommandTest {
+    /** The fixture job's persisted normalized locator; locator stubs must return exactly this. */
+    private static final String JOB_LOCATOR = "s3://bucket/dataset";
+
     @Mocked
     private Env env;
     @Mocked
@@ -83,7 +89,7 @@ public class ResolveLanceIndexJobCommandTest {
 
     private static LanceIndexJob newUnknownJob(long jobId) {
         LanceIndexJob job = new LanceIndexJob(jobId, "creator", 10L, "db1", "tbl1",
-                LanceIndexFenceKey.PROVIDER_DIRECTORY, "s3://bucket/dataset",
+                LanceIndexFenceKey.PROVIDER_DIRECTORY, JOB_LOCATOR,
                 "idx1", LanceIndexNameNormalizer.normalize("idx1"),
                 LanceIndexJobMutationType.CREATE, true, false, "IVF_PQ", "v", null, 7L, null);
         job.setMutationState(LanceIndexJobMutationState.UNKNOWN);
@@ -162,6 +168,10 @@ public class ResolveLanceIndexJobCommandTest {
                 database.getTableNullable("tbl1");
                 minTimes = 0;
                 result = table;
+
+                lanceCatalog.resolveCurrentIndexJobLocator("db1", "tbl1");
+                minTimes = 0;
+                result = JOB_LOCATOR;
 
                 database.getRemoteName();
                 minTimes = 0;
@@ -278,6 +288,189 @@ public class ResolveLanceIndexJobCommandTest {
     }
 
     @Test
+    public void testAuthResolutionFailureFailsClosed() throws Exception {
+        // A resolution that errors out during authorization is never an orphan verdict. An
+        // unauthorized caller still sees only the fixed 5103; an authorized one sees the
+        // typed 5105 and nothing is released, read or refreshed.
+        expectEnv(newUnknownJob(42L));
+        new Expectations() {
+            {
+                catalogMgr.getCatalog(10L);
+                minTimes = 0;
+                result = lanceCatalog;
+
+                lanceCatalog.getDbNullable("db1");
+                minTimes = 0;
+                result = new RuntimeException("provider down");
+
+                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
+                minTimes = 0;
+                result = false;
+            }
+        };
+        AnalysisException denied = Assertions.assertThrows(AnalysisException.class,
+                () -> new ResolveLanceIndexJobCommand(42L, "note").run(connectContext, null));
+        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_JOB_NOT_FOUND, denied.getMysqlErrorCode());
+
+        new Expectations() {
+            {
+                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
+                minTimes = 0;
+                result = true;
+            }
+        };
+        AnalysisException e = Assertions.assertThrows(AnalysisException.class,
+                () -> new ResolveLanceIndexJobCommand(42L, "note").run(connectContext, null));
+        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_JOB_RESOLUTION_INCOMPLETE, e.getMysqlErrorCode());
+        Assertions.assertTrue(e.getMessage().contains("could not be resolved with current catalog metadata"));
+        Assertions.assertFalse(e.getMessage().contains("provider down"));
+
+        // The db resolves but the table lookup errors out: same fail-closed verdict.
+        new Expectations() {
+            {
+                lanceCatalog.getDbNullable("db1");
+                minTimes = 0;
+                result = database;
+
+                database.getTableNullable("tbl1");
+                minTimes = 0;
+                result = new RuntimeException("meta blip");
+            }
+        };
+        AnalysisException tableBlip = Assertions.assertThrows(AnalysisException.class,
+                () -> new ResolveLanceIndexJobCommand(42L, "note").run(connectContext, null));
+        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_JOB_RESOLUTION_INCOMPLETE,
+                tableBlip.getMysqlErrorCode());
+        new Verifications() {
+            {
+                // Authorization never claimed table-level ALTER, and no durable action ran.
+                accessControllerManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString,
+                        (PrivPredicate) any);
+                times = 0;
+                lanceCatalog.loadTableIndexAdmissionSnapshot(anyString, anyString);
+                times = 0;
+                refreshManager.handleRefreshTable(anyString, anyString, anyString, anyBoolean);
+                times = 0;
+                lanceIndexJobManager.forceRelease(anyLong, anyLong, anyString, anyString, anyString);
+                times = 0;
+            }
+        };
+    }
+
+    @Test
+    public void testLocatorUnresolvableFailsClosed() throws Exception {
+        // Names resolve locally but the current dataset locator cannot be resolved (provider
+        // unreachable): absence of evidence is not an orphan verdict, so the fence is kept.
+        expectEnv(newUnknownJob(42L));
+        new Expectations() {
+            {
+                catalogMgr.getCatalog(10L);
+                minTimes = 0;
+                result = lanceCatalog;
+
+                lanceCatalog.getDbNullable("db1");
+                minTimes = 0;
+                result = database;
+
+                database.getTableNullable("tbl1");
+                minTimes = 0;
+                result = table;
+
+                lanceCatalog.resolveCurrentIndexJobLocator("db1", "tbl1");
+                minTimes = 0;
+                result = null;
+
+                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
+                minTimes = 0;
+                result = true;
+            }
+        };
+        AnalysisException e = Assertions.assertThrows(AnalysisException.class,
+                () -> new ResolveLanceIndexJobCommand(42L, "note").run(connectContext, null));
+        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_JOB_RESOLUTION_INCOMPLETE, e.getMysqlErrorCode());
+        Assertions.assertTrue(e.getMessage().contains("could not be resolved with current catalog metadata"));
+        new Verifications() {
+            {
+                lanceCatalog.loadTableIndexAdmissionSnapshot(anyString, anyString);
+                times = 0;
+                refreshManager.handleRefreshTable(anyString, anyString, anyString, anyBoolean);
+                times = 0;
+                lanceIndexJobManager.forceRelease(anyLong, anyLong, anyString, anyString, anyString);
+                times = 0;
+            }
+        };
+    }
+
+    @Test
+    public void testLocatorMismatchTakesHalfOrphanBranch() throws Exception {
+        // The names now point at a different dataset than the job was admitted against:
+        // a verifiable repoint, so the half-orphan rule applies — global ADMIN, no
+        // authoritative read, best-effort refresh, then the durable release.
+        LanceIndexJob job = newUnknownJob(42L);
+        expectEnv(job);
+        new Expectations() {
+            {
+                catalogMgr.getCatalog(10L);
+                minTimes = 0;
+                result = lanceCatalog;
+
+                lanceCatalog.getName();
+                minTimes = 0;
+                result = "lance_ctl";
+
+                lanceCatalog.isRestCatalogConfigured();
+                minTimes = 0;
+                result = false;
+
+                lanceCatalog.getDbNullable("db1");
+                minTimes = 0;
+                result = database;
+
+                database.getTableNullable("tbl1");
+                minTimes = 0;
+                result = table;
+
+                lanceCatalog.resolveCurrentIndexJobLocator("db1", "tbl1");
+                minTimes = 0;
+                result = "s3://bucket/reused-by-new-dataset";
+
+                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
+                minTimes = 0;
+                result = false;
+            }
+        };
+        AnalysisException denied = Assertions.assertThrows(AnalysisException.class,
+                () -> new ResolveLanceIndexJobCommand(42L, "note").run(connectContext, null));
+        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_JOB_NOT_FOUND, denied.getMysqlErrorCode());
+
+        new Expectations() {
+            {
+                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
+                minTimes = 0;
+                result = true;
+            }
+        };
+        expectAdmissionTransfer(true);
+        new ResolveLanceIndexJobCommand(42L, "note").run(connectContext, null);
+        new Verifications() {
+            {
+                accessControllerManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString,
+                        (PrivPredicate) any);
+                times = 0;
+                lanceCatalog.loadTableIndexAdmissionSnapshot(anyString, anyString);
+                times = 0;
+                refreshManager.handleRefreshTable("lance_ctl", "db1", "tbl1", true);
+                times = 1;
+                lanceIndexJobManager.forceRelease(42L, 3L, "operator", "note",
+                        ResolveLanceIndexJobCommand.LATE_COMMIT_WARNING);
+                times = 1;
+                queryState.setOk(0L, 1, ResolveLanceIndexJobCommand.LATE_COMMIT_WARNING);
+                times = 1;
+            }
+        };
+    }
+
+    @Test
     public void testProxyContextCarriesIdentity() throws Exception {
         // The privilege check runs against the context handed to run, not the thread-local.
         ConnectContext proxyCtx = new ConnectContext();
@@ -301,6 +494,10 @@ public class ResolveLanceIndexJobCommandTest {
                 database.getTableNullable("tbl1");
                 minTimes = 0;
                 result = table;
+
+                lanceCatalog.resolveCurrentIndexJobLocator("db1", "tbl1");
+                minTimes = 0;
+                result = JOB_LOCATOR;
 
                 accessControllerManager.checkTblPriv((ConnectContext) any, "lance_ctl", "db1", "tbl1",
                         PrivPredicate.ALTER);
@@ -623,6 +820,10 @@ public class ResolveLanceIndexJobCommandTest {
                 minTimes = 0;
                 result = table;
 
+                lanceCatalog.resolveCurrentIndexJobLocator("db1", "tbl1");
+                minTimes = 0;
+                result = JOB_LOCATOR;
+
                 accessControllerManager.checkTblPriv(connectContext, "lance_ctl", "db1", "tbl1",
                         PrivPredicate.ALTER);
                 minTimes = 0;
@@ -679,6 +880,10 @@ public class ResolveLanceIndexJobCommandTest {
                 database.getTableNullable("tbl1");
                 minTimes = 0;
                 result = table;
+
+                lanceCatalog.resolveCurrentIndexJobLocator("db1", "tbl1");
+                minTimes = 0;
+                result = JOB_LOCATOR;
 
                 accessControllerManager.checkTblPriv(connectContext, "lance_ctl", "db1", "tbl1",
                         PrivPredicate.ALTER);
@@ -786,6 +991,10 @@ public class ResolveLanceIndexJobCommandTest {
                 database.getTableNullable("tbl1");
                 minTimes = 0;
                 result = table;
+
+                lanceCatalog.resolveCurrentIndexJobLocator("db1", "tbl1");
+                minTimes = 0;
+                result = JOB_LOCATOR;
 
                 accessControllerManager.checkTblPriv(connectContext, "lance_ctl", "db1", "tbl1",
                         PrivPredicate.ALTER);
