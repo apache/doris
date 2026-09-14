@@ -62,7 +62,8 @@ Suite.metaClass.be_run_full_compaction_by_table_id = { String ip, String port, S
 }
 
 logger.info("Added 'be_run_full_compaction' function to Suite")
-Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compaction_type, int timeout_seconds=300, String[] ignored_errors=[] ->
+Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compaction_type, int timeout_seconds=300,
+                                                String[] ignored_errors=[], Collection tablet_ids=[] ->
     if (!(compaction_type in ["cumulative", "base", "full"])) {
         throw new IllegalArgumentException("invalid compaction type: ${compaction_type}, supported types: cumulative, base, full")
     }
@@ -71,6 +72,15 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
     def tablets = sql_return_maparray """show tablets from ${table_name}"""
+    if (!tablet_ids.isEmpty()) {
+        // Only operate on the requested tablets, e.g. to re-trigger the tablets whose
+        // previous asynchronous compaction failed.
+        def requestedTabletIds = tablet_ids.collect { it.toString() }.toSet()
+        tablets = tablets.findAll { requestedTabletIds.contains(it.TabletId.toString()) }
+        def foundTabletIds = tablets.collect { it.TabletId.toString() }.toSet()
+        assert foundTabletIds == requestedTabletIds:
+                "Unable to find all requested tablets for ${table_name}, requested: ${requestedTabletIds}, found: ${foundTabletIds}"
+    }
     def exit_code, stdout, stderr
 
     def auto_compaction_disabled = sql("show create table ${table_name}")[0][1].contains('"disable_auto_compaction" = "true"')
