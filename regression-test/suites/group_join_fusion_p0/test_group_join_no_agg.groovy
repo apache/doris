@@ -28,6 +28,10 @@ suite("test_group_join_no_agg") {
     sql "SET query_cache_force_refresh=true"
     sql "SET enable_bucket_shuffle_join=false"
     sql "SET enable_runtime_filter_prune=false"
+    // Spill disables GroupJoin fusion by design (the fused operator cannot spill) and the
+    // P0 pipeline runs every session with fuzzy session variables, where enable_spill is
+    // randomized, so pin it to keep the fused plan deterministic.
+    sql "SET enable_spill=false"
     def query = """SELECT l.k FROM gj_no_agg_left l
         JOIN [shuffle] gj_no_agg_right r ON l.k=r.k GROUP BY l.k ORDER BY l.k"""
     for (serial in [false, true]) {

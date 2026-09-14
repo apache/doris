@@ -78,6 +78,11 @@ suite("test_group_join_fusion_output_tuple") {
         LIMIT 10000
         """
 
+    // Spill disables GroupJoin fusion by design (the fused operator cannot spill) and the
+    // P0 pipeline runs every session with fuzzy session variables, where enable_spill is
+    // randomized, so pin it to keep the fused plan deterministic.
+    sql "SET enable_spill = false"
+
     // Reference result computed with the experimental fusion operator disabled.
     sql "SET experimental_enable_group_join_fusion = false"
     def reference = sql query

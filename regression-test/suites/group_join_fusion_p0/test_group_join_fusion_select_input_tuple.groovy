@@ -63,6 +63,10 @@ suite("test_group_join_fusion_select_input_tuple") {
     sql "SET runtime_filter_mode = 'OFF'"
     sql "SET enable_sql_cache = false"
     sql "SET query_cache_force_refresh = true"
+    // Spill disables GroupJoin fusion by design (the fused operator cannot spill) and the
+    // P0 pipeline runs every session with fuzzy session variables, where enable_spill is
+    // randomized, so pin it to keep the fused plan deterministic.
+    sql "SET enable_spill = false"
     sql "SET agg_phase = 1"
     sql "SET eager_agg_broadcast_row_count = 0"
     sql "SET enable_aggregate_cse = true"

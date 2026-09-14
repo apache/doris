@@ -78,6 +78,10 @@ suite("test_group_join_fusion_key_order") {
     // no sql cache so the run always exercises the same execution path.
     sql "SET runtime_filter_mode = 'OFF'"
     sql "SET enable_sql_cache = false"
+    // Spill disables GroupJoin fusion by design (the fused operator cannot spill) and the
+    // P0 pipeline runs every session with fuzzy session variables, where enable_spill is
+    // randomized, so pin it to keep the fused plan deterministic.
+    sql "SET enable_spill = false"
 
     // GROUP BY key order (k2, k1) differs from the equi-join key order (k1, k2).
     def mismatchedQuery = """
