@@ -45,6 +45,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -210,6 +211,19 @@ public class IndexDiskUsageTableValuedFunctionTest {
         Assertions.assertEquals(5L, targets.get(0).getVersion());
         Assertions.assertEquals(101L, targets.get(0).getTablet().getId());
         Assertions.assertEquals(102L, targets.get(1).getTabletId());
+    }
+
+    @Test
+    public void testVisibleVersionIsReadOutsideTableLock() throws Exception {
+        OlapTable table = mockOlapTable();
+        Mockito.when(db.getTableOrAnalysisException("locked")).thenReturn(table);
+        new IndexDiskUsageTableValuedFunction(params("table", "locked"));
+        // Cloud partitions may fetch the visible version from meta-service, so it must not be read
+        // while the table lock blocks DDL.
+        Partition p1 = table.getPartition("p1", false);
+        InOrder inOrder = Mockito.inOrder(table, p1);
+        inOrder.verify(table).readUnlock();
+        inOrder.verify(p1).getVisibleVersion();
     }
 
     private void allowShow(boolean allowed) {
