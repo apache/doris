@@ -355,6 +355,27 @@ public class LanceIndexJobDispatcherTest {
     }
 
     @Test
+    public void sendWithoutAStatusConvergesUnknownNotCommitted() throws Exception {
+        admit(1L, "IdxA", LOCATOR);
+        dispatcher.statusToReturn = null;
+        LanceIndexFenceKey fenceKey = manager.getJob(1L).fenceKey();
+
+        dispatcher.runAfterCatalogReady();
+
+        // The absence of a status is the absence of a trusted answer, not a clean
+        // rejection: only a complete error status proves the dispatch was not
+        // enqueued, so this converges UNKNOWN with everything still held.
+        LanceIndexJob stored = manager.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.UNKNOWN, stored.getMutationState());
+        Assertions.assertEquals(LanceIndexJobResultCode.NO_TRUSTED_RESULT,
+                stored.getResult().getResultCode());
+        Assertions.assertTrue(manager.isFenceHeld(fenceKey));
+        Assertions.assertEquals(1L, manager.getQuota().getGlobalCount());
+        Assertions.assertTrue(stored.holdsPossibleLiveSlot());
+        Assertions.assertEquals(1, dispatcher.sends.size());
+    }
+
+    @Test
     public void sendFailureConvergesUnknownAndKeepsThePossibleLiveSlot() throws Exception {
         admit(1L, "IdxA", LOCATOR);
         dispatcher.throwOnSend = true;
