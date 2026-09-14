@@ -218,11 +218,13 @@ public final class LanceIndexMetadataLoader {
             if (indexType == null) {
                 throw new IllegalArgumentException("Lance physical index type must not be null");
             }
-            if (SYSTEM_INDEX_NAMES.contains(name)) {
-                continue;
-            }
+            // UUID ownership is checked before the system-entry filter, so a UUID shared
+            // between a system entry and a user entry cannot hide from the all-or-error read.
             if (!uuids.add(uuid)) {
                 throw new IllegalArgumentException("Duplicate Lance physical index uuid");
+            }
+            if (SYSTEM_INDEX_NAMES.contains(name)) {
+                continue;
             }
             entries.add(new LanceIndexAdmissionSnapshot.PhysicalIndexInfo(
                     name, uuid, indexDatasetVersion, indexType.name()));

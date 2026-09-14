@@ -916,6 +916,14 @@ public class LanceIndexMetadataLoaderTest {
                 index("first_idx", "11111111-1111-1111-1111-111111111111", 1, IndexType.BTREE),
                 index("second_idx", "11111111-1111-1111-1111-111111111111", 2, IndexType.BITMAP)),
                 "Duplicate");
+        // UUID ownership is checked before the system-entry filter, so a UUID shared
+        // between a system entry and a user entry fails closed instead of being hidden
+        // by the system entry's early skip.
+        assertPhysicalIndexInfoFailure(Arrays.asList(
+                index("__lance_frag_reuse", "11111111-1111-1111-1111-111111111111", 1,
+                        IndexType.FRAGMENT_REUSE),
+                index("user_idx", "11111111-1111-1111-1111-111111111111", 2, IndexType.BTREE)),
+                "Duplicate");
         // System entries are validated before filtering, so malformed system metadata fails
         // closed instead of being silently dropped.
         assertPhysicalIndexInfoFailure(Collections.singletonList(
