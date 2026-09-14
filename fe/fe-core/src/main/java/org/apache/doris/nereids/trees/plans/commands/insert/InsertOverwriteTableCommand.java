@@ -53,6 +53,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -487,7 +488,10 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
             for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
                 Expression expr = entry.getValue();
                 if (expr instanceof Literal) {
-                    staticPartitionValues.put(entry.getKey(), ((Literal) expr).getStringValue());
+                    // Binary literals expose bare hex, while BE partition parsing and FE commit
+                    // conversion require an explicit byte representation, distinct from text.
+                    String value = ((Literal) expr).getStringValue();
+                    staticPartitionValues.put(entry.getKey(), expr instanceof VarBinaryLiteral ? "0x" + value : value);
                 } else {
                     throw new AnalysisException(
                             String.format("Static partition value must be a literal, but got: %s", expr));

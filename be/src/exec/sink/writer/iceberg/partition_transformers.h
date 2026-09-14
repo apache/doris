@@ -18,6 +18,7 @@
 #pragma once
 
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_varbinary.h"
 #include "exec/common/stringop_substring.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
@@ -136,6 +137,39 @@ public:
 
 private:
     DataTypePtr _source_type;
+};
+
+class BinaryTruncatePartitionColumnTransform : public PartitionColumnTransform {
+public:
+    explicit BinaryTruncatePartitionColumnTransform(int width)
+            : _width(width), _target_type(std::make_shared<DataTypeVarbinary>()) {}
+
+    DataTypePtr get_result_type() const override { return _target_type; }
+
+    ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
+        const auto& input = block.get_by_position(column_pos);
+        ColumnPtr column = input.column->convert_to_full_column_if_const();
+        ColumnPtr null_map;
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(column.get())) {
+            null_map = nullable->get_null_map_column_ptr();
+            column = nullable->get_nested_column_ptr();
+        }
+        auto result = get_result_type()->create_column();
+        // Iceberg binary truncation counts raw bytes, unlike the UTF-8 string transform.
+        for (size_t row = 0; row < column->size(); ++row) {
+            auto value = column->get_data_at(row);
+            result->insert_data(value.data, std::min(value.size, static_cast<size_t>(_width)));
+        }
+        if (null_map) {
+            return {ColumnNullable::create(std::move(result), null_map),
+                    make_nullable(get_result_type()), input.name};
+        }
+        return {std::move(result), get_result_type(), input.name};
+    }
+
+private:
+    int _width;
+    DataTypePtr _target_type;
 };
 
 class StringTruncatePartitionColumnTransform : public PartitionColumnTransform {
@@ -722,6 +756,7 @@ class StringBucketPartitionColumnTransform : public PartitionColumnTransform {
 public:
     StringBucketPartitionColumnTransform(const DataTypePtr source_type, int bucket_num)
             : _bucket_num(bucket_num),
+              _is_binary(source_type->get_primitive_type() == TYPE_VARBINARY),
               _target_type(DataTypeFactory::instance().create_data_type(TYPE_INT, false)) {}
 
     std::string name() const override { return "StringBucket"; }
@@ -744,25 +779,25 @@ public:
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
-        const auto* str_col = assert_cast<const ColumnString*>(column_ptr.get());
-
         //3) do partition routing
         auto col_res = ColumnInt32::create();
-        const auto& data = str_col->get_chars();
-        const auto& offsets = str_col->get_offsets();
-
-        size_t offset_size = offsets.size();
+        size_t offset_size = column_ptr->size();
         ColumnInt32::Container& out_data = col_res->get_data();
         out_data.resize(offset_size);
         auto* __restrict p_out = out_data.data();
 
-        for (int i = 0; i < offset_size; i++) {
-            const unsigned char* raw_str = &data[offsets[i - 1]];
-            ColumnString::Offset size = offsets[i] - offsets[i - 1];
-            uint32_t hash_value = HashUtil::murmur_hash3_32(raw_str, size, 0);
-
-            *p_out = (hash_value & INT32_MAX) % _bucket_num;
-            ++p_out;
+        // Dispatch once: both layouts hash raw bytes, without adding virtual calls per string row.
+        auto hash_values = [&](const auto& input) {
+            for (size_t i = 0; i < offset_size; ++i) {
+                auto value = input.get_data_at(i);
+                uint32_t hash_value = HashUtil::murmur_hash3_32(value.data, value.size, 0);
+                *p_out++ = (hash_value & INT32_MAX) % _bucket_num;
+            }
+        };
+        if (_is_binary) {
+            hash_values(assert_cast<const ColumnVarbinary&>(*column_ptr));
+        } else {
+            hash_values(assert_cast<const ColumnString&>(*column_ptr));
         }
 
         //4) create the partition column and return
@@ -778,6 +813,7 @@ public:
 
 private:
     int _bucket_num;
+    bool _is_binary;
     DataTypePtr _target_type;
 };
 

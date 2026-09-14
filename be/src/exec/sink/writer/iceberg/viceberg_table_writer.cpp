@@ -17,6 +17,8 @@
 
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 
+#include <boost/uuid/string_generator.hpp>
+
 #include "common/exception.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
@@ -36,6 +38,7 @@
 #include "format/table/iceberg/schema_parser.h"
 #include "io/fs/file_system.h"
 #include "runtime/runtime_state.h"
+#include "util/url_coding.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -159,6 +162,7 @@ void VIcebergTableWriter::_init_static_partition_values() {
 
     size_t num_cols = _iceberg_partition_columns.size();
     _partition_column_static_values.resize(num_cols);
+    _partition_column_static_path_values.resize(num_cols);
     _partition_column_is_static.assign(num_cols, 0);
 
     size_t dynamic_count = 0;
@@ -167,6 +171,40 @@ void VIcebergTableWriter::_init_static_partition_values() {
         auto it = static_values_map.find(col_name);
         if (it != static_values_map.end()) {
             _partition_column_static_values[i] = it->second;
+            _partition_column_static_path_values[i] = it->second;
+            auto type =
+                    _iceberg_partition_columns[i].partition_column_transform().get_result_type();
+            if (type->get_primitive_type() == TYPE_VARBINARY) {
+                // Static and dynamic partitions share typed hex commit values, but Iceberg paths
+                // render binary as base64 (UUID as canonical text). Decode before rendering.
+                auto column = type->create_column();
+                auto& encoded = _partition_column_static_values[i];
+                if (_schema->find_type(_iceberg_partition_columns[i].field().source_id())
+                                    ->type_id() == iceberg::TypeID::UUID &&
+                    !encoded.starts_with("0x")) {
+                    // Preserve the canonical UUID string input accepted before VARBINARY mapping.
+                    boost::uuids::uuid uuid;
+                    try {
+                        uuid = boost::uuids::string_generator()(encoded);
+                    } catch (const std::runtime_error&) {
+                        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                        "Invalid UUID partition value");
+                    }
+                    encoded = _iceberg_partition_columns[i]
+                                      .partition_column_transform()
+                                      .get_partition_value(type,
+                                                           std::string(uuid.begin(), uuid.end()));
+                }
+                StringRef value(encoded.data(), encoded.size());
+                DataTypeSerDe::FormatOptions options;
+                auto status = type->get_serde()->from_string(value, *column, options);
+                if (!status.ok()) {
+                    throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid binary partition: {}",
+                                    status.to_string());
+                }
+                _partition_column_static_path_values[i] =
+                        _partition_value_to_human_string(i, column->get_data_at(0).to_string());
+            }
             _partition_column_is_static[i] = 1;
         } else {
             dynamic_count++;
@@ -201,7 +239,7 @@ std::string VIcebergTableWriter::_build_static_partition_path() {
             }
             first = false;
             ss << _escape(_iceberg_partition_columns[i].field().name()) << "="
-               << _escape(_partition_column_static_values[i]);
+               << _escape(_partition_column_static_path_values[i]);
         }
     }
     return ss.str();
@@ -552,6 +590,28 @@ void VIcebergTableWriter::_cleanup_closed_files() {
     _closed_files.clear();
 }
 
+std::string VIcebergTableWriter::_partition_value_to_human_string(size_t index,
+                                                                  const std::any& value) {
+    auto& partition = _iceberg_partition_columns[index];
+    auto& transform = partition.partition_column_transform();
+    auto type = transform.get_result_type();
+    if (type->get_primitive_type() != TYPE_VARBINARY || !value.has_value()) {
+        return transform.to_human_string(type, value);
+    }
+    const auto& bytes = std::any_cast<const std::string&>(value);
+    if (_schema->find_type(partition.field().source_id())->type_id() == iceberg::TypeID::UUID) {
+        if (bytes.size() != 16) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "UUID partition requires 16 bytes");
+        }
+        boost::uuids::uuid uuid;
+        std::copy(bytes.begin(), bytes.end(), uuid.begin());
+        return boost::uuids::to_string(uuid);
+    }
+    std::string encoded;
+    base64_encode(bytes, &encoded);
+    return encoded;
+}
+
 std::string VIcebergTableWriter::_partition_to_path(const doris::iceberg::StructLike& data) {
     std::stringstream ss;
     for (size_t i = 0; i < _iceberg_partition_columns.size(); i++) {
@@ -562,12 +622,10 @@ std::string VIcebergTableWriter::_partition_to_path(const doris::iceberg::Struct
         // In hybrid mode, check if this column is statically specified
         if (_has_static_partition && _partition_column_is_static[i]) {
             // Use static partition value
-            value_string = _partition_column_static_values[i];
+            value_string = _partition_column_static_path_values[i];
         } else {
             // Compute from data (dynamic partition)
-            value_string = iceberg_partition_column.partition_column_transform().to_human_string(
-                    iceberg_partition_column.partition_column_transform().get_result_type(),
-                    data.get(i));
+            value_string = _partition_value_to_human_string(i, data.get(i));
         }
 
         if (i > 0) {
@@ -752,6 +810,7 @@ std::any VIcebergTableWriter::_get_iceberg_partition_value(
     case TYPE_DOUBLE: {
         return *reinterpret_cast<const Float64*>(item);
     }
+    case TYPE_VARBINARY:
     case TYPE_VARCHAR:
     case TYPE_CHAR:
     case TYPE_STRING: {

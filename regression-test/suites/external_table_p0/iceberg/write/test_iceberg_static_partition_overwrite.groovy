@@ -48,6 +48,28 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     sql """ create database ${db1} """
     sql """ use ${db1} """
 
+    // Binary partition values must retain their bytes across dynamic, full-static and hybrid writes.
+    String binaryTable = "binary_partition_overwrite"
+    spark_iceberg """
+        CREATE TABLE demo.${db1}.${binaryTable} (id INT, part_key BINARY, region STRING)
+        USING iceberg PARTITIONED BY (part_key, region)
+        TBLPROPERTIES ('write.format.default'='parquet')
+    """
+    sql """ INSERT INTO ${binaryTable} VALUES
+        (1, X'DEAD', 'a'), (2, X'DEAD', 'b'), (3, X'00FF', 'a') """
+    sql """ INSERT OVERWRITE TABLE ${binaryTable}
+        PARTITION (part_key=X'DEAD', region='a') SELECT 10 """
+    assertEquals([[2, "DEAD", "b"], [3, "00FF", "a"], [10, "DEAD", "a"]],
+            sql("SELECT id, hex(part_key), region FROM ${binaryTable} ORDER BY id"))
+    sql """ INSERT OVERWRITE TABLE ${binaryTable}
+        PARTITION (part_key=X'DEAD') SELECT 20, 'c' """
+    def binaryRows = sql("SELECT id, hex(part_key), region FROM ${binaryTable} ORDER BY id")
+    assertEquals([[3, "00FF", "a"], [20, "DEAD", "c"]], binaryRows)
+    spark_iceberg "REFRESH TABLE demo.${db1}.${binaryTable}"
+    assertSparkDorisResultEquals(spark_iceberg("""
+        SELECT id, hex(part_key), region FROM demo.${db1}.${binaryTable} ORDER BY id
+    """), binaryRows)
+
     // Test Case 1: Full static partition overwrite (all partition columns specified)
     // Test overwriting a specific partition with all partition columns specified
     sql """ DROP TABLE IF EXISTS ${tb1} """

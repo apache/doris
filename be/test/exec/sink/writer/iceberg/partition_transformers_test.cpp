@@ -22,6 +22,8 @@
 #include <limits>
 
 #include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_varbinary.h"
+#include "format/table/iceberg/partition_spec.h"
 
 namespace doris {
 
@@ -30,6 +32,46 @@ public:
     PartitionTransformersTest() = default;
     virtual ~PartitionTransformersTest() = default;
 };
+
+TEST_F(PartitionTransformersTest, binary_transforms_preserve_raw_bytes) {
+    auto type = std::make_shared<DataTypeVarbinary>();
+    auto column = type->create_column();
+    const std::vector<std::string> values = {std::string("\xC3\xA9\0\xFF", 4), "", "abc"};
+    for (const auto& value : values) {
+        column->insert_data(value.data(), value.size());
+    }
+    Block block({{column->get_ptr(), type, "binary_key"}});
+    auto truncate = PartitionColumnTransforms::create(
+            iceberg::PartitionField(1, 1000, "key_prefix", "truncate[1]"), type);
+    auto truncated = truncate->apply(block, 0);
+    // Binary truncation counts bytes, not UTF-8 code points, and keeps its physical type.
+    EXPECT_EQ(TYPE_VARBINARY, truncated.type->get_primitive_type());
+    EXPECT_EQ(std::string("\xC3", 1), truncated.column->get_data_at(0).to_string());
+    EXPECT_EQ("", truncated.column->get_data_at(1).to_string());
+    EXPECT_EQ("a", truncated.column->get_data_at(2).to_string());
+
+    auto bucket = PartitionColumnTransforms::create(
+            iceberg::PartitionField(1, 1001, "key_bucket", "bucket[16]"), type);
+    auto bucketed = bucket->apply(block, 0);
+    const auto& buckets = assert_cast<const ColumnInt32&>(*bucketed.column).get_data();
+    for (size_t i = 0; i < values.size(); ++i) {
+        EXPECT_EQ(
+                (HashUtil::murmur_hash3_32(values[i].data(), values[i].size(), 0) & INT32_MAX) % 16,
+                buckets[i]);
+    }
+    IdentityPartitionColumnTransform identity(type);
+    EXPECT_EQ("0xc3a900ff", identity.get_partition_value(type, values[0]));
+    auto null_map = ColumnUInt8::create();
+    null_map->get_data().assign({0, 1, 0});
+    Block nullable_block(
+            {{ColumnNullable::create(block.get_by_position(0).column, std::move(null_map)),
+              make_nullable(type), "binary_key"}});
+    for (auto* transform : {truncate.get(), bucket.get()}) {
+        auto result = transform->apply(nullable_block, 0);
+        EXPECT_TRUE(result.column->is_null_at(1));
+        EXPECT_FALSE(result.column->is_null_at(0));
+    }
+}
 
 TEST_F(PartitionTransformersTest, test_integer_truncate_transform) {
     const std::vector<int32_t> values({1, -1});
