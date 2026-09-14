@@ -19,7 +19,9 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
 #include <memory>
+#include <numeric>
 #include <vector>
 
 #include "common/cast_set.h"
@@ -431,6 +433,159 @@ TEST(ColumnReadAheadTest, FutureCursorUsesPagePositionAcrossRowIdRequests) {
     remaining_scan.addMany(remaining_rows.size(), remaining_rows.data());
     window->plan(remaining_rows.data(), 1, remaining_scan, &plan);
     EXPECT_EQ(page_indexes(plan.new_pages), (std::vector<int32_t> {4, 6}));
+}
+
+TEST(ColumnReadAheadTest, PageDrivenScanKeepsPrunedSelectionWithoutRowIds) {
+    auto window = create_window(std::vector<size_t>(20, 25), {.window_bytes = 75});
+    ColumnReadAheadPlan plan;
+    {
+        const rowid_t selected[] = {100, 200, 600, 900, 1200, 1500};
+        roaring::Roaring rows;
+        rows.addMany(std::size(selected), selected);
+        window->start(rows, &plan);
+    }
+    EXPECT_EQ(page_indexes(plan.new_pages), (std::vector<int32_t> {1, 2, 6}));
+    window->complete(1);
+    window->advance(1, &plan);
+    EXPECT_TRUE(plan.empty());
+    EXPECT_EQ(plan.current_batch_plan_ns, 0);
+
+    window->advance(2, &plan);
+    EXPECT_EQ(page_indexes(plan.released_pages), (std::vector<int32_t> {1}));
+    EXPECT_EQ(page_indexes(plan.new_pages), (std::vector<int32_t> {9, 12, 15}));
+    EXPECT_EQ(window->pending_bytes(), 125);
+    window->advance(15, &plan);
+    EXPECT_TRUE(plan.new_pages.empty());
+    EXPECT_EQ(window->pending_bytes(), 25);
+    window->complete(15);
+    window->advance(15, &plan);
+    EXPECT_TRUE(plan.empty());
+    EXPECT_EQ(window->pending_bytes(), 0);
+}
+
+TEST(ColumnReadAheadTest, PageDrivenJumpRestartsAndReachingTriggerExtends) {
+    auto window = create_window(std::vector<size_t>(24, 30), {.window_bytes = 90});
+    ColumnReadAheadPlan plan;
+    window->start(all_rows(2400), &plan);
+    EXPECT_EQ(page_indexes(plan.new_pages), (std::vector<int32_t> {0, 1, 2}));
+
+    window->advance(10, &plan);
+    EXPECT_EQ(page_indexes(plan.released_pages), (std::vector<int32_t> {0, 1, 2}));
+    EXPECT_EQ(page_indexes(plan.new_pages), (std::vector<int32_t> {10, 11, 12}));
+    window->advance(12, &plan);
+    EXPECT_EQ(page_indexes(plan.new_pages), (std::vector<int32_t> {13, 14, 15}));
+    EXPECT_EQ(page_indexes(plan.released_pages), (std::vector<int32_t> {10, 11}));
+}
+
+TEST(ColumnReadAheadTest, DenseScanPlansEachPageOnceWithBoundedWindows) {
+    // 64 KiB uncompressed INT pages contain 16K rows; model 30 KiB compressed pages.
+    constexpr size_t page_count = 512;
+    constexpr size_t page_bytes = 30 * 1024;
+    constexpr size_t window_bytes = 4 * 1024 * 1024;
+    constexpr rowid_t rows_per_page = 16 * 1024;
+    auto window = create_window(std::vector<size_t>(page_count, page_bytes),
+                                {.window_bytes = window_bytes}, false, rows_per_page);
+    ColumnReadAheadPlan plan;
+    window->start(all_rows(page_count * rows_per_page), &plan);
+    size_t planned = plan.new_pages.size();
+    EXPECT_EQ(planned, (window_bytes + page_bytes - 1) / page_bytes);
+    for (int32_t page = 0; page < page_count; ++page) {
+        window->advance(page, &plan);
+        planned += plan.new_pages.size();
+        EXPECT_TRUE(window->pending(page));
+        EXPECT_LE(window->pending_bytes(), 2 * (window_bytes + page_bytes));
+        window->complete(page);
+    }
+    EXPECT_EQ(planned, page_count);
+    EXPECT_EQ(window->pending_bytes(), 0);
+}
+
+TEST(ColumnReadAheadTest, PageDrivenCacheHitsStillAdvanceFromReadPosition) {
+    auto window = create_window(std::vector<size_t>(12, 30), {.window_bytes = 90});
+    ColumnReadAheadPlan plan;
+    window->start(all_rows(1200), &plan);
+    for (const auto& page : plan.new_pages) {
+        window->complete(page.page_index);
+    }
+    EXPECT_EQ(window->pending_bytes(), 0);
+    window->advance(0, &plan);
+    EXPECT_TRUE(plan.empty());
+    window->advance(1, &plan);
+    EXPECT_EQ(page_indexes(plan.new_pages), (std::vector<int32_t> {3, 4, 5}));
+}
+
+TEST(ColumnReadAheadTest, PageDrivenReverseKeepsAscendingPagesWithinBatch) {
+    auto window = create_window(std::vector<size_t>(12, 30), {.window_bytes = 90}, true);
+    ColumnReadAheadPlan plan;
+    window->start(all_rows(1200), &plan);
+    EXPECT_EQ(page_indexes(plan.new_pages), (std::vector<int32_t> {11, 10, 9}));
+    // Reverse scan batch [900..1199] is physically read as page 9, 10, 11.
+    window->advance(9, &plan);
+    EXPECT_TRUE(plan.released_pages.empty());
+    EXPECT_EQ(page_indexes(plan.new_pages), (std::vector<int32_t> {8, 7, 6}));
+    window->complete(9);
+    window->advance(10, &plan);
+    EXPECT_TRUE(plan.empty());
+    window->complete(10);
+    window->advance(11, &plan);
+    EXPECT_TRUE(plan.empty());
+    window->complete(11);
+
+    // The next batch may skip an arbitrarily large range.
+    window->advance(2, &plan);
+    EXPECT_EQ(page_indexes(plan.released_pages), (std::vector<int32_t> {10, 11}));
+    EXPECT_EQ(page_indexes(plan.new_pages), (std::vector<int32_t> {2, 1, 0}));
+    window->advance(0, &plan);
+    EXPECT_EQ(page_indexes(plan.released_pages), (std::vector<int32_t> {6, 7, 8, 9}));
+}
+
+TEST(ColumnReadAheadTest, PageDrivenReverseUsesSelectedPagesAndOversizedWindows) {
+    auto window = create_window({150, 40, 70, 60, 160}, {.window_bytes = 100}, true);
+    const rowid_t selected[] = {0, 200, 400};
+    roaring::Roaring rows;
+    rows.addMany(std::size(selected), selected);
+    ColumnReadAheadPlan plan;
+    window->start(rows, &plan);
+    EXPECT_EQ(page_indexes(plan.new_pages), (std::vector<int32_t> {4, 2, 0}));
+    window->advance(2, &plan);
+    EXPECT_TRUE(plan.new_pages.empty());
+    window->advance(0, &plan);
+    EXPECT_TRUE(plan.new_pages.empty());
+    EXPECT_EQ(page_indexes(plan.released_pages), (std::vector<int32_t> {4}));
+}
+
+TEST(ColumnReadAheadTest, CandidateSelectionHandlesMaximumRowId) {
+    const rowid_t last_row = std::numeric_limits<rowid_t>::max();
+    std::unique_ptr<ColumnReadAhead> window;
+    ASSERT_TRUE(ColumnReadAhead::create({{.page_index = 0,
+                                          .first_ordinal = 0,
+                                          .last_ordinal = last_row,
+                                          .range = {.offset = 0, .size = 30}}},
+                                        {.window_bytes = 90}, false, &window)
+                        .ok());
+    roaring::Roaring rows;
+    rows.add(last_row);
+    ColumnReadAheadPlan plan;
+    window->start(rows, &plan);
+    EXPECT_EQ(page_indexes(plan.new_pages), (std::vector<int32_t> {0}));
+    window->advance(0, &plan);
+    EXPECT_TRUE(plan.empty());
+}
+
+TEST(ColumnReadAheadTest, DenseRowIdBatchProducesTheSamePlanAsDistinctPages) {
+    for (bool reverse : {false, true}) {
+        auto dense = create_window(std::vector<size_t>(12, 30), {.window_bytes = 90}, reverse);
+        auto sparse = create_window(std::vector<size_t>(12, 30), {.window_bytes = 90}, reverse);
+        std::vector<rowid_t> rowids(1000);
+        std::iota(rowids.begin(), rowids.end(), 0);
+        const rowid_t distinct[] = {0, 100, 200, 300, 400, 500, 600, 700, 800, 900};
+        ColumnReadAheadPlan dense_plan;
+        ColumnReadAheadPlan sparse_plan;
+        dense->plan(rowids.data(), rowids.size(), all_rows(1200), &dense_plan);
+        sparse->plan(distinct, std::size(distinct), all_rows(1200), &sparse_plan);
+        EXPECT_EQ(dense_plan.new_pages, sparse_plan.new_pages);
+        EXPECT_EQ(dense->pending_bytes(), sparse->pending_bytes());
+    }
 }
 
 } // namespace

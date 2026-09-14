@@ -132,12 +132,11 @@ private:
     [[nodiscard]] Status _init_query_read_ahead();
     [[nodiscard]] Status _init_column_iterators();
     [[nodiscard]] Status _init_index_iterators();
-    // Plan eager and dependent columns together, then make one segment-level submission before
-    // any data page in the current batch is decoded.
-    void _prepare_batch_read_ahead(size_t current_rowid_count);
-    // Classify active physical iterators by filtering dependency and collect page-window changes;
-    // this step performs no cache probe or source IO.
-    std::vector<ColumnReadAheadPlan> _plan_batch_read_ahead(size_t current_rowid_count);
+    // Initialize eager and lazy page sequences after pruning and submit their first windows
+    // together. Subsequent data-page reads advance each physical column's window.
+    void _prepare_scan_read_ahead();
+    // Classify physical iterators by filtering dependency and plan their initial windows.
+    std::vector<ColumnReadAheadPlan> _plan_scan_read_ahead();
 
     // calculate row ranges that fall into requested key ranges using short key index
     [[nodiscard]] Status _get_row_ranges_by_keys();

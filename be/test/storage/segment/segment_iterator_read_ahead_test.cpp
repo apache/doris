@@ -47,10 +47,11 @@ namespace doris::segment_v2 {
 namespace {
 
 struct RecordedReadAheadCall {
-    std::vector<rowid_t> rowids;
+    roaring::Roaring rowids;
     ColumnReadAheadRole role {ColumnReadAheadRole::EAGER};
     ColumnIterator::ReadPhase phase {ColumnIterator::ReadPhase::NORMAL};
     bool reverse {false};
+    bool page_driven {false};
 };
 
 class RecordingColumnIterator final : public ColumnIterator {
@@ -65,9 +66,11 @@ public:
         RecordedReadAheadCall call {.rowids = {},
                                     .role = request.role,
                                     .phase = _read_phase,
-                                    .reverse = request.reverse};
-        call.rowids.assign(request.current_rowids,
-                           request.current_rowids + request.current_rowid_count);
+                                    .reverse = request.reverse,
+                                    .page_driven = request.page_driven};
+        call.rowids = *request.scan_rowids;
+        EXPECT_EQ(request.current_rowids, nullptr);
+        EXPECT_EQ(request.current_rowid_count, 0);
         calls.push_back(std::move(call));
         if (!_prepare_status.ok()) {
             return _prepare_status;
@@ -119,7 +122,6 @@ protected:
         iterator->_column_read_ahead_context =
                 std::make_unique<ColumnReadAheadContext>(make_context());
         iterator->_row_bitmap.addRange(0, 100);
-        iterator->_block_rowids = {10, 20, 30};
         return iterator;
     }
 
@@ -147,13 +149,14 @@ TEST_F(SegmentIteratorReadAheadTest, SubmitsAllPlannableRolesBeforeDecoding) {
     iterator->_lazy_pruned_ordinals = {1};
     iterator->_opts.read_orderby_key_reverse = true;
 
-    const auto plans = iterator->_plan_batch_read_ahead(3);
+    const auto plans = iterator->_plan_scan_read_ahead();
 
     ASSERT_EQ(predicate->calls.size(), 1);
     EXPECT_EQ(predicate->calls[0].role, ColumnReadAheadRole::EAGER);
     EXPECT_EQ(predicate->calls[0].phase, ColumnIterator::ReadPhase::NORMAL);
     EXPECT_TRUE(predicate->calls[0].reverse);
-    EXPECT_EQ(predicate->calls[0].rowids, (std::vector<rowid_t> {10, 20, 30}));
+    EXPECT_EQ(predicate->calls[0].rowids, iterator->_row_bitmap);
+    EXPECT_TRUE(predicate->calls[0].page_driven);
 
     ASSERT_EQ(split_common_expr->calls.size(), 2);
     EXPECT_EQ(split_common_expr->calls[0].role, ColumnReadAheadRole::LAZY);
@@ -177,7 +180,7 @@ TEST_F(SegmentIteratorReadAheadTest, UsesEagerWindowForFirstCommonExpressionStag
     iterator->_common_expr_ordinals = {0};
     iterator->_output_ordinals = {1};
 
-    const auto plans = iterator->_plan_batch_read_ahead(3);
+    const auto plans = iterator->_plan_scan_read_ahead();
 
     ASSERT_EQ(common_expr->calls.size(), 1);
     ASSERT_EQ(output->calls.size(), 1);
@@ -193,7 +196,7 @@ TEST_F(SegmentIteratorReadAheadTest, UsesEagerWindowWhenOutputHasNoDependency) {
     set_column(iterator.get(), 2);
     iterator->_output_ordinals = {0, 1};
 
-    const auto plans = iterator->_plan_batch_read_ahead(3);
+    const auto plans = iterator->_plan_scan_read_ahead();
 
     ASSERT_EQ(first->calls.size(), 1);
     ASSERT_EQ(second->calls.size(), 1);
@@ -210,12 +213,26 @@ TEST_F(SegmentIteratorReadAheadTest, PreparationFailureFallsBackAndKeepsOtherCol
     failed->set_prepare_status(Status::IOError("injected planning failure"));
     iterator->_output_ordinals = {0, 1};
 
-    const auto plans = iterator->_plan_batch_read_ahead(3);
+    const auto plans = iterator->_plan_scan_read_ahead();
 
     EXPECT_EQ(failed->calls.size(), 1);
     EXPECT_EQ(healthy->calls.size(), 1);
     EXPECT_EQ(failed->phase(), ColumnIterator::ReadPhase::NORMAL);
     EXPECT_EQ(plans.size(), 1);
+}
+
+TEST_F(SegmentIteratorReadAheadTest, EmptySelectionAndDisabledReadAheadSkipPlanning) {
+    auto iterator = make_iterator();
+    auto* column = set_column(iterator.get(), 0);
+    iterator->_output_ordinals = {0};
+    iterator->_row_bitmap = roaring::Roaring {};
+    EXPECT_TRUE(iterator->_plan_scan_read_ahead().empty());
+    EXPECT_TRUE(column->calls.empty());
+
+    iterator->_row_bitmap.add(20);
+    iterator->_column_read_ahead_context.reset();
+    EXPECT_TRUE(iterator->_plan_scan_read_ahead().empty());
+    EXPECT_TRUE(column->calls.empty());
 }
 
 } // namespace

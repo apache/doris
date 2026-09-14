@@ -38,9 +38,10 @@ void ReadAheadStatistics::update_profile(RuntimeProfile* profile) {
     update("ReadAheadPlanTime", "ReadAheadPlanning", plan_time);
     update("ReadAheadColumnPlanTime", "ReadAheadPlanning", column_plan_time);
     update("ReadAheadColumnInitTime", "ReadAheadColumnPlanTime", column_init_time);
+    update("ReadAheadPageAdvanceTime", "ReadAheadColumnPlanTime", page_advance_time);
     update("ReadAheadWindowDiscardTime", "ReadAheadColumnPlanTime", window_discard_time);
     update("ReadAheadCurrentBatchPlanTime", "ReadAheadColumnPlanTime", current_batch_plan_time);
-    update("ReadAheadWindowExtendTime", "ReadAheadCurrentBatchPlanTime", window_extend_time);
+    update("ReadAheadWindowExtendTime", "ReadAheadColumnPlanTime", window_extend_time);
     update("ReadAheadCandidatePages", "ReadAheadPlanning", candidate_pages);
     update("ReadAheadCandidateBytes", "ReadAheadPlanning", candidate_bytes);
     update("ReadAheadPageCacheHits", "ReadAheadPlanning", page_cache_hits);

@@ -34,6 +34,7 @@ TEST(ReadAheadMetricsTest, ReportsOnlyNewDeltasAndAggregatesReaders) {
     COUNTER_UPDATE(&first.plan_time, 100);
     COUNTER_UPDATE(&first.column_plan_time, 1000);
     COUNTER_UPDATE(&first.column_init_time, 200);
+    COUNTER_UPDATE(&first.page_advance_time, 80);
     COUNTER_UPDATE(&first.window_discard_time, 100);
     COUNTER_UPDATE(&first.current_batch_plan_time, 600);
     COUNTER_UPDATE(&first.window_extend_time, 50);
@@ -62,6 +63,7 @@ TEST(ReadAheadMetricsTest, ReportsOnlyNewDeltasAndAggregatesReaders) {
     EXPECT_EQ(profile.get_counter("ReadAheadPlanTime")->type(), TUnit::TIME_NS);
     EXPECT_EQ(profile.get_counter("ReadAheadColumnPlanTime")->value(), 1300);
     EXPECT_EQ(profile.get_counter("ReadAheadColumnInitTime")->value(), 200);
+    EXPECT_EQ(profile.get_counter("ReadAheadPageAdvanceTime")->value(), 80);
     EXPECT_EQ(profile.get_counter("ReadAheadWindowDiscardTime")->value(), 100);
     EXPECT_EQ(profile.get_counter("ReadAheadCurrentBatchPlanTime")->value(), 600);
     EXPECT_EQ(profile.get_counter("ReadAheadWindowExtendTime")->value(), 50);
@@ -78,6 +80,7 @@ TEST(ReadAheadMetricsTest, ReportsOnlyNewDeltasAndAggregatesReaders) {
     EXPECT_EQ(second.input_bytes.value(), 0);
     EXPECT_EQ(first.column_plan_time.value(), 0);
     EXPECT_EQ(first.column_init_time.value(), 0);
+    EXPECT_EQ(first.page_advance_time.value(), 0);
     EXPECT_EQ(first.window_discard_time.value(), 0);
     EXPECT_EQ(first.current_batch_plan_time.value(), 0);
     EXPECT_EQ(first.window_extend_time.value(), 0);
@@ -90,7 +93,8 @@ TEST(ReadAheadMetricsTest, ReportsOnlyNewDeltasAndAggregatesReaders) {
     EXPECT_EQ(children.at("ReadAheadColumnPlanTime").count("ReadAheadColumnInitTime"), 1);
     EXPECT_EQ(children.at("ReadAheadColumnPlanTime").count("ReadAheadWindowDiscardTime"), 1);
     EXPECT_EQ(children.at("ReadAheadColumnPlanTime").count("ReadAheadCurrentBatchPlanTime"), 1);
-    EXPECT_EQ(children.at("ReadAheadCurrentBatchPlanTime").count("ReadAheadWindowExtendTime"), 1);
+    EXPECT_EQ(children.at("ReadAheadColumnPlanTime").count("ReadAheadPageAdvanceTime"), 1);
+    EXPECT_EQ(children.at("ReadAheadColumnPlanTime").count("ReadAheadWindowExtendTime"), 1);
 }
 
 TEST(ReadAheadMetricsTest, PreservesConcurrentUpdatesDuringReporting) {

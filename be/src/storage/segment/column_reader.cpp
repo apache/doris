@@ -2821,25 +2821,60 @@ Status FileColumnIterator::prepare_read_ahead(const ColumnReadAheadRequest& requ
     if (!need_to_read()) {
         return Status::OK();
     }
+    if (_read_ahead_segment != nullptr) {
+        // A split complex column can be visited in several read phases during initialization.
+        DORIS_CHECK(request.page_driven);
+        DORIS_CHECK(_read_ahead_segment == request.context->segment);
+        DORIS_CHECK(_read_ahead->options() == request.options());
+        DORIS_CHECK(_read_ahead->reverse() == request.reverse);
+        return Status::OK();
+    }
     auto* statistics = _opts.stats->read_ahead_stats.get();
     SCOPED_TIMER(statistics != nullptr ? &statistics->column_plan_time : nullptr);
+    ColumnReadAheadPlan plan;
     {
         SCOPED_TIMER(statistics != nullptr ? &statistics->column_init_time : nullptr);
         RETURN_IF_ERROR(_init_read_ahead(request));
+        if (request.page_driven) {
+            DORIS_CHECK(request.context->segment != nullptr);
+            _read_ahead->start(*request.scan_rowids, &plan);
+            _read_ahead_segment = request.context->segment;
+        }
     }
-    ColumnReadAheadPlan plan;
-    _read_ahead->plan(request.current_rowids, request.current_rowid_count, *request.scan_rowids,
-                      &plan);
-    // Empty plans still perform row-to-page mapping and window maintenance on the scanner.
-    if (statistics != nullptr) {
-        COUNTER_UPDATE(&statistics->window_discard_time, plan.window_discard_ns);
-        COUNTER_UPDATE(&statistics->current_batch_plan_time, plan.current_batch_plan_ns);
-        COUNTER_UPDATE(&statistics->window_extend_time, plan.window_extend_ns);
+    if (!request.page_driven) {
+        _read_ahead->plan(request.current_rowids, request.current_rowid_count, *request.scan_rowids,
+                          &plan);
     }
+    _record_read_ahead_plan(plan);
     if (!plan.empty()) {
         plans->push_back(std::move(plan));
     }
     return Status::OK();
+}
+
+void FileColumnIterator::_advance_read_ahead(int32_t page_index) {
+    ColumnReadAheadPlan plan;
+    {
+        auto* statistics = _opts.stats->read_ahead_stats.get();
+        SCOPED_TIMER(statistics != nullptr ? &statistics->column_plan_time : nullptr);
+        SCOPED_TIMER(statistics != nullptr ? &statistics->page_advance_time : nullptr);
+        _read_ahead->advance(page_index, &plan);
+        _record_read_ahead_plan(plan);
+    }
+    if (!plan.empty()) {
+        std::vector<ColumnReadAheadPlan> plans;
+        plans.push_back(std::move(plan));
+        static_cast<void>(_read_ahead_segment->apply_plans(std::move(plans)));
+    }
+}
+
+void FileColumnIterator::_record_read_ahead_plan(const ColumnReadAheadPlan& plan) {
+    // Include window maintenance even when no pages enter or leave the window.
+    if (auto* statistics = _opts.stats->read_ahead_stats.get(); statistics != nullptr) {
+        COUNTER_UPDATE(&statistics->window_discard_time, plan.window_discard_ns);
+        COUNTER_UPDATE(&statistics->current_batch_plan_time, plan.current_batch_plan_ns);
+        COUNTER_UPDATE(&statistics->window_extend_time, plan.window_extend_ns);
+    }
 }
 
 void FileColumnIterator::_trigger_prefetch_if_eligible(ordinal_t ord) {
@@ -3199,6 +3234,9 @@ Status FileColumnIterator::_load_next_page(bool* eos) {
 }
 
 Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter) {
+    if (_read_ahead_segment != nullptr) {
+        _advance_read_ahead(iter.page_index());
+    }
     PageHandle handle;
     Slice page_body;
     PageFooterPB footer;

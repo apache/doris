@@ -640,6 +640,8 @@ Status SegmentIterator::_lazy_init(Block* block) {
     _count_emit_shortcut = _should_engage_count_emit_shortcut(block);
     if (_count_emit_shortcut) {
         _count_emit_rows_remaining = _row_bitmap.cardinality();
+    } else {
+        _prepare_scan_read_ahead();
     }
 
     return Status::OK();
@@ -734,17 +736,16 @@ void SegmentIterator::_init_segment_prefetchers() {
     }
 }
 
-void SegmentIterator::_prepare_batch_read_ahead(size_t current_rowid_count) {
-    auto plans = _plan_batch_read_ahead(current_rowid_count);
+void SegmentIterator::_prepare_scan_read_ahead() {
+    auto plans = _plan_scan_read_ahead();
     if (!plans.empty()) {
         DORIS_CHECK(_segment_read_ahead != nullptr);
         static_cast<void>(_segment_read_ahead->apply_plans(std::move(plans)));
     }
 }
 
-std::vector<ColumnReadAheadPlan> SegmentIterator::_plan_batch_read_ahead(
-        size_t current_rowid_count) {
-    if (_column_read_ahead_context == nullptr || current_rowid_count == 0) {
+std::vector<ColumnReadAheadPlan> SegmentIterator::_plan_scan_read_ahead() {
+    if (_column_read_ahead_context == nullptr || _row_bitmap.isEmpty()) {
         return {};
     }
     std::vector<ColumnReadAheadPlan> plans;
@@ -765,12 +766,11 @@ std::vector<ColumnReadAheadPlan> SegmentIterator::_plan_batch_read_ahead(
             }
             ScopedColumnIteratorReadPhase scoped_read_phase {column_iterator, phase};
             const ColumnReadAheadRequest request {
-                    .current_rowids = _block_rowids.data(),
-                    .current_rowid_count = current_rowid_count,
                     .scan_rowids = &_row_bitmap,
                     .context = _column_read_ahead_context.get(),
                     .role = role,
                     .reverse = _opts.read_orderby_key_reverse,
+                    .page_driven = true,
             };
             const auto status = column_iterator->prepare_read_ahead(request, &plans);
             if (!status.ok()) {
@@ -2465,7 +2465,6 @@ Status SegmentIterator::_read_columns_by_index(const std::vector<ColumnId>& read
     SCOPED_RAW_TIMER(&_opts.stats->predicate_column_read_ns);
 
     nrows_read = (uint16_t)_range_iter->read_batch_rowids(_block_rowids.data(), nrows_read_limit);
-    _prepare_batch_read_ahead(nrows_read);
     bool is_continuous = (nrows_read > 1) &&
                          (_block_rowids[nrows_read - 1] - _block_rowids[0] == nrows_read - 1);
     VLOG_DEBUG << fmt::format(
