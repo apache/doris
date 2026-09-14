@@ -27,7 +27,10 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.InternalAuthorizationPlugin;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.policy.PolicyMgr;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -52,7 +55,7 @@ public class SecurityDependencyContextTest {
     public void testUnchangedPoliciesAreValid() {
         RowFilterSpec rowFilter = RowFilterSpec.restrictive("row:1", "tenant_id = 1");
         DataMaskSpec dataMask = new DataMaskSpec("mask:1", "null");
-        SecurityDependencyContext dependencies = new SecurityDependencyContext(USER);
+        SecurityDependencyContext dependencies = new SecurityDependencyContext();
         dependencies.setRowPolicies(CATALOG, DATABASE, TABLE, ImmutableList.of(rowFilter));
         dependencies.addDataMask(CATALOG, DATABASE, TABLE, COLUMN, Optional.of(dataMask));
 
@@ -65,7 +68,7 @@ public class SecurityDependencyContextTest {
 
     @Test
     public void testAddedRowPolicyInvalidatesNegativeSnapshot() {
-        SecurityDependencyContext dependencies = new SecurityDependencyContext(USER);
+        SecurityDependencyContext dependencies = new SecurityDependencyContext();
         dependencies.setRowPolicies(CATALOG, DATABASE, TABLE, ImmutableList.of());
         ConnectContext connectContext = contextWithPolicies(
                 ImmutableList.of(RowFilterSpec.restrictive("row:1", "tenant_id = 1")), ImmutableMap.of());
@@ -75,7 +78,7 @@ public class SecurityDependencyContextTest {
 
     @Test
     public void testChangedRowPolicyInvalidatesSnapshot() {
-        SecurityDependencyContext dependencies = new SecurityDependencyContext(USER);
+        SecurityDependencyContext dependencies = new SecurityDependencyContext();
         dependencies.setRowPolicies(CATALOG, DATABASE, TABLE,
                 ImmutableList.of(RowFilterSpec.restrictive("row:1", "tenant_id = 1")));
         ConnectContext connectContext = contextWithPolicies(
@@ -86,7 +89,7 @@ public class SecurityDependencyContextTest {
 
     @Test
     public void testAddedDataMaskInvalidatesNegativeSnapshot() {
-        SecurityDependencyContext dependencies = new SecurityDependencyContext(USER);
+        SecurityDependencyContext dependencies = new SecurityDependencyContext();
         dependencies.addDataMask(CATALOG, DATABASE, TABLE, COLUMN, Optional.empty());
         ConnectContext connectContext = contextWithPolicies(ImmutableList.of(),
                 ImmutableMap.of(COLUMN, new DataMaskSpec("mask:1", "null")));
@@ -95,31 +98,72 @@ public class SecurityDependencyContextTest {
     }
 
     @Test
-    public void testDifferentExecutingIdentityInvalidatesSnapshot() {
-        SecurityDependencyContext dependencies = new SecurityDependencyContext(USER);
+    public void testMissingCurrentIdentityFailsClosed() {
+        SecurityDependencyContext dependencies = new SecurityDependencyContext();
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
-        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(
-                UserIdentity.createAnalyzedUserIdentWithIp("other", "%"));
-
-        Assertions.assertFalse(dependencies.snapshot().isValid(connectContext));
-    }
-
-    @Test
-    public void testMissingPlanningIdentityFailsClosed() {
-        SecurityDependencyContext dependencies = new SecurityDependencyContext(null);
-        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
-        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(UserIdentity.ROOT);
 
         Assertions.assertFalse(dependencies.snapshot().isValid(connectContext));
     }
 
     @Test
     public void testMissingPrivilegeRecordingDisablesShortCircuitReuse() {
-        SecurityDependencyContext dependencies = new SecurityDependencyContext(USER);
+        SecurityDependencyContext dependencies = new SecurityDependencyContext();
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
         Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(USER);
 
         Assertions.assertFalse(dependencies.snapshotForShortCircuit().isValid(connectContext));
+    }
+
+    @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public void testBuiltInVersionsSkipDependencyRevalidation() throws Exception {
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        TableIf table = Mockito.mock(TableIf.class);
+        Auth auth = Mockito.mock(Auth.class);
+        PolicyMgr policyMgr = Mockito.mock(PolicyMgr.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        Env env = Mockito.mock(Env.class);
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+
+        Mockito.when(catalog.getName()).thenReturn(CATALOG);
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(database.getFullName()).thenReturn(DATABASE);
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        Mockito.when(table.getName()).thenReturn(TABLE);
+        Mockito.when(auth.getAuthorizationVersion()).thenReturn(7L);
+        Mockito.when(auth.isAuthorizationVersionReliable()).thenReturn(true);
+        Mockito.when(policyMgr.getRowPolicyVersion()).thenReturn(11L);
+        Mockito.when(accessManager.getAccessControllerOrDefault(CATALOG))
+                .thenReturn(new InternalAuthorizationPlugin(auth));
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        Mockito.when(env.getPolicyMgr()).thenReturn(policyMgr);
+        Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(USER);
+        Mockito.when(connectContext.getEnv()).thenReturn(env);
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(new SessionVariable());
+
+        SecurityDependencyContext dependencies = new SecurityDependencyContext(connectContext);
+        dependencies.addCheckedPrivilege(table, ImmutableSet.of(COLUMN));
+        dependencies.setRowPolicies(CATALOG, DATABASE, TABLE, ImmutableList.of());
+        dependencies.addDataMask(CATALOG, DATABASE, TABLE, COLUMN, Optional.empty());
+        SecurityDependencyContext snapshot = dependencies.snapshotForShortCircuit();
+
+        Assertions.assertTrue(snapshot.isValid(connectContext));
+        Mockito.verify(accessManager, Mockito.never()).checkColumnsPriv(
+                connectContext, CATALOG, DATABASE, TABLE, ImmutableSet.of(COLUMN), PrivPredicate.SELECT);
+        Mockito.verify(accessManager, Mockito.never()).evalRowFilterPolicies(
+                ArgumentMatchers.any(), ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
+                ArgumentMatchers.anyString());
+        Mockito.verify(accessManager, Mockito.never()).evalDataMaskPolicies(
+                ArgumentMatchers.any(), ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
+                ArgumentMatchers.anyString(), ArgumentMatchers.anySet());
+
+        Mockito.when(auth.getAuthorizationVersion()).thenReturn(8L);
+        Assertions.assertFalse(snapshot.isValid(connectContext));
+        Mockito.when(auth.getAuthorizationVersion()).thenReturn(7L);
+        Mockito.when(policyMgr.getRowPolicyVersion()).thenReturn(12L);
+        Assertions.assertFalse(snapshot.isValid(connectContext));
     }
 
     @Test
@@ -147,7 +191,7 @@ public class SecurityDependencyContextTest {
         Mockito.when(connectContext.getEnv()).thenReturn(env);
         Mockito.when(connectContext.getSessionVariable()).thenReturn(new SessionVariable());
 
-        SecurityDependencyContext dependencies = new SecurityDependencyContext(USER);
+        SecurityDependencyContext dependencies = new SecurityDependencyContext();
         dependencies.addCheckedPrivilege(table, ImmutableSet.of(COLUMN));
         SecurityDependencyContext snapshot = dependencies.snapshot();
         Assertions.assertTrue(snapshot.isValid(connectContext));

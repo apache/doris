@@ -73,6 +73,13 @@ public class PolicyMgr implements Writable {
     // ctlName -> dbName -> tableName -> List<RowPolicy>
     private Map<String, Map<String, Map<String, List<RowPolicy>>>> tablePolicies = Maps.newConcurrentMap();
 
+    // Process-local epoch used to invalidate prepared point-query plans after row-policy changes.
+    private transient volatile long rowPolicyVersion;
+
+    public long getRowPolicyVersion() {
+        return rowPolicyVersion;
+    }
+
     private void writeLock() {
         lock.writeLock().lock();
     }
@@ -301,6 +308,7 @@ public class PolicyMgr implements Writable {
         typeToPolicyMap.put(policy.getType(), dbPolicies);
         if (PolicyTypeEnum.ROW == policy.getType()) {
             addTablePolicies((RowPolicy) policy);
+            rowPolicyVersion++;
         }
 
     }
@@ -336,7 +344,7 @@ public class PolicyMgr implements Writable {
 
     private void unprotectedDrop(DropPolicyLog log) {
         List<Policy> policies = getPoliciesByType(log.getType());
-        policies.removeIf(policy -> {
+        boolean removed = policies.removeIf(policy -> {
             if (policy.matchPolicy(log)) {
                 if (policy instanceof StoragePolicy) {
                     ((StoragePolicy) policy).removeResourceReference();
@@ -352,6 +360,9 @@ public class PolicyMgr implements Writable {
             return false;
         });
         typeToPolicyMap.put(log.getType(), policies);
+        if (removed && log.getType() == PolicyTypeEnum.ROW) {
+            rowPolicyVersion++;
+        }
     }
 
     public List<RowPolicy> getUserPolicies(String ctlName, String dbName, String tableName, UserIdentity user) {

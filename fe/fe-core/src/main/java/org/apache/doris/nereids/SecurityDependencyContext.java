@@ -25,17 +25,21 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.InternalAuthorizationPlugin;
 import org.apache.doris.nereids.SqlCacheContext.FullColumnName;
 import org.apache.doris.nereids.SqlCacheContext.FullTableName;
 import org.apache.doris.nereids.rules.analysis.UserAuthentication;
+import org.apache.doris.policy.PolicyMgr;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
 
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -53,16 +57,39 @@ import java.util.Set;
  * built before that policy existed.
  */
 public class SecurityDependencyContext {
-    private final UserIdentity userIdentity;
+    private static final long UNKNOWN_VERSION = -1;
+
+    private final Env planningEnv;
+    private final long authorizationVersion;
+    private final long rowPolicyVersion;
+    private final boolean versionValidationEligible;
     private final Map<FullTableName, Set<String>> checkedPrivileges = Maps.newLinkedHashMap();
     private final Map<FullTableName, List<RowFilterSpec>> rowPolicies = Maps.newLinkedHashMap();
     private final Map<FullColumnName, Optional<DataMaskSpec>> dataMaskPolicies = Maps.newLinkedHashMap();
-    private boolean complete;
+    private final Map<FullTableName, Set<String>> dataMaskColumnsByTable = Maps.newLinkedHashMap();
+    private boolean useVersionValidation;
+    private boolean complete = true;
 
-    /** SecurityDependencyContext */
-    public SecurityDependencyContext(UserIdentity userIdentity) {
-        this.userIdentity = userIdentity;
-        this.complete = userIdentity != null;
+    /** Create a context which always uses full security revalidation. */
+    public SecurityDependencyContext() {
+        this(null, UNKNOWN_VERSION, UNKNOWN_VERSION, false);
+    }
+
+    /** Create a context and capture the security versions before analysis starts. */
+    public SecurityDependencyContext(ConnectContext connectContext) {
+        this(connectContext == null ? null : connectContext.getEnv(), usesAuthorizationChecks(connectContext));
+    }
+
+    private SecurityDependencyContext(Env env, boolean versionValidationEligible) {
+        this(env, currentAuthorizationVersion(env), currentRowPolicyVersion(env), versionValidationEligible);
+    }
+
+    private SecurityDependencyContext(Env planningEnv, long authorizationVersion, long rowPolicyVersion,
+            boolean versionValidationEligible) {
+        this.planningEnv = planningEnv;
+        this.authorizationVersion = authorizationVersion;
+        this.rowPolicyVersion = rowPolicyVersion;
+        this.versionValidationEligible = versionValidationEligible;
     }
 
     /** Record the columns whose SELECT privilege was checked while the plan was analyzed. */
@@ -90,13 +117,16 @@ public class SecurityDependencyContext {
     /** Record the mask answer for a column, including the absence of a mask. */
     public synchronized void addDataMask(
             String catalog, String database, String table, String column, Optional<DataMaskSpec> mask) {
-        dataMaskPolicies.put(new FullColumnName(
-                catalog, database, table, column.toLowerCase(Locale.ROOT)), mask);
+        String normalizedColumn = column.toLowerCase(Locale.ROOT);
+        FullTableName tableName = new FullTableName(catalog, database, table);
+        dataMaskPolicies.put(new FullColumnName(catalog, database, table, normalizedColumn), mask);
+        dataMaskColumnsByTable.computeIfAbsent(tableName, ignored -> new LinkedHashSet<>()).add(normalizedColumn);
     }
 
     /** Freeze the decisions used by a completed plan before storing them in a reusable context. */
     public synchronized SecurityDependencyContext snapshot() {
-        SecurityDependencyContext snapshot = new SecurityDependencyContext(userIdentity);
+        SecurityDependencyContext snapshot = new SecurityDependencyContext(
+                planningEnv, authorizationVersion, rowPolicyVersion, versionValidationEligible);
         snapshot.complete = complete;
         for (Map.Entry<FullTableName, Set<String>> entry : checkedPrivileges.entrySet()) {
             snapshot.checkedPrivileges.put(entry.getKey(), ImmutableSet.copyOf(entry.getValue()));
@@ -105,6 +135,10 @@ public class SecurityDependencyContext {
             snapshot.rowPolicies.put(entry.getKey(), ImmutableList.copyOf(entry.getValue()));
         }
         snapshot.dataMaskPolicies.putAll(dataMaskPolicies);
+        for (Map.Entry<FullTableName, Set<String>> entry : dataMaskColumnsByTable.entrySet()) {
+            snapshot.dataMaskColumnsByTable.put(entry.getKey(), ImmutableSet.copyOf(entry.getValue()));
+        }
+        snapshot.useVersionValidation = snapshot.canUseVersionValidation();
         return snapshot;
     }
 
@@ -124,15 +158,19 @@ public class SecurityDependencyContext {
      * planning path performs the authoritative checks and returns the usual user-facing error when access was
      * revoked. Authorization-source failures also reject reuse, so this fast path always fails closed.
      */
-    public synchronized boolean isValid(ConnectContext connectContext) {
+    public boolean isValid(ConnectContext connectContext) {
         if (!complete || connectContext == null) {
             return false;
         }
         try {
-            if (!Objects.equals(userIdentity, connectContext.getCurrentUserIdentity())) {
+            Env env = connectContext.getEnv();
+            if (useVersionValidation) {
+                return usesAuthorizationChecks(connectContext) && versionsAreCurrent(env);
+            }
+            UserIdentity currentUser = connectContext.getCurrentUserIdentity();
+            if (currentUser == null) {
                 return false;
             }
-            Env env = connectContext.getEnv();
             for (Map.Entry<FullTableName, Set<String>> entry : checkedPrivileges.entrySet()) {
                 TableIf table = findTable(env, entry.getKey());
                 if (table == null) {
@@ -143,27 +181,90 @@ public class SecurityDependencyContext {
             for (Map.Entry<FullTableName, List<RowFilterSpec>> entry : rowPolicies.entrySet()) {
                 FullTableName table = entry.getKey();
                 List<RowFilterSpec> current = env.getAccessManager().evalRowFilterPolicies(
-                        userIdentity, table.catalog, table.db, table.table);
+                        currentUser, table.catalog, table.db, table.table);
                 if (!CollectionUtils.isEqualCollection(entry.getValue(), current)) {
                     return false;
                 }
             }
-            return dataMasksAreValid(env);
+            return dataMasksAreValid(env, currentUser);
         } catch (UserException | RuntimeException e) {
             return false;
         }
     }
 
-    private boolean dataMasksAreValid(Env env) {
-        Map<FullTableName, Set<String>> columnsByTable = new LinkedHashMap<>();
-        for (FullColumnName column : dataMaskPolicies.keySet()) {
-            columnsByTable.computeIfAbsent(new FullTableName(column.catalog, column.db, column.table),
-                    table -> new LinkedHashSet<>()).add(column.column);
+    private boolean canUseVersionValidation() {
+        if (!complete || !versionValidationEligible || checkedPrivileges.isEmpty()
+                || authorizationVersion == UNKNOWN_VERSION || rowPolicyVersion == UNKNOWN_VERSION) {
+            return false;
         }
-        for (Map.Entry<FullTableName, Set<String>> entry : columnsByTable.entrySet()) {
+        return allDependenciesUseInternalCatalog() && usesVersionedBuiltInAuthorization(planningEnv);
+    }
+
+    private boolean versionsAreCurrent(Env env) {
+        if (env == null || env != planningEnv) {
+            return false;
+        }
+        Auth auth = env.getAuth();
+        PolicyMgr policyMgr = env.getPolicyMgr();
+        return auth != null && policyMgr != null
+                && auth.isAuthorizationVersionReliable()
+                && env.getAccessManager().getAccessControllerOrDefault(InternalCatalog.INTERNAL_CATALOG_NAME)
+                        instanceof InternalAuthorizationPlugin
+                && auth.getAuthorizationVersion() == authorizationVersion
+                && policyMgr.getRowPolicyVersion() == rowPolicyVersion;
+    }
+
+    private static boolean usesVersionedBuiltInAuthorization(Env env) {
+        if (env == null || env.getAuth() == null || env.getPolicyMgr() == null
+                || !env.getAuth().isAuthorizationVersionReliable()) {
+            return false;
+        }
+        return env.getAccessManager().getAccessControllerOrDefault(InternalCatalog.INTERNAL_CATALOG_NAME)
+                instanceof InternalAuthorizationPlugin;
+    }
+
+    private boolean allDependenciesUseInternalCatalog() {
+        for (FullTableName table : checkedPrivileges.keySet()) {
+            if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(table.catalog)) {
+                return false;
+            }
+        }
+        for (FullTableName table : rowPolicies.keySet()) {
+            if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(table.catalog)) {
+                return false;
+            }
+        }
+        for (FullTableName table : dataMaskColumnsByTable.keySet()) {
+            if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(table.catalog)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static long currentAuthorizationVersion(Env env) {
+        Auth auth = env == null ? null : env.getAuth();
+        return auth == null ? UNKNOWN_VERSION : auth.getAuthorizationVersion();
+    }
+
+    private static long currentRowPolicyVersion(Env env) {
+        PolicyMgr policyMgr = env == null ? null : env.getPolicyMgr();
+        return policyMgr == null ? UNKNOWN_VERSION : policyMgr.getRowPolicyVersion();
+    }
+
+    private static boolean usesAuthorizationChecks(ConnectContext connectContext) {
+        if (connectContext == null || connectContext.isSkipAuth()) {
+            return false;
+        }
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        return sessionVariable != null && !sessionVariable.isPlayNereidsDump();
+    }
+
+    private boolean dataMasksAreValid(Env env, UserIdentity currentUser) {
+        for (Map.Entry<FullTableName, Set<String>> entry : dataMaskColumnsByTable.entrySet()) {
             FullTableName table = entry.getKey();
             Map<String, DataMaskSpec> current = env.getAccessManager().evalDataMaskPolicies(
-                    userIdentity, table.catalog, table.db, table.table, entry.getValue());
+                    currentUser, table.catalog, table.db, table.table, entry.getValue());
             for (String column : entry.getValue()) {
                 Optional<DataMaskSpec> currentMask = Optional.ofNullable(
                         current.get(column.toLowerCase(Locale.ROOT)));

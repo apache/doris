@@ -189,6 +189,20 @@ public class PolicyTest extends TestWithFeService {
     }
 
     @Test
+    public void testRowPolicyVersionAdvancesOnMutation() throws Exception {
+        PolicyMgr policyMgr = Env.getCurrentEnv().getPolicyMgr();
+        long version = policyMgr.getRowPolicyVersion();
+
+        createPolicy("CREATE ROW POLICY test_row_policy_version ON test.table1 AS PERMISSIVE"
+                + " TO test_policy USING (k1 = 1)");
+        long createdVersion = policyMgr.getRowPolicyVersion();
+        Assertions.assertTrue(createdVersion > version);
+
+        dropPolicy("DROP ROW POLICY test_row_policy_version ON test.table1");
+        Assertions.assertTrue(policyMgr.getRowPolicyVersion() > createdVersion);
+    }
+
+    @Test
     public void testMergeFilter() throws Exception {
         createPolicy("CREATE ROW POLICY test_row_policy1 ON test.table1 AS RESTRICTIVE TO test_policy USING (k1 = 1)");
         createPolicy("CREATE ROW POLICY test_row_policy3 ON test.table1 AS PERMISSIVE TO ROLE role1 USING (k2 = 2)");
