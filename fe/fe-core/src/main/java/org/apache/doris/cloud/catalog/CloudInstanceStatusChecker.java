@@ -26,6 +26,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.trees.plans.commands.WarmUpClusterCommand;
@@ -58,6 +59,12 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
     @Override
     protected void runAfterCatalogReady() {
         try {
+            if (DebugPointUtil.isEnable("CloudInstanceStatusChecker.runAfterCatalogReady.pause")) {
+                LOG.info("CloudInstanceStatusChecker.runAfterCatalogReady.pause phase={}",
+                        DebugPointUtil.getDebugParamOrDefault(
+                                "CloudInstanceStatusChecker.runAfterCatalogReady.pause", "phase", ""));
+                return;
+            }
             long start = System.currentTimeMillis();
             Cloud.GetInstanceResponse response = cloudSystemInfoService.getCloudInstance();
             if (!isResponseValid(response)) {
@@ -65,6 +72,17 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
             }
 
             Cloud.InstanceInfoPB instance = response.getInstance();
+            if (DebugPointUtil.isEnable("CloudInstanceStatusChecker.afterGetInstance.pause")
+                    && instance.getClustersList().stream().anyMatch(c -> c.getClusterId().equals(
+                            DebugPointUtil.getDebugParamOrDefault(
+                                    "CloudInstanceStatusChecker.afterGetInstance.pause", "cluster_id", "")))) {
+                LOG.info("CloudInstanceStatusChecker.afterGetInstance.pause phase={}",
+                        DebugPointUtil.getDebugParamOrDefault(
+                                "CloudInstanceStatusChecker.afterGetInstance.pause", "phase", ""));
+                while (DebugPointUtil.isEnable("CloudInstanceStatusChecker.afterGetInstance.pause")) {
+                    Thread.sleep(100);
+                }
+            }
             cloudSystemInfoService.setInstanceStatus(instance.getStatus());
             syncStorageVault(instance);
             processVirtualClusters(instance.getClustersList());
@@ -109,6 +127,7 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
         handleComputeClusters(computeClusters);
         handleVirtualClusters(virtualClusters, computeClusters);
         removeObsoleteVirtualGroups(virtualClusters);
+        cloudSystemInfoService.refreshComputeGroupNames(virtualClusters);
     }
 
     private void handleComputeClusters(List<Cloud.ClusterPB> computeClusters) {
