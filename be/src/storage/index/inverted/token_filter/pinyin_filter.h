@@ -51,6 +51,8 @@ private:
 
     bool processCurrentToken();
 
+    bool prepareCurrentSource(std::vector<UChar32>& source_codepoints);
+
     bool readTerm(Token* token);
 
     void resetVariables();

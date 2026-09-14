@@ -56,6 +56,9 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     private final Map<Long, IndexPolicy> idToIndexPolicy = Maps.newHashMap();
     // Keys are normalized to lowercase for case-insensitive lookup
     private final Map<String, IndexPolicy> nameToIndexPolicy = Maps.newHashMap();
+    // Legacy metadata can contain case-distinct names that share a normalized key. Keep exact
+    // bindings separately so a saved analyzer continues to resolve its original component.
+    private final transient Map<String, IndexPolicy> exactNameToIndexPolicy = Maps.newHashMap();
 
     /**
      * Normalize policy name to lowercase for case-insensitive lookup.
@@ -63,6 +66,10 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
      */
     private static String normalizeKey(String name) {
         return name == null ? null : name.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static String exactKey(String name) {
+        return name == null ? null : name.trim();
     }
 
     private void writeLock() {
@@ -85,6 +92,12 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     // Policy IDs are allocated monotonically, so the higher ID reproduces the latest definition.
     // Callers must hold the write lock.
     private void registerPolicyNameLocked(IndexPolicy indexPolicy) {
+        String exactName = exactKey(indexPolicy.getName());
+        IndexPolicy exactCurrent = exactNameToIndexPolicy.get(exactName);
+        if (exactCurrent == null || indexPolicy.getId() > exactCurrent.getId()) {
+            exactNameToIndexPolicy.put(exactName, indexPolicy);
+        }
+
         String normalizedName = normalizeKey(indexPolicy.getName());
         IndexPolicy current = nameToIndexPolicy.get(normalizedName);
         if (current == null || indexPolicy.getId() > current.getId()) {
@@ -98,14 +111,19 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     }
 
     private void unregisterPolicyNameLocked(IndexPolicy indexPolicy) {
+        String exactName = exactKey(indexPolicy.getName());
         String normalizedName = normalizeKey(indexPolicy.getName());
+        IndexPolicy exactCurrent = exactNameToIndexPolicy.get(exactName);
         IndexPolicy current = nameToIndexPolicy.get(normalizedName);
-        if (current == null || current.getId() != indexPolicy.getId()) {
-            return;
+        if (exactCurrent != null && exactCurrent.getId() == indexPolicy.getId()) {
+            exactNameToIndexPolicy.remove(exactName);
         }
-        nameToIndexPolicy.remove(normalizedName);
+        if (current != null && current.getId() == indexPolicy.getId()) {
+            nameToIndexPolicy.remove(normalizedName);
+        }
         for (IndexPolicy remaining : idToIndexPolicy.values()) {
-            if (normalizedName.equals(normalizeKey(remaining.getName()))) {
+            if (exactName.equals(exactKey(remaining.getName()))
+                    || normalizedName.equals(normalizeKey(remaining.getName()))) {
                 registerPolicyNameLocked(remaining);
             }
         }
@@ -115,10 +133,9 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         List<IndexPolicy> copiedPolicies = Lists.newArrayList();
         readLock();
         try {
-            // Only transmit the authoritative policy for each normalized name. Legacy images may
-            // contain collisions, but sending both definitions would make BE choose based on
-            // arrival order and repeatedly diverge from FE during reconciliation.
-            copiedPolicies.addAll(nameToIndexPolicy.values());
+            // Preserve every legacy policy so exact-name analyzer bindings can be reconstructed
+            // by BE before it applies normalized-name fallback for interactive lookups.
+            copiedPolicies.addAll(idToIndexPolicy.values());
         } finally {
             readUnlock();
         }
@@ -174,7 +191,7 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             return;
         }
         for (String tokenFilterName : tokenFilterNames.split(",\\s*")) {
-            IndexPolicy tokenFilter = nameToIndexPolicy.get(normalizeKey(tokenFilterName));
+            IndexPolicy tokenFilter = getPolicyByName(tokenFilterName);
             if (tokenFilter != null && tokenFilter.isInvalid()) {
                 throw new DdlException("Analyzer '" + analyzerName + "' references token filter '"
                         + tokenFilterName + "' of type '"
@@ -264,7 +281,8 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     public IndexPolicy getPolicyByName(String name) {
         readLock();
         try {
-            return nameToIndexPolicy.get(normalizeKey(name));
+            IndexPolicy exactPolicy = exactNameToIndexPolicy.get(exactKey(name));
+            return exactPolicy != null ? exactPolicy : nameToIndexPolicy.get(normalizeKey(name));
         } finally {
             readUnlock();
         }
@@ -716,6 +734,7 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         writeLock();
         try {
             nameToIndexPolicy.clear();
+            exactNameToIndexPolicy.clear();
             idToIndexPolicy.forEach(
                     (id, indexPolicy) -> {
                         warnIfUnsupported(indexPolicy);

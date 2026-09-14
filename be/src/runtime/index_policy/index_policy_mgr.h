@@ -70,6 +70,11 @@ private:
     bool is_builtin_normalizer(const std::string& name);
     AnalyzerPtr build_builtin_normalizer(const std::string& name);
 
+    const TIndexPolicy* find_policy_by_name_locked(const std::string& name) const;
+    void register_policy_name_locked(const TIndexPolicy& policy);
+    void unregister_policy_name_locked(const TIndexPolicy& policy);
+
+    static std::string trim_name(const std::string& name);
     // Normalize policy name to lowercase for case-insensitive lookup
     static std::string normalize_name(const std::string& name);
 
@@ -84,6 +89,7 @@ private:
 
     Policys _policys;
     std::unordered_map<std::string, int64_t> _name_to_id;
+    std::unordered_map<std::string, int64_t> _exact_name_to_id;
 };
 
 } // namespace doris
