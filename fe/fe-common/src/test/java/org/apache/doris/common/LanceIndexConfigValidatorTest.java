@@ -45,6 +45,16 @@ public class LanceIndexConfigValidatorTest {
     }
 
     @Test
+    public void testDispatcherReviewedDefaults() {
+        Assertions.assertEquals(10, Config.lance_index_job_dispatch_interval_second);
+        Assertions.assertEquals(3600L, Config.lance_index_job_execute_deadline_second);
+        Assertions.assertEquals(16, Config.lance_index_job_max_dispatch_per_round);
+        Assertions.assertEquals(2, Config.lance_index_job_max_inflight_per_backend);
+        Assertions.assertEquals(300, Config.lance_index_job_refresh_retry_second);
+        Assertions.assertFalse(Config.enable_lance_index_local_file_mutation);
+    }
+
+    @Test
     public void testConfFieldWiring() throws Exception {
         assertCallbackWiring("lance_index_job_max_unresolved_per_table", true,
                 LanceIndexConfigValidator.PositiveLongConfigHandler.class);
@@ -63,6 +73,29 @@ public class LanceIndexConfigValidatorTest {
         Assertions.assertTrue(gate.mutable());
         Assertions.assertTrue(gate.masterOnly());
         Assertions.assertEquals(VariableAnnotation.EXPERIMENTAL, gate.varType());
+    }
+
+    @Test
+    public void testDispatcherConfFieldWiring() throws Exception {
+        assertCallbackWiring("lance_index_job_dispatch_interval_second", true,
+                LanceIndexConfigValidator.PositiveIntConfigHandler.class);
+        assertCallbackWiring("lance_index_job_execute_deadline_second", true,
+                LanceIndexConfigValidator.PositiveLongConfigHandler.class);
+        assertCallbackWiring("lance_index_job_max_dispatch_per_round", true,
+                LanceIndexConfigValidator.PositiveIntConfigHandler.class);
+        assertCallbackWiring("lance_index_job_max_inflight_per_backend", true,
+                LanceIndexConfigValidator.PositiveIntConfigHandler.class);
+        assertCallbackWiring("lance_index_job_refresh_retry_second", true,
+                LanceIndexConfigValidator.PositiveIntConfigHandler.class);
+
+        // The local-file operator assertion is a plain mutable master-only boolean: no
+        // numeric validator is attached, so any boolean the ADMIN SET path accepts is legal.
+        ConfigBase.ConfField gate = Config.class.getField("enable_lance_index_local_file_mutation")
+                .getAnnotation(ConfigBase.ConfField.class);
+        Assertions.assertNotNull(gate);
+        Assertions.assertTrue(gate.mutable());
+        Assertions.assertTrue(gate.masterOnly());
+        Assertions.assertEquals(ConfigBase.DefaultConfHandler.class, gate.callback());
     }
 
     private static void assertCallbackWiring(String fieldName, boolean masterOnly, Class<?> callback)
@@ -161,6 +194,38 @@ public class LanceIndexConfigValidatorTest {
      * must both validate and assign, and a rejected value must leave the field untouched.
      */
     @Test
+    public void testDispatcherPositiveHandlersAssignAcceptedValues() throws Exception {
+        assertIntAssigns("lance_index_job_dispatch_interval_second");
+        assertIntAssigns("lance_index_job_max_dispatch_per_round");
+        assertIntAssigns("lance_index_job_max_inflight_per_backend");
+        assertIntAssigns("lance_index_job_refresh_retry_second");
+        // The long handler must also be exercised on its one long dispatcher field.
+        Field deadlineField = Config.class.getField("lance_index_job_execute_deadline_second");
+        long originalDeadline = deadlineField.getLong(null);
+        try {
+            new LanceIndexConfigValidator.PositiveLongConfigHandler().handle(deadlineField, " 7200 ");
+            Assertions.assertEquals(7200L, deadlineField.getLong(null));
+        } finally {
+            deadlineField.setLong(null, originalDeadline);
+        }
+    }
+
+    @Test
+    public void testDispatcherPositiveHandlersRejectInvalidValues() throws Exception {
+        assertIntRejected("lance_index_job_dispatch_interval_second", "0");
+        assertIntRejected("lance_index_job_dispatch_interval_second", "-10");
+        assertIntRejected("lance_index_job_max_dispatch_per_round", "0");
+        assertIntRejected("lance_index_job_max_dispatch_per_round", "-1");
+        assertIntRejected("lance_index_job_max_inflight_per_backend", "0");
+        assertIntRejected("lance_index_job_max_inflight_per_backend", "-3");
+        assertIntRejected("lance_index_job_refresh_retry_second", "0");
+        assertIntRejected("lance_index_job_refresh_retry_second", "-300");
+        assertLongRejected("lance_index_job_execute_deadline_second", "0");
+        assertLongRejected("lance_index_job_execute_deadline_second", "-3600");
+        assertLongRejected("lance_index_job_execute_deadline_second", "soon");
+    }
+
+    @Test
     public void testSetMutableConfigPath() throws Exception {
         Config config = new Config();
         Path tempFile = Files.createTempFile("fe_ut_lance_config_", ".conf");
@@ -170,6 +235,8 @@ public class LanceIndexConfigValidatorTest {
         long originalQuota = Config.lance_index_job_max_unresolved_per_catalog;
         int originalBound = Config.lance_index_max_num_partitions;
         boolean originalGate = Config.enable_lance_index_mutation;
+        int originalInterval = Config.lance_index_job_dispatch_interval_second;
+        boolean originalLocalFile = Config.enable_lance_index_local_file_mutation;
         try {
             ConfigBase.setMutableConfig("lance_index_job_max_unresolved_per_catalog", "96");
             Assertions.assertEquals(96L, Config.lance_index_job_max_unresolved_per_catalog);
@@ -187,10 +254,23 @@ public class LanceIndexConfigValidatorTest {
 
             ConfigBase.setMutableConfig("enable_lance_index_mutation", "true");
             Assertions.assertTrue(Config.enable_lance_index_mutation);
+
+            ConfigBase.setMutableConfig("lance_index_job_dispatch_interval_second", "60");
+            Assertions.assertEquals(60, Config.lance_index_job_dispatch_interval_second);
+            Assertions.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("lance_index_job_dispatch_interval_second", "0"));
+            Assertions.assertEquals(60, Config.lance_index_job_dispatch_interval_second);
+
+            ConfigBase.setMutableConfig("enable_lance_index_local_file_mutation", "true");
+            Assertions.assertTrue(Config.enable_lance_index_local_file_mutation);
+            ConfigBase.setMutableConfig("enable_lance_index_local_file_mutation", "false");
+            Assertions.assertFalse(Config.enable_lance_index_local_file_mutation);
         } finally {
             Config.lance_index_job_max_unresolved_per_catalog = originalQuota;
             Config.lance_index_max_num_partitions = originalBound;
             Config.enable_lance_index_mutation = originalGate;
+            Config.lance_index_job_dispatch_interval_second = originalInterval;
+            Config.enable_lance_index_local_file_mutation = originalLocalFile;
         }
     }
 }
