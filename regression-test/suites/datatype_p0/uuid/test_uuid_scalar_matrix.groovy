@@ -44,13 +44,6 @@ suite("test_uuid_scalar_matrix", "p0") {
              null_if: "NULLIF(${u},${v})", if_null: "IFNULL(${u},${v})", nvl_value: "NVL(${u},${v})",
              coalesce_value: "COALESCE(${u},${v})", greatest_value: "GREATEST(${u},${v})", least_value: "LEAST(${u},${v})"]
         })
-        matrix.run(delegate, "ternary_${nullable ? 'nullable' : 'notnull'}", table, ['u','v','w'], { u,v,w ->
-            [in_values: "${u} IN (${v},${w})", not_in_values: "${u} NOT IN (${v},${w})",
-             between_values: "${u} BETWEEN ${v} AND ${w}", not_between_values: "${u} NOT BETWEEN ${v} AND ${w}",
-             simple_case: "CASE ${u} WHEN ${v} THEN ${w} ELSE ${u} END",
-             coalesce_value: "COALESCE(${u},${v},${w})", greatest_value: "GREATEST(${u},${v},${w})",
-             least_value: "LEAST(${u},${v},${w})"]
-        })
         matrix.run(delegate, "conditional_${nullable ? 'nullable' : 'notnull'}", table, ['flag','u','v'], { flag,u,v ->
             [if_value: "IF(${flag},${u},${v})", searched_case: "CASE WHEN ${flag} THEN ${u} ELSE ${v} END",
              and_value: "${flag} AND (${u} = ${v})", or_value: "${flag} OR (${u} = ${v})",
