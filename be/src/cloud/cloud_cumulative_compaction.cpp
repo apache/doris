@@ -838,7 +838,9 @@ Status CloudCumulativeCompaction::do_merge_input_rowsets(
             *input_rowset->rowset_meta(), segment_group_size);
     for (size_t range_index = 0; range_index < segment_ranges.size(); ++range_index) {
         const auto& range = segment_ranges[range_index];
-        const int32_t output_segment_start = _output_rs_writer->get_allocated_segment_id();
+        std::vector<uint32_t> output_segment_num_rows;
+        RETURN_IF_ERROR(_output_rs_writer->get_segment_num_rows(&output_segment_num_rows));
+        const size_t output_segment_start = output_segment_num_rows.size();
 
         RowsetReaderSharedPtr rs_reader;
         RETURN_IF_ERROR(input_rowset->create_reader(&rs_reader));
@@ -861,8 +863,10 @@ Status CloudCumulativeCompaction::do_merge_input_rowsets(
         _stats.cloud_local_read_time += group_stats.cloud_local_read_time;
         _stats.cloud_remote_read_time += group_stats.cloud_remote_read_time;
 
-        const int32_t output_segment_end = _output_rs_writer->get_allocated_segment_id();
-        const int32_t output_group_size = output_segment_end - output_segment_start;
+        RETURN_IF_ERROR(_output_rs_writer->get_segment_num_rows(&output_segment_num_rows));
+        DORIS_CHECK_GE(output_segment_num_rows.size(), output_segment_start);
+        const int32_t output_group_size =
+                cast_set<int32_t>(output_segment_num_rows.size() - output_segment_start);
         if (output_group_size > 0) {
             result->output_segment_group_sizes.push_back(output_group_size);
         }
