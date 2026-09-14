@@ -87,4 +87,60 @@ suite("test_nested_array_map") {
     qt_select_same_name_shadow """
         select array_map(x -> array_map(x -> x + 1, x), [[1, 2], [3, 4]]);
     """
+
+    // the nested lambda body captures the columns of the query and the arguments of the enclosing lambda
+    sql "DROP TABLE IF EXISTS test_nested_array_map_capture"
+    sql """
+        CREATE TABLE test_nested_array_map_capture (
+            id INT,
+            flag BOOLEAN,
+            arr1 ARRAY<VARCHAR(10)>,
+            arr2 ARRAY<INT>
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        )
+    """
+    sql """
+        INSERT INTO test_nested_array_map_capture VALUES
+            (1, true, ['A', 'B'], [1, 2, 3]),
+            (2, false, ['A'], [4, 5]),
+            (3, NULL, ['A', 'B', 'C'], [6]),
+            (4, true, [], [7, 8])
+    """
+
+    order_qt_nested_capture_column """
+        select id, array_map(a -> array_sum(array_map(b -> if(flag, b, 0), arr2)), arr1)
+        from test_nested_array_map_capture
+    """
+
+    order_qt_nested_capture_column_sortby """
+        select id, array_map(a -> array_sortby(b -> if(flag, -b, b), arr2), arr1)
+        from test_nested_array_map_capture
+    """
+
+    order_qt_nested_capture_column_and_outer_argument """
+        select id, array_map(a -> array_map(b -> concat(a, b, if(flag, 'y', 'n')), arr2), arr1)
+        from test_nested_array_map_capture
+    """
+
+    order_qt_nested_capture_three_levels """
+        select id, array_map(a -> array_map(b -> array_map(c -> if(flag, b + c, id), arr2), arr2), arr1)
+        from test_nested_array_map_capture
+    """
+
+    order_qt_nested_capture_cte_alias """
+        with t2 as (
+            select id, flag is null as dict_flag, arr1, arr2 from test_nested_array_map_capture
+        )
+        select id, array_size(array_map(a -> array_sum(array_map(b -> if(dict_flag, 1, 0), arr2)), arr1)) as l
+        from t2
+    """
+
+    test {
+        sql "select array_map(a -> array_map(b -> unknown_col + b, arr2), arr1) from test_nested_array_map_capture"
+        exception "Unknown lambda slot 'unknown_col"
+    }
 }
