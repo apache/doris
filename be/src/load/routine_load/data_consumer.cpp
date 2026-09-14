@@ -963,10 +963,8 @@ Status KinesisDataConsumer::group_consume(
                     // Keep it active and follow the returned iterator in the next round.
                     LOG(INFO) << "Shard has no records in this response: " << shard_id
                               << " (MillisBehindLatest=" << millis_behind << ")";
-                    ++it;
-                } else {
-                    ++it;
                 }
+                ++it;
             }
 
             // Check if all shards are exhausted
