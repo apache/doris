@@ -17,6 +17,7 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -30,9 +31,14 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.tvf.source.IndexDiskUsageScanNode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TIndexDiskUsageMetadataParams;
 import org.apache.doris.thrift.TIndexDiskUsageTablet;
 import org.apache.doris.thrift.TMetaScanRange;
@@ -201,6 +207,12 @@ public class IndexDiskUsageTableValuedFunction extends MetadataTableValuedFuncti
         metaScanRange.setMetadataType(TMetadataType.INDEX_DISK_USAGE);
         metaScanRange.setIndexDiskUsageParams(params);
         return metaScanRange;
+    }
+
+    @Override
+    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
+        return new IndexDiskUsageScanNode(id, desc, this,
+                ScanContext.builder().clusterName(sv.resolveCloudClusterName()).build());
     }
 
     @Override
