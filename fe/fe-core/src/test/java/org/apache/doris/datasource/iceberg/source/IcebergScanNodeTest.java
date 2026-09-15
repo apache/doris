@@ -495,7 +495,30 @@ public class IcebergScanNodeTest {
     }
 
     @Test
-    public void testSnapshotCacheIgnoresIdlessNameMappingWrapper() {
+    public void testExtractNameMappingRejectsMalformedProperty() throws Exception {
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.name()).thenReturn("db.tbl");
+        setIcebergTable(node, table);
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(Mockito.mock(IcebergExternalTable.class));
+        setIcebergSource(node, source);
+
+        Mockito.when(table.properties()).thenReturn(Collections.singletonMap(
+                TableProperties.DEFAULT_NAME_MAPPING, "{not valid json"));
+
+        // A malformed name mapping is a metadata fault that Iceberg refuses to read, so the scan
+        // must surface it instead of degrading to current-schema aliases (which silently returns
+        // NULL for the columns of ID-less files that were renamed).
+        InvocationTargetException thrown = Assert.assertThrows(InvocationTargetException.class,
+                () -> extractNameMapping(node));
+        Assert.assertTrue(thrown.getCause() instanceof UserException);
+        Assert.assertTrue(thrown.getCause().getMessage()
+                .contains(TableProperties.DEFAULT_NAME_MAPPING));
+    }
+
+    @Test
+    public void testSnapshotCacheIgnoresIdlessNameMappingWrapper() throws Exception {
         Table table = Mockito.mock(Table.class);
         Mockito.when(table.properties()).thenReturn(Collections.singletonMap(
                 TableProperties.DEFAULT_NAME_MAPPING,
