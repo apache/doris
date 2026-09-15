@@ -29,6 +29,7 @@
 #include <optional>
 #include <roaring/roaring.hh>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "common/status.h"
@@ -45,6 +46,21 @@
 
 namespace doris {
 class Block;
+
+// NONOVERLAPPING requires key ranges to be ordered and disjoint.
+template <typename KeyBoundsRange>
+bool is_segment_overlapping(const KeyBoundsRange& segments_encoded_key_bounds) {
+    std::string_view last;
+    for (auto&& segment_encode_key : segments_encoded_key_bounds) {
+        auto&& cur_min = segment_encode_key.min_key();
+        auto&& cur_max = segment_encode_key.max_key();
+        if (cur_min <= last) {
+            return true;
+        }
+        last = cur_max;
+    }
+    return false;
+}
 
 namespace segment_v2 {
 class VerticalSegmentWriter;

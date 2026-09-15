@@ -573,6 +573,8 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<Block> block, int64_t ta
                 .write_file_cache = _write_file_cache,
                 .storage_vault_id {},
                 .enable_table_memtable_backpressure = _tablet_finder->is_adaptive_random_bucket(),
+                .cloud_sink_upload = config::is_cloud_mode() &&
+                                     _state->query_options().enable_cloud_memtable_sink_upload,
         };
         bool index_not_found = true;
         for (const auto& index : _schema->indexes()) {

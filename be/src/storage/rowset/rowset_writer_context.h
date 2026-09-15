@@ -289,6 +289,7 @@ struct RowsetWriterContext {
             append_info.rowset_id = rowset_id.to_string();
             append_info.first_segment_id = first_segment_id;
             append_info.txn_id = txn_id;
+            append_info.write_file_cache = !disable_file_cache;
             append_info.expiration_time = file_cache_expiration_time;
             fs = std::make_shared<io::PackedFileSystem>(fs, append_info);
         }

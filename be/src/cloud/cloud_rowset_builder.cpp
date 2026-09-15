@@ -17,18 +17,24 @@
 
 #include "cloud/cloud_rowset_builder.h"
 
+#include <bvar/bvar.h>
+#include <gen_cpp/internal_service.pb.h>
+
 #include <algorithm>
 
 #include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_rowset_writer.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "exec/common/variant_util.h"
 #include "io/fs/file_system.h"
 #include "storage/rowset/group_rowset_writer.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet_info.h"
+#include "util/defer_op.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -247,6 +253,225 @@ bool CloudRowsetBuilder::is_s3_storage() const {
 
 Status CloudRowsetBuilder::commit_rowset(const std::string& job_id, int64_t table_id) {
     return _engine.meta_mgr().commit_rowset(*rowset_meta(), job_id, table_id);
+}
+
+Status CloudRowsetBuilder::get_mow_snapshot_for_sink(PCloudLoadMowSnapshot* snapshot) {
+    DORIS_CHECK(_tablet->enable_unique_key_merge_on_write());
+    if (_mow_snapshot_for_sink == nullptr) {
+        RETURN_IF_ERROR(cloud_tablet()->sync_rowsets());
+        auto context = _rowset_writer->context().mow_context;
+        DORIS_CHECK(context != nullptr);
+        DeleteBitmap snapshot_bitmap(_tablet->tablet_id());
+        {
+            std::unique_lock sync_lock(cloud_tablet()->get_sync_meta_lock());
+            std::shared_lock lock(_tablet->get_header_lock());
+            if (_tablet->tablet_state() != TABLET_RUNNING) {
+                return Status::NotSupported("sink MOW load requires a running tablet {}",
+                                            _tablet->tablet_id());
+            }
+            _max_version_in_flush_phase = _tablet->max_version_unlocked();
+            _rowset_ids->clear();
+            RETURN_IF_ERROR(_tablet->get_all_rs_id_unlocked(_max_version_in_flush_phase,
+                                                            _rowset_ids.get()));
+            context->max_version = _max_version_in_flush_phase;
+            context->rowset_ptrs = _tablet->get_rowset_by_ids(_rowset_ids.get());
+            std::vector<DeleteBitmap::RowsetIdWithSegmentIds> rowset_segments;
+            for (const auto& rowset : context->rowset_ptrs) {
+                std::vector<DeleteBitmap::SegmentId> ids;
+                for (auto segment : rowset->segments()) {
+                    ids.push_back(cast_set<DeleteBitmap::SegmentId>(segment.id()));
+                }
+                rowset_segments.emplace_back(rowset->rowset_id(), std::move(ids));
+            }
+            _tablet->tablet_meta()->delete_bitmap().subset_and_agg(
+                    rowset_segments, 0, _max_version_in_flush_phase, &snapshot_bitmap);
+        }
+        _mow_snapshot_for_sink = std::make_unique<PCloudLoadMowSnapshot>();
+        _mow_snapshot_for_sink->set_version(_max_version_in_flush_phase);
+        // Keep the rowset references in MowContext until the load has finished.
+        for (const auto& rowset : context->rowset_ptrs) {
+            auto* meta = _mow_snapshot_for_sink->add_rowsets();
+            *meta = rowset->rowset_meta()->get_rowset_pb();
+            meta->clear_tablet_schema();
+            rowset->tablet_schema()->to_schema_pb(meta->mutable_tablet_schema());
+        }
+        *_mow_snapshot_for_sink->mutable_delete_bitmap() = snapshot_bitmap.to_pb();
+    }
+    *snapshot = *_mow_snapshot_for_sink;
+    DBUG_EXECUTE_IF("CloudRowsetBuilder.sink_mow.snapshot_ready", {
+        // Expose readiness while blocked, independent of asynchronous log flushing.
+        static bvar::Adder<int64_t> waiters("cloud_memtable_mow_snapshot_waiters");
+        waiters << 1;
+        Defer release([] { waiters << -1; });
+        DBUG_BLOCK;
+    });
+    return Status::OK();
+}
+
+Status CloudRowsetBuilder::validate_sink_mow_result(const PCloudLoadMowResult& result,
+                                                    int64_t snapshot_version) {
+    if (!result.has_snapshot_version() || result.snapshot_version() != snapshot_version ||
+        !result.has_delete_bitmap()) {
+        return Status::InvalidArgument("missing or mismatched sink MOW snapshot result");
+    }
+    const auto& bitmap = result.delete_bitmap();
+    const auto count = bitmap.rowset_ids_size();
+    if (bitmap.segment_ids_size() != count || bitmap.versions_size() != count ||
+        bitmap.segment_delete_bitmaps_size() != count) {
+        return Status::InvalidArgument("misaligned sink MOW delete bitmap");
+    }
+    for (int pos = 0; pos < count; ++pos) {
+        if (bitmap.versions(pos) != DeleteBitmap::TEMP_VERSION_COMMON) {
+            return Status::InvalidArgument("sink MOW bitmap must use the temporary version");
+        }
+        const auto& bytes = bitmap.segment_delete_bitmaps(pos);
+        const auto size =
+                roaring::api::roaring_bitmap_portable_deserialize_size(bytes.data(), bytes.size());
+        if (size == 0 || size != bytes.size()) {
+            return Status::Corruption("invalid serialized sink MOW bitmap");
+        }
+    }
+    return Status::OK();
+}
+
+Status CloudRowsetBuilder::merge_sink_mow_bitmap(const PCloudLoadMowResult& result) {
+    DORIS_CHECK(_mow_snapshot_for_sink != nullptr);
+    RETURN_IF_ERROR(validate_sink_mow_result(result, _mow_snapshot_for_sink->version()));
+    _delete_bitmap->merge(DeleteBitmap::from_pb(result.delete_bitmap(), _tablet->tablet_id()));
+    return Status::OK();
+}
+
+Status CloudRowsetBuilder::validate_partial_rowset_meta(const RowsetMetaPB& base_meta,
+                                                        const RowsetMetaPB& partial_meta,
+                                                        int32_t segment_start_id,
+                                                        int32_t segment_capacity) {
+    const auto count = partial_meta.num_segments();
+    if (partial_meta.rowset_id_v2() != base_meta.rowset_id_v2() ||
+        partial_meta.tablet_id() != base_meta.tablet_id() ||
+        partial_meta.txn_id() != base_meta.txn_id() ||
+        partial_meta.resource_id() != base_meta.resource_id() ||
+        partial_meta.index_id() != base_meta.index_id() ||
+        partial_meta.partition_id() != base_meta.partition_id() ||
+        partial_meta.tablet_schema_hash() != base_meta.tablet_schema_hash() ||
+        partial_meta.table_id() != base_meta.table_id() ||
+        partial_meta.db_id() != base_meta.db_id() ||
+        UniqueId(partial_meta.load_id()) != UniqueId(base_meta.load_id())) {
+        return Status::InvalidArgument("sink upload rowset identity mismatch for tablet {}",
+                                       base_meta.tablet_id());
+    }
+    if (!partial_meta.has_tablet_schema() || count < 0 || count > segment_capacity ||
+        partial_meta.segment_ids_size() != count || partial_meta.num_segment_rows_size() != count ||
+        partial_meta.segments_key_bounds_size() != count ||
+        partial_meta.segments_file_size_size() != count ||
+        partial_meta.segments_key_bounds_aggregated() ||
+        (partial_meta.inverted_index_file_info_size() != 0 &&
+         partial_meta.inverted_index_file_info_size() != count)) {
+        return Status::InvalidArgument("misaligned sink upload metadata for tablet {}",
+                                       base_meta.tablet_id());
+    }
+    const bool has_index =
+            std::ranges::any_of(partial_meta.tablet_schema().index(), [](const auto& index) {
+                return index.index_type() == IndexType::INVERTED ||
+                       index.index_type() == IndexType::ANN;
+            });
+    if (has_index && partial_meta.inverted_index_file_info_size() != count) {
+        return Status::InvalidArgument("missing sink upload index metadata for tablet {}",
+                                       base_meta.tablet_id());
+    }
+    int64_t partial_rows = 0;
+    for (int pos = 0; pos < count; ++pos) {
+        const int64_t id = partial_meta.segment_ids(pos);
+        if (id < segment_start_id ||
+            id >= static_cast<int64_t>(segment_start_id) + segment_capacity ||
+            (pos > 0 && id <= partial_meta.segment_ids(pos - 1)) ||
+            partial_meta.num_segment_rows(pos) < 0 || partial_meta.segments_file_size(pos) <= 0) {
+            return Status::InvalidArgument("invalid sink upload segment {} for tablet {}", id,
+                                           base_meta.tablet_id());
+        }
+        partial_rows += partial_meta.num_segment_rows(pos);
+    }
+    if (partial_rows != partial_meta.num_rows() || partial_meta.data_disk_size() < 0 ||
+        partial_meta.index_disk_size() < 0 ||
+        partial_meta.total_disk_size() !=
+                partial_meta.data_disk_size() + partial_meta.index_disk_size()) {
+        return Status::InvalidArgument("invalid sink upload statistics for tablet {}",
+                                       base_meta.tablet_id());
+    }
+    return Status::OK();
+}
+
+Status CloudRowsetBuilder::assemble_rowset_meta_from_partials(
+        const RowsetMetaPB& base_meta, const std::map<int32_t, RowsetMetaPB>& partial_rowset_metas,
+        int32_t max_segments_per_rowset, RowsetMetaPB* result) {
+    *result = base_meta;
+    int64_t rows = 0;
+    int64_t data_size = 0;
+    int64_t index_size = 0;
+    auto schema = std::make_shared<TabletSchema>();
+    schema->init_from_pb(base_meta.tablet_schema());
+    const bool has_variant = schema->num_variant_columns() > 0;
+    std::vector<TabletSchemaSPtr> schemas;
+    for (const auto& [segment_start_id, partial_meta] : partial_rowset_metas) {
+        const auto count = partial_meta.num_segments();
+        if (count > 0 && result->segment_ids_size() > 0 &&
+            partial_meta.segment_ids(0) <= result->segment_ids(result->segment_ids_size() - 1)) {
+            return Status::InvalidArgument("overlapping sink upload segment ranges");
+        }
+        result->mutable_segment_ids()->MergeFrom(partial_meta.segment_ids());
+        result->mutable_num_segment_rows()->MergeFrom(partial_meta.num_segment_rows());
+        result->mutable_segments_file_size()->MergeFrom(partial_meta.segments_file_size());
+        result->mutable_segments_key_bounds()->MergeFrom(partial_meta.segments_key_bounds());
+        result->mutable_inverted_index_file_info()->MergeFrom(
+                partial_meta.inverted_index_file_info());
+        for (const auto& [path, location] : partial_meta.packed_slice_locations()) {
+            if (!result->mutable_packed_slice_locations()->emplace(path, location).second) {
+                return Status::InvalidArgument("duplicate packed slice {}", path);
+            }
+        }
+        rows += partial_meta.num_rows();
+        data_size += partial_meta.data_disk_size();
+        index_size += partial_meta.index_disk_size();
+        result->set_segments_key_bounds_truncated(result->segments_key_bounds_truncated() ||
+                                                  partial_meta.segments_key_bounds_truncated());
+        if (has_variant) {
+            auto partial_schema = std::make_shared<TabletSchema>();
+            partial_schema->init_from_pb(partial_meta.tablet_schema());
+            schemas.push_back(std::move(partial_schema));
+        }
+    }
+    if (result->segment_ids_size() > max_segments_per_rowset) {
+        return Status::InvalidArgument("too many sink upload segments for tablet {}",
+                                       base_meta.tablet_id());
+    }
+    if (has_variant && !schemas.empty()) {
+        TabletSchemaSPtr merged_schema;
+        schemas.push_back(schema);
+        RETURN_IF_ERROR(variant_util::get_least_common_schema(schemas, nullptr, merged_schema));
+        result->clear_tablet_schema();
+        merged_schema->to_schema_pb(result->mutable_tablet_schema());
+    }
+    result->set_num_segments(result->segment_ids_size());
+    result->set_num_rows(rows);
+    result->set_data_disk_size(data_size);
+    result->set_index_disk_size(index_size);
+    result->set_total_disk_size(data_size + index_size);
+    result->set_empty(rows == 0);
+    result->set_segments_overlap_pb(
+            schema->cluster_key_uids().empty() &&
+                            !is_segment_overlapping(result->segments_key_bounds())
+                    ? NONOVERLAPPING
+                    : OVERLAPPING);
+    result->set_enable_segments_file_size(true);
+    result->set_enable_inverted_index_file_info(true);
+    result->set_creation_time(UnixSeconds());
+    result->set_newest_write_timestamp(UnixSeconds());
+    result->set_rowset_state(COMMITTED);
+    return Status::OK();
+}
+
+Status CloudRowsetBuilder::build_rowset_from_assembled_meta(const RowsetMetaPB& meta) {
+    return static_cast<CloudRowsetWriter*>(_rowset_writer.get())
+            ->build_from_assembled_meta(meta, _rowset);
 }
 
 Status CloudRowsetBuilder::commit_txn() {

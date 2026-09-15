@@ -780,6 +780,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         bool value = iequal(http_req->header(HTTP_MEMTABLE_ON_SINKNODE), "true");
         request.__set_memtable_on_sink_node(value);
     }
+    if (!http_req->header(HTTP_CLOUD_MEMTABLE_SINK_UPLOAD).empty()) {
+        bool value = iequal(http_req->header(HTTP_CLOUD_MEMTABLE_SINK_UPLOAD), "true");
+        request.__set_cloud_memtable_sink_upload(value);
+    }
     if (!http_req->header(HTTP_LOAD_STREAM_PER_NODE).empty()) {
         int stream_per_node = DORIS_TRY(
                 safe_stoi(http_req->header(HTTP_LOAD_STREAM_PER_NODE), HTTP_LOAD_STREAM_PER_NODE));

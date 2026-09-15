@@ -632,6 +632,7 @@ struct TStreamLoadPutRequest {
     // For cloud
     1000: optional string cloud_cluster
     1001: optional i64 table_id
+    1002: optional bool cloud_memtable_sink_upload
 }
 
 struct TStreamLoadPutResult {

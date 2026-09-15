@@ -52,7 +52,8 @@ public:
     Status init(std::shared_ptr<OlapTableSchemaParam> schema, int64_t index_id,
                 int64_t partition_id, bool is_empty = false);
 
-    Status append_data(const PStreamHeader& header, butil::IOBuf* data);
+    Status append_data(const PStreamHeader& header, butil::IOBuf* data,
+                       PCloudLoadWriteContext* context = nullptr);
     Status add_segment(const PStreamHeader& header, butil::IOBuf* data);
     void add_num_segments(int64_t num_segments) { _num_segments += num_segments; }
     void disable_num_segments_check() { _check_num_segments = false; }
@@ -100,7 +101,8 @@ public:
                 bool write_file_cache);
     ~IndexStream();
 
-    Status append_data(const PStreamHeader& header, butil::IOBuf* data);
+    Status append_data(const PStreamHeader& header, butil::IOBuf* data,
+                       PCloudLoadWriteContext* context = nullptr);
 
     void close(const std::vector<PTabletID>& tablets_to_commit,
                std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablet_ids);
@@ -168,7 +170,8 @@ public:
 private:
     void _parse_header(butil::IOBuf* const message, PStreamHeader& hdr);
     void _dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* data);
-    Status _append_data(const PStreamHeader& header, butil::IOBuf* data);
+    Status _append_data(const PStreamHeader& header, butil::IOBuf* data,
+                        PCloudLoadWriteContext* context = nullptr);
 
     void _report_result(StreamId stream, const Status& status,
                         const std::vector<int64_t>& success_tablet_ids,

@@ -58,6 +58,8 @@ import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -206,8 +208,9 @@ public class BrokerLoadJobTest {
         Assertions.assertEquals(0, idToTasks.size());
     }
 
-    @Test
-    public void testPendingTaskOnFinished() throws Exception {
+    @ParameterizedTest
+    @CsvSource({"false", "true"})
+    public void testPendingTaskOnFinished(boolean sinkUpload) throws Exception {
         BrokerPendingTaskAttachment attachment = Mockito.mock(BrokerPendingTaskAttachment.class);
         Env env = Mockito.mock(Env.class);
         InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
@@ -240,6 +243,7 @@ public class BrokerLoadJobTest {
 
             BrokerLoadJob brokerLoadJob = new BrokerLoadJob();
             Deencapsulation.setField(brokerLoadJob, "state", JobState.LOADING);
+            brokerLoadJob.sessionVariables.put("enable_cloud_memtable_sink_upload", Boolean.toString(sinkUpload));
             BrokerDesc brokerDesc = Mockito.mock(BrokerDesc.class);
             Deencapsulation.setField(brokerLoadJob, "brokerDesc", brokerDesc);
             long taskId = 1L;
@@ -306,6 +310,10 @@ public class BrokerLoadJobTest {
             Assertions.assertEquals(true, finishedTaskIds.contains(taskId));
             Map<Long, LoadTask> idToTasks = Deencapsulation.getField(brokerLoadJob, "idToTasks");
             Assertions.assertEquals(3, idToTasks.size());
+            for (LoadTask task : idToTasks.values()) {
+                boolean actualSinkUpload = Deencapsulation.getField(task, "cloudMemtableSinkUpload");
+                Assertions.assertEquals(sinkUpload, actualSinkUpload);
+            }
         }
     }
 

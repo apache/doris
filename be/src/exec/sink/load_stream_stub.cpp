@@ -123,6 +123,12 @@ int LoadStreamReplyHandler::on_received_messages(brpc::StreamId id, butil::IOBuf
                              << status;
             }
         }
+        if (response.has_write_context()) {
+            auto writer_id = response.write_context().writer_id();
+            std::lock_guard lock(stub->_write_context_mutex);
+            stub->_write_context_responses[writer_id] = std::move(response);
+            stub->_write_context_cv.notify_all();
+        }
     }
     return 0;
 }
@@ -308,6 +314,58 @@ Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commi
     return Status::OK();
 }
 
+Status LoadStreamStub::register_sink_upload_writer(int64_t partition_id, int64_t index_id,
+                                                   int64_t tablet_id, const std::string& writer_id,
+                                                   PCloudLoadWriteContext* context) {
+    PStreamHeader header;
+    *header.mutable_load_id() = _load_id;
+    header.set_src_id(_src_id);
+    header.set_partition_id(partition_id);
+    header.set_index_id(index_id);
+    header.set_tablet_id(tablet_id);
+    header.set_writer_id(writer_id);
+    header.set_opcode(PStreamHeader::GET_WRITE_CONTEXT);
+    RETURN_IF_ERROR(_encode_and_send(header));
+    MonotonicStopWatch watch;
+    watch.start();
+    std::unique_lock lock(_write_context_mutex);
+    while (!_write_context_responses.contains(writer_id)) {
+        RETURN_IF_ERROR(check_cancel());
+        if (_is_closed.load()) {
+            return Status::InternalError("stream closed while getting write context for tablet {}",
+                                         tablet_id);
+        }
+        if (watch.elapsed_time() / 1000000 >= config::open_load_stream_timeout_ms) {
+            return Status::TimedOut("getting write context for tablet {}", tablet_id);
+        }
+        _write_context_cv.wait_for(lock, 100000);
+    }
+    auto response = std::move(_write_context_responses.at(writer_id));
+    _write_context_responses.erase(writer_id);
+    RETURN_IF_ERROR(Status::create(response.status()));
+    *context = std::move(*response.mutable_write_context());
+    return Status::OK();
+}
+
+Status LoadStreamStub::add_partial_rowset(int64_t partition_id, int64_t index_id, int64_t tablet_id,
+                                          const std::string& writer_id, const RowsetMetaPB& meta,
+                                          const PCloudLoadMowResult* mow_result) {
+    RETURN_IF_ERROR(check_cancel());
+    PStreamHeader header;
+    *header.mutable_load_id() = _load_id;
+    header.set_src_id(_src_id);
+    header.set_partition_id(partition_id);
+    header.set_index_id(index_id);
+    header.set_tablet_id(tablet_id);
+    header.set_writer_id(writer_id);
+    header.set_opcode(PStreamHeader::ADD_PARTIAL_ROWSET);
+    *header.mutable_partial_rowset_meta() = meta;
+    if (mow_result != nullptr) {
+        *header.mutable_mow_result() = *mow_result;
+    }
+    return _encode_and_send(header);
+}
+
 // GET_SCHEMA
 Status LoadStreamStub::get_schema(const std::vector<PTabletID>& tablets) {
     if (!_is_open.load()) {
@@ -421,9 +479,10 @@ Status LoadStreamStub::_encode_and_send(PStreamHeader& header, std::span<const S
         buf.append(slice.get_data(), slice.get_size());
     }
     bool eos = header.opcode() == doris::PStreamHeader::CLOSE_LOAD;
-    bool get_schema = header.opcode() == doris::PStreamHeader::GET_SCHEMA;
+    bool needs_response = header.opcode() == doris::PStreamHeader::GET_SCHEMA ||
+                          header.opcode() == doris::PStreamHeader::GET_WRITE_CONTEXT;
     add_bytes_written(buf.size());
-    return _send_with_buffer(buf, eos || get_schema);
+    return _send_with_buffer(buf, eos || needs_response);
 }
 
 Status LoadStreamStub::_send_with_buffer(butil::IOBuf& buf, bool sync) {
@@ -464,6 +523,8 @@ void LoadStreamStub::_handle_failure(butil::IOBuf& buf, Status st) {
 
         // step 3: handle failure
         switch (hdr.opcode()) {
+        case PStreamHeader::GET_WRITE_CONTEXT:
+        case PStreamHeader::ADD_PARTIAL_ROWSET:
         case PStreamHeader::ADD_SEGMENT:
         case PStreamHeader::APPEND_DATA: {
             DBUG_EXECUTE_IF("LoadStreamStub._handle_failure.append_data_failed", {

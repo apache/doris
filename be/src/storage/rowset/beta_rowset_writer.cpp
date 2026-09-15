@@ -71,19 +71,6 @@ using namespace ErrorCode;
 
 namespace {
 
-bool is_segment_overlapping(const std::vector<KeyBoundsPB>& segments_encoded_key_bounds) {
-    std::string_view last;
-    for (auto&& segment_encode_key : segments_encoded_key_bounds) {
-        auto&& cur_min = segment_encode_key.min_key();
-        auto&& cur_max = segment_encode_key.max_key();
-        if (cur_min <= last) {
-            return true;
-        }
-        last = cur_max;
-    }
-    return false;
-}
-
 bool copy_key_bounds_with_truncation(const KeyBoundsPB& src, KeyBoundsPB* dst) {
     DCHECK(dst != nullptr);
     if (config::random_segments_key_bounds_truncation) {
@@ -420,7 +407,9 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
         return Status::OK();
     }
     std::vector<RowsetSharedPtr> specified_rowsets;
-    {
+    if (_context.mow_context->snapshot_delete_bitmap != nullptr) {
+        specified_rowsets = _context.mow_context->rowset_ptrs;
+    } else {
         std::shared_lock meta_rlock(_context.tablet->get_header_lock());
         specified_rowsets =
                 _context.tablet->get_rowset_by_ids(_context.mow_context->rowset_ids.get());
@@ -483,7 +472,7 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
         st = BaseTablet::calc_delete_bitmap(_context.tablet, rowset_ptr, segments,
                                             specified_rowsets, _context.mow_context->delete_bitmap,
                                             _context.mow_context->max_version, nullptr, nullptr,
-                                            nullptr);
+                                            _context.mow_context->snapshot_delete_bitmap);
         if (!st.ok()) {
             return st;
         }
@@ -1064,8 +1053,9 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     std::vector<uint32_t> segment_rows;
     std::vector<int64_t> segment_ids;
     std::optional<bool> segments_key_bounds_truncated;
-    const bool record_segment_ids = _context.write_type == DataWriteType::TYPE_COMPACTION &&
-                                    (_context.is_partial_output_writer || _segment_start_id != 0);
+    const bool record_segment_ids =
+            _context.is_partial_output_writer ||
+            (_context.write_type == DataWriteType::TYPE_COMPACTION && _segment_start_id != 0);
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         if (record_segment_ids) {

@@ -16,6 +16,8 @@
 // under the License.
 #include <gtest/gtest.h>
 
+#include <thread>
+
 #include "exec/sink/load_stream_map_pool.h"
 #include "exec/sink/load_stream_stub.h"
 
@@ -54,6 +56,17 @@ TEST_F(LoadStreamMapPoolTest, test) {
     EXPECT_EQ(1, pool.size());
     EXPECT_TRUE(streams_for_node2->release());
     EXPECT_EQ(0, pool.size());
+}
+
+TEST_F(LoadStreamMapPoolTest, AccumulateIndependentWriterSegmentCounts) {
+    LoadStreamMap map(UniqueId(1, 2), 10, 1, 2, nullptr);
+    std::thread first([&] { map.save_segments_for_tablet({{100, 2}, {200, 1}}); });
+    std::thread second([&] { map.save_segments_for_tablet({{100, 3}, {300, 4}}); });
+    first.join();
+    second.join();
+    EXPECT_EQ(5, map._segments_for_tablet.at(100));
+    EXPECT_EQ(1, map._segments_for_tablet.at(200));
+    EXPECT_EQ(4, map._segments_for_tablet.at(300));
 }
 
 } // namespace doris

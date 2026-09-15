@@ -470,6 +470,9 @@ struct MowContext {
     std::shared_ptr<RowsetIdUnorderedSet> rowset_ids;
     std::vector<RowsetSharedPtr> rowset_ptrs;
     std::shared_ptr<DeleteBitmap> delete_bitmap;
+    // Sink-upload sinks use rowset_ptrs and this immutable target snapshot instead of
+    // their local tablet's potentially newer rowsets/deletion state.
+    std::shared_ptr<DeleteBitmap> snapshot_delete_bitmap;
 };
 
 // used for controll compaction

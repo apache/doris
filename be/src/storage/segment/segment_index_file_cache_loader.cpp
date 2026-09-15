@@ -87,7 +87,8 @@ Status read_range_to_file_cache(io::FileReaderSPtr reader, uint64_t offset, uint
 Status SegmentIndexFileCacheLoader::preload_segment_index_to_file_cache(
         const RowsetWriterContext& context, uint32_t segment_id, const std::string& segment_path,
         const SegmentIndexFileCacheInfo& info) {
-    if (!enable_cloud_index_only_file_cache() || context.is_local_rowset()) {
+    if (!enable_cloud_index_only_file_cache() || context.is_local_rowset() ||
+        context.disable_file_cache) {
         return Status::OK();
     }
 

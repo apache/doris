@@ -32,6 +32,8 @@ public:
 
     Status build(RowsetSharedPtr& rowset) override;
 
+    Status build_from_assembled_meta(const RowsetMetaPB& meta, RowsetSharedPtr& rowset);
+
 private:
     Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false,
                               std::vector<int64_t>* completed_segment_ids = nullptr) override;

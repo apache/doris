@@ -22,6 +22,7 @@
 #include <fmt/format.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <google/protobuf/util/message_differencer.h>
 
 #include <filesystem>
 #include <ostream>
@@ -30,6 +31,7 @@
 
 #include "bvar/bvar.h"
 #include "cloud/cloud_rowset_builder.h"
+#include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
@@ -107,9 +109,111 @@ Status LoadStreamWriter::init(bool is_empty) {
     return Status::OK();
 }
 
+Status LoadStreamWriter::register_sink_upload_writer(const std::string& writer_id,
+                                                     PCloudLoadWriteContext* context) {
+    // Control messages run synchronously in LoadStream::_dispatch, which attaches the load.
+    std::lock_guard lock(_lock);
+    const auto& ctx = _rowset_writer->context();
+    if (!config::is_cloud_mode() || (ctx.tablet_schema->has_inverted_index() &&
+                                     ctx.tablet_schema->get_inverted_index_storage_format() ==
+                                             InvertedIndexStorageFormatPB::V1)) {
+        return Status::NotSupported("sink upload requires cloud mode and no V1 inverted indexes");
+    }
+    if (_pre_closed || writer_id.empty()) {
+        return Status::InvalidArgument("invalid sink writer registration for tablet {}",
+                                       _req.tablet_id);
+    }
+    if (!_sink_upload.exchange(true)) {
+        _max_segments_per_rowset = config::max_segment_num_per_rowset;
+        DORIS_CHECK_GT(_max_segments_per_rowset, 0);
+    }
+    auto it = _writer_segment_start_ids.find(writer_id);
+    if (it == _writer_segment_start_ids.end()) {
+        const int64_t start =
+                static_cast<int64_t>(_writer_segment_start_ids.size()) * _max_segments_per_rowset;
+        if (start + _max_segments_per_rowset > INT32_MAX) {
+            return Status::InvalidArgument("sink upload segment range overflow for tablet {}",
+                                           _req.tablet_id);
+        }
+        it = _writer_segment_start_ids.emplace(writer_id, static_cast<int32_t>(start)).first;
+    }
+    if (ctx.tablet->enable_unique_key_merge_on_write()) {
+        RETURN_IF_ERROR(static_cast<CloudRowsetBuilder*>(_rowset_builder.get())
+                                ->get_mow_snapshot_for_sink(context->mutable_mow_snapshot()));
+    }
+    context->set_writer_id(writer_id);
+    *context->mutable_rowset_meta() = _rowset_writer->rowset_meta()->get_rowset_pb();
+    context->mutable_rowset_meta()->set_newest_write_timestamp(ctx.newest_write_timestamp);
+    context->set_segment_start_id(it->second);
+    context->set_segment_capacity(_max_segments_per_rowset);
+    context->set_encrypt_algorithm(ctx.encrypt_algorithm.value());
+    context->set_file_cache_expiration_time(ctx.file_cache_expiration_time);
+    context->set_warm_up_file_cache(config::enable_file_cache && ctx.write_file_cache);
+    return Status::OK();
+}
+
+Status LoadStreamWriter::add_partial_rowset(const std::string& writer_id, const RowsetMetaPB& meta,
+                                            int64_t* num_added_segments,
+                                            const PCloudLoadMowResult* mow_result) {
+    // Control messages run synchronously in LoadStream::_dispatch, which attaches the load.
+    std::lock_guard lock(_lock);
+    *num_added_segments = 0;
+    auto it = _writer_segment_start_ids.find(writer_id);
+    if (it == _writer_segment_start_ids.end() || _pre_closed) {
+        return Status::InvalidArgument("unknown or closed sink writer {} for tablet {}", writer_id,
+                                       _req.tablet_id);
+    }
+    const bool is_mow = _rowset_builder->tablet()->enable_unique_key_merge_on_write();
+    if (is_mow != (mow_result != nullptr)) {
+        return Status::InvalidArgument("sink upload MOW result does not match tablet {}",
+                                       _req.tablet_id);
+    }
+    auto previous = _partial_rowset_metas.find(it->second);
+    if (previous != _partial_rowset_metas.end()) {
+        if (!google::protobuf::util::MessageDifferencer::Equals(previous->second, meta)) {
+            return Status::InvalidArgument("conflicting sink writer result {}", writer_id);
+        }
+        if (is_mow && !google::protobuf::util::MessageDifferencer::Equals(
+                              _mow_results.at(it->second), *mow_result)) {
+            return Status::InvalidArgument("conflicting sink MOW result {}", writer_id);
+        }
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(CloudRowsetBuilder::validate_partial_rowset_meta(
+            _rowset_writer->rowset_meta()->get_rowset_pb(), meta, it->second,
+            _max_segments_per_rowset));
+    // Packed mappings name logical files in this rowset, never an uploader's absolute S3 URI.
+    if (!meta.packed_slice_locations().empty()) {
+        std::unordered_set<std::string> paths;
+        for (auto id : meta.segment_ids()) {
+            auto path = _rowset_writer->context().segment_path(cast_set<int32_t>(id));
+            paths.insert(path);
+            auto prefix = InvertedIndexDescriptor::get_index_file_path_prefix(path);
+            paths.insert(InvertedIndexDescriptor::get_index_file_path_v2(std::string(prefix)));
+        }
+        for (const auto& [path, location] : meta.packed_slice_locations()) {
+            if (!paths.contains(path) || location.offset() < 0 || location.size() < 0 ||
+                location.packed_file_path().empty()) {
+                return Status::InvalidArgument("invalid sink upload packed slice {}", path);
+            }
+        }
+    }
+    if (is_mow) {
+        RETURN_IF_ERROR(static_cast<CloudRowsetBuilder*>(_rowset_builder.get())
+                                ->merge_sink_mow_bitmap(*mow_result));
+        _mow_results.emplace(it->second, *mow_result);
+    }
+    _partial_rowset_metas.emplace(it->second, meta);
+    *num_added_segments = meta.num_segments();
+    return Status::OK();
+}
+
 Status LoadStreamWriter::append_data(uint32_t segid, uint64_t offset, butil::IOBuf buf,
                                      FileType file_type) {
     SCOPED_ATTACH_TASK(_resource_ctx);
+    DBUG_EXECUTE_IF("LoadStreamWriter.append_data.unexpected_transfer", {
+        return Status::InternalError("unexpected segment transfer in sink-upload load");
+    });
     io::FileWriter* file_writer = nullptr;
     auto& file_writers =
             file_type == FileType::SEGMENT_FILE ? _segment_file_writers : _inverted_file_writers;
@@ -327,26 +431,38 @@ Status LoadStreamWriter::_pre_close() {
         }
     }
 
-    RETURN_IF_ERROR(_rowset_builder->build_rowset());
-    if (config::is_cloud_mode()) {
-        // Forwarded files are owned here, outside CloudRowsetWriter's collections.
-        auto meta = _rowset_writer->rowset_meta();
-        DORIS_CHECK(meta->segments_file_size().empty());
-        DORIS_CHECK(meta->inverted_index_file_info().empty());
-        std::vector<size_t> sizes;
-        sizes.reserve(_segment_file_writers.size());
-        for (const auto& writer : _segment_file_writers) {
-            sizes.push_back(writer->bytes_appended());
+    if (_sink_upload.load()) {
+        if (_writer_segment_start_ids.size() != _partial_rowset_metas.size()) {
+            return Status::Corruption("missing sink writer results for tablet {}", _req.tablet_id);
         }
-        meta->add_segments_file_size(sizes);
-        std::vector<InvertedIndexFileInfo> indexes(_inverted_file_writers.size());
-        std::vector<const InvertedIndexFileInfo*> index_ptrs;
-        index_ptrs.reserve(indexes.size());
-        for (size_t pos = 0; pos < indexes.size(); ++pos) {
-            indexes[pos].set_index_size(_inverted_file_writers[pos]->bytes_appended());
-            index_ptrs.push_back(&indexes[pos]);
+        RowsetMetaPB meta;
+        RETURN_IF_ERROR(CloudRowsetBuilder::assemble_rowset_meta_from_partials(
+                _rowset_writer->rowset_meta()->get_rowset_pb(), _partial_rowset_metas,
+                _max_segments_per_rowset, &meta));
+        RETURN_IF_ERROR(static_cast<CloudRowsetBuilder*>(_rowset_builder.get())
+                                ->build_rowset_from_assembled_meta(meta));
+    } else {
+        RETURN_IF_ERROR(_rowset_builder->build_rowset());
+        if (config::is_cloud_mode()) {
+            // Forwarded files are owned here, outside CloudRowsetWriter's collections.
+            auto meta = _rowset_writer->rowset_meta();
+            DORIS_CHECK(meta->segments_file_size().empty());
+            DORIS_CHECK(meta->inverted_index_file_info().empty());
+            std::vector<size_t> sizes;
+            sizes.reserve(_segment_file_writers.size());
+            for (const auto& writer : _segment_file_writers) {
+                sizes.push_back(writer->bytes_appended());
+            }
+            meta->add_segments_file_size(sizes);
+            std::vector<InvertedIndexFileInfo> indexes(_inverted_file_writers.size());
+            std::vector<const InvertedIndexFileInfo*> index_ptrs;
+            index_ptrs.reserve(indexes.size());
+            for (size_t pos = 0; pos < indexes.size(); ++pos) {
+                indexes[pos].set_index_size(_inverted_file_writers[pos]->bytes_appended());
+                index_ptrs.push_back(&indexes[pos]);
+            }
+            meta->add_inverted_index_files_info(index_ptrs);
         }
-        meta->add_inverted_index_files_info(index_ptrs);
     }
     RETURN_IF_ERROR(_rowset_builder->submit_calc_delete_bitmap_task());
     _pre_closed = true;
@@ -360,6 +476,12 @@ Status LoadStreamWriter::close() {
     }
     RETURN_IF_ERROR(_rowset_builder->wait_calc_delete_bitmap());
     RETURN_IF_ERROR(_rowset_builder->commit_txn());
+    if (_sink_upload.load() && config::enable_file_cache && _req.write_file_cache) {
+        auto& builder = static_cast<CloudRowsetBuilder&>(*_rowset_builder);
+        ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager().warm_up_rowset(
+                *builder.rowset_meta(), _rowset_builder->tablet_sptr()->table_id(),
+                /*sync_wait_timeout_ms=*/-1, /*warm_up_local=*/true);
+    }
     return Status::OK();
 }
 

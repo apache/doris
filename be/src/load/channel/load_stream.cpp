@@ -108,9 +108,32 @@ Status TabletStream::init(std::shared_ptr<OlapTableSchemaParam> schema, int64_t 
     return _status.status();
 }
 
-Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data) {
+Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data,
+                                 PCloudLoadWriteContext* context) {
     if (!_status.ok()) {
         return _status.status();
+    }
+
+    if (header.opcode() == PStreamHeader::GET_WRITE_CONTEXT) {
+        std::lock_guard lock(_lock);
+        if (!_segids_mapping.empty()) {
+            _status.update(Status::InvalidArgument("cannot switch streamed tablet to sink upload"));
+            return _status.status();
+        }
+        auto st = _load_stream_writer->register_sink_upload_writer(header.writer_id(), context);
+        _status.update(st);
+        return st;
+    }
+    if (header.opcode() == PStreamHeader::ADD_PARTIAL_ROWSET) {
+        std::lock_guard lock(_lock);
+        int64_t num_added_segments = 0;
+        auto st = _load_stream_writer->add_partial_rowset(
+                header.writer_id(), header.partial_rowset_meta(), &num_added_segments,
+                header.has_mow_result() ? &header.mow_result() : nullptr);
+        // Sink uploads use this as the accepted segment count for close validation, not ID allocation.
+        _next_segid += cast_set<uint32_t>(num_added_segments);
+        _status.update(st);
+        return st;
     }
 
     // dispatch add_segment request
@@ -126,6 +149,11 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     SegIdMapping* mapping = nullptr;
     {
         std::lock_guard lock_guard(_lock);
+        if (_load_stream_writer->is_sink_upload()) {
+            _status.update(
+                    Status::InvalidArgument("cannot stream files into a sink-upload rowset"));
+            return _status.status();
+        }
         if (!_segids_mapping.contains(src_id)) {
             _segids_mapping[src_id] = std::make_unique<SegIdMapping>();
         }
@@ -379,7 +407,8 @@ IndexStream::~IndexStream() {
     }
 }
 
-Status IndexStream::append_data(const PStreamHeader& header, butil::IOBuf* data) {
+Status IndexStream::append_data(const PStreamHeader& header, butil::IOBuf* data,
+                                PCloudLoadWriteContext* context) {
     SCOPED_TIMER(_append_data_timer);
     int64_t tablet_id = header.tablet_id();
     TabletStreamSharedPtr tablet_stream;
@@ -393,7 +422,7 @@ Status IndexStream::append_data(const PStreamHeader& header, butil::IOBuf* data)
         }
     }
 
-    return tablet_stream->append_data(header, data);
+    return tablet_stream->append_data(header, data, context);
 }
 
 void IndexStream::_init_tablet_stream(TabletStreamSharedPtr& tablet_stream, int64_t tablet_id,
@@ -729,7 +758,8 @@ void LoadStream::_parse_header(butil::IOBuf* const message, PStreamHeader& hdr) 
     VLOG_DEBUG << "header parse result: " << hdr.DebugString();
 }
 
-Status LoadStream::_append_data(const PStreamHeader& header, butil::IOBuf* data) {
+Status LoadStream::_append_data(const PStreamHeader& header, butil::IOBuf* data,
+                                PCloudLoadWriteContext* context) {
     SCOPED_TIMER(_append_data_timer);
     IndexStreamSharedPtr index_stream;
 
@@ -743,7 +773,7 @@ Status LoadStream::_append_data(const PStreamHeader& header, butil::IOBuf* data)
         index_stream = it->second;
     }
 
-    return index_stream->append_data(header, data);
+    return index_stream->append_data(header, data, context);
 }
 
 int LoadStream::on_received_messages(StreamId id, butil::IOBuf* const messages[], size_t size) {
@@ -808,6 +838,7 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
     }
 
     switch (hdr.opcode()) {
+    case PStreamHeader::ADD_PARTIAL_ROWSET:
     case PStreamHeader::ADD_SEGMENT: {
         auto st = _append_data(hdr, data);
         if (!st.ok()) {
@@ -857,6 +888,19 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
         auto streams_to_close = mark_eos_sent_and_collect(id, is_incremental);
         for (auto& closing_id : streams_to_close) {
             brpc::StreamClose(closing_id);
+        }
+    } break;
+    case PStreamHeader::GET_WRITE_CONTEXT: {
+        PLoadStreamResponse response;
+        auto* context = response.mutable_write_context();
+        context->set_writer_id(hdr.writer_id());
+        auto st = _append_data(hdr, data, context);
+        st.to_protobuf(response.mutable_status());
+        butil::IOBuf buf;
+        buf.append(response.SerializeAsString());
+        auto write_status = _write_stream(id, buf);
+        if (!write_status.ok()) {
+            LOG(WARNING) << "failed to return cloud write context: " << write_status;
         }
     } break;
     case PStreamHeader::GET_SCHEMA: {
