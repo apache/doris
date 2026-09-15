@@ -22,6 +22,7 @@ import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.TabletSlidingWindowAccessStats;
 import org.apache.doris.cloud.catalog.CloudColocatePlacement;
 import org.apache.doris.cloud.catalog.CloudComputeGroupMeta;
 import org.apache.doris.cloud.catalog.CloudEnv;
@@ -532,6 +533,7 @@ public class CloudSystemInfoService extends SystemInfoService {
             be.setAlive(false);
             be.setLastMissingHeartbeatTime(System.currentTimeMillis());
             Env.getCurrentEnv().getEditLog().logDropBackend(be);
+            TabletSlidingWindowAccessStats.getInstance().removeBackend(be.getId());
             LOG.info("dropped cloud backend={}, and lastMissingHeartbeatTime={}", be, be.getLastMissingHeartbeatTime());
         }
 

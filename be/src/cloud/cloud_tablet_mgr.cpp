@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "cpp/sync_point.h"
 #include "runtime/memory/cache_policy.h"
+#include "storage/active_tablet_stats.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "util/debug_points.h"
 #include "util/lru_cache.h"
@@ -550,8 +551,12 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
 }
 
 void CloudTabletMgr::build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info,
-                                                   uint64_t* tablet_num) {
+                                                   uint64_t* tablet_num,
+                                                   ActiveTabletCollector* active) {
     DCHECK(tablets_info != nullptr);
+    if (active) {
+        active->start();
+    }
     VLOG_NOTICE << "begin to build all report cloud tablets info";
 
     HistogramStat tablet_version_num_hist;
@@ -560,6 +565,9 @@ void CloudTabletMgr::build_all_report_tablets_info(std::map<TTabletId, TTablet>*
         auto tablet = tablet_wk.lock();
         if (!tablet) return;
         (*tablet_num)++;
+        if (active) {
+            active->collect(tablet);
+        }
         TTabletInfo tablet_info;
         tablet->build_tablet_report_info(&tablet_info);
         using namespace std::chrono;
