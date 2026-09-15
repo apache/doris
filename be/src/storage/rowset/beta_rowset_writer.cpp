@@ -458,7 +458,7 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
         OlapStopWatch watch;
         // Step 2: Build tmp rowset (needs file_writer to be closed)
         RowsetSharedPtr rowset_ptr;
-        st = _build_tmp(rowset_ptr);
+        st = _build_tmp(rowset_ptr, segment_id);
         if (!st.ok()) {
             return st;
         }
@@ -1156,7 +1156,7 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     return Status::OK();
 }
 
-Status BaseBetaRowsetWriter::_build_tmp(RowsetSharedPtr& rowset_ptr) {
+Status BaseBetaRowsetWriter::_build_tmp(RowsetSharedPtr& rowset_ptr, int32_t segment_id) {
     Status status;
     std::shared_ptr<RowsetMeta> tmp_rs_meta = std::make_shared<RowsetMeta>();
     tmp_rs_meta->init(_rowset_meta.get());
@@ -1168,6 +1168,15 @@ Status BaseBetaRowsetWriter::_build_tmp(RowsetSharedPtr& rowset_ptr) {
         return status;
     }
     tmp_rs_meta->set_segment_ids(completed_segment_ids);
+
+    if (_context.packed_file_active) {
+        // Bitmap calculation reads only this segment's primary-key index. Other flushes
+        // may still be creating/closing files, so do not traverse their writer collections.
+        if (auto* writer = _seg_files.get(segment_id); writer != nullptr) {
+            RETURN_IF_ERROR(tmp_rs_meta->collect_packed_slice_location(
+                    *writer, _context.segment_path(segment_id)));
+        }
+    }
 
     status = RowsetFactory::create_rowset(_context.tablet_schema, _context.tablet_path, tmp_rs_meta,
                                           &rowset_ptr);

@@ -102,8 +102,12 @@ Status CloudRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool check
     RETURN_IF_ERROR(BaseBetaRowsetWriter::_build_rowset_meta(rowset_meta, check_segment_num,
                                                              completed_segment_ids));
 
-    // Collect packed file segment index information for interim rowsets as well.
-    return _collect_all_packed_slice_locations(rowset_meta);
+    // Temporary bitmap rowsets collect their own segment after its file is closed.
+    // The complete collections are safe to traverse only after all flushes finish.
+    if (completed_segment_ids == nullptr) {
+        return _collect_all_packed_slice_locations(rowset_meta);
+    }
+    return Status::OK();
 }
 
 Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
@@ -115,8 +119,6 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
     // TODO(plat1ko): check_segment_footer
 
     RETURN_IF_ERROR(_build_rowset_meta(_rowset_meta.get()));
-    // At this point all writers have been closed, so collecting packed file indices is safe.
-    RETURN_IF_ERROR(_collect_all_packed_slice_locations(_rowset_meta.get()));
     // If the current load is a partial update, new segments may be appended to the tmp rowset after the tmp rowset
     // has been committed if conflicts occur due to concurrent partial updates. However, when the recycler do recycling,
     // it will generate the paths for the segments to be recycled on the object storage based on the number of segments

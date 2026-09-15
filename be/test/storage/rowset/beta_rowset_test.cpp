@@ -239,7 +239,9 @@ class BetaRowsetWriterForTest : public BetaRowsetWriter {
 public:
     explicit BetaRowsetWriterForTest(StorageEngine& engine) : BetaRowsetWriter(engine) {}
 
-    Status build_tmp(RowsetSharedPtr& rowset) { return _build_tmp(rowset); }
+    Status build_tmp(RowsetSharedPtr& rowset, int32_t segment_id) {
+        return _build_tmp(rowset, segment_id);
+    }
 };
 
 class S3ClientMock : public Aws::S3::S3Client {
@@ -533,7 +535,7 @@ TEST_F(BetaRowsetTest, TmpRowsetUsesCompletedSegmentIds) {
     ASSERT_TRUE(writer.add_segment(2, segment_statistics).ok());
 
     RowsetSharedPtr tmp_rowset;
-    ASSERT_TRUE(writer.build_tmp(tmp_rowset).ok());
+    ASSERT_TRUE(writer.build_tmp(tmp_rowset, 6).ok());
     ASSERT_NE(tmp_rowset, nullptr);
     EXPECT_EQ(tmp_rowset->num_segments(), 2);
     EXPECT_EQ(tmp_rowset->rowset_meta()->position_of(2), 0);
