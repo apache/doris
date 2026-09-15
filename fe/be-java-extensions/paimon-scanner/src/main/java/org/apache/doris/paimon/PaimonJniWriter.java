@@ -17,7 +17,9 @@
 
 package org.apache.doris.paimon;
 
-import org.apache.doris.common.classloader.ThreadClassLoaderContext;
+import org.apache.doris.jni.spi.JniWriter;
+import org.apache.doris.jni.spi.ThreadContextClassLoader;
+import org.apache.doris.jni.spi.vec.VectorTable;
 import org.apache.doris.kerberos.PreExecutionAuthenticator;
 import org.apache.doris.kerberos.PreExecutionAuthenticatorCache;
 
@@ -87,13 +89,12 @@ import java.util.concurrent.TimeUnit;
  *   → C++ collects TPaimonCommitMessage[] → RPC to FE → PaimonTransaction
  * </pre>
  */
-public class PaimonJniWriter {
+public class PaimonJniWriter extends JniWriter {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonJniWriter.class);
     private static final int APPEND_ONLY_WRITER_MIN_PAGES = 1;
     private static final int MERGE_TREE_WRITER_MIN_PAGES = 3;
     private static final long COMPACTION_CLOSE_TIMEOUT_SECONDS = 60;
 
-    private final ClassLoader classLoader;
     private final PaimonCommitCodec commitCodec = new PaimonCommitCodec();
 
     private BufferAllocator allocator;
@@ -117,11 +118,15 @@ public class PaimonJniWriter {
     private boolean sdkCloseFailed;
 
     public PaimonJniWriter() {
+        this(0, Collections.emptyMap());
+    }
+
+    public PaimonJniWriter(int batchSize, Map<String, String> params) {
+        super(batchSize, params);
         // Imported C Data vectors reference Doris-owned buffers; this allocator owns only Arrow's
         // Java-side views and metadata. Physical buffers remain charged to the C++ Arrow memory
         // pool until the synchronous writeArrow call returns.
         this.allocator = new RootAllocator(Long.MAX_VALUE);
-        this.classLoader = this.getClass().getClassLoader();
     }
 
     // ────────────────────────────────────────────────────────────
@@ -156,7 +161,8 @@ public class PaimonJniWriter {
                      boolean overwrite, boolean changelogWrite, String timeZone,
                      long nativePageMemoryLimitBytes, long nativeMemoryManager,
                      long nativeSpillSession) throws Exception {
-        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
+        try (ThreadContextClassLoader ignored =
+                new ThreadContextClassLoader(getClass().getClassLoader())) {
             if (nativePageMemoryLimitBytes <= 0) {
                 throw new IllegalArgumentException(
                         "PaimonJniWriter requires a positive native page memory limit");
@@ -224,7 +230,8 @@ public class PaimonJniWriter {
      * has consumed every row; the native caller releases only callbacks left by a partial import.
      */
     public void writeArrow(long arrayAddress, long schemaAddress) throws Exception {
-        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
+        try (ThreadContextClassLoader ignored =
+                new ThreadContextClassLoader(getClass().getClassLoader())) {
             preExecutionAuthenticator.execute(() -> {
                 try (ArrowArray array = ArrowArray.wrap(arrayAddress);
                         ArrowSchema schema = ArrowSchema.wrap(schemaAddress);
@@ -251,7 +258,8 @@ public class PaimonJniWriter {
      * @return byte[][]  each element is a DPCM-framed serialized CommitMessage chunk
      */
     public byte[][] prepareCommit() throws Exception {
-        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
+        try (ThreadContextClassLoader ignored =
+                new ThreadContextClassLoader(getClass().getClassLoader())) {
             return preExecutionAuthenticator.execute(() -> {
                 try {
                     List<CommitMessage> messages = prepareCommitMessages();
@@ -273,7 +281,8 @@ public class PaimonJniWriter {
      * Called from C++ when write or prepareCommit fails.
      */
     public void abort() throws Exception {
-        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
+        try (ThreadContextClassLoader ignored =
+                new ThreadContextClassLoader(getClass().getClassLoader())) {
             try {
                 if (preExecutionAuthenticator != null) {
                     preExecutionAuthenticator.execute(() -> {
@@ -290,24 +299,36 @@ public class PaimonJniWriter {
         }
     }
 
-    /**
-     * Close: release all resources.
-     */
-    public void close() throws Exception {
-        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-            try {
-                if (preExecutionAuthenticator != null) {
-                    preExecutionAuthenticator.execute(() -> {
-                        closeResources();
-                        return null;
-                    });
-                } else {
+    @Override
+    protected void openInternal() {
+        throw new UnsupportedOperationException(
+                "Paimon writer requires its Arrow-specific open entry point");
+    }
+
+    @Override
+    protected void writeInternal(VectorTable inputTable) {
+        throw new UnsupportedOperationException(
+                "Paimon writer requires its Arrow C Data write entry point");
+    }
+
+    /** Close: release all resources through the shared JNI writer lifecycle. */
+    @Override
+    protected void closeInternal() throws IOException {
+        try {
+            if (preExecutionAuthenticator != null) {
+                preExecutionAuthenticator.execute(() -> {
                     closeResources();
-                }
-            } catch (Exception e) {
-                LOG.warn("PaimonJniWriter close error", e);
-                throw e;
+                    return null;
+                });
+            } else {
+                closeResources();
             }
+        } catch (Exception e) {
+            LOG.warn("PaimonJniWriter close error", e);
+            if (e instanceof IOException) {
+                throw (IOException) e;
+            }
+            throw new IOException("PaimonJniWriter close failed", e);
         }
     }
 
