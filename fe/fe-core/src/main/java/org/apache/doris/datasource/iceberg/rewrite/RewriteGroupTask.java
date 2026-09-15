@@ -224,7 +224,10 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         // Step 3: Set transaction id for updating CommitData
         insertExecutor.getCoordinator().setTxnId(transactionId);
 
-        // Step 4: Execute insert operation
+        // Step 4: Publish coordinator so cancel() can reach the running BE tasks
+        stmtExecutor.setCoord(insertExecutor.getCoordinator());
+
+        // Step 5: Execute insert operation
         insertExecutor.executeSingleInsert(stmtExecutor);
 
         LOG.debug("[Rewrite Task] taskId: {} completed execution successfully", taskId);
