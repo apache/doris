@@ -18,13 +18,11 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -194,40 +192,18 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         } else if (plan instanceof LogicalJoin) {
             LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
             for (Expression conjunct : join.getHashJoinConjuncts()) {
-                if (!Config.enable_variant_v2 && containsVariantTypeOutsideCast(conjunct)) {
-                    throw new AnalysisException("variant type could not in join equal conditions: "
-                            + conjunct.toSql());
-                } else if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVarBinaryType())) {
+                if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVarBinaryType())) {
                     throw new AnalysisException(
                             "varbinary type could not in join equal conditions: " + conjunct.toSql());
                 }
             }
             for (Expression conjunct : join.getMarkJoinConjuncts()) {
-                if (!Config.enable_variant_v2 && containsVariantTypeOutsideCast(conjunct)) {
-                    throw new AnalysisException("variant type could not in join equal conditions: " + conjunct.toSql());
-                } else if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVarBinaryType())) {
+                if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVarBinaryType())) {
                     throw new AnalysisException(
                             "varbinary type could not in join equal conditions: " + conjunct.toSql());
                 }
             }
         }
-    }
-
-    private boolean containsVariantTypeOutsideCast(Expression expr) {
-        return containsVariantTypeOutsideCast(expr, false);
-    }
-
-    private boolean containsVariantTypeOutsideCast(Expression expr, boolean underCast) {
-        boolean nextUnderCast = underCast || (expr instanceof Cast && !expr.getDataType().isVariantType());
-        if (!nextUnderCast && expr.getDataType().isVariantType()) {
-            return true;
-        }
-        for (Expression child : expr.children()) {
-            if (containsVariantTypeOutsideCast(child, nextUnderCast)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private void checkMatchIsUsedCorrectly(Plan plan) {
