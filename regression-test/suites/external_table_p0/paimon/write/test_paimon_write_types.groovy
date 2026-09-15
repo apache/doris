@@ -164,8 +164,8 @@ suite("test_paimon_write_types", "p0,external,paimon") {
                 c_double / 1.0E308, c_string, c_varchar
                 """, "ORDER BY c_int")
 
-        // FT-040: Reuse NULL checks for both default and write-only tables.
-        [t_types_null: "JNI", t_types_null_write_only: primitiveBackend].each {
+        // FT-040: Native selection is independent of write-only, including nullable columns.
+        [t_types_null: primitiveBackend, t_types_null_write_only: primitiveBackend].each {
             tableName, expectedBackend ->
             explain {
                 sql "INSERT INTO ${tableName} VALUES (1, 100, 'data', 1.5, true)"

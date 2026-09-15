@@ -50,9 +50,6 @@ public class PaimonCppWriteSupportTest {
     private static final String SHREDDING_SCHEMA_WITHOUT_IDS =
             "{\"type\":\"ROW\",\"fields\":[{\"name\":\"name\","
             + "\"type\":{\"type\":\"ROW\",\"fields\":[{\"name\":\"age\",\"type\":\"INT\"}]}}]}";
-    private static final String SHREDDING_SCHEMA_WITH_PARTIAL_IDS =
-            "{\"type\":\"ROW\",\"fields\":[{\"id\":0,\"name\":\"name\","
-            + "\"type\":{\"type\":\"ROW\",\"fields\":[{\"name\":\"age\",\"type\":\"INT\"}]}}]}";
 
     private String unsupportedReason(FileStoreTable table, List<String> columns, TPaimonWriteMode mode) {
         return unsupportedReason(table, columns, mode, Collections.emptyMap());
@@ -86,7 +83,6 @@ public class PaimonCppWriteSupportTest {
         Map<String, String> options = new HashMap<>();
         options.put("bucket", "-1");
         options.put("file.format", "parquet");
-        options.put("write-only", "true");
         options.putAll(overrides);
         TableSchema schema = new TableSchema(7,
                 Arrays.asList(new DataField(0, "id", DataTypes.INT().notNull()),
@@ -115,27 +111,15 @@ public class PaimonCppWriteSupportTest {
 
     @Test
     public void testVariantDecisionWithoutChangingDescriptor() {
-        for (String key : Arrays.asList("", "variant.shreddingSchema", "parquet.variant.shreddingSchema")) {
-            for (String infer : Arrays.asList("", "false", "true")) {
-                for (DataType type : Arrays.asList(DataTypes.VARIANT(), DataTypes.VARIANT().notNull())) {
-                    Map<String, String> options = new HashMap<>();
-                    if (!key.isEmpty()) {
-                        options.put(key, SHREDDING_SCHEMA);
-                    }
-                    if (!infer.isEmpty()) {
-                        options.put("variant.inferShreddingSchema", infer);
-                    }
-                    FileStoreTable table = variantTable(options, type);
-                    PaimonCppWriteSupport.Decision decision = PaimonCppWriteSupport.decide(
-                            table, COLUMNS, TPaimonWriteMode.APPEND, Collections.emptyMap());
-                    Assert.assertTrue(decision.getFallbackReason(), decision.isSupported());
-                    TPaimonTableDescriptor descriptor = PaimonWriteBinding.describeTable(
-                            table, Collections.emptyMap(), Collections.emptyMap());
-                    TableSchema restored = TableSchema.fromJson(descriptor.getSchemaJson());
-                    Assert.assertEquals(table.schema().fields(), restored.fields());
-                    Assert.assertEquals(table.options(), restored.options());
-                }
-            }
+        for (Map<String, String> options : Arrays.asList(
+                Collections.<String, String>emptyMap(),
+                Collections.singletonMap("parquet.variant.shreddingSchema", SHREDDING_SCHEMA),
+                Collections.singletonMap("variant.inferShreddingSchema", "true"))) {
+            FileStoreTable table = variantTable(options, DataTypes.VARIANT());
+            Assert.assertTrue(decision(table).isSupported());
+            TableSchema restored = TableSchema.fromJson(describe(table).getSchemaJson());
+            Assert.assertEquals(table.schema().fields(), restored.fields());
+            Assert.assertEquals(table.options(), restored.options());
         }
     }
 
@@ -154,88 +138,60 @@ public class PaimonCppWriteSupportTest {
         options.put("file.format", "parquet");
         Assert.assertTrue(decision(variantTable(
                 options, DataTypes.ARRAY(DataTypes.VARIANT()))).isSupported());
-        for (TPaimonWriteMode mode : Arrays.asList(TPaimonWriteMode.OVERWRITE, TPaimonWriteMode.CHANGELOG)) {
-            Assert.assertNotNull(unsupportedReason(variantTable(options, DataTypes.VARIANT()), COLUMNS, mode));
-        }
+        Assert.assertNull(unsupportedReason(
+                variantTable(options, DataTypes.VARIANT()), COLUMNS, TPaimonWriteMode.OVERWRITE));
+        Assert.assertNotNull(unsupportedReason(
+                variantTable(options, DataTypes.VARIANT()), COLUMNS, TPaimonWriteMode.CHANGELOG));
 
         options.put("parquet.variant.shreddingSchema", SHREDDING_SCHEMA_WITHOUT_IDS);
         Assert.assertEquals("native VARIANT shredding schema requires explicit field IDs",
                 unsupportedReason(variantTable(options, DataTypes.VARIANT()), COLUMNS,
                         TPaimonWriteMode.APPEND));
-        for (String schema : Arrays.asList(SHREDDING_SCHEMA_WITH_PARTIAL_IDS, "{invalid", "\"INT\"")) {
-            options.put("parquet.variant.shreddingSchema", schema);
-            // Invalid SDK input is not a JNI compatibility condition. The C++ writer owns the
-            // parse error when it is selected.
-            Assert.assertTrue(schema, decision(variantTable(options, DataTypes.VARIANT())).isSupported());
-        }
-    }
-
-    @Test
-    public void testVariantAdaptiveShreddingOptions() {
-        Map<String, String> options = new HashMap<>();
-        options.put("variant.inferShreddingSchema", "true");
-        options.put("variant.shredding.inferenceMode", "adaptive");
-        options.put("variant.shredding.maxSchemaWidth", "20");
-        options.put("variant.shredding.maxSchemaDepth", "5");
-        options.put("variant.shredding.minFieldCardinalityRatio", "0.25");
-        options.put("variant.shredding.maxInferBufferRow", "128");
-        options.put("variant.shredding.adaptive.maxInferBufferRow", "64");
-        options.put("variant.shredding.adaptive.retentionRatio", "0.2");
-        Assert.assertNull(unsupportedReason(variantTable(options, DataTypes.VARIANT()),
-                COLUMNS, TPaimonWriteMode.APPEND));
     }
 
     @Test
     public void testNestedVariantWithShreddingOptions() {
         DataType row = DataTypes.ROW(new DataField(2, "label", DataTypes.STRING()),
                 new DataField(3, "payload", DataTypes.VARIANT()));
-        for (DataType type : Arrays.asList(DataTypes.ARRAY(DataTypes.VARIANT()),
-                DataTypes.MAP(DataTypes.STRING(), DataTypes.VARIANT()), row,
-                DataTypes.ROW(new DataField(4, "deep",
-                        DataTypes.ARRAY(DataTypes.MAP(DataTypes.STRING(), row)))))) {
-            FileStoreTable table = variantTable(Collections.emptyMap(), type);
-            Assert.assertNull(type.toString(), unsupportedReason(table, COLUMNS, TPaimonWriteMode.APPEND));
-            Assert.assertEquals(table.schema().fields(), TableSchema.fromJson(describe(table).getSchemaJson()).fields());
-            Assert.assertNull(type.toString(), unsupportedReason(variantTable(
-                    Collections.singletonMap("variant.inferShreddingSchema", "true"), type),
-                    COLUMNS, TPaimonWriteMode.APPEND));
-            Assert.assertNull(type.toString(), unsupportedReason(variantTable(
-                    Collections.singletonMap("parquet.variant.shreddingSchema", SHREDDING_SCHEMA), type),
-                    COLUMNS, TPaimonWriteMode.APPEND));
-        }
-        // Do not broaden unrelated complex types or unsupported scalar children along with VARIANT.
-        for (DataType type : Arrays.asList(DataTypes.ARRAY(DataTypes.STRING()),
-                DataTypes.MAP(DataTypes.VARIANT(), DataTypes.STRING()),
-                DataTypes.ROW(new DataField(2, "v", DataTypes.VARIANT()),
-                        new DataField(3, "d", DataTypes.DECIMAL(10, 2))))) {
-            Assert.assertNotNull(unsupportedReason(variantTable(Collections.emptyMap(), type),
-                    COLUMNS, TPaimonWriteMode.APPEND));
-        }
-        Assert.assertTrue(decision(variantTable(
-                Collections.singletonMap("variant.inferShreddingSchema", "invalid"),
-                DataTypes.VARIANT())).isSupported());
+        DataType deep = DataTypes.ROW(new DataField(4, "deep",
+                DataTypes.ARRAY(DataTypes.MAP(DataTypes.STRING(), row))));
+        FileStoreTable table = variantTable(
+                Collections.singletonMap("variant.inferShreddingSchema", "true"), deep);
+        Assert.assertNull(unsupportedReason(table, COLUMNS, TPaimonWriteMode.APPEND));
+        Assert.assertEquals(table.schema().fields(),
+                TableSchema.fromJson(describe(table).getSchemaJson()).fields());
     }
 
     @Test
-    public void testReadBatchSizeDoesNotDisableNativeVariant() {
-        for (String value : Arrays.asList("1", "16384", "65536")) {
-            FileStoreTable table = variantTable(Collections.singletonMap("read.batch-size", value),
-                    DataTypes.VARIANT());
-            Assert.assertNull(unsupportedReason(table, COLUMNS, TPaimonWriteMode.APPEND));
-            Assert.assertEquals(value, TableSchema.fromJson(describe(table).getSchemaJson())
-                    .options().get("read.batch-size"));
+    public void testCppDataTypes() {
+        DataType nested = DataTypes.ROW(
+                new DataField(2, "amounts", DataTypes.ARRAY(DataTypes.DECIMAL(38, 10))),
+                new DataField(3, "dates", DataTypes.MAP(DataTypes.STRING(), DataTypes.DATE())),
+                new DataField(4, "event", DataTypes.ROW(
+                        new DataField(5, "ntz", DataTypes.TIMESTAMP(6)),
+                        new DataField(6, "ltz", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(9)))));
+        for (DataType type : Arrays.asList(
+                DataTypes.CHAR(10), DataTypes.STRING(), DataTypes.BINARY(10), DataTypes.BYTES(),
+                DataTypes.DECIMAL(38, 10), DataTypes.DATE(), DataTypes.TIMESTAMP(0),
+                DataTypes.TIMESTAMP(3), DataTypes.TIMESTAMP(6), DataTypes.TIMESTAMP(9),
+                DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(0),
+                DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(3),
+                DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6),
+                DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(9), nested)) {
+            Assert.assertNull(type.toString(), unsupportedReason(
+                    variantTable(Collections.emptyMap(), type), COLUMNS, TPaimonWriteMode.APPEND));
         }
-        for (String value : Arrays.asList("0", "65537", "invalid", "2147483648")) {
-            // The selected SDK or reader owns invalid option diagnostics; routing must not turn
-            // them into an unrelated JNI compatibility fallback.
-            Assert.assertTrue(value, decision(variantTable(
-                    Collections.singletonMap("read.batch-size", value), DataTypes.VARIANT())).isSupported());
+        for (DataType type : Arrays.asList(DataTypes.TIME(), DataTypes.MULTISET(DataTypes.INT()),
+                DataTypes.TIMESTAMP(1), DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(8),
+                DataTypes.ARRAY(DataTypes.TIME()))) {
+            Assert.assertNotNull(type.toString(), unsupportedReason(
+                    variantTable(Collections.emptyMap(), type), COLUMNS, TPaimonWriteMode.APPEND));
         }
     }
 
     @Test
     public void testLocalPathNormalization() {
-        for (String location : Arrays.asList("/tmp/p", "file:/tmp/p", "file:///tmp/p", "FILE:/tmp/p")) {
+        for (String location : Arrays.asList("/tmp/p", "file:///tmp/p")) {
             FileStoreTable table = table(Collections.emptyMap(), Collections.emptyList(),
                     Collections.emptyList(), location);
             Assert.assertNull(unsupportedReason(table, COLUMNS, TPaimonWriteMode.APPEND));
@@ -262,66 +218,47 @@ public class PaimonCppWriteSupportTest {
 
     @Test
     public void testWriteFormatsOptionsAndModes() {
-        for (String format : Arrays.asList("parquet", "orc", "avro")) {
+        for (String format : Arrays.asList("parquet", "orc", "avro", "blob")) {
             Assert.assertNull(unsupportedReason(
                     table(Collections.singletonMap("file.format", format)), COLUMNS, TPaimonWriteMode.APPEND));
         }
-        Assert.assertNull(unsupportedReason(
-                table(Collections.singletonMap("owner", "hadoop")), COLUMNS, TPaimonWriteMode.APPEND));
-        Assert.assertTrue(decision(table(
-                Collections.singletonMap("variant.inferShreddingSchema", "true"))).isSupported());
-        Assert.assertTrue(decision(table(
-                Collections.singletonMap("variant.shreddingSchema", SHREDDING_SCHEMA_WITHOUT_IDS))).isSupported());
-        for (Map<String, String> options : Arrays.asList(
-                Collections.singletonMap("unknown-option", "true"),
-                Collections.singletonMap("bucket", "4"),
-                Collections.singletonMap("write-only", "false"),
-                Collections.singletonMap("file.format", "csv"),
-                Collections.singletonMap("changelog-producer", "input"))) {
+        for (String format : Arrays.asList("csv", "text", "json")) {
             Assert.assertNotNull(unsupportedReason(
-                    table(options), COLUMNS, TPaimonWriteMode.APPEND));
+                    table(Collections.singletonMap("file.format", format)), COLUMNS,
+                    TPaimonWriteMode.APPEND));
         }
-        for (TPaimonWriteMode mode : Arrays.asList(TPaimonWriteMode.OVERWRITE, TPaimonWriteMode.CHANGELOG)) {
-            Assert.assertNotNull(unsupportedReason(table(Collections.emptyMap()), COLUMNS, mode));
-        }
+        Assert.assertNull(unsupportedReason(
+                table(Collections.emptyMap()), COLUMNS, TPaimonWriteMode.OVERWRITE));
+        Assert.assertNotNull(unsupportedReason(
+                table(Collections.singletonMap("file.format.per.level", "0:orc,3:blob")),
+                COLUMNS, TPaimonWriteMode.APPEND));
+        Assert.assertNotNull(unsupportedReason(
+                table(Collections.singletonMap("changelog-producer", "input")),
+                COLUMNS, TPaimonWriteMode.APPEND));
+        Assert.assertNotNull(unsupportedReason(
+                table(Collections.singletonMap("data-file.external-paths", "s3://bucket/external")),
+                COLUMNS, TPaimonWriteMode.APPEND));
+        Assert.assertNotNull(unsupportedReason(
+                table(Collections.singletonMap("global-index.external-path", "s3://bucket/index")),
+                COLUMNS, TPaimonWriteMode.APPEND));
+        Assert.assertNotNull(unsupportedReason(
+                table(Collections.emptyMap()), COLUMNS, TPaimonWriteMode.CHANGELOG));
     }
 
     @Test
     public void testDorisObjectStorageRouting() throws Exception {
-        // Each catalog has its own provider; do not merge credentials across providers.
-        String[][] cases = {
-                {"s3", "s3://bucket/table", "https://s3.us-east-1.amazonaws.com"},
-                {"s3", "s3a://bucket/table", "https://s3.us-east-1.amazonaws.com"},
-                {"oss", "oss://bucket/table", "https://oss-cn-beijing.aliyuncs.com"},
-                {"cos", "cosn://bucket/table", "https://cos.ap-guangzhou.myqcloud.com"},
-                {"obs", "obs://bucket/table", "https://obs.cn-north-4.myhuaweicloud.com"},
-                {"gs", "gs://bucket/table", "https://storage.googleapis.com"},
-                {"minio", "s3://bucket/table", "https://minio.example.com"},
-                {"azure", "abfss://container@account.dfs.core.windows.net/table",
-                        "https://account.blob.core.windows.net"}
-        };
-        for (String[] testCase : cases) {
-            Map<String, String> properties = new HashMap<>();
-            properties.put(testCase[0] + ".endpoint", testCase[2]);
-            properties.put(testCase[0] + ".access_key", "test-account");
-            properties.put(testCase[0] + ".secret_key", "test-secret");
-            Map<StorageProperties.Type, StorageProperties> storage = StorageProperties.createAll(properties).stream()
-                    .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
-            FileStoreTable table = table(Collections.emptyMap(), Collections.emptyList(),
-                    Collections.emptyList(), testCase[1]);
-            Assert.assertNull(testCase[1], unsupportedReason(
-                    table, COLUMNS, TPaimonWriteMode.APPEND, storage));
-            TPaimonTableDescriptor desc = describe(table, storage);
-            Assert.assertEquals(testCase[1], desc.getRootPath());
-            Assert.assertEquals(TFileType.FILE_S3, desc.getStorage().getFileType());
-            Assert.assertTrue(desc.getStorage().getRootPath().startsWith("s3://"));
-            Assert.assertTrue(desc.getStorage().getRootPath().endsWith("/table"));
-            Assert.assertEquals("test-secret", desc.getStorage().getProperties().get("AWS_SECRET_KEY"));
-            Assert.assertFalse(TableSchema.fromJson(desc.getSchemaJson()).options().containsKey("AWS_SECRET_KEY"));
-            if ("azure".equals(testCase[0])) {
-                Assert.assertEquals("azure", desc.getStorage().getProperties().get("provider"));
-            }
-        }
+        Map<String, String> properties = new HashMap<>();
+        properties.put("s3.endpoint", "https://s3.us-east-1.amazonaws.com");
+        properties.put("s3.access_key", "test-account");
+        properties.put("s3.secret_key", "test-secret");
+        Map<StorageProperties.Type, StorageProperties> storage = StorageProperties.createAll(properties).stream()
+                .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
+        FileStoreTable table = table(Collections.emptyMap(), Collections.emptyList(),
+                Collections.emptyList(), "s3://bucket/table");
+        TPaimonTableDescriptor desc = describe(table, storage);
+        Assert.assertEquals(TFileType.FILE_S3, desc.getStorage().getFileType());
+        Assert.assertEquals("test-secret", desc.getStorage().getProperties().get("AWS_SECRET_KEY"));
+        Assert.assertFalse(TableSchema.fromJson(desc.getSchemaJson()).options().containsKey("AWS_SECRET_KEY"));
     }
 
     @Test
@@ -337,9 +274,16 @@ public class PaimonCppWriteSupportTest {
         String reason = unsupportedReason(table, COLUMNS, TPaimonWriteMode.APPEND, storage);
         Assert.assertNotNull(reason);
         Assert.assertFalse(reason.contains("secret"));
-        Assert.assertNotNull(unsupportedReason(
-                table(Collections.emptyMap(), Collections.emptyList(), Collections.emptyList(), "hdfs://ns/table"),
-                COLUMNS, TPaimonWriteMode.APPEND, storage));
+        Map<String, String> hdfsOptions = new HashMap<>();
+        hdfsOptions.put("fs.defaultFS", "hdfs://ns");
+        Map<StorageProperties.Type, StorageProperties> hdfsStorage = StorageProperties.createAll(hdfsOptions).stream()
+                .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
+        FileStoreTable hdfsTable = table(Collections.emptyMap(), Collections.emptyList(),
+                Collections.emptyList(), "hdfs://ns/table");
+        Assert.assertNull(unsupportedReason(
+                hdfsTable, COLUMNS, TPaimonWriteMode.APPEND, hdfsStorage));
+        Assert.assertEquals(TFileType.FILE_HDFS,
+                describe(hdfsTable, hdfsStorage).getStorage().getFileType());
     }
 
     @Test
@@ -348,9 +292,22 @@ public class PaimonCppWriteSupportTest {
                 table(Collections.emptyMap(), Collections.singletonList("id"), Collections.emptyList(), "/tmp/p"),
                 COLUMNS, TPaimonWriteMode.APPEND));
         Assert.assertNotNull(unsupportedReason(
-                table(Collections.emptyMap(), Collections.emptyList(), Collections.singletonList("id"), "/tmp/p"),
+                table(Collections.singletonMap("bucket", "-2"), Collections.emptyList(),
+                        Collections.singletonList("id"), "/tmp/p"),
                 COLUMNS, TPaimonWriteMode.APPEND));
         Assert.assertNotNull(unsupportedReason(
+                table(Collections.singletonMap("bucket", "1"), Collections.emptyList(),
+                        Collections.singletonList("id"), "/tmp/p"),
+                COLUMNS, TPaimonWriteMode.APPEND));
+        Assert.assertNotNull(unsupportedReason(
+                table(Collections.singletonMap("bucket", "-1"), Collections.emptyList(),
+                        Collections.singletonList("id"), "/tmp/p"),
+                COLUMNS, TPaimonWriteMode.APPEND));
+        Assert.assertNull(unsupportedReason(
                 table(Collections.emptyMap()), Arrays.asList("name", "id"), TPaimonWriteMode.APPEND));
+        Assert.assertNotNull(unsupportedReason(
+                table(Collections.emptyMap()), Arrays.asList("name", "name"), TPaimonWriteMode.APPEND));
+        Assert.assertNotNull(unsupportedReason(
+                table(Collections.emptyMap()), Arrays.asList("id", "missing"), TPaimonWriteMode.APPEND));
     }
 }

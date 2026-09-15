@@ -230,10 +230,13 @@ class CppPaimonWriteBackend::Impl {
 public:
     Status open(const TPaimonTableSink& sink, RuntimeState* state, RuntimeProfile* profile) {
         if (!sink.__isset.table_descriptor || !sink.__isset.write_mode ||
-            sink.write_mode != TPaimonWriteMode::APPEND || !sink.__isset.commit_user ||
-            sink.commit_user.empty() || state->get_query_ctx() == nullptr ||
-            state->query_mem_tracker() == nullptr) {
+            !sink.__isset.commit_user || sink.commit_user.empty() ||
+            state->get_query_ctx() == nullptr || state->query_mem_tracker() == nullptr) {
             return Status::InvalidArgument("Incomplete native Paimon write description");
+        }
+        if (sink.write_mode != TPaimonWriteMode::APPEND &&
+            sink.write_mode != TPaimonWriteMode::OVERWRITE) {
+            return Status::NotSupported("Native Paimon supports append and overwrite writes");
         }
         const auto& desc = sink.table_descriptor;
         if (!sink.__isset.column_names || sink.column_names.empty()) {
@@ -242,7 +245,8 @@ public:
         // Reject configuration mismatch rather than silently falling back after dispatch.
         if (!desc.__isset.storage || desc.root_path.empty() || desc.storage.root_path.empty() ||
             (desc.storage.file_type != TFileType::FILE_LOCAL &&
-             desc.storage.file_type != TFileType::FILE_S3)) {
+             desc.storage.file_type != TFileType::FILE_S3 &&
+             desc.storage.file_type != TFileType::FILE_HDFS)) {
             return Status::NotSupported("Missing or unsupported Doris Paimon storage descriptor");
         }
         const auto& storage = desc.storage;
@@ -261,7 +265,24 @@ public:
         auto schema = arrow::ImportSchema(c_schema.get());
         if (!schema.ok())
             return Status::InternalError("Paimon Arrow schema: {}", schema.status().ToString());
-        _schema = std::move(schema).ValueOrDie();
+        auto table_arrow_schema = std::move(schema).ValueOrDie();
+        arrow::FieldVector write_fields;
+        write_fields.reserve(sink.column_names.size());
+        std::vector<std::string> write_column_names;
+        write_column_names.reserve(sink.column_names.size());
+        for (const auto& name : sink.column_names) {
+            auto field = table_arrow_schema->GetFieldByName(name);
+            if (!field) {
+                return Status::InvalidArgument("Native Paimon write column does not exist: {}",
+                                               name);
+            }
+            write_fields.push_back(std::move(field));
+            write_column_names.push_back(name);
+        }
+        // FileStoreWrite::WithWriteSchema consumes children in precisely this order. Keep each
+        // SDK field (including nested Paimon IDs and Variant metadata) as the Arrow conversion
+        // target instead of requiring a full table-ordered block.
+        _schema = arrow::schema(std::move(write_fields));
         auto context = state->get_query_ctx()->resource_ctx();
         int64_t limit = config::paimon_cpp_writer_memory_limit_bytes;
         const auto query_limit = state->query_mem_tracker()->limit();
@@ -292,7 +313,8 @@ public:
                            .WithBranch(branch == options.end() ? "main" : branch->second)
                            .WithFileSystem(_filesystem)
                            .WithMemoryPool(_pool)
-                           .WithWriteSchema(sink.column_names)
+                           .WithIgnorePreviousFiles(sink.write_mode == TPaimonWriteMode::OVERWRITE)
+                           .WithWriteSchema(write_column_names)
                            .Finish();
         if (!ctx.ok()) return sdk_status(ctx.status());
         auto writer = paimon::FileStoreWrite::Create(std::move(ctx).value());

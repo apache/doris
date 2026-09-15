@@ -110,7 +110,7 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
         // FT-001: Reuse the same writes for default and paimon-cpp-compatible tables.
         // Honor the session setting, including external fuzzy testing.
         String appendBackend = sql("SELECT UPPER(@@paimon_write_backend)")[0][0]
-        def appendTables = [t_append: "JNI"]
+        def appendTables = [t_append: appendBackend]
         writeOnlyTables.keySet().each { tableName -> appendTables[tableName] = appendBackend }
         appendTables.each { tableName, expectedBackend ->
             explain {
@@ -132,12 +132,14 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
             assertEquals(sql("SELECT * FROM t_append ORDER BY id"),
                     sql("SELECT * FROM ${tableName} ORDER BY id"))
         }
-        // Native v1 only supports APPEND. Planning must carry OVERWRITE into the
-        // backend decision so EXPLAIN and execution both select JNI.
+        // Native writes are not tied to write-only tables. OVERWRITE reuses the
+        // same data writer and the FE committer applies the replacement semantics.
         explain {
             sql "INSERT OVERWRITE TABLE t_append_write_only VALUES (8, 'overwrite', 80.0)"
-            contains "backend: JNI"
+            contains "backend: ${appendBackend}"
         }
+        sql "INSERT OVERWRITE TABLE t_append_write_only VALUES (8, 'overwrite', 80.0)"
+        assertTableEquals("t_append_write_only", "ORDER BY id")
 
         // FT-002: Partitioned append-only
         sql """INSERT INTO t_append_part VALUES (1, 'alice', 95.5, 'east'), (2, 'bob', 87.0, 'west')"""

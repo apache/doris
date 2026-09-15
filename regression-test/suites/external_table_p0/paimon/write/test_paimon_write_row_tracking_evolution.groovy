@@ -70,8 +70,10 @@ suite("test_paimon_write_row_tracking_evolution", "p0,external,paimon") {
     """
     sql """switch ${catalogName}"""
     sql """use ${dbName}"""
+    String originalWriteBackend = sql("SELECT @@paimon_write_backend")[0][0]
 
     try {
+        sql """SET paimon_write_backend = 'CPP'"""
         def trackingRows = { String tableName ->
             return sql("""
                 SELECT id, _ROW_ID, _SEQUENCE_NUMBER
@@ -89,6 +91,10 @@ suite("test_paimon_write_row_tracking_evolution", "p0,external,paimon") {
 
         // Doris assigns row ids through the Paimon committer. Their exact
         // values are not assumed, but they must be unique and stable.
+        explain {
+            sql "INSERT INTO t_tracking VALUES (1, 'one'), (2, 'two'), (3, 'three')"
+            contains "backend: CPP"
+        }
         sql """INSERT INTO t_tracking VALUES
             (1, 'one'), (2, 'two'), (3, 'three')
         """
@@ -211,6 +217,7 @@ suite("test_paimon_write_row_tracking_evolution", "p0,external,paimon") {
         }
         assertEquals(evolutionSnapshot, latestSnapshotId("t_evolution"))
     } finally {
+        sql """SET paimon_write_backend = '${originalWriteBackend}'"""
         sql """drop catalog if exists ${catalogName}"""
     }
 }

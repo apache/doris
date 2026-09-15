@@ -25,39 +25,30 @@ import org.apache.doris.thrift.TPaimonStorageDescriptor;
 import org.apache.doris.thrift.TPaimonWriteMode;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.google.common.collect.ImmutableSet;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.utils.JsonSerdeUtil;
 
 import java.net.URI;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /** Pure, pre-writer capability decision. Never retry a failed native writer through JNI. */
 public final class PaimonCppWriteSupport {
-    private static final Set<String> OPTIONS = ImmutableSet.of(
-            "bucket", "file.format", "manifest.format", "write-only", "path", "owner",
-            "file.compression", "target-file-size", "write-buffer-size",
-            "page-size", "commit.force-create-snapshot", "variant.shreddingSchema",
-            "parquet.variant.shreddingSchema", "variant.inferShreddingSchema",
-            "variant.shredding.inferenceMode", "variant.shredding.maxSchemaWidth",
-            "variant.shredding.maxSchemaDepth", "variant.shredding.minFieldCardinalityRatio",
-            "variant.shredding.maxInferBufferRow", "variant.shredding.adaptive.maxInferBufferRow",
-            "variant.shredding.adaptive.retentionRatio", "read.batch-size");
-    private static final Set<String> TYPES = ImmutableSet.of(
-            "BOOLEAN", "TINYINT", "SMALLINT", "INTEGER", "BIGINT", "FLOAT", "DOUBLE", "VARCHAR", "VARBINARY");
-
     private PaimonCppWriteSupport() {
     }
 
@@ -81,7 +72,7 @@ public final class PaimonCppWriteSupport {
 
     public static Decision decide(FileStoreTable table, List<String> columns,
             TPaimonWriteMode mode, Map<StorageProperties.Type, StorageProperties> storageProperties) {
-        String reason = unsupportedFormatReason(table, columns, mode);
+        String reason = fallbackReason(table, columns, mode);
         if (reason != null) {
             return new Decision(null, reason);
         }
@@ -96,66 +87,69 @@ public final class PaimonCppWriteSupport {
         return new Decision(storage, null);
     }
 
-    private static String unsupportedFormatReason(FileStoreTable table, List<String> columns,
+    private static String fallbackReason(FileStoreTable table, List<String> columns,
             TPaimonWriteMode mode) {
-        if (mode != TPaimonWriteMode.APPEND) {
-            return "v1 only supports APPEND";
+        if (table.fileIO() instanceof RESTTokenFileIO) {
+            return "REST data tokens require JNI";
         }
-        if (table.fileIO() instanceof RESTTokenFileIO || table.catalogEnvironment().supportsVersionManagement()) {
-            return "catalog-managed tokens and snapshots require JNI";
+        if (mode == TPaimonWriteMode.CHANGELOG) {
+            return "changelog writes require JNI";
         }
-        if (!table.schema().primaryKeys().isEmpty() || !table.schema().partitionKeys().isEmpty()) {
-            return "v1 requires an unpartitioned append table";
+        if (!table.schema().partitionKeys().isEmpty()) {
+            return "native partition routing is not implemented yet";
+        }
+        if (!table.schema().primaryKeys().isEmpty()) {
+            return "primary-key tables require JNI";
         }
         Map<String, String> options = table.options();
-        if (!"-1".equals(options.getOrDefault("bucket", "-1"))) {
-            return "v1 requires unaware bucket (-1)";
+        CoreOptions coreOptions = new CoreOptions(options);
+        int bucket = coreOptions.bucket();
+        if (bucket != -1) {
+            return "bucketed tables require JNI";
         }
-        String fileFormat = options.getOrDefault("file.format", "orc");
-        if (!"parquet".equalsIgnoreCase(fileFormat) && !"orc".equalsIgnoreCase(fileFormat)
-                && !"avro".equalsIgnoreCase(fileFormat)) {
-            return "paimon-cpp supports Parquet, ORC and Avro data files";
+        if (coreOptions.changelogProducer() != CoreOptions.ChangelogProducer.NONE) {
+            return "paimon-cpp does not support changelog producers";
         }
-        if (!"avro".equalsIgnoreCase(options.getOrDefault("manifest.format", "avro"))) {
-            return "v1 requires Avro manifests";
+        if (options.containsKey("data-file.external-paths")
+                || options.containsKey("global-index.external-path")) {
+            return "external file routing requires JNI";
         }
-        // Do not silently change the table's compaction policy to qualify for native.
-        if (!"true".equalsIgnoreCase(options.getOrDefault("write-only", "false"))) {
-            return "v1 requires an explicitly configured write-only table";
+        if (options.containsKey("file.format.per.level")
+                || !supportedCppDataFormat(coreOptions.fileFormatString())) {
+            return "data file format requires JNI";
         }
         List<DataField> fields = table.schema().fields();
-        if (columns.size() != fields.size()) {
-            return "v1 requires all columns in table order";
+        Set<String> fieldNames = new HashSet<>();
+        for (DataField field : fields) {
+            fieldNames.add(field.name());
+            if (!supportedCppType(field.type())) {
+                return "paimon-cpp does not support field '" + field.name()
+                        + "' with type " + field.type().asSQLString();
+            }
+        }
+        Set<String> writeColumns = new HashSet<>();
+        for (String column : columns) {
+            if (!fieldNames.contains(column) || !writeColumns.add(column)) {
+                return "native write schema contains an unknown or duplicate column: " + column;
+            }
         }
         String configuredShreddingSchema = options.containsKey("variant.shreddingSchema")
                 ? options.get("variant.shreddingSchema")
                 : options.get("parquet.variant.shreddingSchema");
         boolean hasVariant = false;
-        for (int i = 0; i < fields.size(); i++) {
-            DataField field = fields.get(i);
-            boolean variant = containsVariant(field.type());
-            if (variant) {
-                hasVariant = true;
-            }
-            if (!columns.get(i).equals(field.name())
-                    || !(TYPES.contains(field.type().getTypeRoot().name())
-                    || (variant && supportedVariantType(field.type())))) {
-                return "v1 requires ordered primitive or supported VARIANT columns";
-            }
+        for (DataField field : fields) {
+            hasVariant |= containsVariant(field.type());
         }
         if (hasVariant && configuredShreddingSchema != null
                 && isValidShreddingSchemaWithoutIds(configuredShreddingSchema)) {
             return "native VARIANT shredding schema requires explicit field IDs";
         }
-        // Do not duplicate Paimon SDK option validation here. Invalid values must reach the
-        // selected SDK and retain its authoritative diagnostic instead of being disguised as a
-        // JNI compatibility fallback.
-        for (String option : options.keySet()) {
-            if (!OPTIONS.contains(option)) {
-                return "unvalidated table option: " + option;
-            }
-        }
         return null;
+    }
+
+    private static boolean supportedCppDataFormat(String format) {
+        return "parquet".equalsIgnoreCase(format) || "orc".equalsIgnoreCase(format)
+                || "avro".equalsIgnoreCase(format) || "blob".equalsIgnoreCase(format);
     }
 
     private static boolean isValidShreddingSchemaWithoutIds(String schema) {
@@ -216,20 +210,46 @@ public final class PaimonCppWriteSupport {
                 .anyMatch(field -> containsVariant(field.type()));
     }
 
-    private static boolean supportedVariantType(DataType type) {
-        if (TYPES.contains(type.getTypeRoot().name()) || "VARIANT".equals(type.getTypeRoot().name())) {
-            return true;
+    private static boolean supportedCppType(DataType type) {
+        switch (type.getTypeRoot()) {
+            case CHAR:
+            case VARCHAR:
+            case BOOLEAN:
+            case BINARY:
+            case VARBINARY:
+            case DECIMAL:
+            case TINYINT:
+            case SMALLINT:
+            case INTEGER:
+            case BIGINT:
+            case FLOAT:
+            case DOUBLE:
+            case DATE:
+            case VARIANT:
+                return true;
+            case TIMESTAMP_WITHOUT_TIME_ZONE:
+                return supportedTimestampPrecision(((TimestampType) type).getPrecision());
+            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+                return supportedTimestampPrecision(((LocalZonedTimestampType) type).getPrecision());
+            case ARRAY:
+                return supportedCppType(((ArrayType) type).getElementType());
+            case MAP:
+                MapType map = (MapType) type;
+                return supportedCppType(map.getKeyType()) && supportedCppType(map.getValueType());
+            case ROW:
+                return ((RowType) type).getFields().stream()
+                        .allMatch(field -> supportedCppType(field.type()));
+            case TIME_WITHOUT_TIME_ZONE:
+            case BLOB:
+            case VECTOR:
+            case MULTISET:
+            default:
+                return false;
         }
-        if (type instanceof ArrayType) {
-            return supportedVariantType(((ArrayType) type).getElementType());
-        }
-        if (type instanceof MapType) {
-            MapType map = (MapType) type;
-            return TYPES.contains(map.getKeyType().getTypeRoot().name())
-                    && supportedVariantType(map.getValueType());
-        }
-        return type instanceof RowType && ((RowType) type).getFields().stream()
-                .allMatch(field -> supportedVariantType(field.type()));
+    }
+
+    private static boolean supportedTimestampPrecision(int precision) {
+        return precision == 0 || precision == 3 || precision == 6 || precision == 9;
     }
 
     private static TPaimonStorageDescriptor describeStorage(FileStoreTable table,
@@ -252,14 +272,18 @@ public final class PaimonCppWriteSupport {
             throw new IllegalArgumentException("Ambiguous object storage key");
         }
         LocationPath resolved = LocationPath.of(table.location().toString(), storageProperties);
-        if (resolved.getTFileTypeForBE() != TFileType.FILE_S3 || resolved.getStorageProperties() == null) {
-            throw new IllegalArgumentException("Native Paimon supports Doris object storage and local files");
+        TFileType fileType = resolved.getTFileTypeForBE();
+        if ((fileType != TFileType.FILE_S3 && fileType != TFileType.FILE_HDFS)
+                || resolved.getStorageProperties() == null) {
+            throw new IllegalArgumentException(
+                    "Native Paimon supports Doris object storage, HDFS and local files");
         }
         Map<String, String> backend = resolved.getStorageProperties().getBackendConfigProperties();
-        if (!backend.containsKey("AWS_ENDPOINT") || !backend.containsKey("AWS_REGION")) {
+        if (fileType == TFileType.FILE_S3
+                && (!backend.containsKey("AWS_ENDPOINT") || !backend.containsKey("AWS_REGION"))) {
             throw new IllegalArgumentException(
                     "Storage configuration is not a Doris native object-store configuration");
         }
-        return new TPaimonStorageDescriptor(TFileType.FILE_S3, resolved.toStorageLocation().toString(), backend);
+        return new TPaimonStorageDescriptor(fileType, resolved.toStorageLocation().toString(), backend);
     }
 }

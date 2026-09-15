@@ -55,8 +55,8 @@ enum class PaimonBackendType {
 
 /// Writer contract implemented by one SDK writer adapter. Each
 /// PaimonTableWriter owns one IPaimonWriter, which delegates to the
-/// underlying Paimon SDK. Partition and bucket
-/// routing happens inside the selected SDK backend.
+/// underlying Paimon SDK. Backend selection accounts for the routing capabilities
+/// implemented by each adapter.
 ///
 /// Lifecycle: created by IPaimonWriteBackend::create_writer() after the
 /// backend is opened; used for the duration of one pipeline instance.
