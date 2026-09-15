@@ -261,7 +261,11 @@ public class SearchSignature {
     private Pair<Boolean, Pair<Integer, Integer>> doMatchTypes(FunctionSignature sig, List<Expression> arguments,
             BiFunction<DataType, DataType, Boolean> typePredicate) {
         int stringLiteralCoersionCount = 0;
-        int timeZoneCoersionScore = 0;
+        // Track these independently rather than summing: a call mixing a zoned literal with a
+        // zone-less one must still keep instant (TIMESTAMPTZ) semantics, and a += / -= pair
+        // would cancel to 0 and silently tie the civil (DATETIMEV2) overload.
+        boolean hasZonedLiteral = false;
+        boolean hasZonelessLiteral = false;
         int arity = arguments.size();
         for (int i = 0; i < arity; i++) {
             DataType sigArgType = sig.getArgType(i);
@@ -270,7 +274,8 @@ public class SearchSignature {
             if (hasTimeStampNsArgument && hasTimeStampNsCompatibleDateTimeArgument && hasDateLikeSignature
                     && realType.isDateLikeType() && !sigArgType.isDateLikeType()) {
                 // Do not bypass temporal exactness checks through a generic string overload.
-                return Pair.of(false, Pair.of(stringLiteralCoersionCount, timeZoneCoersionScore));
+                return Pair.of(false, Pair.of(stringLiteralCoersionCount,
+                        timeZoneCoersionScore(hasZonedLiteral, hasZonelessLiteral)));
             }
             if (hasTimeStampNsArgument && hasTimeStampNsCompatibleDateTimeArgument && hasDateLikeSignature
                     && (realType.isTimeStampNsType() || realType.isDateTimeType()
@@ -279,12 +284,14 @@ public class SearchSignature {
                     && !(computeSignature instanceof SupportsMixedTimeStampNsDateTime)) {
                 // Functions that need a common temporal type use the TIMESTAMP_NS overload.
                 // Functions without a common temporal result opt in to mixed physical signatures.
-                return Pair.of(false, Pair.of(stringLiteralCoersionCount, timeZoneCoersionScore));
+                return Pair.of(false, Pair.of(stringLiteralCoersionCount,
+                        timeZoneCoersionScore(hasZonedLiteral, hasZonelessLiteral)));
             }
             if (sigArgType.isTimeStampNsType() && !hasTimeStampNsArgument) {
                 // TIMESTAMP_NS overloads preserve a typed nanosecond argument. They must not
                 // change the historical binding of character or other temporal input.
-                return Pair.of(false, Pair.of(stringLiteralCoersionCount, timeZoneCoersionScore));
+                return Pair.of(false, Pair.of(stringLiteralCoersionCount,
+                        timeZoneCoersionScore(hasZonedLiteral, hasZonelessLiteral)));
             }
             if (sigArgType.isTimeStampNsType() && realType.isDateLikeType()
                     && !realType.isTimeStampNsType()
@@ -292,12 +299,14 @@ public class SearchSignature {
                     && !TypeCoercionUtils.canExactlyCastToTimeStampNs(argument)) {
                 // Other date-like domains are wider than signed epoch nanoseconds. A typed
                 // TIMESTAMP_NS peer must not make a partial column conversion implicit.
-                return Pair.of(false, Pair.of(stringLiteralCoersionCount, timeZoneCoersionScore));
+                return Pair.of(false, Pair.of(stringLiteralCoersionCount,
+                        timeZoneCoersionScore(hasZonedLiteral, hasZonelessLiteral)));
             }
             if (realType.isTimeStampNsType() && sigArgType.isDateLikeType()
                     && !sigArgType.isTimeStampNsType()
                     && !TypeCoercionUtils.canExactlyCastTimeStampNsTo(argument, sigArgType)) {
-                return Pair.of(false, Pair.of(stringLiteralCoersionCount, timeZoneCoersionScore));
+                return Pair.of(false, Pair.of(stringLiteralCoersionCount,
+                        timeZoneCoersionScore(hasZonedLiteral, hasZonelessLiteral)));
             }
             // we need to try to do string literal coercion when search signature.
             // for example, FUNC_A has two signature FUNC_A(datetime) and FUNC_A(string)
@@ -312,19 +321,29 @@ public class SearchSignature {
                 }
 
                 if (sigArgType.isTimeStampTzType()) {
-                    boolean hasTimeZone = DateTimeChecker.hasTimeZone(literalValue);
-                    if (hasTimeZone) {
-                        timeZoneCoersionScore++;
+                    if (DateTimeChecker.hasTimeZone(literalValue)) {
+                        hasZonedLiteral = true;
                     } else {
-                        timeZoneCoersionScore--;
+                        hasZonelessLiteral = true;
                     }
                 }
             }
             if (!typePredicate.apply(sigArgType, realType)) {
-                return Pair.of(false, Pair.of(stringLiteralCoersionCount, timeZoneCoersionScore));
+                return Pair.of(false, Pair.of(stringLiteralCoersionCount,
+                        timeZoneCoersionScore(hasZonedLiteral, hasZonelessLiteral)));
             }
         }
-        return Pair.of(true, Pair.of(stringLiteralCoersionCount, timeZoneCoersionScore));
+        return Pair.of(true, Pair.of(stringLiteralCoersionCount,
+                timeZoneCoersionScore(hasZonedLiteral, hasZonelessLiteral)));
+    }
+
+    // An explicit zone anywhere in the call decides instant semantics; only when no inspectable
+    // literal carries one does a zone-less literal push the call toward civil semantics.
+    private static int timeZoneCoersionScore(boolean hasZonedLiteral, boolean hasZonelessLiteral) {
+        if (hasZonedLiteral) {
+            return 1;
+        }
+        return hasZonelessLiteral ? -1 : 0;
     }
 
     public static void throwCanNotFoundFunctionException(String name, List<Expression> arguments) {
