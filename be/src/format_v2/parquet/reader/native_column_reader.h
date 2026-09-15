@@ -76,7 +76,8 @@ public:
                          RuntimeState* runtime_state, bool enable_page_cache,
                          const std::string& page_cache_file_key, bool enable_dictionary_filter,
                          ParquetColumnReaderProfile profile,
-                         std::unique_ptr<ParquetColumnReader>* reader);
+                         std::unique_ptr<ParquetColumnReader>* reader,
+                         bool enable_read_ahead = true);
 
     ~NativeColumnReader() override;
 
@@ -115,7 +116,7 @@ private:
                 const std::unordered_map<int, tparquet::OffsetIndex>& offset_indexes,
                 const cctz::time_zone* timezone, io::IOContext* io_ctx, RuntimeState* runtime_state,
                 bool enable_page_cache, const std::string& page_cache_file_key,
-                bool enable_dictionary_filter);
+                bool enable_dictionary_filter, bool enable_read_ahead);
 
     Status read_with_filter(int64_t rows, const uint8_t* filter_data, bool filter_all,
                             MutableColumnPtr& column, const DataTypePtr& output_type,

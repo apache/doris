@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <map>
 #include <memory>
@@ -116,6 +117,12 @@ struct FileScanRequest {
     // while it remains non-predicate. If filters or equality deletes promote the same id to
     // predicate_columns, the value is semantically required and must still be validated and read.
     std::vector<LocalColumnId> count_star_placeholder_columns;
+
+    // Absolute zero-based file row positions selected by a row-id fetch. A present but empty
+    // vector means that no rows should be read; nullopt keeps the normal sequential scan path.
+    // Readers require strictly increasing positions so they can seek forward without duplicating
+    // output rows.
+    std::optional<std::vector<int64_t>> row_ids = std::nullopt;
 
     // Table formats may assign semantics that legacy physical files do not encode. Each path here
     // identifies an unannotated Parquet group that the physical reader must validate and decode as
@@ -409,8 +416,21 @@ public:
     virtual std::unique_ptr<TableColumnMapper> create_column_mapper(
             TableColumnMapperOptions options) const;
 
+    virtual bool supports_rowid_fetch() const { return false; }
+
     // Open the file reader with file-local scan request. The file reader should initialize its internal state according to the request, but does not need to interpret table/global schema semantics. For example, all schema change, filter localization, default/generated/partition columns should be handled in table reader layer. This method can only be called after init() successfully.
     virtual Status open(std::shared_ptr<FileScanRequest> request) {
+        if (request->row_ids.has_value()) {
+            if (!supports_rowid_fetch()) {
+                return Status::NotSupported("File reader does not support row-id fetch");
+            }
+            const auto& row_ids = *request->row_ids;
+            if (std::ranges::any_of(row_ids, [](int64_t row_id) { return row_id < 0; }) ||
+                std::ranges::adjacent_find(row_ids, std::greater_equal<>()) != row_ids.end()) {
+                return Status::InvalidArgument(
+                        "Row-id fetch requires non-negative, strictly increasing file row ids");
+            }
+        }
         _request = std::move(request);
         return Status::OK();
     }

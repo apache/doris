@@ -40,6 +40,7 @@ namespace doris {
 class DorisNodesInfo;
 class RuntimeProfile;
 class RuntimeState;
+class TQueryOptions;
 class TupleDescriptor;
 namespace io {
 enum class FileCacheMissPolicy : uint8_t;
@@ -122,7 +123,17 @@ public:
     static Status read_by_rowids(const PMultiGetRequest& request, PMultiGetResponse* response);
     static Status read_by_rowids(const PMultiGetRequestV2& request, PMultiGetResponseV2* response);
 
+    static bool should_use_file_scanner_v2(const TQueryOptions& query_options,
+                                           const TFileScanRangeParams& scan_params,
+                                           const TFileRangeDesc& range);
+
 private:
+    friend class RowIdStorageReaderTest;
+    static TFileRangeDesc build_external_fetch_range(const TFileRangeDesc& source_range);
+    static TFileScanRangeParams build_external_scan_params(
+            const TFileScanRangeParams& source_params, const TFileRangeDesc& range,
+            const std::vector<SlotDescriptor>& scan_slots,
+            const std::vector<uint32_t>& scan_column_idxs);
     struct ExternalFetchStatistics;
 
     static Status read_doris_format_row(
