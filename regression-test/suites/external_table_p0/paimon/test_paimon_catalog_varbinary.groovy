@@ -73,7 +73,7 @@ suite("test_paimon_catalog_varbinary", "p0,external,doris,external_docker,extern
         qt_varbinary_6 """ select * except(binary_data),length(binary_data) from binary_size_test order by test_id; """
         
 
-        // no mapping
+        // Raw TVFs still require explicit binary mapping, independently of catalog mappings.
         qt_varbinary_7 """ 
             select * from hdfs(
             "uri" = "hdfs://${externalEnvIp}:${hdfs_port}/user/doris/paimon1/db1.db/binary_demo3/bucket-0/data-01367323-fe57-4cf2-8d63-658136eef42a-0.parquet",
@@ -93,5 +93,4 @@ suite("test_paimon_catalog_varbinary", "p0,external,doris,external_docker,extern
         """
     }
 }
-
 

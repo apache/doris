@@ -92,6 +92,7 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
         def c24 = """select * from complex_tab where c1=1;"""
         def c25 = """select c3['a_test'], c3['b_test'], c3['bbb'], c3['ccc'] from complex_tab order by c3['a_test'], c3['b_test']"""
         def c26 = """select array_max(c2) c from complex_tab order by c"""
+        // Paimon BINARY leaves, including map keys, must retain their byte-exact hexadecimal output.
         def c27 = """select * from complex_all order by c1"""
         def c28 = """select array_min(c2) c from complex_all order by c"""
         def c29 = """select array_min(c3) c from complex_all order by c"""
@@ -331,4 +332,3 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
         // qt_view1 view1
     }
 }
-

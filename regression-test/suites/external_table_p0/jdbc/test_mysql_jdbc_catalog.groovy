@@ -333,10 +333,11 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         order_qt_select_insert_all_types """ select * from internal.${internal_db_name}.${test_insert_all_types} order by tinyint_u; """
 
         // test CTAS
+        // Fix the destination text type explicitly; CONCAT otherwise infers a bounded VARCHAR.
         sql  """ drop table if exists internal.${internal_db_name}.${test_ctas} """
         sql """ create table internal.${internal_db_name}.${test_ctas}
                 PROPERTIES("replication_num" = "1")
-                AS select * REPLACE(concat('0x', hex(`blob`)) AS `blob`) EXCEPT(`binary`,`varbinary`) from all_types;
+                AS select * REPLACE(cast(concat('0x', hex(`blob`)) AS STRING) AS `blob`) EXCEPT(`binary`,`varbinary`) from all_types;
             """
 
         order_qt_ctas """select * from internal.${internal_db_name}.${test_ctas} order by tinyint_u;"""

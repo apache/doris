@@ -3715,4 +3715,18 @@ public class IcebergScanNodeTest {
         slot.setType(fullType);
         Assert.assertTrue(node.projectsVariant());
     }
+
+    @Test
+    public void testVariantSubpathsDoNotTraverseIcebergSchema() {
+        Schema schema = new Schema(Types.NestedField.optional(1, "info",
+                Types.StructType.of(Types.NestedField.optional(2, "payload", Types.VariantType.get()))));
+        Column root = IcebergUtils.parseSchema(schema, false, false).get(0);
+        SlotDescriptor slot = slotDescriptor(1);
+        slot.setColumn(root);
+        slot.setAllAccessPaths(Collections.singletonList(dataAccessPath(ImmutableList.of("1", "2", "kind"))));
+        Assert.assertFalse(IcebergScanNode.requiresRecursiveInitialDefaultMaterialization(
+                schema, Collections.singletonList(slot)));
+        Assert.assertFalse(IcebergScanNode.requiresMissingRequiredFieldRejection(
+                schema, Collections.singletonList(slot), Collections.singletonList(schema)));
+    }
 }

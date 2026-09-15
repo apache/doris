@@ -1158,6 +1158,11 @@ public class IcebergScanNode extends FileQueryScanNode {
         if (pathIndex == path.size()) {
             return requiresProjectedIcebergField(column, fieldById, requirement);
         }
+        // Paths inside VARIANT refer to document keys, not Iceberg schema field IDs.
+        // The carrier's own requirement was checked above; there are no schema children to walk.
+        if (column.getType().isVariantType()) {
+            return false;
+        }
 
         String component = path.get(pathIndex);
         if (AccessPathInfo.ACCESS_NULL.equals(component)
