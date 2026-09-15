@@ -60,6 +60,7 @@ header:
     - "fe/fe-authentication/fe-authentication-spi/src/test/resources/authentication-plugin-surface.txt"
     - "fe/fe-authorization/fe-authorization-spi/src/test/resources/authorization-plugin-surface.txt"
     - "fe/fe-core/src/test/resources/lineage-plugin-surface.txt"
+    - "fe/be-java-extensions/jni-spi/src/test/resources/jni-plugin-surface.txt"
     # Golden access-control decision matrix. AccessControlBehaviorBaselineTest regenerates
     # the whole file and compares it to this one line for line, so a header would read back
     # as extra rows; it prints the regenerated path on mismatch instead.
