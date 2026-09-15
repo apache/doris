@@ -244,6 +244,11 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         ThreadPoolExecutor retiredExecutor = threadPoolWithPreAuth;
         threadPoolWithPreAuth = null;
         super.onClose();
+        // Retire the cache group first so cached values release tracker references
+        // before we retire the tracker; this keeps the teardown callback
+        // (closeCatalog + executor shutdown) outside the cache-removal lock stack.
+        ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        cacheMgr.removeCatalogByEngine(getId(), IcebergExternalMetaCache.ENGINE);
         Catalog retiredCatalog = catalog;
         catalog = null;
         resourceTracker.retireCurrent(() -> {
