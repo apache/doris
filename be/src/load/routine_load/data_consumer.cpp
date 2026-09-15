@@ -824,9 +824,9 @@ Status KinesisDataConsumer::_get_shard_iterator(const std::string& shard_id,
     return Status::OK();
 }
 
-Status KinesisDataConsumer::group_consume(
-        BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue,
-        int64_t max_running_time_ms) {
+Status KinesisDataConsumer::
+        group_consume( // NOLINT(readability-function-size, readability-function-cognitive-complexity): existing polling state machine
+                BlockingQueue<KinesisQueueItem>* queue, int64_t max_running_time_ms) {
     static constexpr int INTER_SHARD_SLEEP_MS = 10;            // Small sleep between shards
     static constexpr int MIN_INTERVAL_BETWEEN_ROUNDS_MS = 200; // Min 200ms between rounds
 
@@ -948,10 +948,17 @@ Status KinesisDataConsumer::group_consume(
 
             // Update shard iterator for next call
             if (next_iterator.empty()) {
-                // Shard is closed (split/merge), mark as closed and remove from active set
-                LOG(INFO) << "Shard closed: " << shard_id << " (split/merge detected)";
-                DorisMetrics::instance()->routine_load_kinesis_closed_shard_count->increment(1);
-                _closed_shard_ids.insert(shard_id);
+                // Keep the close event behind all records from this shard. The group can only
+                // report the shard closed after it has appended every preceding record.
+                KinesisQueueItem end_marker;
+                end_marker.shard_id = shard_id;
+                end_marker.end_of_shard = true;
+                if (!queue->controlled_blocking_put(end_marker,
+                                                    config::blocking_queue_cv_wait_timeout_ms)) {
+                    // The group may have reached a batch boundary while this consumer was still
+                    // draining a prefetched response. The appended prefix remains a valid batch.
+                    return Status::OK();
+                }
                 _shard_iterators.erase(shard_id);
                 it = _consuming_shard_ids.erase(it);
             } else {
@@ -999,10 +1006,10 @@ Status KinesisDataConsumer::group_consume(
     return st;
 }
 
-Status KinesisDataConsumer::_process_records(
-        const std::string& shard_id, Aws::Kinesis::Model::GetRecordsResult result,
-        BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue, int64_t* received_rows,
-        int64_t* put_rows) {
+Status KinesisDataConsumer::_process_records(const std::string& shard_id,
+                                             Aws::Kinesis::Model::GetRecordsResult result,
+                                             BlockingQueue<KinesisQueueItem>* queue,
+                                             int64_t* received_rows, int64_t* put_rows) {
     // result is owned by value, safe to get mutable access to its records
     auto records =
             std::move(const_cast<Aws::Vector<Aws::Kinesis::Model::Record>&>(result.GetRecords()));
@@ -1015,16 +1022,15 @@ Status KinesisDataConsumer::_process_records(
             continue;
         }
 
-        // Track the last sequence number for this shard
-        _committed_sequence_numbers[shard_id] = record.GetSequenceNumber();
-
         // Move record into shared_ptr to avoid expensive copy
-        auto record_ptr = std::make_shared<Aws::Kinesis::Model::Record>(std::move(record));
+        KinesisQueueItem item;
+        item.shard_id = shard_id;
+        item.record = std::make_shared<Aws::Kinesis::Model::Record>(std::move(record));
 
-        if (!queue->controlled_blocking_put(record_ptr,
-                                            config::blocking_queue_cv_wait_timeout_ms)) {
-            // Queue shutdown
-            return Status::InternalError("Queue shutdown during record processing");
+        if (!queue->controlled_blocking_put(item, config::blocking_queue_cv_wait_timeout_ms)) {
+            // The group may have reached a batch boundary while this consumer was still draining
+            // a prefetched response. The appended prefix remains a valid batch.
+            return Status::OK();
         }
 
         (*put_rows)++;
@@ -1051,8 +1057,6 @@ Status KinesisDataConsumer::reset() {
     _consuming_shard_ids.clear();
     _shard_iterators.clear();
     _millis_behind_latest.clear();
-    _committed_sequence_numbers.clear();
-    _closed_shard_ids.clear();
     _last_visit_time = time(nullptr);
     LOG(INFO) << "Kinesis consumer reset: " << _id;
     return Status::OK();
