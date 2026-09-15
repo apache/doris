@@ -56,6 +56,7 @@ static const std::string HTTP_LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
 static const std::string HTTP_HIDDEN_COLUMNS = "hidden_columns";
 static const std::string HTTP_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
 static const std::string HTTP_SKIP_LINES = "skip_lines";
+static const std::string HTTP_ENABLE_TEXT_VALIDATE_UTF8 = "enable_text_validate_utf8";
 static const std::string HTTP_COMMENT = "comment";
 static const std::string HTTP_ENABLE_PROFILE = "enable_profile";
 static const std::string HTTP_PARTIAL_COLUMNS = "partial_columns";
