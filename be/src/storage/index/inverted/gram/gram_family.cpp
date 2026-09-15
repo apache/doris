@@ -29,22 +29,24 @@
 
 namespace doris::segment_v2::gram {
 
+bool may_be_gram_index(const std::map<std::string, std::string>& index_properties) {
+    const std::string name = get_analyzer_name_from_properties(index_properties);
+    // The same built-in test create_analyzer_provider uses, so both agree on which names are
+    // built in.
+    return !name.empty() && !inverted_index::InvertedIndexAnalyzer::is_builtin_analyzer(name);
+}
+
 std::optional<GramScheme> resolve_gram_scheme(
         const std::map<std::string, std::string>& index_properties, IndexPolicyMgr* mgr) {
-    const std::string name = get_analyzer_name_from_properties(index_properties);
-    // Built-in analyzer names (standard/english/unicode/chinese/icu/...) must short-circuit
-    // before the policy manager is touched: they are never registered as policies, and
-    // get_analyzer_provider_by_name would throw "Policy not found" straight away. The test
-    // reuses InvertedIndexAnalyzer::is_builtin_analyzer -- the same predicate
-    // create_analyzer_provider uses, so the two sides cannot drift on "what counts as a built-in
-    // name".
-    if (name.empty() || inverted_index::InvertedIndexAnalyzer::is_builtin_analyzer(name) ||
-        mgr == nullptr) {
+    // Built-in names are never registered as policies, so they must not reach the policy
+    // manager, whose lookup would throw "Policy not found".
+    if (mgr == nullptr || !may_be_gram_index(index_properties)) {
         return std::nullopt;
     }
     // get_analyzer_provider_by_name throws when the policy is missing (it never returns
     // nullptr); see the contract in the header.
-    return mgr->get_analyzer_provider_by_name(name)->gram_scheme();
+    return mgr->get_analyzer_provider_by_name(get_analyzer_name_from_properties(index_properties))
+            ->gram_scheme();
 }
 
 } // namespace doris::segment_v2::gram

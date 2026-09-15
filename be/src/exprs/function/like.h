@@ -377,13 +377,10 @@ protected:
     // Send the original LIKE/REGEXP pattern to the selected reader. The reader compiles it
     // against its persisted gram scheme and returns an approximate candidate bitmap.
     //
-    // Hard semantic constraint (Rulings R26 / R29): the index may only produce a superset of
-    // candidates, and any index-side failure or inapplicable case may only cost the speedup --
-    // all of them simply return OK() without writing bitmap_result, and a problem on the index
-    // side must never make a LIKE/REGEXP query fail or change its result. This method handles
-    // a disabled switch, a call shape it cannot compile, a NULL pattern, an unsupported index,
-    // a compiler result of ALL and index errors.
-    // The only statuses rethrown are CANCELLED / MEM_LIMIT_EXCEEDED / MEM_ALLOC_FAILED.
+    // The index only narrows the rows the predicate still checks. A disabled switch, a call shape
+    // the compiler cannot handle, a NULL pattern and an index that declines the pattern return OK
+    // without a result. Any other index error is returned, so the scan applies the same fallback
+    // policy it applies to other index push-downs.
     enum class GramCompileKind { LIKE, REGEXP };
     Status evaluate_gram_index(GramCompileKind kind, const ColumnsWithTypeAndName& arguments,
                                const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,

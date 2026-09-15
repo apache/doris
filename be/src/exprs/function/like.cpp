@@ -1117,7 +1117,7 @@ Status FunctionRegexpLike::open(FunctionContext* context,
 // R8 (unity build): file-scope helpers use a namespace private to this file.
 namespace like_gram_index_detail {
 
-// Index acceleration may be skipped, but cancellation and memory failures stop the query.
+// A declined index leaves the rows to the predicate; the scan decides every other index status.
 Status dispatch_query(bool is_like, const std::string& pattern, segment_v2::IndexIterator* iter,
                       const IndexFieldNameAndTypePair& data_type_with_name, uint32_t num_rows,
                       segment_v2::InvertedIndexResultBitmap* bitmap_result) {
@@ -1132,21 +1132,11 @@ Status dispatch_query(bool is_like, const std::string& pattern, segment_v2::Inde
 
     Status query_status = iter->read_from_index(&param);
     if (!query_status.ok()) {
-        if (query_status.is<ErrorCode::CANCELLED>() ||
-            query_status.is<ErrorCode::MEM_LIMIT_EXCEEDED>() ||
-            query_status.is<ErrorCode::MEM_ALLOC_FAILED>()) {
-            return query_status;
-        }
         if (query_status.is<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>() ||
             query_status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) {
             return Status::OK();
         }
-        // Every other error only degrades to "no acceleration". LOG_EVERY_N rather than VLOG,
-        // because this path already means "the index could not be used" and deserves a trace at
-        // the default log level, while still not flooding the log once per segment.
-        LOG_EVERY_N(WARNING, 100) << "gram index push-down skipped, read_from_index returned "
-                                  << query_status;
-        return Status::OK();
+        return query_status;
     }
 
     segment_v2::InvertedIndexResultBitmap result(param.roaring, nullptr);

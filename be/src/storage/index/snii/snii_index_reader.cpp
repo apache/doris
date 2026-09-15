@@ -669,6 +669,13 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     });
     SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
     const std::string search_str = query_value.get<PrimitiveType::TYPE_STRING>();
+    // Only an index under an analyzer policy can have been written as a gram index, so any other
+    // index declines LIKE and REGEXP before it reads the result cache or opens its file.
+    if (is_gram_query(query_type) && !gram::may_be_gram_index(_index_meta.properties())) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED, false>(
+                "index {} has no analyzer policy, so it cannot be a gram index",
+                _index_meta.index_name());
+    }
     const auto finish_query =
             [&](const ::doris::snii::reader::LogicalIndexReader* reader) -> Status {
         if (null_bitmap_cache_handle == nullptr) {
@@ -742,8 +749,17 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     InvertedIndexCacheHandle searcher_cache_handle;
     std::unique_ptr<::doris::snii::reader::LogicalIndexReader> uncached_reader;
     const ::doris::snii::reader::LogicalIndexReader* logical_reader = nullptr;
-    RETURN_IF_ERROR(_get_logical_reader(context, &searcher_cache_handle, &uncached_reader,
-                                        &logical_reader));
+    if (Status st = _get_logical_reader(context, &searcher_cache_handle, &uncached_reader,
+                                        &logical_reader);
+        !st.ok()) {
+        // A logical index missing from its container was never built into this segment. A gram
+        // query reports it as a missing index file, so the scan's policy for missing indexes
+        // decides whether to evaluate without the index.
+        if (is_gram_query(query_type) && st.is<ErrorCode::INVERTED_INDEX_SNII_NOT_FOUND>()) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND, false>("{}", st.msg());
+        }
+        return st;
+    }
     // Compare the two optionals, not just two schemes, and whichever side is empty. A segment
     // written by a legacy ngram tokenizer carries no scheme, and its dictionary holds that
     // tokenizer's terms, so grams cut by the current analyzer mean nothing there. The reverse

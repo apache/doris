@@ -126,25 +126,55 @@ TEST(LikeGramIndexTest, ConfigDisabledSkipsPushDown) {
     EXPECT_FALSE(iterator.queried);
 }
 
-TEST(LikeGramIndexTest, ArbitraryIndexErrorDegradesToNoResult) {
-    FunctionRegexpLike function;
+TEST(LikeGramIndexTest, DeclinedIndexLeavesTheRowsToThePredicate) {
+    // An index that cannot answer the pattern declines it, and the rows are left to the predicate.
+    const std::vector<FunctionPtr> functions {FunctionLike::create(), FunctionRegexpLike::create()};
     std::vector<IndexFieldNameAndTypePair> names {{"msg", std::make_shared<DataTypeString>()}};
-    ColumnsWithTypeAndName args {const_string_arg("hello|world")};
-    const std::vector<Status> degradable {
-            Status::InternalError<false>("boom"),
+    ColumnsWithTypeAndName args {const_string_arg("hello")};
+    const std::vector<Status> declined {
             Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>("not supported"),
             Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED, false>("no prunable grams"),
-            Status::Error<ErrorCode::CORRUPTION, false>("corrupt index image"),
-            Status::Error<ErrorCode::IO_ERROR, false>("s3 read failed"),
     };
-    for (const auto& injected : degradable) {
-        RecordingGramIndexIterator iterator;
-        iterator.query_status = injected;
-        segment_v2::InvertedIndexResultBitmap result;
-        const Status status =
-                function.evaluate_inverted_index(args, names, {&iterator}, 100, nullptr, result);
-        ASSERT_TRUE(status.ok()) << injected.to_string() << " -> " << status.to_string();
-        EXPECT_TRUE(result.is_empty()) << injected.to_string();
+    for (const auto& function : functions) {
+        for (const auto& injected : declined) {
+            RecordingGramIndexIterator iterator;
+            iterator.query_status = injected;
+            segment_v2::InvertedIndexResultBitmap result;
+            const Status status = function->evaluate_inverted_index(args, names, {&iterator}, 100,
+                                                                    nullptr, result);
+            ASSERT_TRUE(status.ok()) << function->get_name() << ": " << injected.to_string()
+                                     << " -> " << status.to_string();
+            EXPECT_TRUE(iterator.queried);
+            EXPECT_TRUE(result.is_empty()) << injected.to_string();
+        }
+    }
+}
+
+TEST(LikeGramIndexTest, IndexFailuresReachTheSegmentIteratorPolicy) {
+    // SegmentIterator decides these statuses: FILE_NOT_FOUND follows
+    // enable_fallback_on_missing_inverted_index, FILE_CORRUPTED is downgraded, and the rest fail
+    // the scan. The function hands them over unchanged, as the MATCH push-down does.
+    const std::vector<FunctionPtr> functions {FunctionLike::create(), FunctionRegexpLike::create()};
+    std::vector<IndexFieldNameAndTypePair> names {{"msg", std::make_shared<DataTypeString>()}};
+    ColumnsWithTypeAndName args {const_string_arg("hello")};
+    const std::vector<int> propagated {
+            ErrorCode::IO_ERROR,
+            ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND,
+            ErrorCode::INVERTED_INDEX_FILE_CORRUPTED,
+            ErrorCode::INVERTED_INDEX_SNII_NOT_FOUND,
+            ErrorCode::CORRUPTION,
+            ErrorCode::INTERNAL_ERROR,
+    };
+    for (const auto& function : functions) {
+        for (const int code : propagated) {
+            RecordingGramIndexIterator iterator;
+            iterator.query_status = Status(code, "index failure");
+            segment_v2::InvertedIndexResultBitmap result;
+            const Status status = function->evaluate_inverted_index(args, names, {&iterator}, 100,
+                                                                    nullptr, result);
+            EXPECT_EQ(status.code(), code) << function->get_name() << ": " << status.to_string();
+            EXPECT_TRUE(result.is_empty());
+        }
     }
 }
 
