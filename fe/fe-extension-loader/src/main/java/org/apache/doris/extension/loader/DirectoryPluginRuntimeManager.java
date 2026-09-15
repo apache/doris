@@ -31,12 +31,16 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Enumeration;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.jar.JarFile;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -110,6 +114,15 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
      * dependency, and the name it carries is not where the message starts.
      */
     private static final String ALREADY_FAILED_TO_INITIALIZE = "Could not initialize class ";
+    /**
+     * A JVM {@code NoClassDefFoundError} message whose whole text is one class name, in either the binary
+     * ({@code org.example.Probe$Inner}) or the internal ({@code org/example/Probe$Inner}) spelling. Only
+     * such a message is read as "this class is missing"; anything sentence-shaped is plugin wording.
+     */
+    private static final Pattern CLASS_NAME_MESSAGE = Pattern.compile("[\\w$]+([./][\\w$]+)*");
+    /** The JVM's "found under the wrong path" wording: {@code a/B (wrong name: c/D)}. */
+    private static final Pattern WRONG_NAME_MESSAGE =
+            Pattern.compile("([\\w$]+(?:[./][\\w$]+)*)\\s*\\(wrong name:\\s*([\\w$]+(?:[./][\\w$]+)*)\\)");
 
     private final ConcurrentMap<String, PluginHandle<F>> handlesByName = new ConcurrentHashMap<>();
     private final Object lifecycleLock = new Object();
@@ -274,18 +287,20 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
             Class<?> discoveredClass;
             try {
                 discoveredClass = classLoader.loadClass(factoryClassName);
-            } catch (ReflectiveOperationException | LinkageError e) {
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
                 // LinkageError included: defining the factory class resolves its supertypes, so a
                 // dependency the plugin neither bundles nor inherits from its parent surfaces here as
                 // NoClassDefFoundError - an Error, not a ReflectiveOperationException. Left uncaught it
                 // escapes loadAll entirely and takes FE startup down, because one plugin's missing
-                // dependency is not something the FE can be stopped by. Same reasoning as factory.name()
-                // and factory.description() below, which already catch it.
+                // dependency is not something the FE can be stopped by. RuntimeException for the same
+                // reason: defineClass raises SecurityException for a signed package the plugin also
+                // ships unsigned classes into. Same catch shape as factory.name() and
+                // factory.description() below.
                 throw new PluginLoadException(
                         normalizedDir,
                         LoadFailure.STAGE_INSTANTIATE,
                         "Failed to instantiate factory class '" + factoryClassName + "' in " + normalizedDir
-                                + missingClassAdvice(e),
+                                + missingClassAdvice(e) + rootCauseSummary(e),
                         e);
             }
 
@@ -307,15 +322,20 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                 @SuppressWarnings("unchecked")
                 Class<? extends F> factoryClass = (Class<? extends F>) discoveredClass.asSubclass(factoryType);
                 factory = factoryClass.getDeclaredConstructor().newInstance();
-            } catch (ReflectiveOperationException | LinkageError e) {
-                // newInstance() is where the factory class is first initialized, so a static initializer
-                // that reaches a missing dependency arrives as ExceptionInInitializerError - again an
-                // Error, and again one plugin's problem rather than the FE's.
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+                // newInstance() is where the factory class is first initialized. A static initializer
+                // that fails arrives either as the Error itself - NoClassDefFoundError for a missing
+                // dependency - or, for a non-Error, wrapped in ExceptionInInitializerError; both are
+                // LinkageErrors, and again one plugin's problem rather than the FE's. asSubclass()
+                // throws ClassCastException (a RuntimeException) for a service file naming a class that
+                // is not a factory at all, which is the same plugin-local problem one line earlier.
                 throw new PluginLoadException(
                         normalizedDir,
                         LoadFailure.STAGE_INSTANTIATE,
                         "Failed to instantiate factory class '" + factoryClassName + "' in " + normalizedDir
-                                + missingClassAdvice(e),
+                                + (e instanceof ClassCastException
+                                        ? ": it does not implement " + factoryType.getName() : "")
+                                + missingClassAdvice(e) + rootCauseSummary(e),
                         e);
             }
         } catch (PluginLoadException e) {
@@ -546,24 +566,21 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
      * failure. A plugin misses a class either because it does not bundle it or because it expected to
      * inherit it from the layer its classloader delegates to, and the message must not leave the reader
      * guessing which - a shared library bundle that was never installed looks exactly like a broken
-     * plugin jar otherwise.
+     * plugin jar otherwise. The one JVM wording that does mean a broken jar - a class file found under
+     * a path that disagrees with the name in its bytecode - gets its own sentence, because the shared
+     * bundle is exactly the wrong place to look for that.
      */
-    // Package-private so that the JVM messages it has to tell apart can be asserted directly: no
-    // plugin makes the loader initialize one class twice, so the second-attempt wording below is not
-    // reachable from loadAll.
+    // Package-private so that the JVM messages it has to tell apart can be asserted directly. The
+    // "Could not initialize class" wording is the JVM's second attempt at a class whose initializer
+    // already failed: not something loadAll provokes on a plugin's own classes (it gives up on the
+    // first attempt), but reachable through a parent-first class whose initializer failed under an
+    // earlier plugin, so it is skipped rather than read as a class name.
     static String missingClassAdvice(Throwable failure) {
-        String missing = missingClassName(failure);
-        if (missing == null) {
-            return "";
-        }
-        return ". The class " + missing + " is in neither this plugin's own jars nor its parent"
-                + " classloader; if it is meant to come from a shared library bundle, check that the"
-                + " bundle is installed under the FE shared library root";
-    }
-
-    /** The absent class named by a NoClassDefFoundError / ClassNotFoundException anywhere in the chain. */
-    private static String missingClassName(Throwable failure) {
-        for (Throwable t = failure; t != null; t = t.getCause() == t ? null : t.getCause()) {
+        // The chain is plugin-built below the first node, and a cycle is legal Java (a.initCause(b)
+        // after b was constructed with cause a): bound the walk by identity, or a plugin can hang FE
+        // startup here, under lifecycleLock, before any port is open.
+        Set<Throwable> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Throwable t = failure; t != null && seen.add(t); t = t.getCause()) {
             if (!(t instanceof NoClassDefFoundError) && !(t instanceof ClassNotFoundException)) {
                 continue;
             }
@@ -576,11 +593,41 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                 // Keep walking: what really went missing, if anything did, is further down the chain.
                 continue;
             }
-            // NoClassDefFoundError's message is sometimes "a/B (wrong name: c/D)" or carries a
-            // trailing explanation; the class name is the first token either way.
-            return message.split("\\s+", 2)[0];
+            Matcher wrongName = WRONG_NAME_MESSAGE.matcher(message);
+            if (wrongName.matches()) {
+                return ". The class " + wrongName.group(1) + " was found in this plugin's jars, but its"
+                        + " bytecode names it " + wrongName.group(2) + ": the jar entry is under the wrong"
+                        + " path, which is a broken plugin jar rather than a missing dependency";
+            }
+            if (!CLASS_NAME_MESSAGE.matcher(message).matches()) {
+                // Plugin code may wrap a lookup failure in a sentence ("Cannot load driver class
+                // com.x.Y"); nothing here can tell which word is the class, so keep walking - the JDK's
+                // own node, if there is one below, carries the bare name.
+                continue;
+            }
+            return ". The class " + message + " is in neither this plugin's own jars nor its parent"
+                    + " classloader; if it is meant to come from a shared library bundle, check that the"
+                    + " bundle is installed under the FE shared library root";
         }
-        return null;
+        return "";
+    }
+
+    /**
+     * The innermost cause of a load failure as {@code Class: message}, or "" when the failure has no
+     * cause, so that a consumer logging the {@link LoadFailure} message alone still records why - an
+     * {@link ExceptionInInitializerError} prints as its bare class name and says nothing on its own.
+     * Identity-bounded for the same reason as {@link #missingClassAdvice}.
+     */
+    static String rootCauseSummary(Throwable failure) {
+        Set<Throwable> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        Throwable root = null;
+        for (Throwable t = failure; t != null && seen.add(t); t = t.getCause()) {
+            root = t;
+        }
+        if (root == null || root == failure) {
+            return "";
+        }
+        return "; caused by " + root;
     }
 
     private static void closeClassLoader(ClassLoader classLoader) {

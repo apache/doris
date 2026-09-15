@@ -20,6 +20,8 @@ package org.apache.doris.extension.loader;
 import org.apache.doris.extension.loader.testplugins.AbsentDependencyProbe;
 import org.apache.doris.extension.loader.testplugins.AbsentStaticInitTestPluginFactory;
 import org.apache.doris.extension.loader.testplugins.AbsentSuperclassTestPluginFactory;
+import org.apache.doris.extension.loader.testplugins.NotAFactory;
+import org.apache.doris.extension.loader.testplugins.ThrowingStaticInitTestPluginFactory;
 import org.apache.doris.extension.spi.PluginFactory;
 
 import org.junit.jupiter.api.Assertions;
@@ -27,7 +29,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Collections;
 
 /**
@@ -43,10 +47,10 @@ import java.util.Collections;
  * apart: resolving the class (a supertype the jar does not carry) and first initializing it (a
  * static initializer that reaches outside the jar).
  *
- * <p>The advice sentence itself is asserted separately, against fabricated throwables. The message it
- * has to reject - the JVM's wording for a class whose initializer had already failed - only appears on
- * the second attempt at initializing one class, and no plugin makes the loader do that: {@code loadAll}
- * gives up and closes the classloader on the first.
+ * <p>The advice sentence itself is asserted separately, against fabricated throwables, including the
+ * shapes it must not misread: the JVM's wording for a class whose initializer had already failed (which
+ * a parent-first class can carry in from an earlier plugin), a plugin's own sentence-shaped wording, and
+ * the "wrong name" form that means a broken jar rather than a missing dependency.
  */
 class DirectoryPluginRuntimeManagerLinkageTest {
 
@@ -91,10 +95,6 @@ class DirectoryPluginRuntimeManagerLinkageTest {
                         .contains("The class org/example/Probe is"),
                 "the plain form names the class directly");
         Assertions.assertTrue(
-                adviceFor(new NoClassDefFoundError("org/example/Probe (wrong name: org/other/Probe)"))
-                        .contains("The class org/example/Probe is"),
-                "the wrong-name form carries a trailing explanation the class name comes before");
-        Assertions.assertTrue(
                 adviceFor(new ExceptionInInitializerError(new ClassNotFoundException("org.example.Probe")))
                         .contains("The class org.example.Probe is"),
                 "a static initializer's first failure wraps the real miss");
@@ -105,6 +105,100 @@ class DirectoryPluginRuntimeManagerLinkageTest {
         alreadyFailed.initCause(new NoClassDefFoundError("org/example/Probe"));
         Assertions.assertTrue(adviceFor(alreadyFailed).contains("The class org/example/Probe is"),
                 "the miss below the initializer failure is what the reader needs");
+    }
+
+    @Test
+    void testAnInitializerThatThrowsIsAFailureThatNamesTheReason() throws IOException {
+        // A non-Error thrown by <clinit> arrives wrapped in ExceptionInInitializerError, whose own
+        // message is null: logged as toString() it says nothing. The reason has to be carried into
+        // the failure message itself, because that message is all some consumers record.
+        Path root = tempDir.resolve("plugins");
+        DirectoryPluginRuntimeManagerMetadataTest.createPluginJar(
+                root.resolve("throwing-static-init").resolve("throwing-static-init.jar"),
+                ThrowingStaticInitTestPluginFactory.class, "1.0");
+
+        LoadReport<PluginFactory> report = load(root);
+        Assertions.assertTrue(report.getSuccesses().isEmpty(), "the plugin cannot have loaded");
+        Assertions.assertEquals(1, report.getFailures().size());
+        LoadFailure failure = report.getFailures().get(0);
+        Assertions.assertEquals(LoadFailure.STAGE_INSTANTIATE, failure.getStage());
+        Assertions.assertInstanceOf(ExceptionInInitializerError.class, failure.getCause(),
+                () -> "a non-Error from <clinit> is wrapped by the JVM, got " + failure.getCause());
+        Assertions.assertTrue(failure.getMessage().contains(ThrowingStaticInitTestPluginFactory.REASON),
+                () -> "the initializer's own reason must reach the message: " + failure.getMessage());
+        Assertions.assertFalse(failure.getMessage().contains("shared library bundle"),
+                () -> "nothing is missing here, so no bundle advice: " + failure.getMessage());
+    }
+
+    @Test
+    void testAServiceFileNamingANonFactoryIsAFailureNotAThrow() throws IOException {
+        // asSubclass() answers a service entry that names a class of the wrong type with a
+        // ClassCastException: a RuntimeException, so neither of the two other catch families sees it.
+        Path root = tempDir.resolve("plugins");
+        DirectoryPluginRuntimeManagerMetadataTest.createPluginJar(
+                root.resolve("not-a-factory").resolve("not-a-factory.jar"),
+                NotAFactory.class, "1.0", DirectoryPluginRuntimeManagerMetadataTest.TEST_GATE.getExpectedVersion());
+
+        LoadReport<PluginFactory> report = load(root);
+        Assertions.assertTrue(report.getSuccesses().isEmpty(), "the plugin cannot have loaded");
+        Assertions.assertEquals(1, report.getFailures().size());
+        LoadFailure failure = report.getFailures().get(0);
+        Assertions.assertEquals(LoadFailure.STAGE_INSTANTIATE, failure.getStage());
+        Assertions.assertInstanceOf(ClassCastException.class, failure.getCause());
+        Assertions.assertTrue(failure.getMessage().contains("does not implement " + PluginFactory.class.getName()),
+                () -> "the message must name the factory type the class was expected to implement: "
+                        + failure.getMessage());
+    }
+
+    @Test
+    void testACyclicCauseChainIsWalkedOnce() {
+        // Legal Java: a's cause is still the sentinel when initCause runs, so the chain is a -> b -> a.
+        // A plugin's constructor can throw this, and the walk runs on the FE's startup thread under
+        // the loader's lifecycle lock, before any port is open.
+        RuntimeException a = new RuntimeException("a");
+        RuntimeException b = new RuntimeException("b", a);
+        a.initCause(b);
+
+        String advice = Assertions.assertTimeoutPreemptively(Duration.ofSeconds(10),
+                () -> DirectoryPluginRuntimeManager.missingClassAdvice(new InvocationTargetException(a)));
+        Assertions.assertEquals("", advice, "no node of the cycle names a missing class");
+
+        String summary = Assertions.assertTimeoutPreemptively(Duration.ofSeconds(10),
+                () -> DirectoryPluginRuntimeManager.rootCauseSummary(new InvocationTargetException(a)));
+        Assertions.assertTrue(summary.contains("java.lang.RuntimeException: b"),
+                () -> "the last node reached before the chain repeats is the summary: " + summary);
+    }
+
+    @Test
+    void testOnlyAClassNameShapedMessageIsReadAsAMissingClass() {
+        // Plugin code may wrap a lookup failure in a sentence; its first word is not a class name.
+        Assertions.assertEquals("", DirectoryPluginRuntimeManager.missingClassAdvice(
+                        new ClassNotFoundException("Cannot load driver class com.example.Driver")),
+                "a sentence-shaped message names no class the reader could act on");
+        // ...but the JDK's own node below it does, and the walk has to reach it.
+        Assertions.assertTrue(adviceFor(new ClassNotFoundException(
+                        "SPI class 'org.example.Probe' was not found in BE's classloader",
+                        new ClassNotFoundException("org.example.Probe")))
+                        .contains("The class org.example.Probe is"),
+                "the bare name one node down is the one to report");
+        // A trailing dot or a path is plugin wording too, never the class.
+        Assertions.assertEquals("", DirectoryPluginRuntimeManager.missingClassAdvice(
+                new ClassNotFoundException("com.example.Driver. Bundle this class into that jar.")));
+        // Binary and internal spellings, with nested-class and digit characters, are class names.
+        Assertions.assertTrue(adviceFor(new NoClassDefFoundError("org/example/Outer$Inner2"))
+                .contains("The class org/example/Outer$Inner2 is"));
+    }
+
+    @Test
+    void testTheWrongNameFormIsABrokenJarNotAMissingDependency() {
+        // "a/B (wrong name: c/D)" means the class file WAS found, under a path that disagrees with the
+        // name in its bytecode; sending the reader to the shared bundle would be exactly wrong.
+        String advice = DirectoryPluginRuntimeManager.missingClassAdvice(
+                new NoClassDefFoundError("org/example/Probe (wrong name: org/other/Probe)"));
+        Assertions.assertTrue(advice.contains("org/example/Probe"), advice);
+        Assertions.assertTrue(advice.contains("org/other/Probe"), advice);
+        Assertions.assertTrue(advice.contains("wrong path"), advice);
+        Assertions.assertFalse(advice.contains("shared library bundle"), advice);
     }
 
     private static String adviceFor(Throwable failure) {
