@@ -73,10 +73,6 @@ public class ArrayIntersect extends ScalarFunction implements ExplicitlyCastable
                 throw new AnalysisException("array_intersect requires ARRAY arguments, but got " + argType.toSql());
             }
             DataType currentItemType = ((ArrayType) argType).getItemType();
-            if (!currentItemType.canBeUsedInArraySetOperation()) {
-                throw new AnalysisException("array_intersect does not support element type "
-                        + currentItemType.toSql());
-            }
             if (currentItemType.isNullType()) {
                 continue;
             }
@@ -89,6 +85,20 @@ public class ArrayIntersect extends ScalarFunction implements ExplicitlyCastable
             if (!itemType.isSameTypeForComplexTypeParam(currentItemType)) {
                 throw new AnalysisException("array_intersect only supports arguments with the same item type, "
                         + "but got " + toSql());
+            }
+        }
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        for (Expression child : getArguments()) {
+            DataType argType = child.getDataType();
+            if (argType == NullType.INSTANCE) {
+                continue;
+            }
+            DataType itemType = ((ArrayType) argType).getItemType();
+            if (!itemType.canBeUsedInArraySetOperation()) {
+                throw new AnalysisException("array_intersect does not support element type " + itemType.toSql());
             }
         }
     }

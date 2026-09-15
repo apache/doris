@@ -71,12 +71,13 @@ public class ArrayRemove extends ScalarFunction
     }
 
     @Override
-    public void checkLegalityBeforeTypeCoercion() {
+    public void checkLegalityAfterRewrite() {
         DataType argType = getArgument(0).getDataType();
-        if (argType.isArrayType() && (((ArrayType) argType).getItemType().isComplexType()
-                    || ((ArrayType) argType).getItemType().isVariantType()
-                    || ((ArrayType) argType).getItemType().isJsonType())) {
-            throw new AnalysisException("array_remove does not support types: " + argType.toSql());
+        if (argType.isArrayType()) {
+            DataType itemType = ((ArrayType) argType).getItemType();
+            if (!itemType.canBeUsedInArrayEqualityOperation()) {
+                throw new AnalysisException("array_remove does not support element type " + itemType.toSql());
+            }
         }
     }
 

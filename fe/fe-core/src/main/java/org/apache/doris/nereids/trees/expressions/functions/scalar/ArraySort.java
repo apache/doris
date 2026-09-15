@@ -62,13 +62,8 @@ public class ArraySort extends ScalarFunction
     public void checkLegalityBeforeTypeCoercion() {
         DataType argType = getArgument(0).getDataType();
         if (argType instanceof ArrayType) {
-            // Find the innermost element type for nested arrays
             DataType itemType = ((ArrayType) argType).getItemType();
-            while (itemType.isArrayType()) {
-                itemType = ((ArrayType) itemType).getItemType();
-            }
-            if (itemType.isMapType() || itemType.isStructType()
-                    || itemType.isVariantType() || itemType.isJsonType()) {
+            if (!itemType.canBeComparedInArray()) {
                 throw new AnalysisException("array_sort does not support types: " + argType.toSql());
             }
         }

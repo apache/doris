@@ -787,6 +787,24 @@ public abstract class DataType {
                 || isDateLikeType() || isIPType() || isNullType();
     }
 
+    /** Whether this type is supported by the BE dispatch used by array equality and hash functions. */
+    public boolean canBeUsedInArrayEqualityOperation() {
+        return canBeUsedInArraySetOperation() || isTimeType();
+    }
+
+    /** Whether compare_at is available, including recursively comparable nested arrays. */
+    public boolean canBeComparedInArray() {
+        if (isArrayType()) {
+            return ((ArrayType) this).getItemType().canBeComparedInArray();
+        }
+        return !isOnlyMetricType();
+    }
+
+    /** Whether this type is supported by the BE array_min/array_max dispatch. */
+    public boolean canBeUsedInArrayMinMax() {
+        return canBeUsedInArraySetOperation();
+    }
+
     /**
      * whether the param dataType is same-like type for nested in complex type
      *  same-like type means: string-like, date-like, number type

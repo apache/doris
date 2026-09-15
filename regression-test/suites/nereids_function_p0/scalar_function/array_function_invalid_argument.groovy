@@ -42,6 +42,11 @@ suite("array_function_invalid_argument") {
     }
 
     test {
+        sql "select array_compact(array(array(to_bitmap(1)), array(to_bitmap(1))))"
+        exception "array_compact does not support type ARRAY<BITMAP"
+    }
+
+    test {
         sql "select array_union(array(to_bitmap(1)), array(to_bitmap(1)))"
         exception "array_union does not support element type BITMAP"
     }
@@ -76,10 +81,112 @@ suite("array_function_invalid_argument") {
         exception "array_except does not support element type BITMAP"
     }
 
+    test {
+        sql "select array_except(array(cast('a' as varbinary)), array(cast('b' as varbinary)))"
+        exception "array_except does not support element type VARBINARY"
+    }
+
+    test {
+        sql "select array_except(array(cast('12:34:56' as time(0))), array(cast('12:34:57' as time(0))))"
+        exception "array_except does not support element type TIME"
+    }
+
+    test {
+        sql "select array_distinct(array(to_bitmap(1), to_bitmap(1)))"
+        exception "array_distinct does not support element type BITMAP"
+    }
+
+    test {
+        sql "select array_distinct(array(cast('a' as varbinary), cast('a' as varbinary)))"
+        exception "array_distinct does not support element type VARBINARY"
+    }
+
+    test {
+        sql "select array_enumerate_uniq(array(to_bitmap(1), to_bitmap(1)))"
+        exception "array_enumerate_uniq does not support element type BITMAP"
+    }
+
+    test {
+        sql "select array_enumerate_uniq(array(cast('a' as varbinary), cast('a' as varbinary)))"
+        exception "array_enumerate_uniq does not support element type VARBINARY"
+    }
+
+    test {
+        sql "select array_position(array(to_bitmap(1)), to_bitmap(1))"
+        exception "array_position does not support element type BITMAP"
+    }
+
+    test {
+        sql "select array_contains(array(to_bitmap(1)), to_bitmap(1))"
+        exception "array_contains does not support element type BITMAP"
+    }
+
+    test {
+        sql "select countequal(array(to_bitmap(1)), to_bitmap(1))"
+        exception "countequal does not support element type BITMAP"
+    }
+
+    test {
+        sql "select array_remove(array(to_bitmap(1)), to_bitmap(1))"
+        exception "array_remove does not support element type BITMAP"
+    }
+
+    test {
+        sql "select array_contains_all(array(to_bitmap(1)), array(to_bitmap(1)))"
+        exception "array_contains_all does not support element type BITMAP"
+    }
+
+    test {
+        sql "select arrays_overlap(array(to_bitmap(1)), array(to_bitmap(1)))"
+        exception "arrays_overlap does not support element type BITMAP"
+    }
+
+    test {
+        sql "select array_except_all(array(to_bitmap(1)), array(to_bitmap(1)))"
+        exception "array_except_all does not support element type BITMAP"
+    }
+
+    test {
+        sql "select array_sort(array(to_bitmap(1), to_bitmap(2)))"
+        exception "array_sort does not support types"
+    }
+
+    test {
+        sql "select array_sort(array(array(to_bitmap(1)), array(to_bitmap(2))))"
+        exception "array_sort does not support types"
+    }
+
+    test {
+        sql "select array_reverse_sort(array(to_bitmap(1), to_bitmap(2)))"
+        exception "array_reverse_sort does not support types"
+    }
+
+    test {
+        sql "select array_min(array(to_bitmap(1), to_bitmap(2)))"
+        exception "array_min does not support element type BITMAP"
+    }
+
+    test {
+        sql "select array_max(array(to_bitmap(1), to_bitmap(2)))"
+        exception "array_max does not support element type BITMAP"
+    }
+
+    test {
+        sql "select array_sortby([1, 2], array(to_bitmap(1), to_bitmap(2)))"
+        exception "array_sortby does not support types"
+    }
+
     qt_array_flatten "select array_flatten([[1, 2], [], [3]])"
     qt_array_flatten_empty "select array_flatten([])"
     qt_array_compact "select array_compact([1, 1, null, null, 2])"
     order_qt_array_compact_nested "select array_compact([[1], [1], [2]])"
     qt_array_union "select array_sort(array_union([1, 2], [2, 3]))"
     qt_array_intersect "select array_sort(array_intersect([1, 2], [2, 3]))"
+    qt_array_union_mixed_varbinary_string "select array_sort(array_union(array(cast('a' as varbinary)), array('b')))"
+    qt_array_union_mixed_time_string "select array_sort(array_union(array(cast('12:34:56' as time(0))), array('12:34:57')))"
+    qt_array_except_mixed_varbinary_string "select array_except(array(cast('a' as varbinary)), array('b'))"
+    qt_array_except_mixed_time_string "select array_except(array(cast('12:34:56' as time(0))), array('12:34:57'))"
+    qt_array_distinct_time "select array_distinct(array(cast('12:34:56' as time(0)), cast('12:34:56' as time(0))))"
+    qt_array_enumerate_uniq_time "select array_enumerate_uniq(array(cast('12:34:56' as time(0)), cast('12:34:56' as time(0))))"
+    qt_array_position_time "select array_position(array(cast('12:34:56' as time(0))), cast('12:34:56' as time(0)))"
 }

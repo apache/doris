@@ -17,3 +17,24 @@
 -- !array_intersect --
 [2]
 
+-- !array_union_mixed_varbinary_string --
+["61", "b"]
+
+-- !array_union_mixed_time_string --
+["12:34:56", "12:34:57"]
+
+-- !array_except_mixed_varbinary_string --
+["61"]
+
+-- !array_except_mixed_time_string --
+["12:34:56"]
+
+-- !array_distinct_time --
+["12:34:56"]
+
+-- !array_enumerate_uniq_time --
+[1, 2]
+
+-- !array_position_time --
+1
+

@@ -69,7 +69,7 @@ public class ArrayCompact extends ScalarFunction
             throw new AnalysisException("array_compact requires an ARRAY argument, but got " + dataType.toSql());
         }
         DataType itemType = ((ArrayType) dataType).getItemType();
-        if (itemType.isOnlyMetricType() && !itemType.isArrayType()) {
+        if (!itemType.canBeComparedInArray()) {
             throw new AnalysisException("array_compact does not support type "
                     + itemType.toString() + ", expression is " + toSql());
         }

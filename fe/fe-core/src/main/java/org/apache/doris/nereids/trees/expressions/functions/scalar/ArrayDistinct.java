@@ -60,12 +60,12 @@ public class ArrayDistinct extends ScalarFunction
      * so the element type must be comparable.
      */
     @Override
-    public void checkLegalityBeforeTypeCoercion() {
+    public void checkLegalityAfterRewrite() {
         DataType argType = getArgument(0).getDataType();
         if (argType.isArrayType()) {
             DataType itemType = ((ArrayType) argType).getItemType();
-            if (itemType.isMapType() || itemType.isStructType()) {
-                throw new AnalysisException("array_distinct does not support complex types: " + toSql());
+            if (!itemType.canBeUsedInArrayEqualityOperation()) {
+                throw new AnalysisException("array_distinct does not support element type " + itemType.toSql());
             }
         }
     }

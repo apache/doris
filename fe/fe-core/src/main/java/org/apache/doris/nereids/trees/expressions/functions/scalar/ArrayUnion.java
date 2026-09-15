@@ -69,6 +69,15 @@ public class ArrayUnion extends ScalarFunction implements ExplicitlyCastableSign
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        checkArgumentTypes(false);
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        checkArgumentTypes(true);
+    }
+
+    private void checkArgumentTypes(boolean checkPhysicalType) {
         for (Expression child : getArguments()) {
             DataType argType = child.getDataType();
             if (argType == NullType.INSTANCE) {
@@ -78,7 +87,7 @@ public class ArrayUnion extends ScalarFunction implements ExplicitlyCastableSign
                 throw new AnalysisException("array_union requires ARRAY arguments, but got " + argType.toSql());
             }
             DataType itemType = ((ArrayType) argType).getItemType();
-            if (!itemType.canBeUsedInArraySetOperation()) {
+            if (checkPhysicalType && !itemType.canBeUsedInArraySetOperation()) {
                 throw new AnalysisException("array_union does not support element type " + itemType.toSql());
             }
         }

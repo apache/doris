@@ -76,10 +76,13 @@ public class ArrayPosition extends ScalarFunction
      * so the element type must be comparable.
      */
     @Override
-    public void checkLegalityBeforeTypeCoercion() {
+    public void checkLegalityAfterRewrite() {
         DataType argType = getArgument(0).getDataType();
-        if (argType.isArrayType() && ((ArrayType) argType).getItemType().isComplexType()) {
-            throw new AnalysisException("array_position does not support complex types: " + toSql());
+        if (argType.isArrayType()) {
+            DataType itemType = ((ArrayType) argType).getItemType();
+            if (!itemType.canBeUsedInArrayEqualityOperation()) {
+                throw new AnalysisException("array_position does not support element type " + itemType.toSql());
+            }
         }
     }
 

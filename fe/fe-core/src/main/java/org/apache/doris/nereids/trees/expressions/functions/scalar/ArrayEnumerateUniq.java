@@ -76,6 +76,21 @@ public class ArrayEnumerateUniq extends ScalarFunction
         }
     }
 
+    @Override
+    public void checkLegalityAfterRewrite() {
+        if (getArguments().size() != 1) {
+            return;
+        }
+        DataType argType = getArgument(0).getDataType();
+        if (argType.isArrayType()) {
+            DataType itemType = ((ArrayType) argType).getItemType();
+            if (!itemType.canBeUsedInArrayEqualityOperation()) {
+                throw new AnalysisException("array_enumerate_uniq does not support element type "
+                        + itemType.toSql());
+            }
+        }
+    }
+
     /**
      * withChildren.
      */

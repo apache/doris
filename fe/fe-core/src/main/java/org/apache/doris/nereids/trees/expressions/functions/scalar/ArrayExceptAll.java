@@ -57,16 +57,15 @@ public class ArrayExceptAll extends ScalarFunction implements ExplicitlyCastable
     }
 
     @Override
-    public void checkLegalityBeforeTypeCoercion() {
+    public void checkLegalityAfterRewrite() {
         for (Expression argument : getArguments()) {
             DataType argumentType = argument.getDataType();
             if (!argumentType.isArrayType()) {
                 continue;
             }
             DataType itemType = ((ArrayType) argumentType).getItemType();
-            if (itemType.isComplexType() || itemType.isVariantType() || itemType.isJsonType()) {
-                throw new AnalysisException("array_except_all does not support types: "
-                        + argumentType.toSql());
+            if (!itemType.canBeUsedInArrayEqualityOperation()) {
+                throw new AnalysisException("array_except_all does not support element type " + itemType.toSql());
             }
         }
     }

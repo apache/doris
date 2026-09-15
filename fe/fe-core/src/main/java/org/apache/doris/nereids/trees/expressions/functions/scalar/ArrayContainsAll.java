@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -25,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 
@@ -63,6 +65,17 @@ public class ArrayContainsAll extends ScalarFunction implements ExplicitlyCastab
     public ArrayContainsAll withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new ArrayContainsAll(getFunctionParams(children));
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        DataType argType = getArgument(0).getDataType();
+        if (argType.isArrayType()) {
+            DataType itemType = ((ArrayType) argType).getItemType();
+            if (!itemType.canBeUsedInArrayEqualityOperation()) {
+                throw new AnalysisException("array_contains_all does not support element type " + itemType.toSql());
+            }
+        }
     }
 
     @Override
