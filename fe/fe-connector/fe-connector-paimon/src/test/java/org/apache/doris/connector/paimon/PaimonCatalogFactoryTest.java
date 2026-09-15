@@ -93,14 +93,19 @@ public class PaimonCatalogFactoryTest {
     }
 
     @Test
-    public void enclosingDorisWeightLimitDisablesPaimonSdkCacheOnlyByDefault() throws Exception {
+    public void dorisAlwaysDisablesPaimonSdkCachingCatalog() throws Exception {
         Map<String, String> defaults = props(
                 "paimon.catalog.type", "filesystem", "warehouse", "/wh");
 
+        // Doris owns the paimon Table cache (PaimonTableCache, registered in the connector CatalogMetaCache
+        // with full table/database/catalog invalidation semantics), so the SDK CachingCatalog — which caches
+        // frozen Table objects behind only per-table eviction and goes stale after an external same-name
+        // drop/recreate — must ALWAYS be off, regardless of Doris weight limits or an explicit user setting.
         try (PaimonConnector ungoverned = new PaimonConnector(defaults, new RecordingConnectorContext())) {
             Options options = ungoverned.buildCatalogOptions();
-            Assertions.assertFalse(options.contains(CatalogOptions.CACHE_ENABLED),
-                    "without a global/catalog total, Doris must preserve the Paimon SDK default");
+            Assertions.assertTrue(options.contains(CatalogOptions.CACHE_ENABLED));
+            Assertions.assertFalse(options.get(CatalogOptions.CACHE_ENABLED),
+                    "the Paimon SDK CachingCatalog must be disabled even without a Doris weight limit");
         }
 
         Map<String, String> catalogLimited = new HashMap<>(defaults);
@@ -109,25 +114,28 @@ public class PaimonCatalogFactoryTest {
             Options options = governed.buildCatalogOptions();
             Assertions.assertTrue(options.contains(CatalogOptions.CACHE_ENABLED));
             Assertions.assertFalse(options.get(CatalogOptions.CACHE_ENABLED),
-                    "an enclosing Doris hard limit must not be bypassed by an unaccounted SDK cache");
+                    "the Paimon SDK CachingCatalog must stay disabled under an enclosing Doris hard limit");
         }
 
         Map<String, String> entryLimited = new HashMap<>(defaults);
         entryLimited.put("meta.cache.paimon.partition_view.max-weight", "1MB");
         try (PaimonConnector entryOnly = new PaimonConnector(entryLimited, new RecordingConnectorContext())) {
-            Assertions.assertFalse(entryOnly.buildCatalogOptions().contains(CatalogOptions.CACHE_ENABLED),
-                    "an entry-only limit must preserve the Paimon SDK default");
+            Assertions.assertFalse(entryOnly.buildCatalogOptions().get(CatalogOptions.CACHE_ENABLED),
+                    "an entry-only limit must not re-enable the Paimon SDK CachingCatalog");
         }
 
+        // An explicit Paimon cache-enabled=true must NOT win: Doris forces the SDK cache off because the
+        // Doris-owned PaimonTableCache replaces it. MUTATION: honoring the user setting -> frozen Table served
+        // after external drop/recreate -> red.
         PaimonCatalogProperties explicitTrue = PaimonCatalogProperties.of(props(
                 "paimon.catalog.type", "filesystem", "warehouse", "/wh", "paimon.cache-enabled", "true"));
-        Assertions.assertTrue(PaimonCatalogFactory.buildCatalogOptions(explicitTrue, true)
-                .get(CatalogOptions.CACHE_ENABLED), "an explicit Paimon setting must win");
+        Assertions.assertFalse(PaimonCatalogFactory.buildCatalogOptions(explicitTrue)
+                .get(CatalogOptions.CACHE_ENABLED), "an explicit enable must still be forced off by Doris");
 
         PaimonCatalogProperties explicitFalse = PaimonCatalogProperties.of(props(
                 "paimon.catalog.type", "filesystem", "warehouse", "/wh", "paimon.cache-enabled", "false"));
-        Assertions.assertFalse(PaimonCatalogFactory.buildCatalogOptions(explicitFalse, true)
-                .get(CatalogOptions.CACHE_ENABLED), "an explicit Paimon setting must win");
+        Assertions.assertFalse(PaimonCatalogFactory.buildCatalogOptions(explicitFalse)
+                .get(CatalogOptions.CACHE_ENABLED));
     }
 
     @Test
