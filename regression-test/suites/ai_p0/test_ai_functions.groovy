@@ -37,8 +37,7 @@ suite("test_ai_functions") {
                 'ai.temperature' = '0.7',
                 'ai.max_token' = '1024',
                 'ai.max_retries' = '2',
-                'ai.retry_delay_second' = '3',
-                'ai.validity_check' = 'false'
+                'ai.retry_delay_second' = '3'
             );"""
     
     def res = sql """SHOW RESOURCES WHERE NAME = '${resourceName}'"""

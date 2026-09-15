@@ -27,9 +27,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -54,7 +53,8 @@ import java.util.Map;
  */
 
 public class AIResource extends Resource {
-    private static final Logger LOG = LogManager.getLogger(AIResource.class);
+    private static final String LEGACY_VALIDITY_CHECK = "ai.validity_check";
+
     @SerializedName(value = "properties")
     private Map<String, String> properties;
     @SerializedName(value = "createdByRoot")
@@ -80,60 +80,56 @@ public class AIResource extends Resource {
     @Override
     protected void setProperties(ImmutableMap<String, String> newProperties) throws DdlException {
         Preconditions.checkState(newProperties != null);
-        this.properties = Maps.newHashMap(newProperties);
+        Map<String, String> changedProperties = Maps.newHashMap(newProperties);
+        changedProperties.remove(LEGACY_VALIDITY_CHECK);
 
-        AIProperties.requiredAIProperties(properties);
-
-        boolean needCheck = isNeedCheck(properties);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("AI resource need check validity: {}", needCheck);
-        }
-
-        AIProperties.optionalAIProperties(this.properties);
+        AIProperties.requiredAIProperties(changedProperties);
+        AIProperties.optionalAIProperties(changedProperties);
+        this.properties = changedProperties;
     }
 
     public String getProperty(String propertyKey) {
         return properties.get(propertyKey);
     }
 
-    private boolean isNeedCheck(Map<String, String> newProperties) {
-        boolean needCheck = !this.properties.containsKey(AIProperties.VALIDITY_CHECK)
-                || Boolean.parseBoolean(this.properties.get(AIProperties.VALIDITY_CHECK));
-
-        if (newProperties != null && newProperties.containsKey(AIProperties.VALIDITY_CHECK)) {
-            needCheck = Boolean.parseBoolean(newProperties.get(AIProperties.VALIDITY_CHECK));
-        }
-
-        if ("LOCAL".equalsIgnoreCase(this.properties.getOrDefault(AIProperties.PROVIDER_TYPE, ""))) {
-            needCheck = false;
-        }
-        return needCheck;
-    }
-
     @Override
-    public void modifyProperties(Map<String, String> properties) throws DdlException {
-        boolean needCheck = isNeedCheck(properties);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("AI resource need check validity: {}", needCheck);
+    public void modifyProperties(Map<String, String> newProperties) throws DdlException {
+        Map<String, String> changedProperties = new HashMap<>(this.properties);
+        changedProperties.remove(LEGACY_VALIDITY_CHECK);
+        for (Map.Entry<String, String> kv : newProperties.entrySet()) {
+            if (LEGACY_VALIDITY_CHECK.equals(kv.getKey())) {
+                continue;
+            }
+            replaceIfEffectiveValue(changedProperties, kv.getKey(), kv.getValue());
+            if (AIProperties.API_KEY.equals(kv.getKey())) {
+                changedProperties.put(kv.getKey(), kv.getValue());
+            }
         }
-
-        if (needCheck) {
-            Map<String, String> changedProperties = new HashMap<>(this.properties);
-            changedProperties.putAll(properties);
-            AIProperties.requiredAIProperties(changedProperties);
-        }
+        AIProperties.requiredAIProperties(changedProperties);
+        AIProperties.optionalAIProperties(changedProperties);
 
         // modify properties
         writeLock();
-        for (Map.Entry<String, String> kv : properties.entrySet()) {
+        for (Map.Entry<String, String> kv : newProperties.entrySet()) {
+            if (LEGACY_VALIDITY_CHECK.equals(kv.getKey())) {
+                continue;
+            }
             replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
-            if (kv.getKey().equals(AIProperties.API_KEY)) {
+            if (AIProperties.API_KEY.equals(kv.getKey())) {
                 this.properties.put(kv.getKey(), kv.getValue());
             }
         }
         ++version;
         writeUnlock();
-        super.modifyProperties(properties);
+        super.modifyProperties(newProperties);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
+        if (properties != null) {
+            properties.remove(LEGACY_VALIDITY_CHECK);
+        }
     }
 
     @Override

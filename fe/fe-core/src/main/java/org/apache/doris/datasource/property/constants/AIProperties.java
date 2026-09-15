@@ -50,8 +50,6 @@ public class AIProperties extends BaseProperties {
     public static final String DEFAULT_ANTHROPIC_VERSION = "2023-06-01";
     public static final String DEFAULT_DIMENSIONS = "-1";
 
-    public static final String VALIDITY_CHECK = "ai.validity_check";
-
     public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT, PROVIDER_TYPE, MODEL_NAME);
     public static final List<String> PROVIDERS
             = Arrays.asList("OPENAI", "LOCAL", "GEMINI", "DEEPSEEK", "ANTHROPIC",

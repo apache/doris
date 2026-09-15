@@ -86,7 +86,6 @@ public class AIResourceTest {
         aiProperties.put("ai.provider_type", providerType);
         aiProperties.put("ai.api_key", apiKey);
         aiProperties.put("ai.model_name", modelName);
-        aiProperties.put("ai.validity_check", "false");
     }
 
     @Test
@@ -256,13 +255,14 @@ public class AIResourceTest {
                 "ai.endpoint", endpoint,
                 "ai.provider_type", providerType,
                 "ai.api_key", apiKey,
-                "ai.model_name", modelName,
-                "ai.validity_check", "false"
+                "ai.model_name", modelName
         );
         AIResource aiResource2 = new AIResource("ai_2");
         aiResource2.setCreatedByRoot(true);
         aiResource2.setProperties(properties);
-        aiResource2.write(aiDos);
+        JsonObject legacyAIResourceJson = JsonParser.parseString(GsonUtils.GSON.toJson(aiResource2)).getAsJsonObject();
+        legacyAIResourceJson.getAsJsonObject("properties").addProperty("ai.validity_check", "false");
+        Text.writeString(aiDos, legacyAIResourceJson.toString());
 
         aiDos.flush();
         aiDos.close();
@@ -286,6 +286,7 @@ public class AIResourceTest {
         Assertions.assertEquals(rAiResource2.getProperty(AIProperties.MAX_RETRIES), AIProperties.DEFAULT_MAX_RETRIES);
         Assertions.assertEquals(rAiResource2.getProperty(AIProperties.RETRY_DELAY_SECOND),
                             AIProperties.DEFAULT_RETRY_DELAY_SECOND);
+        Assertions.assertNull(rAiResource2.getProperty("ai.validity_check"));
 
         // 3. delete
         aiDis.close();
@@ -298,8 +299,7 @@ public class AIResourceTest {
                 "ai.endpoint", endpoint,
                 "ai.provider_type", providerType,
                 "ai.api_key", apiKey,
-                "ai.model_name", modelName,
-                "ai.validity_check", "false"
+                "ai.model_name", modelName
         );
         AIResource aiResource = new AIResource("t_ai_source");
         aiResource.setProperties(properties);
@@ -312,6 +312,44 @@ public class AIResourceTest {
 
         Assertions.assertEquals("new_api_key", aiResource.getProperty(AIProperties.API_KEY));
         Assertions.assertEquals("0.9", aiResource.getProperty(AIProperties.TEMPERATURE));
+    }
+
+    @Test
+    public void testLegacyValidityCheckIsIgnored() throws DdlException {
+        Map<String, String> properties = new HashMap<>(aiProperties);
+        properties.put("ai.validity_check", "false");
+        AIResource aiResource = new AIResource("legacy-validity-check-resource");
+        aiResource.setProperties(ImmutableMap.copyOf(properties));
+        Assertions.assertNull(aiResource.getProperty("ai.validity_check"));
+
+        aiResource.modifyProperties(ImmutableMap.of("ai.validity_check", "true"));
+        Assertions.assertNull(aiResource.getProperty("ai.validity_check"));
+    }
+
+    @Test
+    public void testEndpointIsNotValidatedOnCreateOrAlter() throws DdlException {
+        Map<String, String> properties = new HashMap<>(aiProperties);
+        properties.put(AIProperties.ENDPOINT, "not-a-url");
+        AIResource aiResource = new AIResource("unchecked-endpoint-resource");
+
+        Assertions.assertDoesNotThrow(() -> aiResource.setProperties(ImmutableMap.copyOf(properties)));
+        Assertions.assertDoesNotThrow(() -> aiResource.modifyProperties(
+                ImmutableMap.of(AIProperties.ENDPOINT, "still-not-a-url")));
+    }
+
+    @Test
+    public void testModifyProviderFromLocalRequiresApiKey() throws DdlException {
+        AIResource aiResource = new AIResource("local-resource-without-api-key");
+        aiResource.setProperties(ImmutableMap.of(
+                AIProperties.ENDPOINT, "http://localhost:8000/v1/chat/completions",
+                AIProperties.PROVIDER_TYPE, "local",
+                AIProperties.MODEL_NAME, "local-model"));
+
+        DdlException exception = Assertions.assertThrows(DdlException.class, () ->
+                aiResource.modifyProperties(ImmutableMap.of(AIProperties.PROVIDER_TYPE, "qwen")));
+
+        Assertions.assertTrue(exception.getMessage().contains("Missing [ai.api_key]"));
+        Assertions.assertEquals("LOCAL", aiResource.getProperty(AIProperties.PROVIDER_TYPE));
     }
 
     @Test
@@ -359,7 +397,6 @@ public class AIResourceTest {
         openaiProps.put("ai.provider_type", "openai");
         openaiProps.put("ai.api_key", "openai-key");
         openaiProps.put("ai.model_name", "gpt-4");
-        openaiProps.put("ai.validity_check", "false");
 
         AIResource openaiResource = new AIResource("openai-resource");
         openaiResource.setProperties(ImmutableMap.copyOf(openaiProps));
@@ -370,7 +407,6 @@ public class AIResourceTest {
         geminiProps.put("ai.provider_type", "gemini");
         geminiProps.put("ai.api_key", "gemini-api-key");
         geminiProps.put("ai.model_name", "gemini-pro");
-        geminiProps.put("ai.validity_check", "false");
 
         AIResource geminiResource = new AIResource("gemini-resource");
         geminiResource.setProperties(ImmutableMap.copyOf(geminiProps));
@@ -382,7 +418,6 @@ public class AIResourceTest {
         anthropicProps.put("ai.api_key", "anthropic-api-key");
         anthropicProps.put("ai.model_name", "claude-3-opus");
         anthropicProps.put("ai.anthropic_version", "2023-06-01");
-        anthropicProps.put("ai.validity_check", "false");
 
         AIResource anthropicResource = new AIResource("anthropic-resource");
         anthropicResource.setProperties(ImmutableMap.copyOf(anthropicProps));
@@ -393,7 +428,6 @@ public class AIResourceTest {
         localProps.put("ai.provider_type", "local");
         localProps.put("ai.api_key", "local-key");
         localProps.put("ai.model_name", "local-model");
-        localProps.put("ai.validity_check", "false");
 
         AIResource localResource = new AIResource("local-resource");
         localResource.setProperties(ImmutableMap.copyOf(localProps));

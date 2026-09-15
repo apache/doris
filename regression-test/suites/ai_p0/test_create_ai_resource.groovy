@@ -25,9 +25,6 @@ suite("test_create_ai_resource") {
 
     try_sql("""DROP RESOURCE '${resourceName}'""")
 
-    //If 'ai.validity_check'='false' is not set,
-    // ai resource availability must be checked when creating the resource.
-
     // missing end_point
     test {
         sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
@@ -99,12 +96,12 @@ suite("test_create_ai_resource") {
                 'ai.temperature' = '0.7',
                 'ai.max_token' = '1024',
                 'ai.max_retries' = '0',
-                'ai.retry_delay_second' = '1',
-                'ai.validity_check' = 'false'
+                'ai.retry_delay_second' = '1'
             );"""
     def res = sql """SHOW RESOURCES WHERE NAME = '${resourceName}'"""
     assertTrue(res.size() > 0)
     assertTrue(res.any { row -> row[2] == 'ai.max_retries' && row[3] == '0' })
+    assertFalse(res.collect { row -> row[2] }.contains('ai.validity_check'))
 
     try_sql("""DROP RESOURCE '${resourceName}'""")
 }
