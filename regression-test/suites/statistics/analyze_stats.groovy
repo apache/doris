@@ -2747,15 +2747,22 @@ PARTITION `p599` VALUES IN (599)
    """
     sql """insert into string_min_max values (1,'name1'), (2, 'name2')"""
     sql """analyze table string_min_max with sync"""
-    explain {
-        sql("select min(name), max(name) from string_min_max")
-        contains "pushAggOp=NONE"
-    }
-    sql """set enable_pushdown_string_minmax = true"""
+    // Every string column is pushed down now, and the storage layer decides per segment whether
+    // a cut bound may answer. These bounds are short, so the zone map answers them.
     explain {
         sql("select min(name), max(name) from string_min_max")
         contains "pushAggOp=MINMAX"
     }
+    // A sample analyze reads min/max from the zone map instead of the rows. A value past the
+    // 512-byte cut is stored as its prefix with the last byte raised, so the recorded max is
+    // 'zzz...z{', not the 600 'z' that were inserted. show column stats quotes both bounds.
+    def long_name = "z" * 600
+    sql """insert into string_min_max values (3, "${long_name}")"""
+    sql """analyze table string_min_max with sample rows 100 with sync"""
+    def string_min_max_stats = sql """show column stats string_min_max(name)"""
+    assertEquals(1, string_min_max_stats.size())
+    assertEquals("'name1'", string_min_max_stats[0][7])
+    assertEquals("'" + "z" * 511 + "{'", string_min_max_stats[0][8])
 
     // Test alter
     sql """
