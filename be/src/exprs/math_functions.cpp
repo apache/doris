@@ -104,14 +104,10 @@ StringRef MathFunctions::decimal_to_base(FunctionContext* ctx, int64_t src_num, 
     char buf[max_digits];
     int32_t result_len = 0;
     int32_t buf_index = max_digits - 1;
-    uint64_t temp_num;
-    if (dest_base < 0) {
-        // Dest base is negative, treat src_num as signed.
-        temp_num = std::abs(src_num);
-    } else {
-        // Dest base is positive. We must interpret src_num in 2's complement.
-        // Convert to an unsigned int to properly deal with 2's complement conversion.
-        temp_num = static_cast<uint64_t>(src_num);
+    auto temp_num = static_cast<uint64_t>(src_num);
+    if (dest_base < 0 && src_num < 0) {
+        // Compute the signed magnitude without overflowing for INT64_MIN.
+        temp_num = uint64_t {0} - temp_num;
     }
     int abs_base = std::abs(dest_base);
     do {
