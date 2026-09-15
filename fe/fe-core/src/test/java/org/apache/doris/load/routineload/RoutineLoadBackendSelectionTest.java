@@ -25,6 +25,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
 import org.apache.doris.system.SystemInfoService;
 
 import org.junit.jupiter.api.Assertions;
@@ -120,6 +121,7 @@ public class RoutineLoadBackendSelectionTest {
 
     private Backend createBackend(long id, String host) {
         Backend backend = new Backend(id, host, 9050);
+        backend.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend.setAlive(true);
         return backend;
     }

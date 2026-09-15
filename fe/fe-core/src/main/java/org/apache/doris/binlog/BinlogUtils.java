@@ -18,13 +18,17 @@
 package org.apache.doris.binlog;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.tso.TSOTimestamp;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
 
@@ -36,9 +40,34 @@ public class BinlogUtils {
     public static final long ROW_BINLOG_DELETE = 1;
     public static final long ROW_BINLOG_UPDATE_BEFORE = 2;
     public static final long ROW_BINLOG_UPDATE_AFTER = 3;
+    public static final String ROW_BINLOG_OFFSET_EXPIRED =
+            "Row binlog offset has expired according to binlog.ttl_seconds";
 
     public static String wrapBinlogName(String originTableName) {
         return ROW_BINLOG_NAME + "(" + originTableName + ")";
+    }
+
+    /**
+     * Apply an inclusive row-binlog expiration cutoff to a scan's inclusive start TSO.
+     */
+    public static long effectiveStartTso(Long startTso, long cutoffTso, boolean rejectExpiredStart) {
+        long firstRetainedTso = TSOTimestamp.nextTso(cutoffTso);
+        if (startTso == null) {
+            return firstRetainedTso;
+        }
+        if (rejectExpiredStart && startTso < firstRetainedTso) {
+            throw new AnalysisException(ROW_BINLOG_OFFSET_EXPIRED
+                    + ": start_tso=" + startTso + ", cutoff_tso=" + cutoffTso);
+        }
+        return Math.max(startTso, firstRetainedTso);
+    }
+
+    public static void markExplicitRowTtl(Map<String, String> properties) {
+        String ttlSeconds = properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS);
+        if (ttlSeconds != null) {
+            properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ROW_TTL_ENABLED,
+                    String.valueOf(Long.parseLong(ttlSeconds) >= 0));
+        }
     }
 
     public static Pair<TStatus, List<TBinlog>> getBinlog(

@@ -549,6 +549,7 @@ public class TabletScheduler extends MasterDaemon {
         tbl.writeLockOrException(new SchedException(Status.UNRECOVERABLE,
                     "table " + tbl.getName() + " does not exist"));
         try {
+            tabletCtx.setIsRowTtl(tbl.hasRowTtl());
             long tabletId = tabletCtx.getTabletId();
 
             boolean isColocateTable = colocateTableIndex.isColocateTable(tbl.getId());

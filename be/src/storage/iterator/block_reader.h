@@ -151,13 +151,14 @@ private:
 
     std::vector<RowLocation> _block_row_locations;
 
-    ColumnPtr _delete_filter_column;
-
     bool _is_rowsets_overlapping = true;
 
     // Unsupported compare_at means equality cannot be proven, so MIN_DELTA conservatively keeps
     // UPDATE rows. Column types are stable within a reader; cache this after the first exception.
     bool _min_delta_value_compare_unsupported = false;
+    bool _filter_delete_sign = false;
+    bool _filter_row_ttl = false;
+    int64_t _row_ttl_now_us = 0;
     Arena _arena;
 };
 

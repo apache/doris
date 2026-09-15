@@ -17,6 +17,8 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.util.PropertyAnalyzer;
+
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
@@ -33,13 +35,17 @@ public class DatabaseProperty {
 
     @SerializedName(value = "properties")
     private Map<String, String> properties = Maps.newHashMap();
+    @SerializedName(value = "rowBinlogTtlEnabled")
+    private boolean rowBinlogTtlEnabled;
 
     public DatabaseProperty() {
 
     }
 
     public DatabaseProperty(Map<String, String> properties) {
-        this.properties = properties;
+        this.properties = Maps.newHashMap(properties);
+        this.rowBinlogTtlEnabled = Boolean.parseBoolean(
+                this.properties.remove(PropertyAnalyzer.PROPERTIES_BINLOG_ROW_TTL_ENABLED));
     }
 
     public void put(String key, String val) {
@@ -61,10 +67,20 @@ public class DatabaseProperty {
     public BinlogConfig getBinlogConfig() {
         BinlogConfig binlogConfig = new BinlogConfig();
         binlogConfig.mergeFromProperties(properties);
+        binlogConfig.setRowTtlEnabled(rowBinlogTtlEnabled);
         return binlogConfig;
     }
 
+    public boolean hasRowBinlogTtl() {
+        return rowBinlogTtlEnabled;
+    }
+
     public void updateProperties(Map<String, String> newProperties) {
+        String rowTtlEnabled = newProperties.get(PropertyAnalyzer.PROPERTIES_BINLOG_ROW_TTL_ENABLED);
         properties.putAll(newProperties);
+        properties.remove(PropertyAnalyzer.PROPERTIES_BINLOG_ROW_TTL_ENABLED);
+        if (rowTtlEnabled != null) {
+            this.rowBinlogTtlEnabled = Boolean.parseBoolean(rowTtlEnabled);
+        }
     }
 }

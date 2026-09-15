@@ -37,7 +37,9 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.BackendsTableValuedFunction;
+import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TBackendsMetadataParams;
 import org.apache.doris.thrift.TCheckAuthRequest;
 import org.apache.doris.thrift.TCheckAuthResult;
@@ -46,6 +48,8 @@ import org.apache.doris.thrift.TCreatePartitionRequest;
 import org.apache.doris.thrift.TCreatePartitionResult;
 import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
+import org.apache.doris.thrift.TGetBackendMetaRequest;
+import org.apache.doris.thrift.TGetBackendMetaResult;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetTablesParams;
@@ -77,7 +81,9 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.Level;
+import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
+import org.apache.thrift.TSerializer;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -127,6 +133,24 @@ public class FrontendServiceImplTest extends TestWithFeService {
         Field field = target.getClass().getDeclaredField(fieldName);
         field.setAccessible(true);
         field.set(target, value);
+    }
+
+    @Test
+    public void testGetBackendMetaPreservesFeatureFlags() throws Exception {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TGetBackendMetaRequest request = new TGetBackendMetaRequest().setUser("root").setPasswd("");
+        TGetBackendMetaResult result = impl.getBackendMeta(request);
+        Assertions.assertEquals(TStatusCode.OK, result.getStatus().getStatusCode());
+        Assertions.assertFalse(result.getBackends().isEmpty());
+
+        TGetBackendMetaResult restored = new TGetBackendMetaResult();
+        new TDeserializer().deserialize(restored, new TSerializer().serialize(result));
+        for (TBackend metadata : restored.getBackends()) {
+            Backend source = Env.getCurrentSystemInfo().getBackend(metadata.getId());
+            Assertions.assertTrue(metadata.isSetNodeFeatureFlags());
+            Assertions.assertEquals(source.getNodeFeatureFlags(), metadata.getNodeFeatureFlags());
+            Assertions.assertTrue(Backend.fromThrift(metadata).isQueryAvailable());
+        }
     }
 
     @Test

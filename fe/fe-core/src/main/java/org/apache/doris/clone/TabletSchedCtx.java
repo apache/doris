@@ -44,6 +44,7 @@ import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.spi.BackendSelectionProvider;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CloneTask;
@@ -206,6 +207,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     private SubCode schedFailedCode;
 
     private boolean isUniqKeyMergeOnWrite = false;
+    private boolean isRowTtl = false;
 
     public TabletSchedCtx(Type type, long dbId, long tblId, long partId,
             long idxId, long tabletId, ReplicaAllocation replicaAlloc, long createTime) {
@@ -270,6 +272,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     public void setIsUniqKeyMergeOnWrite(boolean isUniqKeyMergeOnWrite) {
         this.isUniqKeyMergeOnWrite = isUniqKeyMergeOnWrite;
+    }
+
+    public void setIsRowTtl(boolean isRowTtl) {
+        this.isRowTtl = isRowTtl;
     }
 
     public int getFinishedCounter() {
@@ -712,6 +718,12 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 }
                 continue;
             }
+            if (isRowTtl && !be.supportsNodeFeature(NodeFeature.ROW_TTL)) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("skip Row TTL clone source backend {} without required capability", replicaBeId);
+                }
+                continue;
+            }
 
             if (replica.getLastFailedVersion() > 0) {
                 if (LOG.isDebugEnabled()) {
@@ -829,8 +841,17 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 continue;
             }
 
+            long replicaBeId = replica.getBackendIdWithoutException();
+            Backend replicaBackend = infoService.getBackend(replicaBeId);
+            if (isRowTtl && (replicaBackend == null
+                    || !replicaBackend.supportsNodeFeature(NodeFeature.ROW_TTL))) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("skip Row TTL clone destination backend {} without required capability", replicaBeId);
+                }
+                continue;
+            }
+
             if (!replica.isScheduleAvailable()) {
-                long replicaBeId = replica.getBackendIdWithoutException();
                 if (Env.getCurrentSystemInfo().checkBackendScheduleAvailable(replicaBeId)) {
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("replica's backend {} does not exist or is not scheduler available, skip. tablet: {}",
@@ -1117,6 +1138,12 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             throw new SchedException(Status.SCHEDULE_FAILED,
                 "dest backend " + destBackendId + " does not exist");
         }
+        if (isRowTtl && (srcBe.isNodeFeatureIncompatible() || destBe.isNodeFeatureIncompatible()
+                || !srcBe.supportsNodeFeature(NodeFeature.ROW_TTL)
+                || !destBe.supportsNodeFeature(NodeFeature.ROW_TTL))) {
+            throw new SchedException(Status.SCHEDULE_FAILED,
+                    "Row TTL clone source and destination must support Row TTL");
+        }
 
         taskTimeoutMs = getApproximateTimeoutMs();
 
@@ -1169,7 +1196,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
         cloneTask = new CloneTask(tDestBe, destBackendId, dbId, tblId, partitionId, indexId, tabletId,
                 replica.getId(), schemaHash, Lists.newArrayList(tSrcBe), storageMedium,
-                visibleVersion, (int) (taskTimeoutMs / 1000));
+                visibleVersion, (int) (taskTimeoutMs / 1000), isRowTtl);
         destOldVersion = replica.getVersion();
         cloneTask.setPathHash(srcPathHash, destPathHash);
         LOG.info("create clone task to repair replica, tabletId={}, replica={}, visible version {}, tablet status {}",

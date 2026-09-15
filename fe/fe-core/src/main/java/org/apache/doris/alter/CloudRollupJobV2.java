@@ -232,6 +232,8 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                                     tbl.getDataSortInfo(), tbl.getCompressionType(), tbl.getStorageFormat(),
                                     tbl.getStoragePolicy(), tbl.isInMemory(), true,
                                     tbl.getName(), tbl.getTTLSeconds(),
+                                    tbl.getRowTtlDurationMicros(), tbl.getRowTtlTimeZoneOffsetSeconds(),
+                                    false,
                                     tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
                                     tbl.getBaseSchemaVersion(), null, tbl.getCompactionPolicy(),
                                     tbl.getTimeSeriesCompactionGoalSizeMbytes(),

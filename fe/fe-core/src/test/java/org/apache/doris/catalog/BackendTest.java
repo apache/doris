@@ -21,11 +21,15 @@ import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
+import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
+import org.apache.thrift.TDeserializer;
+import org.apache.thrift.TSerializer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -102,6 +106,49 @@ public class BackendTest {
     @Test
     public void testLocationTagIsSafelyPublished() throws NoSuchFieldException {
         Assertions.assertTrue(Modifier.isVolatile(Backend.class.getDeclaredField("locationTag").getModifiers()));
+    }
+
+    @Test
+    public void testRemoteBackendFeatureFlagsRoundTrip() throws Exception {
+        // Preserve the peer's full capability mask, including bits unknown to this FE.
+        long flags = NodeFeature.ROW_TTL | (1L << 62);
+        TBackend metadata = new TBackend(host, bePort, httpPort)
+                .setId(backendId).setBrpcPort(beRpcPort).setIsAlive(true).setNodeFeatureFlags(flags);
+        TBackend restored = new TBackend();
+        new TDeserializer().deserialize(restored, new TSerializer().serialize(metadata));
+
+        Backend remoteBackend = Backend.fromThrift(restored);
+        Assertions.assertEquals(flags, remoteBackend.getNodeFeatureFlags());
+        Assertions.assertEquals(backendId, remoteBackend.getId());
+        Assertions.assertEquals(host, remoteBackend.getHost());
+        Assertions.assertEquals(bePort, remoteBackend.getBePort());
+        Assertions.assertEquals(httpPort, remoteBackend.getHttpPort());
+        Assertions.assertEquals(beRpcPort, remoteBackend.getBrpcPort());
+        Assertions.assertTrue(remoteBackend.isQueryAvailable());
+        Assertions.assertTrue(remoteBackend.isLoadAvailable());
+
+        restored.setIsAlive(false);
+        Assertions.assertFalse(Backend.fromThrift(restored).isQueryAvailable());
+    }
+
+    @Test
+    public void testRemoteBackendWithoutRequiredFeatureIsUnavailable() throws Exception {
+        TBackend metadata = new TBackend(host, bePort, httpPort).setId(backendId).setIsAlive(true);
+        TBackend restored = new TBackend();
+        new TDeserializer().deserialize(restored, new TSerializer().serialize(metadata));
+        Assertions.assertFalse(restored.isSetNodeFeatureFlags());
+        Backend remoteBackend = Backend.fromThrift(restored);
+        Assertions.assertTrue(remoteBackend.isAlive());
+        Assertions.assertEquals(0L, remoteBackend.getNodeFeatureFlags());
+        Assertions.assertFalse(remoteBackend.isQueryAvailable());
+        Assertions.assertFalse(remoteBackend.isLoadAvailable());
+
+        metadata.setNodeFeatureFlags(NodeFeature.ROW_BINLOG_TTL);
+        new TDeserializer().deserialize(restored, new TSerializer().serialize(metadata));
+        remoteBackend = Backend.fromThrift(restored);
+        Assertions.assertEquals(NodeFeature.ROW_BINLOG_TTL, remoteBackend.getNodeFeatureFlags());
+        Assertions.assertFalse(remoteBackend.isQueryAvailable());
+        Assertions.assertFalse(remoteBackend.isLoadAvailable());
     }
 
     @Test

@@ -29,6 +29,7 @@ import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.spi.BackendSelectionProvider;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeLocation;
@@ -386,6 +387,7 @@ class LoadBalanceScanWorkerSelectorBackendSelectionTest {
 
     private static Backend backend(long id, String tag) {
         Backend backend = new Backend(id, "127.0.0." + id, 9050);
+        backend.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend.setAlive(true);
         backend.setTagMap(Collections.singletonMap(Tag.TYPE_LOCATION, tag));
         return backend;

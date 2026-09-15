@@ -184,4 +184,28 @@ public class TSOTimestampTest {
         // Test the maximum logical counter value
         Assertions.assertEquals((1L << 18) - 1, TSOTimestamp.MAX_LOGICAL_COUNTER);
     }
+
+    @Test
+    public void testCalculateCutoff() {
+        long referenceTso = TSOTimestamp.composeTimestamp(10_000L, 7L);
+        Assertions.assertEquals(TSOTimestamp.composeRealTso(7_000L, TSOTimestamp.MAX_LOGICAL_COUNTER),
+                TSOTimestamp.calculateCutoff(referenceTso, 3L));
+        Assertions.assertEquals(TSOTimestamp.composeRealTso(10_000L, TSOTimestamp.MAX_LOGICAL_COUNTER),
+                TSOTimestamp.calculateCutoff(referenceTso, 0L));
+        Assertions.assertEquals(0L, TSOTimestamp.calculateCutoff(referenceTso, 11L));
+        Assertions.assertEquals(TSOTimestamp.MAX_REAL_TSO,
+                TSOTimestamp.calculateCutoff(TSOTimestamp.MAX_REAL_TSO, 0L));
+    }
+
+    @Test
+    public void testCalculateCutoffRejectsNonPositiveReferenceTso() {
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> TSOTimestamp.calculateCutoff(0L, 0L));
+    }
+
+    @Test
+    public void testCalculateCutoffRejectsNegativeTtl() {
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> TSOTimestamp.calculateCutoff(TSOTimestamp.composePhysicalTimestamp(1L), -1L));
+    }
 }

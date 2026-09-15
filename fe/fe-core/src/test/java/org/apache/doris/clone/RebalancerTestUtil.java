@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableMap;
@@ -64,6 +65,7 @@ public class RebalancerTestUtil {
         disks.put(diskInfo.getRootPath(), diskInfo);
         be.setDisks(ImmutableMap.copyOf(disks));
         be.setAlive(true);
+        be.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         return be;
     }
 
@@ -84,6 +86,7 @@ public class RebalancerTestUtil {
         }
         be.setDisks(ImmutableMap.copyOf(disks));
         be.setAlive(true);
+        be.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         return be;
     }
 

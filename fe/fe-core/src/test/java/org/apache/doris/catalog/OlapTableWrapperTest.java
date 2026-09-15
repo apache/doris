@@ -92,7 +92,10 @@ public class OlapTableWrapperTest {
 
     @Test
     public void testRowBinlogTableWrapper() {
-        OlapTable table = newTestTable(BinlogTestUtils.newTestRowBinlogConfig(true, true));
+        BinlogConfig binlogConfig = BinlogTestUtils.newTestRowBinlogConfig(true, true);
+        binlogConfig.setTtlSeconds(10);
+        binlogConfig.setRowTtlEnabled(true);
+        OlapTable table = newTestTable(binlogConfig);
         Assertions.assertTrue(table.needRowBinlog());
         MaterializedIndexMeta rowBinlogMeta = table.getRowBinlogMeta();
         Assertions.assertNotNull(rowBinlogMeta);

@@ -259,6 +259,7 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _tablet_type(b._tablet_type),
           _tablet_state(b._tablet_state),
           _schema(b._schema),
+          _disable_auto_compaction(b.disable_auto_compaction()),
           _rs_metas(b._rs_metas),
           _stale_rs_metas(b._stale_rs_metas),
           _in_restore_mode(b._in_restore_mode),
@@ -597,6 +598,16 @@ void TabletMeta::init_schema_from_thrift(const TTabletSchema& tablet_schema,
     if (tablet_schema.__isset.row_lsn_col_idx) {
         tablet_schema_pb->set_row_lsn_col_idx(tablet_schema.row_lsn_col_idx);
     }
+    if (tablet_schema.__isset.ttl_col_idx) {
+        tablet_schema_pb->set_ttl_col_idx(tablet_schema.ttl_col_idx);
+    }
+    if (tablet_schema.__isset.row_ttl_duration_us) {
+        tablet_schema_pb->set_row_ttl_duration_us(tablet_schema.row_ttl_duration_us);
+    }
+    if (tablet_schema.__isset.row_ttl_time_zone_offset_seconds) {
+        tablet_schema_pb->set_row_ttl_time_zone_offset_seconds(
+                tablet_schema.row_ttl_time_zone_offset_seconds);
+    }
     if (tablet_schema.__isset.store_row_column) {
         tablet_schema_pb->set_store_row_column(tablet_schema.store_row_column);
     }
@@ -838,6 +849,9 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     // init _schema
     TabletSchemaSPtr schema = std::make_shared<TabletSchema>();
     TabletSchemaPB schema_pb = tablet_meta_pb.schema();
+    _disable_auto_compaction.store(schema_pb.disable_auto_compaction());
+    // The switch belongs to this tablet, not to the immutable schema cache entry.
+    schema_pb.clear_disable_auto_compaction();
     if (_inverted_index_storage_format.has_value()) {
         schema_pb.set_inverted_index_storage_format(*_inverted_index_storage_format);
     }
@@ -968,6 +982,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_
     }
 
     _schema->to_schema_pb(tablet_meta_pb->mutable_schema());
+    tablet_meta_pb->mutable_schema()->set_disable_auto_compaction(disable_auto_compaction());
     if (_inverted_index_storage_format.has_value()) {
         tablet_meta_pb->set_inverted_index_storage_format(*_inverted_index_storage_format);
         tablet_meta_pb->mutable_schema()->set_inverted_index_storage_format(
@@ -1253,6 +1268,9 @@ bool operator==(const TabletMeta& a, const TabletMeta& b) {
     if (a._tablet_type != b._tablet_type) return false;
     if (a._tablet_state != b._tablet_state) return false;
     if (*a._schema != *b._schema) return false;
+    if (a.disable_auto_compaction() != b.disable_auto_compaction()) {
+        return false;
+    }
     if (a._rs_metas != b._rs_metas) return false;
     if (a._in_restore_mode != b._in_restore_mode) return false;
     if (a._preferred_rowset_type != b._preferred_rowset_type) return false;

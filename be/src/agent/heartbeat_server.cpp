@@ -17,6 +17,7 @@
 
 #include "agent/heartbeat_server.h"
 
+#include <bvar/bvar.h>
 #include <gen_cpp/HeartbeatService.h>
 #include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/Types_types.h>
@@ -51,6 +52,13 @@ class TProcessor;
 } // namespace apache
 
 namespace doris {
+
+namespace {
+constexpr int64_t ROW_TTL_NODE_FEATURE = 1L << 0;
+// Store the sampled value independently: bvar's sampler also runs before cluster
+// initialization and after cluster teardown.
+bvar::Status<int64_t> row_binlog_ttl_reference("row_binlog_ttl_reference_tso", 0);
+} // namespace
 
 HeartbeatServer::HeartbeatServer(ClusterInfo* cluster_info)
         : _engine(ExecEnv::GetInstance()->storage_engine()),
@@ -95,6 +103,7 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
         heartbeat_result.backend_info.__set_fragment_last_active_time(
                 get_fragment_last_active_time());
         heartbeat_result.backend_info.__set_be_mem(MemInfo::physical_mem());
+        heartbeat_result.backend_info.__set_node_feature_flags(ROW_TTL_NODE_FEATURE | (1L << 1));
     }
     watch.stop();
     if (watch.elapsed_time() > 1000L * 1000L * 1000L) {
@@ -327,6 +336,13 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
             _cluster_info->last_auth_token = _cluster_info->curr_auth_token;
             _cluster_info->curr_auth_token = master_info.auth_token;
         }
+    }
+
+    // A delayed epoch from the same master address must not authorize cleanup.
+    if (master_info.epoch == _fe_epoch && master_info.__isset.row_binlog_ttl_reference_tso) {
+        _cluster_info->advance_row_binlog_ttl_reference_tso(
+                master_info.row_binlog_ttl_reference_tso);
+        row_binlog_ttl_reference.set_value(_cluster_info->row_binlog_ttl_reference_tso());
     }
 
     if (need_report) {

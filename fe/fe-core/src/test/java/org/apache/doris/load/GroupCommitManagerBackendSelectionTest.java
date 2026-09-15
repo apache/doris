@@ -28,6 +28,7 @@ import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.spi.BackendSelectionProvider;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.cache.Cache;
@@ -261,6 +262,7 @@ public class GroupCommitManagerBackendSelectionTest {
 
     private Backend newBackend(long backendId) {
         Backend backend = new Backend(backendId, "127.0.0.1", 9050);
+        backend.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend.setAlive(true);
         return backend;
     }

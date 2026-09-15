@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.ImmutableMap;
@@ -50,6 +51,7 @@ public class InsertStreamTxnExecutorTest {
 
     private Backend createBackend(long id, String host, int brpcPort) {
         Backend backend = new Backend(id, host, 9050);
+        backend.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend.setAlive(true);
         backend.setBrpcPort(brpcPort);
         return backend;

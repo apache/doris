@@ -37,6 +37,7 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
+#include <limits>
 #include <memory>
 #include <string>
 #include <tuple>
@@ -47,8 +48,10 @@
 #include "core/block/block.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "storage/index/index_writer.h"
 #include "storage/merger.h"
 #include "storage/olap_common.h"
+#include "storage/options.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_factory.h"
@@ -63,6 +66,7 @@
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
+#include "util/defer_op.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -189,6 +193,7 @@ protected:
         context.tablet_path = _absolute_dir + "/tablet_path";
         context.version = version;
         context.segments_overlap = overlap;
+        context.enable_unique_key_merge_on_write = tablet_schema->keys_type() == UNIQUE_KEYS;
         context.max_rows_per_segment = max_rows_per_segment;
         if (enable_binlog) {
             context.write_binlog_opt().enable = true;
@@ -199,7 +204,7 @@ protected:
     // Build a single-segment input rowset. Each (key, val, tso) tuple becomes one row; every
     // input rowset shares the same keys but a distinct tso so the two rowsets overlap on keys.
     RowsetSharedPtr create_input_rowset(const TabletSchemaSPtr& tablet_schema, bool with_tso,
-                                        const std::vector<std::tuple<int, int, int>>& rows,
+                                        const std::vector<std::tuple<int, int, int64_t>>& rows,
                                         int64_t version) {
         auto context = create_rowset_writer_context(tablet_schema, NONOVERLAPPING, UINT32_MAX,
                                                     {version, version}, /*enable_binlog=*/false);
@@ -215,6 +220,11 @@ protected:
             if (with_tso) {
                 int64_t tso64 = tso;
                 columns[2]->insert_data((const char*)&tso64, sizeof(tso64));
+            }
+            if (tablet_schema->delete_sign_idx() >= 0) {
+                int8_t delete_sign = 0;
+                columns[tablet_schema->delete_sign_idx()]->insert_data(
+                        reinterpret_cast<const char*>(&delete_sign), sizeof(delete_sign));
             }
         }
         block.set_columns(std::move(columns));
@@ -396,5 +406,102 @@ TEST_F(RowBinlogVmergeCompactionTest, PlainDupMergeStaysNonOverlapping) {
     EXPECT_NE(OVERLAPPING, out_rowset->rowset_meta()->segments_overlap());
     EXPECT_FALSE(out_rowset->rowset_meta()->is_segments_overlapping());
 }
+
+// Reuse real on-disk rowset creation to cover the state left by an earlier TTL
+// cumulative compaction: its expired successor is gone, but the base row remains.
+class RowTtlFullCompactionTest : public RowBinlogVmergeCompactionTest,
+                                 public testing::WithParamInterface<bool> {
+protected:
+    void SetUp() override {
+        RowBinlogVmergeCompactionTest::SetUp();
+        std::vector<StorePath> paths;
+        paths.emplace_back(_absolute_dir, 1024000000);
+        auto dirs = std::make_unique<segment_v2::TmpFileDirs>(paths);
+        ASSERT_TRUE(dirs->init().ok());
+        ExecEnv::GetInstance()->set_tmp_file_dir(std::move(dirs));
+    }
+
+    void TearDown() override {
+        ExecEnv::GetInstance()->set_tmp_file_dir(nullptr);
+        RowBinlogVmergeCompactionTest::TearDown();
+    }
+};
+
+TEST_P(RowTtlFullCompactionTest, RespectsDeleteBitmapAtCompactionVersion) {
+    TabletSchemaPB pb;
+    create_row_binlog_schema()->to_schema_pb(&pb);
+    pb.set_keys_type(UNIQUE_KEYS);
+    pb.clear_binlog_tso_col_idx();
+    pb.set_ttl_col_idx(2);
+    pb.mutable_column(2)->set_name(TTL_COL);
+    pb.mutable_column(2)->set_is_nullable(true);
+    pb.mutable_column(2)->set_default_value("NULL");
+    pb.mutable_column(1)->set_aggregation("REPLACE");
+    pb.mutable_column(2)->set_aggregation("REPLACE");
+    auto* delete_sign = pb.add_column();
+    delete_sign->set_unique_id(3);
+    delete_sign->set_name(DELETE_SIGN);
+    delete_sign->set_type("TINYINT");
+    delete_sign->set_length(1);
+    delete_sign->set_is_key(false);
+    delete_sign->set_is_nullable(false);
+    delete_sign->set_aggregation("REPLACE");
+    pb.set_delete_sign_idx(3);
+    auto schema = std::make_shared<TabletSchema>();
+    schema->init_from_pb(pb);
+
+    TabletMetaPB meta_pb;
+    meta_pb.set_tablet_id(1);
+    meta_pb.set_tablet_state(PB_RUNNING);
+    meta_pb.set_enable_unique_key_merge_on_write(true);
+    meta_pb.mutable_schema()->CopyFrom(pb);
+    auto meta = std::make_shared<TabletMeta>();
+    meta->init_from_pb(meta_pb);
+    auto tablet = std::make_shared<Tablet>(*_engine, meta, nullptr);
+    ASSERT_TRUE(tablet->init().ok());
+
+    constexpr int64_t live = std::numeric_limits<int64_t>::max();
+    auto base = create_input_rowset(schema, true, {{1, 10, live}, {2, 20, live}, {3, 30, live}}, 1);
+    auto cumulative = create_input_rowset(schema, true, {{4, 40, live}}, 6);
+    // Key 1 was overwritten at version 2; its expired successor was reclaimed.
+    // Key 3 is overwritten AFTER this compaction snapshot and must be retained.
+    meta->delete_bitmap_ptr()->add({base->rowset_id(), 0, 2}, 0);
+    meta->delete_bitmap_ptr()->add({base->rowset_id(), 0, 7}, 2);
+
+    const bool vertical = GetParam();
+    auto context = create_rowset_writer_context(schema, NONOVERLAPPING, UINT32_MAX, {0, 6}, false);
+    context.enable_unique_key_merge_on_write = true;
+    auto result = RowsetFactory::create_rowset_writer(*_engine, context, vertical);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    auto writer = std::move(result).value();
+    std::vector<RowsetReaderSharedPtr> readers;
+    for (const auto& rowset : {base, cumulative}) {
+        RowsetReaderSharedPtr reader;
+        ASSERT_TRUE(rowset->create_reader(&reader).ok());
+        readers.push_back(std::move(reader));
+    }
+    auto old_group_size = config::vertical_compaction_num_columns_per_group;
+    config::vertical_compaction_num_columns_per_group = 1;
+    Defer restore_group_size(
+            [&] { config::vertical_compaction_num_columns_per_group = old_group_size; });
+    Merger::Statistics stats;
+    Status status;
+    if (vertical) {
+        status = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_FULL_COMPACTION, *schema,
+                                                readers, writer.get(), 10000000, 2, &stats);
+    } else {
+        status = Merger::vmerge_rowsets(tablet, ReaderType::READER_FULL_COMPACTION, *schema,
+                                        readers, writer.get(), &stats);
+    }
+    ASSERT_TRUE(status.ok()) << status;
+    RowsetSharedPtr output;
+    ASSERT_TRUE(writer->build(output).ok());
+    const std::vector<std::tuple<int, int, int>> expected = {{2, 20, 0}, {3, 30, 0}, {4, 40, 0}};
+    EXPECT_EQ(expected, read_all(output, schema, false));
+    EXPECT_EQ(3, output->num_rows());
+    EXPECT_EQ(1, stats.filtered_rows);
+}
+
+INSTANTIATE_TEST_SUITE_P(BothMergePaths, RowTtlFullCompactionTest, testing::Bool());
 
 } // namespace doris

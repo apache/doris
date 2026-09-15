@@ -17,8 +17,10 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.thrift.TBinlogConfig;
@@ -31,7 +33,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.HashMap;
 import java.util.Map;
 
-public class BinlogConfig {
+public class BinlogConfig implements GsonPostProcessable {
     @SerializedName("enable")
     private boolean enable;
 
@@ -66,6 +68,12 @@ public class BinlogConfig {
 
     @SerializedName("needHistoricalValue")
     private boolean needHistoricalValue;
+
+    @SerializedName("rowTtlEnabled")
+    private boolean rowTtlEnabled;
+    @SerializedName("effectiveRowTtlSeconds")
+    private Long effectiveRowTtlSeconds;
+    public static final String EFFECTIVE_ROW_TTL_SECONDS = "binlog.effective_row_ttl_seconds";
     public static final long NO_TTL = -1L;
     public static final long TTL_SECONDS = 86400L; // 1 day
     public static final long MAX_BYTES = 0x7fffffffffffffffL;
@@ -86,6 +94,8 @@ public class BinlogConfig {
     public BinlogConfig(BinlogConfig config) {
         this(config.enable, config.ttlSeconds, config.maxBytes, config.maxHistoryNums,
                 config.getBinlogFormat(), config.needHistoricalValue);
+        this.rowTtlEnabled = config.rowTtlEnabled;
+        this.effectiveRowTtlSeconds = config.getEffectiveRowTtlSeconds();
     }
 
     public BinlogConfig() {
@@ -111,6 +121,10 @@ public class BinlogConfig {
         }
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)) {
             ttlSeconds = Long.parseLong(properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS));
+        }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ROW_TTL_ENABLED)) {
+            rowTtlEnabled = Boolean.parseBoolean(
+                    properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_ROW_TTL_ENABLED));
         }
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES)) {
             maxBytes = Long.parseLong(properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES));
@@ -145,6 +159,11 @@ public class BinlogConfig {
             }
             binlogFormat = tmpBinlogFormat;
         }
+        if (properties.containsKey(EFFECTIVE_ROW_TTL_SECONDS)) {
+            effectiveRowTtlSeconds = Long.parseLong(properties.get(EFFECTIVE_ROW_TTL_SECONDS));
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ROW_TTL_ENABLED)) {
+            effectiveRowTtlSeconds = rowTtlEnabled ? ttlSeconds : NO_TTL;
+        }
         return Pair.of(true, null);
     }
 
@@ -162,6 +181,45 @@ public class BinlogConfig {
 
     public void setTtlSeconds(long ttlSeconds) {
         this.ttlSeconds = ttlSeconds;
+    }
+
+    public void applyExplicitRowTtl(long ttlSeconds) throws AnalysisException {
+        if (isEnableForStreaming() && ttlSeconds <= 0) {
+            throw new AnalysisException("ROW binlog.ttl_seconds must be greater than 0");
+        }
+        setTtlSeconds(ttlSeconds);
+        setRowTtlEnabled(ttlSeconds >= 0);
+    }
+
+    @Override
+    public void gsonPostProcess() {
+        // Absence, not the generic one-day default, identifies legacy metadata.
+        if (effectiveRowTtlSeconds == null) {
+            effectiveRowTtlSeconds = rowTtlEnabled ? ttlSeconds : NO_TTL;
+        }
+    }
+
+    public long getEffectiveRowTtlSeconds() {
+        gsonPostProcess();
+        return effectiveRowTtlSeconds;
+    }
+
+    public void setEffectiveRowTtlSeconds(long ttlSeconds) {
+        effectiveRowTtlSeconds = ttlSeconds;
+    }
+
+    public boolean hasRowTtl() {
+        return getEffectiveRowTtlSeconds() >= 0;
+    }
+
+    public boolean isRowTtlEnabled() {
+        return isEnableForStreaming() && getEffectiveRowTtlSeconds() >= 0;
+    }
+
+    // Compatibility adapter for historical properties and database metadata.
+    public void setRowTtlEnabled(boolean rowTtlEnabled) {
+        this.rowTtlEnabled = rowTtlEnabled;
+        effectiveRowTtlSeconds = rowTtlEnabled ? ttlSeconds : NO_TTL;
     }
 
     public long getMaxBytes() {
@@ -218,6 +276,8 @@ public class BinlogConfig {
             tBinlogConfig.setBinlogFormat(TBinlogFormat.valueOf(binlogFormat.name()));
         }
         tBinlogConfig.setNeedHistoricalValue(needHistoricalValue);
+        tBinlogConfig.setRowTtlEnabled(hasRowTtl());
+        tBinlogConfig.setEffectiveRowTtlSeconds(getEffectiveRowTtlSeconds());
         return tBinlogConfig;
     }
 
@@ -231,6 +291,8 @@ public class BinlogConfig {
             binlogConfigBuilder.setBinlogFormat(OlapFile.BinlogFormatPB.valueOf(binlogFormat.name()));
         }
         binlogConfigBuilder.setNeedHistoricalValue(needHistoricalValue);
+        binlogConfigBuilder.setRowTtlEnabled(hasRowTtl());
+        binlogConfigBuilder.setEffectiveRowTtlSeconds(getEffectiveRowTtlSeconds());
         return binlogConfigBuilder.build();
     }
 
@@ -242,6 +304,8 @@ public class BinlogConfig {
         properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS, String.valueOf(maxHistoryNums));
         properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT, String.valueOf(binlogFormat));
         properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE, String.valueOf(needHistoricalValue));
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ROW_TTL_ENABLED, String.valueOf(hasRowTtl()));
+        properties.put(EFFECTIVE_ROW_TTL_SECONDS, String.valueOf(getEffectiveRowTtlSeconds()));
         return properties;
     }
 
@@ -256,7 +320,8 @@ public class BinlogConfig {
                 && maxBytes == other.maxBytes
                 && maxHistoryNums == other.maxHistoryNums
                 && binlogFormat == other.binlogFormat
-                && needHistoricalValue == other.needHistoricalValue;
+                && needHistoricalValue == other.needHistoricalValue
+                && getEffectiveRowTtlSeconds() == other.getEffectiveRowTtlSeconds();
     }
 
     @Override
@@ -268,7 +333,8 @@ public class BinlogConfig {
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE).append("\" = \"")
                 .append(enable).append("\"");
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS).append("\" = \"")
-                .append(ttlSeconds).append("\"");
+                .append(binlogFormat == BinlogFormat.ROW ? getEffectiveRowTtlSeconds() : ttlSeconds)
+                .append("\"");
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES).append("\" = \"")
                 .append(maxBytes).append("\"");
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS).append("\" = \"")
