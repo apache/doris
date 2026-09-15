@@ -21,6 +21,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -82,6 +83,21 @@ private:
     Status _build_upload_buffer();
     Status _submit_upload_buffer(const std::shared_ptr<FileBuffer>& buf);
     void _record_close_latency();
+    // Account one finished request into `_remote_write_stats` when the caller asked for it.
+    void _record_request(std::atomic<int64_t> RemoteWriteStats::* counter, int64_t elapsed_ns,
+                         bool ok, int64_t uploaded_bytes = 0);
+    // Run check_after_upload and account the HEAD request it issues.
+    Status _check_after_upload(ObjStorageClient* client, const ObjStorageResponse& upload_res,
+                               const std::string& put_or_comp);
+    // Ask the caller's upload_submit_gate for `bytes`. On refusal the writer is marked failed
+    // and the pending buffer is dropped, exactly like a failed submission.
+    Status _pass_upload_gate(size_t bytes);
+    // Put the writer into its terminal failed state: no more data is accepted, the pending
+    // buffer is discarded, and close() reports `st` after draining in-flight uploads.
+    void _fail_writer(Status st);
+    // Invoke upload_done_callback for a buffer. Must be called before the buffer's status is
+    // published (see FileWriterOptions).
+    void _notify_upload_done(size_t bytes);
 
     ObjStoragePath _obj_storage_path_opts;
     std::string _upload_id;
@@ -114,6 +130,9 @@ private:
     std::shared_ptr<ObjClientHolder> _obj_client;
     std::optional<std::chrono::steady_clock::time_point> _first_append_timestamp;
     bool _close_latency_recorded = false;
+    std::function<Status(size_t)> _upload_submit_gate;
+    std::function<void(size_t)> _upload_done_callback;
+    std::shared_ptr<RemoteWriteStats> _remote_write_stats;
 };
 
 } // namespace io

@@ -10238,6 +10238,117 @@ TEST(MetaServiceTest, SetDefaultVaultTest) {
     sp->disable_processing();
 }
 
+TEST(MetaServiceTest, SpillStatsTest) {
+    auto meta_service = get_meta_service();
+
+    auto report = [&](const std::string& be, int64_t boot_id, int64_t bytes, int64_t reqs) {
+        brpc::Controller cntl;
+        ReportSpillStatsRequest req;
+        ReportSpillStatsResponse res;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        auto* stats = req.mutable_stats();
+        stats->set_cloud_unique_id(be);
+        stats->set_boot_id(boot_id);
+        stats->set_remote_write_bytes(bytes);
+        stats->set_remote_put_requests(reqs);
+        meta_service->report_spill_stats(&cntl, &req, &res, nullptr);
+        return res.status().code();
+    };
+    auto get = [&](GetSpillStatsResponse* res) {
+        brpc::Controller cntl;
+        GetSpillStatsRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        meta_service->get_spill_stats(&cntl, &req, res, nullptr);
+        return res->status().code();
+    };
+
+    // Nothing reported yet.
+    {
+        GetSpillStatsResponse res;
+        ASSERT_EQ(get(&res), MetaServiceCode::OK);
+        ASSERT_EQ(res.total_remote_write_bytes(), 0);
+        ASSERT_EQ(res.total_remote_put_requests(), 0);
+        ASSERT_EQ(res.stats_size(), 0);
+    }
+
+    // A report carries totals since boot: re-reporting the same boot replaces, never adds.
+    ASSERT_EQ(report("be-1", 1000, 100, 2), MetaServiceCode::OK);
+    ASSERT_EQ(report("be-1", 1000, 300, 5), MetaServiceCode::OK);
+    ASSERT_EQ(report("be-1", 1000, 300, 5), MetaServiceCode::OK); // retried report
+    {
+        GetSpillStatsResponse res;
+        ASSERT_EQ(get(&res), MetaServiceCode::OK);
+        ASSERT_EQ(res.total_remote_write_bytes(), 300);
+        ASSERT_EQ(res.total_remote_put_requests(), 5);
+        ASSERT_EQ(res.stats_size(), 1);
+        ASSERT_GT(res.stats(0).update_time_ms(), 0);
+    }
+
+    // A restarted BE (new boot id) folds the previous process into prior_boots_*; the record
+    // count stays one per BE. Another BE adds a second record.
+    ASSERT_EQ(report("be-1", 1001, 50, 1), MetaServiceCode::OK);
+    ASSERT_EQ(report("be-1", 1001, 50, 1), MetaServiceCode::OK); // retry after the fold
+    ASSERT_EQ(report("be-1", 1001, 80, 2), MetaServiceCode::OK); // later report of the same boot
+    ASSERT_EQ(report("be-1", 1001, 60, 1), MetaServiceCode::OK); // stale duplicate: no rollback
+    ASSERT_EQ(report("be-2", 2000, 1000, 20), MetaServiceCode::OK);
+    {
+        GetSpillStatsResponse res;
+        ASSERT_EQ(get(&res), MetaServiceCode::OK);
+        ASSERT_EQ(res.total_remote_write_bytes(), 1380);
+        ASSERT_EQ(res.total_remote_put_requests(), 27);
+        ASSERT_EQ(res.stats_size(), 2);
+        for (const auto& s : res.stats()) {
+            if (s.cloud_unique_id() == "be-1") {
+                EXPECT_EQ(s.boot_id(), 1001);
+                EXPECT_EQ(s.remote_write_bytes(), 80);
+                EXPECT_EQ(s.remote_put_requests(), 2);
+                EXPECT_EQ(s.prior_boots_write_bytes(), 300);
+                EXPECT_EQ(s.prior_boots_put_requests(), 5);
+            } else {
+                EXPECT_EQ(s.cloud_unique_id(), "be-2");
+                EXPECT_EQ(s.prior_boots_write_bytes(), 0);
+            }
+        }
+    }
+    // A second restart keeps folding.
+    ASSERT_EQ(report("be-1", 1002, 7, 1), MetaServiceCode::OK);
+    {
+        GetSpillStatsResponse res;
+        ASSERT_EQ(get(&res), MetaServiceCode::OK);
+        ASSERT_EQ(res.total_remote_write_bytes(), 1387);
+        ASSERT_EQ(res.total_remote_put_requests(), 28);
+        ASSERT_EQ(res.stats_size(), 2);
+    }
+
+    // A malformed record is reported, not summed silently.
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(stats_spill_key({"test_instance", "be-bad"}), "not a protobuf");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        GetSpillStatsResponse res;
+        ASSERT_EQ(get(&res), MetaServiceCode::PROTOBUF_PARSE_ERR);
+        ASSERT_EQ(res.stats_size(), 0);
+        ASSERT_EQ(report("be-bad", 1, 1, 1), MetaServiceCode::PROTOBUF_PARSE_ERR);
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->remove(stats_spill_key({"test_instance", "be-bad"}));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Invalid reports are rejected.
+    ASSERT_EQ(report("", 1, 1, 1), MetaServiceCode::INVALID_ARGUMENT);
+    ASSERT_EQ(report("be-3", 0, 1, 1), MetaServiceCode::INVALID_ARGUMENT);
+    ASSERT_EQ(report("be-3", 1, -1, 1), MetaServiceCode::INVALID_ARGUMENT);
+    {
+        brpc::Controller cntl;
+        ReportSpillStatsRequest req;
+        ReportSpillStatsResponse res;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        meta_service->report_spill_stats(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+}
+
 TEST(MetaServiceTest, GetObjStoreInfoTest) {
     auto meta_service = get_meta_service();
 

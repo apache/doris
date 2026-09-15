@@ -445,6 +445,9 @@ static std::string debug_info(const Request& req) {
         return fmt::format(" tablet_id={}", req.tablet_id());
     } else if constexpr (is_any_v<Request, UpdatePackedFileInfoRequest>) {
         return fmt::format(" packed_file_path={}", req.packed_file_path());
+    } else if constexpr (is_any_v<Request, ReportSpillStatsRequest>) {
+        return fmt::format(" boot_id={} remote_write_bytes={}", req.stats().boot_id(),
+                           req.stats().remote_write_bytes());
     } else {
         static_assert(!sizeof(Request));
     }
@@ -494,6 +497,9 @@ struct RpcRateLimitCtx {
     HostLevelMSRpcRateLimiters* host_limiters {nullptr};
     MSBackpressureHandler* backpressure_handler {nullptr};
     int64_t table_id {-1}; // For table-level backpressure, passed from caller
+    // Caps the retries of this call regardless of the retry configs (-1: configs apply). For
+    // best-effort RPCs on the shutdown path, where a dead meta-service must not stall exit.
+    int32_t max_retry_times {-1};
 };
 
 void apply_table_level_rate_limit(MetaServiceRPC rpc, const RpcRateLimitCtx& ctx) {
@@ -627,6 +633,7 @@ Status retry_rpc(MetaServiceRPC rpc, const Request& req, Response* res,
 
         ++retry_times;
         if (retry_times > config::meta_service_rpc_retry_times ||
+            (rate_limit_ctx.max_retry_times >= 0 && retry_times > rate_limit_ctx.max_retry_times) ||
             (retry_times > config::meta_service_rpc_timeout_retry_times &&
              error_code == brpc::ERPCTIMEDOUT) ||
             (retry_times > config::meta_service_conflict_error_retry_times &&
@@ -1893,7 +1900,30 @@ Status CloudMetaMgr::finish_restore_job(const int64_t tablet_id, bool is_complet
                      });
 }
 
-Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool* is_vault_mode) {
+Status CloudMetaMgr::report_spill_stats(int64_t boot_id, int64_t remote_write_bytes,
+                                        int64_t remote_put_requests) {
+    ReportSpillStatsRequest req;
+    ReportSpillStatsResponse resp;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    auto* stats = req.mutable_stats();
+    stats->set_cloud_unique_id(config::cloud_unique_id);
+    stats->set_boot_id(boot_id);
+    stats->set_remote_write_bytes(remote_write_bytes);
+    stats->set_remote_put_requests(remote_put_requests);
+    return retry_rpc(MetaServiceRPC::REPORT_SPILL_STATS, req, &resp,
+                     &MetaService_Stub::report_spill_stats,
+                     {
+                             .host_limiters = host_level_ms_rpc_rate_limiters_,
+                             .backpressure_handler = ms_backpressure_handler_,
+                             // At most 2 attempts (<= 2 * meta_service_brpc_timeout_ms): the
+                             // periodic report is re-issued a minute later anyway, and the
+                             // final report on shutdown must not stall the exit.
+                             .max_retry_times = 1,
+                     });
+}
+
+Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool* is_vault_mode,
+                                            std::string* default_vault_id) {
     GetObjStoreInfoRequest req;
     GetObjStoreInfoResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -1908,6 +1938,9 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool
     }
 
     *is_vault_mode = resp.enable_storage_vault();
+    if (default_vault_id != nullptr) {
+        *default_vault_id = resp.default_storage_vault_id();
+    }
 
     auto add_obj_store = [&vault_infos](const auto& obj_store) {
         vault_infos->emplace_back(obj_store.id(), S3Conf::get_s3_conf(obj_store),

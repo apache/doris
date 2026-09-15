@@ -58,6 +58,7 @@
 // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "num_segs"    -> int64
 // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "index_size"  -> int64
 // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "segment_size"-> int64
+// 0x01 "stats" ${instance_id} "spill" ${cloud_unique_id}                                                   -> SpillStatsPB
 //
 // 0x01 "recycle" ${instance_id} "index" ${index_id}                                       -> RecycleIndexPB
 // 0x01 "recycle" ${instance_id} "partition" ${partition_id}                               -> RecyclePartitionPB
@@ -197,6 +198,9 @@ using RecycleTxnKeyInfo    = BasicKeyInfo<__LINE__, std::tuple<std::string,  int
 
 //                                                      0:instance_id  1:table_id  2:index_id  3:part_id  4:tablet_id
 using StatsTabletKeyInfo   = BasicKeyInfo<__LINE__, std::tuple<std::string,  int64_t,    int64_t,    int64_t,   int64_t>>;
+
+//                                                      0:instance_id  1:cloud_unique_id
+using StatsSpillKeyInfo    = BasicKeyInfo<__LINE__, std::tuple<std::string,  std::string>>;
 
 //                                                      0:instance_id  1:table_id  2:index_id  3:part_id  4:tablet_id
 using JobTabletKeyInfo     = BasicKeyInfo<__LINE__, std::tuple<std::string,  int64_t,    int64_t,    int64_t,   int64_t>>;
@@ -428,6 +432,11 @@ void stats_tablet_num_rowsets_key(const StatsTabletKeyInfo& in, std::string* out
 void stats_tablet_num_segs_key(const StatsTabletKeyInfo& in, std::string* out);
 void stats_tablet_index_size_key(const StatsTabletKeyInfo& in, std::string* out);
 void stats_tablet_segment_size_key(const StatsTabletKeyInfo& in, std::string* out);
+// 0x01 "stats" ${instance_id} "spill" ${cloud_unique_id} -> SpillStatsPB (one record per BE)
+void stats_spill_key(const StatsSpillKeyInfo& in, std::string* out);
+// 0x01 "stats" ${instance_id} "spill" : range prefix of every spill stats record of an instance
+std::string stats_spill_key_prefix(std::string_view instance_id);
+static inline std::string stats_spill_key(const StatsSpillKeyInfo& in) { std::string s; stats_spill_key(in, &s); return s; }
 static inline std::string stats_tablet_key(const StatsTabletKeyInfo& in) { std::string s; stats_tablet_key(in, &s); return s; }
 static inline std::string stats_tablet_data_size_key(const StatsTabletKeyInfo& in) { std::string s; stats_tablet_data_size_key(in, &s); return s; }
 static inline std::string stats_tablet_num_rows_key(const StatsTabletKeyInfo& in) { std::string s; stats_tablet_num_rows_key(in, &s); return s; }

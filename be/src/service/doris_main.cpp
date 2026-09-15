@@ -72,6 +72,7 @@
 #include "common/logging.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
+#include "exec/spill/spill_file_manager.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "load/stream_load/stream_load_recorder_manager.h"
 #include "runtime/exec_env.h"
@@ -468,14 +469,33 @@ int main(int argc, char** argv) {
     }
 
     std::vector<doris::StorePath> spill_paths;
-    if (doris::config::spill_storage_root_path.empty()) {
-        doris::config::spill_storage_root_path = doris::config::storage_root_path;
-    }
-    olap_res = doris::parse_conf_store_paths(doris::config::spill_storage_root_path, &spill_paths);
-    if (!olap_res) {
-        LOG(ERROR) << "parse config spill storage path failed, path="
-                   << doris::config::spill_storage_root_path;
-        exit(-1);
+    const bool spill_to_s3 = doris::config::spill_storage_type == "s3";
+    if (spill_to_s3) {
+        if (!doris::config::is_cloud_mode()) {
+            LOG(ERROR) << "spill_storage_type=s3 is only supported in cloud mode";
+            exit(-1);
+        }
+        if (doris::config::spill_s3_max_inflight_upload_bytes <
+            2 * doris::config::s3_write_buffer_size) {
+            LOG(ERROR) << "spill_s3_max_inflight_upload_bytes ("
+                       << doris::config::spill_s3_max_inflight_upload_bytes
+                       << ") must be at least 2 * s3_write_buffer_size ("
+                       << doris::config::s3_write_buffer_size << ")";
+            exit(-1);
+        }
+        LOG(INFO) << "spill data will be written to object storage, spill_storage_root_path is "
+                     "ignored";
+    } else {
+        if (doris::config::spill_storage_root_path.empty()) {
+            doris::config::spill_storage_root_path = doris::config::storage_root_path;
+        }
+        olap_res =
+                doris::parse_conf_store_paths(doris::config::spill_storage_root_path, &spill_paths);
+        if (!olap_res) {
+            LOG(ERROR) << "parse config spill storage path failed, path="
+                       << doris::config::spill_storage_root_path;
+            exit(-1);
+        }
     }
     std::set<std::string> broken_paths;
     doris::parse_conf_broken_store_paths(doris::config::broken_storage_path, &broken_paths);
@@ -523,7 +543,7 @@ int main(int argc, char** argv) {
             ++it;
         }
     }
-    if (spill_paths.empty()) {
+    if (!spill_to_s3 && spill_paths.empty()) {
         LOG(ERROR) << "All spill disks are broken, exit.";
         exit(-1);
     }
@@ -777,6 +797,12 @@ int main(int argc, char** argv) {
 #endif
     // For graceful shutdown, need to wait for all running queries to stop
     exec_env->wait_for_all_tasks_done();
+    // Spill traffic is a billing input (SHOW DATA): report what accrued since the last periodic
+    // report now that every query has finished. This has to happen here because the default
+    // exit path below calls _exit() and never reaches ExecEnv::destroy().
+    if (auto* spill_file_mgr = exec_env->spill_file_mgr(); spill_file_mgr != nullptr) {
+        spill_file_mgr->flush_remote_spill_stats();
+    }
 
     if (!doris::config::enable_graceful_exit_check) {
         // If not in memleak check mode, no need to wait all objects de-constructed normally, just exit.
