@@ -27,6 +27,7 @@
 #include <ranges>
 #include <set>
 #include <sstream>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -55,6 +56,7 @@
 #include "runtime/file_scan_profile.h"
 #include "storage/segment/condition_cache.h"
 #include "util/debug_points.h"
+#include "util/hash_util.hpp"
 #include "util/string_util.h"
 
 namespace doris::format {
@@ -1446,8 +1448,22 @@ Status TableReader::_init_reader_condition_cache(const FileScanRequest& file_req
     const auto cache_size = _condition_cache_source_range.has_value()
                                     ? _condition_cache_source_range->second
                                     : file.range_size;
+    auto cache_digest = _condition_cache_digest;
+    if (_format == FileFormat::PARQUET) {
+        const auto timezone = parquet::get_int96_timezone_override(_scan_params);
+        if (timezone.has_value()) {
+            // A cached false granule is valid only under the same INT96 interpretation. The
+            // helper normalizes versioned omission to explicit empty; legacy absence keeps
+            // the session-based key. Do not mutate the predicate seed reused by later splits.
+            constexpr std::string_view contract_tag = "parquet-int96-timezone:";
+            cache_digest = HashUtil::xxHash64WithSeed(contract_tag.data(), contract_tag.size(),
+                                                      cache_digest);
+            cache_digest =
+                    HashUtil::xxHash64WithSeed(timezone->data(), timezone->size(), cache_digest);
+        }
+    }
     _condition_cache_key = segment_v2::ConditionCache::ExternalCacheKey(
-            file.path, file.mtime, file.file_size, _condition_cache_digest, cache_start, cache_size,
+            file.path, file.mtime, file.file_size, cache_digest, cache_start, cache_size,
             segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
     _condition_cache_initialized = true;
 

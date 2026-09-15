@@ -495,36 +495,34 @@ Status write_struct_column_to_target(const IColumn& column, const NullMap* null_
 
 } // namespace
 
-Status DataTypeStructSerDe::write_column_to_paimon(const std::shared_ptr<const IDataType>& type,
-                                                   const IColumn& column, const NullMap* null_map,
-                                                   const std::shared_ptr<arrow::Field>& field,
-                                                   arrow::ArrayBuilder* array_builder,
-                                                   int64_t start, int64_t end,
-                                                   const cctz::time_zone& ctz) const {
+Status DataTypeStructSerDe::write_column_to_paimon_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column,
+        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const {
     const auto& struct_type = assert_cast<const DataTypeStruct&>(*type);
     return write_struct_column_to_target(
             column, null_map, array_builder, start, end,
             [&](const ColumnStruct& struct_column, arrow::StructBuilder& builder, size_t element,
                 int64_t row) {
-                return elem_serdes_ptrs[element]->write_column_to_paimon(
+                return elem_serdes_ptrs[element]->write_column_to_paimon_arrow(
                         struct_type.get_element(element), struct_column.get_column(element),
                         nullptr, field->type()->field(cast_set<int>(element)),
                         builder.field_builder(cast_set<int>(element)), row, row + 1, ctz);
             });
 }
 
-Status DataTypeStructSerDe::write_column_to_iceberg(const std::shared_ptr<const IDataType>& type,
-                                                    const IColumn& column, const NullMap* null_map,
-                                                    const std::shared_ptr<arrow::Field>& field,
-                                                    arrow::ArrayBuilder* array_builder,
-                                                    int64_t start, int64_t end,
-                                                    const cctz::time_zone& ctz) const {
+Status DataTypeStructSerDe::write_column_to_iceberg_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column,
+        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const {
     const auto& struct_type = assert_cast<const DataTypeStruct&>(*type);
     return write_struct_column_to_target(
             column, null_map, array_builder, start, end,
             [&](const ColumnStruct& struct_column, arrow::StructBuilder& builder, size_t element,
                 int64_t row) {
-                return elem_serdes_ptrs[element]->write_column_to_iceberg(
+                return elem_serdes_ptrs[element]->write_column_to_iceberg_arrow(
                         struct_type.get_element(element), struct_column.get_column(element),
                         nullptr, field->type()->field(cast_set<int>(element)),
                         builder.field_builder(cast_set<int>(element)), row, row + 1, ctz);

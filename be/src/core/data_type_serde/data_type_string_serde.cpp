@@ -552,7 +552,7 @@ Status DataTypeStringSerDeBase<ColumnType>::write_column_to_arrow(
 }
 
 template <typename ColumnType>
-Status DataTypeStringSerDeBase<ColumnType>::write_column_to_iceberg(
+Status DataTypeStringSerDeBase<ColumnType>::write_column_to_iceberg_arrow(
         const std::shared_ptr<const IDataType>& type, const IColumn& column,
         const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
         arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,

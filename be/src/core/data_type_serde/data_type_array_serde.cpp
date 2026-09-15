@@ -346,11 +346,11 @@ Status write_array_column_to_target(const IColumn& column, const NullMap* null_m
 
 } // namespace
 
-Status DataTypeArraySerDe::write_column_to_paimon(const std::shared_ptr<const IDataType>& type,
-                                                  const IColumn& column, const NullMap* null_map,
-                                                  const std::shared_ptr<arrow::Field>& field,
-                                                  arrow::ArrayBuilder* array_builder, int64_t start,
-                                                  int64_t end, const cctz::time_zone& ctz) const {
+Status DataTypeArraySerDe::write_column_to_paimon_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column,
+        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const {
     const auto& array_type = assert_cast<const DataTypeArray&>(*type);
     const auto& list_type = assert_cast<const arrow::ListType&>(*field->type());
     const auto& nested_field = list_type.value_field();
@@ -358,18 +358,17 @@ Status DataTypeArraySerDe::write_column_to_paimon(const std::shared_ptr<const ID
             column, null_map, array_builder, start, end,
             [&](const IColumn& nested_data, arrow::ArrayBuilder* nested_builder,
                 int64_t nested_start, int64_t nested_end) {
-                return nested_serde->write_column_to_paimon(
+                return nested_serde->write_column_to_paimon_arrow(
                         array_type.get_nested_type(), nested_data, nullptr, nested_field,
                         nested_builder, nested_start, nested_end, ctz);
             });
 }
 
-Status DataTypeArraySerDe::write_column_to_iceberg(const std::shared_ptr<const IDataType>& type,
-                                                   const IColumn& column, const NullMap* null_map,
-                                                   const std::shared_ptr<arrow::Field>& field,
-                                                   arrow::ArrayBuilder* array_builder,
-                                                   int64_t start, int64_t end,
-                                                   const cctz::time_zone& ctz) const {
+Status DataTypeArraySerDe::write_column_to_iceberg_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column,
+        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const {
     const auto& array_type = assert_cast<const DataTypeArray&>(*type);
     const auto& list_type = assert_cast<const arrow::ListType&>(*field->type());
     const auto& nested_field = list_type.value_field();
@@ -377,7 +376,7 @@ Status DataTypeArraySerDe::write_column_to_iceberg(const std::shared_ptr<const I
             column, null_map, array_builder, start, end,
             [&](const IColumn& nested_data, arrow::ArrayBuilder* nested_builder,
                 int64_t nested_start, int64_t nested_end) {
-                return nested_serde->write_column_to_iceberg(
+                return nested_serde->write_column_to_iceberg_arrow(
                         array_type.get_nested_type(), nested_data, nullptr, nested_field,
                         nested_builder, nested_start, nested_end, ctz);
             });

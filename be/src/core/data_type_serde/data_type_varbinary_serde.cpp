@@ -192,13 +192,11 @@ Status DataTypeVarbinarySerDe::write_column_to_arrow(const IColumn& column, cons
     return Status::OK();
 }
 
-Status DataTypeVarbinarySerDe::write_column_to_iceberg(const std::shared_ptr<const IDataType>& type,
-                                                       const IColumn& column,
-                                                       const NullMap* null_map,
-                                                       const std::shared_ptr<arrow::Field>& field,
-                                                       arrow::ArrayBuilder* array_builder,
-                                                       int64_t start, int64_t end,
-                                                       const cctz::time_zone& ctz) const {
+Status DataTypeVarbinarySerDe::write_column_to_iceberg_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column,
+        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const {
     if (array_builder->type()->id() != arrow::Type::FIXED_SIZE_BINARY) {
         return write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
     }
