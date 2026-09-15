@@ -41,6 +41,8 @@ BlockFileCacheTtlMgr::BlockFileCacheTtlMgr(BlockFileCache* mgr, CacheBlockMetaSt
         : _mgr(mgr), _meta_store(meta_store), _stop_background(false) {
     _tablet_id_set_size_metrics = std::make_shared<bvar::Status<size_t>>(
             _mgr->get_base_path().c_str(), "file_cache_ttl_mgr_tablet_id_set_size", 0);
+    _ttl_info_map_size_metrics = std::make_shared<bvar::Status<size_t>>(
+            _mgr->get_base_path().c_str(), "file_cache_ttl_mgr_ttl_info_map_size", 0);
     resume();
 }
 
@@ -83,6 +85,17 @@ void BlockFileCacheTtlMgr::resume() {
 
 void BlockFileCacheTtlMgr::register_tablet_id(int64_t tablet_id) {
     _tablet_id_queue.enqueue(tablet_id);
+}
+
+void BlockFileCacheTtlMgr::update_ttl_info_map_size_metrics() {
+    if (_ttl_info_map_size_metrics) {
+        _ttl_info_map_size_metrics->set_value(_ttl_info_map.size());
+    }
+}
+
+size_t BlockFileCacheTtlMgr::tracked_tablet_num() {
+    std::lock_guard<std::mutex> lock(_ttl_info_mutex);
+    return _ttl_info_map.size();
 }
 
 void BlockFileCacheTtlMgr::run_background_tablet_id_flush() {
@@ -168,29 +181,43 @@ FileBlocks BlockFileCacheTtlMgr::get_file_blocks_from_tablet_id(int64_t tablet_i
     return result;
 }
 
-void BlockFileCacheTtlMgr::reconcile_tablet_blocks(int64_t tablet_id, bool force_demote_scan) {
+void BlockFileCacheTtlMgr::reconcile_tablet_blocks(int64_t tablet_id, bool force_scan) {
     // Serialize all conversions of this tablet. Whichever caller takes this lock last re-reads
     // the current state below and has the final say, so the update and expiration threads cannot
     // fight over the same blocks and strand them in the loser's cache type.
     std::lock_guard<std::mutex> transition_lock(transition_lock_for(tablet_id));
 
     bool want_ttl = false;
-    bool blocks_are_ttl = false;
+    // Unknown when the tablet is not tracked at all, which is also how a tablet looks right
+    // after a restart: the blocks on disk keep their type, _ttl_info_map does not.
+    std::optional<bool> blocks_are_ttl;
+    bool settled = false;
     {
         // Deliberately re-read the map rather than trust what the caller saw: the expiration
         // thread picks its candidates up to a full gc interval before getting here.
         std::lock_guard<std::mutex> lock(_ttl_info_mutex);
         auto it = _ttl_info_map.find(tablet_id);
         if (it != _ttl_info_map.end()) {
-            want_ttl = it->second.is_ttl_active(UnixSeconds());
-            blocks_are_ttl = it->second.blocks_are_ttl;
+            if (it->second.ttl == 0 && it->second.blocks_are_ttl == false) {
+                // No TTL left and the blocks are known to be normal: nothing to track. Dropped
+                // here rather than after a conversion, so that a tablet which settles without
+                // needing one still stops being tracked and goes back to the cheap path where
+                // it is only visited by the periodic reconcile.
+                _ttl_info_map.erase(it);
+                update_ttl_info_map_size_metrics();
+                settled = true;
+            } else {
+                want_ttl = it->second.is_ttl_active(UnixSeconds());
+                blocks_are_ttl = it->second.blocks_are_ttl;
+            }
         }
     }
 
     // Nothing to apply. Note this is a state comparison, not a comparison of TTL values: a
     // tablet whose TTL is rewritten to another still-valid value keeps its blocks where they
-    // are, instead of rescanning the whole tablet every time the property is touched.
-    if (want_ttl == blocks_are_ttl && !(force_demote_scan && !want_ttl)) {
+    // are, instead of rescanning the whole tablet every time the property is touched. An
+    // unknown applied state never matches, so it always costs one scan.
+    if (settled || (!force_scan && blocks_are_ttl == want_ttl)) {
         return;
     }
 
@@ -198,27 +225,34 @@ void BlockFileCacheTtlMgr::reconcile_tablet_blocks(int64_t tablet_id, bool force
     // lock once per block, which is far too long to hold a mutex the other thread needs.
     const auto target_type = want_ttl ? FileCacheType::TTL : FileCacheType::NORMAL;
     FileBlocks blocks = get_file_blocks_from_tablet_id(tablet_id);
+    size_t converted = 0;
+    bool all_converted = true;
     for (auto& block : blocks) {
         if (block->cache_type() == target_type) {
             continue;
         }
         auto st = block->change_cache_type(target_type);
-        if (!st.ok()) {
+        if (st.ok()) {
+            ++converted;
+        } else {
+            all_converted = false;
             LOG(WARNING) << "Failed to convert block to " << cache_type_to_string(target_type)
                          << " cache_type, tablet_id=" << tablet_id << ", err=" << st;
         }
+    }
+    if (converted > 0) {
+        LOG(INFO) << "converted cached blocks to " << cache_type_to_string(target_type)
+                  << ", tablet_id=" << tablet_id << ", block_num=" << converted
+                  << ", scanned=" << blocks.size();
     }
 
     {
         std::lock_guard<std::mutex> lock(_ttl_info_mutex);
         auto it = _ttl_info_map.find(tablet_id);
-        if (it != _ttl_info_map.end()) {
+        if (it != _ttl_info_map.end() && all_converted) {
+            // Left alone when a block failed to convert, so that the mismatch is still visible
+            // to the next round and gets retried instead of being recorded as done.
             it->second.blocks_are_ttl = want_ttl;
-            // A tablet with no TTL whose blocks are all back in the normal queue needs no
-            // further tracking, and dropping it keeps the expiration thread's scan short.
-            if (it->second.ttl == 0 && !want_ttl) {
-                _ttl_info_map.erase(it);
-            }
         }
     }
 }
@@ -258,7 +292,9 @@ void BlockFileCacheTtlMgr::run_backgroud_update_ttl_info_map() {
                         }
                         {
                             std::lock_guard<std::mutex> lock(_ttl_info_mutex);
-                            _ttl_info_map.erase(tablet_id);
+                            if (_ttl_info_map.erase(tablet_id) > 0) {
+                                update_ttl_info_map_size_metrics();
+                            }
                         }
                     } else {
                         LOG(WARNING) << "Failed to get tablet meta for tablet_id: " << tablet_id
@@ -283,8 +319,10 @@ void BlockFileCacheTtlMgr::run_backgroud_update_ttl_info_map() {
                     auto it = _ttl_info_map.find(tablet_id);
                     if (ttl > 0) {
                         if (it == _ttl_info_map.end()) {
-                            _ttl_info_map.emplace(tablet_id, TtlInfo {ttl, tablet_ctime,
-                                                                      /*blocks_are_ttl=*/false});
+                            // blocks_are_ttl stays unknown: what the blocks already are is
+                            // whatever a previous run of this BE left on disk.
+                            _ttl_info_map.emplace(tablet_id, TtlInfo {ttl, tablet_ctime});
+                            update_ttl_info_map_size_metrics();
                         } else {
                             // Keep blocks_are_ttl: it describes the blocks, not the tablet meta.
                             it->second.ttl = ttl;
@@ -300,12 +338,11 @@ void BlockFileCacheTtlMgr::run_backgroud_update_ttl_info_map() {
                     }
                 }
 
-                if (tracked) {
-                    reconcile_tablet_blocks(tablet_id, /*force_demote_scan=*/false);
-                } else if (need_full_reconcile) {
-                    // Periodically reconcile blocks restored from persisted TTL metadata,
-                    // because _ttl_info_map is rebuilt only in memory after restart.
-                    reconcile_tablet_blocks(tablet_id, /*force_demote_scan=*/true);
+                // An untracked tablet has no recorded state, so reconciling it scans once and
+                // demotes anything restored from persisted TTL metadata. Gated on the periodic
+                // round so that ordinary non-TTL tablets are not walked every time.
+                if (tracked || need_full_reconcile) {
+                    reconcile_tablet_blocks(tablet_id, /*force_scan=*/false);
                 }
             }
 
@@ -324,28 +361,32 @@ void BlockFileCacheTtlMgr::run_backgroud_expiration_check() {
 
     while (!_stop_background.load(std::memory_order_acquire)) {
         try {
-            // Collect tablets whose TTL has run out while their blocks still sit in the TTL
-            // queue. Tablets already demoted are skipped, so an expired tablet is scanned once
-            // instead of once per gc round for as long as it stays in the map.
+            // Collect tablets whose TTL has run out.
             std::vector<int64_t> expired_tablet_ids;
             {
                 std::lock_guard<std::mutex> lock(_ttl_info_mutex);
                 uint64_t current_time = UnixSeconds();
                 for (const auto& [tablet_id, ttl_info] : _ttl_info_map) {
-                    if (ttl_info.blocks_are_ttl && !ttl_info.is_ttl_active(current_time)) {
+                    if (ttl_info.ttl > 0 && !ttl_info.is_ttl_active(current_time)) {
                         expired_tablet_ids.push_back(tablet_id);
                     }
                 }
             }
 
-            // This is only a candidate list. reconcile_tablet_blocks() re-reads the tablet's
-            // state under the per-tablet lock, so a TTL extended between the two never gets
-            // demoted on the strength of what was observed above.
+            // Swept on every round rather than once, because an expired tablet keeps producing
+            // TTL blocks for as long as it is read: the read path derives the cache type from
+            // ttl_seconds alone and never looks at whether the TTL has passed. Hence force_scan
+            // -- the tablet-level state says the blocks were demoted already and would
+            // otherwise skip the walk that collects the new ones.
+            //
+            // The list above is only a candidate set. reconcile_tablet_blocks() re-reads the
+            // tablet's state under the per-tablet lock, so a TTL extended in between is never
+            // demoted on the strength of what was observed here.
             for (int64_t tablet_id : expired_tablet_ids) {
                 if (_stop_background.load(std::memory_order_acquire)) {
                     break;
                 }
-                reconcile_tablet_blocks(tablet_id, /*force_demote_scan=*/false);
+                reconcile_tablet_blocks(tablet_id, /*force_scan=*/true);
             }
 
             std::this_thread::sleep_for(

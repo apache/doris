@@ -28,6 +28,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <unordered_set>
 
@@ -42,11 +43,15 @@ class CacheBlockMetaStore;
 struct TtlInfo {
     uint64_t ttl = 0;
     uint64_t tablet_ctime = 0;
-    // Cache type last applied to this tablet's blocks. The manager converts blocks only on a
-    // state transition, so the applied state has to be remembered explicitly: whether an entry
-    // exists cannot tell "this tablet never had a TTL" apart from "its TTL already expired and
-    // the blocks were demoted", and those two need opposite handling when a new TTL arrives.
-    bool blocks_are_ttl = false;
+    // Cache type last applied to this tablet's blocks, or nullopt while the manager has not
+    // converted them yet and so cannot know: _ttl_info_map is rebuilt in memory only, while the
+    // types themselves survive a restart on disk. Unknown never compares equal to the wanted
+    // state, so a tablet entering the map always gets one reconciling scan.
+    //
+    // The applied state has to be remembered explicitly rather than inferred from the presence
+    // of the entry: that cannot tell "this tablet never had a TTL" apart from "its TTL expired
+    // and the blocks were demoted", and those two need opposite handling when a TTL arrives.
+    std::optional<bool> blocks_are_ttl;
 
     // Whether this tablet's blocks belong in the TTL queue right now.
     bool is_ttl_active(uint64_t now) const {
@@ -66,6 +71,9 @@ public:
     ~BlockFileCacheTtlMgr();
 
     void register_tablet_id(int64_t tablet_id);
+    // Number of tablets whose TTL state is currently tracked. Mirrors the
+    // file_cache_ttl_mgr_ttl_info_map_size bvar; entry leaks are otherwise invisible.
+    size_t tracked_tablet_num();
     void stop();
     void resume();
 
@@ -82,9 +90,16 @@ private:
     // Drive this tablet's cached blocks to the cache type its current TTL state asks for.
     // Both background threads funnel through here and it is serialized per tablet, so they can
     // never scan the same tablet concurrently and leave the blocks in whatever type the scan
-    // that happened to finish last wrote. force_demote_scan additionally scans a tablet the map
-    // does not track, which is how TTL blocks restored from persisted metadata are cleaned up.
-    void reconcile_tablet_blocks(int64_t tablet_id, bool force_demote_scan);
+    // that happened to finish last wrote.
+    //
+    // force_scan walks the blocks even when the recorded state already matches. The expiration
+    // path needs it: a tablet whose TTL has run out keeps producing TTL blocks on every read,
+    // because the read path picks the cache type from ttl_seconds alone without regard to
+    // expiry, so the tablet-level state cannot tell whether new ones have appeared.
+    void reconcile_tablet_blocks(int64_t tablet_id, bool force_scan);
+
+    // Caller must hold _ttl_info_mutex.
+    void update_ttl_info_map_size_metrics();
 
     std::mutex& transition_lock_for(int64_t tablet_id) {
         return _transition_locks[static_cast<uint64_t>(tablet_id) % kTransitionLockStripes];
@@ -114,6 +129,7 @@ private:
     std::array<std::mutex, kTransitionLockStripes> _transition_locks;
 
     std::shared_ptr<bvar::Status<size_t>> _tablet_id_set_size_metrics;
+    std::shared_ptr<bvar::Status<size_t>> _ttl_info_map_size_metrics;
 };
 
 } // namespace doris::io
