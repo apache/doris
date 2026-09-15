@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -28,6 +29,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableLikeInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -37,7 +39,10 @@ import org.apache.doris.qe.StmtExecutor;
 import com.google.common.collect.Lists;
 import org.apache.commons.collections4.CollectionUtils;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 /** CreateTableLikeCommand */
 public class CreateTableLikeCommand extends Command implements ForwardWithSync {
@@ -76,6 +81,7 @@ public class CreateTableLikeCommand extends Command implements ForwardWithSync {
             }
 
             List<String> createTableStmt = Lists.newArrayList();
+            Map<String, Map<String, String>> generatedColumnSessionVariables = new HashMap<>();
             table.readLock();
             try {
                 if (table.isManagedTable()) {
@@ -91,6 +97,13 @@ public class CreateTableLikeCommand extends Command implements ForwardWithSync {
                 } else if (!CollectionUtils.isEmpty(createTableLikeInfo.getRollupNames())
                         || createTableLikeInfo.isWithAllRollup()) {
                     throw new DdlException("Table[" + table.getName() + "] is external, not support rollup copy");
+                }
+
+                for (Column column : table.getBaseSchema()) {
+                    if (column.isGeneratedColumn()) {
+                        generatedColumnSessionVariables.put(column.getName(),
+                                Optional.ofNullable(column.getSessionVariables()).map(HashMap::new).orElse(null));
+                    }
                 }
 
                 Env.getCreateTableLikeStmt(createTableLikeInfo, createTableLikeInfo.getDbName(), table, createTableStmt,
@@ -115,6 +128,10 @@ public class CreateTableLikeCommand extends Command implements ForwardWithSync {
                 createTableCommand = new CreateTableCommand(createTableCommand.getCtasQuery(),
                     createTableInfo.withTableNameAndIfNotExists(createTableLikeInfo.getTableName(),
                             createTableLikeInfo.isIfNotExists()));
+                for (ColumnDefinition column : createTableInfo.getColumnDefinitions()) {
+                    column.getGeneratedColumnDesc().ifPresent(desc ->
+                            desc.setSessionVariables(generatedColumnSessionVariables.get(column.getName())));
+                }
                 createTableCommand.run(ctx, executor);
             } finally {
                 ctx.setSkipAuth(false);
