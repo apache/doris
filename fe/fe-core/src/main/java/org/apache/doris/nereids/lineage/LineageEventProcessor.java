@@ -209,12 +209,13 @@ public class LineageEventProcessor {
                 LOG.info("Skip lineage plugin not in activate_lineage_plugin: {}", pluginName);
                 continue;
             }
+            LineagePlugin plugin = null;
             try {
                 Map<String, String> props = new HashMap<>();
                 props.put("plugin.path", resolvePluginPath(pluginName));
                 props.put("plugin.name", pluginName);
                 PluginContext context = new PluginContext(props);
-                LineagePlugin plugin = entry.getValue().create(context);
+                plugin = entry.getValue().create(context);
                 if (plugin != null) {
                     plugin.initialize(context);
                     plugins.add(plugin);
@@ -223,12 +224,29 @@ public class LineageEventProcessor {
             } catch (Exception | LinkageError e) {
                 // create() and initialize() are the first calls into the plugin implementation (the
                 // factory only named it): a dependency it lacks arrives here as NoClassDefFoundError,
-                // which must cost this plugin alone, not FE startup. Its classloader goes with it.
+                // which must cost this plugin alone, not FE startup. Everything published for it goes
+                // with it: the factory (which would otherwise retain the classloader), the classloader,
+                // and an instance whose initialize() failed. The inventory row stays: the registry has
+                // no removal, and a row for a plugin that was found but refused is what an operator
+                // reading information_schema.extensions after this WARN needs to see.
                 LOG.warn("Failed to create/initialize lineage plugin: {}", pluginName, e);
+                factories.remove(pluginName);
+                closeQuietly(plugin, pluginName);
                 runtimeManager.discard(pluginName);
             }
         }
         initPlugins(plugins);
+    }
+
+    private static void closeQuietly(LineagePlugin plugin, String pluginName) {
+        if (plugin == null) {
+            return;
+        }
+        try {
+            plugin.close();
+        } catch (Exception | LinkageError e) {
+            LOG.warn("Failed to close lineage plugin {} after its initialization failed", pluginName, e);
+        }
     }
 
     private String safeFactoryName(LineagePluginFactory factory) {

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.lineage;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.extension.loader.ApiVersionGate;
 import org.apache.doris.extension.spi.PluginContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -35,6 +36,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -71,6 +73,80 @@ public class LineageEventProcessorTest {
         @Override
         public LineagePlugin create() {
             throw new NoClassDefFoundError("org/example/AbsentHttpClient");
+        }
+    }
+
+    /** Its factory and create() succeed; initialize() reaches a class the jar lacks. */
+    public static class FailingInitializeLineagePluginFactory implements LineagePluginFactory {
+        static final AtomicInteger CLOSED = new AtomicInteger();
+
+        @Override
+        public String name() {
+            return "failing-initialize-lineage-test";
+        }
+
+        @Override
+        public String description() {
+            return "initialize() links a class this plugin does not carry";
+        }
+
+        @Override
+        public LineagePlugin create() {
+            return new LineagePlugin() {
+                @Override
+                public String name() {
+                    return "failing-initialize-lineage-test";
+                }
+
+                @Override
+                public void initialize(PluginContext context) {
+                    throw new NoClassDefFoundError("org/example/AbsentHttpClient");
+                }
+
+                @Override
+                public void close() {
+                    CLOSED.incrementAndGet();
+                }
+
+                @Override
+                public boolean eventFilter() {
+                    return false;
+                }
+
+                @Override
+                public boolean exec(LineageInfo lineageInfo) {
+                    return false;
+                }
+            };
+        }
+    }
+
+    /**
+     * A plugin admitted by the loader and refused one step later must leave nothing behind: the
+     * instance whose initialize() failed is closed, its factory is dropped (it would retain the
+     * classloader), and nothing is active.
+     */
+    @Test
+    public void testAPluginWhoseInitializeFailsIsRolledBack(@TempDir Path tempDir) throws IOException {
+        writeLineagePluginJar(tempDir.resolve("lineage").resolve("failing-init").resolve("failing-init.jar"),
+                FailingInitializeLineagePluginFactory.class);
+        String savedPluginDir = Config.plugin_dir;
+        String[] savedActive = Config.activate_lineage_plugin;
+        Config.plugin_dir = tempDir.toString();
+        Config.activate_lineage_plugin = new String[0];
+        int closedBefore = FailingInitializeLineagePluginFactory.CLOSED.get();
+        try {
+            LineageEventProcessor processor = new LineageEventProcessor();
+            Assertions.assertDoesNotThrow(processor::start);
+            Assertions.assertFalse(processor.hasActivePlugins());
+            Assertions.assertEquals(closedBefore + 1, FailingInitializeLineagePluginFactory.CLOSED.get(),
+                    "the created instance is closed");
+            Map<String, LineagePluginFactory> factories = Deencapsulation.getField(processor, "factories");
+            Assertions.assertFalse(factories.containsKey("failing-initialize-lineage-test"),
+                    "the factory is dropped with its classloader");
+        } finally {
+            Config.plugin_dir = savedPluginDir;
+            Config.activate_lineage_plugin = savedActive;
         }
     }
 

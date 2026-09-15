@@ -245,16 +245,26 @@ public class BackupHandler extends MasterDaemon implements Writable {
             if (oldRepo == null) {
                 throw new DdlException("Repository does not exist");
             }
-            if (oldRepo.getUnavailableReason() != null) {
+            if (!oldRepo.hasFileSystemDescriptor()) {
+                // Nothing to merge into: an unmigrated legacy or corrupt record. A repository whose
+                // descriptor merely did not bind at load is exactly what ALTER is for - the corrected
+                // properties are bound below and refused with their reason if they still do not.
                 throw new DdlException("Repository " + repoName + " is not available: "
                         + oldRepo.getUnavailableReason());
             }
             // Merge new properties with the existing repository's properties
             Map<String, String> mergedProps = mergeProperties(oldRepo, newProps);
+            StorageAdapter mergedStorage;
+            try {
+                mergedStorage = StorageAdapter.of(mergedProps);
+            } catch (RuntimeException | LinkageError e) {
+                throw new DdlException("Failed to alter repository " + repoName
+                        + ": the merged properties do not bind a filesystem provider: " + e.getMessage());
+            }
             // Create new Repository instance with merged properties
             Repository newRepo = new Repository(
                     oldRepo.getId(), oldRepo.getName(), oldRepo.isReadOnly(),
-                    oldRepo.getLocation(), StorageAdapter.of(mergedProps)
+                    oldRepo.getLocation(), mergedStorage
             );
             // Verify the repository can be connected with new settings
             if (!newRepo.ping()) {

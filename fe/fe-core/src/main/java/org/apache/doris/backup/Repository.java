@@ -281,19 +281,23 @@ public class Repository implements Writable, GsonPostProcessable {
                 // A typed legacy record names its storage type ("S3", "HDFS", "AZURE", ...); a broker
                 // record names its broker. The descriptor carries an explicit type and is persisted by
                 // the next checkpoint, so a wrong guess here is permanent: a typed record must never
-                // become BROKER because its plugin merely failed to load. When the name is a shipped
-                // provider's and that provider is not loaded, its absence explains why nothing claims
-                // the properties, whatever brokers are registered (a broker may legally be called
-                // HDFS). Only a name that is not an absent provider's and is a registered broker's is
-                // read as a broker record. Anything else is kept as it was, so the migration is
-                // retried at the next start, and every use reports the reason until then.
-                if (StorageRegistry.Provider.byName(fsName).isPresent() && !StorageAdapter.hasProvider(fsName)) {
-                    unavailableReason = "legacy record of storage type '" + fsName + "' was not migrated:"
-                            + " its filesystem provider is not loaded (" + e.getMessage() + ")";
+                // become BROKER because its plugin failed to load, threw, or rejected the properties.
+                // So a name that is a shipped provider's is never read as a broker's, whatever brokers
+                // are registered (a broker may legally be called HDFS): the record is kept, with the
+                // reason - the provider is absent, or it is loaded and the binding failed. Only a name
+                // that is not a provider's and is a registered broker's is read as a broker record.
+                // Anything else is kept as it was, so the migration is retried at the next start, and
+                // every use reports the reason until then.
+                if (isStorageTypeName(fsName)) {
+                    unavailableReason = "legacy record of storage type '" + fsName + "' was not migrated: "
+                            + (StorageAdapter.hasProvider(fsName)
+                                    ? "its filesystem provider is loaded but did not bind the properties ("
+                                    : "its filesystem provider is not loaded (")
+                            + e.getMessage() + "). Repair the plugin or the properties and restart the FE.";
                 } else if (!isRegisteredBroker(fsName)) {
                     unavailableReason = "legacy record was not migrated: no loaded filesystem provider"
                             + " claims its properties (" + e.getMessage() + ") and '" + fsName
-                            + "' is not a registered broker";
+                            + "' is not a registered broker. After ADD BROKER, restart the FE.";
                 }
                 if (unavailableReason != null) {
                     errMsg = unavailableReason;
@@ -353,6 +357,17 @@ public class Repository implements Writable, GsonPostProcessable {
      */
     public String getUnavailableReason() {
         return unavailableReason;
+    }
+
+    /**
+     * Whether a legacy record's name is a storage type's - the name of a shipped provider other than
+     * BROKER, which is a family, not a type: a broker record names its broker, and a broker may be
+     * called "broker".
+     */
+    private static boolean isStorageTypeName(String fsName) {
+        return StorageRegistry.Provider.byName(fsName)
+                .filter(provider -> provider != StorageRegistry.Provider.BROKER)
+                .isPresent();
     }
 
     private static boolean isRegisteredBroker(String brokerName) {
@@ -925,6 +940,15 @@ public class Repository implements Writable, GsonPostProcessable {
         if (fileSystemDescriptor.getStorageType() != FsStorageType.BROKER) {
             brokerAddrs.add(new FsBroker("127.0.0.1", 0));
             return Status.OK;
+        }
+        // A broker repository binds per call and nothing checked its provider at load: bind here, so
+        // a missing or failing broker provider is this job's Status rather than a throw from the
+        // task construction that follows.
+        try {
+            fileSystemDescriptor.getBackendConfigProperties();
+        } catch (RuntimeException | LinkageError e) {
+            return new Status(ErrCode.COMMON_ERROR, "Repository '" + name + "' is not available: "
+                    + e.getMessage());
         }
 
         // get proper broker for this backend

@@ -699,6 +699,38 @@ public class RepositoryTest {
     }
 
     /**
+     * The other half of the collision: the typed record's provider is loaded but its binding throws
+     * (a half-installed plugin, or properties it now rejects), and a broker of the same name exists.
+     * A provider failure is not "this is a broker record" either: the record stays untouched.
+     */
+    @Test
+    public void testLegacyTypedRecordIsNotMigratedToABrokerOfTheSameNameWhenItsProviderFails() {
+        String legacyJson = "{"
+                + "\"id\":31500,"
+                + "\"n\":\"hdfsRepoBrokerCollisionThrowing\","
+                + "\"iro\":false,"
+                + "\"lo\":\"hdfs://ns/backup\","
+                + "\"ct\":-1,"
+                + "\"fs\":{\"n\":\"HDFS\",\"prop\":{\"hdfs.authentication.type\":\"simple\"}}"
+                + "}";
+        Mockito.when(mockedBrokerMgr.containsBroker("HDFS")).thenReturn(true);
+        FileSystemPluginManager manager = TestFileSystemPluginManagers.withoutProviders();
+        manager.registerProvider(throwingProvider("HDFS"));
+        StorageAdapter.initPluginManager(manager);
+        try {
+            Repository deserialized = Assertions.assertDoesNotThrow(
+                    () -> GsonUtils.GSON.fromJson(legacyJson, Repository.class));
+            Assertions.assertFalse(deserialized.hasFileSystemDescriptor(),
+                    "a provider that threw is not a refusal, and a same-name broker is not a signal");
+            Assertions.assertTrue(deserialized.getUnavailableReason().contains("loaded but did not bind"),
+                    deserialized.getUnavailableReason());
+            Assertions.assertFalse(GsonUtils.GSON.toJson(deserialized).contains("fs_descriptor"));
+        } finally {
+            StorageAdapter.initPluginManager(null);
+        }
+    }
+
+    /**
      * The migration binds run plugin code at image load: a provider that fails to link there must cost
      * this repository, not the FE. A fake provider that throws NoClassDefFoundError is registered under
      * the name the registry consults first, so it is the first one bindPrimary probes.
@@ -714,10 +746,26 @@ public class RepositoryTest {
                 + "\"fs\":{\"n\":\"HDFS\",\"prop\":{\"hdfs.authentication.type\":\"simple\"}}"
                 + "}";
         FileSystemPluginManager manager = TestFileSystemPluginManagers.withoutProviders();
-        manager.registerProvider(new FileSystemProvider<org.apache.doris.filesystem.properties.FileSystemProperties>() {
+        manager.registerProvider(throwingProvider("JFS"));
+        StorageAdapter.initPluginManager(manager);
+        try {
+            Repository deserialized = Assertions.assertDoesNotThrow(
+                    () -> GsonUtils.GSON.fromJson(legacyJson, Repository.class));
+            Assertions.assertFalse(deserialized.hasFileSystemDescriptor(), "the record is kept, not guessed");
+            Assertions.assertTrue(deserialized.getUnavailableReason().contains("AbsentDependency"),
+                    deserialized.getUnavailableReason());
+        } finally {
+            StorageAdapter.initPluginManager(null);
+        }
+    }
+
+    /** A provider registered under {@code name} whose every call reaches a class it does not carry. */
+    private static FileSystemProvider<org.apache.doris.filesystem.properties.FileSystemProperties> throwingProvider(
+            String name) {
+        return new FileSystemProvider<org.apache.doris.filesystem.properties.FileSystemProperties>() {
             @Override
             public String name() {
-                return "JFS";
+                return name;
             }
 
             @Override
@@ -745,17 +793,7 @@ public class RepositoryTest {
                 return new org.apache.doris.extension.spi.Plugin() {
                 };
             }
-        });
-        StorageAdapter.initPluginManager(manager);
-        try {
-            Repository deserialized = Assertions.assertDoesNotThrow(
-                    () -> GsonUtils.GSON.fromJson(legacyJson, Repository.class));
-            Assertions.assertFalse(deserialized.hasFileSystemDescriptor(), "the record is kept, not guessed");
-            Assertions.assertTrue(deserialized.getUnavailableReason().contains("AbsentDependency"),
-                    deserialized.getUnavailableReason());
-        } finally {
-            StorageAdapter.initPluginManager(null);
-        }
+        };
     }
 
     /**
