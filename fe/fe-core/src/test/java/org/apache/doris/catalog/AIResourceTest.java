@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TAIResource;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.gson.JsonObject;
@@ -44,6 +45,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.nio.file.Files;
@@ -350,6 +353,30 @@ public class AIResourceTest {
 
         Assertions.assertTrue(exception.getMessage().contains("Missing [ai.api_key]"));
         Assertions.assertEquals("LOCAL", aiResource.getProperty(AIProperties.PROVIDER_TYPE));
+    }
+
+    @Test
+    public void testModifyProviderStoresNormalizedValue() throws Exception {
+        AIResource aiResource = new AIResource("normalize-provider-resource");
+        aiResource.setProperties(ImmutableMap.copyOf(aiProperties));
+
+        aiResource.modifyProperties(ImmutableMap.of(AIProperties.PROVIDER_TYPE, "qwen"));
+
+        Assertions.assertEquals("QWEN", aiResource.getProperty(AIProperties.PROVIDER_TYPE));
+        TAIResource thriftResource = aiResource.toThrift();
+        Assertions.assertEquals("QWEN", thriftResource.getProviderType());
+
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        try (DataOutputStream dataOutput = new DataOutputStream(output)) {
+            aiResource.write(dataOutput);
+        }
+        AIResource replayedResource;
+        try (DataInputStream dataInput = new DataInputStream(
+                new ByteArrayInputStream(output.toByteArray()))) {
+            replayedResource = (AIResource) Resource.read(dataInput);
+        }
+        Assertions.assertEquals("QWEN", replayedResource.getProperty(AIProperties.PROVIDER_TYPE));
+        Assertions.assertEquals("QWEN", replayedResource.toThrift().getProviderType());
     }
 
     @Test

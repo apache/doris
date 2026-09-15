@@ -23,6 +23,7 @@ import com.google.common.base.Strings;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 public class AIProperties extends BaseProperties {
@@ -64,8 +65,9 @@ public class AIProperties extends BaseProperties {
         }
 
         // Check the provider is valid
-        properties.put(PROVIDER_TYPE, properties.get(PROVIDER_TYPE).toUpperCase());
-        if (PROVIDERS.stream().noneMatch(s -> s.equals(properties.get(PROVIDER_TYPE).toUpperCase()))) {
+        String provider = properties.get(PROVIDER_TYPE).toUpperCase(Locale.ROOT);
+        properties.put(PROVIDER_TYPE, provider);
+        if (!PROVIDERS.contains(provider)) {
             throw new DdlException("Provider must be one of " + PROVIDERS);
         }
 

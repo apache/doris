@@ -110,15 +110,7 @@ public class AIResource extends Resource {
 
         // modify properties
         writeLock();
-        for (Map.Entry<String, String> kv : newProperties.entrySet()) {
-            if (LEGACY_VALIDITY_CHECK.equals(kv.getKey())) {
-                continue;
-            }
-            replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
-            if (AIProperties.API_KEY.equals(kv.getKey())) {
-                this.properties.put(kv.getKey(), kv.getValue());
-            }
-        }
+        this.properties = changedProperties;
         ++version;
         writeUnlock();
         super.modifyProperties(newProperties);
