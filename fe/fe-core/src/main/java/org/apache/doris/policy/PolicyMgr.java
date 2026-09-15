@@ -354,6 +354,25 @@ public class PolicyMgr implements Writable {
         typeToPolicyMap.put(log.getType(), policies);
     }
 
+    /** Return whether the table has any row policy, without matching users/roles or parsing policy expressions. */
+    public boolean hasRowPolicy(String ctlName, String dbName, String tableName) {
+        readLock();
+        try {
+            Map<String, Map<String, List<RowPolicy>>> dbPolicies = tablePolicies.get(ctlName);
+            if (dbPolicies == null) {
+                return false;
+            }
+            Map<String, List<RowPolicy>> tablePolicyMap = dbPolicies.get(dbName);
+            if (tablePolicyMap == null) {
+                return false;
+            }
+            List<RowPolicy> policies = tablePolicyMap.get(tableName);
+            return policies != null && !policies.isEmpty();
+        } finally {
+            readUnlock();
+        }
+    }
+
     public List<RowPolicy> getUserPolicies(String ctlName, String dbName, String tableName, UserIdentity user) {
         List<RowPolicy> res = Lists.newArrayList();
         // Make a judgment in advance to reduce the number of times to obtain getRoles
