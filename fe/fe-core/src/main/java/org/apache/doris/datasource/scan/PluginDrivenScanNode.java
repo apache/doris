@@ -659,7 +659,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             // FileScanNode.getNodeExplainString()'s `partition=N/M` line. This override replaces the
             // parent's body wholesale (custom TABLE/QUERY/PREDICATES format), so it must re-emit the
             // line itself; the counts are populated from the Nereids pruning result in
-            // getSplits()/startSplit() (see setSelectedPartitions).
+            // getSplits()/startSplit() (see setSelectedPartitions). M is the table's TOTAL partition count,
+            // which a connector-filtered selection does not know (see resolveUnknownTotalPartitionNum), so it
+            // is completed here - at the only consumer of the number - rather than on the query path.
+            resolveUnknownTotalPartitionNum();
             output.append(prefix).append("partition=").append(selectedPartitionNum)
                     .append("/").append(totalPartitionNum < 0 ? "?" : totalPartitionNum).append("\n");
             // FIX-E / FIX-R3-RESIDUAL (explain gap): the VERBOSE per-backend block (the backends: list,
@@ -1152,7 +1155,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     }
 
     private void materializeDeferredSelectedPartitions() throws UserException {
-        if (!selectedPartitions.isDeferredPartitionPruning()) {
+        // A null selection is the "nothing selected" state this node handles everywhere else (see
+        // resolveRequiredPartitions, displayPartitionCounts, shouldUseBatchMode and numApproximateSplits);
+        // there is no deferred view to materialize for it.
+        if (selectedPartitions == null || !selectedPartitions.isDeferredPartitionPruning()) {
             return;
         }
         // A logical filter materializes this state earlier in PruneFileScanPartition. Reaching finalize still
@@ -1174,6 +1180,48 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // become an empty selection: keep NOT_PRUNED so the scan reads every partition instead of none.
         return partitions.map(items -> new SelectedPartitions(items.size(), items, false))
                 .orElse(SelectedPartitions.NOT_PRUNED);
+    }
+
+    /**
+     * Completes the EXPLAIN {@code partition=N/M} total for a selection that cannot know it.
+     *
+     * <p>A connector-filtered selection ({@code PruneFileScanPartition}) carries only the surviving partition
+     * names - not enumerating the table's full partition view is exactly what pushing the predicate into the
+     * connector buys - so it leaves {@code totalPartitionNum} at
+     * {@link SelectedPartitions#UNKNOWN_TOTAL_PARTITION_NUM}. The reader of an EXPLAIN still gets the real
+     * total: it is resolved from the connector's UNFILTERED view, the same view a no-filter full scan
+     * materializes on this node before generating splits ({@link #materializeDeferredSelectedPartitions}), and
+     * it is resolved here so a statement that renders no EXPLAIN string never pays for it. An unavailable view
+     * leaves the count unknown, which the renderers write as {@code ?} - never as a fabricated 0.</p>
+     */
+    private void resolveUnknownTotalPartitionNum() {
+        if (totalPartitionNum >= 0) {
+            return;
+        }
+        // A metadata TVF scan (PluginDrivenSysTable) has no partition view to ask about; its counts stay at
+        // their NOT_PRUNED default, so this resolver never fires for it, and the cast below must not be reached
+        // through that shape.
+        TableIf table = desc.getTable();
+        if (!(table instanceof PluginDrivenExternalTable)) {
+            return;
+        }
+        PluginDrivenExternalTable pluginDrivenTable = (PluginDrivenExternalTable) table;
+        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(pluginDrivenTable,
+                Optional.ofNullable(getQueryTableSnapshot()), Optional.ofNullable(getScanParams()));
+        totalPartitionNum = totalPartitionNumFromUnfilteredView(totalPartitionNum,
+                pluginDrivenTable.getNameToPartitionItemsForScan(snapshot));
+    }
+
+    /**
+     * The displayed total for a selection whose own total is unknown, given the connector's unfiltered
+     * partition view: the view's size, or the unchanged (still unknown) count when the view is unavailable.
+     */
+    static long totalPartitionNumFromUnfilteredView(long totalPartitionNum,
+            Optional<Map<String, PartitionItem>> unfilteredView) {
+        if (totalPartitionNum >= 0) {
+            return totalPartitionNum;
+        }
+        return unfilteredView.map(view -> (long) view.size()).orElse(totalPartitionNum);
     }
 
     @Override
