@@ -816,12 +816,46 @@ public class MTMVTaskTest {
         Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
 
         Deencapsulation.invoke(task, "validateIvmBaselineBeforePartitionSync", request);
-        Assertions.assertTrue((Boolean) Deencapsulation.invoke(task, "handlePendingIvmBaselineRebuild",
-                Mockito.mock(MTMVRefreshContext.class), request, new ConnectContext()));
-        Assertions.assertEquals(MTMVTask.MTMVTaskRefreshMode.NOT_REFRESH,
-                Deencapsulation.getField(task, "refreshMode"));
+        List<Object> attempts = Lists.newArrayList();
+        attempts.addAll(Deencapsulation.invoke(task, "buildAttempts", request, false));
+        Assertions.assertEquals("[PARTITIONS, COMPLETE]", attempts.toString());
+
+        Deencapsulation.invoke(task, "handlePendingIvmBaselineRebuild",
+                Mockito.mock(MTMVRefreshContext.class), request, new ConnectContext(), attempts);
+
+        // A pending COMPLETE rebuild reshapes the attempt list instead of rebuilding inline, so
+        // PARTITIONS FALLBACK rebuilds the whole MV through the COMPLETE attempt it keeps.
+        Assertions.assertEquals("[COMPLETE]", attempts.toString());
         Assertions.assertEquals(IvmFailureReason.BINLOG_BROKEN.name(),
                 Deencapsulation.getField(task, "ivmFallbackReason"));
+        // The barrier is released by the caller once the reshaped attempts have run.
+        Mockito.verify(mtmv, Mockito.never()).releaseIvmBaselineRebuild(Mockito.anyLong());
+    }
+
+    @Test
+    public void testDroppedBaselinePartitionsReleaseBarrierWithoutRebuild() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        IvmInfo ivmInfo = new IvmInfo();
+        ivmInfo.addPendingBaselineRebuildPartitions(Sets.newHashSet(poneName));
+        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
+        // Partition sync already dropped the partition the barrier named, so nothing is left to
+        // pre-rebuild and the surviving partitions catch up through the attempts themselves.
+        Mockito.when(mtmv.getPartitionNames()).thenReturn(Sets.newHashSet(ptwoName));
+        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.PARTITIONS, true, null));
+        Deencapsulation.setField(task, "mtmvSchemaChangeVersion", 7L);
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+
+        List<Object> attempts = Lists.newArrayList();
+        attempts.addAll(Deencapsulation.invoke(task, "buildAttempts", request, false));
+        Deencapsulation.invoke(task, "handlePendingIvmBaselineRebuild",
+                Mockito.mock(MTMVRefreshContext.class), request, new ConnectContext(), attempts);
+
+        Assertions.assertEquals("[PARTITIONS, COMPLETE]", attempts.toString());
+        Assertions.assertNull(Deencapsulation.getField(task, "refreshMode"));
+        Assertions.assertEquals(IvmFailureReason.BINLOG_BROKEN.name(),
+                Deencapsulation.getField(task, "ivmFallbackReason"));
+        Mockito.verify(mtmv).releaseIvmBaselineRebuild(7L);
     }
 
     @Test
