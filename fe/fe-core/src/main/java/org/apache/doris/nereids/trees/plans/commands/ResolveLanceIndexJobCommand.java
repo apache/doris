@@ -38,6 +38,9 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -92,6 +95,8 @@ public class ResolveLanceIndexJobCommand extends Command implements ForwardWithS
             "the old worker may still overwrite, remove, or reintroduce the index name; "
                     + "the mutation outcome remains UNKNOWN";
 
+    private static final Logger LOG = LogManager.getLogger(ResolveLanceIndexJobCommand.class);
+
     private final long jobId;
     private final String comment;
 
@@ -131,6 +136,21 @@ public class ResolveLanceIndexJobCommand extends Command implements ForwardWithS
         if (!authorized) {
             throw notFound();
         }
+        // 3. Idempotent replay: a retry returns the existing release record (section 7.1).
+        //    This deliberately precedes the resolution-failure rejection: once the release
+        //    has landed, a retry during a provider outage is a success, not a 5105.
+        if (job.isForceReleased()) {
+            ctx.getState().setOk(0, 1, LATE_COMMIT_WARNING);
+            return;
+        }
+        // 4. Only UNKNOWN may be force-released; a null mutation state reads as UNKNOWN,
+        //    same as the manager's own gate. The state rejection also precedes the
+        //    resolution-failure rejection: for a terminal job the accurate answer is 5104,
+        //    not a 5105 claiming the job still holds its fence.
+        if (job.getMutationState() != null && job.getMutationState() != LanceIndexJobMutationState.UNKNOWN) {
+            throw new AnalysisException(ErrorCode.ERR_LANCE_INDEX_JOB_NOT_UNKNOWN.formatErrorMsg(jobId),
+                    ErrorCode.ERR_LANCE_INDEX_JOB_NOT_UNKNOWN);
+        }
         if (resolution == TargetResolution.FAILED) {
             // Never an orphan verdict: "table gone" cannot be told apart from "network down",
             // so nothing is released and nothing beyond the typed error is disclosed; the
@@ -139,17 +159,6 @@ public class ResolveLanceIndexJobCommand extends Command implements ForwardWithS
                     + " metadata; see fe.log for the cause");
         }
         boolean targetResolves = resolution == TargetResolution.RESOLVED;
-        // 3. Idempotent replay: a retry returns the existing release record (section 7.1).
-        if (job.isForceReleased()) {
-            ctx.getState().setOk(0, 1, LATE_COMMIT_WARNING);
-            return;
-        }
-        // 4. Only UNKNOWN may be force-released; a null mutation state reads as UNKNOWN,
-        //    same as the manager's own gate.
-        if (job.getMutationState() != null && job.getMutationState() != LanceIndexJobMutationState.UNKNOWN) {
-            throw new AnalysisException(ErrorCode.ERR_LANCE_INDEX_JOB_NOT_UNKNOWN.formatErrorMsg(jobId),
-                    ErrorCode.ERR_LANCE_INDEX_JOB_NOT_UNKNOWN);
-        }
         // 5. The grammar makes COMMENT mandatory; here the note must also be non-empty after
         //    trimming and fit the durable force text bound.
         String note = comment == null ? "" : comment.trim();
@@ -247,9 +256,11 @@ public class ResolveLanceIndexJobCommand extends Command implements ForwardWithS
         try {
             db = catalog.getDbNullable(job.getDbName());
             table = db == null ? null : db.getTableNullable(job.getTableName());
-        } catch (RuntimeException e) {
+        } catch (Exception e) {
             // A remote-metadata blip during resolution is not an orphan verdict; the provider
             // message is not echoed here because it never crossed the sanitized chain.
+            LOG.warn("lance index job {}: target re-resolution failed before the authoritative read",
+                    job.getJobId(), e);
             throw incompleteResolution("the persisted target could not be resolved with current catalog"
                     + " metadata; see fe.log for the cause");
         }
@@ -257,6 +268,14 @@ public class ResolveLanceIndexJobCommand extends Command implements ForwardWithS
             // The target resolved at authorization time but is gone now: keep the fence and
             // let the retry take the half-orphan branch under global ADMIN.
             throw incompleteResolution("the persisted target table no longer resolves; retry the statement");
+        }
+        if (!(db instanceof ExternalDatabase) || !(table instanceof ExternalTable)) {
+            // Boundary guard: a Lance catalog must serve external relations, but the command
+            // boundary does not trust that invariant (no raw ClassCastException to the user).
+            LOG.warn("lance index job {}: target relation is not external: db={}, table={}",
+                    job.getJobId(), db.getClass().getName(), table.getClass().getName());
+            throw incompleteResolution("the persisted target is not an external relation;"
+                    + " see fe.log for the cause");
         }
         String remoteDb = ((ExternalDatabase) db).getRemoteName();
         String remoteTable = ((ExternalTable) table).getRemoteName();
@@ -299,7 +318,8 @@ public class ResolveLanceIndexJobCommand extends Command implements ForwardWithS
         DatabaseIf<? extends TableIf> db;
         try {
             db = catalog.getDbNullable(job.getDbName());
-        } catch (RuntimeException e) {
+        } catch (Exception e) {
+            LOG.warn("lance index job {}: target database resolution failed", job.getJobId(), e);
             return TargetResolution.FAILED;
         }
         if (db == null) {
@@ -308,7 +328,8 @@ public class ResolveLanceIndexJobCommand extends Command implements ForwardWithS
         TableIf table;
         try {
             table = db.getTableNullable(job.getTableName());
-        } catch (RuntimeException e) {
+        } catch (Exception e) {
+            LOG.warn("lance index job {}: target table resolution failed", job.getJobId(), e);
             return TargetResolution.FAILED;
         }
         if (table == null) {
@@ -320,6 +341,9 @@ public class ResolveLanceIndexJobCommand extends Command implements ForwardWithS
         String currentLocator = ((LanceExternalCatalog) catalog).resolveCurrentIndexJobLocator(
                 job.getDbName(), job.getTableName());
         if (currentLocator == null) {
+            // The catalog folds provider outages and unresolvable names into null (and logs
+            // nothing), so the cause trail for the 5105 starts here.
+            LOG.warn("lance index job {}: current dataset locator could not be resolved", job.getJobId());
             return TargetResolution.FAILED;
         }
         return currentLocator.equals(job.getNormalizedLocator())
