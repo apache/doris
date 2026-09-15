@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hour;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourFromUnixtime;
@@ -34,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Second;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFromUnixtime;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
@@ -71,7 +73,7 @@ public class SimplifyTimeFieldFromUnixtime implements ExpressionPatternRuleFacto
 
     private static Expression rewriteHour(ExpressionMatchingContext<Hour> ctx) {
         Hour hour = ctx.expr;
-        Expression nestedChild = removeCast(hour.child());
+        Expression nestedChild = removeLosslessDateTimeCast(hour.child());
         if (!(nestedChild instanceof FromUnixtime && nestedChild.arity() == 1)) {
             return hour;
         }
@@ -88,7 +90,7 @@ public class SimplifyTimeFieldFromUnixtime implements ExpressionPatternRuleFacto
 
     private static Expression rewriteMinute(ExpressionMatchingContext<Minute> ctx) {
         Minute minute = ctx.expr;
-        Expression nestedChild = removeCast(minute.child());
+        Expression nestedChild = removeLosslessDateTimeCast(minute.child());
         if (!(nestedChild instanceof FromUnixtime && nestedChild.arity() == 1)) {
             return minute;
         }
@@ -105,7 +107,7 @@ public class SimplifyTimeFieldFromUnixtime implements ExpressionPatternRuleFacto
 
     private static Expression rewriteSecond(ExpressionMatchingContext<Second> ctx) {
         Second second = ctx.expr;
-        Expression nestedChild = removeCast(second.child());
+        Expression nestedChild = removeLosslessDateTimeCast(second.child());
         if (!(nestedChild instanceof FromUnixtime && nestedChild.arity() == 1)) {
             return second;
         }
@@ -122,7 +124,7 @@ public class SimplifyTimeFieldFromUnixtime implements ExpressionPatternRuleFacto
 
     private static Expression rewriteMicrosecond(ExpressionMatchingContext<Microsecond> ctx) {
         Microsecond microsecond = ctx.expr;
-        Expression nestedChild = removeCast(microsecond.child());
+        Expression nestedChild = removeLosslessDateTimeCast(microsecond.child());
         if (!(nestedChild instanceof FromUnixtime && nestedChild.arity() == 1)) {
             return microsecond;
         }
@@ -138,14 +140,34 @@ public class SimplifyTimeFieldFromUnixtime implements ExpressionPatternRuleFacto
         return TypeCoercionUtils.ensureSameResultType(microsecond, rewritten, ctx.rewriteContext);
     }
 
-    private static Expression removeCast(Expression expr) {
-        Expression current = expr;
-        if (current instanceof Cast) {
-            DataType nestedType = current.getDataType();
-            if (nestedType.isDateTimeType() || nestedType.isDateTimeV2Type()) {
-                current = ((Cast) current).child();
-            }
+    private static Expression removeLosslessDateTimeCast(Expression expr) {
+        if (!(expr instanceof Cast) || expr instanceof TryCast) {
+            return expr;
         }
-        return current;
+        Cast cast = (Cast) expr;
+        if (cast.isStrict() || !(cast.child() instanceof FromUnixtime) || cast.child().arity() != 1) {
+            return expr;
+        }
+
+        FromUnixtime fromUnixtime = (FromUnixtime) cast.child();
+        DataType argumentType = fromUnixtime.getSignature().getArgType(0);
+        int sourceScale;
+        if (argumentType.isBigIntType()) {
+            sourceScale = 0;
+        } else if (argumentType instanceof DecimalV3Type) {
+            sourceScale = ((DecimalV3Type) argumentType).getScale();
+        } else {
+            return expr;
+        }
+
+        DataType targetType = cast.getDataType();
+        if (targetType.isDateTimeType()) {
+            return sourceScale == 0 ? cast.child() : expr;
+        }
+        if (targetType instanceof DateTimeV2Type
+                && ((DateTimeV2Type) targetType).getScale() >= sourceScale) {
+            return cast.child();
+        }
+        return expr;
     }
 }
