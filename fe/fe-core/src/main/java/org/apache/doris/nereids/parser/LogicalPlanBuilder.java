@@ -5889,7 +5889,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             userIdentity = visitUserIdentify(ctx.userIdentify());
         }
         passwordText = stripQuotes(ctx.STRING_LITERAL().getText());
-        return new SetPassVarOp(userIdentity, new PassVar(passwordText, ctx.isPlain != null));
+        return new SetPassVarOp(userIdentity, new PassVar(passwordText, ctx.isPlain != null),
+                ctx.retainCurrent != null);
     }
 
     @Override
@@ -8784,7 +8785,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         PasswordOptions passwordOptions = visitPasswordOption(ctx.passwordOption());
         String comment = ctx.commentSpec() == null ? null : visitCommentSpec(ctx.commentSpec());
         TlsOptions tlsOptions = visitRequireClause(ctx.requireClause());
-        AlterUserInfo alterUserInfo = new AlterUserInfo(ifExist, userDesc, passwordOptions, comment, tlsOptions);
+        boolean retainCurrentPassword = ctx.retainCurrent != null;
+        boolean discardOldPassword = ctx.discardOld != null;
+        AlterUserInfo alterUserInfo = new AlterUserInfo(ifExist, userDesc, passwordOptions, comment, tlsOptions,
+                retainCurrentPassword, discardOldPassword);
         return new AlterUserCommand(alterUserInfo);
     }
 
