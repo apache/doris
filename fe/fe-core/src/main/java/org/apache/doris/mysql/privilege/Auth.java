@@ -244,7 +244,7 @@ public class Auth implements Writable {
             }
             // an LDAP-accepted credential still does not open a Doris account under ACCOUNT_LOCK
             if (currentUser != null && !currentUser.isEmpty()) {
-                checkAccountLocked(currentUser.get(currentUser.size() - 1));
+                checkAccountLocked(currentUser.get(0));
             }
         } else {
             readLock();

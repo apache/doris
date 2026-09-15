@@ -1006,4 +1006,28 @@ class AuthenticatorManagerTest {
         Assertions.assertEquals(open, openContext.getCurrentUserIdentity());
         Mockito.verify(auth).checkAccountLocked(open);
     }
+
+    @Test
+    void testCertificateOnlyLoginRunsTheSameLockCheck() throws Exception {
+        // the certificate-only path returns before finishSuccessfulAuthentication, so it calls the
+        // shared refusal directly: a locked account is refused with 3118 and nothing is applied
+        UserIdentity locked = UserIdentity.createAnalyzedUserIdentWithIp("alice", "%");
+        Mockito.doThrow(new AuthenticationException(ErrorCode.ERR_ACCOUNT_HAS_BEEN_LOCKED, "alice", "%"))
+                .when(auth).checkAccountLocked(locked);
+        AuthenticatorManager manager = new AuthenticatorManager("password");
+        ConnectContext context = new ConnectContext();
+        try (MockedStatic<MysqlProto> mysqlProto = Mockito.mockStatic(MysqlProto.class)) {
+            Assertions.assertTrue(manager.refuseIfAccountLocked(context, locked));
+            mysqlProto.verify(() -> MysqlProto.sendResponsePacket(context));
+        }
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, context.getState().getStateType());
+        Assertions.assertTrue(context.getState().getErrorMessage().contains("Account is locked"),
+                context.getState().getErrorMessage());
+        Assertions.assertNull(context.getCurrentUserIdentity());
+
+        UserIdentity open = UserIdentity.createAnalyzedUserIdentWithIp("bob", "%");
+        ConnectContext openContext = new ConnectContext();
+        Assertions.assertFalse(manager.refuseIfAccountLocked(openContext, open));
+        Assertions.assertNotEquals(QueryState.MysqlStateType.ERR, openContext.getState().getStateType());
+    }
 }

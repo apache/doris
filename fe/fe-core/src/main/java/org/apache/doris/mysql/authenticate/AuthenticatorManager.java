@@ -185,6 +185,10 @@ public class AuthenticatorManager {
             return false;
         }
         if (certDecision.shouldSkipPasswordVerification()) {
+            // a certificate-only login is an authentication too: a locked account stays refused
+            if (refuseIfAccountLocked(context, certDecision.getUserIdentity())) {
+                return false;
+            }
             context.setCurrentUserIdentity(certDecision.getUserIdentity());
             context.setRemoteIP(remoteIp);
             context.setIsTempUser(false);
@@ -307,19 +311,30 @@ public class AuthenticatorManager {
         return null;
     }
 
+    /**
+     * ACCOUNT_LOCK, enforced after ANY authentication succeeded -- local password, LDAP, an
+     * authentication integration or plugin, or a client certificate -- so none of them can open a
+     * locked Doris account (the local-password path also checks it inside the password policy).
+     * Returns true when the login was refused: the 3118 error is set and sent, nothing is applied.
+     */
+    @VisibleForTesting
+    boolean refuseIfAccountLocked(ConnectContext context, UserIdentity userIdentity) throws IOException {
+        try {
+            Env.getCurrentEnv().getAuth().checkAccountLocked(userIdentity);
+            return false;
+        } catch (AuthenticationException e) {
+            context.getState().setError(ErrorCode.ERR_ACCOUNT_HAS_BEEN_LOCKED,
+                    ErrorCode.ERR_ACCOUNT_HAS_BEEN_LOCKED.formatErrorMsg(userIdentity.getQualifiedUser(),
+                            userIdentity.getHost()));
+            MysqlProto.sendResponsePacket(context);
+            return true;
+        }
+    }
+
     @VisibleForTesting
     boolean finishSuccessfulAuthentication(ConnectContext context, String remoteIp,
             AuthenticateResponse response, boolean setOkState) throws IOException {
-        // ACCOUNT_LOCK is enforced here, after ANY authenticator accepted the credential, so an
-        // LDAP / integration / plugin login cannot bypass a lock on the Doris account it maps to
-        // (the local-password path also checks it inside the password policy).
-        try {
-            Env.getCurrentEnv().getAuth().checkAccountLocked(response.getUserIdentity());
-        } catch (AuthenticationException e) {
-            UserIdentity locked = response.getUserIdentity();
-            context.getState().setError(ErrorCode.ERR_ACCOUNT_HAS_BEEN_LOCKED,
-                    ErrorCode.ERR_ACCOUNT_HAS_BEEN_LOCKED.formatErrorMsg(locked.getQualifiedUser(), locked.getHost()));
-            MysqlProto.sendResponsePacket(context);
+        if (refuseIfAccountLocked(context, response.getUserIdentity())) {
             return false;
         }
         if (setOkState) {
