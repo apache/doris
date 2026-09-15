@@ -159,7 +159,7 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
         return backendId;
     }
 
-    /** Return the only backend that may execute this TVF, or -1 when execution may be distributed. */
+    @Override
     public long getBackendIdForExecution() {
         return isLanceFormat() ? backendIdForRequest : backendId;
     }

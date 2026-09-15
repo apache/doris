@@ -97,6 +97,7 @@ public class LanceScanNode extends FileQueryScanNode {
     private final SearchKind searchKind;
     private byte[] lanceSubstraitFilter = new byte[0];
     private String lancePushdownPredicate = "";
+    private final Set<String> lazyMaterializedColumns = new HashSet<>();
     private long plannedVersion = -1;
     private int plannedFragments;
     private int plannedUnindexedFragments;
@@ -166,9 +167,15 @@ public class LanceScanNode extends FileQueryScanNode {
         }
     }
 
-    /** Checks whether any projected Lance column requires the current BE reader. */
+    public void addLazyMaterializedColumn(String columnName) {
+        lazyMaterializedColumns.add(columnName.toLowerCase(Locale.ROOT));
+    }
+
+    /** Checks columns read in either phase of a Lance scan. */
     private boolean projectsCurrentReaderType() {
-        Set<String> projectedColumns = new HashSet<>();
+        // Global row IDs route the second-phase take back to the first-phase BE, so lazy pruning
+        // must not hide a column's reader requirement when checking mixed-version backends.
+        Set<String> projectedColumns = new HashSet<>(lazyMaterializedColumns);
         for (SlotDescriptor slot : desc.getSlots()) {
             if (slot.getColumn() != null) {
                 projectedColumns.add(slot.getColumn().getName().toLowerCase(Locale.ROOT));

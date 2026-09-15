@@ -40,7 +40,6 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
-import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
@@ -82,14 +81,11 @@ public class TVFScanNode extends FileQueryScanNode {
 
     @Override
     protected void initBackendPolicy() throws UserException {
-        if (tableValuedFunction instanceof LocalTableValuedFunction) {
-            long backendId =
-                    ((LocalTableValuedFunction) tableValuedFunction).getBackendIdForExecution();
-            if (backendId != -1) {
-                backendPolicy.initWithBackendId(backendId);
-                numNodes = backendPolicy.numBackends();
-                return;
-            }
+        long backendId = tableValuedFunction.getBackendIdForExecution();
+        if (backendId != -1) {
+            backendPolicy.initWithBackendId(backendId);
+            numNodes = backendPolicy.numBackends();
+            return;
         }
         backendPolicy.init();
         numNodes = backendPolicy.numBackends();

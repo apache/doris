@@ -1795,25 +1795,6 @@ TEST(LanceTableReaderSchemaTest, RejectsMalformedKnownExtensionStorage) {
     }
 }
 
-// Verifies nested Null fields remain unsupported.
-TEST(LanceTableReaderSchemaTest, MarksNestedNullTypesAsUnsupported) {
-    const auto arrow_schema = arrow::schema({
-            arrow::field("null_list", arrow::list(arrow::field("item", arrow::null()))),
-            arrow::field("null_struct", arrow::struct_({arrow::field("value", arrow::null())})),
-    });
-
-    std::vector<std::string> column_names;
-    std::vector<DataTypePtr> column_types;
-    ASSERT_TRUE(convert_arrow_schema_to_doris(arrow_schema, &column_names, &column_types).ok());
-
-    EXPECT_EQ((std::vector<std::string> {"null_list", "null_struct"}), column_names);
-    ASSERT_EQ(2, column_types.size());
-    for (const auto& column_type : column_types) {
-        ASSERT_NE(nullptr, column_type);
-        EXPECT_EQ(INVALID_TYPE, column_type->get_primitive_type());
-    }
-}
-
 // Verifies values, nullability, and precision when reading the additional types.
 TEST(LanceTableReaderTypeTest, ReadsAdditionalArrowAndLanceTypes) {
     const auto json_extension_metadata =

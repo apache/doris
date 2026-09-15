@@ -96,6 +96,18 @@ public class FileTableValuedFunction extends ExternalFileTableValuedFunction {
     }
 
     @Override
+    public boolean requiresCurrentLanceReader(String columnName) {
+        // Schema discovery records reader requirements on the delegate, not this wrapper.
+        return delegateTvf.requiresCurrentLanceReader(columnName);
+    }
+
+    @Override
+    public long getBackendIdForExecution() {
+        // Local Lance must run on its schema backend, including through the generic file() entry point.
+        return delegateTvf.getBackendIdForExecution();
+    }
+
+    @Override
     public long getLanceDatasetVersion() {
         return delegateTvf.getLanceDatasetVersion();
     }
