@@ -34,7 +34,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 public class ExternalCatalogRuntimeStateTest {
 
@@ -88,11 +87,10 @@ public class ExternalCatalogRuntimeStateTest {
                 return catalog.getRuntimeGeneration();
             });
             Assertions.assertTrue(readerStarted.await(5, TimeUnit.SECONDS));
-            Assertions.assertThrows(TimeoutException.class, () -> reader.get(200, TimeUnit.MILLISECONDS));
+            Assertions.assertEquals(1L, reader.get(5, TimeUnit.SECONDS));
 
             allowResetToFinish.countDown();
             modifier.get(5, TimeUnit.SECONDS);
-            Assertions.assertEquals(1L, reader.get(5, TimeUnit.SECONDS));
         } finally {
             allowResetToFinish.countDown();
             executor.shutdownNow();

@@ -98,7 +98,10 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
         fsViewEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_FS_VIEW, HudiFsViewCacheKey.class,
                 HudiFsViewCacheValue.class, this::createFsView, defaultEntryCacheSpec(),
                 false, MetaCacheEntryInvalidation.forNameMapping(HudiFsViewCacheKey::getNameMapping))
-                .withRemovalListener(value -> value, this::releaseFsViewCacheReference)
+                .withRemovalListener(value -> {
+                    value.releaseCacheReference();
+                    return Boolean.TRUE;
+                }, (key, token) -> { /* retire already done in extractor */ })
                 .withStrongValues());
         metaClientEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_META_CLIENT, HudiMetaClientCacheKey.class,
                 HoodieTableMetaClient.class, this::createHoodieTableMetaClient, defaultEntryCacheSpec(),
@@ -227,12 +230,6 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
         HoodieLocalEngineContext ctx = new HoodieLocalEngineContext(tableMetaClient.getStorageConf());
         return new HudiFsViewCacheValue(
                 FileSystemViewManager.createInMemoryFileSystemView(ctx, tableMetaClient, metadataConfig));
-    }
-
-    private void releaseFsViewCacheReference(HudiFsViewCacheKey key, HudiFsViewCacheValue value) {
-        if (value != null) {
-            value.releaseCacheReference();
-        }
     }
 
     private HoodieTableMetaClient createHoodieTableMetaClient(HudiMetaClientCacheKey key) {
