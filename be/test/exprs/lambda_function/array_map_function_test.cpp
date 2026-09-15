@@ -583,6 +583,16 @@ static ColumnPtr make_int_array_column(const std::vector<std::vector<int32_t>>& 
     return ColumnArray::create(std::move(nullable_int_column), std::move(offsets));
 }
 
+static ColumnPtr make_nullable_int_array_column(const std::vector<std::vector<int32_t>>& rows,
+                                                const std::vector<uint8_t>& outer_null_map) {
+    auto array_column = IColumn::mutate(make_int_array_column(rows));
+    auto null_map = ColumnUInt8::create();
+    for (uint8_t is_null : outer_null_map) {
+        null_map->insert_value(is_null);
+    }
+    return ColumnNullable::create(std::move(array_column), std::move(null_map));
+}
+
 static ColumnPtr make_nested_int_array_column() {
     // Two input rows:
     //   row 0: [[1, 2], [3]]
@@ -1013,6 +1023,102 @@ TEST(ArrayMapFunctionTest, MultiBatchPreservesCaptureMappingAcrossSelectedArrayR
               10 + static_cast<int32_t>(lambda_batch_size - 1));
     EXPECT_EQ(values.get_element(lambda_batch_size), 10 + lambda_batch_size);
     EXPECT_EQ(values.get_element(total_nested_rows - 1), 1349);
+}
+
+TEST(ArrayMapFunctionTest, HiddenPayloadAfterValidRowUsesOwnOffsetsAcrossBatchesAndSelector) {
+    constexpr int lambda_batch_size = 3;
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    auto nullable_array_int_type = std::make_shared<DataTypeNullable>(array_int_type);
+    std::vector<size_t> observed_batch_sizes;
+
+    auto root =
+            VLambdaFunctionCallExpr::create_shared(make_lambda_call_node(nullable_array_int_type, 3));
+    auto lambda = VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int_type, {"x", "y"}));
+    auto body = std::make_shared<MockAddExpr>(int_type, &observed_batch_sizes);
+    body->add_child(VColumnRef::create_shared(make_column_ref_node(0, "x", int_type)));
+    body->add_child(VColumnRef::create_shared(make_column_ref_node(1, "y", int_type)));
+    lambda->add_child(body);
+    root->add_child(lambda);
+    root->add_child(make_slot_ref(0, "left", nullable_array_int_type));
+    root->add_child(make_slot_ref(1, "right", array_int_type));
+
+    VExprContext context(root);
+    open_expr_with_batch_size(root, &context, lambda_batch_size);
+
+    Block block;
+    block.insert({make_nullable_int_array_column({{-100},
+                                                  {1, 2},
+                                                  {-200},
+                                                  {900, 901, 902},
+                                                  {-300},
+                                                  {3, 4, 5, 6, 7}},
+                                                 {0, 0, 0, 1, 0, 0}),
+                  nullable_array_int_type, "left"});
+    block.insert({make_int_array_column(
+                          {{-10}, {10, 20}, {-20}, {800, 801}, {-30}, {30, 40, 50, 60, 70}}),
+                  array_int_type, "right"});
+
+    Selector selector {1, 3, 5};
+    ColumnPtr result;
+    auto status = root->execute_column(&context, &block, &selector, selector.size(), result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    ASSERT_EQ(observed_batch_sizes.size(), 3);
+    EXPECT_EQ(observed_batch_sizes[0], 3);
+    EXPECT_EQ(observed_batch_sizes[1], 3);
+    EXPECT_EQ(observed_batch_sizes[2], 1);
+
+    const auto& nullable_result = assert_cast<const ColumnNullable&>(*result);
+    ASSERT_EQ(nullable_result.size(), 3);
+    EXPECT_FALSE(nullable_result.is_null_at(0));
+    EXPECT_TRUE(nullable_result.is_null_at(1));
+    EXPECT_FALSE(nullable_result.is_null_at(2));
+
+    const auto& result_array =
+            assert_cast<const ColumnArray&>(nullable_result.get_nested_column());
+    EXPECT_EQ(result_array.get_offsets()[0], 2);
+    EXPECT_EQ(result_array.get_offsets()[1], 2);
+    EXPECT_EQ(result_array.get_offsets()[2], 7);
+
+    const auto& nullable_values =
+            assert_cast<const ColumnNullable&>(*result_array.get_data_ptr());
+    const auto& values =
+            assert_cast<const ColumnInt32&>(nullable_values.get_nested_column());
+    ASSERT_EQ(values.size(), 7);
+    EXPECT_EQ(values.get_element(0), 11);
+    EXPECT_EQ(values.get_element(1), 22);
+    EXPECT_EQ(values.get_element(2), 33);
+    EXPECT_EQ(values.get_element(3), 44);
+    EXPECT_EQ(values.get_element(4), 55);
+    EXPECT_EQ(values.get_element(5), 66);
+    EXPECT_EQ(values.get_element(6), 77);
+}
+
+TEST(ArrayMapFunctionTest, NonNullLengthMismatchStillReturnsErrorWithOuterNull) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    auto nullable_array_int_type = std::make_shared<DataTypeNullable>(array_int_type);
+
+    auto root =
+            VLambdaFunctionCallExpr::create_shared(make_lambda_call_node(nullable_array_int_type, 3));
+    auto lambda =
+            VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int_type, {"x", "y"}));
+    lambda->add_child(std::make_shared<MockBodyExpr>(int_type, "unused_body"));
+    root->add_child(lambda);
+    root->add_child(std::make_shared<MockColumnExpr>(
+            make_nullable_int_array_column({{100, 101}, {1}}, {1, 0}),
+            nullable_array_int_type, "left"));
+    root->add_child(std::make_shared<MockColumnExpr>(
+            make_int_array_column({{200}, {10, 20}}), array_int_type, "right"));
+
+    VExprContext context(root);
+    open_expr(root, &context);
+
+    Block block;
+    ColumnPtr result;
+    auto status = root->execute_column(&context, &block, nullptr, 2, result);
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status.to_string();
 }
 
 TEST(ArrayMapFunctionTest, SparseCapturedColumnUsesColumnNothingForUnusedSlots) {
