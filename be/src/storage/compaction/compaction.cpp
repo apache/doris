@@ -2112,7 +2112,7 @@ bool CloudCompactionMixin::should_apply_cumulative_compaction_result(
     }
     if (response_cumulative_compaction_cnt != local_cumulative_compaction_cnt + 1) {
         // Only the current task's output is available locally. Sync all missing outputs instead.
-        cloud_tablet()->last_sync_time_s = 0;
+        cloud_tablet()->last_sync_rowsets_time_s = 0;
         LOG_INFO("defer applying cumulative compaction result until tablet sync")
                 .tag("tablet_id", _tablet->tablet_id())
                 .tag("job_id", _uuid)
