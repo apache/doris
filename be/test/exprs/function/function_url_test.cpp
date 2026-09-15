@@ -93,4 +93,40 @@ TEST(FunctionUrlTEST, ProtocolTest) {
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
 
+TEST(FunctionUrlTEST, ParseUrlQueryKeyTest) {
+    std::string func_name = "parse_url";
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                PrimitiveType::TYPE_VARCHAR};
+
+    DataSet data_set = {
+            // The only '?' is inside the fragment, so the url has no query component.
+            {{STRING("http://h/p#f?k=v"), STRING("QUERY"), STRING("k")}, Null()},
+            // The '#' comes before the '?', so it is a fragment instead of a query.
+            {{STRING("http://h/p#f/?#k=v"), STRING("QUERY"), STRING("k")}, Null()},
+            {{STRING("http://h/p#?k=v"), STRING("QUERY"), STRING("k")}, Null()},
+            // The url has no query component at all.
+            {{STRING("http://h/p&k=v"), STRING("QUERY"), STRING("k")}, Null()},
+            // The key only exists in the path.
+            {{STRING("http://h/p&k=v?x=1"), STRING("QUERY"), STRING("k")}, Null()},
+            // The query component of this url is 'x=1'.
+            {{STRING("http://h/p&k=v?x=1"), STRING("QUERY"), STRING("x")}, STRING("1")},
+            // The key only exists in the fragment.
+            {{STRING("http://h/p?x=1#f&k=v"), STRING("QUERY"), STRING("k")}, Null()},
+            // The key exists in the path, in the query and in the fragment.
+            {{STRING("http://h/p&k=v?k=1#f&k=2"), STRING("QUERY"), STRING("k")}, STRING("1")},
+            {{STRING("http://h/p?a=1&k=2"), STRING("QUERY"), STRING("k")}, STRING("2")},
+            // A duplicated key keeps the behaviour of returning the last value.
+            {{STRING("http://h/p?k=1&k=2#f"), STRING("QUERY"), STRING("k")}, STRING("2")},
+            // A key without any '=' is not a valid query parameter.
+            {{STRING("http://h/p?k"), STRING("QUERY"), STRING("k")}, Null()},
+            {{STRING("http://h/p?"), STRING("QUERY"), STRING("k")}, Null()},
+            // The key is the first query parameter.
+            {{STRING("http://h/p?k=1"), STRING("QUERY"), STRING("k")}, STRING("1")},
+            {{STRING("  http://h/p?k=1  "), STRING("QUERY"), STRING("k")}, STRING("1")},
+            {{STRING("http://h/p?k=1"), STRING("HOST"), STRING("k")}, Null()},
+    };
+
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+}
+
 } // namespace doris

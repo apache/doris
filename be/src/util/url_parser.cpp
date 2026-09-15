@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <limits>
 #include <string>
 
 #include "core/string_ref.h"
@@ -226,61 +227,81 @@ bool UrlParser::parse_url_key(const StringRef& url, UrlPart part, const StringRe
     // Remove leading and trailing spaces.
     StringRef trimmed_url = url.trim();
 
-    // Search for the key in the url, ignoring malformed URLs for now.
-    StringSearch key_search(&key);
+    // The key can only be found in the query component, which starts at the first '?' and ends
+    // before the '#' that starts the fragment (if any).
+    int32_t query_pos = _s_question_search.search(&trimmed_url);
+    if (query_pos < 0) {
+        // Query component is missing, the whole url is the path plus the fragment.
+        return false;
+    }
+    int32_t fragment_pos = _s_hash_search.search(&trimmed_url);
+    if (fragment_pos >= 0 && fragment_pos < query_pos) {
+        // The '#' comes before the '?', so the text after the '?' is a fragment, not a query.
+        return false;
+    }
 
-    while (trimmed_url.size > 0) {
-        // Search for the key in the current substring.
-        int32_t key_pos = key_search.search(&trimmed_url);
-        bool match = true;
+    StringRef query = trimmed_url.substring(query_pos + _s_question.size);
+    int32_t query_end_pos = _s_hash_search.search(&query);
+    if (query_end_pos >= 0) {
+        // The fragment starts at the '#', so the query component ends right before it.
+        query = query.substring(0, query_end_pos);
+    }
+
+    // Search for the key inside the query component, ignoring malformed URLs for now.
+    StringSearch key_search(&key);
+    // Offset of the next search inside the query component. The query component starts right
+    // after the '?', so a key at offset 0 is a query key as well.
+    int32_t offset = 0;
+    bool found = false;
+
+    while (offset < query.size) {
+        // Search for the key in the remaining part of the query component.
+        StringRef rest = query.substring(offset);
+        int32_t key_pos = key_search.search(&rest);
 
         if (key_pos < 0) {
-            return false;
-        }
-
-        // Key pos must be != 0 because it must be preceded by a '?' or a '&'.
-        // Check that the char before key_pos is either '?' or '&'.
-        if (key_pos == 0 ||
-            (trimmed_url.data[key_pos - 1] != '?' && trimmed_url.data[key_pos - 1] != '&')) {
-            match = false;
-        }
-
-        // Advance substring beyond matching key.
-        trimmed_url = trimmed_url.substring(key_pos + key.size);
-
-        if (!match) {
-            continue;
-        }
-
-        if (trimmed_url.size <= 0) {
+            // No (more) key in the query component.
             break;
         }
 
-        // Next character must be '=', otherwise the match cannot be a key in the query part.
-        if (trimmed_url.data[0] != '=') {
+        offset += key_pos;
+        // The key must start the query component or be preceded by a '&'.
+        if (offset != 0 && query.data[offset - 1] != '&') {
+            // The matched text is not a key, step over it and keep searching.
+            offset += cast_set<int32_t>(key.size);
             continue;
         }
 
-        int32_t pos = 1;
+        // Positioned to the char right after the key.
+        int32_t value_pos = offset + cast_set<int32_t>(key.size);
 
-        // Find ending position of key's value by matching '#' or '&'.
-        while (pos < trimmed_url.size) {
-            switch (trimmed_url.data[pos]) {
-            case '#':
-            case '&':
-                *result = trimmed_url.substring(1, pos - 1);
-                return true;
-            }
-
-            ++pos;
+        // The key must be followed by a '=' and a value, otherwise the match cannot be a key.
+        if (value_pos >= cast_set<int32_t>(query.size) || query.data[value_pos] != '=') {
+            // Step over the matched text and keep searching.
+            offset += cast_set<int32_t>(key.size);
+            continue;
         }
 
-        // Ending position is end of string.
-        *result = trimmed_url.substring(1);
-        return true;
+        ++value_pos;
+
+        // Find the ending position of the key's value by matching '&'.
+        StringRef value_rest = query.substring(value_pos);
+        size_t value_end_rel_pos = value_rest.find_first_of('&');
+        int32_t value_end_pos;
+        if (value_end_rel_pos == std::numeric_limits<size_t>::max()) {
+            // Ending position is end of string.
+            value_end_pos = cast_set<int32_t>(query.size);
+        } else {
+            value_end_pos = value_pos + cast_set<int32_t>(value_end_rel_pos);
+        }
+        *result = query.substring(value_pos, value_end_pos - value_pos);
+        found = true;
+
+        // Keep searching, a duplicated key returns its last value.
+        offset = value_end_pos;
     }
 
-    return false;
+    return found;
 }
 
 UrlParser::UrlPart UrlParser::get_url_part(const StringRef& part) {
