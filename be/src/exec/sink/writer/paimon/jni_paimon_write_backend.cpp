@@ -41,6 +41,7 @@
 #include "runtime/runtime_state.h"
 #include "util/defer_op.h"
 #include "util/jni-util.h"
+#include "util/jni_plugin_registry.h"
 #include "util/pretty_printer.h"
 
 namespace doris {
@@ -192,7 +193,6 @@ void retain_resources_after_failed_close(std::unique_ptr<PaimonJniMemoryManager>
 // JNI helpers — class loading
 // ────────────────────────────────────────────────────────────
 
-static constexpr const char* PAIMON_JNI_WRITER_CLASS = "org/apache/doris/paimon/PaimonJniWriter";
 const char* const PAIMON_JNI_WRITER_OPEN_SIGNATURE =
         "(Ljava/lang/String;Ljava/util/Map;[Ljava/lang/String;JLjava/lang/String;ZZLjava/lang/"
         "String;JJJ)V";
@@ -213,7 +213,7 @@ JniPaimonWriteBackend::~JniPaimonWriteBackend() {
 }
 
 Status JniPaimonWriteBackend::close() {
-    if (_jni_writer_obj == nullptr && _jni_writer_cls == nullptr) {
+    if (_jni_writer_obj.uninitialized()) {
         _memory_manager.reset();
         _arrow_schema.reset();
         _spill_session.reset();
@@ -224,38 +224,23 @@ Status JniPaimonWriteBackend::close() {
     JNIEnv* env = nullptr;
     Status env_status = Jni::Env::Get(&env);
     if (!env_status.ok()) {
-        bool java_users_may_exist = _jni_writer_obj != nullptr;
-        // JNI global references cannot be released without an environment.
-        // Deliberately abandon the handles so the Java writer remains alive.
-        _jni_writer_obj = nullptr;
-        _jni_writer_cls = nullptr;
-        if (java_users_may_exist) {
-            retain_resources_after_failed_close(std::move(_memory_manager),
-                                                std::move(_spill_session));
-        } else {
-            _memory_manager.reset();
-            _spill_session.reset();
-        }
+        // JNI global references cannot be released without an environment. Leave the wrapper
+        // intact so its destructor can release the reference if the thread can attach later.
+        retain_resources_after_failed_close(std::move(_memory_manager), std::move(_spill_session));
         _arrow_schema.reset();
         _opened = false;
         return env_status;
     }
 
     Status close_status = Status::OK();
-    if (_jni_writer_obj != nullptr) {
+    if (!_jni_writer_obj.uninitialized()) {
         _refresh_memory_profile();
-        if (_close_id == nullptr) {
-            close_status = Status::InternalError("PaimonJniWriter.close method is unavailable");
+        if (_writer_api == nullptr) {
+            close_status = Status::InternalError("Paimon JniWriter API is unavailable");
         } else {
-            env->CallVoidMethod(_jni_writer_obj, _close_id);
-            close_status = _check_jni_exception(env, "close PaimonJniWriter");
+            close_status = _jni_writer_obj.call_void_method(env, _writer_api->close).call();
         }
-        env->DeleteGlobalRef(_jni_writer_obj);
-        _jni_writer_obj = nullptr;
-    }
-    if (_jni_writer_cls != nullptr) {
-        env->DeleteGlobalRef(_jni_writer_cls);
-        _jni_writer_cls = nullptr;
+        _jni_writer_obj.reset(env);
     }
 
     if (close_status.ok()) {
@@ -349,40 +334,28 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     }
     Defer pop_local_frame([&]() { env->PopLocalFrame(nullptr); });
 
-    // Step 1: Load PaimonJniWriter class through ScannerLoader (Paimon jars are
-    // not on the default application classpath, so FindClass won't work).
-    Jni::LocalObject local_writer_class;
-    RETURN_IF_ERROR(
-            Jni::Util::get_jni_scanner_class(env, PAIMON_JNI_WRITER_CLASS, &local_writer_class));
-    auto writer_class = static_cast<jclass>(local_writer_class.get());
-    _jni_writer_cls = static_cast<jclass>(env->NewGlobalRef(writer_class));
-    RETURN_IF_ERROR(_check_jni_exception(env, "create global PaimonJniWriter class reference"));
-    if (_jni_writer_cls == nullptr) {
-        return Status::JniError("Failed to create global PaimonJniWriter class reference");
-    }
-    RETURN_IF_ERROR(PaimonJniMemoryManager::register_natives(env, _jni_writer_cls));
-    RETURN_IF_ERROR(register_paimon_spill_natives(env, _jni_writer_cls));
+    // Step 1: Create the writer through the isolated Paimon plugin. Asking the returned object for
+    // its class is the only valid way to reach a concrete class owned by a plugin classloader.
+    const std::map<std::string, std::string> writer_params;
+    RETURN_IF_ERROR(Jni::PluginRegistry::create_writer(env, Jni::plugin::PAIMON_WRITER,
+                                                       state->batch_size(), writer_params,
+                                                       &_jni_writer_obj, &_writer_api));
+    Jni::LocalClass writer_class;
+    RETURN_IF_ERROR(Jni::Util::get_object_class(env, _jni_writer_obj, &writer_class));
+    auto raw_writer_class = static_cast<jclass>(writer_class.get());
+    RETURN_IF_ERROR(PaimonJniMemoryManager::register_natives(env, raw_writer_class));
+    RETURN_IF_ERROR(register_paimon_spill_natives(env, raw_writer_class));
 
-    // Step 2: Cache JNI method IDs for write, prepareCommit, abort, close.
-    jmethodID open_id = env->GetMethodID(_jni_writer_cls, "open", PAIMON_JNI_WRITER_OPEN_SIGNATURE);
-    jmethodID get_arrow_schema_id = env->GetMethodID(_jni_writer_cls, "getArrowSchema", "()[B");
-    _write_id = env->GetMethodID(_jni_writer_cls, "writeArrow", "(JJ)V");
-    _prepare_commit_id = env->GetMethodID(_jni_writer_cls, "prepareCommit", "()[[B");
-    _abort_id = env->GetMethodID(_jni_writer_cls, "abort", "()V");
-    _close_id = env->GetMethodID(_jni_writer_cls, "close", "()V");
+    // Step 2: Cache the Paimon-specific method IDs. The common close method comes from WriterApi.
+    jmethodID open_id =
+            env->GetMethodID(raw_writer_class, "open", PAIMON_JNI_WRITER_OPEN_SIGNATURE);
+    jmethodID get_arrow_schema_id = env->GetMethodID(raw_writer_class, "getArrowSchema", "()[B");
+    _write_id = env->GetMethodID(raw_writer_class, "writeArrow", "(JJ)V");
+    _prepare_commit_id = env->GetMethodID(raw_writer_class, "prepareCommit", "()[[B");
+    _abort_id = env->GetMethodID(raw_writer_class, "abort", "()V");
     RETURN_IF_ERROR(_check_jni_exception(env, "resolve PaimonJniWriter methods"));
 
-    // Step 3: Create the Java PaimonJniWriter instance.
-    jmethodID ctor_id = env->GetMethodID(_jni_writer_cls, "<init>", "()V");
-    jobject local_obj = env->NewObject(_jni_writer_cls, ctor_id);
-    RETURN_IF_ERROR(_check_jni_exception(env, "create PaimonJniWriter"));
-    _jni_writer_obj = env->NewGlobalRef(local_obj);
-    RETURN_IF_ERROR(_check_jni_exception(env, "create global PaimonJniWriter object reference"));
-    if (_jni_writer_obj == nullptr) {
-        return Status::JniError("Failed to create global PaimonJniWriter object reference");
-    }
-
-    // Step 4: Create a lazy query-scoped spill session. Java requests its path only when Paimon
+    // Step 3: Create a lazy query-scoped spill session. Java requests its path only when Paimon
     // first uses the IOManager, so a memory-only writer does not depend on spill storage.
     auto* spill_file_manager = state->exec_env()->spill_file_mgr();
     if (spill_file_manager != nullptr) {
@@ -392,7 +365,7 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
                 spill_relative_path, state->get_query_ctx(), &_spill_session));
     }
 
-    // Step 5: Build Java arguments and call PaimonJniWriter.open().
+    // Step 4: Build Java arguments and call PaimonJniWriter.open().
     const std::map<std::string, std::string> empty_config;
     jstring j_serialized_table = env->NewStringUTF(sink.serialized_table.c_str());
     Jni::LocalObject j_hadoop_config;
@@ -413,7 +386,7 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
 
     PaimonJniWriterOpenMode open_mode = PaimonJniWriterOpenMode::from_write_mode(sink.write_mode);
     env->CallVoidMethod(
-            _jni_writer_obj, open_id, j_serialized_table, j_hadoop_config.get(), j_cols,
+            _jni_writer_obj.get(), open_id, j_serialized_table, j_hadoop_config.get(), j_cols,
             static_cast<jlong>(sink.transaction_id), j_commit_user, open_mode.overwrite,
             open_mode.changelog, j_time_zone, static_cast<jlong>(_memory_manager->memory_limit()),
             reinterpret_cast<jlong>(_memory_manager.get()),
@@ -421,7 +394,8 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     Status st = _check_jni_exception(env, "open PaimonJniWriter");
 
     if (st.ok()) {
-        st = _get_paimon_arrow_schema(env, _jni_writer_obj, get_arrow_schema_id, &_arrow_schema);
+        st = _get_paimon_arrow_schema(env, _jni_writer_obj.get(), get_arrow_schema_id,
+                                      &_arrow_schema);
     }
     if (st.ok()) {
         _opened = true;
@@ -439,8 +413,8 @@ Status JniPaimonWriteBackend::create_writer( // NOLINT(readability-make-member-f
         std::unique_ptr<IPaimonWriter>* writer) {
     DORIS_CHECK(_opened);
     DORIS_CHECK(_arrow_schema != nullptr);
-    *writer = std::make_unique<JniPaimonWriter>(_jni_writer_obj, _write_id, _prepare_commit_id,
-                                                _abort_id, _arrow_schema);
+    *writer = std::make_unique<JniPaimonWriter>(_jni_writer_obj.get(), _write_id,
+                                                _prepare_commit_id, _abort_id, _arrow_schema);
     return Status::OK();
 }
 
