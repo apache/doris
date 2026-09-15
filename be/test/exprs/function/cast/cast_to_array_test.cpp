@@ -287,4 +287,144 @@ TEST_F(FunctionCastTest, test_from_non_null_array_to_nested_array_is_rejected) {
     EXPECT_FALSE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
 }
 
+// Build a Nullable(Array(Nullable(ElementDataType))) column. A row marked as NULL by `null_map`
+// keeps the elements that its offsets describe as hidden payload.
+template <typename ElementDataType>
+static ColumnPtr build_nullable_array_column(
+        const std::vector<typename ElementDataType::FieldType>& elements,
+        const std::vector<NullMap::value_type>& element_null_map,
+        const std::vector<uint64_t>& offsets, const std::vector<NullMap::value_type>& null_map) {
+    auto nested = ColumnHelper::create_nullable_column<ElementDataType>(elements, element_null_map);
+    auto array = ColumnArray::create(std::move(nested),
+                                     ColumnHelper::create_column_offsets<TYPE_UINT64>(offsets));
+    return ColumnNullable::create(std::move(array),
+                                  ColumnHelper::create_column<DataTypeUInt8>(null_map));
+}
+
+// A row that the input null map of an ARRAY marks as NULL may still keep a hidden payload in the
+// elements that belong to it (for example the branch of an IF() that was not taken). Those elements
+// are NULL by SQL semantics, so the strict cast must not validate them, and the mask of the row has
+// to be expanded to its elements instead of being applied to the element indexes directly.
+TEST_F(FunctionCastTest, test_cast_array_null_row_skips_hidden_payload) {
+    auto from_type = std::make_shared<DataTypeNullable>(
+            std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>()));
+    auto to_type = std::make_shared<DataTypeNullable>(
+            std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt8>()));
+
+    auto ctx = create_context(true);
+    auto fn = get_cast_wrapper(ctx.get(), from_type, to_type);
+    ASSERT_TRUE(fn != nullptr);
+
+    // Row 0 is NULL and keeps the hidden payload 128, which does not fit into TINYINT.
+    Block block = {
+            {build_nullable_array_column<DataTypeInt32>({128, 1, 2}, {0, 0, 0}, {1, 3}, {1, 0}),
+             from_type, "from"},
+            {nullptr, to_type, "to"},
+    };
+    ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    EXPECT_TRUE(result.is_null_at(0));
+    EXPECT_EQ(to_type->to_string(*block.get_by_position(1).column, 1), "[1, 2]");
+}
+
+// The mask of a NULL row has to be inherited through every level of nesting.
+TEST_F(FunctionCastTest, test_cast_nested_array_null_row_skips_hidden_payload) {
+    auto from_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeArray>(
+            std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>())));
+    auto to_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeArray>(
+            std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt8>())));
+
+    // Row 0 is NULL and keeps the hidden inner array [128], row 1 is [[1, 2]].
+    auto inner_array =
+            build_nullable_array_column<DataTypeInt32>({128, 1, 2}, {0, 0, 0}, {1, 3}, {0, 0});
+    auto outer_array = ColumnArray::create(
+            inner_array, ColumnHelper::create_column_offsets<TYPE_UINT64>({1, 2}));
+    ColumnPtr from_column = ColumnNullable::create(
+            std::move(outer_array), ColumnHelper::create_column<DataTypeUInt8>({1, 0}));
+
+    auto ctx = create_context(true);
+    auto fn = get_cast_wrapper(ctx.get(), from_type, to_type);
+    ASSERT_TRUE(fn != nullptr);
+
+    Block block = {
+            {std::move(from_column), from_type, "from"},
+            {nullptr, to_type, "to"},
+    };
+    ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    EXPECT_TRUE(result.is_null_at(0));
+    EXPECT_EQ(to_type->to_string(*block.get_by_position(1).column, 1), "[[1, 2]]");
+}
+
+// The same masking gap exists when the element cast cannot replace the hidden payload with a
+// default, so the mask itself has to reach the element cast.
+TEST_F(FunctionCastTest, test_cast_array_null_row_skips_hidden_string_payload) {
+    auto from_type = std::make_shared<DataTypeNullable>(
+            std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>()));
+    auto to_type = std::make_shared<DataTypeNullable>(
+            std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt8>()));
+
+    auto ctx = create_context(true);
+    auto fn = get_cast_wrapper(ctx.get(), from_type, to_type);
+    ASSERT_TRUE(fn != nullptr);
+
+    Block block = {
+            {build_nullable_array_column<DataTypeString>({"abc", "1", "2"}, {0, 0, 0}, {1, 3},
+                                                         {1, 0}),
+             from_type, "from"},
+            {nullptr, to_type, "to"},
+    };
+    ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    EXPECT_TRUE(result.is_null_at(0));
+    EXPECT_EQ(to_type->to_string(*block.get_by_position(1).column, 1), "[1, 2]");
+}
+
+// Only the rows that are NULL are skipped: an out of range element of a visible row still fails.
+TEST_F(FunctionCastTest, test_cast_array_visible_element_still_fails) {
+    auto from_type = std::make_shared<DataTypeNullable>(
+            std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>()));
+    auto to_type = std::make_shared<DataTypeNullable>(
+            std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt8>()));
+
+    auto ctx = create_context(true);
+    auto fn = get_cast_wrapper(ctx.get(), from_type, to_type);
+    ASSERT_TRUE(fn != nullptr);
+
+    // Row 0 is NULL with a hidden payload, row 1 keeps the element 300 that overflows TINYINT.
+    Block block = {
+            {build_nullable_array_column<DataTypeInt32>({128, 1, 300}, {0, 0, 0}, {1, 3}, {1, 0}),
+             from_type, "from"},
+            {nullptr, to_type, "to"},
+    };
+    EXPECT_FALSE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr).ok());
+}
+
+// Without strict mode the out of range element of a visible row becomes NULL, while the NULL row
+// and its hidden payload are untouched.
+TEST_F(FunctionCastTest, test_cast_array_non_strict_null_row) {
+    auto from_type = std::make_shared<DataTypeNullable>(
+            std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>()));
+    auto to_type = std::make_shared<DataTypeNullable>(
+            std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt8>()));
+
+    auto ctx = create_context(false);
+    auto fn = get_cast_wrapper(ctx.get(), from_type, to_type);
+    ASSERT_TRUE(fn != nullptr);
+
+    Block block = {
+            {build_nullable_array_column<DataTypeInt32>({128, 1, 300}, {0, 0, 0}, {1, 3}, {1, 0}),
+             from_type, "from"},
+            {nullptr, to_type, "to"},
+    };
+    ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    EXPECT_TRUE(result.is_null_at(0));
+    EXPECT_EQ(to_type->to_string(*block.get_by_position(1).column, 1), "[1, null]");
+}
+
 } // namespace doris

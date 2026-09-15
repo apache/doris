@@ -153,6 +153,26 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& from_type,
 ElementWrappers get_element_wrappers(FunctionContext* context, const DataTypes& from_element_types,
                                      const DataTypes& to_element_types);
 
+/// A child of an ARRAY/MAP/STRUCT column inherits the NULL state of the row it belongs to: when a
+/// row is NULL, its children are hidden payloads without SQL semantics (IF/NULLIF keep an arbitrary
+/// value there) and a strict cast must not validate them.
+struct ChildNullMask {
+    /// Column to hand to the child cast. A nullable child column carries the merged NULL mask
+    /// itself, because a child cast reads the NULL state of a nullable source from its column.
+    ColumnPtr column;
+    /// Mask to hand to the child cast when the child column cannot carry it (not nullable child),
+    /// so the child cast skips the masked children itself.
+    const NullMap::value_type* null_map = nullptr;
+    /// Owns `null_map`, so it has to outlive the child cast.
+    ColumnPtr mask_holder;
+};
+
+/// Merge the NULL mask of the rows of a complex column into the mask of one of its children.
+/// `offsets` expands the row aligned `parent_null_map` to a flattened child (ARRAY, MAP), pass
+/// nullptr for a child that shares the rows of its parent (STRUCT).
+ChildNullMask build_child_null_mask(const NullMap::value_type* parent_null_map,
+                                    const IColumn::Offsets64* offsets, const ColumnPtr& child);
+
 WrapperType create_identity_wrapper(const DataTypePtr&);
 
 } // namespace CastWrapper

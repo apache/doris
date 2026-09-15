@@ -68,8 +68,12 @@ WrapperType create_struct_wrapper(FunctionContext* context, const DataTypePtr& f
         size_t elements_num = to_element_types.size();
         Columns converted_columns(elements_num);
         for (size_t i = 0; i < elements_num; ++i) {
-            ColumnWithTypeAndName from_element_column {from_col_struct->get_column_ptr(i),
-                                                       from_element_types[i], ""};
+            /// A field of a row that is NULL is a hidden payload as well. Fields share the rows of
+            /// their parent, so the mask of the parent can be used as is.
+            auto child_mask =
+                    build_child_null_mask(null_map, nullptr, from_col_struct->get_column_ptr(i));
+            ColumnWithTypeAndName from_element_column {child_mask.column, from_element_types[i],
+                                                       ""};
             ColumnNumbers element_arguments {block.columns()};
             block.insert(from_element_column);
 
@@ -77,7 +81,7 @@ WrapperType create_struct_wrapper(FunctionContext* context, const DataTypePtr& f
             block.insert({to_element_types[i], ""});
 
             RETURN_IF_ERROR(element_wrappers[i](context, block, element_arguments, element_result,
-                                                from_col_struct->get_column(i).size(), null_map));
+                                                child_mask.column->size(), child_mask.null_map));
             converted_columns[i] = block.get_by_position(element_result).column;
         }
 

@@ -102,13 +102,19 @@ WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from
         columnsWithTypeAndName[0] = {from_col_map->get_keys_ptr(), from_kv_types[0], ""};
         columnsWithTypeAndName[1] = {from_col_map->get_values_ptr(), from_kv_types[1], ""};
 
+        const auto& offsets = from_col_map->get_offsets();
         for (size_t i = 0; i < 2; ++i) {
+            /// Keys and values are flattened, so the NULL of a map row has to be inherited by the
+            /// entries that belong to it before they are cast.
+            auto child_mask =
+                    build_child_null_mask(null_map, &offsets, columnsWithTypeAndName[i].column);
+            ColumnWithTypeAndName child_column {child_mask.column, from_kv_types[i], ""};
             ColumnNumbers element_arguments {block.columns()};
-            block.insert(columnsWithTypeAndName[i]);
+            block.insert(child_column);
             auto element_result = block.columns();
             block.insert({to_kv_types[i], ""});
             RETURN_IF_ERROR(kv_wrappers[i](context, block, element_arguments, element_result,
-                                           columnsWithTypeAndName[i].column->size(), null_map));
+                                           child_mask.column->size(), child_mask.null_map));
             converted_columns[i] = block.get_by_position(element_result).column;
         }
 
