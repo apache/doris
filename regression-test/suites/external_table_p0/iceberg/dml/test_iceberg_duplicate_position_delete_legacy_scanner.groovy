@@ -171,10 +171,10 @@ ${result.stderr}")
                 (10), (20), (30), (40) AS t(id);
         """)
 
-        String javaFixtureCommand = "javac -cp "/opt/spark/jars/*" " +
-                "/mnt/scripts/java/CreateIcebergDuplicatePositionDeleteFixture.java && " +
-                "java -cp "/mnt/scripts/java:/opt/spark/jars/*" " +
-                "CreateIcebergDuplicatePositionDeleteFixture " +
+        String javaFixtureCommand = 'javac -cp "/opt/spark/jars/*" ' +
+                '/mnt/scripts/java/CreateIcebergDuplicatePositionDeleteFixture.java && ' +
+                'java -cp "/mnt/scripts/java:/opt/spark/jars/*" ' +
+                'CreateIcebergDuplicatePositionDeleteFixture ' +
                 "${dbName} ${tableName} 0,0"
         runInSparkContainer(javaFixtureCommand, 300)
 
