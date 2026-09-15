@@ -18,6 +18,7 @@
 import groovy.json.JsonOutput
 
 suite("test_rollup_with_drop_cluster") {
+    withRestoredMultiClusterState(false) {
     def token = context.config.metaServiceToken
     def instance_id = context.config.multiClusterInstance
 
@@ -51,7 +52,7 @@ suite("test_rollup_with_drop_cluster") {
             }
         }
     }
-    wait_cluster_change()
+    sleep(20000)
 
     List<List<Object>> result  = sql "show clusters"
     assertTrue(result.size() == 0);
@@ -59,7 +60,7 @@ suite("test_rollup_with_drop_cluster") {
     // add cluster regression_cluster_name0
     add_cluster.call(beUniqueIdList[0], ipList[0], hbPortList[0],
                      "regression_cluster_name0", "regression_cluster_id0");
-    wait_cluster_change()
+    sleep(20000)
     result  = sql "show clusters"
     assertTrue(result.size() == 1);
 
@@ -102,7 +103,7 @@ suite("test_rollup_with_drop_cluster") {
 
     // drop cluster
     drop_cluster.call("regression_cluster_name0", "regression_cluster_id0");
-    wait_cluster_change()
+    sleep(20000)
 
     // get schema change job state, should cancel
     int max_try_secs = 60
@@ -119,4 +120,5 @@ suite("test_rollup_with_drop_cluster") {
         }
     }
     sql "DROP TABLE IF EXISTS ${tbName1}"
+    }
 }

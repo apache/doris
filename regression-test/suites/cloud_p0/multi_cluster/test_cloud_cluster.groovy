@@ -19,6 +19,7 @@ import groovy.json.JsonOutput
 import java.sql.*;
 
 suite("test_cloud_cluster") {
+    withRestoredMultiClusterState(false) {
     def token = context.config.metaServiceToken
     def instance_id = context.config.multiClusterInstance
 
@@ -199,4 +200,5 @@ suite("test_cloud_cluster") {
     sql """
         drop table if exists test_table
     """
+    }
 }

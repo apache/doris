@@ -3419,7 +3419,7 @@ class Suite implements GroovyInterceptable {
                 endpoint feEndPoint
                 uri "/rest/v1/query_profile"
                 check check_func
-                basicAuthorization "${context.config.feCloudHttpUser}","${context.config.feCloudHttpPassword}"
+                basicAuthorization "${context.config.feHttpUser}","${context.config.feHttpPassword}"
             }
         }
 
@@ -3442,7 +3442,7 @@ class Suite implements GroovyInterceptable {
                 endpoint feEndPoint
                 uri "/api/profile?query_id=${query_id}"
                 check check_func
-                basicAuthorization "${context.config.feCloudHttpUser}","${context.config.feCloudHttpPassword}"
+                basicAuthorization "${context.config.feHttpUser}","${context.config.feHttpPassword}"
             }
         }
 

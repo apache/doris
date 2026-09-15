@@ -18,6 +18,7 @@
 import groovy.json.JsonOutput
 
 suite("stream_load_lb") {
+    withRestoredMultiClusterState(false) {
     def tableName3 = "test_all_lb"
 
     try {
@@ -140,7 +141,6 @@ suite("stream_load_lb") {
         check { loadResult, exception, startTime, endTime ->
             if (exception != null) {
                 throw exception
-                assertEquals
             }
             log.info("Stream load result: ${loadResult}".toString())
             def json = parseJson(loadResult)
@@ -161,15 +161,13 @@ suite("stream_load_lb") {
 
     sleep(30000)
 
-    try {
-        setFeConfig('apsaradb_env_enabled', true)
-
         // case4 apsaradb public endpoint
         streamLoad {
             table "${tableName3}"
 
             set 'column_separator', ','
             set 'cloud_cluster', 'stream_load_cluster_name1'
+            set 'redirect-policy', 'public-private'
             set 'Host', 'xxx-public-xxx'
 
             file 'all_types.csv'
@@ -197,6 +195,7 @@ suite("stream_load_lb") {
 
             set 'column_separator', ','
             set 'cloud_cluster', 'stream_load_cluster_name1'
+            set 'redirect-policy', 'public-private'
             set 'Host', 'xxxx-xxxxx'
 
             file 'all_types.csv'
@@ -218,10 +217,7 @@ suite("stream_load_lb") {
         order_qt_q9 "SELECT count(*) FROM ${tableName3}" // 20
         order_qt_q10 "SELECT count(*) FROM ${tableName3} where k1 <= 10"  // 11
     } finally {
-        setFeConfig('apsaradb_env_enabled', false)
-    }
-    } finally {
         sql """ drop table if exists ${tableName3} """
     }
+    }
 }
-
