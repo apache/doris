@@ -31,7 +31,50 @@
 #include "util/defer_op.h"
 
 namespace doris {
-namespace {} // namespace
+namespace {
+
+TIndexPolicy make_analyzer_policy(int64_t id, std::string name, std::string tokenizer) {
+    TIndexPolicy policy;
+    policy.id = id;
+    policy.name = std::move(name);
+    policy.type = TIndexPolicyType::ANALYZER;
+    policy.properties["tokenizer"] = std::move(tokenizer);
+    return policy;
+}
+
+TIndexPolicy make_tokenizer_policy(int64_t id, std::string name, std::string type) {
+    TIndexPolicy policy;
+    policy.id = id;
+    policy.name = std::move(name);
+    policy.type = TIndexPolicyType::TOKENIZER;
+    policy.properties["type"] = std::move(type);
+    return policy;
+}
+
+size_t count_analyzer_terms(IndexPolicyMgr& manager, const std::string& name) {
+    auto analyzer = manager.get_policy_by_name(name);
+    auto reader = segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader({});
+    const std::string text = "one two";
+    reader->init(text.data(), static_cast<int32_t>(text.size()), false);
+    return segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(reader,
+                                                                                 analyzer.get())
+            .size();
+}
+
+void assert_collision_sequence(const std::vector<TIndexPolicy>& updates, int64_t older_id,
+                               int64_t newer_id) {
+    IndexPolicyMgr manager;
+    manager.apply_policy_changes(updates, {});
+    EXPECT_EQ(count_analyzer_terms(manager, "Colliding_Analyzer"), 2);
+    EXPECT_EQ(manager.get_index_policys().size(), 2);
+
+    manager.apply_policy_changes({}, {older_id});
+    EXPECT_EQ(count_analyzer_terms(manager, "Colliding_Analyzer"), 2);
+    manager.apply_policy_changes({}, {newer_id});
+    EXPECT_THROW(manager.get_policy_by_name("colliding_analyzer"), Exception);
+}
+
+} // namespace
 
 class IndexPolicyMgrTest : public testing::Test {
 protected:
@@ -119,13 +162,44 @@ TEST_F(IndexPolicyMgrTest, TestApplyPolicyChanges) {
         ASSERT_NE(policies[duplicateId.id].name, "duplicate_id");
     }
 
-    // Test duplicate name
+    // Legacy duplicate names are retained, with the higher ID authoritative.
     TIndexPolicy duplicateName;
     duplicateName.id = 8;
     duplicateName.name = "tokenizer2"; // Same as tokenizer2
     mgr.apply_policy_changes({duplicateName}, {});
     policies = mgr.get_index_policys();
-    ASSERT_FALSE(policies.contains(duplicateName.id));
+    ASSERT_TRUE(policies.contains(duplicateName.id));
+}
+
+TEST_F(IndexPolicyMgrTest, NormalizedNameCollisionUsesHigherIdIndependentOfArrivalOrder) {
+    TIndexPolicy older = make_analyzer_policy(100, "COLLIDING_ANALYZER", "keyword");
+    TIndexPolicy newer = make_analyzer_policy(101, "colliding_analyzer", "standard");
+
+    assert_collision_sequence({older, newer}, older.id, newer.id);
+    assert_collision_sequence({newer, older}, older.id, newer.id);
+
+    IndexPolicyMgr manager;
+    manager.apply_policy_changes({older, newer}, {});
+    manager.apply_policy_changes({}, {newer.id});
+    EXPECT_EQ(count_analyzer_terms(manager, "COLLIDING_ANALYZER"), 1);
+}
+
+TEST_F(IndexPolicyMgrTest, LegacyExactNameCollisionPreservesDependentAnalyzerTerms) {
+    TIndexPolicy historical = make_tokenizer_policy(100, "IK_SMART", "standard");
+    TIndexPolicy newer = make_tokenizer_policy(101, "ik_smart", "keyword");
+    TIndexPolicy upper_dependent = make_analyzer_policy(102, "legacy_exact_analyzer", "IK_SMART");
+    TIndexPolicy lower_dependent =
+            make_analyzer_policy(103, "normalized_exact_analyzer", "ik_smart");
+
+    for (const std::vector<TIndexPolicy>& updates :
+         {std::vector<TIndexPolicy> {historical, newer, upper_dependent, lower_dependent},
+          std::vector<TIndexPolicy> {lower_dependent, upper_dependent, newer, historical}}) {
+        IndexPolicyMgr manager;
+        manager.apply_policy_changes(updates, {});
+
+        EXPECT_EQ(count_analyzer_terms(manager, upper_dependent.name), 2);
+        EXPECT_EQ(count_analyzer_terms(manager, lower_dependent.name), 1);
+    }
 }
 
 TEST_F(IndexPolicyMgrTest, TestGetPolicyByName) {
@@ -183,6 +257,47 @@ TEST_F(IndexPolicyMgrTest, TestTokenFilterProcessing) {
 
     auto emptyAnalyzer = mgr.get_policy_by_name("empty_filter_analyzer");
     ASSERT_NE(emptyAnalyzer, nullptr);
+}
+
+TEST_F(IndexPolicyMgrTest, BuiltinTokenizerNamesAreCaseInsensitive) {
+    TIndexPolicy analyzer;
+    analyzer.id = 20;
+    analyzer.name = "uppercase_ik_analyzer";
+    analyzer.type = TIndexPolicyType::ANALYZER;
+    analyzer.properties["tokenizer"] = "IK_SMART";
+    mgr.apply_policy_changes({analyzer}, {});
+
+    auto built = mgr.get_policy_by_name(analyzer.name);
+    ASSERT_NE(built, nullptr);
+}
+
+TEST_F(IndexPolicyMgrTest, ExistingPolicyTakesPrecedenceOverNewBuiltinName) {
+    TIndexPolicy legacy_tokenizer;
+    legacy_tokenizer.id = 21;
+    legacy_tokenizer.name = "ik_smart";
+    legacy_tokenizer.type = TIndexPolicyType::TOKENIZER;
+    legacy_tokenizer.properties["type"] = "ngram";
+    legacy_tokenizer.properties["min_gram"] = "2";
+    legacy_tokenizer.properties["max_gram"] = "2";
+
+    TIndexPolicy analyzer;
+    analyzer.id = 22;
+    analyzer.name = "legacy_collision_analyzer";
+    analyzer.type = TIndexPolicyType::ANALYZER;
+    analyzer.properties["tokenizer"] = "IK_SMART";
+    mgr.apply_policy_changes({legacy_tokenizer, analyzer}, {});
+
+    auto built = mgr.get_policy_by_name(analyzer.name);
+    ASSERT_NE(built, nullptr);
+    auto reader = segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader({});
+    const std::string text = "abcd";
+    reader->init(text.data(), static_cast<int32_t>(text.size()), false);
+    auto terms = segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(reader,
+                                                                                       built.get());
+    ASSERT_EQ(terms.size(), 3);
+    EXPECT_EQ(terms[0].get_single_term(), "ab");
+    EXPECT_EQ(terms[1].get_single_term(), "bc");
+    EXPECT_EQ(terms[2].get_single_term(), "cd");
 }
 
 TEST_F(IndexPolicyMgrTest, AnalyzerProviderPreservesPurposeInsensitiveNormalizers) {

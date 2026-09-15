@@ -41,11 +41,70 @@ private:
 
 const std::unordered_set<std::string> IndexPolicyMgr::BUILTIN_NORMALIZERS = {"lowercase"};
 
-std::string IndexPolicyMgr::normalize_name(const std::string& name) {
+std::string IndexPolicyMgr::trim_name(const std::string& name) {
     std::string result = name;
     boost::algorithm::trim(result);
+    return result;
+}
+
+std::string IndexPolicyMgr::normalize_name(const std::string& name) {
+    std::string result = trim_name(name);
     boost::algorithm::to_lower(result);
     return result;
+}
+
+const TIndexPolicy* IndexPolicyMgr::find_policy_by_name_locked(const std::string& name) const {
+    const std::string exact_name = trim_name(name);
+    if (auto exact_it = _exact_name_to_id.find(exact_name); exact_it != _exact_name_to_id.end()) {
+        if (auto policy_it = _policys.find(exact_it->second); policy_it != _policys.end()) {
+            return &policy_it->second;
+        }
+    }
+
+    const std::string normalized_name = normalize_name(name);
+    if (auto normalized_it = _name_to_id.find(normalized_name);
+        normalized_it != _name_to_id.end()) {
+        if (auto policy_it = _policys.find(normalized_it->second); policy_it != _policys.end()) {
+            return &policy_it->second;
+        }
+    }
+    return nullptr;
+}
+
+void IndexPolicyMgr::register_policy_name_locked(const TIndexPolicy& policy) {
+    const std::string exact_name = trim_name(policy.name);
+    if (auto exact_it = _exact_name_to_id.find(exact_name);
+        exact_it == _exact_name_to_id.end() || policy.id > exact_it->second) {
+        _exact_name_to_id[exact_name] = policy.id;
+    }
+
+    const std::string normalized_name = normalize_name(policy.name);
+    if (auto normalized_it = _name_to_id.find(normalized_name);
+        normalized_it != _name_to_id.end()) {
+        LOG(WARNING) << "Policies have the same normalized name: " << policy.name
+                     << " | Existing authoritative ID: " << normalized_it->second
+                     << " | New ID: " << policy.id << " | The higher ID is authoritative";
+    }
+    if (!_name_to_id.contains(normalized_name) || policy.id > _name_to_id.at(normalized_name)) {
+        _name_to_id[normalized_name] = policy.id;
+    }
+}
+
+void IndexPolicyMgr::unregister_policy_name_locked(const TIndexPolicy& policy) {
+    const std::string exact_name = trim_name(policy.name);
+    const std::string normalized_name = normalize_name(policy.name);
+    if (_exact_name_to_id.contains(exact_name) && _exact_name_to_id.at(exact_name) == policy.id) {
+        _exact_name_to_id.erase(exact_name);
+    }
+    if (_name_to_id.contains(normalized_name) && _name_to_id.at(normalized_name) == policy.id) {
+        _name_to_id.erase(normalized_name);
+    }
+    for (const auto& [remaining_id, remaining] : _policys) {
+        if (trim_name(remaining.name) == exact_name ||
+            normalize_name(remaining.name) == normalized_name) {
+            register_policy_name_locked(remaining);
+        }
+    }
 }
 
 void IndexPolicyMgr::apply_policy_changes(const std::vector<TIndexPolicy>& policys_to_update,
@@ -63,8 +122,9 @@ void IndexPolicyMgr::apply_policy_changes(const std::vector<TIndexPolicy>& polic
             LOG(INFO) << "Deleting policy - "
                       << "ID: " << id << ", "
                       << "Name: " << it->second.name;
-            _name_to_id.erase(normalize_name(it->second.name));
+            const TIndexPolicy policy = it->second;
             _policys.erase(it);
+            unregister_policy_name_locked(policy);
             ++success_deletes;
         } else {
             LOG(WARNING) << "Delete failed - Policy ID not found: " << id;
@@ -78,16 +138,8 @@ void IndexPolicyMgr::apply_policy_changes(const std::vector<TIndexPolicy>& polic
                        << " | New name: " << policy.name;
             continue;
         }
-        std::string normalized_name = normalize_name(policy.name);
-        if (_name_to_id.contains(normalized_name)) {
-            LOG(ERROR) << "Reject update - Duplicate policy name: " << policy.name
-                       << " | Existing ID: " << _name_to_id[normalized_name]
-                       << " | New ID: " << policy.id;
-            continue;
-        }
-
         _policys.emplace(policy.id, policy);
-        _name_to_id.emplace(normalized_name, policy.id);
+        register_policy_name_locked(policy);
         ++success_updates;
         LOG(INFO) << "Successfully applied policy - "
                   << "ID: " << policy.id << ", "
@@ -106,34 +158,24 @@ Policys IndexPolicyMgr::get_index_policys() {
     return _policys; // Return copy to ensure thread safety after lock release
 }
 
-// NOTE: This function holds a shared_lock while calling build_analyzer_from_policy/
-// build_normalizer_from_policy, which also access _name_to_id and _policys.
-// This is safe because std::shared_mutex allows the same thread to hold multiple
-// shared_locks (read locks are reentrant). The lock is held throughout to ensure
-// consistency when resolving nested policy references (e.g., tokenizer policies).
+// Hold the lock throughout nested policy resolution so an analyzer observes a consistent
+// policy-name mapping and policy set.
 AnalyzerPtr IndexPolicyMgr::get_policy_by_name(const std::string& name) {
     std::shared_lock lock(_mutex);
 
-    // Use normalized name for case-insensitive lookup
     std::string normalized_name = normalize_name(name);
-    auto name_it = _name_to_id.find(normalized_name);
-    if (name_it == _name_to_id.end()) {
+    const auto* index_policy = find_policy_by_name_locked(name);
+    if (index_policy == nullptr) {
         if (is_builtin_normalizer(normalized_name)) {
             return build_builtin_normalizer(name);
         }
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with name: " + name);
     }
 
-    auto policy_it = _policys.find(name_it->second);
-    if (policy_it == _policys.end()) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with id: " + name);
-    }
-
-    const auto& index_policy = policy_it->second;
-    if (index_policy.type == TIndexPolicyType::ANALYZER) {
-        return build_analyzer_from_policy(index_policy);
-    } else if (index_policy.type == TIndexPolicyType::NORMALIZER) {
-        return build_normalizer_from_policy(index_policy);
+    if (index_policy->type == TIndexPolicyType::ANALYZER) {
+        return build_analyzer_from_policy(*index_policy);
+    } else if (index_policy->type == TIndexPolicyType::NORMALIZER) {
+        return build_normalizer_from_policy(*index_policy);
     }
 
     throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with type: " + name);
@@ -142,24 +184,20 @@ AnalyzerPtr IndexPolicyMgr::get_policy_by_name(const std::string& name) {
 AnalyzerPtr IndexPolicyMgr::get_analyzer_by_name(const std::string& name) {
     std::shared_lock lock(_mutex);
     const std::string normalized_name = normalize_name(name);
-    auto name_it = _name_to_id.find(normalized_name);
-    if (name_it == _name_to_id.end()) {
+    const auto* index_policy = find_policy_by_name_locked(name);
+    if (index_policy == nullptr) {
         if (is_builtin_normalizer(normalized_name)) {
             return build_builtin_normalizer(name);
         }
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with name: " + name);
     }
-    auto policy_it = _policys.find(name_it->second);
-    if (policy_it == _policys.end()) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with id: " + name);
-    }
-    if (policy_it->second.type == TIndexPolicyType::ANALYZER) {
-        return build_analyzer_provider_from_config(
-                       build_analyzer_config_from_policy(policy_it->second), {})
+    if (index_policy->type == TIndexPolicyType::ANALYZER) {
+        return build_analyzer_provider_from_config(build_analyzer_config_from_policy(*index_policy),
+                                                   {})
                 ->get_analyzer();
     }
-    if (policy_it->second.type == TIndexPolicyType::NORMALIZER) {
-        return build_normalizer_from_policy(policy_it->second);
+    if (index_policy->type == TIndexPolicyType::NORMALIZER) {
+        return build_normalizer_from_policy(*index_policy);
     }
     throw Exception(ErrorCode::INVALID_ARGUMENT, "Analyzer policy not found: " + name);
 }
@@ -168,24 +206,20 @@ AnalyzerProviderPtr IndexPolicyMgr::get_analyzer_provider_by_name(
         const std::string& name, const std::map<std::string, std::string>& outer_char_filter_map) {
     std::shared_lock lock(_mutex);
     const std::string normalized_name = normalize_name(name);
-    auto name_it = _name_to_id.find(normalized_name);
-    if (name_it == _name_to_id.end()) {
+    const auto* index_policy = find_policy_by_name_locked(name);
+    if (index_policy == nullptr) {
         if (is_builtin_normalizer(normalized_name)) {
             return std::make_shared<SingleAnalyzerProvider>(build_builtin_normalizer(name));
         }
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with name: " + name);
     }
-    auto policy_it = _policys.find(name_it->second);
-    if (policy_it == _policys.end()) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with id: " + name);
+    if (index_policy->type == TIndexPolicyType::ANALYZER) {
+        return build_analyzer_provider_from_config(build_analyzer_config_from_policy(*index_policy),
+                                                   outer_char_filter_map);
     }
-    if (policy_it->second.type == TIndexPolicyType::ANALYZER) {
-        return build_analyzer_provider_from_config(
-                build_analyzer_config_from_policy(policy_it->second), outer_char_filter_map);
-    }
-    if (policy_it->second.type == TIndexPolicyType::NORMALIZER) {
+    if (index_policy->type == TIndexPolicyType::NORMALIZER) {
         return std::make_shared<SingleAnalyzerProvider>(
-                build_normalizer_from_policy(policy_it->second));
+                build_normalizer_from_policy(*index_policy));
     }
     throw Exception(ErrorCode::INVALID_ARGUMENT, "Analyzer policy not found: " + name);
 }
@@ -202,25 +236,24 @@ IndexPolicyMgr::build_analyzer_config_from_policy(const TIndexPolicy& index_poli
     }
 
     const auto& tokenizer_name = tokenizer_it->second;
-    // Use normalized name for case-insensitive lookup
     std::string normalized_tokenizer_name = normalize_name(tokenizer_name);
-    if (_name_to_id.contains(normalized_tokenizer_name)) {
-        const auto& tokenizer_policy = _policys[_name_to_id[normalized_tokenizer_name]];
-        auto type_it = tokenizer_policy.properties.find(PROP_TYPE);
-        if (type_it == tokenizer_policy.properties.end()) {
+    if (const auto* tokenizer_policy = find_policy_by_name_locked(tokenizer_name);
+        tokenizer_policy != nullptr) {
+        auto type_it = tokenizer_policy->properties.find(PROP_TYPE);
+        if (type_it == tokenizer_policy->properties.end()) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "Invalid tokenizer configuration in policy: " + tokenizer_name);
         }
 
         segment_v2::inverted_index::Settings settings;
-        for (const auto& prop : tokenizer_policy.properties) {
+        for (const auto& prop : tokenizer_policy->properties) {
             if (prop.first != PROP_TYPE) {
                 settings.set(prop.first, prop.second);
             }
         }
         builder.with_tokenizer_config(type_it->second, settings);
     } else {
-        builder.with_tokenizer_config(tokenizer_name, {});
+        builder.with_tokenizer_config(normalized_tokenizer_name, {});
     }
 
     process_filter_configs(index_policy_analyzer, PROP_CHAR_FILTER, "char filter",
@@ -291,21 +324,19 @@ void IndexPolicyMgr::process_filter_configs(
             continue;
         }
 
-        // Use normalized name for case-insensitive lookup
         std::string normalized_filter_name = normalize_name(filter_name);
-        if (_name_to_id.contains(normalized_filter_name)) {
+        if (const auto* filter_policy = find_policy_by_name_locked(filter_name);
+            filter_policy != nullptr) {
             // Nested filter policy
-            const int64_t filter_policy_id = _name_to_id.at(normalized_filter_name);
-            const auto& filter_policy = _policys.at(filter_policy_id);
-            auto type_it = filter_policy.properties.find(PROP_TYPE);
-            if (type_it == filter_policy.properties.end()) {
+            auto type_it = filter_policy->properties.find(PROP_TYPE);
+            if (type_it == filter_policy->properties.end()) {
                 throw Exception(
                         ErrorCode::INVALID_ARGUMENT,
                         "Invalid " + error_prefix + " configuration in policy: " + filter_name);
             }
 
             segment_v2::inverted_index::Settings settings;
-            for (const auto& prop : filter_policy.properties) {
+            for (const auto& prop : filter_policy->properties) {
                 if (prop.first != PROP_TYPE) {
                     settings.set(prop.first, prop.second);
                 }
@@ -313,7 +344,7 @@ void IndexPolicyMgr::process_filter_configs(
             add_config_func(type_it->second, settings);
         } else {
             // Simple filter
-            add_config_func(filter_name, {});
+            add_config_func(normalized_filter_name, {});
         }
     }
 }

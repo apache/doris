@@ -17,32 +17,33 @@
 
 #pragma once
 
-#include "storage/index/inverted/token_stream.h"
+#include "common/config.h"
+#include "storage/index/inverted/analyzer/ik/IKTokenizer.h"
+#include "storage/index/inverted/analyzer/ik/dic/Dictionary.h"
+#include "storage/index/inverted/tokenizer/tokenizer_factory.h"
 
 namespace doris::segment_v2::inverted_index {
 
-class DorisTokenFilter : public TokenFilter, public DorisTokenStream {
+class IKTokenizerFactory : public TokenizerFactory {
 public:
-    DorisTokenFilter(TokenStreamPtr in) : TokenFilter(nullptr), _in(std::move(in)) {}
-    ~DorisTokenFilter() override = default;
+    explicit IKTokenizerFactory(bool use_smart) : _use_smart(use_smart) {}
+    ~IKTokenizerFactory() override = default;
 
-    void reset() override { _in->reset(); }
+    void initialize(const Settings& settings) override {}
 
-    std::span<const int32_t> get_source_byte_offsets() const override {
-        const auto* source = dynamic_cast<const DorisTokenStream*>(_in.get());
-        return source == nullptr ? std::span<const int32_t> {} : source->get_source_byte_offsets();
+    TokenizerPtr create() override {
+        auto ik_config = std::make_shared<Configuration>(_use_smart, true);
+        ik_config->setDictPath(config::inverted_index_dict_path + "/ik");
+        Dictionary::initial(*ik_config);
+        return std::make_shared<IKTokenizer>(ik_config, true, false);
     }
 
-    void set_source_byte_offsets_enabled(bool enabled) override {
-        auto* source = dynamic_cast<DorisTokenStream*>(_in.get());
-        if (source != nullptr) {
-            source->set_source_byte_offsets_enabled(enabled);
-        }
+    PositionCapability position_capability() const override {
+        return PositionCapability::kAlwaysUnitIncrement;
     }
 
-protected:
-    TokenStreamPtr _in;
+private:
+    bool _use_smart;
 };
-using TokenFilterPtr = std::shared_ptr<DorisTokenFilter>;
 
 } // namespace doris::segment_v2::inverted_index

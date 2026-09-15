@@ -17,7 +17,66 @@
 
 #include "storage/index/inverted/analyzer/ik/IKTokenizer.h"
 
+#include <unicode/utf8.h>
+
+#include <tuple>
+#include <utility>
+
+#include "storage/index/inverted/char_filter/char_filter.h"
+
 namespace doris::segment_v2 {
+
+namespace {
+
+// Normalize the token and collect normalized-rune to source-byte boundaries in the same pass.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): ICU UTF-8 macros expand to branches.
+std::vector<int32_t> regularize_with_source_byte_offsets(std::string& token, bool lowercase) {
+    const auto length = static_cast<int32_t>(token.size());
+    std::string normalized;
+    normalized.reserve(token.size());
+    std::vector<int32_t> offsets {0};
+    int32_t offset = 0;
+    while (offset < length) {
+        const int32_t source_start = offset;
+        UChar32 codepoint;
+        U8_NEXT(token.c_str(), offset, length, codepoint);
+        if (codepoint < 0) {
+            normalized.append(token, source_start, offset - source_start);
+            offsets.push_back(offset);
+            continue;
+        }
+        UChar32 regularized = CharacterUtil::regularize(codepoint, false);
+        if (lowercase && regularized >= 'A' && regularized <= 'Z') {
+            regularized += 'a' - 'A';
+        }
+        char encoded[U8_MAX_LENGTH];
+        int32_t encoded_length = 0;
+        U8_APPEND_UNSAFE(encoded, encoded_length, regularized);
+        normalized.append(encoded, encoded_length);
+        offsets.push_back(offset);
+    }
+    token = std::move(normalized);
+    return offsets;
+}
+
+std::pair<size_t, size_t> utf8_prefix_at_most(std::string_view text, size_t max_bytes) {
+    const auto length = static_cast<int32_t>(text.size());
+    const auto limit = static_cast<int32_t>(std::min(text.size(), max_bytes));
+    int32_t offset = 0;
+    size_t rune_count = 0;
+    while (offset < length) {
+        int32_t next = offset;
+        U8_FWD_1(text, next, length);
+        if (next > limit) {
+            break;
+        }
+        offset = next;
+        ++rune_count;
+    }
+    return {static_cast<size_t>(offset), rune_count};
+}
+
+} // namespace
 
 IKTokenizer::IKTokenizer(std::shared_ptr<Configuration> config, bool lower_case, bool own_reader) {
     this->lowercase = lower_case;
@@ -31,27 +90,83 @@ Token* IKTokenizer::next(Token* token) {
         return nullptr;
     }
 
-    std::string& token_text = tokens_text_[buffer_index_++];
+    TokenData& token_data = tokens_[buffer_index_++];
     // full-width to half-width, and lowercase
     // TODO(ryan19929): do regularizeString in fillBuffer.
-    CharacterUtil::regularizeString(token_text, this->lowercase);
-    size_t size = std::min(token_text.size(), static_cast<size_t>(LUCENE_MAX_WORD_LEN));
-    token->setNoCopy(token_text.data(), 0, static_cast<int32_t>(size));
+    if (source_byte_offsets_enabled_) {
+        current_source_byte_offsets_ =
+                regularize_with_source_byte_offsets(token_data.text, this->lowercase);
+    } else {
+        CharacterUtil::regularizeString(token_data.text, this->lowercase);
+        current_source_byte_offsets_.clear();
+    }
+    current_token_ = &token_data;
+    const int32_t corrected_start =
+            source_char_filter_ == nullptr
+                    ? token_data.start_offset
+                    : source_char_filter_->correct_offset(token_data.start_offset);
+    if (source_char_filter_ != nullptr && source_byte_offsets_enabled_) {
+        for (int32_t& offset : current_source_byte_offsets_) {
+            offset = source_char_filter_->correct_offset(token_data.start_offset + offset) -
+                     corrected_start;
+        }
+    }
+    size_t published_size = token_data.text.size();
+    size_t published_runes = current_source_byte_offsets_.size();
+    if (published_size > static_cast<size_t>(LUCENE_MAX_WORD_LEN)) {
+        std::tie(published_size, published_runes) =
+                utf8_prefix_at_most(token_data.text, static_cast<size_t>(LUCENE_MAX_WORD_LEN));
+    }
+    set(token, std::string_view(token_data.text.data(), published_size));
+    token->setStartOffset(corrected_start);
+    if (source_byte_offsets_enabled_ && published_size < token_data.text.size()) {
+        DORIS_CHECK_LT(published_runes, current_source_byte_offsets_.size());
+        current_source_byte_offsets_.resize(published_runes + 1);
+        // A clipped term represents only this source prefix, so its end offset must not claim the
+        // unpublished suffix. The provenance vector uses the same exclusive source boundary.
+        token->setEndOffset(corrected_start + current_source_byte_offsets_.back());
+    } else {
+        token->setEndOffset(source_char_filter_ == nullptr
+                                    ? token_data.end_offset
+                                    : source_char_filter_->correct_offset(token_data.end_offset));
+    }
     return token;
 }
 
+std::span<const int32_t> IKTokenizer::get_source_byte_offsets() const {
+    return current_token_ == nullptr ? std::span<const int32_t> {}
+                                     : std::span<const int32_t> {current_source_byte_offsets_};
+}
+
+void IKTokenizer::reset() {
+    if (_in_pending == nullptr) {
+        return;
+    }
+    inverted_index::DorisTokenizer::reset();
+    _in_pending.reset();
+    reset(_in.get());
+}
+
 void IKTokenizer::reset(lucene::util::Reader* reader) {
+    _in_pending.reset();
     this->input = reader;
+    source_char_filter_ = dynamic_cast<const inverted_index::DorisCharFilter*>(reader);
     this->buffer_index_ = 0;
     this->data_length_ = 0;
-    this->tokens_text_.clear();
+    this->tokens_.clear();
+    this->current_token_ = nullptr;
+    this->current_source_byte_offsets_.clear();
 
     try {
         buffer_.reserve(input->size());
         ik_segmenter_->reset(reader);
         Lexeme lexeme;
         while (ik_segmenter_->next(lexeme)) {
-            tokens_text_.emplace_back(lexeme.getText());
+            TokenData token_data {
+                    .text = lexeme.getText(),
+                    .start_offset = static_cast<int32_t>(lexeme.getByteBeginPosition()),
+                    .end_offset = static_cast<int32_t>(lexeme.getByteEndPosition())};
+            tokens_.push_back(std::move(token_data));
         }
     } catch (const CLuceneError&) {
         throw;
@@ -60,7 +175,7 @@ void IKTokenizer::reset(lucene::util::Reader* reader) {
         _CLTHROWT(CL_ERR_Runtime,
                   ("Uncaught exception in IKTokenizer: " + std::string(e.what())).c_str());
     }
-    data_length_ = static_cast<int32_t>(tokens_text_.size());
+    data_length_ = static_cast<int32_t>(tokens_.size());
 }
 
 } // namespace doris::segment_v2
