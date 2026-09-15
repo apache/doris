@@ -354,6 +354,8 @@ public final class IcebergCatalogFactory {
                 return DorisHiveCatalog.class.getName();
             case IcebergCatalogProperties.TYPE_GLUE:
                 return "org.apache.iceberg.aws.glue.GlueCatalog";
+            case IcebergCatalogProperties.TYPE_DLF:
+                return "org.apache.doris.connector.iceberg.dlf.DLFCatalog";
             case IcebergCatalogProperties.TYPE_HADOOP:
                 return "org.apache.iceberg.hadoop.HadoopCatalog";
             case IcebergCatalogProperties.TYPE_JDBC:
@@ -363,7 +365,7 @@ public final class IcebergCatalogFactory {
             default:
                 throw new DorisConnectorException(
                         "Unknown " + IcebergCatalogProperties.ICEBERG_CATALOG_TYPE + ": " + catalogType
-                                + ". Supported types: rest, hms, glue, hadoop, jdbc, s3tables");
+                                + ". Supported types: rest, hms, glue, dlf, hadoop, jdbc, s3tables");
         }
     }
 
@@ -699,6 +701,16 @@ public final class IcebergCatalogFactory {
         addConfResources(hiveConf, confResources);
         overrides.forEach(hiveConf::set);
         return hiveConf;
+    }
+
+    /** Builds the plugin-local Hadoop configuration consumed by the DLF metastore client. */
+    public static Configuration buildDlfConfiguration(Map<String, String> dlfCatalogConf) {
+        Configuration conf = new Configuration();
+        conf.setClassLoader(IcebergCatalogFactory.class.getClassLoader());
+        dlfCatalogConf.forEach(conf::set);
+        conf.set("hive.metastore.type", "dlf");
+        conf.set("type", "hms");
+        return conf;
     }
 
     /**

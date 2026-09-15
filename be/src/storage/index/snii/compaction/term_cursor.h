@@ -33,12 +33,10 @@
 // The cursor walks the source's DICT blocks in ordinal order and yields every
 // DictEntry in lexicographic term order, one block resident at a time (never
 // the whole vocabulary). Entries are passed through UNINTERPRETED: the locator
-// (inline bytes / slim pod_ref / windowed pod_ref) and the per-block
-// kNoTermStats flag (DictEntry::term_stats_present) reach the downstream
-// decoder exactly as the reader produced them -- the merge pump (T2.4) decides
-// how to decode, and kNoTermStats inputs must have their ttf/max_freq recomputed
-// from the actual freq stream (correctness invariant 2), so this layer must not
-// synthesize stats.
+// (inline bytes / slim pod_ref / windowed pod_ref) reaches the downstream
+// decoder exactly as the reader produced it -- the merge pump (T2.4) decides
+// how to decode; per-doc term frequencies are recomputed from the position
+// stream, so this layer must not synthesize stats.
 //
 // Hidden-term gate (base-drift addendum ruling): the v1 merge fast path does
 // NOT merge legacy phrase-bigram postings. Any dictionary term carrying the

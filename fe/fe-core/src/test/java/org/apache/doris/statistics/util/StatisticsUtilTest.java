@@ -17,6 +17,8 @@
 
 package org.apache.doris.statistics.util;
 
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -57,6 +59,33 @@ import java.util.List;
 import java.util.Map;
 
 class StatisticsUtilTest {
+    @Test
+    void testTimestampNsStatisticsValues() throws AnalysisException {
+        String minValue = "1677-09-21 00:12:43.145224192";
+        String negativeEpochValue = "1969-12-31 23:59:59.999999999";
+        String oneSecondBeforeEpochValue = "1969-12-31 23:59:59.000000000";
+        String epochValue = "1970-01-01 00:00:00.000000000";
+        String maxValue = "2262-04-11 23:47:16.854775807";
+
+        LiteralExpr minLiteral = StatisticsUtil.readableValue(Type.TIMESTAMP_NS, minValue);
+        LiteralExpr negativeEpochLiteral = StatisticsUtil.readableValue(Type.TIMESTAMP_NS, negativeEpochValue);
+        LiteralExpr maxLiteral = StatisticsUtil.readableValue(Type.TIMESTAMP_NS, maxValue);
+        Assertions.assertInstanceOf(TimeStampNsLiteral.class, minLiteral);
+        Assertions.assertInstanceOf(TimeStampNsLiteral.class, negativeEpochLiteral);
+        Assertions.assertInstanceOf(TimeStampNsLiteral.class, maxLiteral);
+        Assertions.assertEquals(minValue, minLiteral.getStringValue());
+        Assertions.assertEquals(-1L, negativeEpochLiteral.getRealValue());
+        Assertions.assertEquals(maxValue, maxLiteral.getStringValue());
+
+        double min = StatisticsUtil.convertToDouble(Type.TIMESTAMP_NS, minValue);
+        double oneSecondBeforeEpoch = StatisticsUtil.convertToDouble(Type.TIMESTAMP_NS, oneSecondBeforeEpochValue);
+        double epoch = StatisticsUtil.convertToDouble(Type.TIMESTAMP_NS, epochValue);
+        double max = StatisticsUtil.convertToDouble(Type.TIMESTAMP_NS, maxValue);
+        Assertions.assertTrue(min < oneSecondBeforeEpoch);
+        Assertions.assertTrue(oneSecondBeforeEpoch < epoch);
+        Assertions.assertTrue(epoch < max);
+    }
+
     @Test
     void testConvertToDouble() {
         try {

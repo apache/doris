@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.alter.Alter;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
@@ -24,6 +25,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mtmv.ivm.IvmUtil;
@@ -623,5 +625,108 @@ public class AlterMTMVTest extends TestWithFeService {
 
         alterMv("ALTER MATERIALIZED VIEW owner_mv SET ('excluded_trigger_tables' = 'owner_base1')");
         Assertions.assertSame(conflictingStream, db.getTableOrMetaException(streamName));
+    }
+
+    @Test
+    public void testAlterIvmExcludedTriggerTablesCreateStreamFailureCompensatesAndFails() throws Exception {
+        createDatabaseAndUse("alter_ivm_excl_create_fail_test");
+        createTable("CREATE TABLE excl_fail_base1 (k1 int, v1 int) UNIQUE KEY(k1) "
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
+                + "'binlog.need_historical_value' = 'true')");
+        createTable("CREATE TABLE excl_fail_base2 (k1 int, v1 int) UNIQUE KEY(k1) "
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
+                + "'binlog.need_historical_value' = 'true')");
+        createMvByNereids("CREATE MATERIALIZED VIEW excl_create_fail_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1',\n"
+                + "   'excluded_trigger_tables' = 'excl_fail_base1, excl_fail_base2')\n"
+                + " AS SELECT k1, v1 FROM excl_fail_base1 UNION ALL SELECT k1, v1 FROM excl_fail_base2");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("alter_ivm_excl_create_fail_test");
+        MTMV mtmv = (MTMV) db.getTableOrMetaException("excl_create_fail_mv");
+        String stream1 = ivmStreamName(db, mtmv.getId(), "excl_fail_base1");
+        String stream2 = ivmStreamName(db, mtmv.getId(), "excl_fail_base2");
+        Assertions.assertFalse(db.getTable(stream1).isPresent());
+        Assertions.assertFalse(db.getTable(stream2).isPresent());
+
+        boolean originEnableDebugPoints = Config.enable_debug_points;
+        try {
+            Config.enable_debug_points = true;
+            DebugPointUtil.clearDebugPoints();
+            // Allow the first stream create to succeed and fail the second one (the count
+            // makes this independent of the base-table iteration order), so the
+            // compensation must drop the first stream again.
+            DebugPointUtil.addDebugPointWithValue(
+                    Alter.DEBUG_POINT_CREATE_EXCLUDED_STREAM_FAIL, "1");
+            Exception exception = Assertions.assertThrows(Exception.class,
+                    () -> alterMv("ALTER MATERIALIZED VIEW excl_create_fail_mv\n"
+                            + " SET ('excluded_trigger_tables' = '')"));
+            Assertions.assertTrue(exception.getMessage().contains("debug point"),
+                    "unexpected error message: " + exception.getMessage());
+        } finally {
+            DebugPointUtil.clearDebugPoints();
+            Config.enable_debug_points = originEnableDebugPoints;
+        }
+
+        // Compensated: no stream remains and the property still excludes both tables.
+        Assertions.assertFalse(db.getTable(stream1).isPresent(),
+                "compensation must drop the stream created before the failing one");
+        Assertions.assertFalse(db.getTable(stream2).isPresent());
+        Assertions.assertEquals(2, mtmv.getExcludedTriggerTables().size());
+    }
+
+    @Test
+    public void testAlterIvmExcludedTriggerTablesDropStreamFailureIsBestEffort() throws Exception {
+        createDatabaseAndUse("alter_ivm_excl_drop_fail_test");
+        createTable("CREATE TABLE excl_drop_base1 (k1 int, v1 int) UNIQUE KEY(k1) "
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
+                + "'binlog.need_historical_value' = 'true')");
+        createTable("CREATE TABLE excl_drop_base2 (k1 int, v1 int) UNIQUE KEY(k1) "
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
+                + "'binlog.need_historical_value' = 'true')");
+        createMvByNereids("CREATE MATERIALIZED VIEW excl_drop_fail_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM excl_drop_base1 UNION ALL SELECT k1, v1 FROM excl_drop_base2");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("alter_ivm_excl_drop_fail_test");
+        MTMV mtmv = (MTMV) db.getTableOrMetaException("excl_drop_fail_mv");
+        String stream1 = ivmStreamName(db, mtmv.getId(), "excl_drop_base1");
+        String stream2 = ivmStreamName(db, mtmv.getId(), "excl_drop_base2");
+        Assertions.assertTrue(db.getTable(stream1).isPresent());
+        Assertions.assertTrue(db.getTable(stream2).isPresent());
+
+        boolean originEnableDebugPoints = Config.enable_debug_points;
+        try {
+            Config.enable_debug_points = true;
+            DebugPointUtil.clearDebugPoints();
+            // Both bases join the excluded set; allow one stream drop to succeed and fail
+            // the next one (the count makes this independent of the base-table iteration
+            // order). The property is already applied and the ALTER must still succeed:
+            // exactly one of the two now-unused streams leaks.
+            DebugPointUtil.addDebugPointWithValue(
+                    Alter.DEBUG_POINT_DROP_EXCLUDED_STREAM_FAIL, "1");
+            alterMv("ALTER MATERIALIZED VIEW excl_drop_fail_mv\n"
+                    + " SET ('excluded_trigger_tables' = 'excl_drop_base1, excl_drop_base2')");
+        } finally {
+            DebugPointUtil.clearDebugPoints();
+            Config.enable_debug_points = originEnableDebugPoints;
+        }
+
+        Assertions.assertEquals(2, mtmv.getExcludedTriggerTables().size());
+        boolean stream1Present = db.getTable(stream1).isPresent();
+        boolean stream2Present = db.getTable(stream2).isPresent();
+        Assertions.assertEquals(1, (stream1Present ? 1 : 0) + (stream2Present ? 1 : 0),
+                "exactly one stream drop must have failed and leaked");
     }
 }

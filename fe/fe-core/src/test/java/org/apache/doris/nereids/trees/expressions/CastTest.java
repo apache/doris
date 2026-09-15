@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
@@ -36,6 +38,8 @@ import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -43,6 +47,7 @@ import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -654,6 +659,51 @@ public class CastTest {
         // An identity cast is also used while merging unchanged siblings of a complex type. It cannot
         // introduce NULL, so widening the sibling here would make a required struct field nullable.
         Assertions.assertFalse(Cast.castNullable(false, dateTimeV2, dateTimeV2));
+    }
+
+    @Test
+    public void testTimeStampNsCastNullability() {
+        Assertions.assertTrue(Cast.castNullable(false, DateType.INSTANCE, TimeStampNsType.INSTANCE));
+        Assertions.assertTrue(Cast.castNullable(false, DateV2Type.INSTANCE, TimeStampNsType.INSTANCE));
+        Assertions.assertTrue(Cast.castNullable(false, DateTimeType.INSTANCE, TimeStampNsType.INSTANCE));
+        Assertions.assertTrue(Cast.castNullable(false, DateTimeV2Type.MAX, TimeStampNsType.INSTANCE));
+        Assertions.assertTrue(Cast.castNullable(false, TimeStampTzType.MAX, TimeStampNsType.INSTANCE));
+        Assertions.assertTrue(Cast.castNullable(false, TimeV2Type.MAX, TimeStampNsType.INSTANCE));
+        Assertions.assertFalse(Cast.castNullable(false, TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE));
+        Assertions.assertFalse(Cast.castNullable(false, TimeStampNsType.INSTANCE, DateTimeV2Type.MAX));
+        Assertions.assertTrue(Cast.castNullable(false, TimeStampNsType.INSTANCE, TimeStampTzType.MAX));
+    }
+
+    @Test
+    public void testStrictMarkerSurvivesCastRebuilds() {
+        Cast strictCast = new Cast(
+                new SlotReference("date", DateV2Type.INSTANCE), TimeStampNsType.INSTANCE, false, true);
+
+        Assertions.assertTrue(strictCast.isStrict());
+        Assertions.assertTrue(strictCast.withChildren(ImmutableList.of(
+                new SlotReference("other_date", DateV2Type.INSTANCE))).isStrict());
+        Assertions.assertTrue(strictCast.withTargetType(DateTimeV2Type.MAX).isStrict());
+        Assertions.assertTrue(((Cast) strictCast.withConstantArgs(new IntegerLiteral(1))).isStrict());
+        Assertions.assertNotEquals(strictCast,
+                new Cast(strictCast.child(), TimeStampNsType.INSTANCE, false, false));
+    }
+
+    @Test
+    public void testCastToTimeStampNsMonotonicRange() {
+        SlotReference date = new SlotReference("date", DateType.INSTANCE, false);
+        Cast timestampNsCast = new Cast(date, TimeStampNsType.INSTANCE);
+
+        DateLiteral insideLower = new DateLiteral(1970, 1, 1);
+        DateLiteral insideUpper = new DateLiteral(2024, 2, 29);
+        Assertions.assertTrue(timestampNsCast.isMonotonic(insideLower, insideUpper));
+        Assertions.assertFalse(timestampNsCast.isMonotonic(null, insideUpper));
+        Assertions.assertFalse(timestampNsCast.isMonotonic(insideLower, null));
+        Assertions.assertFalse(timestampNsCast.isMonotonic(new DateLiteral(1600, 1, 1), insideUpper));
+        Assertions.assertFalse(timestampNsCast.isMonotonic(insideLower, new DateLiteral(2300, 1, 1)));
+
+        Cast datetimeV2Cast = new Cast(date, DateTimeV2Type.MAX);
+        Assertions.assertTrue(datetimeV2Cast.isMonotonic(null, insideUpper));
+        Assertions.assertTrue(datetimeV2Cast.isMonotonic(insideLower, null));
     }
 
     @Test

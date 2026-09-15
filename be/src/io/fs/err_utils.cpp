@@ -20,9 +20,9 @@
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
 #include <fmt/format.h>
-#include <string.h>
 
 #include <sstream>
+#include <system_error>
 
 #include "common/status.h"
 #include "io/fs/hdfs.h"
@@ -32,9 +32,22 @@ using namespace ErrorCode;
 
 namespace io {
 
+namespace {
+
+// strerror_r has two incompatible flavours: glibc's returns the text (and may leave the buffer
+// untouched), the POSIX one on macOS and musl returns an int and fills the buffer. Formatting the
+// return value directly prints "0" on the latter, and callers such as the ORC reader tell NotFound
+// apart by looking for "No such file or directory" in the text. generic_category spells the errno
+// the same way everywhere.
+std::string errno_message(int err) {
+    return std::generic_category().message(err);
+}
+
+} // namespace
+
 std::string errno_to_str() {
-    char buf[1024];
-    return fmt::format("({}), {}", errno, strerror_r(errno, buf, 1024));
+    int err = errno;
+    return fmt::format("({}), {}", err, errno_message(err));
 }
 
 std::string errcode_to_str(const std::error_code& ec) {
@@ -43,8 +56,8 @@ std::string errcode_to_str(const std::error_code& ec) {
 
 std::string hdfs_error() {
     std::stringstream ss;
-    char buf[1024];
-    ss << "(" << errno << "), " << strerror_r(errno, buf, 1024) << ")";
+    int err = errno;
+    ss << "(" << err << "), " << errno_message(err) << ")";
 #ifdef USE_HADOOP_HDFS
     char* root_cause = hdfsGetLastExceptionRootCause();
     if (root_cause != nullptr) {
@@ -96,8 +109,7 @@ Status localfs_error(const std::error_code& ec, std::string_view msg) {
 }
 
 Status localfs_error(int posix_errno, std::string_view msg) {
-    char buf[1024];
-    auto message = fmt::format("{}: {}", msg, strerror_r(errno, buf, 1024));
+    auto message = fmt::format("{}: {}", msg, errno_message(posix_errno));
     switch (posix_errno) {
     case EIO:
         return Status::Error<IO_ERROR, false>(message);

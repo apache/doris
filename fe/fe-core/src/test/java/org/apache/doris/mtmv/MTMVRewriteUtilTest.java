@@ -100,7 +100,8 @@ public class MTMVRewriteUtilTest {
         Mockito.when(sessionVariable.isEnableMaterializedViewRewriteWhenBaseTableUnawareness()).thenReturn(true);
 
         mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVPartitionSync(
-                Mockito.any(MTMVRefreshContext.class), Mockito.anyString(),
+                Mockito.any(MTMVRefreshContext.class),
+                Mockito.any(MTMVRefreshContext.PreparedPartitionSnapshots.class), Mockito.anyString(),
                 Mockito.any(Set.class),
                 Mockito.any(Set.class))).thenReturn(true);
 
@@ -127,7 +128,8 @@ public class MTMVRewriteUtilTest {
         Mockito.when(mtmv.getGracePeriod()).thenReturn(2L);
 
         mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVPartitionSync(
-                Mockito.any(MTMVRefreshContext.class), Mockito.anyString(),
+                Mockito.any(MTMVRefreshContext.class),
+                Mockito.any(MTMVRefreshContext.PreparedPartitionSnapshots.class), Mockito.anyString(),
                 Mockito.any(Set.class),
                 Mockito.any(Set.class))).thenReturn(false);
 
@@ -151,7 +153,8 @@ public class MTMVRewriteUtilTest {
         Mockito.when(mtmv.getGracePeriod()).thenReturn(2L);
 
         mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVPartitionSync(
-                Mockito.any(MTMVRefreshContext.class), Mockito.anyString(),
+                Mockito.any(MTMVRefreshContext.class),
+                Mockito.any(MTMVRefreshContext.PreparedPartitionSnapshots.class), Mockito.anyString(),
                 Mockito.any(Set.class),
                 Mockito.any(Set.class))).thenReturn(false);
 
@@ -166,7 +169,8 @@ public class MTMVRewriteUtilTest {
         Mockito.when(mtmv.getGracePeriod()).thenReturn(1L);
 
         mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVPartitionSync(
-                Mockito.any(MTMVRefreshContext.class), Mockito.anyString(),
+                Mockito.any(MTMVRefreshContext.class),
+                Mockito.any(MTMVRefreshContext.PreparedPartitionSnapshots.class), Mockito.anyString(),
                 Mockito.any(Set.class),
                 Mockito.any(Set.class))).thenReturn(false);
 
@@ -190,7 +194,8 @@ public class MTMVRewriteUtilTest {
     @Test
     public void testGetMTMVCanRewritePartitionsNotSync() throws AnalysisException {
         mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVPartitionSync(
-                Mockito.any(MTMVRefreshContext.class), Mockito.anyString(),
+                Mockito.any(MTMVRefreshContext.class),
+                Mockito.any(MTMVRefreshContext.PreparedPartitionSnapshots.class), Mockito.anyString(),
                 Mockito.any(Set.class),
                 Mockito.any(Set.class))).thenReturn(false);
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil

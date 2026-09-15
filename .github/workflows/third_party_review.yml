@@ -78,10 +78,26 @@ jobs:
           # every pull request that adds a module with a JUnit 5 test fails on a licence the
           # project has already approved. junit:junit is EPL-1.0, an ASF Category B licence, and
           # the JUnit 4 tests that need it run through junit-vintage-engine.
+          #
+          # com.sun.jersey:jersey-client (CDDL-1.1 OR GPL-2.0 WITH Classpath-exception-2.0):
+          # CDDL-1.1 is ASF Category B, usable in binary form as long as the distribution records
+          # it, and dist/LICENSE-dist.txt already lists com.sun.jersey:jersey-client under
+          # "Common Development and Distribution License (CDDL) v1.1". The FE also already ships
+          # jersey-core under that same dual license; only the client half is missing, because
+          # #37575 excluded the jersey-bundle Ranger declares against. Ranger's
+          # RangerAdminRESTClient is Jersey 1.x, so the Ranger authorization plugins need it to
+          # reach a Ranger admin at all. The version the build resolves is ${jersey.version},
+          # 1.19.4, matching the jersey-core the FE already carries.
+          # javax.ws.rs:jsr311-api (CDDL-1.0): the JAX-RS 1.1 API jersey-client compiles and links
+          # against, so it comes with it into the distribution. Same Category B reasoning, recorded
+          # under the "CDDL v1.0" section of dist/LICENSE-dist.txt, which is the version that
+          # artifact itself declares.
           allow-dependencies-licenses: >-
             pkg:npm/caniuse-lite@1.0.30001809,
             pkg:maven/org.junit.jupiter/junit-jupiter,
-            pkg:maven/junit/junit
+            pkg:maven/junit/junit,
+            pkg:maven/com.sun.jersey/jersey-client,
+            pkg:maven/javax.ws.rs/jsr311-api
           # ([String]). Acknowledged advisories that must not fail the review (optional)
           # org.codehaus.jackson:jackson-mapper-asl (GHSA-c27h-mcmw-48hv, GHSA-r6j9-8759-g62w):
           # legacy Jackson 1.x is EOL and neither advisory has a fixed version. Hive's metastore

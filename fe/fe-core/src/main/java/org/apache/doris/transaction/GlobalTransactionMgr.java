@@ -515,6 +515,10 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     public static List<TransactionState> checkFailedTxns(List<TransactionState> conflictTxns) {
         List<TransactionState> failedTxns = new ArrayList<>();
         for (TransactionState txn : conflictTxns) {
+            TransactionStatus status = txn.getTransactionStatus();
+            if (status == TransactionStatus.COMMITTED || status.isFinalStatus()) {
+                continue;
+            }
             if (checkFailedTxnsByCoordinator(txn)) {
                 failedTxns.add(txn);
             }
@@ -926,6 +930,12 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public Long getNextTransactionId() {
         return this.idGenerator.getNextTransactionId();
+    }
+
+    @Override
+    public long getTransactionIdWatermark() {
+        // The classic conflict check treats its upper bound as inclusive.
+        return this.idGenerator.getCurrentTransactionId();
     }
 
     @Override

@@ -43,6 +43,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.cache.NereidsSqlCacheManager;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -127,6 +128,15 @@ import java.util.stream.Collectors;
 
 public class Alter {
     private static final Logger LOG = LogManager.getLogger(Alter.class);
+
+    // Test hooks for the IVM excluded_trigger_tables stream transition (see
+    // alterIvmExcludedTriggerTables): when enabled, the "value" param is the number of
+    // successful stream creates/drops to allow first (e.g. "1" allows one and fails the
+    // next), independent of the base-table iteration order.
+    public static final String DEBUG_POINT_CREATE_EXCLUDED_STREAM_FAIL =
+            "Alter.alterIvmExcludedTriggerTables.create_stream_fail";
+    public static final String DEBUG_POINT_DROP_EXCLUDED_STREAM_FAIL =
+            "Alter.alterIvmExcludedTriggerTables.drop_stream_fail";
 
     private AlterHandler schemaChangeHandler;
     private AlterHandler materializedViewHandler;
@@ -1315,16 +1325,10 @@ public class Alter {
                     mtmv.alterStatus(alterMTMV.getStatus());
                     break;
                 case ALTER_PROPERTY:
-                    if (mtmv.isIvm() && alterMTMV.getMvProperties().containsKey(
-                            PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES)) {
-                        Set<TableNameInfo> oldExcludedTriggerTables = mtmv.getExcludedTriggerTables();
-                        Set<TableNameInfo> newExcludedTriggerTables = MTMVPropertyUtil.parseTableNameInfos(
-                                alterMTMV.getMvProperties().get(
-                                        PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES));
-                        updateIvmStreamsForExcludedTables(db, mtmv, oldExcludedTriggerTables,
-                                newExcludedTriggerTables, isReplay);
-                    }
-                    mtmv.alterMvProperties(alterMTMV, isReplay);
+                    // Live ALTER PROPERTY statements call processAlterMTMVProperty directly
+                    // (see Env.alterMTMVProperty) so that failures surface to the client;
+                    // this path only replays the journaled op, where errors stay tolerated.
+                    processAlterMTMVProperty(alterMTMV, isReplay);
                     return;
                 case ADD_TASK:
                     if (!mtmv.addTaskResult(alterMTMV, isReplay)) {
@@ -1355,28 +1359,141 @@ public class Alter {
         }
     }
 
-    private void updateIvmStreamsForExcludedTables(Database db, MTMV mtmv,
+    /**
+     * Applies an ALTER PROPERTY op. Live statements call this method directly through
+     * {@code Env.alterMTMVProperty} so that a failure (e.g. a partial IVM stream
+     * transition) propagates to the client instead of being swallowed; the replay path
+     * runs it through {@link #processAlterMTMV} where errors are tolerated.
+     */
+    public void processAlterMTMVProperty(AlterMTMV alterMTMV, boolean isReplay) throws UserException {
+        MTMV mtmv;
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(alterMTMV.getMvName().getDb());
+        // Fail before touching anything when the database is being dropped: a later step
+        // (e.g. the stream drop under the db write lock) would otherwise fail after the
+        // property was already applied.
+        if (db.isDropped()) {
+            throw new DdlException("unknown db, dbName=" + db.getFullName());
+        }
+        mtmv = (MTMV) db.getTableOrMetaException(alterMTMV.getMvName().getTbl(), TableType.MATERIALIZED_VIEW);
+        if (mtmv.isIvm() && alterMTMV.getMvProperties().containsKey(
+                PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES)) {
+            Set<TableNameInfo> oldExcludedTriggerTables = mtmv.getExcludedTriggerTables();
+            Set<TableNameInfo> newExcludedTriggerTables = MTMVPropertyUtil.parseTableNameInfos(
+                    alterMTMV.getMvProperties().get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES));
+            alterIvmExcludedTriggerTables(db, mtmv, oldExcludedTriggerTables,
+                    newExcludedTriggerTables, alterMTMV, isReplay);
+            return;
+        }
+        mtmv.alterMvProperties(alterMTMV, isReplay);
+    }
+
+    private void alterIvmExcludedTriggerTables(Database db, MTMV mtmv,
             Set<TableNameInfo> oldExcludedTriggerTables, Set<TableNameInfo> newExcludedTriggerTables,
-            boolean isReplay) throws UserException {
+            AlterMTMV alterMTMV, boolean isReplay) throws UserException {
+        // Step 1: create streams for base tables leaving the excluded set (skipped on
+        // replay, each create journals itself). A mid-loop failure is compensated by
+        // dropping exactly the streams created here, leaving the previous property in
+        // effect without stray streams.
+        List<String> createdStreamNames = new ArrayList<>();
+        if (!isReplay) {
+            try {
+                createStreamsForUnExcludedTables(db, mtmv, oldExcludedTriggerTables,
+                        newExcludedTriggerTables, createdStreamNames);
+            } catch (UserException e) {
+                try {
+                    dropStreamsByNames(db, createdStreamNames, false);
+                } catch (UserException compensateException) {
+                    // Keep the original failure for the client; a failed compensation
+                    // leaves stray streams that the idempotent retry of the ALTER
+                    // cleans up.
+                    LOG.error("failed to compensate streams created for mv={} after create failure",
+                            mtmv.getName(), compensateException);
+                }
+                throw e;
+            }
+        }
+        // Step 2: apply the property, the source of truth for refresh.
+        mtmv.alterMvProperties(alterMTMV, isReplay);
+        // Step 3: drop streams of base tables that just joined the excluded set. This
+        // runs after the property on purpose: a failed drop then only leaks the stream
+        // of a table that is already excluded (harmless, and stream leaks are a
+        // pre-existing risk), whereas dropping first could remove the stream of a table
+        // that is still active under the old property.
+        try {
+            dropStreamsForExcludedTables(db, mtmv, newExcludedTriggerTables, isReplay);
+        } catch (UserException e) {
+            LOG.warn("failed to drop IVM streams for excluded trigger tables of mv={}, "
+                    + "the streams may leak: {}", mtmv.getName(), e.getMessage());
+        }
+    }
+
+    private void createStreamsForUnExcludedTables(Database db, MTMV mtmv,
+            Set<TableNameInfo> oldExcludedTriggerTables, Set<TableNameInfo> newExcludedTriggerTables,
+            List<String> createdStreamNames) throws UserException {
+        MTMVRelation relation = mtmv.getRelation();
+        if (relation == null || relation.getBaseTables() == null) {
+            return;
+        }
+        int createdCount = 0;
+        for (BaseTableInfo baseTableInfo : relation.getBaseTables()) {
+            TableNameInfo baseTableName = new TableNameInfo(baseTableInfo.getCtlName(),
+                    baseTableInfo.getDbName(), baseTableInfo.getTableName());
+            if (!MTMVPartitionUtil.isTableExcluded(oldExcludedTriggerTables, baseTableName)
+                    || MTMVPartitionUtil.isTableExcluded(newExcludedTriggerTables, baseTableName)) {
+                continue;
+            }
+            failCreateStreamIfDebugPointed(createdCount);
+            TableIf baseTable = MTMVUtil.getTable(baseTableInfo);
+            CreateMTMVCommand.createTableStream(ConnectContext.get(), db, mtmv, baseTable);
+            createdStreamNames.add(IvmUtil.streamName(mtmv.getId(), baseTable.getFullQualifiers()));
+            createdCount++;
+        }
+    }
+
+    /** Fails before the (allowedCreates+1)-th create when the create debug point is enabled. */
+    private void failCreateStreamIfDebugPointed(int createdCount) throws DdlException {
+        String allowCreates = DebugPointUtil.getDebugParamOrDefault(DEBUG_POINT_CREATE_EXCLUDED_STREAM_FAIL, "");
+        if (!allowCreates.isEmpty() && createdCount >= Integer.parseInt(allowCreates)) {
+            throw new DdlException("debug point: creating IVM stream for an excluded-trigger base table "
+                    + "failed after " + allowCreates + " successful create(s)");
+        }
+    }
+
+    /** Drops the named stream tables under the db write lock; missing/non-stream tables are skipped. */
+    private void dropStreamsByNames(Database db, List<String> streamNames, boolean isReplay)
+            throws UserException {
+        if (streamNames.isEmpty()) {
+            return;
+        }
+        db.writeLockOrDdlException();
+        try {
+            for (String streamName : streamNames) {
+                TableIf streamTable = db.getTableNullable(streamName);
+                if (!(streamTable instanceof BaseTableStream)) {
+                    continue;
+                }
+                Table table = (Table) streamTable;
+                table.writeLock();
+                try {
+                    Env.getCurrentEnv().unprotectDropTable(db, table, true, isReplay, 0L);
+                } finally {
+                    table.writeUnlock();
+                }
+                LOG.info("dropped IVM stream {}", streamName);
+            }
+        } finally {
+            db.writeUnlock();
+        }
+    }
+
+    private void dropStreamsForExcludedTables(Database db, MTMV mtmv,
+            Set<TableNameInfo> newExcludedTriggerTables, boolean isReplay) throws UserException {
         MTMVRelation relation = mtmv.getRelation();
         if (relation == null || relation.getBaseTables() == null) {
             return;
         }
         Set<BaseTableInfo> baseTables = relation.getBaseTables();
-        for (BaseTableInfo baseTableInfo : baseTables) {
-            TableNameInfo baseTableName = new TableNameInfo(baseTableInfo.getCtlName(),
-                    baseTableInfo.getDbName(), baseTableInfo.getTableName());
-            boolean wasExcluded = MTMVPartitionUtil.isTableExcluded(
-                    oldExcludedTriggerTables, baseTableName);
-            boolean isExcluded = MTMVPartitionUtil.isTableExcluded(
-                    newExcludedTriggerTables, baseTableName);
-            if (wasExcluded && !isExcluded) {
-                if (!isReplay) {
-                    TableIf baseTable = MTMVUtil.getTable(baseTableInfo);
-                    CreateMTMVCommand.createTableStream(ConnectContext.get(), db, mtmv, baseTable);
-                }
-            }
-        }
+        int droppedCount = 0;
         db.writeLockOrDdlException();
         try {
             for (BaseTableInfo baseTableInfo : baseTables) {
@@ -1385,6 +1502,7 @@ public class Alter {
                 if (!MTMVPartitionUtil.isTableExcluded(newExcludedTriggerTables, baseTableName)) {
                     continue;
                 }
+                failDropStreamIfDebugPointed(droppedCount);
                 List<String> baseTableFullQualifiers = baseTableInfo.toList();
                 String streamName = IvmUtil.streamName(mtmv.getId(), baseTableFullQualifiers);
                 TableIf streamTable = db.getTableNullable(streamName);
@@ -1409,9 +1527,19 @@ public class Alter {
                 }
                 LOG.info("dropped IVM stream {} because its base table is excluded from MTMV",
                         streamName);
+                droppedCount++;
             }
         } finally {
             db.writeUnlock();
+        }
+    }
+
+    /** Fails before the (allowedDrops+1)-th drop when the drop debug point is enabled. */
+    private void failDropStreamIfDebugPointed(int droppedCount) throws DdlException {
+        String allowDrops = DebugPointUtil.getDebugParamOrDefault(DEBUG_POINT_DROP_EXCLUDED_STREAM_FAIL, "");
+        if (!allowDrops.isEmpty() && droppedCount >= Integer.parseInt(allowDrops)) {
+            throw new DdlException("debug point: dropping an IVM stream of an excluded-trigger base table "
+                    + "failed after " + allowDrops + " successful drop(s)");
         }
     }
 }

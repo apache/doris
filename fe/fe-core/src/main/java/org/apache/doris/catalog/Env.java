@@ -257,6 +257,7 @@ import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.QueryCancelWorker;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.AdmissionControl;
@@ -810,7 +811,9 @@ public class Env {
         this.tabletStatMgr = EnvFactory.getInstance().createTabletStatMgr();
 
         this.auth = new Auth();
-        this.accessManager = new AccessControllerManager(auth);
+        // A checkpoint Env only replays metadata; it authorizes nothing, so it must neither sweep the plugin
+        // directory nor build an authorization source - each one starts threads that nothing ever stops.
+        this.accessManager = new AccessControllerManager(auth, isCheckpointCatalog);
         this.authenticatorManager = new AuthenticatorManager(AuthenticateType.getAuthTypeConfigString());
         this.domainResolver = new DomainResolver(auth);
 
@@ -4293,9 +4296,7 @@ public class Env {
             View view = (View) table;
 
             sb.append("CREATE VIEW `").append(table.getName()).append("`");
-            if (StringUtils.isNotBlank(table.getComment())) {
-                sb.append(" COMMENT '").append(table.getComment()).append("'");
-            }
+            addViewComment(table, sb);
             sb.append(" AS ").append(view.getInlineViewDef());
             createTableStmt.add(sb + ";");
             return;
@@ -4623,9 +4624,7 @@ public class Env {
             sb.append("CREATE VIEW `").append(table.getName()).append("`");
             addColNameAndComment(view, sb);
             sb.append("\n");
-            if (StringUtils.isNotBlank(table.getComment())) {
-                sb.append(" COMMENT '").append(table.getComment()).append("'");
-            }
+            addViewComment(table, sb);
             sb.append(" AS ").append(view.getInlineViewDef());
             createTableStmt.add(sb + ";");
             return;
@@ -7578,6 +7577,19 @@ public class Env {
         }
     }
 
+    private static void addViewComment(TableIf table, StringBuilder sb) {
+        if (StringUtils.isNotBlank(table.getComment())) {
+            String comment = table.getComment();
+            sb.append(" COMMENT ");
+            // Keep the historical output unchanged when the comment is already safe in single quotes.
+            if (comment.indexOf('\'') >= 0 || comment.indexOf('\\') >= 0) {
+                sb.append(SqlUtils.quoteStringLiteral(comment, SqlModeHelper.hasNoBackSlashEscapes()));
+            } else {
+                sb.append('\'').append(comment).append('\'');
+            }
+        }
+    }
+
     public int getFollowerCount() {
         int count = 0;
         for (Frontend fe : frontends.values()) {
@@ -7658,10 +7670,12 @@ public class Env {
         this.alter.processAlterMTMV(alter, false);
     }
 
-    public void alterMTMVProperty(AlterMTMVPropertyInfo info) {
+    public void alterMTMVProperty(AlterMTMVPropertyInfo info) throws UserException {
         AlterMTMV alter = new AlterMTMV(info.getMvName(), MTMVAlterOpType.ALTER_PROPERTY);
         alter.setMvProperties(info.getProperties());
-        this.alter.processAlterMTMV(alter, false);
+        // Runs outside the tolerant processAlterMTMV catch so that failures (e.g. a
+        // partial IVM excluded-trigger-tables stream transition) reach the client.
+        this.alter.processAlterMTMVProperty(alter, false);
     }
 
     public void alterMTMVStatus(TableNameInfo mvName, MTMVStatus status) {

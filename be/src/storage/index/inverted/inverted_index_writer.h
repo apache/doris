@@ -117,6 +117,7 @@ extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DATET
 extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DECIMAL>;
 extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DATEV2>;
 extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>;
+extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS>;
 extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>;
 extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DECIMAL32>;
 extern template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DECIMAL64>;

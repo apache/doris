@@ -168,6 +168,27 @@ public class ConnectorPropertiesUtils {
         throw new IllegalArgumentException("Unsupported property type: " + targetType.getName());
     }
 
+    /** Parses the legacy boolean spellings accepted by DLF configuration without silently coercing typos. */
+    public static boolean parseBooleanProperty(String value, String propertyName) {
+        if (value == null) {
+            return false;
+        }
+        switch (value.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "true":
+            case "yes":
+            case "y":
+            case "on":
+                return true;
+            case "false":
+            case "no":
+            case "n":
+            case "off":
+                return false;
+            default:
+                throw new IllegalArgumentException(propertyName + " must be a boolean, got: '" + value + "'");
+        }
+    }
+
     /**
      * Return the sensitive keys of the give properties
      *

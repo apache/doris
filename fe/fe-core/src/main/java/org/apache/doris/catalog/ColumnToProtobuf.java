@@ -74,8 +74,15 @@ public class ColumnToProtobuf {
             builder.setAggregation("NONE");
         }
         builder.setIsNullable(column.isAllowNull());
-        if (column.getDefaultValue() != null) {
-            builder.setDefaultValue(ByteString.copyFrom(column.getDefaultValue().getBytes()));
+        String realDefaultValue = column.getRealDefaultValue();
+        String defaultValue = column.getType().isTimeStampNs() && realDefaultValue != null
+                ? realDefaultValue : column.getDefaultValue();
+        if (defaultValue != null) {
+            builder.setDefaultValue(ByteString.copyFrom(defaultValue.getBytes()));
+        }
+        if (column.getType().isTimeStampNs() && realDefaultValue != null && column.getDefaultValue() != null
+                && !realDefaultValue.equals(column.getDefaultValue())) {
+            builder.setDefaultValueExpr(ByteString.copyFrom(column.getDefaultValue().getBytes()));
         }
         builder.setPrecision(column.getPrecision());
         builder.setFrac(column.getScale());
@@ -156,6 +163,7 @@ public class ColumnToProtobuf {
             case DATETIME:
                 return 8;
             case DATETIMEV2:
+            case TIMESTAMP_NS:
             case TIMESTAMPTZ:
                 return 8;
             case FLOAT:

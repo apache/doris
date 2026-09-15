@@ -18,10 +18,8 @@
 #pragma once
 
 #include <cstdint>
-#include <optional>
 
 #include "common/status.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_sink.h"
 #include "storage/index/snii/format/format_constants.h"
@@ -42,18 +40,10 @@ struct SectionRefs {
     RegionRef bsbf;
 };
 
-enum class CommonGramsPostingPolicy : uint8_t {
-    kNone = 0,
-    kDocsOnlyV1 = 1,
-    kHybridV1 = kDocsOnlyV1,
-};
-
 struct CoreMetadata {
     IndexConfig index_config = IndexConfig::kDocsOnly;
     StatsBlock stats;
     SectionRefs section_refs;
-    std::optional<segment_v2::inverted_index::CommonGramsSegmentMetadata> common_grams_metadata;
-    CommonGramsPostingPolicy common_grams_posting_policy = CommonGramsPostingPolicy::kNone;
 };
 
 Status encode_core_metadata(const CoreMetadata& metadata, ByteSink* out);

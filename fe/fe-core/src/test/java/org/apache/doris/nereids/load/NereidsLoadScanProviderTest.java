@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.fileformat.ArrowFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
@@ -122,6 +123,34 @@ public class NereidsLoadScanProviderTest {
                 new NativeFileFormatProperties());
 
         assertSlot(context, "ev", PrimitiveType.DOUBLE);
+    }
+
+    @Test
+    public void testTimestampNsSequenceDefaultWithPrecisionMayBeOmitted() {
+        OlapTable table = mockTable();
+        Column sequenceColumn = new Column("time", org.apache.doris.catalog.Type.TIMESTAMP_NS,
+                false, null, true, "CURRENT_TIMESTAMP(9)", "");
+        Mockito.when(table.hasSequenceCol()).thenReturn(true);
+        Mockito.when(table.getSequenceMapCol()).thenReturn("time");
+        Mockito.when(table.getFullSchema()).thenReturn(ImmutableList.of(sequenceColumn));
+
+        Assertions.assertDoesNotThrow(() -> createLoadContext(table,
+                ImmutableList.of(new NereidsImportColumnDesc("securityid")),
+                new NativeFileFormatProperties()));
+    }
+
+    @Test
+    public void testDateTimeV2SequenceDefaultBehaviorIsUnchanged() {
+        OlapTable table = mockTable();
+        Column sequenceColumn = new Column("time", ScalarType.createDatetimeV2Type(6),
+                false, null, true, "CURRENT_TIMESTAMP(6)", "");
+        Mockito.when(table.hasSequenceCol()).thenReturn(true);
+        Mockito.when(table.getSequenceMapCol()).thenReturn("time");
+        Mockito.when(table.getFullSchema()).thenReturn(ImmutableList.of(sequenceColumn));
+
+        Assertions.assertThrows(UserException.class, () -> createLoadContext(table,
+                ImmutableList.of(new NereidsImportColumnDesc("securityid")),
+                new NativeFileFormatProperties()));
     }
 
     @Test

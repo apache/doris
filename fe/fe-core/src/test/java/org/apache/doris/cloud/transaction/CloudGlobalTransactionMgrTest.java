@@ -623,6 +623,24 @@ public class CloudGlobalTransactionMgrTest {
         }
     }
 
+    @Test
+    public void testGetTransactionIdWatermarkUsesExclusiveMetaServiceBound() throws Exception {
+        MetaServiceProxy mockProxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mockedStatic = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mockedStatic.when(MetaServiceProxy::getInstance).thenReturn(mockProxy);
+            GetCurrentMaxTxnResponse response = GetCurrentMaxTxnResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(MetaServiceCode.OK).setMsg("OK"))
+                    .setCurrentMaxTxnId(1000)
+                    .build();
+            Mockito.doReturn(response).when(mockProxy).getCurrentMaxTxnId(Mockito.any());
+
+            long result = masterTransMgr.getTransactionIdWatermark();
+
+            Assertions.assertEquals(1001, result);
+        }
+    }
+
     private TxnInfoPB buildTxnInfo(long transactionId) {
         return TxnInfoPB.newBuilder()
                 .setDbId(CatalogTestUtil.testDbId1)

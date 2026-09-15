@@ -82,6 +82,20 @@ public class IvmDeltaRewriteHelper {
     }
 
     /**
+     * Finds the slot in {@code slots} whose ExprId equals {@code target}'s, or null. Slots
+     * that share a name (e.g. l.id / r.id after a join) must be resolved by slot identity
+     * instead of a name-keyed lookup, which collapses same-named slots onto one of them.
+     */
+    public Slot findSlotByExprId(List<Slot> slots, Slot target) {
+        for (Slot slot : slots) {
+            if (slot.getExprId().equals(target.getExprId())) {
+                return slot;
+            }
+        }
+        return null;
+    }
+
+    /**
      * Adds the root-level fallback guard for a non-deterministic MV row-id. Inserts remain valid;
      * any delete delta fails so the caller can fall back to a full refresh.
      */
