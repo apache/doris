@@ -41,8 +41,9 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
     String tableName = "vs_ivf_pq_f32"
     String quotaTableName = "predicate_pushdown"
     // vs_ivf_pq_f32 ships with one preloaded IVF_PQ index on the embedding column; its
-    // authoritative logical metadata (metric_type=L2, compression.num_sub_vectors=4) is the
-    // anchor for the CREATE IF NOT EXISTS and admitted DROP cases below.
+    // authoritative logical metadata (metric_type=L2, compression.num_sub_vectors=4,
+    // compression.num_bits=4) is the anchor for the CREATE IF NOT EXISTS and admitted
+    // DROP cases below.
     String preloadedIndex = "embedding_ivf_pq_f32"
     String createIndexName = "idx_create_${runSuffix}"
     String quotaIndexNameA = "idx_quota_a_${runSuffix}"
@@ -116,15 +117,26 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
         // CREATE IF NOT EXISTS against the preloaded index with a matching definition is an
         // immediate no-op: no job is created and the same JobId-shaped result set comes back
         // with zero rows. num_partitions is never compared by the authoritative preflight,
-        // and a property left out of the request (metric here) is not compared either.
+        // and a property left out of the request (metric here) is not compared either. The
+        // preloaded index persists num_bits=4 (lance_build_preinstalled_catalog.py
+        // PQ_BUILD_PARAMS), so the request must carry it explicitly: an omitted num_bits is
+        // compared as the job-persisted 8 and mismatches the on-disk 4, as asserted below.
         def noopRows = sql """CREATE INDEX IF NOT EXISTS `${preloadedIndex}` ON `${filesystemCatalog}`.`doris`.`${tableName}` (embedding) USING ANN
-                PROPERTIES("index_type"="IVF_PQ", "num_partitions"="256", "num_sub_vectors"="4")"""
+                PROPERTIES("index_type"="IVF_PQ", "num_partitions"="256", "num_sub_vectors"="4", "num_bits"="4")"""
         assertTrue(noopRows.isEmpty())
+
+        // An omitted num_bits compares as the job-persisted 8, which is an authoritative
+        // mismatch against the preloaded index's on-disk num_bits=4: not a no-op.
+        test {
+            sql """CREATE INDEX IF NOT EXISTS `${preloadedIndex}` ON `${filesystemCatalog}`.`doris`.`${tableName}` (embedding) USING ANN
+                    PROPERTIES("index_type"="IVF_PQ", "num_partitions"="256", "num_sub_vectors"="4")"""
+            exception "already exists with a different definition"
+        }
 
         // The same name with a different metric is an authoritative mismatch, not a no-op.
         test {
             sql """CREATE INDEX IF NOT EXISTS `${preloadedIndex}` ON `${filesystemCatalog}`.`doris`.`${tableName}` (embedding) USING ANN
-                    PROPERTIES("index_type"="IVF_PQ", "metric"="cosine", "num_partitions"="256", "num_sub_vectors"="4")"""
+                    PROPERTIES("index_type"="IVF_PQ", "metric"="cosine", "num_partitions"="256", "num_sub_vectors"="4", "num_bits"="4")"""
             exception "already exists with a different definition"
         }
 
