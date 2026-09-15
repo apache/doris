@@ -963,7 +963,11 @@ TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventually) {
             int64_t tablet_id = tablet_id_base + i;
             check_tablet_idx_db_id(txn, db_id, tablet_id);
             check_tmp_rowset_not_exist(txn, tablet_id, txn_id);
-            check_rowset_meta_exist(txn, tablet_id, 2);
+            std::string legacy_rowset_val;
+            ASSERT_EQ(txn->get(meta_rowset_key({mock_instance, tablet_id, 2}), &legacy_rowset_val),
+                      TxnErrorCode::TXN_OK);
+            RowsetMetaCloudPB legacy_rowset_meta;
+            ASSERT_TRUE(legacy_rowset_meta.ParseFromString(legacy_rowset_val));
 
             // Check versioned rowset meta exists.
             std::string rowset_key = versioned::meta_rowset_load_key({mock_instance, tablet_id, 2});

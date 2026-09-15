@@ -84,9 +84,11 @@ import org.apache.doris.thrift.TOlapTableSchemaParam;
 import org.apache.doris.thrift.TOlapTableSink;
 import org.apache.doris.thrift.TPaloNodesInfo;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
+import org.apache.doris.thrift.TRowBinlogWriteColumnMapping;
 import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
+import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultimap;
@@ -407,6 +409,7 @@ public class OlapTableSink extends DataSink {
             schemaParam.addToSlotDescs(DescriptorToThriftConverter.toThrift(slotDesc));
         }
 
+        MaterializedIndexMeta rowBinlogMeta = table.needRowBinlog() ? table.getRowBinlogMeta() : null;
         for (Map.Entry<Long, MaterializedIndexMeta> pair : table.getIndexIdToMeta().entrySet()) {
             MaterializedIndexMeta indexMeta = pair.getValue();
             List<String> columns = Lists.newArrayList();
@@ -437,6 +440,13 @@ public class OlapTableSink extends DataSink {
             TOlapTableIndexSchema indexSchema = new TOlapTableIndexSchema(pair.getKey(), columns,
                     indexMeta.getSchemaHash());
             indexSchema.setRowBinlogId(indexMeta.getRowBinlogIndexId());
+            if (indexMeta.getRowBinlogIndexId() > 0) {
+                Preconditions.checkState(rowBinlogMeta != null);
+                boolean needHistoricalValue = table.getBinlogConfig().getNeedHistoricalValue();
+                indexSchema.setRowBinlogNeedHistoricalValue(needHistoricalValue);
+                indexSchema.setRowBinlogColumnMappings(createRowBinlogColumnMappings(
+                        indexMeta, rowBinlogMeta, needHistoricalValue));
+            }
             Expr whereClause = indexMeta.getWhereClause();
             if (whereClause != null) {
                 Expr expr = syncMvWhereClauses.getOrDefault(pair.getKey(), null);
@@ -452,7 +462,6 @@ public class OlapTableSink extends DataSink {
         }
 
         if (table.needRowBinlog()) {
-            MaterializedIndexMeta rowBinlogMeta = table.getRowBinlogMeta();
             List<String> binlogColumns = Lists.newArrayList();
             List<TColumn> binlogColumnsDesc = Lists.newArrayList();
             for (Column column : rowBinlogMeta.getSchema(true)) {
@@ -468,7 +477,46 @@ public class OlapTableSink extends DataSink {
 
         setPartialUpdateInfoForParam(schemaParam, table, uniqueKeyUpdateMode);
         schemaParam.setInvertedIndexFileStorageFormat(table.getInvertedIndexFileStorageFormat());
+        // GroupCommitBlockSink only queues input. Its actual batch writer plans a regular sink
+        // with the batch transaction ID. Cloud owns the snapshot in the BE transaction cache;
+        // RemoteOlapTableSink sends it to the transaction-owning FE with commitRemoteTxn.
+        if (table.needRowBinlog() && !Config.isCloudMode() && !(this instanceof RemoteOlapTableSink)
+                && getDataSinkType() == TDataSinkType.OLAP_TABLE_SINK) {
+            TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(dbId, txnId);
+            if (state == null) {
+                throw new AnalysisException("txn does not exist: " + txnId);
+            }
+            state.captureRowBinlogColumnMappings(txnId, schemaParam);
+        }
         return schemaParam;
+    }
+
+    static List<TRowBinlogWriteColumnMapping> createRowBinlogColumnMappings(
+            MaterializedIndexMeta sourceMeta, MaterializedIndexMeta rowBinlogMeta,
+            boolean needHistoricalValue) throws AnalysisException {
+        List<TRowBinlogWriteColumnMapping> mappings = new ArrayList<>();
+        for (Column sourceColumn : sourceMeta.getSchema(true)) {
+            if (!sourceColumn.isVisible() && !sourceColumn.isKey()) {
+                continue;
+            }
+            String currentName = sourceColumn.getNonShadowName();
+            Column currentColumn = rowBinlogMeta.getColumnByName(currentName);
+            if (currentColumn == null) {
+                throw new AnalysisException("Missing row-binlog current column: " + currentName);
+            }
+            TRowBinlogWriteColumnMapping mapping = new TRowBinlogWriteColumnMapping(
+                    sourceColumn.getUniqueId(), currentColumn.getUniqueId());
+            if (needHistoricalValue && sourceColumn.isVisible() && !sourceColumn.isKey()) {
+                String beforeName = Column.generateBeforeColName(currentName);
+                Column beforeColumn = rowBinlogMeta.getColumnByName(beforeName);
+                if (beforeColumn == null) {
+                    throw new AnalysisException("Missing row-binlog before column: " + beforeName);
+                }
+                mapping.setBeforeColumnUniqueId(beforeColumn.getUniqueId());
+            }
+            mappings.add(mapping);
+        }
+        return mappings;
     }
 
     private void setPartialUpdateInfoForParam(TOlapTableSchemaParam schemaParam, OlapTable table,

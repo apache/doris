@@ -140,6 +140,36 @@ Status EnginePublishVersionTask::execute() {
 #endif
 
     std::vector<std::shared_ptr<TabletPublishTxnTask>> tablet_tasks;
+    const auto& index_ids = _publish_version_req.row_binlog_source_index_ids;
+    const auto& column_mappings = _publish_version_req.row_binlog_column_mappings;
+    const auto& historical_values = _publish_version_req.row_binlog_need_historical_values;
+    const auto& isset = _publish_version_req.__isset;
+    if (isset.row_binlog_source_index_ids != isset.row_binlog_column_mappings ||
+        isset.row_binlog_source_index_ids != isset.row_binlog_need_historical_values ||
+        index_ids.size() != column_mappings.size() ||
+        index_ids.size() != historical_values.size()) {
+        return Status::InvalidArgument(
+                "Row-binlog publish mapping lists must be present together and aligned, txn_id={}",
+                transaction_id);
+    }
+    std::map<int64_t, std::shared_ptr<const PRowBinlogWriteColumnMappings>> mapping_snapshots;
+    // NOLINTNEXTLINE(modernize-loop-convert) - Index all three parallel lists together.
+    for (size_t i = 0; i < index_ids.size(); ++i) {
+        auto snapshot = std::make_shared<PRowBinlogWriteColumnMappings>();
+        snapshot->set_need_historical_value(historical_values[i]);
+        for (const auto& mapping : column_mappings[i]) {
+            auto* entry = snapshot->add_entries();
+            entry->set_source_column_unique_id(mapping.source_column_unique_id);
+            entry->set_current_column_unique_id(mapping.current_column_unique_id);
+            if (mapping.__isset.before_column_unique_id) {
+                entry->set_before_column_unique_id(mapping.before_column_unique_id);
+            }
+        }
+        if (!mapping_snapshots.emplace(index_ids[i], std::move(snapshot)).second) {
+            return Status::InvalidArgument("Duplicate row-binlog source index {}, txn_id={}",
+                                           index_ids[i], transaction_id);
+        }
+    }
     // each partition
     for (auto& par_ver_info : _publish_version_req.partition_version_infos) {
         int64_t partition_id = par_ver_info.partition_id;
@@ -194,6 +224,11 @@ Status EnginePublishVersionTask::execute() {
                         tablet_info.tablet_id);
                 continue;
             }
+            std::shared_ptr<const PRowBinlogWriteColumnMappings> row_binlog_column_mappings;
+            auto mapping_it = mapping_snapshots.find(rowset->rowset_meta()->index_id());
+            if (mapping_it != mapping_snapshots.end()) {
+                row_binlog_column_mappings = mapping_it->second;
+            }
             // in uniq key model with merge-on-write, we should see all
             // previous version when update delete bitmap, so add a check
             // here and wait pre version publish or lock timeout
@@ -229,13 +264,14 @@ Status EnginePublishVersionTask::execute() {
                             max_continuous_version.second != max_version) {
                             _handle_publish_version_not_continuous(
                                     partition_id, tablet_info, tablet, version,
-                                    par_ver_info.commit_tso, max_version, first_time_update, res);
+                                    par_ver_info.commit_tso, max_version, first_time_update, res,
+                                    row_binlog_column_mappings);
                             continue;
                         }
                     } else {
-                        _handle_publish_version_not_continuous(partition_id, tablet_info, tablet,
-                                                               version, par_ver_info.commit_tso,
-                                                               max_version, first_time_update, res);
+                        _handle_publish_version_not_continuous(
+                                partition_id, tablet_info, tablet, version, par_ver_info.commit_tso,
+                                max_version, first_time_update, res, row_binlog_column_mappings);
                         continue;
                     }
                 }
@@ -249,9 +285,14 @@ Status EnginePublishVersionTask::execute() {
                         {rowset_meta_ptr->tablet_id(), rowset_meta_ptr->num_rows()});
             }
 
+            // Only copy the stable tablet reference; publish installs the request snapshot under
+            // the tablet locks, so do not copy the shared transaction's mutable attachment here.
+            RowBinlogTxnInfo attach_row_binlog;
+            attach_row_binlog.tablet = txn_info_it->second->attach_row_binlog.tablet;
+            attach_row_binlog.column_mapping_snapshot = row_binlog_column_mappings;
             auto tablet_publish_txn_ptr = std::make_shared<TabletPublishTxnTask>(
-                    _engine, this, tablet, rowset, txn_info_it->second->attach_row_binlog,
-                    partition_id, transaction_id, version, tablet_info, par_ver_info.commit_tso);
+                    _engine, this, tablet, rowset, attach_row_binlog, partition_id, transaction_id,
+                    version, tablet_info, par_ver_info.commit_tso);
             tablet_tasks.push_back(tablet_publish_txn_ptr);
             auto submit_st = token->submit_func([=]() { tablet_publish_txn_ptr->handle(); });
 #ifndef NDEBUG
@@ -332,7 +373,8 @@ Status EnginePublishVersionTask::execute() {
 void EnginePublishVersionTask::_handle_publish_version_not_continuous(
         int64_t partition_id, const TabletInfo& tablet_info, const TabletSharedPtr& tablet,
         const Version& version, const int64_t commit_tso, int64_t max_version,
-        bool first_time_update, Status& res) {
+        bool first_time_update, Status& res,
+        std::shared_ptr<const PRowBinlogWriteColumnMappings> row_binlog_column_mappings) {
     if (config::enable_auto_clone_on_mow_publish_missing_version) {
         LOG_INFO("mow publish submit missing rowset clone task.")
                 .tag("tablet_id", tablet->tablet_id())
@@ -358,13 +400,15 @@ void EnginePublishVersionTask::_handle_publish_version_not_continuous(
     // publish and handle it through async publish.
     if (max_version + config::mow_publish_max_discontinuous_version_num < version.first) {
         _engine.add_async_publish_task(partition_id, tablet_info.tablet_id, version.first,
-                                       _publish_version_req.transaction_id, false, commit_tso);
+                                       _publish_version_req.transaction_id, false, commit_tso,
+                                       std::move(row_binlog_column_mappings));
     } else {
-        _discontinuous_version_tablets->emplace_back(
-                DiscontinuousVersionTablet {.partition_id = partition_id,
-                                            .tablet_id = tablet_info.tablet_id,
-                                            .publish_version = version.first,
-                                            .commit_tso = commit_tso});
+        _discontinuous_version_tablets->emplace_back(DiscontinuousVersionTablet {
+                .partition_id = partition_id,
+                .tablet_id = tablet_info.tablet_id,
+                .publish_version = version.first,
+                .commit_tso = commit_tso,
+                .row_binlog_column_mappings = std::move(row_binlog_column_mappings)});
     }
     res = Status::Error<PUBLISH_VERSION_NOT_CONTINUOUS>(
             "version not continuous for mow, tablet_id={}, "
@@ -431,19 +475,20 @@ TabletPublishTxnTask::TabletPublishTxnTask(
 
 TabletPublishTxnTask::~TabletPublishTxnTask() = default;
 
-Status publish_version_and_add_rowset(StorageEngine& engine, int64_t partition_id,
-                                      const TabletSharedPtr& tablet, const RowsetSharedPtr& rowset,
-                                      int64_t transaction_id, const Version& version,
-                                      EnginePublishVersionTask* engine_publish_version_task,
-                                      TabletPublishStatistics& stats, int64_t commit_tso) {
+Status publish_version_and_add_rowset(
+        StorageEngine& engine, int64_t partition_id, const TabletSharedPtr& tablet,
+        const RowsetSharedPtr& rowset, int64_t transaction_id, const Version& version,
+        EnginePublishVersionTask* engine_publish_version_task, TabletPublishStatistics& stats,
+        int64_t commit_tso,
+        std::shared_ptr<const PRowBinlogWriteColumnMappings> row_binlog_column_mappings) {
     // ATTN: Here, the life cycle needs to be extended to prevent tablet_txn_info.pending_rs_guard in txn
     // from being released prematurely, causing path gc to mistakenly delete the dat file
     std::shared_ptr<TabletTxnInfo> extend_tablet_txn_info_lifetime = nullptr;
 
     // Publish the transaction
-    auto result =
-            engine.txn_manager()->publish_txn(partition_id, tablet, transaction_id, version, &stats,
-                                              extend_tablet_txn_info_lifetime, commit_tso);
+    auto result = engine.txn_manager()->publish_txn(
+            partition_id, tablet, transaction_id, version, &stats, extend_tablet_txn_info_lifetime,
+            commit_tso, std::move(row_binlog_column_mappings));
     if (!result.ok()) {
         LOG(WARNING) << "failed to publish version. rowset_id=" << rowset->rowset_id()
                      << ", tablet_id=" << tablet->tablet_id() << ", txn_id=" << transaction_id
@@ -539,7 +584,8 @@ void TabletPublishTxnTask::handle() {
     _stats.schedule_time_us = MonotonicMicros() - _stats.submit_time_us;
     _result = publish_version_and_add_rowset(_engine, _partition_id, _tablet, _rowset,
                                              _transaction_id, _version,
-                                             _engine_publish_version_task, _stats, _commit_tso);
+                                             _engine_publish_version_task, _stats, _commit_tso,
+                                             _attach_row_binlog.column_mapping_snapshot);
 
     if (!_result.ok()) {
         return;
@@ -596,9 +642,9 @@ void AsyncTabletPublishTask::handle() {
     std::lock_guard<std::mutex> wrlock(_tablet->get_rowset_update_lock());
     _stats.schedule_time_us = MonotonicMicros() - _stats.submit_time_us;
 
-    auto publish_status =
-            publish_version_and_add_rowset(_engine, _partition_id, _tablet, rowset, _transaction_id,
-                                           version, nullptr, _stats, _commit_tso);
+    auto publish_status = publish_version_and_add_rowset(_engine, _partition_id, _tablet, rowset,
+                                                         _transaction_id, version, nullptr, _stats,
+                                                         _commit_tso, _row_binlog_column_mappings);
 
     if (!publish_status.ok()) {
         return;

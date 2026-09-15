@@ -28,6 +28,7 @@
 #include <iterator>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -55,9 +56,17 @@ class TabletColumn;
 class TabletIndex;
 class TupleDescriptor;
 
+struct RowBinlogColumnUidMapping {
+    int32_t source_uid;
+    int32_t current_uid;
+    std::optional<int32_t> before_uid;
+};
+
 struct OlapTableIndexSchema {
     int64_t index_id;
     int64_t row_binlog_id = 0;
+    bool row_binlog_need_historical_value = false;
+    std::vector<RowBinlogColumnUidMapping> row_binlog_column_mappings;
     std::vector<SlotDescriptor*> slots;
     int32_t schema_hash;
     std::vector<TabletColumn*> columns;

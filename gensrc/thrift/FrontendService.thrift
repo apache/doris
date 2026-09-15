@@ -1839,6 +1839,11 @@ struct TCommitRemoteTxnRequest {
     7: optional i64 txn_id
     8: optional list<Types.TTabletCommitInfo> commit_infos
     9: optional i64 insert_visible_timeout_ms
+    // Parallel write-time snapshots: equal lengths, unique source index IDs.
+    // Send all three lists, explicitly empty when the writer has no row binlog.
+    10: optional list<list<Descriptors.TRowBinlogWriteColumnMapping>> row_binlog_column_mappings
+    11: optional list<i64> row_binlog_source_index_ids
+    12: optional list<bool> row_binlog_need_historical_values
 }
 
 struct TCommitRemoteTxnResult {
