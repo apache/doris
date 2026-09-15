@@ -19,6 +19,7 @@
 
 #include <arrow/array/builder_binary.h>
 #include <arrow/array/builder_nested.h>
+#include <arrow/type.h>
 
 #include <algorithm>
 #include <cstring>
@@ -181,187 +182,6 @@ void preflight_json(const IColumn& column, size_t start, size_t end,
                 CountingWriter writer;
                 write_json_value(value, writer, options);
             });
-}
-
-void validate_paimon_variant_primitive(VariantPrimitiveId primitive_id) {
-    switch (primitive_id) {
-    case VariantPrimitiveId::NULL_VALUE:
-    case VariantPrimitiveId::TRUE_VALUE:
-    case VariantPrimitiveId::FALSE_VALUE:
-    case VariantPrimitiveId::INT8:
-    case VariantPrimitiveId::INT16:
-    case VariantPrimitiveId::INT32:
-    case VariantPrimitiveId::INT64:
-    case VariantPrimitiveId::DOUBLE:
-    case VariantPrimitiveId::DECIMAL4:
-    case VariantPrimitiveId::DECIMAL8:
-    case VariantPrimitiveId::DECIMAL16:
-    case VariantPrimitiveId::DATE:
-    case VariantPrimitiveId::TIMESTAMP_MICROS:
-    case VariantPrimitiveId::TIMESTAMP_NTZ_MICROS:
-    case VariantPrimitiveId::FLOAT:
-    case VariantPrimitiveId::BINARY:
-    case VariantPrimitiveId::STRING:
-    case VariantPrimitiveId::UUID:
-        return;
-    case VariantPrimitiveId::TIME_NTZ_MICROS:
-    case VariantPrimitiveId::TIMESTAMP_NANOS:
-    case VariantPrimitiveId::TIMESTAMP_NTZ_NANOS:
-        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                        "Paimon does not support Variant primitive id {}",
-                        static_cast<uint8_t>(primitive_id));
-    }
-    throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                    "Paimon does not support unknown Variant primitive id {}",
-                    static_cast<uint8_t>(primitive_id));
-}
-
-void validate_paimon_variant_value(VariantRef value, uint32_t depth = 0) {
-    if (depth > VARIANT_MAX_NESTING_DEPTH) {
-        throw Exception(ErrorCode::CORRUPTION, "Variant value exceeds maximum nesting depth {}",
-                        VARIANT_MAX_NESTING_DEPTH);
-    }
-    const size_t encoded_size = value.value_size();
-    if (encoded_size != value.value.size) {
-        throw Exception(ErrorCode::CORRUPTION,
-                        "Variant value has {} trailing bytes after the encoded value",
-                        value.value.size - encoded_size);
-    }
-
-    switch (value.basic_type()) {
-    case VariantBasicType::PRIMITIVE:
-        validate_paimon_variant_primitive(value.primitive_id());
-        return;
-    case VariantBasicType::SHORT_STRING:
-        return;
-    case VariantBasicType::OBJECT:
-        for (uint32_t i = 0; i < value.num_elements(); ++i) {
-            uint32_t field_id = 0;
-            VariantRef child = value.object_value_at(i, &field_id);
-            value.metadata.key_at(field_id);
-            validate_paimon_variant_value(child, depth + 1);
-        }
-        return;
-    case VariantBasicType::ARRAY:
-        for (uint32_t i = 0; i < value.num_elements(); ++i) {
-            validate_paimon_variant_value(value.array_at(i), depth + 1);
-        }
-        return;
-    }
-}
-
-void require_variant_arrow_status(const arrow::Status& status) {
-    if (!status.ok()) {
-        throw Exception(ErrorCode::INTERNAL_ERROR, "Variant V2 Arrow append failed: {}",
-                        status.ToString());
-    }
-}
-
-Status write_binary_variant_arrow(const IColumn& column, const NullMap* null_map,
-                                  arrow::StructBuilder& builder, size_t start, size_t end) {
-    // StructBuilder::type() returns a shared_ptr by value. Keep that owner alive while using the
-    // cast reference; otherwise the reference would dangle as soon as the temporary is destroyed.
-    const auto builder_type = builder.type();
-    const auto& struct_type = assert_cast<const arrow::StructType&>(*builder_type);
-    if (struct_type.num_fields() != 2 || struct_type.field(0)->name() != "value" ||
-        struct_type.field(1)->name() != "metadata" ||
-        struct_type.field(0)->type()->id() != arrow::Type::BINARY ||
-        struct_type.field(1)->type()->id() != arrow::Type::BINARY) {
-        return Status::InvalidArgument(
-                "Binary Variant V2 Arrow type must be "
-                "struct<value: binary, metadata: binary>, got {}",
-                struct_type.ToString());
-    }
-    auto* value_builder = dynamic_cast<arrow::BinaryBuilder*>(builder.field_builder(0));
-    auto* metadata_builder = dynamic_cast<arrow::BinaryBuilder*>(builder.field_builder(1));
-    if (value_builder == nullptr || metadata_builder == nullptr) {
-        return Status::InvalidArgument("Binary Variant V2 Arrow child builders must be binary");
-    }
-
-    // GenericVariant assumes its input is valid, and Paimon's unshredded writer copies these two
-    // buffers without inspecting them. Validate once at the Doris-to-Paimon boundary so a write
-    // cannot commit bytes which Paimon is unable to read later.
-    const auto outer_nulls = forced_nulls(null_map);
-    visit_variant_v2_values(
-            column, start, end, outer_nulls,
-            [&](size_t) { require_variant_arrow_status(builder.AppendNull()); },
-            [&](size_t row, VariantRef value) {
-                try {
-                    constexpr size_t PAIMON_VARIANT_SIZE_LIMIT = 128 * 1024 * 1024;
-                    if (value.value.size > PAIMON_VARIANT_SIZE_LIMIT ||
-                        value.metadata.size > PAIMON_VARIANT_SIZE_LIMIT) {
-                        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                        "exceeds the 128 MiB value/metadata limit");
-                    }
-                    value.metadata.validate();
-                    validate_paimon_variant_value(value);
-                } catch (const Exception& e) {
-                    throw Exception(e.code(), "Paimon Variant V2 row {} is incompatible: {}", row,
-                                    e.what());
-                }
-                require_variant_arrow_status(builder.Append());
-                require_variant_arrow_status(
-                        value_builder->Append(reinterpret_cast<const uint8_t*>(value.value.data),
-                                              cast_set<int32_t, size_t, false>(value.value.size)));
-                require_variant_arrow_status(metadata_builder->Append(
-                        reinterpret_cast<const uint8_t*>(value.metadata.data),
-                        cast_set<int32_t, size_t, false>(value.metadata.size)));
-            });
-    return Status::OK();
-}
-
-Status write_arrow_variant_storage(const IColumn& column, const NullMap* null_map,
-                                   arrow::StructBuilder& builder, size_t start, size_t end) {
-    const auto builder_type = builder.type();
-    const auto& struct_type = assert_cast<const arrow::StructType&>(*builder_type);
-    if (struct_type.num_fields() != 2 || struct_type.field(0)->name() != "metadata" ||
-        struct_type.field(1)->name() != "value" ||
-        struct_type.field(0)->type()->id() != arrow::Type::BINARY ||
-        struct_type.field(1)->type()->id() != arrow::Type::BINARY) {
-        return Status::InvalidArgument(
-                "Iceberg Variant Arrow storage must be "
-                "struct<metadata: binary, value: binary>, got {}",
-                struct_type.ToString());
-    }
-    auto* metadata_builder = dynamic_cast<arrow::BinaryBuilder*>(builder.field_builder(0));
-    auto* value_builder = dynamic_cast<arrow::BinaryBuilder*>(builder.field_builder(1));
-    if (metadata_builder == nullptr || value_builder == nullptr) {
-        return Status::InvalidArgument("Iceberg Variant Arrow storage fields must both be binary");
-    }
-
-    Status status = Status::OK();
-    visit_variant_v2_values(
-            column, start, end, forced_nulls(null_map),
-            [&](size_t) {
-                if (status.ok()) {
-                    status = checkArrowStatus(builder.AppendNull(), column, builder);
-                }
-            },
-            [&](size_t, VariantRef value) {
-                if (!status.ok()) {
-                    return;
-                }
-                if (value.metadata.size > std::numeric_limits<int32_t>::max() ||
-                    value.value.size > std::numeric_limits<int32_t>::max()) {
-                    status = Status::InvalidArgument(
-                            "Iceberg Variant metadata/value exceeds Arrow binary size limit");
-                    return;
-                }
-                status = checkArrowStatus(builder.Append(), column, builder);
-                if (status.ok()) {
-                    status = checkArrowStatus(
-                            metadata_builder->Append(value.metadata.data,
-                                                     static_cast<int32_t>(value.metadata.size)),
-                            column, *metadata_builder);
-                }
-                if (status.ok()) {
-                    status = checkArrowStatus(
-                            value_builder->Append(value.value.data,
-                                                  static_cast<int32_t>(value.value.size)),
-                            column, *value_builder);
-                }
-            });
-    return status;
 }
 
 } // namespace
@@ -670,6 +490,196 @@ Status write_arrow(const IColumn& column, const NullMap* null_map, Builder& buil
     return status;
 }
 
+constexpr size_t PAIMON_VARIANT_SIZE_LIMIT = 128 * 1024 * 1024;
+
+void validate_paimon_variant_primitive(VariantPrimitiveId primitive_id) {
+    switch (primitive_id) {
+    case VariantPrimitiveId::NULL_VALUE:
+    case VariantPrimitiveId::TRUE_VALUE:
+    case VariantPrimitiveId::FALSE_VALUE:
+    case VariantPrimitiveId::INT8:
+    case VariantPrimitiveId::INT16:
+    case VariantPrimitiveId::INT32:
+    case VariantPrimitiveId::INT64:
+    case VariantPrimitiveId::DOUBLE:
+    case VariantPrimitiveId::DECIMAL4:
+    case VariantPrimitiveId::DECIMAL8:
+    case VariantPrimitiveId::DECIMAL16:
+    case VariantPrimitiveId::DATE:
+    case VariantPrimitiveId::TIMESTAMP_MICROS:
+    case VariantPrimitiveId::TIMESTAMP_NTZ_MICROS:
+    case VariantPrimitiveId::FLOAT:
+    case VariantPrimitiveId::BINARY:
+    case VariantPrimitiveId::STRING:
+    case VariantPrimitiveId::UUID:
+        return;
+    case VariantPrimitiveId::TIME_NTZ_MICROS:
+    case VariantPrimitiveId::TIMESTAMP_NANOS:
+    case VariantPrimitiveId::TIMESTAMP_NTZ_NANOS:
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                        "Paimon does not support Variant primitive id {}",
+                        static_cast<uint8_t>(primitive_id));
+    }
+    throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                    "Paimon does not support unknown Variant primitive id {}",
+                    static_cast<uint8_t>(primitive_id));
+}
+
+void validate_paimon_variant_value(VariantRef value, uint32_t depth = 0) {
+    if (depth > VARIANT_MAX_NESTING_DEPTH) {
+        throw Exception(ErrorCode::CORRUPTION, "Variant value exceeds maximum nesting depth {}",
+                        VARIANT_MAX_NESTING_DEPTH);
+    }
+    const size_t encoded_size = value.value_size();
+    if (encoded_size != value.value.size) {
+        throw Exception(ErrorCode::CORRUPTION,
+                        "Variant value has {} trailing bytes after the encoded value",
+                        value.value.size - encoded_size);
+    }
+
+    switch (value.basic_type()) {
+    case VariantBasicType::PRIMITIVE:
+        validate_paimon_variant_primitive(value.primitive_id());
+        return;
+    case VariantBasicType::SHORT_STRING:
+        return;
+    case VariantBasicType::OBJECT:
+        for (uint32_t index = 0; index < value.num_elements(); ++index) {
+            uint32_t field_id = 0;
+            const VariantRef child = value.object_value_at(index, &field_id);
+            value.metadata.key_at(field_id);
+            validate_paimon_variant_value(child, depth + 1);
+        }
+        return;
+    case VariantBasicType::ARRAY:
+        for (uint32_t index = 0; index < value.num_elements(); ++index) {
+            validate_paimon_variant_value(value.array_at(index), depth + 1);
+        }
+        return;
+    }
+}
+
+Status write_paimon_variant(const IColumn& column, const NullMap* null_map,
+                            arrow::ArrayBuilder* array_builder, int64_t start, int64_t end) {
+    if (start < 0 || end < start) {
+        return Status::InvalidArgument("Invalid Paimon Variant row range [{}, {})", start, end);
+    }
+    if (array_builder->type()->id() != arrow::Type::STRUCT) {
+        return Status::InvalidArgument("Paimon Variant writer requires a struct builder, got {}",
+                                       array_builder->type()->ToString());
+    }
+    auto& builder = assert_cast<arrow::StructBuilder&>(*array_builder);
+    const auto type = std::static_pointer_cast<arrow::StructType>(builder.type());
+    if (type->num_fields() != 2 || type->field(0)->name() != "value" ||
+        type->field(1)->name() != "metadata" ||
+        type->field(0)->type()->id() != arrow::Type::BINARY ||
+        type->field(1)->type()->id() != arrow::Type::BINARY) {
+        return Status::InvalidArgument(
+                "Paimon Variant writer requires struct<value: binary, metadata: binary>, got {}",
+                type->ToString());
+    }
+    auto& value_builder = assert_cast<arrow::BinaryBuilder&>(*builder.field_builder(0));
+    auto& metadata_builder = assert_cast<arrow::BinaryBuilder&>(*builder.field_builder(1));
+    Status status = Status::OK();
+    visit_variant_v2_values(
+            column, start, end, forced_nulls(null_map),
+            [&](size_t) {
+                if (status.ok()) {
+                    status = checkArrowStatus(builder.AppendNull(), column, builder);
+                }
+            },
+            [&](size_t row, VariantRef value) {
+                if (!status.ok()) {
+                    return;
+                }
+                try {
+                    if (value.value.size > PAIMON_VARIANT_SIZE_LIMIT ||
+                        value.metadata.size > PAIMON_VARIANT_SIZE_LIMIT) {
+                        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                        "exceeds the 128 MiB value/metadata limit");
+                    }
+                    value.metadata.validate();
+                    validate_paimon_variant_value(value);
+                } catch (const Exception& e) {
+                    status = Status::Error<false>(e.code(),
+                                                  "Paimon Variant V2 row {} is incompatible: {}",
+                                                  row, e.what());
+                    return;
+                }
+                status = checkArrowStatus(builder.Append(), column, builder);
+                if (status.ok()) {
+                    status = checkArrowStatus(
+                            value_builder.Append(
+                                    reinterpret_cast<const uint8_t*>(value.value.data),
+                                    cast_set<int32_t, size_t, false>(value.value.size)),
+                            column, value_builder);
+                }
+                if (status.ok()) {
+                    status = checkArrowStatus(
+                            metadata_builder.Append(
+                                    reinterpret_cast<const uint8_t*>(value.metadata.data),
+                                    cast_set<int32_t, size_t, false>(value.metadata.size)),
+                            column, metadata_builder);
+                }
+            });
+    return status;
+}
+
+Status write_iceberg_variant(const IColumn& column, const NullMap* null_map,
+                             arrow::ArrayBuilder* array_builder, int64_t start, int64_t end) {
+    if (start < 0 || end < start) {
+        return Status::InvalidArgument("Invalid Iceberg Variant row range [{}, {})", start, end);
+    }
+    if (array_builder->type()->id() != arrow::Type::STRUCT) {
+        return Status::InvalidArgument("Iceberg Variant writer requires a struct builder, got {}",
+                                       array_builder->type()->ToString());
+    }
+    auto& builder = assert_cast<arrow::StructBuilder&>(*array_builder);
+    const auto type = std::static_pointer_cast<arrow::StructType>(builder.type());
+    if (type->num_fields() != 2 || type->field(0)->name() != "metadata" ||
+        type->field(1)->name() != "value" || type->field(0)->type()->id() != arrow::Type::BINARY ||
+        type->field(1)->type()->id() != arrow::Type::BINARY) {
+        return Status::InvalidArgument(
+                "Iceberg Variant writer requires struct<metadata: binary, value: binary>, got {}",
+                type->ToString());
+    }
+    auto& metadata_builder = assert_cast<arrow::BinaryBuilder&>(*builder.field_builder(0));
+    auto& value_builder = assert_cast<arrow::BinaryBuilder&>(*builder.field_builder(1));
+    Status status = Status::OK();
+    visit_variant_v2_values(
+            column, start, end, forced_nulls(null_map),
+            [&](size_t) {
+                if (status.ok()) {
+                    status = checkArrowStatus(builder.AppendNull(), column, builder);
+                }
+            },
+            [&](size_t, VariantRef value) {
+                if (!status.ok()) {
+                    return;
+                }
+                if (value.metadata.size > std::numeric_limits<int32_t>::max() ||
+                    value.value.size > std::numeric_limits<int32_t>::max()) {
+                    status = Status::InvalidArgument(
+                            "Iceberg Variant metadata/value exceeds Arrow binary size limit");
+                    return;
+                }
+                status = checkArrowStatus(builder.Append(), column, builder);
+                if (status.ok()) {
+                    status = checkArrowStatus(
+                            metadata_builder.Append(value.metadata.data,
+                                                    cast_set<int32_t>(value.metadata.size)),
+                            column, metadata_builder);
+                }
+                if (status.ok()) {
+                    status = checkArrowStatus(
+                            value_builder.Append(value.value.data,
+                                                 cast_set<int32_t>(value.value.size)),
+                            column, value_builder);
+                }
+            });
+    return status;
+}
+
 } // namespace
 
 void DataTypeVariantV2SerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
@@ -732,20 +742,24 @@ Status DataTypeVariantV2SerDe::write_column_to_arrow(const IColumn& column, cons
                                assert_cast<arrow::LargeStringBuilder&>(*array_builder), first, last,
                                options);
         }
-        if (array_builder->type()->id() == arrow::Type::STRUCT) {
-            auto& struct_builder = assert_cast<arrow::StructBuilder&>(*array_builder);
-            const auto builder_type = struct_builder.type();
-            const auto& struct_type = assert_cast<const arrow::StructType&>(*builder_type);
-            if (struct_type.num_fields() == 2 && struct_type.field(0)->name() == "metadata" &&
-                struct_type.field(1)->name() == "value") {
-                return write_arrow_variant_storage(column, null_map, struct_builder, first, last);
-            }
-            return write_binary_variant_arrow(column, null_map, struct_builder, first, last);
-        }
         return Status::InvalidArgument("Unsupported arrow type for variant column: {}",
                                        array_builder->type()->name());
     });
     return Status::OK();
+}
+
+Status DataTypeVariantV2SerDe::write_column_to_paimon(
+        const std::shared_ptr<const IDataType>&, const IColumn& column, const NullMap* null_map,
+        const std::shared_ptr<arrow::Field>&, arrow::ArrayBuilder* array_builder, int64_t start,
+        int64_t end, const cctz::time_zone&) const {
+    return write_paimon_variant(column, null_map, array_builder, start, end);
+}
+
+Status DataTypeVariantV2SerDe::write_column_to_iceberg(
+        const std::shared_ptr<const IDataType>&, const IColumn& column, const NullMap* null_map,
+        const std::shared_ptr<arrow::Field>&, arrow::ArrayBuilder* array_builder, int64_t start,
+        int64_t end, const cctz::time_zone&) const {
+    return write_iceberg_variant(column, null_map, array_builder, start, end);
 }
 
 Status DataTypeVariantV2SerDe::write_column_to_orc(const std::string&, const IColumn& column,

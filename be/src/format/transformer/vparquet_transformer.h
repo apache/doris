@@ -28,6 +28,7 @@
 
 #include <cstdint>
 
+#include "format/arrow/arrow_block_convertor.h"
 #include "format/table/iceberg/schema.h"
 #include "format/transformer/vfile_format_transformer.h"
 
@@ -88,18 +89,20 @@ struct ParquetFileOptions {
 // a wrapper of parquet output stream
 class VParquetTransformer final : public VFileFormatTransformer {
 public:
-    VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
-                        const VExprContextSPtrs& output_vexpr_ctxs,
-                        std::vector<std::string> column_names, bool output_object_data,
-                        const ParquetFileOptions& parquet_options,
-                        const std::string* iceberg_schema_json = nullptr,
-                        const iceberg::Schema* iceberg_schema = nullptr);
+    VParquetTransformer(
+            RuntimeState* state, doris::io::FileWriter* file_writer,
+            const VExprContextSPtrs& output_vexpr_ctxs, std::vector<std::string> column_names,
+            bool output_object_data, const ParquetFileOptions& parquet_options,
+            const std::string* iceberg_schema_json = nullptr,
+            const iceberg::Schema* iceberg_schema = nullptr,
+            const ArrowWriteConverter& arrow_write_converter = plain_arrow_write_converter());
 
-    VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
-                        const VExprContextSPtrs& output_vexpr_ctxs,
-                        std::vector<TParquetSchema> parquet_schemas, bool output_object_data,
-                        const ParquetFileOptions& parquet_options,
-                        const std::string* iceberg_schema_json = nullptr);
+    VParquetTransformer(
+            RuntimeState* state, doris::io::FileWriter* file_writer,
+            const VExprContextSPtrs& output_vexpr_ctxs, std::vector<TParquetSchema> parquet_schemas,
+            bool output_object_data, const ParquetFileOptions& parquet_options,
+            const std::string* iceberg_schema_json = nullptr,
+            const ArrowWriteConverter& arrow_write_converter = plain_arrow_write_converter());
 
     ~VParquetTransformer() override = default;
 
@@ -130,6 +133,7 @@ private:
     const std::string* _iceberg_schema_json;
     uint64_t _write_size = 0;
     const iceberg::Schema* _iceberg_schema;
+    const ArrowWriteConverter& _arrow_write_converter;
 };
 
 } // namespace doris
