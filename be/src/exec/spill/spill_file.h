@@ -18,6 +18,7 @@
 #pragma once
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "common/status.h"
 
@@ -36,7 +37,8 @@ using SpillFileReaderSPtr = std::shared_ptr<SpillFileReader>;
 /// physical "part" files on disk. Parts are managed automatically by
 /// SpillFileWriter when a part exceeds the configured size threshold.
 ///
-/// On-disk layout:
+/// On-disk layout (a directory on a local disk, or a key prefix in object storage;
+/// which one is decided by the SpillDataDir the file was created on):
 ///   spill_dir/         (created lazily by SpillFileWriter on first write)
 ///   +-- 0              (part 0)
 ///   +-- 1              (part 1)
@@ -95,14 +97,21 @@ private:
     /// gc() accounting, even if the writer's close() is never properly called.
     void update_written_bytes(int64_t delta_bytes);
 
-    /// Called by SpillFileWriter when a part file is completed.
-    void increment_part_count();
+    /// Called by SpillFileWriter when a part file is completed, in part order.
+    /// @param part_bytes  size of the part file including its footer
+    void add_part(int64_t part_bytes);
 
     SpillDataDir* _data_dir = nullptr;
-    // Absolute path: data_dir->get_spill_data_path() + "/" + relative_path
+    // Path of this spill file: data_dir->get_spill_data_path() + "/" + relative_path.
+    // Absolute for local stores, relative to the vault prefix for remote stores.
     std::string _spill_dir;
     int64_t _total_written_bytes = 0;
-    size_t _part_count = 0;
+    // Size of every completed part, in part order. Passed to readers so that they never
+    // have to ask the storage for the file size (one HEAD request per part on S3).
+    std::vector<int64_t> _part_sizes;
+    // Set by SpillFileWriter once the first part has been created. Files that were never
+    // written have nothing to delete.
+    bool _dir_created = false;
     bool _ready_for_reading = false;
     // Pointer to the currently-active writer. Mutable to allow checks from const
     // methods like create_reader(). Only one writer may be active at a time.

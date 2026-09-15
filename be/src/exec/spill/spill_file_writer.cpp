@@ -22,10 +22,15 @@
 #include "common/status.h"
 #include "exec/spill/spill_file.h"
 #include "exec/spill/spill_file_manager.h"
+#include "exec/spill/spill_remote_upload_budget.h"
+#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/local_file_writer.h"
+#include "io/fs/s3_file_system.h"
+#include "io/fs/s3_file_writer.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
+#include "runtime/runtime_profile_counter_names.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 
@@ -47,6 +52,10 @@ SpillFileWriter::SpillFileWriter(const std::shared_ptr<SpillFile>& spill_file, R
     // Register this writer as the active writer for the SpillFile.
     spill_file->_active_writer = this;
 
+    if (_data_dir->is_remote()) {
+        _budget = ExecEnv::GetInstance()->spill_file_mgr()->remote_upload_budget();
+    }
+
     // Custom (spill-specific) counters
     RuntimeProfile* custom_profile = profile->get_child("CustomCounters");
     _write_file_timer = custom_profile->get_counter("SpillWriteFileTime");
@@ -57,6 +66,12 @@ SpillFileWriter::SpillFileWriter(const std::shared_ptr<SpillFile>& spill_file, R
     _write_file_current_size = custom_profile->get_counter("SpillWriteFileCurrentBytes");
     _write_rows_counter = custom_profile->get_counter("SpillWriteRows");
     _total_file_count = custom_profile->get_counter("SpillWriteFileTotalCount");
+    _remote_write_requests = custom_profile->get_counter(profile::SPILL_REMOTE_WRITE_REQUESTS);
+    _remote_upload_part_requests =
+            custom_profile->get_counter(profile::SPILL_REMOTE_UPLOAD_PART_REQUESTS);
+    _remote_upload_bytes = custom_profile->get_counter(profile::SPILL_REMOTE_UPLOAD_BYTES);
+    _remote_upload_timer = custom_profile->get_counter(profile::SPILL_REMOTE_UPLOAD_TIME);
+    _remote_upload_wait_timer = custom_profile->get_counter(profile::SPILL_REMOTE_UPLOAD_WAIT_TIME);
 }
 
 SpillFileWriter::~SpillFileWriter() {
@@ -70,13 +85,53 @@ SpillFileWriter::~SpillFileWriter() {
     }
 }
 
-Status SpillFileWriter::_open_next_part() {
-    _current_part_path = _spill_dir + "/" + std::to_string(_current_part_index);
-    // Create the spill directory lazily on first part
-    if (_current_part_index == 0) {
-        RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(_spill_dir));
+Status SpillFileWriter::_open_next_part(const std::shared_ptr<SpillFile>& spill_file) {
+    // Confirm parts whose upload has finished meanwhile; surfaces upload errors early.
+    RETURN_IF_ERROR(_reap_closing_parts(/*block=*/false, spill_file));
+
+    auto fs = _data_dir->fs();
+    if (fs == nullptr) {
+        return Status::InternalError("spill store {} is not ready", _data_dir->path());
     }
-    RETURN_IF_ERROR(io::global_local_filesystem()->create_file(_current_part_path, &_file_writer));
+    _current_part_path = _spill_dir + "/" + std::to_string(_current_part_index);
+    // Create the spill directory lazily on first part (a no-op on object storage)
+    if (_current_part_index == 0) {
+        RETURN_IF_ERROR(fs->create_directory(_spill_dir));
+        if (spill_file) {
+            spill_file->_dir_created = true;
+        }
+    }
+
+    io::FileWriterOptions opts;
+    // Spill data is read back once, sequentially; keep it out of the file cache. All three
+    // fields matter: adaptive writes go to the cache even with write_file_cache=false.
+    opts.write_file_cache = false;
+    opts.allow_adaptive_file_cache_write = false;
+    opts.approximate_bytes_to_write = 0;
+    if (_budget != nullptr) {
+        _part_stats = std::make_shared<io::RemoteWriteStats>();
+        _part_ledger = std::make_shared<PartBudgetLedger>();
+        opts.remote_write_stats = _part_stats;
+        // Budget is taken when S3FileWriter submits a buffer (appending thread) and given
+        // back when that upload finished (upload thread). Both lambdas own what they touch:
+        // the budget lives as long as the SpillFileManager, the ledger is shared.
+        opts.upload_submit_gate = [budget = _budget, ledger = _part_ledger,
+                                   ctx = _resource_ctx](size_t bytes) -> Status {
+            int64_t wait_ns = 0;
+            RETURN_IF_ERROR(budget->acquire(
+                    static_cast<int64_t>(bytes),
+                    [&ctx]() { return ctx != nullptr && ctx->task_controller()->is_cancelled(); },
+                    &wait_ns));
+            ledger->acquired.fetch_add(static_cast<int64_t>(bytes));
+            ledger->wait_ns.fetch_add(wait_ns);
+            return Status::OK();
+        };
+        opts.upload_done_callback = [budget = _budget, ledger = _part_ledger](size_t bytes) {
+            budget->release(static_cast<int64_t>(bytes));
+            ledger->released.fetch_add(static_cast<int64_t>(bytes));
+        };
+    }
+    RETURN_IF_ERROR(fs->create_file(_current_part_path, &_file_writer, &opts));
     COUNTER_UPDATE(_total_file_count, 1);
     return Status::OK();
 }
@@ -90,42 +145,177 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
     _part_meta.append((const char*)&_part_max_sub_block_size, sizeof(_part_max_sub_block_size));
     _part_meta.append((const char*)&_part_written_blocks, sizeof(_part_written_blocks));
 
-    {
-        SCOPED_TIMER(_write_file_timer);
-        RETURN_IF_ERROR(_file_writer->append(_part_meta));
-    }
-
     int64_t meta_size = _part_meta.size();
-    _part_written_bytes += meta_size;
-    COUNTER_UPDATE(_write_file_total_size, meta_size);
-    if (_resource_ctx) {
-        _resource_ctx->io_context()->update_spill_write_bytes_to_local_storage(meta_size);
-    }
-    if (_write_file_current_size) {
-        COUNTER_UPDATE(_write_file_current_size, meta_size);
-    }
-    _data_dir->update_spill_data_usage(meta_size);
-    ExecEnv::GetInstance()->spill_file_mgr()->update_spill_write_bytes(meta_size);
-    // Incrementally update SpillFile's accounting so gc() can always
-    // decrement the correct amount, even if close() is never called.
-    if (spill_file) {
-        spill_file->update_written_bytes(meta_size);
+    // The footer must always be written so that the part can be closed; account it
+    // without checking the capacity limit.
+    Status status = _data_dir->try_reserve(meta_size, /*force=*/true);
+    if (status.ok()) {
+        SCOPED_TIMER(_write_file_timer);
+        status = _file_writer->append(_part_meta);
+        if (!status.ok()) {
+            _data_dir->release(meta_size);
+        }
     }
 
-    RETURN_IF_ERROR(_file_writer->close());
-    _file_writer.reset();
+    if (status.ok()) {
+        _part_written_bytes += meta_size;
+        COUNTER_UPDATE(_write_file_total_size, meta_size);
+        if (_resource_ctx) {
+            if (_data_dir->is_remote()) {
+                _resource_ctx->io_context()->update_spill_write_bytes_to_remote_storage(meta_size);
+            } else {
+                _resource_ctx->io_context()->update_spill_write_bytes_to_local_storage(meta_size);
+            }
+        }
+        if (_write_file_current_size) {
+            COUNTER_UPDATE(_write_file_current_size, meta_size);
+        }
+        ExecEnv::GetInstance()->spill_file_mgr()->update_spill_write_bytes(meta_size);
+        // Incrementally update SpillFile's accounting so gc() can always
+        // decrement the correct amount, even if close() is never called.
+        if (spill_file) {
+            spill_file->update_written_bytes(meta_size);
+        }
+    }
+
+    // Issue a non-blocking close so that the upload of this part overlaps with the next
+    // one. The part is confirmed later by _reap_closing_parts(), which also reconciles
+    // the upload budget, so it is queued even when something above failed.
+    ClosingPart part;
+    part.path = _current_part_path;
+    part.part_index = _current_part_index;
+    part.part_bytes = _part_written_bytes;
+    part.ledger = std::move(_part_ledger);
+    part.stats = std::move(_part_stats);
+    part.close_status = status.ok() ? _file_writer->close(/*non_block=*/true) : status;
+    part.writer = std::move(_file_writer);
+    _closing_parts.emplace_back(std::move(part));
 
     // Advance to next part
     ++_current_part_index;
-    if (spill_file) {
-        spill_file->increment_part_count();
-    }
     _part_written_blocks = 0;
     _part_written_bytes = 0;
     _part_max_sub_block_size = 0;
     _part_meta.clear();
 
+    return status;
+}
+
+Status SpillFileWriter::_reap_closing_parts(bool block,
+                                            const std::shared_ptr<SpillFile>& spill_file) {
+    Status first_error;
+    while (!_closing_parts.empty()) {
+        auto& part = _closing_parts.front();
+        Status st = part.close_status;
+        if (st.ok()) {
+            st = part.writer->try_finish_close();
+            if (st.is<ErrorCode::NEED_SEND_AGAIN>()) {
+                if (!block) {
+                    break;
+                }
+                st = part.writer->close();
+            } else if (st.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) {
+                // Writers without an async close protocol (local files) finished the work
+                // in close(true); close() only flips the state.
+                st = part.writer->state() == io::FileWriter::State::CLOSED ? Status::OK()
+                                                                           : part.writer->close();
+            }
+        }
+        st = _finish_part(part, spill_file, st);
+        _closing_parts.erase(_closing_parts.begin());
+        if (!st.ok() && first_error.ok()) {
+            first_error = st;
+            if (!block) {
+                break;
+            }
+        }
+    }
+    return first_error;
+}
+
+Status SpillFileWriter::_finish_part(ClosingPart& part,
+                                     const std::shared_ptr<SpillFile>& spill_file,
+                                     Status close_status) {
+    MultipartUploadId upload = _multipart_upload_id(part.writer.get());
+    if (!close_status.ok() && part.writer != nullptr &&
+        part.writer->state() != io::FileWriter::State::CLOSED) {
+        // The part never reached a final state (footer failed, or close(true) could not be
+        // issued). Destroying the writer waits for every in-flight upload, so the ledger below
+        // is complete afterwards. close() is not used for this: on a cancelled query it would
+        // be refused by the upload gate right away and drain nothing.
+        part.writer.reset();
+    }
+
+    // Budget: everything the gate took for this part but the upload callback never gave
+    // back (buffers that failed before their upload started) is released here. The writer is
+    // in its final state at this point, so every callback that will ever fire has fired.
+    if (_budget != nullptr && part.ledger != nullptr) {
+        int64_t remaining = part.ledger->acquired.load() - part.ledger->released.load();
+        DCHECK_GE(remaining, 0) << "upload callback released more than acquired, part="
+                                << part.path;
+        if (remaining > 0) {
+            _budget->release(remaining);
+        }
+        if (_remote_upload_wait_timer != nullptr) {
+            COUNTER_UPDATE(_remote_upload_wait_timer, part.ledger->wait_ns.load());
+        }
+    }
+
+    if (part.stats != nullptr) {
+        int64_t requests = part.stats->total_requests();
+        int64_t data_requests = part.stats->put_object_requests + part.stats->upload_part_requests;
+        int64_t uploaded_bytes = part.stats->uploaded_bytes;
+        if (_remote_write_requests != nullptr) {
+            COUNTER_UPDATE(_remote_write_requests, requests);
+            COUNTER_UPDATE(_remote_upload_part_requests, data_requests);
+            COUNTER_UPDATE(_remote_upload_bytes, uploaded_bytes);
+            COUNTER_UPDATE(_remote_upload_timer, part.stats->request_time_ns.load());
+        }
+        if (_resource_ctx) {
+            _resource_ctx->io_context()->update_spill_remote_write_requests(requests);
+        }
+        ExecEnv::GetInstance()->spill_file_mgr()->update_spill_remote_write(uploaded_bytes,
+                                                                            data_requests);
+    }
+
+    if (!close_status.ok()) {
+        LOG(WARNING) << "failed to close spill part " << part.path << ": " << close_status;
+        _abort_multipart_upload(upload);
+        return close_status;
+    }
+    if (spill_file) {
+        spill_file->add_part(part.part_bytes);
+    }
     return Status::OK();
+}
+
+SpillFileWriter::MultipartUploadId SpillFileWriter::_multipart_upload_id(io::FileWriter* writer) {
+    auto* s3_writer = dynamic_cast<io::S3FileWriter*>(writer);
+    if (s3_writer == nullptr || s3_writer->upload_id().empty()) {
+        return {};
+    }
+    return {.path = s3_writer->path().native(),
+            .bucket = s3_writer->bucket(),
+            .key = s3_writer->key(),
+            .upload_id = s3_writer->upload_id()};
+}
+
+void SpillFileWriter::_abort_multipart_upload(const MultipartUploadId& upload) {
+    if (upload.upload_id.empty()) {
+        return;
+    }
+    auto s3_fs = std::dynamic_pointer_cast<io::S3FileSystem>(_data_dir->fs());
+    if (s3_fs == nullptr) {
+        return;
+    }
+    auto client = s3_fs->client_holder()->get();
+    if (client == nullptr) {
+        return;
+    }
+    auto resp = client->abort_multipart_upload(
+            {.path = upload.path, .bucket = upload.bucket, .key = upload.key}, upload.upload_id);
+    LOG(INFO) << "abort multipart upload of failed spill part " << upload.path
+              << ", upload_id=" << upload.upload_id << ", status=" << resp.status.msg;
 }
 
 Status SpillFileWriter::_rotate_if_needed(const std::shared_ptr<SpillFile>& spill_file) {
@@ -152,7 +342,7 @@ Status SpillFileWriter::write_block(RuntimeState* state, const Block& block) {
         if (_current_part_index == 0) {
             state->get_query_ctx()->record_spill_data_dir(_data_dir);
         }
-        RETURN_IF_ERROR(_open_next_part());
+        RETURN_IF_ERROR(_open_next_part(spill_file));
     }
 
     DBUG_EXECUTE_IF("fault_inject::spill_file::spill_block", {
@@ -175,12 +365,20 @@ Status SpillFileWriter::close() {
     }
     _closed = true;
 
+    auto spill_file = _spill_file_wptr.lock();
+    Status status = _close_current_part(spill_file);
+    // Always drain the closing parts so that budget and statistics are reconciled even
+    // when the current part failed.
+    Status reap_status = _reap_closing_parts(/*block=*/true, spill_file);
+    if (status.ok()) {
+        status = reap_status;
+    }
+    RETURN_IF_ERROR(status);
+
+    // Injected after the drain: a failed close must never strand budget or parts.
     DBUG_EXECUTE_IF("fault_inject::spill_file::spill_eof", {
         return Status::Error<INTERNAL_ERROR>("fault_inject spill_file spill_eof failed");
     });
-
-    auto spill_file = _spill_file_wptr.lock();
-    RETURN_IF_ERROR(_close_current_part(spill_file));
 
     if (spill_file) {
         if (spill_file->_active_writer != this) {
@@ -223,19 +421,14 @@ Status SpillFileWriter::_write_internal(const Block& block,
             COUNTER_UPDATE(_memory_used_counter, buff_size);
             Defer defer2 {[&]() { COUNTER_UPDATE(_memory_used_counter, -buff_size); }};
         }
-        if (_data_dir->reach_capacity_limit(buff_size)) {
-            return Status::Error<ErrorCode::DISK_REACH_CAPACITY_LIMIT>(
-                    "spill data total size exceed limit, path: {}, size limit: {}, spill data "
-                    "size: {}",
-                    _data_dir->path(),
-                    PrettyPrinter::print_bytes(_data_dir->get_spill_data_limit()),
-                    PrettyPrinter::print_bytes(_data_dir->get_spill_data_bytes()));
-        }
+        // Capacity is checked and reserved atomically; concurrent writers cannot pass the
+        // limit together. Upload budget is not taken here: S3FileWriter asks for it when it actually submits
+        // a buffer (see the upload_submit_gate in _open_next_part).
+        RETURN_IF_ERROR(_data_dir->try_reserve(buff_size));
 
         {
             Defer defer {[&]() {
                 if (status.ok()) {
-                    _data_dir->update_spill_data_usage(buff_size);
                     ExecEnv::GetInstance()->spill_file_mgr()->update_spill_write_bytes(buff_size);
 
                     _part_max_sub_block_size =
@@ -244,8 +437,13 @@ Status SpillFileWriter::_write_internal(const Block& block,
                     _part_meta.append((const char*)&_part_written_bytes, sizeof(size_t));
                     COUNTER_UPDATE(_write_file_total_size, buff_size);
                     if (_resource_ctx) {
-                        _resource_ctx->io_context()->update_spill_write_bytes_to_local_storage(
-                                buff_size);
+                        if (_data_dir->is_remote()) {
+                            _resource_ctx->io_context()->update_spill_write_bytes_to_remote_storage(
+                                    buff_size);
+                        } else {
+                            _resource_ctx->io_context()->update_spill_write_bytes_to_local_storage(
+                                    buff_size);
+                        }
                     }
                     if (_write_file_current_size) {
                         COUNTER_UPDATE(_write_file_current_size, buff_size);
@@ -256,6 +454,9 @@ Status SpillFileWriter::_write_internal(const Block& block,
                     // Incrementally update SpillFile so gc() can always
                     // decrement the correct amount from _data_dir.
                     spill_file->update_written_bytes(buff_size);
+                } else {
+                    // The bytes never reached the store; give the capacity back.
+                    _data_dir->release(buff_size);
                 }
             }};
             {

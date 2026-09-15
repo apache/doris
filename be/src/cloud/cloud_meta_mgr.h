@@ -139,7 +139,18 @@ public:
      * @param is_vault_mode output param, true for pure vault mode, false for legacy mode
      * @return status
      */
-    Status get_storage_vault_info(StorageVaultInfos* vault_infos, bool* is_vault_mode);
+    Status get_storage_vault_info(StorageVaultInfos* vault_infos, bool* is_vault_mode,
+                                  std::string* default_vault_id = nullptr);
+
+    /**
+     * Report the object storage traffic of query spill of this BE process to meta-service.
+     * Values are totals since the process started (boot_id); meta-service keeps one record per
+     * cloud_unique_id and replaces it for the same boot_id, so retries are idempotent. Retries
+     * are bounded (2 attempts): the caller re-reports periodically, and the final report on the
+     * shutdown path must not stall the exit.
+     */
+    Status report_spill_stats(int64_t boot_id, int64_t remote_write_bytes,
+                              int64_t remote_put_requests);
 
     Status prepare_tablet_job(const TabletJobInfoPB& job, StartTabletJobResponse* res);
 

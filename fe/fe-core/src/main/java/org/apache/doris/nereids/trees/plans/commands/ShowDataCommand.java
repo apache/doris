@@ -28,7 +28,10 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
@@ -46,6 +49,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.rpc.RpcException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ComparisonChain;
@@ -87,12 +91,16 @@ public class ShowDataCommand extends ShowCommand {
                     .addColumn(new Column("BinlogSize", ScalarType.createVarchar(30)))
                     .build();
 
+    // RemoteSpillWriteSize: bytes that query spill uploaded to object storage since the instance
+    // was created (cloud mode, spill_storage_type=s3). Spill is not attributable to a database,
+    // so the value is reported on the total row only.
     private static final ShowResultSetMetaData SHOW_WAREHOUSE_DATA_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("DBName", ScalarType.createVarchar(20)))
                     .addColumn(new Column("DataSize", ScalarType.createVarchar(20)))
                     .addColumn(new Column("RecycleSize", ScalarType.createVarchar(20)))
                     .addColumn(new Column("BinlogSize", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("RemoteSpillWriteSize", ScalarType.createVarchar(20)))
                     .build();
 
     private static final ShowResultSetMetaData SHOW_INDEX_DATA_META_DATA =
@@ -585,8 +593,31 @@ public class ShowDataCommand extends ShowCommand {
         return toSql();
     }
 
-    // |DBName|DataSize|RecycleSize|BinlogSize|
-    private boolean getDbStatsByProperties() {
+    /**
+     * Bytes uploaded to object storage by query spill, summed over every BE process of the
+     * instance, as recorded by meta-service. This is a billing input, so a failure to fetch it is
+     * reported instead of being shown as zero.
+     */
+    private long getRemoteSpillWriteSize() throws AnalysisException {
+        if (!Config.isCloudMode()) {
+            return 0L;
+        }
+        try {
+            Cloud.GetSpillStatsRequest request = Cloud.GetSpillStatsRequest.newBuilder()
+                    .setCloudUniqueId(Config.cloud_unique_id).build();
+            Cloud.GetSpillStatsResponse response = MetaServiceProxy.getInstance().getSpillStats(request);
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                throw new AnalysisException("failed to get spill stats from meta service: "
+                        + response.getStatus().getMsg());
+            }
+            return response.getTotalRemoteWriteBytes();
+        } catch (RpcException e) {
+            throw new AnalysisException("failed to get spill stats from meta service: " + e.getMessage(), e);
+        }
+    }
+
+    // |DBName|DataSize|RecycleSize|BinlogSize|RemoteSpillWriteSize|
+    private boolean getDbStatsByProperties() throws AnalysisException {
         if (properties == null) {
             return false;
         }
@@ -616,7 +647,8 @@ public class ShowDataCommand extends ShowCommand {
                     }
                     Long recycleSize = dbToRecycleSize.getOrDefault(db.getId(), Pair.of(0L, 0L)).first;
                     List<String> result = Arrays.asList(db.getName(),
-                            String.valueOf(pair.getValue()), String.valueOf(recycleSize), String.valueOf(binlogSize));
+                            String.valueOf(pair.getValue()), String.valueOf(recycleSize), String.valueOf(binlogSize),
+                            "0");
                     totalRows.add(result);
                     total += pair.getValue();
                     totalBinlogSize += binlogSize;
@@ -627,7 +659,7 @@ public class ShowDataCommand extends ShowCommand {
                 // Append left database in recycle bin
                 for (Map.Entry<Long, Pair<Long, Long>> entry : dbToRecycleSize.entrySet()) {
                     List<String> result = Arrays.asList("NULL:" + entry.getKey(),
-                            "0", String.valueOf(entry.getValue().first), "0");
+                            "0", String.valueOf(entry.getValue().first), "0", "0");
                     totalRows.add(result);
                     totalRecycleSize += entry.getValue().first;
                 }
@@ -649,15 +681,16 @@ public class ShowDataCommand extends ShowCommand {
                     Long recycleSize = dbToRecycleSize.getOrDefault(db.getId(), Pair.of(0L, 0L)).first;
                     Long dataSize = dbToDataSize.getOrDefault(databaseName, 0L);
                     List<String> result = Arrays.asList(db.getName(), String.valueOf(dataSize),
-                            String.valueOf(recycleSize), String.valueOf(binlogSize));
+                            String.valueOf(recycleSize), String.valueOf(binlogSize), "0");
                     totalRows.add(result);
                     total += dataSize;
                     totalBinlogSize += binlogSize;
                     totalRecycleSize += recycleSize;
                 }
             }
+            long remoteSpillWriteSize = getRemoteSpillWriteSize();
             List<String> result = Arrays.asList("total", String.valueOf(total), String.valueOf(totalRecycleSize),
-                    String.valueOf(totalBinlogSize));
+                    String.valueOf(totalBinlogSize), String.valueOf(remoteSpillWriteSize));
             totalRows.add(result);
             return true;
         }

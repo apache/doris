@@ -3899,6 +3899,42 @@ TEST(RecyclerTest, advance_pending_txn_and_rebegin) {
     }
 }
 
+TEST(RecyclerTest, recycle_expired_spill_objects) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("recycle_spill");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("recycle_spill");
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.begin()->second;
+
+    // Spill objects of a BE that never came back, plus regular data that must survive.
+    ASSERT_EQ(accessor->put_file("spill/be-dead/1000/q1/sort-1-0-1/0", "spill"), 0);
+    ASSERT_EQ(accessor->put_file("spill/be-dead/1000/q1/sort-1-0-1/1", "spill"), 0);
+    ASSERT_EQ(accessor->put_file("spill/be-dead/1001/q2/agg-1-0-1/0", "spill"), 0);
+    ASSERT_EQ(accessor->put_file("data/10001/rowset_0.dat", "data"), 0);
+    ASSERT_EQ(accessor->put_file("spillover/not_spill", "data"), 0);
+
+    // The mock accessor ignores the expiration time, so this only verifies prefix scoping.
+    ASSERT_EQ(recycler.recycle_expired_spill_objects(), 0);
+    EXPECT_NE(accessor->exists("spill/be-dead/1000/q1/sort-1-0-1/0"), 0);
+    EXPECT_NE(accessor->exists("spill/be-dead/1000/q1/sort-1-0-1/1"), 0);
+    EXPECT_NE(accessor->exists("spill/be-dead/1001/q2/agg-1-0-1/0"), 0);
+    EXPECT_EQ(accessor->exists("data/10001/rowset_0.dat"), 0);
+    EXPECT_EQ(accessor->exists("spillover/not_spill"), 0);
+}
+
 TEST(RecyclerTest, recycle_expired_txn_label) {
     config::label_keep_max_second = 0;
     auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
@@ -4652,6 +4688,18 @@ TEST(RecyclerTest, recycle_deleted_instance) {
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 
+    // create spill stats key (SHOW DATA billing input)
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        SpillStatsPB spill_stats;
+        spill_stats.set_cloud_unique_id("be-1");
+        spill_stats.set_boot_id(1);
+        spill_stats.set_remote_write_bytes(100);
+        txn->put(stats_spill_key({instance_id, "be-1"}), spill_stats.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
     ASSERT_EQ(0, recycler.recycle_deleted_instance());
     ASSERT_EQ(InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING,
               recycler.instance_info().recycle_state());
@@ -4742,6 +4790,11 @@ TEST(RecyclerTest, recycle_deleted_instance) {
     std::string start_stats_tablet_key = stats_tablet_key({instance_id, 0, 0, 0, 0});
     std::string end_stats_tablet_key = stats_tablet_key({instance_id, INT64_MAX, 0, 0, 0});
     ASSERT_EQ(txn->get(start_stats_tablet_key, end_stats_tablet_key, &it), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(it->size(), 0);
+
+    std::string start_stats_spill_key = stats_spill_key_prefix(instance_id);
+    std::string end_stats_spill_key = start_stats_spill_key + '\xff';
+    ASSERT_EQ(txn->get(start_stats_spill_key, end_stats_spill_key, &it), TxnErrorCode::TXN_OK);
     ASSERT_EQ(it->size(), 0);
 
     std::string start_copy_key = copy_key_prefix(instance_id);

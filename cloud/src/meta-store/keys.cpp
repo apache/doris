@@ -65,6 +65,7 @@ static const char* RECYCLE_KEY_INFIX_PART               = "partition";
 static const char* RECYCLE_KEY_TXN                      = "txn";
 
 static const char* STATS_KEY_INFIX_TABLET               = "tablet";
+static const char* STATS_KEY_INFIX_SPILL                = "spill";
 
 static const char* JOB_KEY_INFIX_TABLET                 = "tablet";
 static const char* JOB_KEY_INFIX_RL_PROGRESS            = "routine_load_progress";
@@ -151,7 +152,7 @@ static void encode_prefix(const T& t, std::string* key) {
         TableStreamOffsetKeyInfo,
         MetaDeleteBitmapInfo, MetaDeleteBitmapUpdateLockInfo, MetaPendingDeleteBitmapInfo, PartitionVersionKeyInfo,
         RecycleIndexKeyInfo, RecyclePartKeyInfo, RecycleRowsetKeyInfo, RecycleTxnKeyInfo, RecycleStageKeyInfo,
-        StatsTabletKeyInfo, TableVersionKeyInfo, JobRestoreTabletKeyInfo, JobRestoreRowsetKeyInfo,
+        StatsTabletKeyInfo, StatsSpillKeyInfo, TableVersionKeyInfo, JobRestoreTabletKeyInfo, JobRestoreRowsetKeyInfo,
         JobTabletKeyInfo, JobRecycleKeyInfo, JobSnapshotDataMigratorKeyInfo, JobSnapshotChainCompactorKeyInfo,
         RLJobProgressKeyInfo, StreamingJobKeyInfo,
         CopyJobKeyInfo, CopyFileKeyInfo,  StorageVaultKeyInfo, MetaSchemaPBDictionaryInfo,
@@ -189,7 +190,8 @@ static void encode_prefix(const T& t, std::string* key) {
                       || std::is_same_v<T, RecycleTxnKeyInfo>
                       || std::is_same_v<T, RecycleStageKeyInfo>) {
         encode_bytes(RECYCLE_KEY_PREFIX, key);
-    } else if constexpr (std::is_same_v<T, StatsTabletKeyInfo>) {
+    } else if constexpr (std::is_same_v<T, StatsTabletKeyInfo>
+                      || std::is_same_v<T, StatsSpillKeyInfo>) {
         encode_bytes(STATS_KEY_PREFIX, key);
     } else if constexpr (std::is_same_v<T, JobTabletKeyInfo>
                       || std::is_same_v<T, JobRecycleKeyInfo>
@@ -462,6 +464,19 @@ void stats_tablet_key(const StatsTabletKeyInfo& in, std::string* out) {
 void stats_tablet_data_size_key(const StatsTabletKeyInfo& in, std::string* out) {
     stats_tablet_key(in, out);
     encode_bytes(STATS_KEY_SUFFIX_DATA_SIZE, out);
+}
+
+void stats_spill_key(const StatsSpillKeyInfo& in, std::string* out) {
+    encode_prefix(in, out);                   // 0x01 "stats" ${instance_id}
+    encode_bytes(STATS_KEY_INFIX_SPILL, out); // "spill"
+    encode_bytes(std::get<1>(in), out);       // cloud_unique_id
+}
+
+std::string stats_spill_key_prefix(std::string_view instance_id) {
+    std::string out;
+    encode_prefix(StatsSpillKeyInfo {std::string(instance_id), ""}, &out);
+    encode_bytes(STATS_KEY_INFIX_SPILL, &out);
+    return out;
 }
 void stats_tablet_num_rows_key(const StatsTabletKeyInfo& in, std::string* out) {
     stats_tablet_key(in, out);
