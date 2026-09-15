@@ -20,18 +20,17 @@ suite("test_adaptive_random_bucket_stream_load", "p0,nonConcurrent") {
         return
     }
 
-    def tableName = "test_adaptive_random_bucket_stream_load"
     def enableAdaptiveRandomBucketConfig =
             sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'enable_adaptive_random_bucket_load'; """
     String oldEnableAdaptiveRandomBucket = enableAdaptiveRandomBucketConfig[0][1]
 
     try {
         sql """ ADMIN SET FRONTEND CONFIG ('enable_adaptive_random_bucket_load' = 'true') """
-        sql """ DROP TABLE IF EXISTS ${tableName} """
+        sql """ DROP TABLE IF EXISTS test_adaptive_random_bucket_stream_load """
         // With a single bucket the partition has exactly one tablet, so all but one entry backend
         // do not own it and have to route the partition to the owning backend.
         sql """
-            CREATE TABLE ${tableName} (
+            CREATE TABLE test_adaptive_random_bucket_stream_load (
                 k int NOT NULL,
                 v string
             )
@@ -59,7 +58,7 @@ suite("test_adaptive_random_bucket_stream_load", "p0,nonConcurrent") {
             // others must send the partition to the owning backend instead of failing with
             // "unknown partition channel".
             streamLoad {
-                table tableName
+                table "test_adaptive_random_bucket_stream_load"
                 directToBe backendIp, backendHttpPorts.get(backendId) as int
                 set 'column_separator', ','
                 inputText data.toString()
@@ -77,7 +76,7 @@ suite("test_adaptive_random_bucket_stream_load", "p0,nonConcurrent") {
             sql "sync"
         }
 
-        def count = sql "SELECT count(*) FROM ${tableName}"
+        def count = sql "SELECT count(*) FROM test_adaptive_random_bucket_stream_load"
         assertEquals(totalRows, count[0][0] as int)
     } finally {
         sql """ ADMIN SET FRONTEND CONFIG ('enable_adaptive_random_bucket_load' = '${oldEnableAdaptiveRandomBucket}') """
