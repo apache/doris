@@ -24,8 +24,10 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.SecurityDependencyContext;
 import org.apache.doris.nereids.StatementContext;
@@ -81,6 +83,7 @@ public class ShortCircuitQueryContext {
     public final String tableName;
     private final long fileCacheQueryLimitBytes;
     private final long partitionTopologyVersion;
+    private final TableNamespaceSnapshot tableNamespaceSnapshot;
     private final SecurityDependencyContext securityDependencyContext;
 
     public final OlapScanNode scanNode;
@@ -157,6 +160,7 @@ public class ShortCircuitQueryContext {
         this.tableName = this.scanNode.getTableNameInPlan();
         this.schemaVersion = this.tbl.getBaseSchemaVersion();
         this.partitionTopologyVersion = this.tbl.getPartitionTopologyVersion();
+        this.tableNamespaceSnapshot = TableNamespaceSnapshot.from(this.tbl);
         this.analzyedQuery = analzyedQuery;
         this.pointQueryKeyTemplate = PointQueryKeyTemplate.create(this.scanNode, statementContext);
         this.securityDependencyContext = securityDependencyContext == null
@@ -182,6 +186,7 @@ public class ShortCircuitQueryContext {
         this.schemaVersion = schemaVersion;
         this.fileCacheQueryLimitBytes = fileCacheQueryLimitBytes;
         this.partitionTopologyVersion = tbl.getPartitionTopologyVersion();
+        this.tableNamespaceSnapshot = TableNamespaceSnapshot.from(tbl);
         this.scanNode = null;
         this.analzyedQuery = null;
         this.pointQueryKeyTemplate = PointQueryKeyTemplate.unsupported();
@@ -201,6 +206,7 @@ public class ShortCircuitQueryContext {
         this.schemaVersion = tbl.getBaseSchemaVersion();
         this.fileCacheQueryLimitBytes = -1;
         this.partitionTopologyVersion = tbl.getPartitionTopologyVersion();
+        this.tableNamespaceSnapshot = TableNamespaceSnapshot.from(tbl);
         this.analzyedQuery = null;
         this.pointQueryKeyTemplate = PointQueryKeyTemplate.create(scanNode, statementContext);
         this.securityDependencyContext = null;
@@ -212,7 +218,42 @@ public class ShortCircuitQueryContext {
                 && Objects.equals(this.tableName, this.tbl.getName())
                 && this.fileCacheQueryLimitBytes == ctx.getSessionVariable().fileCacheQueryLimitBytes
                 && this.tbl.getPartitionTopologyVersion() == this.partitionTopologyVersion
+                && this.tableNamespaceSnapshot.matches(this.tbl)
                 && (securityDependencyContext == null || securityDependencyContext.isValid(ctx));
+    }
+
+    /** Fence name-scoped grants when a catalog or database is renamed or replaced. */
+    private static class TableNamespaceSnapshot {
+        private final DatabaseIf<?> database;
+        private final CatalogIf<?> catalog;
+        private final String databaseName;
+        private final String catalogName;
+
+        private TableNamespaceSnapshot(DatabaseIf<?> database, CatalogIf<?> catalog,
+                String databaseName, String catalogName) {
+            this.database = database;
+            this.catalog = catalog;
+            this.databaseName = databaseName;
+            this.catalogName = catalogName;
+        }
+
+        private static TableNamespaceSnapshot from(OlapTable table) {
+            DatabaseIf<?> database = table.getDatabase();
+            CatalogIf<?> catalog = database == null ? null : database.getCatalog();
+            return new TableNamespaceSnapshot(database, catalog,
+                    database == null ? null : database.getFullName(),
+                    catalog == null ? null : catalog.getName());
+        }
+
+        private boolean matches(OlapTable table) {
+            DatabaseIf<?> currentDatabase = table.getDatabase();
+            CatalogIf<?> currentCatalog = currentDatabase == null ? null : currentDatabase.getCatalog();
+            return currentDatabase == database
+                    && currentCatalog == catalog
+                    && Objects.equals(databaseName,
+                            currentDatabase == null ? null : currentDatabase.getFullName())
+                    && Objects.equals(catalogName, currentCatalog == null ? null : currentCatalog.getName());
+        }
     }
 
     public void sanitize() {

@@ -65,14 +65,42 @@ suite("prepared_point_query_row_policy", "p0") {
             EXPLAIN SELECT /*+ SET_VAR(enable_short_circuit_query=true) */ tenant_id, item_id, value
             FROM prepared_point_query_row_policy WHERE tenant_id = 1 AND item_id = 10
         """
-        assertTrue(explainRows.toString().contains("SHORT-CIRCUIT"))
+        assertFalse(explainRows.toString().contains("SHORT-CIRCUIT"))
     }
 
+    // A statement governed by a row policy must stay on the normal planning path.
     connect(user, password, url) {
         def prepared = prepareStatement """
             SELECT /*+ SET_VAR(enable_short_circuit_query=true) */ tenant_id, item_id, value
             FROM prepared_point_query_row_policy
             WHERE tenant_id = ? AND item_id = ?
+        """
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, prepared.class)
+        prepared.setInt(1, 2)
+        prepared.setInt(2, 10)
+        prepared.executeQuery().withCloseable { result ->
+            assertFalse(result.next())
+        }
+        prepared.close()
+    }
+
+    sql "DROP ROW POLICY IF EXISTS ${policyName} ON ${dbName}.prepared_point_query_row_policy FOR ${user}"
+    sql "SYNC"
+    connect(user, password, explainUrl) {
+        def explainRows = sql """
+            EXPLAIN SELECT /*+ SET_VAR(enable_short_circuit_query=true) */ tenant_id, item_id, value
+            FROM prepared_point_query_row_policy WHERE tenant_id = 1 AND item_id = 10
+        """
+        assertTrue(explainRows.toString().contains("SHORT-CIRCUIT"))
+    }
+
+    // Without a policy, a fixed statement predicate can share a key with a placeholder. The
+    // immutable key template must preserve that fixed value across every execution.
+    connect(user, password, url) {
+        def prepared = prepareStatement """
+            SELECT /*+ SET_VAR(enable_short_circuit_query=true) */ tenant_id, item_id, value
+            FROM prepared_point_query_row_policy
+            WHERE tenant_id = ? AND tenant_id = 1 AND item_id = ?
         """
         assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, prepared.class)
 
@@ -115,9 +143,7 @@ suite("prepared_point_query_row_policy", "p0") {
         prepared.close()
     }
 
-    // A fixed predicate on a cast key is not an exact physical-key constraint. Keep it on
-    // the normal path unless a future proof can establish that the cast is lossless/injective.
-    sql "DROP ROW POLICY IF EXISTS ${policyName} ON ${dbName}.prepared_point_query_row_policy FOR ${user}"
+    // A cast row policy also keeps the statement on the normal path.
     sql """
         CREATE ROW POLICY ${policyName} ON ${dbName}.prepared_point_query_row_policy
         AS RESTRICTIVE TO ${user} USING (CAST(tenant_id AS CHAR(1)) = '1')

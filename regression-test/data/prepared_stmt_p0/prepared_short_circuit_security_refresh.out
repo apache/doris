@@ -5,6 +5,9 @@
 -- !cached_before_policy --
 2	20	restricted
 
+-- !after_change_user_restored --
+2	20	restricted
+
 -- !after_policy_added --
 
 -- !after_policy_dropped --
@@ -12,4 +15,3 @@
 
 -- !after_select_granted --
 2	20	restricted
-

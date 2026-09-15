@@ -22,182 +22,163 @@ import org.apache.doris.authorization.DataMaskSpec;
 import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.InternalAuthorizationPlugin;
-import org.apache.doris.nereids.SqlCacheContext.FullColumnName;
-import org.apache.doris.nereids.SqlCacheContext.FullTableName;
-import org.apache.doris.nereids.rules.analysis.UserAuthentication;
 import org.apache.doris.policy.PolicyMgr;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
-import org.apache.commons.collections4.CollectionUtils;
 
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
 /**
- * Security decisions which an analyzed plan depends on.
+ * Security state which a reusable prepared point-query plan depends on.
  *
- * <p>Unlike {@link SqlCacheContext}, this context exists independently of the SQL result-cache switch. A prepared
- * short-circuit plan can otherwise outlive the privilege and data-policy decisions made while it was analyzed.
- * Callers record both positive and negative policy answers so that adding a policy invalidates a plan which was
- * built before that policy existed.
+ * <p>Row policies are deliberately not copied or compared here. A plan with a row policy is not eligible for
+ * short-circuit execution, while the process-local policy version invalidates a previously cached no-policy plan
+ * when a policy is later added. This keeps the common validation path to a few identity and volatile-version reads.
+ * Authorization sources without reliable local versions are never reused without replanning.
  */
 public class SecurityDependencyContext {
     private static final long UNKNOWN_VERSION = -1;
 
+    private final UserIdentity planningUserIdentity;
+    private final Set<String> planningAuthenticatedRoles;
     private final Env planningEnv;
     private final long authorizationVersion;
     private final long rowPolicyVersion;
     private final boolean versionValidationEligible;
-    private final Map<FullTableName, Set<String>> checkedPrivileges = Maps.newLinkedHashMap();
-    private final Map<FullTableName, List<RowFilterSpec>> rowPolicies = Maps.newLinkedHashMap();
-    private final Map<FullColumnName, Optional<DataMaskSpec>> dataMaskPolicies = Maps.newLinkedHashMap();
-    private final Map<FullTableName, Set<String>> dataMaskColumnsByTable = Maps.newLinkedHashMap();
+    private boolean privilegeChecked;
+    private boolean internalCatalogOnly = true;
+    private boolean olapTableOnly = true;
+    private boolean hasRowPolicy;
+    private boolean hasDataMask;
     private boolean useVersionValidation;
     private boolean complete = true;
 
-    /** Create a context which always uses full security revalidation. */
+    /** Create an incomplete context for tests and callers without a connection. */
     public SecurityDependencyContext() {
-        this(null, UNKNOWN_VERSION, UNKNOWN_VERSION, false);
+        this(null, ImmutableSet.of(), null, UNKNOWN_VERSION, UNKNOWN_VERSION, false);
     }
 
-    /** Create a context and capture the security versions before analysis starts. */
+    /** Capture the effective authorization subject and security versions before analysis starts. */
     public SecurityDependencyContext(ConnectContext connectContext) {
-        this(connectContext == null ? null : connectContext.getEnv(), usesAuthorizationChecks(connectContext));
+        this(connectContext == null ? null : connectContext.getCurrentUserIdentity(),
+                authenticatedRoles(connectContext),
+                connectContext == null ? null : connectContext.getEnv(),
+                usesAuthorizationChecks(connectContext));
     }
 
-    private SecurityDependencyContext(Env env, boolean versionValidationEligible) {
-        this(env, currentAuthorizationVersion(env), currentRowPolicyVersion(env), versionValidationEligible);
+    private SecurityDependencyContext(UserIdentity planningUserIdentity, Set<String> planningAuthenticatedRoles,
+            Env planningEnv, boolean versionValidationEligible) {
+        this(planningUserIdentity, planningAuthenticatedRoles, planningEnv,
+                currentAuthorizationVersion(planningEnv), currentRowPolicyVersion(planningEnv),
+                versionValidationEligible);
     }
 
-    private SecurityDependencyContext(Env planningEnv, long authorizationVersion, long rowPolicyVersion,
+    private SecurityDependencyContext(UserIdentity planningUserIdentity, Set<String> planningAuthenticatedRoles,
+            Env planningEnv, long authorizationVersion, long rowPolicyVersion,
             boolean versionValidationEligible) {
+        this.planningUserIdentity = planningUserIdentity;
+        this.planningAuthenticatedRoles = planningAuthenticatedRoles;
         this.planningEnv = planningEnv;
         this.authorizationVersion = authorizationVersion;
         this.rowPolicyVersion = rowPolicyVersion;
         this.versionValidationEligible = versionValidationEligible;
     }
 
-    /** Record the columns whose SELECT privilege was checked while the plan was analyzed. */
+    /** Record that SELECT privileges were checked and whether the relation supports version-only validation. */
     public synchronized void addCheckedPrivilege(TableIf table, Set<String> usedColumns) {
-        Optional<FullTableName> tableName = qualifiedName(table);
-        if (!tableName.isPresent()) {
+        if (table == null) {
             complete = false;
             return;
         }
-        Set<String> existing = checkedPrivileges.get(tableName.get());
-        if (existing == null) {
-            checkedPrivileges.put(tableName.get(), ImmutableSet.copyOf(usedColumns));
-        } else {
-            checkedPrivileges.put(tableName.get(), ImmutableSet.<String>builder()
-                    .addAll(existing).addAll(usedColumns).build());
+        DatabaseIf<?> database = table.getDatabase();
+        CatalogIf<?> catalog = database == null ? null : database.getCatalog();
+        if (catalog == null) {
+            complete = false;
+            return;
         }
+        privilegeChecked = true;
+        internalCatalogOnly &= InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalog.getName());
+        olapTableOnly &= table instanceof OlapTable;
     }
 
-    /** Record the complete row-filter answer, including an empty answer. */
+    /** Record only whether a row policy exists; policy objects never enter the point-query cache. */
     public synchronized void setRowPolicies(
             String catalog, String database, String table, List<RowFilterSpec> policies) {
-        rowPolicies.put(new FullTableName(catalog, database, table), ImmutableList.copyOf(policies));
+        hasRowPolicy |= policies != null && !policies.isEmpty();
     }
 
-    /** Record the mask answer for a column, including the absence of a mask. */
+    /** A row policy makes the statement ineligible for short-circuit execution. */
+    public synchronized boolean hasRowPolicy() {
+        return hasRowPolicy;
+    }
+
+    /** Record mask presence so a masked plan is never accepted by the version-only cache path. */
     public synchronized void addDataMask(
             String catalog, String database, String table, String column, Optional<DataMaskSpec> mask) {
-        String normalizedColumn = column.toLowerCase(Locale.ROOT);
-        FullTableName tableName = new FullTableName(catalog, database, table);
-        dataMaskPolicies.put(new FullColumnName(catalog, database, table, normalizedColumn), mask);
-        dataMaskColumnsByTable.computeIfAbsent(tableName, ignored -> new LinkedHashSet<>()).add(normalizedColumn);
+        hasDataMask |= mask.isPresent();
     }
 
     /** Freeze the decisions used by a completed plan before storing them in a reusable context. */
     public synchronized SecurityDependencyContext snapshot() {
         SecurityDependencyContext snapshot = new SecurityDependencyContext(
-                planningEnv, authorizationVersion, rowPolicyVersion, versionValidationEligible);
+                planningUserIdentity, planningAuthenticatedRoles, planningEnv,
+                authorizationVersion, rowPolicyVersion, versionValidationEligible);
+        snapshot.privilegeChecked = privilegeChecked;
+        snapshot.internalCatalogOnly = internalCatalogOnly;
+        snapshot.olapTableOnly = olapTableOnly;
+        snapshot.hasRowPolicy = hasRowPolicy;
+        snapshot.hasDataMask = hasDataMask;
         snapshot.complete = complete;
-        for (Map.Entry<FullTableName, Set<String>> entry : checkedPrivileges.entrySet()) {
-            snapshot.checkedPrivileges.put(entry.getKey(), ImmutableSet.copyOf(entry.getValue()));
-        }
-        for (Map.Entry<FullTableName, List<RowFilterSpec>> entry : rowPolicies.entrySet()) {
-            snapshot.rowPolicies.put(entry.getKey(), ImmutableList.copyOf(entry.getValue()));
-        }
-        snapshot.dataMaskPolicies.putAll(dataMaskPolicies);
-        for (Map.Entry<FullTableName, Set<String>> entry : dataMaskColumnsByTable.entrySet()) {
-            snapshot.dataMaskColumnsByTable.put(entry.getKey(), ImmutableSet.copyOf(entry.getValue()));
-        }
         snapshot.useVersionValidation = snapshot.canUseVersionValidation();
         return snapshot;
     }
 
-    /** Freeze the decisions for a prepared short-circuit plan, failing closed if authorization was not recorded. */
+    /** Freeze a prepared short-circuit dependency set, failing closed if its proof is incomplete. */
     public synchronized SecurityDependencyContext snapshotForShortCircuit() {
         SecurityDependencyContext snapshot = snapshot();
-        if (checkedPrivileges.isEmpty()) {
+        if (!privilegeChecked || hasRowPolicy) {
             snapshot.complete = false;
+            snapshot.useVersionValidation = false;
         }
         return snapshot;
     }
 
     /**
-     * Revalidate every security decision before a cached plan bypasses analysis.
+     * Check whether an analyzed point-query plan can bypass planning again.
      *
-     * <p>A false result does not deny the statement itself. It rejects only the cached plan, after which the normal
-     * planning path performs the authoritative checks and returns the usual user-facing error when access was
-     * revoked. Authorization-source failures also reject reuse, so this fast path always fails closed.
+     * <p>A false result rejects only cached reuse. The prepared statement is reparsed and analyzed normally, so
+     * authorization failures retain their standard user-facing error. The authorization subject is checked before
+     * the version shortcut because COM_CHANGE_USER keeps the connection's prepared statements alive.
      */
     public boolean isValid(ConnectContext connectContext) {
-        if (!complete || connectContext == null) {
+        if (!complete || !useVersionValidation || connectContext == null
+                || !Objects.equals(planningUserIdentity, connectContext.getCurrentUserIdentity())
+                || !planningAuthenticatedRoles.equals(authenticatedRoles(connectContext))) {
             return false;
         }
         try {
-            Env env = connectContext.getEnv();
-            if (useVersionValidation) {
-                return usesAuthorizationChecks(connectContext) && versionsAreCurrent(env);
-            }
-            UserIdentity currentUser = connectContext.getCurrentUserIdentity();
-            if (currentUser == null) {
-                return false;
-            }
-            for (Map.Entry<FullTableName, Set<String>> entry : checkedPrivileges.entrySet()) {
-                TableIf table = findTable(env, entry.getKey());
-                if (table == null) {
-                    return false;
-                }
-                UserAuthentication.checkPermission(table, connectContext, entry.getValue());
-            }
-            for (Map.Entry<FullTableName, List<RowFilterSpec>> entry : rowPolicies.entrySet()) {
-                FullTableName table = entry.getKey();
-                List<RowFilterSpec> current = env.getAccessManager().evalRowFilterPolicies(
-                        currentUser, table.catalog, table.db, table.table);
-                if (!CollectionUtils.isEqualCollection(entry.getValue(), current)) {
-                    return false;
-                }
-            }
-            return dataMasksAreValid(env, currentUser);
-        } catch (UserException | RuntimeException e) {
+            return usesAuthorizationChecks(connectContext) && versionsAreCurrent(connectContext.getEnv());
+        } catch (RuntimeException e) {
             return false;
         }
     }
 
     private boolean canUseVersionValidation() {
-        if (!complete || !versionValidationEligible || checkedPrivileges.isEmpty()
-                || authorizationVersion == UNKNOWN_VERSION || rowPolicyVersion == UNKNOWN_VERSION) {
-            return false;
-        }
-        return allDependenciesUseInternalCatalog() && usesVersionedBuiltInAuthorization(planningEnv);
+        return complete && versionValidationEligible && privilegeChecked && internalCatalogOnly && olapTableOnly
+                && !hasRowPolicy && !hasDataMask
+                && authorizationVersion != UNKNOWN_VERSION && rowPolicyVersion != UNKNOWN_VERSION
+                && usesVersionedBuiltInAuthorization(planningEnv);
     }
 
     private boolean versionsAreCurrent(Env env) {
@@ -215,31 +196,10 @@ public class SecurityDependencyContext {
     }
 
     private static boolean usesVersionedBuiltInAuthorization(Env env) {
-        if (env == null || env.getAuth() == null || env.getPolicyMgr() == null
-                || !env.getAuth().isAuthorizationVersionReliable()) {
-            return false;
-        }
-        return env.getAccessManager().getAccessControllerOrDefault(InternalCatalog.INTERNAL_CATALOG_NAME)
-                instanceof InternalAuthorizationPlugin;
-    }
-
-    private boolean allDependenciesUseInternalCatalog() {
-        for (FullTableName table : checkedPrivileges.keySet()) {
-            if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(table.catalog)) {
-                return false;
-            }
-        }
-        for (FullTableName table : rowPolicies.keySet()) {
-            if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(table.catalog)) {
-                return false;
-            }
-        }
-        for (FullTableName table : dataMaskColumnsByTable.keySet()) {
-            if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(table.catalog)) {
-                return false;
-            }
-        }
-        return true;
+        return env != null && env.getAuth() != null && env.getPolicyMgr() != null
+                && env.getAuth().isAuthorizationVersionReliable()
+                && env.getAccessManager().getAccessControllerOrDefault(InternalCatalog.INTERNAL_CATALOG_NAME)
+                        instanceof InternalAuthorizationPlugin;
     }
 
     private static long currentAuthorizationVersion(Env env) {
@@ -260,44 +220,11 @@ public class SecurityDependencyContext {
         return sessionVariable != null && !sessionVariable.isPlayNereidsDump();
     }
 
-    private boolean dataMasksAreValid(Env env, UserIdentity currentUser) {
-        for (Map.Entry<FullTableName, Set<String>> entry : dataMaskColumnsByTable.entrySet()) {
-            FullTableName table = entry.getKey();
-            Map<String, DataMaskSpec> current = env.getAccessManager().evalDataMaskPolicies(
-                    currentUser, table.catalog, table.db, table.table, entry.getValue());
-            for (String column : entry.getValue()) {
-                Optional<DataMaskSpec> currentMask = Optional.ofNullable(
-                        current.get(column.toLowerCase(Locale.ROOT)));
-                if (!Objects.equals(dataMaskPolicies.get(
-                        new FullColumnName(table.catalog, table.db, table.table, column)), currentMask)) {
-                    return false;
-                }
-            }
+    private static Set<String> authenticatedRoles(ConnectContext connectContext) {
+        if (connectContext == null) {
+            return ImmutableSet.of();
         }
-        return true;
-    }
-
-    private Optional<FullTableName> qualifiedName(TableIf table) {
-        if (table == null) {
-            return Optional.empty();
-        }
-        DatabaseIf database = table.getDatabase();
-        if (database == null || database.getCatalog() == null) {
-            return Optional.empty();
-        }
-        return Optional.of(new FullTableName(
-                database.getCatalog().getName(), database.getFullName(), table.getName()));
-    }
-
-    private TableIf findTable(Env env, FullTableName fullTableName) {
-        CatalogIf<DatabaseIf<TableIf>> catalog = env.getCatalogMgr().getCatalog(fullTableName.catalog);
-        if (catalog == null) {
-            return null;
-        }
-        Optional<DatabaseIf<TableIf>> database = catalog.getDb(fullTableName.db);
-        if (!database.isPresent()) {
-            return null;
-        }
-        return database.get().getTable(fullTableName.table).orElse(null);
+        Set<String> roles = connectContext.getAuthenticatedRoles();
+        return roles == null || roles.isEmpty() ? ImmutableSet.of() : ImmutableSet.copyOf(roles);
     }
 }

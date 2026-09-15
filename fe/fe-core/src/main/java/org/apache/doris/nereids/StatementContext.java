@@ -194,10 +194,10 @@ public class StatementContext implements Closeable {
     // Map placeholder id to the physical key slot used by the immutable point-query template.
     private final Map<PlaceholderId, SlotReference> idToComparisonSlot = new TreeMap<>();
 
-    // Equality literals that were written as constants in the statement or injected by a
-    // security policy. They are deliberately separate from placeholder bindings: a prepared
-    // point query must never replace a fixed predicate merely because it references the same
-    // column as a placeholder.
+    // Equality literals written as constants in the statement. They are deliberately separate
+    // from placeholder bindings: a prepared point query must never replace a fixed predicate
+    // merely because it references the same column as a placeholder. Plans with row policies
+    // are not eligible for the point-query shortcut.
     private final List<PointQueryFixedKeyConstraint> pointQueryFixedKeyConstraints = new ArrayList<>();
     private boolean pointQueryFixedKeyConstraintsComplete = true;
 

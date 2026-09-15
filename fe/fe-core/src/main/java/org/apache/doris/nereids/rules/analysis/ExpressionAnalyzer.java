@@ -953,8 +953,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     /**
      * Keep fixed equality values distinct from prepared-statement placeholders. The point-query
      * executor used to rediscover both from the translated scan conjuncts and then update every
-     * predicate sharing a column name. Once a row policy adds {@code key = constant}, that loses
-     * provenance and turns the policy constant into caller-controlled state.
+     * predicate sharing a column name. A statement containing both {@code key = ?} and
+     * {@code key = constant} would therefore lose provenance and turn the fixed value into
+     * caller-controlled state.
      */
     private void registerPointQueryFixedKeyConstraint(ComparisonPredicate original,
             Expression analyzed, ExpressionRewriteContext context) {

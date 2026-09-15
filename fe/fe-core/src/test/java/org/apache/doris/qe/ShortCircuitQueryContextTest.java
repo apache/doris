@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -27,6 +28,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.SinglePartitionInfo;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.SecurityDependencyContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
@@ -49,6 +51,7 @@ import org.mockito.Mockito;
 import java.math.BigDecimal;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class ShortCircuitQueryContextTest {
     private OlapTable table(String name, int schemaVersion) {
@@ -89,6 +92,24 @@ public class ShortCircuitQueryContextTest {
                 new ShortCircuitQueryContext(table("tbl", 11), "tbl", 10, 0);
 
         Assertions.assertFalse(context.isReusable(connectContext(0)));
+    }
+
+    @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public void testReusableRequiresSameDatabaseNamespace() {
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        AtomicReference<String> databaseName = new AtomicReference<>("old_db");
+        Mockito.when(catalog.getName()).thenReturn("internal");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(database.getFullName()).thenAnswer(ignored -> databaseName.get());
+        OlapTable table = table("tbl", 10);
+        Mockito.doReturn(database).when(table).getDatabase();
+        ShortCircuitQueryContext context = new ShortCircuitQueryContext(table, "tbl", 10, -1);
+
+        Assertions.assertTrue(context.isReusable(connectContext(-1)));
+        databaseName.set("new_db");
+        Assertions.assertFalse(context.isReusable(connectContext(-1)));
     }
 
     @Test
@@ -153,23 +174,22 @@ public class ShortCircuitQueryContextTest {
     public void testPreparedKeyTemplateKeepsFixedConstraintsAcrossExecutions() {
         Column parameterKey = new Column("parameter_key", PrimitiveType.INT);
         parameterKey.setIsKey(true);
-        Column policyKey = new Column("policy_key", PrimitiveType.INT);
-        policyKey.setIsKey(true);
-        List<Column> schema = List.of(parameterKey, policyKey);
+        Column fixedKey = new Column("fixed_key", PrimitiveType.INT);
+        fixedKey.setIsKey(true);
+        List<Column> schema = List.of(parameterKey, fixedKey);
         OlapTable table = pointQueryTable(schema);
         SlotReference parameterSlot = SlotReference.fromColumn(
                 StatementScopeIdGenerator.newExprId(), table, parameterKey, Collections.emptyList());
-        SlotReference policySlot = SlotReference.fromColumn(
-                StatementScopeIdGenerator.newExprId(), table, policyKey, Collections.emptyList());
+        SlotReference fixedSlot = SlotReference.fromColumn(
+                StatementScopeIdGenerator.newExprId(), table, fixedKey, Collections.emptyList());
 
         PlaceholderId placeholderId = new PlaceholderId(0);
         StatementContext templateContext = new StatementContext();
         templateContext.setPlaceholders(Collections.singletonList(new Placeholder(placeholderId)));
         templateContext.getIdToComparisonSlot().put(placeholderId, parameterSlot);
-        // This models a restrictive policy on the same key as the placeholder, plus a
-        // policy-fixed column in a composite key.
+        // Fixed statement predicates remain distinct from caller-controlled placeholders.
         templateContext.addPointQueryFixedKeyConstraint(parameterSlot, new IntegerLiteral(1));
-        templateContext.addPointQueryFixedKeyConstraint(policySlot, new IntegerLiteral(9));
+        templateContext.addPointQueryFixedKeyConstraint(fixedSlot, new IntegerLiteral(9));
 
         OlapScanNode scanNode = Mockito.mock(OlapScanNode.class);
         Mockito.when(scanNode.getOlapTable()).thenReturn(table);
@@ -182,7 +202,7 @@ public class ShortCircuitQueryContextTest {
         Assertions.assertEquals(ShortCircuitQueryContext.PointQueryExecutionContext.Decision.LOOKUP,
                 firstExecution.getDecision());
         Assertions.assertEquals("1", firstExecution.getKeyValues().get("parameter_key").getStringValue());
-        Assertions.assertEquals("9", firstExecution.getKeyValues().get("policy_key").getStringValue());
+        Assertions.assertEquals("9", firstExecution.getKeyValues().get("fixed_key").getStringValue());
 
         StatementContext second = execution(placeholderId, new IntegerLiteral(2));
         Assertions.assertEquals(ShortCircuitQueryContext.PointQueryExecutionContext.Decision.EMPTY,

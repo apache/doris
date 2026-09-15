@@ -266,7 +266,9 @@ public class ExecuteCommandTest {
         PreparedStatementContext preparedStatement = new PreparedStatementContext(
                 prepareCommand, connectContext, statementContext, "stmt");
 
-        // A real ShortCircuitQueryContext (built from a mocked planner) that passes isReusable().
+        // Keep the real point-key binding path, but explicitly model a cache whose security
+        // dependencies have already been validated. A bare StatementContext intentionally
+        // cannot produce a reusable security snapshot because production validation is fail-closed.
         Planner planner = Mockito.mock(Planner.class);
         Mockito.when(planner.getQueryOptions()).thenReturn(new TQueryOptions());
         DescriptorTable descriptorTable = new DescriptorTable();
@@ -282,8 +284,9 @@ public class ExecuteCommandTest {
         Mockito.when(scanNode.getTableNameInPlan()).thenReturn("tbl");
         Mockito.when(scanNode.getConjuncts()).thenReturn(Collections.emptyList());
         Mockito.when(planner.getScanNodes()).thenReturn(Collections.singletonList(scanNode));
-        ShortCircuitQueryContext cachedPlan = new ShortCircuitQueryContext(
-                planner, Mockito.mock(Queriable.class), statementContext);
+        ShortCircuitQueryContext cachedPlan = Mockito.spy(new ShortCircuitQueryContext(
+                planner, Mockito.mock(Queriable.class), statementContext));
+        Mockito.doReturn(true).when(cachedPlan).isReusable(connectContext);
         preparedStatement.shortCircuitQueryContext = Optional.of(cachedPlan);
 
         StmtExecutor executor = Mockito.mock(StmtExecutor.class);

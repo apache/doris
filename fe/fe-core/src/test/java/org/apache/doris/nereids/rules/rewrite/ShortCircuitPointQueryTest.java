@@ -78,6 +78,7 @@ class ShortCircuitPointQueryTest extends TestWithFeService
                 + "  \"light_schema_change\" = \"true\",\n"
                 + "  \"store_row_column\" = \"true\"\n"
                 + ");");
+        createView("CREATE VIEW `view_point_query` AS SELECT `key`, `v1` FROM `tbl_point_query`");
     }
 
     @Test
@@ -139,6 +140,14 @@ class ShortCircuitPointQueryTest extends TestWithFeService
                 + "where order_id = 1 and pay_date = '2026-08-05'");
 
         Assertions.assertFalse(connectContext.getStatementContext().isShortCircuitQuery());
+    }
+
+    @Test
+    void testViewDoesNotUseShortCircuit() {
+        rewrite("select * from view_point_query where `key` = 1");
+
+        Assertions.assertFalse(connectContext.getStatementContext().isShortCircuitQuery());
+        Assertions.assertFalse(connectContext.getStatementContext().getViewDdlSqls().isEmpty());
     }
 
     @Test

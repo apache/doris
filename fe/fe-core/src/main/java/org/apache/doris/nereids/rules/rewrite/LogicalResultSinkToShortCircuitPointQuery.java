@@ -103,7 +103,13 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
     // set short circuit flag and return the original plan
     private Plan shortCircuit(Plan root, OlapTable olapTable,
                 Set<Expression> conjuncts, StatementContext statementContext) {
-        if (!statementContext.arePointQueryFixedKeyConstraintsComplete()) {
+        // Row filters are injected into the analyzed plan and views are inlined. Neither shape has a
+        // cheap, stable dependency fence suitable for a reusable direct plan, so keep both on the
+        // normal execution path. A global row-policy epoch still invalidates a no-policy plan if a
+        // policy is added after it was cached.
+        if (statementContext.getSecurityDependencyContext().hasRowPolicy()
+                || !statementContext.getViewDdlSqls().isEmpty()
+                || !statementContext.arePointQueryFixedKeyConstraintsComplete()) {
             return root;
         }
         // All key columns in conjuncts

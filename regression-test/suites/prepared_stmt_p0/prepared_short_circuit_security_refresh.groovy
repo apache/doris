@@ -17,19 +17,24 @@
 
 import java.sql.DriverManager
 import java.sql.SQLException
+import java.util.Locale
 
 suite("prepared_short_circuit_security_refresh", "nonConcurrent") {
     def dbName = context.config.getDbNameByFile(context.file)
     def policyName = "prepared_short_circuit_security_refresh_policy"
     def testUser = "prepared_short_circuit_security_refresh_user"
     def testPassword = "PreparedSecurity@123"
+    def switchedUser = "prepared_short_circuit_security_switched_user"
+    def switchedPassword = "PreparedSecurity@456"
     def adminUser = context.config.jdbcUser
     def adminPassword = context.config.jdbcPassword
     String serverPrepareUrl = getServerPrepareJdbcUrl(context.config.jdbcUrl, dbName)
 
     sql "DROP TABLE IF EXISTS prepared_short_circuit_security_refresh_tbl"
     sql "DROP USER IF EXISTS ${testUser}"
+    sql "DROP USER IF EXISTS ${switchedUser}"
     sql "CREATE USER ${testUser} IDENTIFIED BY '${testPassword}'"
+    sql "CREATE USER ${switchedUser} IDENTIFIED BY '${switchedPassword}'"
     sql """
         CREATE TABLE prepared_short_circuit_security_refresh_tbl (
             k INT NOT NULL,
@@ -49,6 +54,9 @@ suite("prepared_short_circuit_security_refresh", "nonConcurrent") {
     sql """INSERT INTO prepared_short_circuit_security_refresh_tbl
             VALUES (1, 10, 'allowed'), (2, 20, 'restricted')"""
     sql "GRANT SELECT_PRIV ON ${dbName}.prepared_short_circuit_security_refresh_tbl TO ${testUser}"
+    // Connector/J includes the current database in COM_CHANGE_USER. Give the switched user
+    // enough metadata access to enter it, but deliberately no SELECT privilege on the table.
+    sql "GRANT SHOW_VIEW_PRIV ON ${dbName}.prepared_short_circuit_security_refresh_tbl TO ${switchedUser}"
     sql "SET GLOBAL enable_server_side_prepared_statement = true"
     sql "SYNC"
 
@@ -56,6 +64,7 @@ suite("prepared_short_circuit_security_refresh", "nonConcurrent") {
         def clusters = sql "SHOW CLUSTERS"
         assertTrue(!clusters.isEmpty())
         sql "GRANT USAGE_PRIV ON CLUSTER `${clusters[0][0]}` TO ${testUser}"
+        sql "GRANT USAGE_PRIV ON CLUSTER `${clusters[0][0]}` TO ${switchedUser}"
     }
 
     def adminConnection = DriverManager.getConnection(context.config.jdbcUrl, adminUser, adminPassword)
@@ -63,6 +72,22 @@ suite("prepared_short_circuit_security_refresh", "nonConcurrent") {
         adminConnection.createStatement().withCloseable { adminStatement ->
             adminStatement.execute(statement)
         }
+    }
+    def assertSelectDenied = { prepared, String failureMessage ->
+        boolean denied = false
+        try {
+            prepared.executeQuery().close()
+        } catch (SQLException e) {
+            String denial = e.message == null ? "" : e.message.toLowerCase(Locale.ROOT)
+            if (!denial.contains("permission denied")
+                    || !denial.contains("select_priv")
+                    || !denial.contains("prepared_short_circuit_security_refresh_tbl")) {
+                throw e
+            }
+            denied = true
+            logger.info("prepared execution reached the expected SELECT denial: ${e.message}")
+        }
+        assertTrue(denied, failureMessage)
     }
 
     try {
@@ -93,6 +118,15 @@ suite("prepared_short_circuit_security_refresh", "nonConcurrent") {
             qe_before_policy prepared
             qe_cached_before_policy prepared
 
+            // COM_CHANGE_USER retains the server-prepared handle. The cached plan must remain bound
+            // to the identity which planned it, not merely to the physical connection.
+            def jdbcConnection = prepared.getConnection().unwrap(com.mysql.cj.jdbc.JdbcConnection.class)
+            jdbcConnection.changeUser(switchedUser, switchedPassword)
+            assertSelectDenied(prepared,
+                    "the cached point-query plan must not survive a successful COM_CHANGE_USER")
+            jdbcConnection.changeUser(testUser, testPassword)
+            qe_after_change_user_restored prepared
+
             adminExecute("""
                 CREATE ROW POLICY ${policyName}
                 ON ${dbName}.prepared_short_circuit_security_refresh_tbl
@@ -106,14 +140,8 @@ suite("prepared_short_circuit_security_refresh", "nonConcurrent") {
 
             adminExecute("""REVOKE SELECT_PRIV
                     ON ${dbName}.prepared_short_circuit_security_refresh_tbl FROM ${testUser}""")
-            boolean denied = false
-            try {
-                prepared.executeQuery().close()
-            } catch (SQLException e) {
-                denied = true
-                logger.info("prepared execution was denied after SELECT revoke: ${e.message}")
-            }
-            assertTrue(denied, "the cached point-query plan must not survive SELECT revocation")
+            assertSelectDenied(prepared,
+                    "the cached point-query plan must not survive SELECT revocation")
 
             adminExecute("""GRANT SELECT_PRIV
                     ON ${dbName}.prepared_short_circuit_security_refresh_tbl TO ${testUser}""")
@@ -127,5 +155,6 @@ suite("prepared_short_circuit_security_refresh", "nonConcurrent") {
                 ON ${dbName}.prepared_short_circuit_security_refresh_tbl TO ${testUser}""")
         adminConnection.close()
         sql "DROP USER IF EXISTS ${testUser}"
+        sql "DROP USER IF EXISTS ${switchedUser}"
     }
 }
