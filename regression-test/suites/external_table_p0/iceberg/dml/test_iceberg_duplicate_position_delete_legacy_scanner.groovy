@@ -43,7 +43,10 @@ suite("test_iceberg_duplicate_position_delete_legacy_scanner",
             process.waitForOrKill(timeoutSeconds * 1000)
             int exitCode = process.exitValue()
             if (exitCode != 0 && logFailure) {
-                logger.info("exit code: ${exitCode}, stdout\n: ${stdout}\nstderr\n: ${stderr}")
+                logger.info("exit code: ${exitCode}, stdout
+: ${stdout}
+stderr
+: ${stderr}")
             }
             return [exitCode: exitCode, stdout: stdout.toString(), stderr: stderr.toString()]
         } catch (IOException e) {
@@ -54,21 +57,25 @@ suite("test_iceberg_duplicate_position_delete_legacy_scanner",
     def executeCommand = { String command, int timeoutSeconds = 300 ->
         def result = executeCommandWithStatus(command, timeoutSeconds)
         assertEquals(0, result.exitCode,
-                "Command failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}")
+                "Command failed
+stdout:
+${result.stdout}
+stderr:
+${result.stderr}")
         return result.stdout
     }
 
     String dockerCommand = context.config.otherConfigs.get("externalDockerCommand") ?: "docker"
     def listDockerContainers = {
         String containers =
-                executeCommand("${dockerCommand} ps --format '{{.ID}}\t{{.Names}}\t{{.Image}}'", 30) ?: ""
+                executeCommand("${dockerCommand} ps --format '{{.ID}}	{{.Names}}	{{.Image}}'", 30) ?: ""
         return containers.readLines().collect { it.trim() }.findAll { !it.isEmpty() }
     }
 
     def findSparkContainer = {
         String configuredContainer = context.config.otherConfigs.get("icebergSparkContainer")
-        String probeCommand = "command -v spark-sql >/dev/null && test -f /mnt/SUCCESS && "
-                + "test -f /mnt/scripts/java/CreateIcebergDuplicatePositionDeleteFixture.java"
+        String probeCommand = "command -v spark-sql >/dev/null && test -f /mnt/SUCCESS && " +
+                "test -f /mnt/scripts/java/CreateIcebergDuplicatePositionDeleteFixture.java"
         if (configuredContainer != null && !configuredContainer.isEmpty()) {
             def probe = executeCommandWithStatus(
                     "${dockerCommand} exec ${configuredContainer} bash -lc '${probeCommand}'", 30)
@@ -79,7 +86,7 @@ suite("test_iceberg_duplicate_position_delete_legacy_scanner",
 
         def matchedContainers = []
         listDockerContainers().each { String containerLine ->
-            def fields = containerLine.split(/\t/, 3)
+            def fields = containerLine.split(/	/, 3)
             assertTrue(fields.length >= 2, "Unexpected docker ps output: ${containerLine}")
             String containerId = fields[0].trim()
             String containerName = fields[1].trim()
@@ -96,11 +103,11 @@ suite("test_iceberg_duplicate_position_delete_legacy_scanner",
 
         assertFalse(matchedContainers.isEmpty(),
                 "No usable Spark Iceberg container found. Set icebergSparkContainer or start it.")
-        assertEquals(1, matchedContainers.size(),
-                "Multiple usable Spark Iceberg containers found: ${matchedContainers}. "
-                        + "Set icebergSparkContainer to the exact container name.")
-        logger.info("use Spark Iceberg container ${matchedContainers[0].name} "
-                + "(${matchedContainers[0].image})")
+        String multipleContainersMessage = "Multiple usable Spark Iceberg containers found: ${matchedContainers}. " +
+                "Set icebergSparkContainer to the exact container name."
+        assertEquals(1, matchedContainers.size(), multipleContainersMessage)
+        logger.info("use Spark Iceberg container ${matchedContainers[0].name} " +
+                "(${matchedContainers[0].image})")
         return matchedContainers[0].id
     }
 
@@ -110,11 +117,10 @@ suite("test_iceberg_duplicate_position_delete_legacy_scanner",
     }
     def runSparkSql = { String sqlText, int timeoutSeconds = 600 ->
         String encodedSql = sqlText.getBytes("UTF-8").encodeBase64().toString()
-        runInSparkContainer(
-                "echo ${encodedSql} | base64 -d >/tmp/test_iceberg_duplicate_position_delete.sql && "
-                        + "spark-sql --conf spark.sql.session.timeZone=UTC "
-                        + "-f /tmp/test_iceberg_duplicate_position_delete.sql",
-                timeoutSeconds)
+        String sparkSqlCommand = "echo ${encodedSql} | base64 -d >/tmp/test_iceberg_duplicate_position_delete.sql && " +
+                "spark-sql --conf spark.sql.session.timeZone=UTC " +
+                "-f /tmp/test_iceberg_duplicate_position_delete.sql"
+        runInSparkContainer(sparkSqlCommand, timeoutSeconds)
     }
     def longValue = { Object value ->
         return ((Number) value).longValue()
@@ -165,13 +171,12 @@ suite("test_iceberg_duplicate_position_delete_legacy_scanner",
                 (10), (20), (30), (40) AS t(id);
         """)
 
-        runInSparkContainer(
-                "javac -cp \"/opt/spark/jars/*\" "
-                        + "/mnt/scripts/java/CreateIcebergDuplicatePositionDeleteFixture.java && "
-                        + "java -cp \"/mnt/scripts/java:/opt/spark/jars/*\" "
-                        + "CreateIcebergDuplicatePositionDeleteFixture "
-                        + "${dbName} ${tableName} 0,0",
-                300)
+        String javaFixtureCommand = "javac -cp "/opt/spark/jars/*" " +
+                "/mnt/scripts/java/CreateIcebergDuplicatePositionDeleteFixture.java && " +
+                "java -cp "/mnt/scripts/java:/opt/spark/jars/*" " +
+                "CreateIcebergDuplicatePositionDeleteFixture " +
+                "${dbName} ${tableName} 0,0"
+        runInSparkContainer(javaFixtureCommand, 300)
 
         sql """switch ${catalogName}"""
         sql """use ${dbName}"""
