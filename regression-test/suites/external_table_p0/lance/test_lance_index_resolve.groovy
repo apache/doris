@@ -32,10 +32,6 @@ suite("test_lance_index_resolve", "p0,external,nonConcurrent") {
 
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
-    // Read for fixture parity with the admission suite; this suite creates no REST
-    // catalog because a REST catalog can never hold an UNKNOWN job, and the REST
-    // rejection family is already covered by test_lance_index_admission.
-    String lanceRestPort = context.config.otherConfigs.get("lance_rest_port")
     // Admitted jobs are durable and stay PENDING forever in this delivery slice:
     // dispatch, the FORCE happy path and job GC only land in later slices, so their
     // fences and quota charges can never be released here. Every index name (and the

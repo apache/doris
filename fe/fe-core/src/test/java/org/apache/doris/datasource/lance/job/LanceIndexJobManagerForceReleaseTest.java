@@ -40,8 +40,10 @@ import java.util.List;
  * CAS, unlike the stale-callback convention); a stale revision or an oversized
  * bounded text field changes nothing and writes no journal; a force-released name
  * is immediately reusable; the release of an identity-less (corrupt) record lifts
- * the fail-closed admission blockade by id; and a force-released job leaves the
- * refresh-driver queue.
+ * the fail-closed admission blockade by id; a force-released job leaves the
+ * refresh-driver queue; and a corrupt record that is force-released on a
+ * non-UNKNOWN state is not honored by the idempotent short-circuit but falls
+ * through to the revision CAS and the state gate.
  */
 public class LanceIndexJobManagerForceReleaseTest {
     private static final long CATALOG_ID = 10L;
@@ -229,6 +231,31 @@ public class LanceIndexJobManagerForceReleaseTest {
         Assertions.assertTrue(manager.isFenceHeld(admitted.fenceKey()));
         Assertions.assertEquals(1L, manager.getQuota().getGlobalCount());
         Assertions.assertEquals(2, manager.getJobCount());
+    }
+
+    @Test
+    public void forceReleasedOnANonUnknownStateFallsThroughToTheStateGate() throws DdlException {
+        TestManager manager = new TestManager();
+        // A record that is force-released on a non-UNKNOWN state can only come from a
+        // corrupt journal or image; the idempotent short-circuit must not honor it.
+        LanceIndexJob corrupt = newCreateJob(5L, "IdxCorrupt");
+        corrupt.setMutationState(LanceIndexJobMutationState.PENDING);
+        corrupt.setForceReleased(true);
+        manager.replayUpsertJob(corrupt);
+        Assertions.assertTrue(manager.getJob(5L).isForceReleased());
+        Assertions.assertEquals(LanceIndexJobMutationState.PENDING, manager.getJob(5L).getMutationState());
+        Assertions.assertEquals(0, manager.editLog.size());
+
+        // Even with the matching revision the release falls through to the state gate:
+        // warn + false, no journal record, and the record is left untouched.
+        Assertions.assertFalse(manager.forceRelease(5L, 0L, ACTOR, NOTE, WARNING));
+
+        Assertions.assertEquals(0, manager.editLog.size());
+        LanceIndexJob stored = manager.getJob(5L);
+        Assertions.assertEquals(LanceIndexJobMutationState.PENDING, stored.getMutationState());
+        Assertions.assertEquals(0L, stored.getRevision());
+        Assertions.assertNull(stored.getForceActor());
+        Assertions.assertNull(stored.getForceTimeMs());
     }
 
     @Test

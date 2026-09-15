@@ -285,6 +285,15 @@ public class ResolveLanceIndexJobCommandTest {
         AnalysisException e = Assertions.assertThrows(AnalysisException.class,
                 () -> new ResolveLanceIndexJobCommand(42L, "note").run(connectContext, null));
         Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_JOB_NOT_FOUND, e.getMysqlErrorCode());
+        new Verifications() {
+            {
+                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
+                times = 1;
+                accessControllerManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString,
+                        (PrivPredicate) any);
+                times = 0;
+            }
+        };
     }
 
     @Test
@@ -594,6 +603,78 @@ public class ResolveLanceIndexJobCommandTest {
                 queryState.setOk(0L, 1, ResolveLanceIndexJobCommand.LATE_COMMIT_WARNING);
                 times = 1;
                 lanceIndexJobManager.forceRelease(anyLong, anyLong, anyString, anyString, anyString);
+                times = 0;
+            }
+        };
+    }
+
+    @Test
+    public void testAlreadyForceReleasedSurvivesAResolutionFailure() throws Exception {
+        // The release already landed, so a retry during a provider outage — the
+        // target resolution errors out — is still the idempotent OK, never the
+        // typed 5105: the idempotent short-circuit precedes the resolution-failure
+        // rejection.
+        LanceIndexJob job = newUnknownJob(42L);
+        job.setForceReleased(true);
+        expectEnv(job);
+        new Expectations() {
+            {
+                catalogMgr.getCatalog(10L);
+                minTimes = 0;
+                result = lanceCatalog;
+
+                lanceCatalog.getDbNullable("db1");
+                minTimes = 0;
+                result = new RuntimeException("provider down");
+
+                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
+                minTimes = 0;
+                result = true;
+            }
+        };
+        new ResolveLanceIndexJobCommand(42L, "note").run(connectContext, null);
+        new Verifications() {
+            {
+                queryState.setOk(0L, 1, ResolveLanceIndexJobCommand.LATE_COMMIT_WARNING);
+                times = 1;
+                lanceIndexJobManager.forceRelease(anyLong, anyLong, anyString, anyString, anyString);
+                times = 0;
+            }
+        };
+    }
+
+    @Test
+    public void testNonUnknownJobWithFailedResolutionIsRejectedAsNotUnknown() throws Exception {
+        // The state gate also precedes the resolution-failure rejection: for a
+        // job that already left UNKNOWN the accurate answer is the 5104 state
+        // rejection, not a 5105 claiming it still holds its fence.
+        LanceIndexJob job = newUnknownJob(42L);
+        job.setMutationState(LanceIndexJobMutationState.PENDING);
+        expectEnv(job);
+        new Expectations() {
+            {
+                catalogMgr.getCatalog(10L);
+                minTimes = 0;
+                result = lanceCatalog;
+
+                lanceCatalog.getDbNullable("db1");
+                minTimes = 0;
+                result = new RuntimeException("provider down");
+
+                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
+                minTimes = 0;
+                result = true;
+            }
+        };
+        AnalysisException e = Assertions.assertThrows(AnalysisException.class,
+                () -> new ResolveLanceIndexJobCommand(42L, "note").run(connectContext, null));
+        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_JOB_NOT_UNKNOWN, e.getMysqlErrorCode());
+        Assertions.assertTrue(e.getMessage().contains("cannot be resolved: not in UNKNOWN state"));
+        new Verifications() {
+            {
+                lanceIndexJobManager.forceRelease(anyLong, anyLong, anyString, anyString, anyString);
+                times = 0;
+                queryState.setOk(anyLong, anyInt, anyString);
                 times = 0;
             }
         };
