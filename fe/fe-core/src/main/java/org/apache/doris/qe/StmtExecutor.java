@@ -460,16 +460,16 @@ public class StmtExecutor {
      * from as well.
      */
     private Map<String, String> getDeferredQuerySummaryInfo(long currentTimestamp, boolean isFinished) {
+        // A deferred query's profile is updated once more, at its finalization: its RUNNING summary
+        // was taken before it was deferred (updateProfile(false) in executeAndSendResult), and a
+        // deferred executor is never retried.
+        Preconditions.checkState(isFinished, "the summary of a deferred query is taken only when it finishes");
         SummaryBuilder builder = new SummaryBuilder();
-        if (!isFinished) {
-            return builder.build();
-        }
         builder.endTime(TimeUtils.longToTimeString(currentTimestamp));
         addTotalTime(builder, currentTimestamp - deferredStartTimeMs);
-        // A query is only deferred once its coordinator has run it (see deferForArrowFlight).
-        if (coord != null) {
-            builder.taskState(coord.getExecStatus().getErrorCode().name());
-        }
+        // A query is only deferred once its coordinator has run it (see deferForArrowFlight), and
+        // nothing drops the coordinator afterwards.
+        builder.taskState(coord.getExecStatus().getErrorCode().name());
         return builder.build();
     }
 

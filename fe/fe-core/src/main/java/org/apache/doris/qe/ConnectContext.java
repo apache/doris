@@ -1087,8 +1087,7 @@ public class ConnectContext {
         for (StmtExecutor deferredExecutor : expired) {
             LOG.warn("release deferred arrow flight query {} of idle connection, connectionId: {}, remote: {}, "
                             + "deferred for: {}ms, bound: {}ms",
-                    deferredExecutor.getDeferredQueryId() == null
-                            ? "unknown" : DebugUtil.printId(deferredExecutor.getDeferredQueryId()),
+                    DebugUtil.printId(deferredExecutor.getDeferredQueryId()),
                     connectionId, getRemoteHostPortString(), now - deferredExecutor.getDeferredStartTimeMs(),
                     FlightProtocolAdapter.deferredBoundMs(deferredExecutor,
                             Config.arrow_flight_deferred_query_idle_timeout_second));

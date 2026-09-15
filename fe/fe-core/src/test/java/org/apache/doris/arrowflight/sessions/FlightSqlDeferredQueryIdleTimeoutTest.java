@@ -23,6 +23,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.AfterEach;
@@ -68,6 +69,8 @@ public class FlightSqlDeferredQueryIdleTimeoutTest {
 
     private static StmtExecutor deferredExecutor(long startTimeMs, int execTimeoutS) {
         StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        // A deferred executor always carries its query id (deferForArrowFlight records it first).
+        Mockito.when(executor.getDeferredQueryId()).thenReturn(new TUniqueId(startTimeMs, execTimeoutS));
         Mockito.when(executor.getDeferredExecTimeoutS()).thenReturn(execTimeoutS);
         Mockito.when(executor.getDeferredStartTimeMs()).thenReturn(startTimeMs);
         return executor;
