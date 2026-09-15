@@ -90,6 +90,8 @@ TEST(StorageFieldTypeTest, UnsupportedPrimitiveTypesThrow) {
             static_cast<PrimitiveType>(33), // TYPE_LAMBDA_FUNCTION (deprecated)
             PrimitiveType::TYPE_FIXED_LENGTH_OBJECT,
             PrimitiveType::TYPE_VARBINARY,
+            PrimitiveType::TYPE_GEOMETRY,
+            PrimitiveType::TYPE_GEOGRAPHY,
             static_cast<PrimitiveType>(43),
             static_cast<PrimitiveType>(255),
     };

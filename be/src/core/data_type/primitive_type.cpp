@@ -141,6 +141,10 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
         return TYPE_VARBINARY;
     case TPrimitiveType::TIMESTAMPTZ:
         return TYPE_TIMESTAMPTZ;
+    case TPrimitiveType::GEOMETRY:
+        return TYPE_GEOMETRY;
+    case TPrimitiveType::GEOGRAPHY:
+        return TYPE_GEOGRAPHY;
     default:
         CHECK(false) << ", meet unknown type " << ttype;
         return INVALID_TYPE;
@@ -256,6 +260,10 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
         return TPrimitiveType::VARBINARY;
     case TYPE_TIMESTAMPTZ:
         return TPrimitiveType::TIMESTAMPTZ;
+    case TYPE_GEOMETRY:
+        return TPrimitiveType::GEOMETRY;
+    case TYPE_GEOGRAPHY:
+        return TPrimitiveType::GEOGRAPHY;
     default:
         return TPrimitiveType::INVALID_TYPE;
     }
@@ -373,6 +381,10 @@ std::string type_to_string(PrimitiveType t) {
 
     case TYPE_TIMESTAMPTZ:
         return "TIMESTAMPTZ";
+    case TYPE_GEOMETRY:
+        return "GEOMETRY";
+    case TYPE_GEOGRAPHY:
+        return "GEOGRAPHY";
     default:
         return "";
     };

@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ColumnType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.common.DdlException;
@@ -382,6 +383,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 && IcebergUtils.containsVariant(column.getType()))) {
             throw new UserException("Iceberg VARIANT DDL currently supports only top-level columns");
         }
+        if (columns.stream().anyMatch(column -> (!(column.getType() instanceof ScalarType)
+                || !((ScalarType) column.getType()).isSpatialType())
+                && IcebergUtils.containsSpatial(column.getType()))) {
+            throw new UserException("Iceberg GEOMETRY and GEOGRAPHY DDL currently support only top-level columns");
+        }
         List<StructField> collect = columns.stream()
                 .map(col -> new StructField(col.getName(), col.getType(), col.getComment(), col.isAllowNull()))
                 .collect(Collectors.toList());
@@ -396,7 +402,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 && !IcebergUtils.hasIcebergCatalogFormatVersion(catalogProperties)) {
             properties.put(TableProperties.FORMAT_VERSION, "2");
         }
-        if (columns.stream().anyMatch(column -> IcebergUtils.containsVariant(column.getType()))) {
+        if (columns.stream().anyMatch(column -> IcebergUtils.containsVariant(column.getType())
+                || IcebergUtils.containsSpatial(column.getType()))) {
             IcebergUtils.validateWriteSchema(columns,
                     IcebergUtils.getEffectiveIcebergFormatVersion(properties, catalogProperties),
                     IcebergUtils.getEffectiveFileFormat(properties, catalogProperties));
@@ -711,6 +718,25 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
     }
 
+    private void validateSpatialSchema(Table icebergTable, org.apache.doris.catalog.Type dorisType,
+            String columnPath, boolean nestedColumn) throws UserException {
+        if (!IcebergUtils.containsSpatial(dorisType)) {
+            return;
+        }
+        if (nestedColumn || !(dorisType instanceof ScalarType)
+                || !((ScalarType) dorisType).isSpatialType()) {
+            throw new UserException("Iceberg GEOMETRY and GEOGRAPHY DDL currently support only top-level columns");
+        }
+        if (IcebergUtils.getFormatVersion(icebergTable) < IcebergUtils.ICEBERG_SPATIAL_MIN_VERSION) {
+            throw new UserException("Iceberg spatial column " + columnPath
+                    + " requires table format-version 3");
+        }
+        if (IcebergUtils.getFileFormat(icebergTable) != org.apache.iceberg.FileFormat.PARQUET) {
+            throw new UserException("Iceberg spatial column " + columnPath
+                    + " requires Parquet data files");
+        }
+    }
+
     private void applyPosition(UpdateSchema updateSchema, ColumnPosition position, ColumnPath columnPath, Schema schema,
             String operation) throws UserException {
         String columnName = columnPath.getFullPath();
@@ -770,6 +796,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         validateAddColumnMetadata(column, true);
         Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable, this);
         validateVariantSchema(icebergTable, column.getType(), column.getName(), false, true);
+        validateSpatialSchema(icebergTable, column.getType(), column.getName(), false);
         validateRowLineageColumnMutation(icebergTable, column.getName(), "add");
         Schema schema = icebergTable.schema();
         validateNoCaseInsensitiveSiblingCollision(
@@ -801,6 +828,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
         Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable, this);
         validateVariantSchema(icebergTable, column.getType(), columnPath.getFullPath(), true, true);
+        validateSpatialSchema(icebergTable, column.getType(), columnPath.getFullPath(), true);
         ResolvedColumnPath parentPath = resolveColumnPath(icebergTable.schema(), columnPath.getParentPath(), "add");
         if (!parentPath.getType().isStructType()) {
             throw new UserException("Parent column path '" + columnPath.getParentPathString()
@@ -833,6 +861,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         for (Column column : columns) {
             validateAddColumnMetadata(column, true);
             validateVariantSchema(icebergTable, column.getType(), column.getName(), false, true);
+            validateSpatialSchema(icebergTable, column.getType(), column.getName(), false);
             validateRowLineageColumnMutation(icebergTable, column.getName(), "add");
         }
         validateNoCaseInsensitiveTopLevelCollisions(icebergTable.schema(), columns);
@@ -1008,6 +1037,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         // contain VARIANT columns even though Doris cannot write VARIANT values to ORC files.
         validateVariantSchema(icebergTable, column.getType(), columnPath.getFullPath(), false,
                 !variantModify);
+        validateSpatialSchema(icebergTable, column.getType(), columnPath.getFullPath(), false);
         org.apache.iceberg.types.Type targetType;
         if (variantModify) {
             validateForModifyVariantColumn(column, currentCol, resolvedPath.getFullPath());
@@ -1071,6 +1101,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
         validateNestedModifyColumnMetadata(column, resolvedPath.getFullPath());
         validateVariantSchema(icebergTable, column.getType(), columnPath.getFullPath(), true, true);
+        validateSpatialSchema(icebergTable, column.getType(), columnPath.getFullPath(), true);
         org.apache.iceberg.types.Type targetType;
         if (column.getType().isComplexType()) {
             validateForModifyComplexColumn(column, currentCol, columnPath.getFullPath());

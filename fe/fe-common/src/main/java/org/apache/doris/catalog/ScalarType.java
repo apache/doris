@@ -115,6 +115,10 @@ public class ScalarType extends Type {
     @SerializedName(value = "scale")
     private int scale;
 
+    @SerializedName(value = "spatialCrs")
+    private String spatialCrs;
+    @SerializedName(value = "spatialAlgorithm")
+    private String spatialAlgorithm;
     // Only used for alias function decimal
     @SerializedName(value = "precisionStr")
     private String precisionStr;
@@ -152,6 +156,10 @@ public class ScalarType extends Type {
                 return createTimeStampTzType(scale);
             case VARBINARY:
                 return createVarbinaryType(len);
+            case GEOMETRY:
+                return createGeometryType();
+            case GEOGRAPHY:
+                return createGeographyType();
             default:
                 return createType(type);
         }
@@ -227,6 +235,10 @@ public class ScalarType extends Type {
                 return IPV6;
             case VARBINARY:
                 return VARBINARY;
+            case GEOMETRY:
+                return createGeometryType();
+            case GEOGRAPHY:
+                return createGeographyType();
             default:
                 LOG.warn("type={}", type);
                 Preconditions.checkState(false, "type.name()=" + type.name());
@@ -532,6 +544,43 @@ public class ScalarType extends Type {
         }
     }
 
+    public static ScalarType createGeometryType() {
+        return createGeometryType("OGC:CRS84");
+    }
+
+    public static ScalarType createGeometryType(String crs) {
+        Preconditions.checkArgument(crs != null && !crs.trim().isEmpty(), "Spatial CRS must not be empty");
+        ScalarType result = new ScalarType(PrimitiveType.GEOMETRY);
+        result.spatialCrs = crs;
+        return result;
+    }
+
+    public static ScalarType createGeographyType() {
+        return createGeographyType("OGC:CRS84", "spherical");
+    }
+
+    public static ScalarType createGeographyType(String crs, String algorithm) {
+        Preconditions.checkArgument(crs != null && !crs.trim().isEmpty(), "Spatial CRS must not be empty");
+        Preconditions.checkArgument(algorithm != null && !algorithm.trim().isEmpty(),
+                "Geography algorithm must not be empty");
+        ScalarType result = new ScalarType(PrimitiveType.GEOGRAPHY);
+        result.spatialCrs = crs;
+        result.spatialAlgorithm = algorithm;
+        return result;
+    }
+
+    public String getSpatialCrs() {
+        return spatialCrs;
+    }
+
+    public String getSpatialAlgorithm() {
+        return spatialAlgorithm;
+    }
+
+    public boolean isSpatialType() {
+        return type == PrimitiveType.GEOMETRY || type == PrimitiveType.GEOGRAPHY;
+    }
+
     public static ScalarType createVarbinaryType(int len) {
         // length checked in analysis
         ScalarType type = new ScalarType(PrimitiveType.VARBINARY);
@@ -595,6 +644,9 @@ public class ScalarType extends Type {
 
     @Override
     public String toString() {
+        if (isSpatialType()) {
+            return toSql(0);
+        }
         if (type == PrimitiveType.CHAR) {
             if (isWildcardChar()) {
                 return "character(" + MAX_CHAR_LENGTH + ")";
@@ -631,6 +683,11 @@ public class ScalarType extends Type {
 
     @Override
     public String toSql(int depth) {
+        if (isSpatialType()) {
+            return type.name() + "('" + spatialCrs.replace("'", "''") + "'"
+                    + (type == PrimitiveType.GEOGRAPHY ? ", '" + spatialAlgorithm.replace("'", "''") + "'" : "")
+                    + ")";
+        }
         StringBuilder stringBuilder = new StringBuilder();
         switch (type) {
             case CHAR:
@@ -749,6 +806,12 @@ public class ScalarType extends Type {
         node.setType(TTypeNodeType.SCALAR);
         TScalarType scalarType = new TScalarType();
         scalarType.setType(type.toThrift());
+        if (isSpatialType()) {
+            scalarType.setSpatialCrs(spatialCrs);
+            if (type == PrimitiveType.GEOGRAPHY) {
+                scalarType.setSpatialAlgorithm(spatialAlgorithm);
+            }
+        }
         container.setByteSize(byteSize);
 
         switch (type) {
@@ -966,6 +1029,10 @@ public class ScalarType extends Type {
         if (type != other.type) {
             return false;
         }
+        if (isSpatialType()) {
+            return Objects.equals(spatialCrs, other.spatialCrs)
+                    && Objects.equals(spatialAlgorithm, other.spatialAlgorithm);
+        }
         if (type == PrimitiveType.CHAR) {
             return len == other.len;
         }
@@ -998,6 +1065,9 @@ public class ScalarType extends Type {
 
     @Override
     public int hashCode() {
+        if (isSpatialType()) {
+            return Objects.hash(type, spatialCrs, spatialAlgorithm);
+        }
         int result = 0;
         result = 31 * result + Objects.hashCode(type);
         result = 31 * result + precision;

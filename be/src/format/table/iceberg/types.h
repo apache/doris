@@ -50,7 +50,9 @@ enum TypeID {
     DECIMAL,
     STRUCT,
     LIST,
-    MAP
+    MAP,
+    GEOMETRY,
+    GEOGRAPHY
 };
 
 class Type {
@@ -276,6 +278,43 @@ public:
     TypeID type_id() const override { return TypeID::BINARY; }
 
     std::string to_string() const override { return "binary"; }
+};
+
+class GeometryType : public PrimitiveType {
+public:
+    static constexpr const char* DEFAULT_CRS = "OGC:CRS84";
+
+    explicit GeometryType(std::string crs = DEFAULT_CRS) : _crs(std::move(crs)) {}
+
+    TypeID type_id() const override { return TypeID::GEOMETRY; }
+
+    const std::string& crs() const { return _crs; }
+
+    std::string to_string() const override { return "geometry(" + _crs + ")"; }
+
+private:
+    std::string _crs;
+};
+
+class GeographyType : public PrimitiveType {
+public:
+    static constexpr const char* DEFAULT_CRS = "OGC:CRS84";
+    static constexpr const char* DEFAULT_ALGORITHM = "spherical";
+
+    GeographyType(std::string crs = DEFAULT_CRS, std::string algorithm = DEFAULT_ALGORITHM)
+            : _crs(std::move(crs)), _algorithm(std::move(algorithm)) {}
+
+    TypeID type_id() const override { return TypeID::GEOGRAPHY; }
+
+    const std::string& crs() const { return _crs; }
+
+    const std::string& algorithm() const { return _algorithm; }
+
+    std::string to_string() const override { return "geography(" + _crs + ", " + _algorithm + ")"; }
+
+private:
+    std::string _crs;
+    std::string _algorithm;
 };
 
 class VariantType : public PrimitiveType {

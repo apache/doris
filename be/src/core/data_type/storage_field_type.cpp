@@ -105,6 +105,8 @@ FieldType primitive_type_to_storage_field_type(PrimitiveType type) {
     case static_cast<PrimitiveType>(33): // TYPE_LAMBDA_FUNCTION (deprecated)
     case PrimitiveType::TYPE_FIXED_LENGTH_OBJECT:
     case PrimitiveType::TYPE_VARBINARY:
+    case PrimitiveType::TYPE_GEOMETRY:
+    case PrimitiveType::TYPE_GEOGRAPHY:
         break;
     }
 

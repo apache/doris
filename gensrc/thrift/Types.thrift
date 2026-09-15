@@ -102,7 +102,9 @@ enum TPrimitiveType {
   UINT64 = 41,  // only used in BE to represent offsets
   FIXED_LENGTH_OBJECT = 42 // only used in BE to represent fixed-length object
   VARBINARY = 43, // represent varbinary type
-  TIMESTAMPTZ = 44 //  timestamp with time zone
+  TIMESTAMPTZ = 44, // timestamp with time zone
+  GEOMETRY = 45,
+  GEOGRAPHY = 46
 }
 
 enum TTypeNodeType {
@@ -148,6 +150,10 @@ struct TScalarType {
     6: optional bool variant_enable_doc_mode = false;
     // Execution-only ColumnVariantV2 marker. Table metadata never sets this field.
     7: optional bool variant_is_v2 = false;
+    // Only set for Iceberg GEOMETRY/GEOGRAPHY types.
+    8: optional string spatial_crs;
+    // Only set for Iceberg GEOGRAPHY type.
+    9: optional string spatial_algorithm;
 }
 
 // Represents a field in a STRUCT type.
