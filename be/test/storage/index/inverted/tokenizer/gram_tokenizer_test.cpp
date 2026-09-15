@@ -128,9 +128,7 @@ TEST(GramTokenizerTest, LowerCaseFoldsBeforeExtraction) {
 }
 
 TEST(GramTokenizerTest, GramModeSkipsLegacyMinMaxGapCheck) {
-    // Today initialize throws INVALID_ARGUMENT for max_gram-min_gram>1
-    // (ngram_tokenizer_factory.cpp:29-36); the gram family returns from inside the mode branch and
-    // is not subject to that limit.
+    // The legacy path limits max_gram - min_gram, while the gram family returns before that check.
     NGramTokenizerFactory factory;
     std::unordered_map<std::string, std::string> args {
             {"mode", "sparse"}, {"min_gram", "3"}, {"max_gram", "24"}};
