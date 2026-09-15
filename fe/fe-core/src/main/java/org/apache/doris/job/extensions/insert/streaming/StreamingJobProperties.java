@@ -33,6 +33,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -41,12 +42,16 @@ public class StreamingJobProperties implements JobProperties {
     public static final String MAX_INTERVAL_SECOND_PROPERTY = "max_interval";
     public static final String S3_MAX_BATCH_FILES_PROPERTY = "s3.max_batch_files";
     public static final String S3_MAX_BATCH_BYTES_PROPERTY = "s3.max_batch_bytes";
+    public static final String S3_INGESTION_MODE_PROPERTY = "s3.ingestion_mode";
+    public static final String S3_INGESTION_MODE_LEXICAL = "LEXICAL";
+    public static final String S3_INGESTION_MODE_ONCE = "ONCE";
     public static final String SESSION_VAR_PREFIX = "session.";
     public static final String INTERNAL_KEY_PREFIX = "__";
     public static final String OFFSET_PROPERTY = "offset";
     public static final String COMPUTE_GROUP_PROPERTY = "compute_group";
     public static final List<String> SUPPORT_STREAM_JOB_PROPS = Arrays.asList(MAX_INTERVAL_SECOND_PROPERTY,
-            S3_MAX_BATCH_FILES_PROPERTY, S3_MAX_BATCH_BYTES_PROPERTY, OFFSET_PROPERTY, COMPUTE_GROUP_PROPERTY);
+            S3_MAX_BATCH_FILES_PROPERTY, S3_MAX_BATCH_BYTES_PROPERTY, S3_INGESTION_MODE_PROPERTY,
+            OFFSET_PROPERTY, COMPUTE_GROUP_PROPERTY);
 
     public static final long DEFAULT_MAX_INTERVAL_SECOND = 10;
     public static final long DEFAULT_MAX_S3_BATCH_FILES = 256;
@@ -118,6 +123,15 @@ public class StreamingJobProperties implements JobProperties {
                         StreamingJobProperties.DEFAULT_MAX_S3_BATCH_BYTES, (v) -> v >= 100 * 1024 * 1024
                         && v <= (long) (1024 * 1024 * 1024) * 10,
                 StreamingJobProperties.S3_MAX_BATCH_BYTES_PROPERTY + " should between 100MB and 10GB");
+
+        String ingestionMode = getS3IngestionMode();
+        if (!S3_INGESTION_MODE_LEXICAL.equals(ingestionMode)
+                && !S3_INGESTION_MODE_ONCE.equals(ingestionMode)) {
+            throw new AnalysisException("Unsupported s3.ingestion_mode: " + ingestionMode);
+        }
+        if (S3_INGESTION_MODE_ONCE.equals(ingestionMode) && properties.containsKey(OFFSET_PROPERTY)) {
+            throw new AnalysisException("offset is not supported when s3.ingestion_mode is ONCE");
+        }
 
         // validate session variables
         try {
@@ -199,5 +213,14 @@ public class StreamingJobProperties implements JobProperties {
 
     public String getComputeGroup() {
         return properties.get(COMPUTE_GROUP_PROPERTY);
+    }
+
+    public String getS3IngestionMode() {
+        return properties.getOrDefault(S3_INGESTION_MODE_PROPERTY, S3_INGESTION_MODE_LEXICAL)
+                .trim().toUpperCase(Locale.ROOT);
+    }
+
+    public boolean isS3OnceMode() {
+        return S3_INGESTION_MODE_ONCE.equals(getS3IngestionMode());
     }
 }
