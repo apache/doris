@@ -212,6 +212,42 @@ public class StreamLoadHandlerTest {
     }
 
     @Test
+    public void testAssignAdaptiveRandomBucketFallsBackWhenNothingCanBeAssigned() {
+        // A partition the FE cannot assign (here: without a load tablet index) would leave the sink
+        // in adaptive mode without any routing, so adaptive mode has to be turned off.
+        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
+        request.setBackendId(20L);
+        StreamLoadHandler handler = new StreamLoadHandler(
+                request, null, new TStreamLoadPutResult(), "127.0.0.1");
+
+        TOlapTableSink sink = createSingleBucketSink();
+        sink.getPartition().getPartitions().get(0).unsetLoadTabletIdx();
+        TPipelineFragmentParams params = buildStreamLoadParams(sink);
+        handler.assignAdaptiveRandomBucket(params);
+
+        Assertions.assertFalse(sink.isSetEnableAdaptiveRandomBucket());
+    }
+
+    @Test
+    public void testAssignAdaptiveRandomBucketKeepsAdaptiveForFakePartitions() {
+        // Auto partition tables get their real partitions, and their assignments, while the load
+        // runs, so an empty plan time assignment must keep adaptive mode enabled.
+        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
+        request.setBackendId(20L);
+        StreamLoadHandler handler = new StreamLoadHandler(
+                request, null, new TStreamLoadPutResult(), "127.0.0.1");
+
+        TOlapTableSink sink = createSingleBucketSink();
+        sink.getPartition().setPartitionsIsFake(true);
+        sink.getPartition().getPartitions().get(0).unsetLoadTabletIdx();
+        TPipelineFragmentParams params = buildStreamLoadParams(sink);
+        handler.assignAdaptiveRandomBucket(params);
+
+        Assertions.assertTrue(sink.isSetEnableAdaptiveRandomBucket());
+        Assertions.assertTrue(sink.isEnableAdaptiveRandomBucket());
+    }
+
+    @Test
     public void testAssignAdaptiveRandomBucketIgnoresNonOlapTableSink() {
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
         request.setBackendId(20L);
