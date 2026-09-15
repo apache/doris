@@ -53,7 +53,7 @@ class HudiScanReuseKeyTest {
     }
 
     private static HudiScanPlanProvider.HudiScanReuseKey key(HudiTableHandle handle) {
-        return HudiScanPlanProvider.hudiScanReuseKey(handle);
+        return HudiScanPlanProvider.hudiScanReuseKey(handle, "test-generation");
     }
 
     @Test
