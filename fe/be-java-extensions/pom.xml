@@ -106,8 +106,8 @@ under the License.
               copy-dependencies refills it makes an incremental build's plugin directory equal to a
               clean one's.
 
-              A cache-restored module skips both executions and keeps the target/lib its own last
-              real build wrote, which is consistent for the same reason.
+              target/lib is not restored by the build cache. The cache configuration in
+              fe/.mvn/maven-build-cache-config.xml reruns both the wipe and copy on cache hits.
             -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

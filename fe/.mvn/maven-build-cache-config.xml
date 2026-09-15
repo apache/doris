@@ -70,6 +70,20 @@ under the License.
                         <execId>validate</execId>
                     </execIds>
                 </execution>
+                <!-- The cache restores module artifacts, but not target/lib. Rebuild runtime
+                     dependency directories on cache hits, removing obsolete jars before copying. -->
+                <execution artifactId="maven-clean-plugin">
+                    <execIds>
+                        <execId>wipe-plugin-lib</execId>
+                    </execIds>
+                </execution>
+                <execution artifactId="maven-dependency-plugin">
+                    <execIds>
+                        <execId>copy-plugin-dependencies</execId>
+                        <!-- hadoop-deps inherits the same wipe-plugin-lib execution. -->
+                        <execId>copy-dependencies</execId>
+                    </execIds>
+                </execution>
             </executions>
         </runAlways>
     </executionControl>
