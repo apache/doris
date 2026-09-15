@@ -24,14 +24,18 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <map>
 #include <memory>
 #include <random>
 #include <string>
 #include <thread>
+#include <utility>
+#include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -1209,6 +1213,367 @@ TEST(TxnLazyCommitTest, CommitTxnImmediatelyTest) {
             check_rowset_meta_exist(txn, tablet_id, 2);
         }
     }
+}
+
+// Use real FDB transactions to verify both stale scans and read/write conflicts.
+// When another transaction deletes a temporary key after it was read, FDB must
+// reject the publishing transaction at commit time.
+class ImmediateCommitTmpRowsetTest : public testing::Test {
+protected:
+    using Metadata = std::map<std::string, std::string>;
+    static constexpr int64_t DB_ID = 91001;
+    static constexpr int64_t TABLE_ID = 91002;
+    static constexpr int64_t INDEX_ID = 91003;
+    static constexpr int64_t PARTITION_ID = 91004;
+    static constexpr int64_t TABLET_ID = 91006;
+
+    void SetUp() override {
+        config::txn_lazy_commit_rowsets_thresold = 1;
+        config::enable_cloud_parallel_txn_lazy_commit = true;
+        // Both partition callbacks must run concurrently to reach the gate.
+        config::parallel_txn_lazy_commit_num_threads = 2;
+        config::enable_txn_store_retry = false;
+        config::cloud_txn_lazy_commit_fuzzy_possibility = 0;
+        kv_ = get_fdb_txn_kv();
+        service_ = get_meta_service(kv_, true);
+        sp_->enable_processing();
+
+        BeginTxnRequest begin;
+        begin.set_cloud_unique_id("test_cloud_unique_id");
+        auto* info = begin.mutable_txn_info();
+        info->set_db_id(DB_ID);
+        info->set_label("immediate_commit_tmp_rowsets");
+        info->add_table_ids(TABLE_ID);
+        info->set_timeout_ms(60000);
+        BeginTxnResponse response;
+        brpc::Controller controller;
+        service_->begin_txn(&controller, &begin, &response, nullptr);
+        ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+        request_.set_cloud_unique_id("test_cloud_unique_id");
+        request_.set_db_id(DB_ID);
+        request_.set_txn_id(response.txn_id());
+        request_.set_is_2pc(false);
+        request_.set_enable_txn_lazy_commit(false);
+
+        for (int i = 0; i < 2; ++i) {
+            create_tablet_with_db_id(service_.get(), DB_ID, TABLE_ID, INDEX_ID, PARTITION_ID + i,
+                                     TABLET_ID + i);
+            ASSERT_FALSE(HasFatalFailure());
+            auto rowset =
+                    create_rowset(request_.txn_id(), TABLET_ID + i, INDEX_ID, PARTITION_ID + i);
+            // Nonzero values make a second publication observable in all tablet
+            // counters, rather than merely checking that an empty rowset exists.
+            rowset.set_num_rows(7 + i);
+            rowset.set_num_segments(1);
+            rowset.set_data_disk_size(100);
+            rowset.set_index_disk_size(20);
+            rowset.set_total_disk_size(120);
+            CreateRowsetResponse result;
+            prepare_rowset(service_.get(), rowset, result);
+            ASSERT_EQ(result.status().code(), MetaServiceCode::OK);
+            commit_rowset(service_.get(), rowset, result);
+            ASSERT_EQ(result.status().code(), MetaServiceCode::OK);
+            rowsets_.push_back(std::move(rowset));
+        }
+    }
+
+    void TearDown() override {
+        // Every test joins its request thread before reaching this point. Stop
+        // the service while callbacks and their configuration are still valid.
+        service_.reset();
+        sp_->clear_all_call_backs();
+        sp_->clear_trace();
+        sp_->disable_processing();
+        config::txn_lazy_commit_rowsets_thresold = old_threshold_;
+        config::enable_cloud_parallel_txn_lazy_commit = old_parallel_;
+        config::parallel_txn_lazy_commit_num_threads = old_parallel_threads_;
+        config::enable_txn_store_retry = old_retry_;
+        config::cloud_txn_lazy_commit_fuzzy_possibility = old_fuzzy_;
+    }
+
+    CommitTxnResponse commit(const CommitTxnRequest& request) {
+        brpc::Controller controller;
+        CommitTxnResponse response;
+        service_->commit_txn(&controller, &request, &response, nullptr);
+        return response;
+    }
+
+    std::string tmp_key(int index) const {
+        return meta_rowset_tmp_key({mock_instance, request_.txn_id(), TABLET_ID + index});
+    }
+
+    void remove_tmp(int index) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->remove(tmp_key(index));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    void restore_tmp(int index) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(tmp_key(index), rowsets_[index].SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    Metadata metadata() {
+        // Include every persistent key, including detached tablet counters,
+        // partition/table versions, txn_info, running/recycle keys and rowsets.
+        // Comparing this snapshot proves that a rejected attempt is atomic; a
+        // rowset-only check would miss a stray version or statistics increment.
+        Metadata result;
+        std::unique_ptr<Transaction> txn;
+        EXPECT_EQ(kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::unique_ptr<RangeGetIterator> iter;
+        EXPECT_EQ(txn->get("\x00", "\xfe", &iter, true), TxnErrorCode::TXN_OK);
+        EXPECT_FALSE(iter->more()); // This fixture contains only two tablets.
+        while (iter->has_next()) {
+            auto [key, value] = iter->next();
+            result.emplace(key, value);
+        }
+        return result;
+    }
+
+    void check_status(TxnStatusPB expected) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        ASSERT_EQ(txn->get(txn_info_key({mock_instance, DB_ID, request_.txn_id()}), &value),
+                  TxnErrorCode::TXN_OK);
+        TxnInfoPB info;
+        ASSERT_TRUE(info.ParseFromString(value));
+        EXPECT_EQ(info.status(), expected);
+    }
+
+    void check_published_once() {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+        for (int i = 0; i < 2; ++i) {
+            SCOPED_TRACE(i);
+            std::string value;
+            ASSERT_EQ(txn->get(partition_version_key(
+                                       {mock_instance, DB_ID, TABLE_ID, PARTITION_ID + i}),
+                               &value),
+                      TxnErrorCode::TXN_OK);
+            VersionPB version;
+            ASSERT_TRUE(version.ParseFromString(value));
+            EXPECT_EQ(version.version(), 2);
+            EXPECT_EQ(version.pending_txn_ids_size(), 0);
+            ASSERT_EQ(txn->get(meta_rowset_key({mock_instance, TABLET_ID + i, 2}), &value),
+                      TxnErrorCode::TXN_OK);
+            RowsetMetaCloudPB published;
+            ASSERT_TRUE(published.ParseFromString(value));
+            EXPECT_EQ(published.rowset_id_v2(), rowsets_[i].rowset_id_v2());
+            EXPECT_EQ(published.start_version(), 2);
+            EXPECT_EQ(published.end_version(), 2);
+            EXPECT_EQ(published.num_rows(), rowsets_[i].num_rows());
+            check_rowset_meta_not_exist(txn, TABLET_ID + i, 3);
+            check_tmp_rowset_not_exist(txn, TABLET_ID + i, request_.txn_id());
+        }
+    }
+
+    std::shared_ptr<TxnKv> kv_;
+    std::unique_ptr<MetaServiceProxy> service_;
+    SyncPoint* sp_ = SyncPoint::get_instance();
+    CommitTxnRequest request_;
+    std::vector<RowsetMetaCloudPB> rowsets_;
+
+private:
+    const int32_t old_threshold_ = config::txn_lazy_commit_rowsets_thresold;
+    const bool old_parallel_ = config::enable_cloud_parallel_txn_lazy_commit;
+    const int32_t old_parallel_threads_ = config::parallel_txn_lazy_commit_num_threads;
+    const bool old_retry_ = config::enable_txn_store_retry;
+    const int32_t old_fuzzy_ = config::cloud_txn_lazy_commit_fuzzy_possibility;
+};
+
+// These gates order actual lazy partition commits; no metadata is fabricated and
+// no sleep decides which transaction wins. A bounded wait turns a broken ordering
+// into a test failure. The scope guard releases all gates before joining on every
+// exit path, including an ASSERT failure in the test thread.
+struct LazyCommitGates {
+    std::mutex mutex;
+    std::condition_variable cv;
+    int partitions_entered = 0;
+    bool first_finished = false;
+    bool release_last = false;
+    bool before_visible = false;
+    bool release_visible = false;
+    bool stop = false;
+
+    template <typename Predicate>
+    bool wait(std::unique_lock<std::mutex>& lock, Predicate predicate) {
+        bool ready =
+                cv.wait_for(lock, std::chrono::seconds(10), [&] { return stop || predicate(); });
+        EXPECT_TRUE(ready) << "timed out waiting for the lazy/immediate commit interleaving";
+        return ready && !stop;
+    }
+
+    void release(bool visible) {
+        std::lock_guard lock(mutex);
+        release_last = true;
+        release_visible = visible;
+        cv.notify_all();
+    }
+};
+
+TEST_F(ImmediateCommitTmpRowsetTest, StaleScanAfterLazyPartitionCommit) {
+    // One rowset per partition (A/B), lazy threshold = 1. Time flows down.
+    // Arrows show test synchronization between the two requests.
+    // clang-format off
+    //            Original lazy request                           Retry (same txn)
+    //                      |                                             |
+    //          publish A/B rowsets at v2                                 |
+    //          A cleanup done; B paused                                  |
+    //                      |                                             |
+    //                      |                                 scan tmp(B) -> immediate
+    //                      |                                             |
+    //                      <------------- release B cleanup -------------|
+    //             clear B pending/tmp                                    |
+    //            pause before VISIBLE                                    |
+    //                      |---------------- cleanup done --------------->
+    //              [still COMMITTED]                             create write txn
+    //                      |                                   read tmp(B): missing
+    //                      |                                      KV_TXN_CONFLICT
+    //                      <--------------- allow VISIBLE ---------------|
+    //                   VISIBLE                                          |
+    //                      v                                             v
+    // clang-format on
+    // Before the fix, the retry publishes B's rowset again at v3.
+
+    LazyCommitGates gates;
+    Metadata before_retry;
+    int immediate_attempts = 0;
+    sp_->set_call_back("TxnLazyCommitter::commit", [&](auto&& args) {
+        auto partition = *try_any_cast<int64_t*>(args[0]);
+        std::unique_lock lock(gates.mutex);
+        ++gates.partitions_entered;
+        gates.cv.notify_all();
+        gates.wait(lock, [&] {
+            return gates.partitions_entered == 2 &&
+                   (partition == PARTITION_ID || gates.release_last);
+        });
+    });
+    sp_->set_call_back("TxnLazyCommitTask::commit_partition::finish", [&](auto&& args) {
+        if (*try_any_cast<int64_t*>(args[0]) == PARTITION_ID) {
+            std::lock_guard lock(gates.mutex);
+            gates.first_finished = true;
+            gates.cv.notify_all();
+        }
+    });
+    sp_->set_call_back("TxnLazyCommitTask::make_committed_txn_visible::commit", [&](auto&&) {
+        std::unique_lock lock(gates.mutex);
+        gates.before_visible = true;
+        gates.cv.notify_all();
+        gates.wait(lock, [&] { return gates.release_visible; });
+    });
+
+    request_.set_enable_txn_lazy_commit(true);
+    CommitTxnResponse original_response;
+    std::thread original([&] { original_response = commit(request_); });
+    DORIS_CLOUD_DEFER {
+        {
+            std::lock_guard lock(gates.mutex);
+            gates.stop = true;
+            gates.cv.notify_all();
+        }
+        if (original.joinable()) original.join();
+        // Clear callbacks while the local gates and captured metadata still exist.
+        sp_->clear_all_call_backs();
+    };
+    {
+        std::unique_lock lock(gates.mutex);
+        ASSERT_TRUE(gates.wait(lock, [&] { return gates.first_finished; }));
+        ASSERT_EQ(gates.partitions_entered, 2); // Proves partition concurrency.
+    }
+    std::vector<std::pair<std::string, RowsetMetaCloudPB>> remaining;
+    MetaServiceCode code = MetaServiceCode::OK;
+    std::string message;
+    scan_tmp_rowset(mock_instance, request_.txn_id(), kv_, code, message, &remaining, nullptr);
+    ASSERT_EQ(code, MetaServiceCode::OK);
+    ASSERT_EQ(remaining.size(), 1);
+    ASSERT_EQ(remaining[0].first, tmp_key(1));
+
+    sp_->set_call_back("commit_txn_immediately:begin", [&](auto&&) {
+        ++immediate_attempts;
+        // The retry has scanned the last candidate but has not created its
+        // write transaction. Let lazy remove that candidate and pending key,
+        // while keeping the global transaction COMMITTED before visibility.
+        gates.release(false);
+        {
+            std::unique_lock lock(gates.mutex);
+            ASSERT_TRUE(gates.wait(lock, [&] { return gates.before_visible; }));
+        }
+        check_status(TxnStatusPB::TXN_STATUS_COMMITTED);
+        check_published_once();
+        before_retry = metadata();
+    });
+
+    auto response = commit(request_);
+    EXPECT_EQ(response.status().code(), MetaServiceCode::KV_TXN_CONFLICT)
+            << response.ShortDebugString();
+    EXPECT_EQ(immediate_attempts, 1);
+    EXPECT_EQ(metadata(), before_retry);
+    check_status(TxnStatusPB::TXN_STATUS_COMMITTED);
+    check_published_once();
+
+    // Finish the original lazy request. Rejecting its stale retry must leave
+    // both rowsets at version 2; the old implementation also writes version 3.
+    gates.release(true);
+    original.join();
+    EXPECT_EQ(original_response.status().code(), MetaServiceCode::OK);
+    EXPECT_TRUE(original_response.is_lazy_commit());
+    check_status(TxnStatusPB::TXN_STATUS_VISIBLE);
+    check_published_once();
+}
+
+TEST_F(ImmediateCommitTmpRowsetTest, OneMissingTmpKeyAbortsAllPartitions) {
+    Metadata before_commit;
+    int attempts = 0;
+    sp_->set_call_back("commit_txn_immediately:begin", [&](auto&&) {
+        ++attempts;
+        // Delete only the LAST candidate after the handler's independent scan.
+        // The first candidate is still valid and belongs to another partition.
+        // Skipping only the missing rowset would still commit the first rowset
+        // and advance the missing rowset's partition through the versions loop.
+        remove_tmp(1);
+        before_commit = metadata();
+    });
+    auto response = commit(request_);
+    EXPECT_EQ(attempts, 1);
+    EXPECT_EQ(response.status().code(), MetaServiceCode::KV_TXN_CONFLICT);
+    EXPECT_NE(response.status().msg().find(std::to_string(request_.txn_id())), std::string::npos);
+    EXPECT_NE(response.status().msg().find(hex(tmp_key(1))), std::string::npos);
+    EXPECT_EQ(metadata(), before_commit);
+    check_status(TxnStatusPB::TXN_STATUS_PREPARED);
+
+    // A normal immediate commit must succeed once all candidates exist.
+    sp_->clear_all_call_backs();
+    restore_tmp(1);
+    response = commit(request_);
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    check_published_once();
+}
+
+TEST_F(ImmediateCommitTmpRowsetTest, ConcurrentTmpDeleteCausesRealCommitConflict) {
+    Metadata before_commit;
+    int commits = 0;
+    sp_->set_call_back("commit_txn_immediately::before_commit", [&](auto&&) {
+        ++commits;
+        // At this point immediate has read its inputs and buffered ALL writes.
+        // A separate KV transaction deletes ONLY a tmp key. It deliberately
+        // does not touch txn_info, partition versions, or stats: otherwise their
+        // existing read conflicts could mask a missing tmp-key read dependency.
+        // Do not inject err/code here; FDB itself must reject txn->commit().
+        remove_tmp(1);
+        before_commit = metadata();
+    });
+    auto response = commit(request_);
+    EXPECT_EQ(commits, 1);
+    EXPECT_EQ(response.status().code(), MetaServiceCode::KV_TXN_CONFLICT)
+            << response.ShortDebugString();
+    EXPECT_NE(response.status().msg().find("err=Conflict"), std::string::npos);
+    EXPECT_EQ(metadata(), before_commit);
+    check_status(TxnStatusPB::TXN_STATUS_PREPARED);
 }
 
 TEST(TxnLazyCommitTest, CommitTxnEventuallyWithFailedLazyCommitTaskTest) {
