@@ -528,4 +528,103 @@ TEST_F(ByteArrayDictDecoderTest, test_set_dict_rejects_truncated_payload_after_p
     ASSERT_FALSE(decoder.set_dict(dict_data, 4, 1).ok());
 }
 
+// #61225 pattern A: data pages reference a dictionary that was never decoded, leaving
+// _dict_items empty. decode_values must report Corruption instead of indexing the empty
+// dictionary and dereferencing a null StringRef (SIGSEGV before the guard).
+TEST_F(ByteArrayDictDecoderTest, test_decode_values_empty_dict_returns_corruption) {
+    ByteArrayDictDecoder empty_decoder;
+    auto dict_data = make_unique_buffer<uint8_t>(0);
+    ASSERT_TRUE(empty_decoder.set_dict(dict_data, 0, 0).ok());
+
+    MutableColumnPtr column = ColumnString::create();
+    DataTypePtr data_type = std::make_shared<DataTypeString>();
+
+    // Well-formed RLE index stream: 4 zeros followed by 1, 2, 1 — 7 indices into an EMPTY
+    // dictionary.
+    std::vector<uint8_t> rle_data = {2, 8, 0, 3, 0b00011001, 0};
+    Slice data_slice(reinterpret_cast<char*>(rle_data.data()), rle_data.size());
+    ASSERT_TRUE(empty_decoder.set_data(&data_slice).ok());
+
+    const size_t num_values = 7;
+    std::vector<uint16_t> run_length_null_map(1, num_values); // All non-null
+    std::vector<uint8_t> filter_data(num_values, 1);
+    FilterMap filter_map;
+    ASSERT_TRUE(filter_map.init(filter_data.data(), filter_data.size(), false).ok());
+    ColumnSelectVector select_vector;
+    ASSERT_TRUE(select_vector.init(run_length_null_map, num_values, nullptr, &filter_map, 0).ok());
+
+    auto status = empty_decoder.decode_values(column, data_type, select_vector, false);
+    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+}
+
+// A data page carrying an index past the end of the dictionary must report Corruption instead
+// of reading past _dict_items and dereferencing a wild StringRef (#61225 pattern A hardening).
+TEST_F(ByteArrayDictDecoderTest, test_decode_values_out_of_range_index_returns_corruption) {
+    MutableColumnPtr column = ColumnString::create();
+    DataTypePtr data_type = std::make_shared<DataTypeString>();
+
+    // RLE run: 4 repeats of index 3, but the dictionary only holds 3 entries (indices 0..2).
+    std::vector<uint8_t> rle_data = {2, 8, 3};
+    Slice data_slice(reinterpret_cast<char*>(rle_data.data()), rle_data.size());
+    ASSERT_TRUE(_decoder.set_data(&data_slice).ok());
+
+    const size_t num_values = 4;
+    std::vector<uint16_t> run_length_null_map(1, num_values); // All non-null
+    std::vector<uint8_t> filter_data(num_values, 1);
+    FilterMap filter_map;
+    ASSERT_TRUE(filter_map.init(filter_data.data(), filter_data.size(), false).ok());
+    ColumnSelectVector select_vector;
+    ASSERT_TRUE(select_vector.init(run_length_null_map, num_values, nullptr, &filter_map, 0).ok());
+
+    auto status = _decoder.decode_values(column, data_type, select_vector, false);
+    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+}
+
+// Same out-of-range index on the dictionary-column path: the raw indices would previously be
+// stored unvalidated and only crash later in convert_dict_column_to_string_column.
+TEST_F(ByteArrayDictDecoderTest,
+       test_decode_values_out_of_range_index_dict_column_returns_corruption) {
+    MutableColumnPtr column = ColumnDictI32::create();
+    DataTypePtr data_type = std::make_shared<DataTypeInt32>();
+
+    // RLE run: 4 repeats of index 3, but the dictionary only holds 3 entries (indices 0..2).
+    std::vector<uint8_t> rle_data = {2, 8, 3};
+    Slice data_slice(reinterpret_cast<char*>(rle_data.data()), rle_data.size());
+    ASSERT_TRUE(_decoder.set_data(&data_slice).ok());
+
+    const size_t num_values = 4;
+    std::vector<uint16_t> run_length_null_map(1, num_values); // All non-null
+    std::vector<uint8_t> filter_data(num_values, 1);
+    FilterMap filter_map;
+    ASSERT_TRUE(filter_map.init(filter_data.data(), filter_data.size(), false).ok());
+    ColumnSelectVector select_vector;
+    ASSERT_TRUE(select_vector.init(run_length_null_map, num_values, nullptr, &filter_map, 0).ok());
+
+    auto status = _decoder.decode_values(column, data_type, select_vector, false);
+    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+}
+
+// A truncated index stream yields fewer indices than the non-null value count; previously the
+// short count from GetBatch went unchecked and garbage indices were used to index _dict_items.
+TEST_F(ByteArrayDictDecoderTest, test_decode_values_truncated_index_stream_returns_corruption) {
+    MutableColumnPtr column = ColumnString::create();
+    DataTypePtr data_type = std::make_shared<DataTypeString>();
+
+    // RLE run: only 4 repeats of index 0, but 7 non-null values are requested below.
+    std::vector<uint8_t> rle_data = {2, 8, 0};
+    Slice data_slice(reinterpret_cast<char*>(rle_data.data()), rle_data.size());
+    ASSERT_TRUE(_decoder.set_data(&data_slice).ok());
+
+    const size_t num_values = 7;
+    std::vector<uint16_t> run_length_null_map(1, num_values); // All non-null
+    std::vector<uint8_t> filter_data(num_values, 1);
+    FilterMap filter_map;
+    ASSERT_TRUE(filter_map.init(filter_data.data(), filter_data.size(), false).ok());
+    ColumnSelectVector select_vector;
+    ASSERT_TRUE(select_vector.init(run_length_null_map, num_values, nullptr, &filter_map, 0).ok());
+
+    auto status = _decoder.decode_values(column, data_type, select_vector, false);
+    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+}
+
 } // namespace doris

@@ -138,7 +138,27 @@ Status ByteArrayDictDecoder::_decode_values(MutableColumnPtr& doris_column, Data
         }
     }
     _indexes.resize(non_null_size);
-    _index_batch_decoder->GetBatch(_indexes.data(), cast_set<uint32_t>(non_null_size));
+    // Data pages can reference a dictionary that was never decoded, or carry indices past the
+    // end of the dictionary (corrupt or mismatched files, #61225 pattern A). Indexing
+    // _dict_items with such indices dereferences a wild/null StringRef and SIGSEGVs the whole
+    // BE process — either on the plain decoding path below, or later in
+    // convert_dict_column_to_string_column for the dictionary-column path. Validate the whole
+    // decoded index stream before entering either branch and report corruption instead
+    // (mirrors decode_dictionary_indices in format_v2/parquet/reader/native/decoder.h).
+    const uint32_t decoded =
+            _index_batch_decoder->GetBatch(_indexes.data(), cast_set<uint32_t>(non_null_size));
+    if (decoded != non_null_size) [[unlikely]] {
+        return Status::Corruption(
+                "parquet dictionary index stream is truncated: expected {} indices, decoded {}",
+                non_null_size, decoded);
+    }
+    for (size_t row = 0; row < non_null_size; ++row) {
+        if (_indexes[row] >= _dict_items.size()) [[unlikely]] {
+            return Status::Corruption(
+                    "parquet dictionary index {} at row {} exceeds dictionary size {}",
+                    _indexes[row], row, _dict_items.size());
+        }
+    }
 
     if (doris_column->is_column_dictionary() || is_dict_filter) {
         return _decode_dict_values<has_filter>(doris_column, select_vector, is_dict_filter);
