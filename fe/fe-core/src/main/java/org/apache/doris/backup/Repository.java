@@ -532,7 +532,7 @@ public class Repository implements Writable, GsonPostProcessable {
                 }
                 return Status.OK;
             }
-        } catch (IOException e) {
+        } catch (IOException | LinkageError e) {
             return new Status(ErrCode.COMMON_ERROR, "Failed to init repository: " + e.getMessage());
         } finally {
             releaseSpiFs(fs);
@@ -631,9 +631,11 @@ public class Repository implements Writable, GsonPostProcessable {
             errMsg = TimeUtils.longToTimeString(System.currentTimeMillis())
                     + ": Invalid path. " + path + ", error: " + e.getMessage();
             return false;
-        } catch (IOException | RuntimeException e) {
-            // RuntimeException too: ping runs in the RepositoryMgr daemon over every repository, and one
-            // that throws would leave its errMsg unset and skip the repositories after it.
+        } catch (IOException | RuntimeException | LinkageError e) {
+            // RuntimeException and LinkageError too: ping runs in the RepositoryMgr daemon over every
+            // repository, and one that throws would leave its errMsg unset and skip the repositories
+            // after it. A LinkageError is a filesystem that bound but links a missing class only at its
+            // first call - the same plugin-absent case, one step later.
             errMsg = TimeUtils.longToTimeString(System.currentTimeMillis()) + ": " + e.getMessage();
             return false;
         }
@@ -694,7 +696,7 @@ public class Repository implements Writable, GsonPostProcessable {
             }
             snapshotNames.addAll(ssNameSet);
             return Status.OK;
-        } catch (IOException e) {
+        } catch (IOException | LinkageError e) {
             return new Status(ErrCode.COMMON_ERROR, "Failed to list snapshots: " + e.getMessage());
         } finally {
             releaseSpiFs(fs);
@@ -818,7 +820,7 @@ public class Repository implements Writable, GsonPostProcessable {
                 fs.delete(Location.of(finalRemotePath), false);
                 spiUploadFile(fs, localFilePath, finalRemotePath);
             }
-        } catch (IOException e) {
+        } catch (IOException | LinkageError e) {
             return new Status(ErrCode.COMMON_ERROR, "Failed to upload " + localFilePath + ": " + e.getMessage());
         } finally {
             releaseSpiFs(fs);
@@ -915,7 +917,7 @@ public class Repository implements Writable, GsonPostProcessable {
             return Status.OK;
         } catch (FileNotFoundException e) {
             return new Status(ErrCode.NOT_FOUND, "file " + localFilePath + " does not exist");
-        } catch (IOException e) {
+        } catch (IOException | LinkageError e) {
             return new Status(ErrCode.COMMON_ERROR, "Failed to download file: " + e.getMessage());
         } finally {
             releaseSpiFs(fs);
@@ -1088,7 +1090,7 @@ public class Repository implements Writable, GsonPostProcessable {
                     info.add(FeConstants.null_string);
                     info.add("ERROR: No info file found");
                 }
-            } catch (IOException e) {
+            } catch (IOException | LinkageError e) {
                 info.add(snapshotName);
                 info.add(FeConstants.null_string);
                 info.add("ERROR: Failed to get info: " + e.getMessage());

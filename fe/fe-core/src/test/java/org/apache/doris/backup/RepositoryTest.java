@@ -830,6 +830,33 @@ public class RepositoryTest {
         }
     }
 
+    /**
+     * A provider can bind and build its filesystem, then link a missing class only at the first I/O
+     * call. That LinkageError must be contained where an IOException is: ping() records it in errMsg
+     * and the Status-returning paths return it, instead of throwing past the job loop.
+     */
+    @Test
+    public void testAFilesystemThatFailsToLinkAtFirstIoIsReportedNotThrown() throws IOException {
+        Mockito.when(mockFs.exists(Mockito.any(Location.class)))
+                .thenThrow(new NoClassDefFoundError("org/example/AbsentSdkClass"));
+        Mockito.when(mockFs.list(Mockito.any(Location.class)))
+                .thenThrow(new NoClassDefFoundError("org/example/AbsentSdkClass"));
+        repo = new Repository(10000, "repo", false, location, testProps);
+
+        FeConstants.runningUnitTest = false;
+        try {
+            Assertions.assertFalse(Assertions.assertDoesNotThrow(() -> repo.ping()));
+        } finally {
+            FeConstants.runningUnitTest = true;
+        }
+        Assertions.assertNotNull(repo.getErrorMsg());
+        Assertions.assertTrue(repo.getErrorMsg().contains("AbsentSdkClass"), repo.getErrorMsg());
+
+        Status listing = Assertions.assertDoesNotThrow(() -> repo.listSnapshots(Lists.newArrayList()));
+        Assertions.assertFalse(listing.ok());
+        Assertions.assertTrue(listing.getErrMsg().contains("AbsentSdkClass"), listing.getErrMsg());
+    }
+
     /** The broker fallback is taken on the one positive signal only: a registered broker name. */
     @Test
     public void testLegacyRecordNamingAnUnregisteredBrokerIsNotMigratedToBroker() {
