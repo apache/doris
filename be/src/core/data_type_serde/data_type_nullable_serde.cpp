@@ -389,6 +389,18 @@ Status DataTypeNullableSerDe::read_column_from_arrow(IColumn& column,
                                                      const arrow::Array* arrow_array, int64_t start,
                                                      int64_t end,
                                                      const cctz::time_zone& ctz) const {
+    if (arrow_array->type_id() == arrow::Type::NA) {
+        // Arrow Null has neither a validity bitmap nor values, even when sliced. Avoid the
+        // physical SerDe for Doris's UInt8 placeholder and keep nested values and nulls aligned.
+        if (arrow_array->offset() < 0 || start < 0 || end < start || end > arrow_array->length()) {
+            return Status::InvalidArgument(
+                    "Invalid Arrow Null read range: start={}, end={}, "
+                    "length={}, offset={}",
+                    start, end, arrow_array->length(), arrow_array->offset());
+        }
+        column.insert_many_defaults(end - start);
+        return Status::OK();
+    }
     if (config::enable_arrow_input_validation) {
         check_arrow_array_range(*arrow_array, start, end);
         check_arrow_validity_bitmap(*arrow_array);

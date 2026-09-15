@@ -144,6 +144,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     private List<LanceFragmentInfo> lanceFragments = Collections.emptyList();
     private Set<String> lanceCurrentReaderColumns = Collections.emptySet();
 
+    /** Return the only backend that may execute this TVF, or -1 when execution may be distributed. */
+    public long getBackendIdForExecution() {
+        return -1;
+    }
+
     public abstract TFileType getTFileType();
 
     public abstract String getFilePath();

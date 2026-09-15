@@ -44,11 +44,6 @@ public final class LanceTypeConverter {
     private LanceTypeConverter() {
     }
 
-    /** Converts Arrow fields exposed by Lance to Doris types. */
-    public static Type toDorisType(Field field) {
-        return toDorisType(field, true);
-    }
-
     /** Returns whether this field needs the current BE Lance materialization logic. */
     public static boolean requiresCurrentBeReader(Field field) {
         ArrowType.ArrowTypeID typeId = field.getType().getTypeID();
@@ -71,8 +66,8 @@ public final class LanceTypeConverter {
         return false;
     }
 
-    /** Converts an Arrow field, allowing Doris NULL only at the top level. */
-    private static Type toDorisType(Field field, boolean allowNull) {
+    /** Converts Arrow fields, including Null leaves in complex types. */
+    public static Type toDorisType(Field field) {
         // TODO(lance): Dataset.getSchema() currently erases the Dictionary marker, while
         // Dataset.getLanceSchema() fails to convert a schema containing Dictionary in the
         // Lance 9.1.0-beta.3 Java SDK. Reject physical Dictionary columns after that SDK
@@ -89,7 +84,8 @@ public final class LanceTypeConverter {
         ArrowType arrowType = field.getType();
         switch (arrowType.getTypeID()) {
             case Null:
-                return allowNull ? Type.NULL : Type.UNSUPPORTED;
+                // Required Null leaves cannot use the nullable SerDe that handles Arrow NA buffers.
+                return field.isNullable() ? Type.NULL : Type.UNSUPPORTED;
             case Bool:
                 return Type.BOOLEAN;
             case Int:
@@ -135,24 +131,25 @@ public final class LanceTypeConverter {
             case LargeList:
             case FixedSizeList:
                 requireChildren(field, 1);
-                Type itemType = toDorisType(field.getChildren().get(0), false);
-                return itemType.isSupported() ? new ArrayType(itemType) : Type.UNSUPPORTED;
+                Type itemType = toDorisType(field.getChildren().get(0));
+                // Generic isSupported() rejects Null items even inside successfully converted composites.
+                return itemType.equals(Type.UNSUPPORTED) ? Type.UNSUPPORTED : new ArrayType(itemType);
             case Map:
                 requireChildren(field, 1);
                 Field entries = field.getChildren().get(0);
                 requireChildren(entries, 2);
                 Field key = entries.getChildren().get(0);
                 Field value = entries.getChildren().get(1);
-                Type keyType = toDorisType(key, false);
-                Type valueType = toDorisType(value, false);
-                return keyType.isSupported() && valueType.isSupported()
+                Type keyType = toDorisType(key);
+                Type valueType = toDorisType(value);
+                return !keyType.equals(Type.UNSUPPORTED) && !valueType.equals(Type.UNSUPPORTED)
                         ? new MapType(keyType, valueType, key.isNullable(), value.isNullable())
                         : Type.UNSUPPORTED;
             case Struct:
                 List<StructField> fields = new ArrayList<>();
                 for (Field child : field.getChildren()) {
-                    Type childType = toDorisType(child, false);
-                    if (!childType.isSupported()) {
+                    Type childType = toDorisType(child);
+                    if (childType.equals(Type.UNSUPPORTED)) {
                         return Type.UNSUPPORTED;
                     }
                     fields.add(new StructField(child.getName(), childType,
