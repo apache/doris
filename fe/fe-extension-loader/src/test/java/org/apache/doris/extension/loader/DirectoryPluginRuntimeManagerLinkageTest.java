@@ -20,6 +20,7 @@ package org.apache.doris.extension.loader;
 import org.apache.doris.extension.loader.testplugins.AbsentDependencyProbe;
 import org.apache.doris.extension.loader.testplugins.AbsentStaticInitTestPluginFactory;
 import org.apache.doris.extension.loader.testplugins.AbsentSuperclassTestPluginFactory;
+import org.apache.doris.extension.loader.testplugins.MetadataTestPluginFactory;
 import org.apache.doris.extension.loader.testplugins.NotAFactory;
 import org.apache.doris.extension.loader.testplugins.ThrowingStaticInitTestPluginFactory;
 import org.apache.doris.extension.spi.PluginFactory;
@@ -29,10 +30,19 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.jar.Attributes;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
+import java.util.jar.Manifest;
 
 /**
  * A plugin whose dependency is absent must fail alone.
@@ -190,15 +200,169 @@ class DirectoryPluginRuntimeManagerLinkageTest {
     }
 
     @Test
-    void testTheWrongNameFormIsABrokenJarNotAMissingDependency() {
-        // "a/B (wrong name: c/D)" means the class file WAS found, under a path that disagrees with the
-        // name in its bytecode; sending the reader to the shared bundle would be exactly wrong.
-        String advice = DirectoryPluginRuntimeManager.missingClassAdvice(
-                new NoClassDefFoundError("org/example/Probe (wrong name: org/other/Probe)"));
-        Assertions.assertTrue(advice.contains("org/example/Probe"), advice);
-        Assertions.assertTrue(advice.contains("org/other/Probe"), advice);
-        Assertions.assertTrue(advice.contains("wrong path"), advice);
-        Assertions.assertFalse(advice.contains("shared library bundle"), advice);
+    void testTheWrongNameFormIsABrokenJarNotAMissingDependency() throws IOException {
+        // HotSpot's wording is "<name in the bytecode> (wrong name: <name requested>)": the class file
+        // WAS found, under the requested name's path, and its bytecode says otherwise. Sending the
+        // reader to the shared bundle would be exactly wrong. Driven through loadAll with a real jar
+        // whose entry path and bytecode name disagree, so the orientation of the sentence is checked
+        // against the JVM rather than against a fabricated string.
+        String requested = NotAFactory.class.getName().replace("NotAFactory", "Renamed");
+        String entry = requested.replace('.', '/') + ".class";
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        entries.put(entry, classBytes(NotAFactory.class));
+        Path root = tempDir.resolve("plugins");
+        writeJar(root.resolve("wrong-name").resolve("wrong-name.jar"), requested, entries);
+
+        LoadReport<PluginFactory> report = load(root);
+        Assertions.assertEquals(1, report.getFailures().size(), () -> "" + report.getSuccesses());
+        String message = report.getFailures().get(0).getMessage();
+        String bytecodeName = NotAFactory.class.getName().replace('.', '/');
+        String requestedName = requested.replace('.', '/');
+        Assertions.assertTrue(message.contains("The class " + requestedName + " was found in this plugin's jars"),
+                message);
+        Assertions.assertTrue(message.contains("names it " + bytecodeName + ":"), message);
+        Assertions.assertTrue(message.contains("wrong path"), message);
+        Assertions.assertFalse(message.contains("shared library bundle"), message);
+    }
+
+    @Test
+    void testALongClassNameIsDiagnosedWithoutOverflowingTheStack() throws IOException {
+        // The message is plugin-controlled text: a service file naming a class of the longest legal
+        // length arrives as a ClassNotFoundException whose message is that name. A regex with one
+        // recursion per token overflowed the FE's default 1 MB stack here - inside the catch block,
+        // which turned a tolerated failure into an FE exit.
+        String longName = String.join(".", Collections.nCopies(6000, "abcdefghij"));
+        Path root = tempDir.resolve("plugins");
+        writeJar(root.resolve("long-name").resolve("long-name.jar"), longName, Collections.emptyMap());
+
+        LoadReport<PluginFactory> report = load(root);
+        Assertions.assertEquals(1, report.getFailures().size());
+        LoadFailure failure = report.getFailures().get(0);
+        Assertions.assertEquals(LoadFailure.STAGE_INSTANTIATE, failure.getStage());
+        Assertions.assertTrue(failure.getMessage().contains("The class " + longName + " is"),
+                "the name is read as a class name, however long");
+
+        // The direct forms too, on both diagnostics.
+        Assertions.assertDoesNotThrow(() -> DirectoryPluginRuntimeManager.missingClassAdvice(
+                new NoClassDefFoundError(longName.replace('.', '/'))));
+        Assertions.assertDoesNotThrow(() -> DirectoryPluginRuntimeManager.missingClassAdvice(
+                new NoClassDefFoundError(longName.replace('.', '/') + " (wrong name: " + longName + ")")));
+    }
+
+    @Test
+    void testACauselessLinkageErrorIsSummarisedByItself() throws IOException {
+        // A class file compiled for a newer JDK fails with UnsupportedClassVersionError, which has no
+        // cause: the failure itself is the whole story, and the message-only consumers must get it.
+        byte[] bytes = classBytes(MetadataTestPluginFactory.class);
+        bytes[6] = (byte) 0xFF;
+        bytes[7] = (byte) 0xFF;
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        entries.put(MetadataTestPluginFactory.class.getName().replace('.', '/') + ".class", bytes);
+        Path root = tempDir.resolve("plugins");
+        writeJar(root.resolve("newer-jdk").resolve("newer-jdk.jar"), MetadataTestPluginFactory.class.getName(),
+                entries);
+
+        LoadReport<PluginFactory> report = load(root);
+        Assertions.assertEquals(1, report.getFailures().size());
+        LoadFailure failure = report.getFailures().get(0);
+        Assertions.assertInstanceOf(UnsupportedClassVersionError.class, failure.getCause());
+        Assertions.assertTrue(failure.getMessage().contains("; caused by java.lang.UnsupportedClassVersionError"),
+                failure.getMessage());
+    }
+
+    @Test
+    void testARuntimeExceptionWhileResolvingTheFactoryClassIsAFailureNotAThrow() throws IOException {
+        // Site A: defining the factory class resolves its supertypes through the parent, and a parent
+        // may answer with a SecurityException (a signed package the plugin also ships unsigned classes
+        // into). A RuntimeException, so neither ReflectiveOperationException nor LinkageError.
+        Path root = tempDir.resolve("plugins");
+        DirectoryPluginRuntimeManagerMetadataTest.createPluginJar(
+                root.resolve("refused-supertype").resolve("refused-supertype.jar"),
+                AbsentSuperclassTestPluginFactory.class, "1.0");
+        ClassLoader refusingParent = new ClassLoader(getClass().getClassLoader()) {
+            @Override
+            protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+                if (AbsentDependencyProbe.class.getName().equals(name)) {
+                    throw new SecurityException("signer information does not match: " + name);
+                }
+                return super.loadClass(name, resolve);
+            }
+        };
+
+        LoadReport<PluginFactory> report = load(root, refusingParent);
+        Assertions.assertEquals(1, report.getFailures().size());
+        LoadFailure failure = report.getFailures().get(0);
+        Assertions.assertEquals(LoadFailure.STAGE_INSTANTIATE, failure.getStage());
+        Assertions.assertInstanceOf(SecurityException.class, failure.getCause());
+        Assertions.assertTrue(failure.getMessage().contains("; caused by java.lang.SecurityException: signer"),
+                failure.getMessage());
+    }
+
+    @Test
+    void testTheJdk17SecondAttemptShapeIsSummarised() {
+        // JDK 17's second attempt at a class whose initializer already failed: the miss is named only in
+        // the ExceptionInInitializerError's message, one node down. No advice (nothing new is missing),
+        // but the summary must carry that text.
+        NoClassDefFoundError secondAttempt =
+                new NoClassDefFoundError("Could not initialize class org.example.BrokenFactory");
+        secondAttempt.initCause(new ExceptionInInitializerError(
+                "Exception java.lang.NoClassDefFoundError: org/example/Probe [in thread \"main\"]"));
+        Assertions.assertEquals("", DirectoryPluginRuntimeManager.missingClassAdvice(secondAttempt));
+        Assertions.assertTrue(DirectoryPluginRuntimeManager.rootCauseSummary(secondAttempt)
+                .contains("java.lang.ExceptionInInitializerError: Exception java.lang.NoClassDefFoundError:"
+                        + " org/example/Probe"));
+    }
+
+    @Test
+    void testOnlyAClassNameShapedTextIsAClassName() {
+        Assertions.assertTrue(DirectoryPluginRuntimeManager.isClassName("org.example.Probe$Inner2"));
+        Assertions.assertTrue(DirectoryPluginRuntimeManager.isClassName("org/example/Probe$Inner2"));
+        Assertions.assertTrue(DirectoryPluginRuntimeManager.isClassName("Probe"));
+        Assertions.assertTrue(DirectoryPluginRuntimeManager.isClassName("org.example." + new String(
+                        new int[] {0xdc, 'n', 0xef, 'c', 'o', 'd', 'e'}, 0, 7)),
+                "a Unicode identifier is a class name");
+        Assertions.assertTrue(DirectoryPluginRuntimeManager.isClassName("org.example.Mangled-Name"),
+                "a compiler-mangled name is a class name");
+        Assertions.assertFalse(DirectoryPluginRuntimeManager.isClassName(""));
+        Assertions.assertFalse(DirectoryPluginRuntimeManager.isClassName("com.example.Driver."));
+        Assertions.assertFalse(DirectoryPluginRuntimeManager.isClassName(".com.example.Driver"));
+        Assertions.assertFalse(DirectoryPluginRuntimeManager.isClassName("com..example.Driver"));
+        Assertions.assertFalse(DirectoryPluginRuntimeManager.isClassName("Cannot load driver class com.x.Y"));
+        Assertions.assertFalse(DirectoryPluginRuntimeManager.isClassName("[Lorg/example/Probe;"));
+        Assertions.assertFalse(DirectoryPluginRuntimeManager.isClassName("org/example/Probe (wrong name: x/Y)"));
+    }
+
+    private static byte[] classBytes(Class<?> clazz) throws IOException {
+        String entry = clazz.getName().replace('.', '/') + ".class";
+        try (InputStream in = clazz.getClassLoader().getResourceAsStream(entry)) {
+            Assertions.assertNotNull(in, "class bytes not found: " + entry);
+            return in.readAllBytes();
+        }
+    }
+
+    /**
+     * Writes a plugin jar whose service file names {@code serviceClassName} and whose class entries are
+     * exactly {@code entries} - which lets a test disagree with itself on purpose: an entry under one
+     * path carrying another class's bytes, a class file with a patched version, or no class at all.
+     */
+    private static void writeJar(Path jarPath, String serviceClassName, Map<String, byte[]> entries)
+            throws IOException {
+        Files.createDirectories(jarPath.getParent());
+        Manifest manifest = new Manifest();
+        manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+        manifest.getMainAttributes().putValue(
+                DirectoryPluginRuntimeManagerMetadataTest.TEST_GATE.getManifestAttribute(),
+                DirectoryPluginRuntimeManagerMetadataTest.TEST_GATE.getExpectedVersion());
+        try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(jarPath), manifest)) {
+            for (Map.Entry<String, byte[]> entry : entries.entrySet()) {
+                jar.putNextEntry(new JarEntry(entry.getKey()));
+                jar.write(entry.getValue());
+                jar.closeEntry();
+            }
+            jar.putNextEntry(new JarEntry("META-INF/services/" + PluginFactory.class.getName()));
+            jar.write((serviceClassName + "\n").getBytes(StandardCharsets.UTF_8));
+            jar.closeEntry();
+        }
     }
 
     private static String adviceFor(Throwable failure) {
@@ -224,11 +388,15 @@ class DirectoryPluginRuntimeManagerLinkageTest {
                 return super.loadClass(name, resolve);
             }
         };
+        return load(root, hidingParent);
+    }
+
+    private static LoadReport<PluginFactory> load(Path root, ClassLoader parent) {
         // Assertions.assertDoesNotThrow is the point of the test: before the loader caught LinkageError
         // this call threw, and nothing between here and FE startup would have caught it.
         return Assertions.assertDoesNotThrow(() -> new DirectoryPluginRuntimeManager<PluginFactory>().loadAll(
                 Collections.singletonList(root),
-                hidingParent,
+                parent,
                 PluginFactory.class,
                 null,
                 DirectoryPluginRuntimeManagerMetadataTest.TEST_GATE));
@@ -248,5 +416,7 @@ class DirectoryPluginRuntimeManagerLinkageTest {
         Assertions.assertTrue(failure.getMessage().contains("shared library bundle"),
                 () -> "the message must say where a missing dependency is expected to come from: "
                         + failure.getMessage());
+        Assertions.assertTrue(failure.getMessage().contains("; caused by java.lang.ClassNotFoundException: "),
+                () -> "the message must carry the innermost cause: " + failure.getMessage());
     }
 }

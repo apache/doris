@@ -39,8 +39,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.jar.JarFile;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -115,14 +113,10 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
      */
     private static final String ALREADY_FAILED_TO_INITIALIZE = "Could not initialize class ";
     /**
-     * A JVM {@code NoClassDefFoundError} message whose whole text is one class name, in either the binary
-     * ({@code org.example.Probe$Inner}) or the internal ({@code org/example/Probe$Inner}) spelling. Only
-     * such a message is read as "this class is missing"; anything sentence-shaped is plugin wording.
+     * The JVM's "found under the wrong path" wording, {@code <name in the bytecode> (wrong name: <name
+     * requested>)}: the class file exists under the requested name's path, its bytecode says otherwise.
      */
-    private static final Pattern CLASS_NAME_MESSAGE = Pattern.compile("[\\w$]+([./][\\w$]+)*");
-    /** The JVM's "found under the wrong path" wording: {@code a/B (wrong name: c/D)}. */
-    private static final Pattern WRONG_NAME_MESSAGE =
-            Pattern.compile("([\\w$]+(?:[./][\\w$]+)*)\\s*\\(wrong name:\\s*([\\w$]+(?:[./][\\w$]+)*)\\)");
+    private static final String WRONG_NAME_MARKER = " (wrong name: ";
 
     private final ConcurrentMap<String, PluginHandle<F>> handlesByName = new ConcurrentHashMap<>();
     private final Object lifecycleLock = new Object();
@@ -299,8 +293,8 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                 throw new PluginLoadException(
                         normalizedDir,
                         LoadFailure.STAGE_INSTANTIATE,
-                        "Failed to instantiate factory class '" + factoryClassName + "' in " + normalizedDir
-                                + missingClassAdvice(e) + rootCauseSummary(e),
+                        failureMessage("Failed to instantiate factory class '" + factoryClassName + "'",
+                                normalizedDir, e),
                         e);
             }
 
@@ -332,10 +326,10 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                 throw new PluginLoadException(
                         normalizedDir,
                         LoadFailure.STAGE_INSTANTIATE,
-                        "Failed to instantiate factory class '" + factoryClassName + "' in " + normalizedDir
+                        failureMessage("Failed to instantiate factory class '" + factoryClassName + "'"
                                 + (e instanceof ClassCastException
-                                        ? ": it does not implement " + factoryType.getName() : "")
-                                + missingClassAdvice(e) + rootCauseSummary(e),
+                                        ? ": it does not implement " + factoryType.getName() : ""),
+                                normalizedDir, e),
                         e);
             }
         } catch (PluginLoadException e) {
@@ -353,7 +347,7 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
             throw new PluginLoadException(
                     normalizedDir,
                     LoadFailure.STAGE_INSTANTIATE,
-                    "Failed to get plugin name from discovered factory in " + normalizedDir,
+                    failureMessage("Failed to get plugin name from discovered factory", normalizedDir, e),
                     e);
         }
         String nameValidationError = PluginNames.validate(pluginName);
@@ -377,7 +371,7 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
             throw new PluginLoadException(
                     normalizedDir,
                     LoadFailure.STAGE_INSTANTIATE,
-                    "Failed to get plugin description from discovered factory in " + normalizedDir,
+                    failureMessage("Failed to get plugin description from discovered factory", normalizedDir, e),
                     e);
         }
 
@@ -562,6 +556,25 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
     }
 
     /**
+     * The message of a failure that happened while the loader was calling into plugin code: what was
+     * being done, where, and - as far as the failure says so - why. Every site that catches a plugin
+     * failure builds its message here, so no site can fall behind the others in what it records.
+     *
+     * <p>The diagnostics read plugin-controlled text (the failure's messages), so they run under a guard
+     * that degrades to nothing: a diagnostic that throws would turn a failure the loader had already
+     * caught into one that escapes it, leaks the classloader and takes FE startup down.
+     */
+    private static String failureMessage(String what, Path pluginDir, Throwable failure) {
+        String diagnostics;
+        try {
+            diagnostics = missingClassAdvice(failure) + rootCauseSummary(failure);
+        } catch (RuntimeException | Error e) {
+            diagnostics = "";
+        }
+        return what + " in " + pluginDir + diagnostics;
+    }
+
+    /**
      * Turns a load failure caused by an absent class into an actionable sentence, or "" for any other
      * failure. A plugin misses a class either because it does not bundle it or because it expected to
      * inherit it from the layer its classloader delegates to, and the message must not leave the reader
@@ -593,13 +606,13 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                 // Keep walking: what really went missing, if anything did, is further down the chain.
                 continue;
             }
-            Matcher wrongName = WRONG_NAME_MESSAGE.matcher(message);
-            if (wrongName.matches()) {
-                return ". The class " + wrongName.group(1) + " was found in this plugin's jars, but its"
-                        + " bytecode names it " + wrongName.group(2) + ": the jar entry is under the wrong"
-                        + " path, which is a broken plugin jar rather than a missing dependency";
+            String[] wrongName = wrongNameForm(message);
+            if (wrongName != null) {
+                return ". The class " + wrongName[1] + " was found in this plugin's jars, but its bytecode"
+                        + " names it " + wrongName[0] + ": the jar entry is under the wrong path, which is"
+                        + " a broken plugin jar rather than a missing dependency";
             }
-            if (!CLASS_NAME_MESSAGE.matcher(message).matches()) {
+            if (!isClassName(message)) {
                 // Plugin code may wrap a lookup failure in a sentence ("Cannot load driver class
                 // com.x.Y"); nothing here can tell which word is the class, so keep walking - the JDK's
                 // own node, if there is one below, carries the bare name.
@@ -613,21 +626,66 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
     }
 
     /**
-     * The innermost cause of a load failure as {@code Class: message}, or "" when the failure has no
-     * cause, so that a consumer logging the {@link LoadFailure} message alone still records why - an
-     * {@link ExceptionInInitializerError} prints as its bare class name and says nothing on its own.
-     * Identity-bounded for the same reason as {@link #missingClassAdvice}.
+     * The innermost cause of a load failure as {@code Class: message} - or the failure itself when it
+     * has no cause - so that a consumer recording the {@link LoadFailure} message alone still records
+     * why: an {@link ExceptionInInitializerError} prints as its bare class name and says nothing on its
+     * own, and a cause-less {@link VerifyError} or {@link UnsupportedClassVersionError} is the whole
+     * story. Identity-bounded for the same reason as {@link #missingClassAdvice}.
      */
     static String rootCauseSummary(Throwable failure) {
+        if (failure == null) {
+            return "";
+        }
         Set<Throwable> seen = Collections.newSetFromMap(new IdentityHashMap<>());
-        Throwable root = null;
+        Throwable root = failure;
         for (Throwable t = failure; t != null && seen.add(t); t = t.getCause()) {
             root = t;
         }
-        if (root == null || root == failure) {
-            return "";
-        }
         return "; caused by " + root;
+    }
+
+    /**
+     * Whether the text is one class name in the binary ({@code org.example.Probe$Inner}) or internal
+     * ({@code org/example/Probe$Inner}) spelling: tokens of name characters joined by one {@code .} or
+     * {@code /} each, no leading or trailing separator. A name character is anything that is neither
+     * whitespace nor one of the JVM's own delimiters, so a Unicode or compiler-mangled name still counts
+     * and a sentence never does. A linear scan on purpose: a {@code (token(sep token)*)} regex over
+     * java.util.regex recurses once per token, and the message is plugin-controlled text - a name of a
+     * few thousand tokens would overflow the FE's default thread stack inside a catch block.
+     */
+    static boolean isClassName(String text) {
+        boolean expectToken = true;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '.' || c == '/') {
+                if (expectToken) {
+                    return false;
+                }
+                expectToken = true;
+            } else if (Character.isWhitespace(c) || c == ';' || c == '[' || c == '(' || c == ')') {
+                return false;
+            } else {
+                expectToken = false;
+            }
+        }
+        return !expectToken;
+    }
+
+    /**
+     * Splits the JVM's {@code <bytecode name> (wrong name: <requested name>)} message into its two class
+     * names, or returns null when the text has any other shape.
+     */
+    private static String[] wrongNameForm(String message) {
+        int marker = message.indexOf(WRONG_NAME_MARKER);
+        if (marker <= 0 || !message.endsWith(")")) {
+            return null;
+        }
+        String bytecodeName = message.substring(0, marker);
+        String requestedName = message.substring(marker + WRONG_NAME_MARKER.length(), message.length() - 1);
+        if (!isClassName(bytecodeName) || !isClassName(requestedName)) {
+            return null;
+        }
+        return new String[] {bytecodeName, requestedName};
     }
 
     private static void closeClassLoader(ClassLoader classLoader) {
