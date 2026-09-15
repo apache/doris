@@ -140,5 +140,33 @@ suite("prepared_point_query_row_policy", "p0") {
         prepared.close()
     }
 
+    // Injective casts on key columns remain eligible, and their filter placeholders must be
+    // rebound when the cached point-query plan is reused.
+    connect(user, password, url) {
+        def prepared = prepareStatement """
+            SELECT /*+ SET_VAR(enable_short_circuit_query=true) */ tenant_id, item_id, value
+            FROM prepared_point_query_row_policy
+            WHERE CAST(tenant_id AS BIGINT) = ? AND item_id = ?
+        """
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, prepared.class)
+
+        prepared.setLong(1, 1)
+        prepared.setInt(2, 10)
+        prepared.executeQuery().withCloseable { result ->
+            assertTrue(result.next())
+            assertEquals("allowed", result.getString(3))
+            assertFalse(result.next())
+        }
+
+        prepared.setLong(1, 10)
+        prepared.setInt(2, 10)
+        prepared.executeQuery().withCloseable { result ->
+            assertTrue(result.next())
+            assertEquals("cast-match", result.getString(3))
+            assertFalse(result.next())
+        }
+        prepared.close()
+    }
+
     sql "DROP USER IF EXISTS ${user}"
 }

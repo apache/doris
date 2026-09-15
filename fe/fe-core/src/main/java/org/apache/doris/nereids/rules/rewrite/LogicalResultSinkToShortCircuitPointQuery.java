@@ -82,6 +82,12 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
         }
     }
 
+    private boolean allPlaceholdersBoundByFilter(StatementContext statementContext) {
+        return statementContext.getPlaceholders().stream()
+                .allMatch(placeholder -> statementContext.getIdToComparisonSlot()
+                        .containsKey(placeholder.getPlaceholderId()));
+    }
+
     @VisibleForTesting
     boolean scanMatchShortCircuitCondition(LogicalOlapScan olapScan) {
         ConnectContext connectContext = ConnectContext.get();
@@ -122,12 +128,12 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
     // set short circuit flag and return the original plan
     private Plan shortCircuit(Plan root, OlapTable olapTable,
                 Set<Expression> conjuncts, StatementContext statementContext) {
-        // Keep policy-bearing tables, inlined views, and placeholders outside the final filter on
-        // the normal path. A cached no-policy plan repeats the table-level lookup before reuse.
+        // Keep policy-bearing tables, inlined views, and placeholders that the final filter cannot
+        // rebind on the normal path. A cached no-policy plan repeats the table-level lookup before reuse.
         if (hasRowPolicy(olapTable, statementContext)
                 || statementContext.getSecurityDependencyContext().hasEffectiveRowPolicy()
                 || statementContext.getSecurityDependencyContext().hasDataMask()
-                || statementContext.hasNonFilterPlaceholder()
+                || !allPlaceholdersBoundByFilter(statementContext)
                 || !statementContext.getViewDdlSqls().isEmpty()) {
             return root;
         }

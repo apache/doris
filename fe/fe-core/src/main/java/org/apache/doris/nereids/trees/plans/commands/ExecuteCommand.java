@@ -35,7 +35,6 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableComma
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapGroupCommitInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -118,7 +117,6 @@ public class ExecuteCommand extends Command {
         }
         // Commands hide their retained query trees from normal plan traversal. Reset every exposed
         // root so a later EXECUTE cannot reuse a relation-local snapshot from an earlier execution.
-        boolean hasNonFilterPlaceholder = false;
         for (int rootIndex = 0; rootIndex < relationRoots.size(); rootIndex++) {
             LogicalPlan relationRoot = relationRoots.get(rootIndex);
             for (UnboundRelation relation : relationRoot.<UnboundRelation>collectToList(
@@ -130,10 +128,6 @@ public class ExecuteCommand extends Command {
             }
             for (LogicalPlan plan : relationRoot.<LogicalPlan>collectToList(node -> true)) {
                 for (Expression expression : plan.getExpressions()) {
-                    if (!(plan instanceof LogicalFilter)
-                            && expression.anyMatch(Placeholder.class::isInstance)) {
-                        hasNonFilterPlaceholder = true;
-                    }
                     for (SubqueryExpr subquery : expression.<SubqueryExpr>collectToList(
                             SubqueryExpr.class::isInstance)) {
                         // SubqueryExpr owns its query plan outside Plan.children(), so retained prepared
@@ -142,10 +136,6 @@ public class ExecuteCommand extends Command {
                     }
                 }
             }
-        }
-        statementContext.setHasNonFilterPlaceholder(hasNonFilterPlaceholder);
-        if (hasNonFilterPlaceholder) {
-            statementContext.setShortCircuitQuery(false);
         }
         if (logicalPlan instanceof LogicalSqlCache) {
             throw new AnalysisException("Unsupported sql cache for server prepared statement");

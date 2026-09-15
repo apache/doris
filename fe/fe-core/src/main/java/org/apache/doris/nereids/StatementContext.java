@@ -184,7 +184,6 @@ public class StatementContext implements Closeable {
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
     private final SqlCacheContext sqlCacheContext;
     private final SecurityDependencyContext securityDependencyContext;
-    private boolean hasNonFilterPlaceholder;
 
     // generate for next id for prepared statement's placeholders, which is
     // connection level
@@ -697,14 +696,6 @@ public class StatementContext implements Closeable {
 
     public SecurityDependencyContext getSecurityDependencyContext() {
         return securityDependencyContext;
-    }
-
-    public boolean hasNonFilterPlaceholder() {
-        return hasNonFilterPlaceholder;
-    }
-
-    public void setHasNonFilterPlaceholder(boolean hasNonFilterPlaceholder) {
-        this.hasNonFilterPlaceholder = hasNonFilterPlaceholder;
     }
 
     public boolean isDpHyp() {

@@ -23,7 +23,6 @@ import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
@@ -92,6 +91,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.ArrayType;
@@ -920,21 +920,34 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         return visit(realExpr, context);
     }
 
-    // Register prepared statement placeholder id to related slot in comparison predicate.
-    // Used to replace expression in ShortCircuit plan
+    // Register point-query filter placeholders so cached conjuncts can be rebound on EXECUTE.
+    // Restrict this registry to LogicalFilter: placeholders in projections or other plan nodes
+    // cannot be updated by the short-circuit executor and must keep the statement on the normal path.
     private void registerPlaceholderIdToSlot(ComparisonPredicate cp,
                     ExpressionRewriteContext context, Expression left, Expression right) {
-        if (ConnectContext.get() != null
-                    && ConnectContext.get().getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
-            // Used to replace expression in ShortCircuit plan
-            if (cp.right() instanceof Placeholder && left instanceof SlotReference) {
-                PlaceholderId id = ((Placeholder) cp.right()).getPlaceholderId();
-                context.cascadesContext.getStatementContext().getIdToComparisonSlot().put(id, (SlotReference) left);
-            } else if (cp.left() instanceof Placeholder && right instanceof SlotReference) {
-                PlaceholderId id = ((Placeholder) cp.left()).getPlaceholderId();
-                context.cascadesContext.getStatementContext().getIdToComparisonSlot().put(id, (SlotReference) right);
-            }
+        if (context == null || !(currentPlan instanceof LogicalFilter)) {
+            return;
         }
+        SlotReference leftSlot = extractInjectiveCastSlot(left);
+        SlotReference rightSlot = extractInjectiveCastSlot(right);
+        if (cp.right() instanceof Placeholder && leftSlot != null) {
+            PlaceholderId id = ((Placeholder) cp.right()).getPlaceholderId();
+            context.cascadesContext.getStatementContext().getIdToComparisonSlot().put(id, leftSlot);
+        } else if (cp.left() instanceof Placeholder && rightSlot != null) {
+            PlaceholderId id = ((Placeholder) cp.left()).getPlaceholderId();
+            context.cascadesContext.getStatementContext().getIdToComparisonSlot().put(id, rightSlot);
+        }
+    }
+
+    private SlotReference extractInjectiveCastSlot(Expression expression) {
+        if (expression instanceof SlotReference) {
+            return (SlotReference) expression;
+        }
+        if (expression instanceof Cast && expression.child(0) instanceof SlotReference
+                && expression.child(0).getDataType().isInjectiveCastTo(expression.getDataType())) {
+            return (SlotReference) expression.child(0);
+        }
+        return null;
     }
 
     @Override
