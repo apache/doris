@@ -19,6 +19,10 @@ import com.amazonaws.services.s3.model.ListObjectsRequest
 import java.util.function.Supplier
 
 suite("test_cold_data_compaction_fault_injection", "nonConcurrent") {
+    // CloudStorageEngine does not schedule local cold-data migration or compaction.
+    if (isCloudMode()) {
+        return
+    }
     GetDebugPoint().clearDebugPointsForAllBEs()
     def retryUntilTimeout = { int timeoutSecond, Supplier<Boolean> closure ->
         long start = System.currentTimeMillis()

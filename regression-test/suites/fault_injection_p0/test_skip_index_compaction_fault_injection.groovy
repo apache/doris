@@ -84,7 +84,7 @@ suite("test_skip_index_compaction_fault_injection", "nonConcurrent") {
     }
   }
 
-  def run_test = { tableName ->
+  def run_test = { tableName, debugPointName ->
     sql """ INSERT INTO ${tableName} VALUES (1, "40.135.0.0", "GET /images/hm_bg.jpg HTTP/1.0", 1, 2); """
     sql """ INSERT INTO ${tableName} VALUES (2, "40.135.0.0", "GET /images/hm_bg.jpg HTTP/1.0", 1, 2); """
     sql """ INSERT INTO ${tableName} VALUES (3, "40.135.0.0", "GET /images/hm_bg.jpg HTTP/1.0", 1, 2); """
@@ -113,23 +113,35 @@ suite("test_skip_index_compaction_fault_injection", "nonConcurrent") {
       }
     }
 
+    // INSERT completion does not imply that a cloud BE has refreshed its CloudTablet cache.
+    // Synchronize every replica and use version 11 as a read barrier before counting rowsets.
+    // Enable the compaction fault only after this step so the synchronization itself remains
+    // outside the fault-injection scope being tested.
+    syncAndWaitTabletVersion(tablets, 11)
+
     int rowsetCount = get_rowset_count.call(tablets);
     assert (rowsetCount == 11 * replicaNum)
 
-    // first
-    trigger_and_wait_compaction(tableName, "full", 300, new String[]{"e-6010"})
+    try {
+      GetDebugPoint().enableDebugPointForAllBEs(debugPointName)
 
-    rowsetCount = get_rowset_count.call(tablets);
-    assert (rowsetCount == 11 * replicaNum)
+      // The first injected compaction must fail without changing the rowset layout.
+      trigger_and_wait_compaction(tableName, "full", 300, new String[]{"e-6010"})
 
-    // second
-    trigger_and_wait_compaction(tableName, "full", 300, new String[]{"e-6010"})
+      rowsetCount = get_rowset_count.call(tablets);
+      assert (rowsetCount == 11 * replicaNum)
 
-    rowsetCount = get_rowset_count.call(tablets);
-    if (isCloudMode) {
-      assert (rowsetCount == (1 + 1) * replicaNum)
-    } else {
-      assert (rowsetCount == 1 * replicaNum)
+      // The second compaction verifies recovery after the one-shot injected failure.
+      trigger_and_wait_compaction(tableName, "full", 300, new String[]{"e-6010"})
+
+      rowsetCount = get_rowset_count.call(tablets);
+      if (isCloudMode) {
+        assert (rowsetCount == (1 + 1) * replicaNum)
+      } else {
+        assert (rowsetCount == 1 * replicaNum)
+      }
+    } finally {
+      GetDebugPoint().disableDebugPointForAllBEs(debugPointName)
     }
   }
 
@@ -156,13 +168,8 @@ suite("test_skip_index_compaction_fault_injection", "nonConcurrent") {
     has_update_be_config = true
     check_config.call("inverted_index_compaction_enable", "true");
 
-
-    try {
-      GetDebugPoint().enableDebugPointForAllBEs("Compaction::open_inverted_index_file_writer")
-      run_test.call(tableName2)
-    } finally {
-      GetDebugPoint().disableDebugPointForAllBEs("Compaction::open_inverted_index_file_writer")
-    }
+    run_test.call(tableName1, "Compaction::open_inverted_index_file_reader")
+    run_test.call(tableName2, "Compaction::open_inverted_index_file_writer")
   } finally {
     if (has_update_be_config) {
       set_be_config.call("inverted_index_compaction_enable", invertedIndexCompactionEnable.toString())

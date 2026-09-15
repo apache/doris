@@ -35,6 +35,10 @@ import groovy.json.JsonSlurper
 import groovy.util.logging.Slf4j
 import org.apache.commons.lang3.ObjectUtils
 import org.apache.doris.regression.Config
+import org.apache.doris.regression.suite.client.BackendClientImpl
+import org.apache.doris.regression.util.RowsetMetaUtils
+import org.apache.doris.thrift.TNetworkAddress
+import org.apache.doris.thrift.TSyncLoadForTabletsRequest
 import org.apache.doris.regression.RegressionTest
 import org.apache.doris.regression.action.FlightRecordAction
 import org.apache.doris.regression.action.BenchmarkAction
@@ -329,6 +333,117 @@ class Suite implements GroovyInterceptable {
     //         }
     //     )
     // }
+    /** Wait for continuous version coverage on each tablet's serving BE, with lazy commit enabled. */
+    void syncAndWaitTabletVersion(Collection<Map> tablets, long version, int timeoutSeconds = 60) {
+        Assertions.assertFalse(tablets.isEmpty(), "no tablets to synchronize")
+        List<Map> tabletList = tablets.toList()
+        Map<String, List<Map>> tabletGroups = tabletList.groupBy { it.BackendId.toString() }
+        Map<String, BackendClientImpl> backendClients = [:]
+        Set<Integer> ready = [] as Set
+        Map<String, Object> lastStates = [:]
+        int pollCount = 0
+        try {
+            if (isCloudMode()) {
+                def backendById = sql_return_maparray("SHOW BACKENDS").collectEntries {
+                    [(it.BackendId.toString()): it]
+                }
+                tabletGroups.keySet().each { backendId ->
+                    def backend = backendById[backendId]
+                    Assertions.assertNotNull(backend,
+                            "backend ${backendId} for tablets ${tabletGroups[backendId]*.TabletId} was not found")
+                    backendClients[backendId] = new BackendClientImpl(
+                            new TNetworkAddress(backend.Host.toString(), backend.BePort as int),
+                            backend.HttpPort as int)
+                }
+            }
+
+            awaitUntil(timeoutSeconds, 0.5) {
+                // The BE RPC is asynchronous. Retry it periodically in case an earlier queued
+                // task observed no advancement while Meta Service was finalizing lazy commit.
+                if (!backendClients.isEmpty() && pollCount++ % 10 == 0) {
+                    tabletGroups.each { backendId, backendTablets ->
+                        backendClients[backendId].client.sync_load_for_tablets(
+                                new TSyncLoadForTabletsRequest(
+                                        backendTablets.collect { it.TabletId as long }))
+                    }
+                }
+                tabletList.eachWithIndex { tablet, index ->
+                    if (!ready.contains(index)) {
+                        def status = Http.GET(tablet.CompactionStatus.toString(), true, false)
+                        lastStates["${tablet.TabletId}@${tablet.BackendId}"] = status
+                        if (RowsetMetaUtils.coversVersion(status, version)) {
+                            ready.add(index)
+                        }
+                    }
+                }
+                return ready.size() == tabletList.size()
+            }
+        } catch (org.awaitility.core.ConditionTimeoutException e) {
+            throw new IllegalStateException(
+                    "Waiting for tablet version ${version} timed out; last BE states: ${lastStates}", e)
+        } finally {
+            backendClients.values().each { it.close() }
+        }
+    }
+
+    /** Fetch an exact physical rowset after the serving BE has caught up. */
+    Map syncAndWaitCloudRowsetMeta(Map tablet, long version, int timeoutSeconds = 60) {
+        syncAndWaitTabletVersion([tablet], version, timeoutSeconds)
+        return getRowsetMetaAtVersion(tablet, version)
+    }
+
+    /**
+     * Call after syncAndWaitTabletVersion. Cloud headers omit rs_metas, so read the committed
+     * MS rowset key instead. The caller must prevent compaction from removing the exact version.
+     */
+    Map getRowsetMetaAtVersion(Map tablet, long version) {
+        if (!isCloudMode()) {
+            String metaUrl = tablet.MetaUrl.toString()
+            metaUrl += (metaUrl.contains('?') ? '&' : '?') + 'byte_to_base64=true'
+            def header = Http.GET(metaUrl, true, false)
+            Assertions.assertTrue(header.rs_metas instanceof List, "tablet header is missing rs_metas")
+            def meta = header.rs_metas.find { (it.end_version as long) == version }
+            Assertions.assertNotNull(meta, "rowset not found: tablet=${tablet.TabletId}, version=${version}")
+            return RowsetMetaUtils.decodeKeyBounds(meta)
+        }
+        def endpoint = context.config.metaServiceHttpAddress
+        def token = context.config.metaServiceToken
+        // CI deployment writes multiClusterInstanceId as a custom property; the legacy
+        // multiClusterInstance can still contain the template's default_instance_id.
+        def instanceId = context.config.otherConfigs.get("multiClusterInstanceId")?.toString()?.trim() ?:
+                context.config.multiClusterInstance?.trim()
+        Assertions.assertTrue(endpoint?.trim() && token?.trim() && instanceId?.trim(),
+                "metaServiceHttpAddress, metaServiceToken and multiClusterInstanceId (or multiClusterInstance) must be configured")
+        def params = [token: token, key_type: "MetaRowsetKey", instance_id: instanceId,
+                      tablet_id: tablet.TabletId, version: version]
+        def query = params.collect { key, value ->
+            "${key}=${java.net.URLEncoder.encode(value.toString(), 'UTF-8')}"
+        }.join('&')
+        // Do not use Http.GET here: it logs the URL, including the MS token.
+        def baseUrl = endpoint.contains('://') ? endpoint : "http://${endpoint}"
+        HttpURLConnection conn = new URL("${baseUrl}/MetaService/http/get_value?${query}").openConnection()
+        conn.connectTimeout = 5000
+        conn.readTimeout = 10000
+        conn.instanceFollowRedirects = false
+        try {
+            int code = conn.responseCode
+            Assertions.assertEquals(200, code,
+                    "MS rowset read failed: instance=${instanceId}, tablet=${tablet.TabletId}, version=${version}")
+            def meta = new JsonSlurper().parseText(conn.inputStream.getText('UTF-8'))
+            Assertions.assertNotNull(meta.end_version,
+                    "MS response is not rowset metadata: tablet=${tablet.TabletId}, version=${version}, code=${meta.code}")
+            Assertions.assertEquals(version, meta.end_version as long)
+            Assertions.assertEquals(tablet.TabletId as long, meta.tablet_id as long)
+            return RowsetMetaUtils.decodeKeyBounds(meta)
+        } catch (IOException e) {
+            // Network exception messages may contain the credential-bearing URL.
+            throw new IOException("MS rowset read failed: tablet=${tablet.TabletId}, version=${version}, " +
+                    "error=${e.class.simpleName}")
+        } finally {
+            conn.disconnect()
+        }
+    }
+
     public void awaitUntil(int atMostSeconds, double intervalSecond = 1, Closure actionSupplier) {
         Awaitility
             .with().pollInSameThread()

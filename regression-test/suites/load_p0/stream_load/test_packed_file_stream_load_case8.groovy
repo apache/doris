@@ -23,7 +23,7 @@ suite("test_packed_file_stream_load_case8", "p0,nonConcurrent") {
         return
     }
 
-    final String dataFile = "cloud_p0/packed_file/merge_file_stream_load.csv"
+    final String dataFile = "${context.config.dataPath}/cloud_p0/packed_file/merge_file_stream_load.csv"
     final int rowsPerLoad = 200
     final String tablePrefix = "packed_file_case8_"
 
