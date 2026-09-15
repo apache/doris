@@ -28,7 +28,6 @@
 #include <map>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <thread>
 #include <unordered_set>
 
@@ -43,15 +42,12 @@ class CacheBlockMetaStore;
 struct TtlInfo {
     uint64_t ttl = 0;
     uint64_t tablet_ctime = 0;
-    // Cache type last applied to this tablet's blocks, or nullopt while the manager has not
-    // converted them yet and so cannot know: _ttl_info_map is rebuilt in memory only, while the
-    // types themselves survive a restart on disk. Unknown never compares equal to the wanted
-    // state, so a tablet entering the map always gets one reconciling scan.
-    //
-    // The applied state has to be remembered explicitly rather than inferred from the presence
-    // of the entry: that cannot tell "this tablet never had a TTL" apart from "its TTL expired
-    // and the blocks were demoted", and those two need opposite handling when a TTL arrives.
-    std::optional<bool> blocks_are_ttl;
+    // True once this manager has put the tablet's blocks into the TTL queue and nothing has
+    // taken them out since. Note it records what we did, not what the blocks are: it starts
+    // false for a tablet seen for the first time after a restart, whose blocks on disk may
+    // well be TTL already, because this process has no record of putting them there and must
+    // scan to find out.
+    bool blocks_promoted = false;
 
     // Whether this tablet's blocks belong in the TTL queue right now.
     bool is_ttl_active(uint64_t now) const {
@@ -91,12 +87,7 @@ private:
     // Both background threads funnel through here and it is serialized per tablet, so they can
     // never scan the same tablet concurrently and leave the blocks in whatever type the scan
     // that happened to finish last wrote.
-    //
-    // force_scan walks the blocks even when the recorded state already matches. The expiration
-    // path needs it: a tablet whose TTL has run out keeps producing TTL blocks on every read,
-    // because the read path picks the cache type from ttl_seconds alone without regard to
-    // expiry, so the tablet-level state cannot tell whether new ones have appeared.
-    void reconcile_tablet_blocks(int64_t tablet_id, bool force_scan);
+    void reconcile_tablet_blocks(int64_t tablet_id);
 
     // Caller must hold _ttl_info_mutex.
     void update_ttl_info_map_size_metrics();
