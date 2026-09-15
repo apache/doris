@@ -72,6 +72,7 @@ import org.apache.doris.qe.ShortCircuitQueryContext;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TAIResource;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
@@ -354,7 +355,7 @@ public class StatementContext implements Closeable {
     private boolean queryStatsRecorded = false;
 
     private final Set<CTEId> mustInlineCTE = new HashSet<>();
-    private final Set<String> usedAIResourceNames = new LinkedHashSet<>();
+    private final Map<String, TAIResource> usedAIResources = new LinkedHashMap<>();
     private final Set<TableNameInfo> excludedTriggerTables = new HashSet<>();
 
     private final Map<String, Integer> lowerCaseTableNamesCache = Maps.newHashMap();
@@ -591,15 +592,27 @@ public class StatementContext implements Closeable {
         return getIvmRewriteContext().isPresent();
     }
 
-    public Set<String> getUsedAIResourceNames() {
-        return Collections.unmodifiableSet(usedAIResourceNames);
+    public synchronized Set<String> getUsedAIResourceNames() {
+        return Collections.unmodifiableSet(new LinkedHashSet<>(usedAIResources.keySet()));
     }
 
-    public void registerUsedAIResourceName(String resourceName) {
+    public synchronized Map<String, TAIResource> getUsedAIResources() {
+        Map<String, TAIResource> snapshots = new LinkedHashMap<>();
+        usedAIResources.forEach((name, resource) -> snapshots.put(name, resource.deepCopy()));
+        return Collections.unmodifiableMap(snapshots);
+    }
+
+    /**
+     * Retain the first validated configuration for an AI resource used by this statement.
+     */
+    public synchronized void registerUsedAIResource(String resourceName, TAIResource resource) {
         if (Strings.isNullOrEmpty(resourceName)) {
             throw new AnalysisException("AI resource name can not be empty");
         }
-        usedAIResourceNames.add(resourceName);
+        if (resource == null) {
+            throw new AnalysisException("AI resource snapshot can not be null");
+        }
+        usedAIResources.putIfAbsent(resourceName, resource.deepCopy());
     }
 
     /**

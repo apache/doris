@@ -19,6 +19,12 @@ package org.apache.doris.qe.runtime;
 
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.AIResource;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.ResourceMgr;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.DefaultScanSource;
@@ -28,18 +34,68 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.RecursiveCteScanNode;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SortNode;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.thrift.TAIResource;
 import org.apache.doris.thrift.TRecCTETarget;
 import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 public class ThriftPlansBuilderTest {
+    @Test
+    public void testCollectAiResourcesKeepsAnalyzedSnapshotAfterResourceReplacement() {
+        String resourceName = "ai_resource";
+        TAIResource analyzedThrift = new TAIResource()
+                .setProviderType("OPENAI")
+                .setModelName("analyzed-model");
+        TAIResource replacementThrift = new TAIResource()
+                .setProviderType("LOCAL")
+                .setModelName("replacement-model");
+        AIResource analyzedResource = Mockito.mock(AIResource.class);
+        AIResource replacementResource = Mockito.mock(AIResource.class);
+        Mockito.when(analyzedResource.getName()).thenReturn(resourceName);
+        Mockito.when(analyzedResource.toThrift()).thenReturn(analyzedThrift);
+        Mockito.when(replacementResource.toThrift()).thenReturn(replacementThrift);
+
+        ResourceMgr resourceMgr = Mockito.mock(ResourceMgr.class);
+        Mockito.when(resourceMgr.getResource(resourceName))
+                .thenReturn(analyzedResource, replacementResource);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getResourceMgr()).thenReturn(resourceMgr);
+
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext connectContext = new ConnectContext();
+        StatementContext statementContext = new StatementContext(
+                connectContext, new OriginStatement("select 1", 0));
+        connectContext.setStatementContext(statementContext);
+        connectContext.setThreadLocalInfo();
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+            new AIAgg(new StringLiteral(resourceName), new StringLiteral("value"),
+                    new StringLiteral("summarize")).checkLegalityAfterRewrite();
+            Map<String, TAIResource> resources = ThriftPlansBuilder.collectAiResources(connectContext);
+
+            Assertions.assertEquals("OPENAI", resources.get(resourceName).getProviderType());
+            Assertions.assertEquals("analyzed-model", resources.get(resourceName).getModelName());
+            Mockito.verify(resourceMgr, Mockito.times(1)).getResource(resourceName);
+        } finally {
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
     @Test
     public void testSetRuntimePredicateForNonOlapScanNode() {
         ScanNode scanNode = Mockito.mock(ScanNode.class);

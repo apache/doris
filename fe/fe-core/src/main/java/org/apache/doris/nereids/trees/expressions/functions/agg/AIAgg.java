@@ -90,7 +90,7 @@ public class AIAgg extends NullableAggregateFunction
             if (!(resource instanceof AIResource)) {
                 throw new AnalysisException("AI resource '" + resourceName + "' does not exist");
             }
-            Resource.registerUsedAIResourceName(resourceName);
+            Resource.registerUsedAIResource((AIResource) resource);
         }
     }
 

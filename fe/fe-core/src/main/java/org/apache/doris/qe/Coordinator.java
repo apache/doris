@@ -21,10 +21,8 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.DescriptorToThriftConverter;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
-import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
-import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
@@ -1794,13 +1792,7 @@ public class Coordinator implements CoordInterface {
         if (context == null || context.getStatementContext() == null) {
             return aiResourceMap;
         }
-        for (String resourceName : context.getStatementContext().getUsedAIResourceNames()) {
-            Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
-            if (!(resource instanceof AIResource)) {
-                throw new IllegalStateException("AI resource '" + resourceName + "' does not exist");
-            }
-            aiResourceMap.put(resourceName, ((AIResource) resource).toThrift());
-        }
+        aiResourceMap.putAll(context.getStatementContext().getUsedAIResources());
         return aiResourceMap;
     }
 
