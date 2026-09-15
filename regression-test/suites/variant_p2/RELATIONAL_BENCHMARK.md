@@ -72,7 +72,8 @@ measurements separately from ordinary queries. A completed repeat run checks
 repeatability, not long-duration soak, concurrent ingestion, or crash recovery.
 
 The query suite can also run directly through `run-regression-test.sh` using
-`VARIANT_BENCH_PHASE=prepare|query`, `VARIANT_BENCH_ROWS`, `VARIANT_BENCH_KEYS`,
+`VARIANT_BENCH_PHASE=prepare|query` (required: without it an ordinary `variant_p2`
+run skips the suite), `VARIANT_BENCH_ROWS`, `VARIANT_BENCH_KEYS`,
 `VARIANT_BENCH_REPEATS`, `VARIANT_BENCH_WARMUPS`, `VARIANT_BENCH_RESULTS`, and
 `VARIANT_BENCH_SPILL`. Direct runs do not enforce Release or CPU affinity and
 must not be reported as an eight-core performance result.

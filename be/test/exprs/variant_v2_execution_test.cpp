@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 
 #include "core/column/variant_v2/column_variant_v2.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
@@ -32,6 +33,18 @@ TEST(VariantV2ExecutionTest, ExecutionTypeSelectsPhysicalColumn) {
 
     EXPECT_NE(check_and_get_column<ColumnVariantV2>(*variant.create_column()), nullptr);
     EXPECT_NE(check_and_get_column<ColumnVariantV2>(*compute_v2.create_column()), nullptr);
+}
+
+TEST(VariantV2ExecutionTest, TypePropertiesDoNotAffectEquality) {
+    // Execution compares and hashes Variant values canonically; storage properties such as the
+    // maximum subcolumn count and doc mode must not make two Variant types different.
+    const DataTypePtr plain = std::make_shared<DataTypeVariantV2>(2048, false);
+    const DataTypePtr limited = std::make_shared<DataTypeVariantV2>(10, false);
+    const DataTypePtr doc_mode = std::make_shared<DataTypeVariantV2>(0, true);
+    EXPECT_TRUE(plain->equals(*limited));
+    EXPECT_TRUE(limited->equals(*doc_mode));
+    EXPECT_TRUE(make_nullable(plain)->equals(*make_nullable(doc_mode)));
+    EXPECT_FALSE(plain->equals(DataTypeInt32()));
 }
 
 TEST(VariantV2ExecutionTest, CanonicalComparison) {

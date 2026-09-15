@@ -22,9 +22,11 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import statistics
 import subprocess
+import sys
 import time
 
 
@@ -48,6 +50,9 @@ def main():
         parser.error("--stream-load and --resume-files apply only to the load phase")
     if args.resume_files and not args.stream_load:
         parser.error("--resume-files requires --stream-load")
+    # Job cancellation sends SIGTERM. Unwind through the finally block below so the regression
+    # child is stopped and FE/BE thread affinity is restored.
+    signal.signal(signal.SIGTERM, lambda signum, _: sys.exit(128 + signum))
     repo = Path(__file__).resolve().parents[3]
     evidence = Path(args.output).resolve()
     evidence.mkdir(parents=True, exist_ok=False)
@@ -61,6 +66,12 @@ def main():
         processes[name] = pid
         original[pid] = {int(t.name): os.sched_getaffinity(int(t.name))
                          for t in Path(f"/proc/{pid}/task").iterdir()}
+    # The regression client must query the FE whose threads are pinned and fingerprinted here.
+    conf_port = re.search(r"jdbc:mysql://[^:/]+:(\d+)", Path(args.conf).read_text())
+    fe_port = re.search(r"^\s*query_port\s*=\s*(\d+)",
+                        (repo / "output/fe/conf/fe.conf").read_text(), re.MULTILINE)
+    if conf_port is None or int(conf_port.group(1)) != int(fe_port.group(1) if fe_port else 9030):
+        raise RuntimeError("--conf does not point at this worktree's FE query port")
     cpus = None
     if args.phase == "query":
         cpus = {int(cpu) for cpu in (args.cpus or "").split(",") if cpu}
@@ -94,9 +105,13 @@ def main():
         name: hashlib.sha256((Path(__file__).parent / name).read_bytes()).hexdigest()
         for name in ("load.groovy", "relational_performance.groovy", Path(__file__).name)
     }
-    if cpus:
-        with (repo / "output/be/lib/doris_be").open("rb") as binary:
-            manifest["be_sha256"] = hashlib.file_digest(binary, "sha256").hexdigest()
+    manifest["dirty_checkout"] = bool(subprocess.check_output(
+        ["git", "status", "--porcelain", "--untracked-files=no"], cwd=repo, text=True).strip())
+    # Hash what the recorded processes run, not only what the checkout contains.
+    with Path(f"/proc/{processes['be']}/exe").open("rb") as binary:
+        manifest["be_sha256"] = hashlib.file_digest(binary, "sha256").hexdigest()
+    with (repo / "output/fe/lib/doris-fe.jar").open("rb") as jar:
+        manifest["fe_jar_sha256"] = hashlib.file_digest(jar, "sha256").hexdigest()
     (evidence / "manifest.json").write_text(json.dumps(manifest, indent=2))
     environment = dict(os.environ, VARIANT_BENCH_PHASE=args.phase,
                        VARIANT_BENCH_ROWS=str(args.rows), VARIANT_BENCH_REPEATS=str(args.repeats),

@@ -3298,6 +3298,77 @@ TEST(ColumnVariantV2Test, TypedComparisonBoundariesMatchEncodedWithoutMaterializ
     check(ColumnVariantV2::create_typed(
             nullable_fixed<ColumnIPv6, IPv6>({ip6_a, ip6_b, ip6_a}, {0, 0, 1}),
             std::make_shared<DataTypeIPv6>()));
+    // LARGEINT magnitudes above 10^38 - 1 are represented as Variant strings.
+    const __int128 limit = power_of_ten_i128(38);
+    check(ColumnVariantV2::create_typed(
+            nullable_fixed<ColumnInt128, Int128>(
+                    {-limit, Int128 {0}, limit - 1, limit, -(limit - 1), Int128 {0}},
+                    {0, 0, 0, 0, 0, 1}),
+            std::make_shared<DataTypeInt128>()));
+    check(ColumnVariantV2::create_typed(nullable_fixed<ColumnUInt8, UInt8>({1, 0, 1}, {0, 0, 1}),
+                                        std::make_shared<DataTypeBool>()));
+    check(ColumnVariantV2::create_typed(
+            nullable_fixed<ColumnInt8, Int8>({-1, 0, 127, 0}, {0, 0, 0, 1}),
+            std::make_shared<DataTypeInt8>()));
+    check(ColumnVariantV2::create_typed(
+            nullable_fixed<ColumnFloat32, Float32>(
+                    {-1.25F, 0.5F, std::numeric_limits<float>::quiet_NaN(), 0.0F}, {0, 0, 0, 1}),
+            std::make_shared<DataTypeFloat32>()));
+    check(ColumnVariantV2::create_typed(
+            nullable_decimal<ColumnDecimal128V3, Decimal128V3>(
+                    4,
+                    {Decimal128V3 {Int128 {-15000}}, Decimal128V3 {Int128 {0}},
+                     Decimal128V3 {Int128 {15000}}, Decimal128V3 {Int128 {0}}},
+                    {0, 0, 0, 1}),
+            std::make_shared<DataTypeDecimal128>(38, 4)));
+    const auto datetime_a =
+            DateV2Value<DateTimeV2ValueType>::create_from_olap_datetime(19700101000001ULL);
+    const auto datetime_b =
+            DateV2Value<DateTimeV2ValueType>::create_from_olap_datetime(20240229123456ULL);
+    check(ColumnVariantV2::create_typed(
+            nullable_fixed<ColumnDateTimeV2, DateV2Value<DateTimeV2ValueType>>(
+                    {datetime_b, datetime_a, datetime_b}, {0, 0, 1}),
+            std::make_shared<DataTypeDateTimeV2>(6)));
+    // Bytes at or above 0x80 pin the unsigned string order.
+    constexpr std::array<std::string_view, 4> STRINGS {"a", "\xC3\xA9", "z", ""};
+    constexpr std::array<uint8_t, 4> STRING_NULLS {0, 0, 0, 1};
+    check(typed_strings(STRINGS, STRING_NULLS));
+}
+
+TEST(ColumnVariantV2Test, TypedComparisonAcrossTypeParametersMatchesEncoded) {
+    // DECIMAL(18,2) and DECIMAL(18,3) share a column type but not a scale.
+    auto left = ColumnVariantV2::create_typed(nullable_decimal<ColumnDecimal64, Decimal64>(
+                                                      2, {Decimal64 {150}, Decimal64 {-5}}, {0, 0}),
+                                              std::make_shared<DataTypeDecimal64>(18, 2));
+    auto right =
+            ColumnVariantV2::create_typed(nullable_decimal<ColumnDecimal64, Decimal64>(
+                                                  3, {Decimal64 {1400}, Decimal64 {-50}}, {0, 0}),
+                                          std::make_shared<DataTypeDecimal64>(18, 3));
+    auto encode = [](const ColumnVariantV2::MutablePtr& typed) {
+        auto encoded = ColumnVariantV2::create();
+        encoded->insert_range_from(*typed, 0, typed->size());
+        encoded->ensure_encoded();
+        return encoded;
+    };
+    auto left_encoded = encode(left);
+    auto right_encoded = encode(right);
+    for (size_t right_row = 0; right_row < right->size(); ++right_row) {
+        for (size_t left_row = 0; left_row < left->size(); ++left_row) {
+            EXPECT_EQ(left->compare_at(left_row, right_row, *right, 1),
+                      left_encoded->compare_at(left_row, right_row, *right_encoded, 1));
+        }
+        for (int direction : {-1, 1}) {
+            std::vector<uint8_t> typed_cmp(left->size(), 0);
+            std::vector<uint8_t> encoded_cmp(left->size(), 0);
+            IColumn::Filter typed_filter(left->size(), 0);
+            IColumn::Filter encoded_filter(left->size(), 0);
+            left->compare_internal(right_row, *right, 1, direction, typed_cmp, typed_filter.data());
+            left_encoded->compare_internal(right_row, *right_encoded, 1, direction, encoded_cmp,
+                                           encoded_filter.data());
+            EXPECT_EQ(typed_cmp, encoded_cmp);
+            EXPECT_EQ(typed_filter, encoded_filter);
+        }
+    }
 }
 
 TEST(ColumnVariantV2Test, TypedNaNOrderingIgnoresNullDirectionHint) {
@@ -3426,6 +3497,44 @@ TEST(ColumnVariantV2Test, NullableMultiKeyOrderingWorks) {
     EXPECT_EQ(sorted_ids.get_data()[0], 3);
     EXPECT_EQ(sorted_ids.get_data()[1], 2);
     EXPECT_EQ(sorted_ids.get_data()[2], 1);
+}
+
+TEST(ColumnVariantV2Test, NullableTypedSortMatchesEncoded) {
+    constexpr std::array<int32_t, 5> VALUES {3, 0, 1, 7, 1};
+    // Row 1 is a Variant null inside the value; row 2 is a SQL NULL in the outer column.
+    constexpr std::array<uint8_t, 5> VARIANT_NULLS {0, 1, 0, 0, 0};
+    constexpr std::array<uint8_t, 5> SQL_NULLS {0, 0, 1, 0, 0};
+    auto sorted_ids = [&](const ColumnPtr& variant, int direction, int nulls_direction) {
+        auto nulls = ColumnUInt8::create();
+        nulls->get_data().assign(SQL_NULLS.begin(), SQL_NULLS.end());
+        auto ids = ColumnInt32::create();
+        for (int32_t id = 0; id < static_cast<int32_t>(VALUES.size()); ++id) {
+            ids->insert_value(id);
+        }
+        Block source;
+        source.insert({ColumnNullable::create(variant, std::move(nulls)),
+                       make_nullable(std::make_shared<DataTypeVariantV2>()), "v"});
+        source.insert({std::move(ids), std::make_shared<DataTypeInt32>(), "id"});
+        SortDescription description;
+        description.emplace_back(0, direction, nulls_direction);
+        description.emplace_back(1, 1, 1);
+        Block sorted = source.clone_empty();
+        HybridSorter sorter;
+        sort_block(source, sorted, description, sorter);
+        const auto& output = assert_cast<const ColumnInt32&>(*sorted.get_by_position(1).column);
+        return std::vector<int32_t>(output.get_data().begin(), output.get_data().end());
+    };
+    auto typed = typed_int32(VALUES, VARIANT_NULLS);
+    auto encoded = ColumnVariantV2::create();
+    encoded->insert_range_from(*typed, 0, typed->size());
+    encoded->ensure_encoded();
+    for (int direction : {-1, 1}) {
+        for (int nulls_direction : {-1, 1}) {
+            EXPECT_EQ(sorted_ids(typed->get_ptr(), direction, nulls_direction),
+                      sorted_ids(encoded->get_ptr(), direction, nulls_direction))
+                    << "direction=" << direction << " nulls_direction=" << nulls_direction;
+        }
+    }
 }
 
 } // namespace doris

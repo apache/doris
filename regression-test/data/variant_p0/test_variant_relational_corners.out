@@ -9,10 +9,8 @@ true	false	true	true
 1	1	false
 2	1	false
 3	1	false
-4	1	false
 5	0	false
 6	-0	false
-7	false	false
 8	\N	true
 9	\N	true
 10	\N	true
@@ -30,10 +28,9 @@ true	false	true	true
 22		false
 
 -- !groups --
-1	3
+1	2
 3	1
 5	2
-7	1
 8	4
 11	2
 13	1
@@ -45,19 +42,17 @@ true	false	true	true
 22	1
 
 -- !distinct --
-12
+11
 
 -- !native_order --
 8
 9
 10
 17
-7
 5
 6
 1
 2
-4
 21
 18
 20
@@ -87,7 +82,6 @@ true	false	true	true
 1	false	true	false
 2	false	true	false
 3	false	false	false
-4	false	true	false
 8	\N	\N	\N
 9	\N	\N	\N
 17	\N	\N	\N
@@ -95,19 +89,13 @@ true	false	true	true
 -- !sql --
 1	1
 1	2
-1	4
 2	1
 2	2
-2	4
 3	3
-4	1
-4	2
-4	4
 5	5
 5	6
 6	5
 6	6
-7	7
 11	11
 11	12
 12	11
@@ -125,22 +113,17 @@ true	false	true	true
 20	20
 21	21
 22	22
+
 -- !sql --
 1	1
 1	2
-1	4
 2	1
 2	2
-2	4
 3	3
-4	1
-4	2
-4	4
 5	5
 5	6
 6	5
 6	6
-7	7
 8	8
 8	9
 8	10
@@ -178,19 +161,13 @@ true	false	true	true
 -- !sql --
 1	1
 1	2
-1	4
 2	1
 2	2
-2	4
 3	3
-4	1
-4	2
-4	4
 5	5
 5	6
 6	5
 6	6
-7	7
 11	11
 11	12
 12	11
@@ -212,19 +189,13 @@ true	false	true	true
 -- !sql --
 1	1
 1	2
-1	4
 2	1
 2	2
-2	4
 3	3
-4	1
-4	2
-4	4
 5	5
 5	6
 6	5
 6	6
-7	7
 8	8
 8	9
 8	10
@@ -312,10 +283,9 @@ true	false	true	true
 7	7
 
 -- !spill_groups --
-1	3
+1	2
 3	1
 5	2
-7	1
 8	4
 11	2
 13	1
@@ -329,19 +299,13 @@ true	false	true	true
 -- !spill_join --
 1	1
 1	2
-1	4
 2	1
 2	2
-2	4
 3	3
-4	1
-4	2
-4	4
 5	5
 5	6
 6	5
 6	6
-7	7
 8	8
 8	9
 8	10
@@ -375,3 +339,4 @@ true	false	true	true
 20	20
 21	21
 22	22
+

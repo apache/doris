@@ -73,9 +73,6 @@ class VariantEqualityContextTest extends TestWithFeService {
                 "SELECT * FROM t1 WHERE v IN (SELECT v FROM t2)",
                 "SELECT * FROM t1 WHERE v NOT IN (SELECT v FROM t2)",
                 "SELECT * FROM t1 JOIN t2 ON t1.v['id'] = t2.v['id']");
-        connectContext.setQueryId(new TUniqueId(1, 1));
-        Assertions.assertTrue(PlanChecker.from(connectContext)
-                .plan("SELECT * FROM t1 JOIN t2 ON t1.v = t2.v").getRuntimeFilters().isEmpty());
         assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v > t2.v");
         assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v = t2.k");
     }

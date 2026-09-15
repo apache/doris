@@ -20,7 +20,13 @@ import java.security.MessageDigest
 
 suite("variant_relational_performance", "p2,nonConcurrent") {
     def env = System.getenv()
-    def phase = env.getOrDefault("VARIANT_BENCH_PHASE", "query")
+    // This benchmark is driven by run_relational_benchmark.py. A plain variant_p2 run has no
+    // prepared dimension tables, so the suite only runs when a phase is set explicitly.
+    def phase = env.get("VARIANT_BENCH_PHASE")
+    if (phase == null) {
+        log.info("Skip variant_relational_performance: VARIANT_BENCH_PHASE is not set")
+        return
+    }
     long expectedRows = env.getOrDefault("VARIANT_BENCH_ROWS", "44273863").toLong()
     int repeats = env.getOrDefault("VARIANT_BENCH_REPEATS", "7").toInteger()
     int warmups = env.getOrDefault("VARIANT_BENCH_WARMUPS", "2").toInteger()

@@ -1048,8 +1048,9 @@ int ColumnVariantV2::compare_at(size_t n, size_t m, const IColumn& rhs,
         (_typed_type == right._typed_type || _typed_type->equals(*right._typed_type))) {
         const PrimitiveType type = _typed_type->get_primitive_type();
         // IPv4 and IPv6 typed values use their textual representation in Variant, whose lexical
-        // ordering differs from the native address ordering.
-        if (type != TYPE_IPV4 && type != TYPE_IPV6) {
+        // ordering differs from the native address ordering. LARGEINT magnitudes above 10^38 - 1
+        // become Variant strings, so native Int128 order is not the canonical order.
+        if (type != TYPE_IPV4 && type != TYPE_IPV6 && type != TYPE_LARGEINT) {
             const auto& left_nullable =
                     assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(typed_column());
             const auto& right_nullable =
@@ -1089,7 +1090,9 @@ void ColumnVariantV2::compare_internal(size_t rhs_row_id, const IColumn& rhs,
         const PrimitiveType type = _typed_type->get_primitive_type();
         // ColumnVector::compare_internal does not provide Variant's canonical NaN ordering, while
         // IP typed values use a textual Variant ordering that differs from native address order.
-        if (type != TYPE_FLOAT && type != TYPE_DOUBLE && type != TYPE_IPV4 && type != TYPE_IPV6) {
+        // LARGEINT magnitudes above 10^38 - 1 are Variant strings in canonical order.
+        if (type != TYPE_FLOAT && type != TYPE_DOUBLE && type != TYPE_IPV4 && type != TYPE_IPV6 &&
+            type != TYPE_LARGEINT) {
             const auto& left_nullable =
                     assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(typed_column());
             const auto& right_nullable =

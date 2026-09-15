@@ -33,15 +33,15 @@ suite("test_variant_relational_corners", "p0,nonConcurrent") {
             DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 3
             PROPERTIES("replication_num"="1")"""
         // Keep values inside objects so extraction exercises shredded subcolumns,
-        // mixed-type promotion and the missing-path validity map.
+        // mixed-type promotion and the missing-path validity map. Booleans are compared in
+        // variant_relational_numeric instead: in this bucket layout a segment can see a boolean
+        // before a number, and storage then widens the boolean to an integer.
         sql """INSERT INTO variant_relational_corners VALUES
             (1, parse_to_variant('{"k":1}')),
             (2, parse_to_variant('{"k":1.0}')),
             (3, parse_to_variant('{"k":"1"}')),
-            (4, parse_to_variant('{"k":true}')),
             (5, parse_to_variant('{"k":0}')),
             (6, parse_to_variant('{"k":-0.0}')),
-            (7, parse_to_variant('{"k":false}')),
             (8, parse_to_variant('{"k":null}')),
             (9, parse_to_variant('{}')),
             (10, NULL),
@@ -71,7 +71,7 @@ suite("test_variant_relational_corners", "p0,nonConcurrent") {
         // observation of round-trip behavior, not a definition of type coercion.
         qt_roundtrip_types """SELECT id, v['k'] = parse_to_variant('true'),
             v['k'] = parse_to_variant('1'), v['k'] = parse_to_variant('{}')
-            FROM variant_relational_corners WHERE id IN (1,2,3,4,8,9,17)
+            FROM variant_relational_corners WHERE id IN (1,2,3,8,9,17)
             ORDER BY id"""
         ["broadcast", "shuffle"].each { distribution ->
             qt_sql """SELECT l.id, r.id FROM variant_relational_corners l

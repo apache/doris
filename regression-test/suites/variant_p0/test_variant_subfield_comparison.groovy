@@ -144,6 +144,9 @@ suite("test_variant_subfield_comparison", "p0,nonConcurrent") {
             ["=", "!=", "<=>"].each { op ->
                 qt_sql "SELECT id FROM (${source}) t WHERE a ${op} b ORDER BY id"
             }
+            // Typed Variant values also order natively; cover both NULL placements.
+            qt_sql "SELECT id FROM (${source}) t ORDER BY b ASC NULLS LAST, id"
+            qt_sql "SELECT id FROM (${source}) t ORDER BY b DESC NULLS FIRST, id"
         }
         qt_explicit_numeric_cast """SELECT id,
             CAST(v['a'] AS DOUBLE) = CAST(v['b'] AS DOUBLE),

@@ -7,6 +7,7 @@
 6	5
 8	7
 9	8
+
 -- !shuffle --
 1	1
 2	1
@@ -140,6 +141,13 @@
 -- !json_null_equality --
 true	false
 
+-- !not_in_non_null --
+10
+7
+
+-- !typed_key --
+1	1
+
 -- !spill --
 1	1
 2	1
@@ -149,3 +157,4 @@ true	false
 6	5
 8	7
 9	8
+

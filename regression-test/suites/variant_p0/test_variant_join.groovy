@@ -70,6 +70,13 @@ suite("test_variant_join", "p0,nonConcurrent") {
             FROM variant_join_left l"""
         qt_json_null_equality """SELECT parse_to_variant('null') = parse_to_variant('null'),
             parse_to_variant('null') = parse_to_variant('{}')"""
+        // Without a NULL on the build side, NOT IN depends on canonical key matching.
+        order_qt_not_in_non_null """SELECT id FROM variant_join_left
+            WHERE v NOT IN (SELECT v FROM variant_join_right WHERE v IS NOT NULL)"""
+        // A typed key from CAST(scalar AS VARIANT) against a stored Variant key.
+        order_qt_typed_key """SELECT l.id, r.id
+            FROM (SELECT id, CAST(CAST(id AS BIGINT) AS VARIANT) k FROM variant_join_left) l
+            JOIN variant_join_right r ON l.k = r.v"""
         sql "SET enable_spill = true"
         sql "SET enable_force_spill = true"
         sql "SET spill_min_revocable_mem = 1"

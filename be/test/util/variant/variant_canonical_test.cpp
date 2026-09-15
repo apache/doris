@@ -593,6 +593,42 @@ TEST(VariantCanonicalTest, ContainerComparisonIsLexicographicAndTransitive) {
     EXPECT_GT(canonical_compare(object_c.ref(), object_a.ref()), 0);
 }
 
+TEST(VariantCanonicalTest, ComparisonBoundariesAndCrossKindTransitivity) {
+    const auto expect_order = [](const OwnedValue& left, const OwnedValue& right) {
+        EXPECT_LT(canonical_compare(left.ref(), right.ref()), 0);
+        EXPECT_GT(canonical_compare(right.ref(), left.ref()), 0);
+    };
+    __int128 max_38_digits = 1;
+    for (int digit = 0; digit < 38; ++digit) {
+        max_38_digits *= 10;
+    }
+    max_38_digits -= 1;
+
+    // Scaling 38-digit magnitudes by 10^38 needs the 256-bit intermediate.
+    expect_order(decimal_value(max_38_digits, 38), decimal_value(max_38_digits, 0));
+    expect_order(decimal_value(-max_38_digits, 0), decimal_value(-max_38_digits, 38));
+    // Subnormal and large doubles against exact values at the decimal limits.
+    expect_order(double_value(std::numeric_limits<double>::denorm_min()), decimal_value(1, 38));
+    expect_order(double_value(1e38), decimal_value(max_38_digits, 0));
+    expect_order(decimal_value(max_38_digits, 0), double_value(1.7e38));
+    expect_order(double_value(-std::numeric_limits<double>::infinity()),
+                 decimal_value(-max_38_digits, 0));
+    expect_order(decimal_value(max_38_digits, 0),
+                 double_value(std::numeric_limits<double>::infinity()));
+
+    // Numeric value first, canonical kind as the tie-breaker, must stay transitive.
+    const std::array<OwnedValue, 4> chain {decimal_value(15, 1), double_value(1.5),
+                                           integer_value(2, 1), decimal_value(25, 1)};
+    for (size_t left = 0; left < chain.size(); ++left) {
+        for (size_t right = left + 1; right < chain.size(); ++right) {
+            expect_order(chain[left], chain[right]);
+        }
+    }
+    // Numbers order before strings and containers.
+    expect_order(double_value(std::numeric_limits<double>::quiet_NaN()), string_value("0"));
+    expect_order(string_value("0"), array_value({}));
+}
+
 TEST(VariantCanonicalTest, PrimitiveTypeClasses) {
     const OwnedValue null_a = scalar(primitive(VariantPrimitiveId::NULL_VALUE));
     const OwnedValue null_b = scalar(primitive(VariantPrimitiveId::NULL_VALUE));
