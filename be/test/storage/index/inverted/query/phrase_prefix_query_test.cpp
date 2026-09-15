@@ -23,11 +23,13 @@
 
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "storage/compaction/collection_similarity.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_searcher.h"
 #include "storage/index/inverted/inverted_index_writer.h"
+#include "storage/index/inverted/similarity/collection_statistics.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/slice.h"
 
@@ -309,6 +311,87 @@ TEST_F(PhrasePrefixQueryTest, test_multi_term_phrase_prefix_query) {
     // The exact results depend on the phrase and prefix query implementation
     // We mainly test that the query executes without error
     EXPECT_GE(result.cardinality(), 0);
+}
+
+TEST_F(PhrasePrefixQueryTest, scoring_uses_norm_capable_exact_term_iterator) {
+    std::string_view rowset_id = "test_scoring_norm_source";
+    int seg_id = 0;
+
+    // "common" has df=5 while the rare* expansion union has df=2. With a
+    // one-row candidate the sorted DISI order is candidate, rare* union,
+    // common exact term, so choosing the first non-candidate iterator as the
+    // norm source selects a UnionTermIterator that cannot provide norms.
+    std::vector<Slice> values = {Slice("common rareone"), Slice("common raretwo"),
+                                 Slice("common filler"), Slice("common filler"),
+                                 Slice("common filler")};
+
+    TabletIndex idx_meta;
+    auto index_meta_pb = std::make_unique<TabletIndexPB>();
+    index_meta_pb->set_index_type(IndexType::INVERTED);
+    index_meta_pb->set_index_id(1);
+    index_meta_pb->set_index_name("test_scoring_norm_source");
+    index_meta_pb->clear_col_unique_id();
+    index_meta_pb->add_col_unique_id(1);
+    index_meta_pb->mutable_properties()->insert({"parser", "english"});
+    index_meta_pb->mutable_properties()->insert({"lower_case", "true"});
+    index_meta_pb->mutable_properties()->insert({"support_phrase", "true"});
+    idx_meta.init_from_pb(*index_meta_pb);
+
+    std::string index_path_prefix;
+    prepare_fulltext_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix);
+    auto searcher = create_searcher(index_path_prefix, idx_meta);
+    ASSERT_NE(searcher, nullptr);
+
+    class FixedStats : public CollectionStatistics {
+    public:
+        float get_or_calculate_idf(const std::wstring&, const std::wstring&) override {
+            return 1.0F;
+        }
+        float get_or_calculate_avg_dl(const std::wstring&) override { return 2.0F; }
+    };
+
+    RuntimeState runtime_state;
+    TQueryOptions query_options;
+    query_options.inverted_index_max_expansions = 50;
+    runtime_state.set_query_options(query_options);
+    io::IOContext io_ctx;
+    roaring::Roaring candidate;
+    candidate.add(0);
+
+    InvertedIndexQueryInfo query_info;
+    query_info.field_name = L"1";
+    query_info.term_infos.emplace_back("common", 0);
+    query_info.term_infos.emplace_back("rare", 1);
+    query_info.is_similarity_score = true;
+
+    auto run_scoring = [&](const roaring::Roaring* candidate_rows) {
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->runtime_state = &runtime_state;
+        context->collection_statistics = std::make_shared<FixedStats>();
+        context->collection_similarity = std::make_shared<CollectionSimilarity>();
+        context->candidate_rows = candidate_rows;
+
+        PhrasePrefixQuery query(searcher, context);
+        query.add(query_info);
+        roaring::Roaring result;
+        query.search(result);
+        return std::pair {std::move(result), context->collection_similarity->release_scores()};
+    };
+
+    // The low-df union is also first without a candidate. This pins down that
+    // the scoring failure predates candidate pushdown rather than attributing
+    // it to the optimization merely because both share the DISI ordering.
+    auto [full_result, full_scores] = run_scoring(nullptr);
+    EXPECT_EQ(full_result.cardinality(), 2);
+    EXPECT_TRUE(full_result.contains(0));
+    EXPECT_TRUE(full_result.contains(1));
+    EXPECT_TRUE(full_scores.contains(0));
+    EXPECT_TRUE(full_scores.contains(1));
+
+    auto [restricted_result, restricted_scores] = run_scoring(&candidate);
+    EXPECT_EQ(restricted_result, candidate);
+    EXPECT_TRUE(restricted_scores.contains(0));
 }
 
 TEST_F(PhrasePrefixQueryTest, test_empty_terms_exception) {

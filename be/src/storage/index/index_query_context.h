@@ -48,6 +48,17 @@ struct IndexQueryContext {
     // under a key a row-accurate query could hit.
     bool count_on_index_fastpath = false;
 
+    // Candidate-pushdown handshake. Set by SegmentIterator ONLY while it
+    // evaluates pushed-down conjuncts and the current candidate row bitmap is
+    // small enough (config::inverted_index_candidate_pushdown_ratio), reset
+    // right after. When set, an index query MAY restrict doc-list intersection
+    // and verification to this candidate set (PhraseQuery joins it into the
+    // leapfrog). A bitmap produced under a non-null candidate is PARTIAL and
+    // must never be inserted into the query cache; cache lookups stay valid
+    // (a cached full-segment bitmap intersected later is still correct). The
+    // pointee is owned by the caller and outlives the evaluation.
+    const roaring::Roaring* candidate_rows = nullptr;
+
     // ---- Reply direction: fields a READER writes and the CALLER reads back ----
     //
     // A caller that hands a reader a COPY of this context rather than the context itself must
@@ -66,10 +77,19 @@ struct IndexQueryContext {
     // remaining count as default rows without iterating the row bitmap.
     bool count_on_index_fastpath_hit = false;
 
+    // Reply direction of the candidate handshake. Set by a query iff it DID
+    // join candidate_rows into its evaluation (PhraseQuery's leapfrog), i.e.
+    // its result bitmap is partial; reset by the reader before each search.
+    // Only such a partial result must stay out of the query cache -- a query
+    // that never consumes the candidate (MATCH_ANY/ALL, term, regexp, single
+    // term phrase) still computes the full-segment bitmap and stays cacheable.
+    bool candidate_rows_consumed = false;
+
     // Folds the reply-direction fields a reader wrote on a copy of this context back into it.
     // Latching (never clearing) is what makes this safe to call for each of several readers.
     void merge_reader_outputs(const IndexQueryContext& reader_context) {
         count_on_index_fastpath_hit |= reader_context.count_on_index_fastpath_hit;
+        candidate_rows_consumed |= reader_context.candidate_rows_consumed;
     }
 };
 using IndexQueryContextPtr = std::shared_ptr<IndexQueryContext>;
