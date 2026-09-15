@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
+import org.apache.doris.nereids.trees.expressions.functions.ArrayFunctionTypeChecker;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -67,11 +68,14 @@ public class ArraysOverlap extends ScalarFunction implements ExplicitlyCastableS
     }
 
     @Override
-    public void checkLegalityAfterRewrite() {
-        DataType argType = getArgument(0).getDataType();
-        if (argType.isArrayType()) {
+    public void checkLegalityBeforeTypeCoercion() {
+        for (Expression argument : getArguments()) {
+            DataType argType = argument.getDataType();
+            if (!argType.isArrayType()) {
+                continue;
+            }
             DataType itemType = ((ArrayType) argType).getItemType();
-            if (!itemType.canBeUsedInArrayEqualityOperation()) {
+            if (!ArrayFunctionTypeChecker.isSupportedByArrayEqualityFunctions(itemType)) {
                 throw new AnalysisException("arrays_overlap does not support element type " + itemType.toSql());
             }
         }

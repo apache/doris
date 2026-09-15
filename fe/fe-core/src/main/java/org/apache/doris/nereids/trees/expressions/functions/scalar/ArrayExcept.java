@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.ArrayFunctionTypeChecker;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
@@ -59,15 +60,6 @@ public class ArrayExcept extends ScalarFunction implements ExplicitlyCastableSig
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        checkArgumentTypes(false);
-    }
-
-    @Override
-    public void checkLegalityAfterRewrite() {
-        checkArgumentTypes(true);
-    }
-
-    private void checkArgumentTypes(boolean checkPhysicalType) {
         for (Expression child : getArguments()) {
             DataType argType = child.getDataType();
             if (argType == NullType.INSTANCE) {
@@ -77,7 +69,7 @@ public class ArrayExcept extends ScalarFunction implements ExplicitlyCastableSig
                 throw new AnalysisException("array_except requires ARRAY arguments, but got " + argType.toSql());
             }
             DataType itemType = ((ArrayType) argType).getItemType();
-            if (checkPhysicalType && !itemType.canBeUsedInArraySetOperation()) {
+            if (!ArrayFunctionTypeChecker.isSupportedByArraySetFunctions(itemType)) {
                 throw new AnalysisException("array_except does not support element type " + itemType.toSql());
             }
         }

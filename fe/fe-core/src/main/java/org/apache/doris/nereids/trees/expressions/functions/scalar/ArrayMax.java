@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NeedSessionVarGuard;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
+import org.apache.doris.nereids.trees.expressions.functions.ArrayFunctionTypeChecker;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -62,7 +63,7 @@ public class ArrayMax extends ScalarFunction implements ExplicitlyCastableSignat
         DataType argType = getArgument(0).getDataType();
         if (argType.isArrayType()) {
             DataType itemType = ((ArrayType) argType).getItemType();
-            if (!itemType.canBeUsedInArrayMinMax()) {
+            if (!ArrayFunctionTypeChecker.isSupportedByArrayMinMaxFunctions(itemType)) {
                 throw new AnalysisException("array_max does not support element type " + itemType.toSql());
             }
         }

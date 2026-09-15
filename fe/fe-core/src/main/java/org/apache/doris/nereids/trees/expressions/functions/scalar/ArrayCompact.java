@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.ArrayFunctionTypeChecker;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
@@ -69,7 +70,7 @@ public class ArrayCompact extends ScalarFunction
             throw new AnalysisException("array_compact requires an ARRAY argument, but got " + dataType.toSql());
         }
         DataType itemType = ((ArrayType) dataType).getItemType();
-        if (!itemType.canBeComparedInArray()) {
+        if (!ArrayFunctionTypeChecker.isSupportedByArrayComparisonFunctions(itemType)) {
             throw new AnalysisException("array_compact does not support type "
                     + itemType.toString() + ", expression is " + toSql());
         }

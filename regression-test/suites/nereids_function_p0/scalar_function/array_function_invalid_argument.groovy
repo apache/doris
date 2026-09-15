@@ -57,7 +57,17 @@ suite("array_function_invalid_argument") {
     }
 
     test {
+        sql "select array_union(array(cast('a' as varbinary)), array('b'))"
+        exception "array_union does not support element type VARBINARY"
+    }
+
+    test {
         sql "select array_union(array(cast('12:34:56' as time(0))), array(cast('12:34:57' as time(0))))"
+        exception "array_union does not support element type TIME"
+    }
+
+    test {
+        sql "select array_union(array(cast('12:34:56' as time(0))), array('12:34:57'))"
         exception "array_union does not support element type TIME"
     }
 
@@ -87,7 +97,17 @@ suite("array_function_invalid_argument") {
     }
 
     test {
+        sql "select array_except(array(cast('a' as varbinary)), array('b'))"
+        exception "array_except does not support element type VARBINARY"
+    }
+
+    test {
         sql "select array_except(array(cast('12:34:56' as time(0))), array(cast('12:34:57' as time(0))))"
+        exception "array_except does not support element type TIME"
+    }
+
+    test {
+        sql "select array_except(array(cast('12:34:56' as time(0))), array('12:34:57'))"
         exception "array_except does not support element type TIME"
     }
 
@@ -182,10 +202,6 @@ suite("array_function_invalid_argument") {
     order_qt_array_compact_nested "select array_compact([[1], [1], [2]])"
     qt_array_union "select array_sort(array_union([1, 2], [2, 3]))"
     qt_array_intersect "select array_sort(array_intersect([1, 2], [2, 3]))"
-    qt_array_union_mixed_varbinary_string "select array_sort(array_union(array(cast('a' as varbinary)), array('b')))"
-    qt_array_union_mixed_time_string "select array_sort(array_union(array(cast('12:34:56' as time(0))), array('12:34:57')))"
-    qt_array_except_mixed_varbinary_string "select array_except(array(cast('a' as varbinary)), array('b'))"
-    qt_array_except_mixed_time_string "select array_except(array(cast('12:34:56' as time(0))), array('12:34:57'))"
     qt_array_distinct_time "select array_distinct(array(cast('12:34:56' as time(0)), cast('12:34:56' as time(0))))"
     qt_array_enumerate_uniq_time "select array_enumerate_uniq(array(cast('12:34:56' as time(0)), cast('12:34:56' as time(0))))"
     qt_array_position_time "select array_position(array(cast('12:34:56' as time(0))), cast('12:34:56' as time(0)))"
