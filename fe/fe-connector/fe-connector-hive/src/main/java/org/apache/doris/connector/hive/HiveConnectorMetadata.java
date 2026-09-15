@@ -26,6 +26,8 @@ import org.apache.doris.connector.hms.HmsColumnStatistics;
 import org.apache.doris.connector.hms.HmsCreateDatabaseRequest;
 import org.apache.doris.connector.hms.HmsCreateTableRequest;
 import org.apache.doris.connector.hms.HmsPartitionBatchResult;
+import org.apache.doris.connector.hms.HmsPartitionBatchStats;
+import org.apache.doris.connector.hms.HmsPartitionFilterSaturatedException;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.hms.HmsTypeMapping;
@@ -119,6 +121,7 @@ import java.util.stream.Collectors;
 public class HiveConnectorMetadata implements ConnectorMetadata {
 
     private static final Logger LOG = LogManager.getLogger(HiveConnectorMetadata.class);
+    static final int MAX_DEBUG_HMS_FILTER_LENGTH = 256;
 
     /**
      * The HMS table parameter iceberg writes its table comment into (mirrored from the iceberg table property
@@ -472,11 +475,16 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
 
         // Build partition key column names
         List<String> partKeyNames = Collections.emptyList();
+        Map<String, String> partKeyTypes = Collections.emptyMap();
         List<ConnectorColumn> partKeys = tableInfo.getPartitionKeys();
         if (partKeys != null && !partKeys.isEmpty()) {
             partKeyNames = partKeys.stream()
                     .map(ConnectorColumn::getName)
                     .collect(Collectors.toList());
+            partKeyTypes = new HashMap<>();
+            for (ConnectorColumn partKey : partKeys) {
+                partKeyTypes.put(partKey.getName(), partKey.getType().getTypeName());
+            }
         }
 
         HiveTableHandle handle = new HiveTableHandle.Builder(dbName, tableName, tableType)
@@ -484,6 +492,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                 .serializationLib(tableInfo.getSerializationLib())
                 .location(tableInfo.getLocation())
                 .partitionKeyNames(partKeyNames)
+                .partitionKeyTypes(partKeyTypes)
                 .sdParameters(tableInfo.getSdParameters())
                 .tableParameters(tableInfo.getParameters())
                 .firstColumnIsString(firstColumnIsString(tableInfo))
@@ -572,6 +581,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         // would also admit hudi-on-HMS, which legacy excluded). This branch is reached only for a HiveTableHandle;
         // an iceberg-on-HMS table is served by the delegation branch above (which reflects the iceberg sibling's
         // own auto-analyze capability), and a hudi-on-HMS table's connector declares neither.
+        if (!partitionKeys.isEmpty()) {
+            perTableCapabilities.add(ConnectorCapability.SUPPORTS_CONNECTOR_PARTITION_PRUNING);
+        }
         if (supportsHiveColumnAutoAnalyze(tableInfo)) {
             perTableCapabilities.add(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE);
         }
@@ -1168,46 +1180,16 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             return Optional.empty();
         }
 
-        // Extract equality predicates on partition columns from the expression
-        Map<String, List<String>> partitionPredicates = extractPartitionPredicates(
-                constraint.getExpression(), partKeyNames);
-        if (partitionPredicates.isEmpty()) {
+        PartitionPruningResult pruningResult = prunePartitions(session, hiveHandle, constraint.getExpression());
+        if (pruningResult == null) {
             return Optional.empty();
         }
-
-        // Build partition name filter patterns for HMS
-        List<String> allPartNames = hmsClient.listPartitionNames(
-                hiveHandle.getDbName(), hiveHandle.getTableName(), 100000);
-        List<String> matchedPartNames = prunePartitionNames(
-                allPartNames, partKeyNames, partitionPredicates);
-
-        if (matchedPartNames.size() == allPartNames.size()) {
-            // No pruning effect
-            return Optional.empty();
-        }
-
-        HmsPartitionBatchResult pruningResult;
-        try {
-            pruningResult = matchedPartNames.isEmpty()
-                    ? null : hmsClient.getExistingPartitionsWithStats(
-                            hiveHandle.getDbName(), hiveHandle.getTableName(), matchedPartNames);
-        } catch (HmsClientException e) {
-            if (e.getPartitionBatchStats() != null) {
-                HiveScanPlanProvider.recordPruningFailure(
-                        session, hiveHandle.getDbName(), hiveHandle.getTableName(), e.getPartitionBatchStats());
-            }
-            throw e;
-        }
-        List<HmsPartitionInfo> prunedPartitions = pruningResult == null
-                ? Collections.emptyList() : pruningResult.getPartitions();
-
-        LOG.info("Partition pruning: {}.{} all={} pruned={}",
-                hiveHandle.getDbName(), hiveHandle.getTableName(),
-                allPartNames.size(), prunedPartitions.size());
 
         HiveTableHandle newHandle = hiveHandle.toBuilder()
-                .prunedPartitions(prunedPartitions)
-                .pruningBatchStats(pruningResult == null ? null : pruningResult.getStats())
+                .prunedPartitions(pruningResult.partitions)
+                .prunedPartitionsByName(toPrunedPartitionsByName(
+                        pruningResult.partitions, hiveHandle.getPartitionKeyNames()))
+                .pruningBatchStats(pruningResult.batchStats)
                 .build();
         return Optional.of(new FilterApplicationResult<>(
                 newHandle, constraint.getExpression(), false));
@@ -1234,9 +1216,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Lists all partitions with metadata. The {@code filter} is intentionally ignored: legacy hive
-     * materialized its full partition view and pruned FE-side (mirrors {@code PaimonConnectorMetadata} /
-     * {@code MaxComputeConnectorMetadata}).
+     * Lists all partitions with metadata. A filter that contains supported Hive partition equality or IN
+     * predicates is resolved through HMS before the generic FE partition map is built; unsupported filters keep
+     * the existing full-list-and-local-pruning fallback.
      *
      * <p>{@code lastModifiedMillis} is deliberately left {@link ConnectorPartitionInfo#UNKNOWN} (-1):
      * reading each partition's {@code transient_lastDdlTime} requires a {@code get_partitions_by_names}
@@ -1261,6 +1243,15 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             return siblingMetadata(session, handle).listPartitions(session, handle, filter);
         }
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
+        if (hiveHandle.getPrunedPartitions() != null) {
+            return toConnectorPartitionInfos(hiveHandle.getPrunedPartitions(), hiveHandle.getPartitionKeyNames());
+        }
+        if (filter.isPresent()) {
+            PartitionPruningResult pruningResult = prunePartitions(session, hiveHandle, filter.get());
+            if (pruningResult != null) {
+                return toConnectorPartitionInfos(pruningResult.partitions, hiveHandle.getPartitionKeyNames());
+            }
+        }
         if (partitionViewCache == null || filter.isPresent()) {
             return listPartitionsUncached(hiveHandle);
         }
@@ -1284,6 +1275,106 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                     Collections.emptyMap(),
                     orderedValues,
                     toPartitionValueNullFlags(orderedValues)));
+        }
+        return result;
+    }
+
+    private PartitionPruningResult prunePartitions(ConnectorSession session, HiveTableHandle hiveHandle,
+            ConnectorExpression expression) {
+        List<String> partKeyNames = hiveHandle.getPartitionKeyNames();
+        Map<String, List<String>> partitionPredicates = extractPartitionPredicates(expression, partKeyNames);
+        if (partitionPredicates.isEmpty()) {
+            return null;
+        }
+
+        String hmsFilter = buildHmsPartitionFilter(partKeyNames, hiveHandle.getPartitionKeyTypes(),
+                partitionPredicates);
+        if (hmsFilter != null) {
+            int predicateValueCount = partitionPredicates.values().stream().mapToInt(List::size).sum();
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("HMS partition filter request for {}.{} predicateValues={} filter={}",
+                        hiveHandle.getDbName(), hiveHandle.getTableName(), predicateValueCount,
+                        summarizeHmsFilterForDebug(hmsFilter));
+            }
+            try {
+                List<HmsPartitionInfo> prunedPartitions = hmsClient.listPartitionsByFilter(
+                        hiveHandle.getDbName(), hiveHandle.getTableName(), hmsFilter);
+                LOG.info("Partition pruning through HMS filter: {}.{} predicateValues={} pruned={}",
+                        hiveHandle.getDbName(), hiveHandle.getTableName(), predicateValueCount,
+                        prunedPartitions.size());
+                return new PartitionPruningResult(prunedPartitions, null);
+            } catch (HmsPartitionFilterSaturatedException e) {
+                LOG.info("HMS partition filter response saturated for {}.{} predicateValues={}; "
+                                + "falling back to local partition pruning",
+                        hiveHandle.getDbName(), hiveHandle.getTableName(), predicateValueCount);
+            } catch (HmsClientException | UnsupportedOperationException e) {
+                LOG.warn("Failed to prune Hive partitions through HMS filter for {}.{} predicateValues={}; "
+                                + "falling back to local partition pruning",
+                        hiveHandle.getDbName(), hiveHandle.getTableName(), predicateValueCount, e);
+            }
+        }
+
+        List<String> allPartNames = hmsClient.listPartitionNames(
+                hiveHandle.getDbName(), hiveHandle.getTableName(), -1);
+        List<String> matchedPartNames = prunePartitionNames(
+                allPartNames, partKeyNames, hiveHandle.getPartitionKeyTypes(), partitionPredicates);
+        if (matchedPartNames.size() == allPartNames.size()) {
+            return null;
+        }
+        HmsPartitionBatchResult batchResult;
+        try {
+            batchResult = matchedPartNames.isEmpty() ? null : hmsClient.getExistingPartitionsWithStats(
+                    hiveHandle.getDbName(), hiveHandle.getTableName(), matchedPartNames);
+        } catch (HmsClientException e) {
+            if (e.getPartitionBatchStats() != null) {
+                HiveScanPlanProvider.recordPruningFailure(
+                        session, hiveHandle.getDbName(), hiveHandle.getTableName(), e.getPartitionBatchStats());
+            }
+            throw e;
+        }
+        List<HmsPartitionInfo> prunedPartitions = batchResult == null
+                ? Collections.emptyList() : batchResult.getPartitions();
+        LOG.info("Partition pruning through local partition names: {}.{} all={} pruned={}",
+                hiveHandle.getDbName(), hiveHandle.getTableName(), allPartNames.size(), prunedPartitions.size());
+        return new PartitionPruningResult(prunedPartitions, batchResult == null ? null : batchResult.getStats());
+    }
+
+    /** Connector-filtered partitions and optional HMS batch telemetry for the fallback path. */
+    private static final class PartitionPruningResult {
+        private final List<HmsPartitionInfo> partitions;
+        private final HmsPartitionBatchStats batchStats;
+
+        private PartitionPruningResult(List<HmsPartitionInfo> partitions, HmsPartitionBatchStats batchStats) {
+            this.partitions = partitions;
+            this.batchStats = batchStats;
+        }
+    }
+
+    static String summarizeHmsFilterForDebug(String hmsFilter) {
+        if (hmsFilter.length() <= MAX_DEBUG_HMS_FILTER_LENGTH) {
+            return hmsFilter;
+        }
+        return hmsFilter.substring(0, MAX_DEBUG_HMS_FILTER_LENGTH)
+                + "... (length=" + hmsFilter.length() + ")";
+    }
+
+    private static List<ConnectorPartitionInfo> toConnectorPartitionInfos(List<HmsPartitionInfo> partitions,
+            List<String> partKeyNames) {
+        List<ConnectorPartitionInfo> result = new ArrayList<>(partitions.size());
+        for (HmsPartitionInfo partition : partitions) {
+            List<String> values = partition.getValues();
+            result.add(new ConnectorPartitionInfo(HiveWriteUtils.makePartName(partKeyNames, values),
+                    toPartitionValueMap(values, partKeyNames), Collections.emptyMap(), values,
+                    toPartitionValueNullFlags(values)));
+        }
+        return result;
+    }
+
+    private static Map<String, HmsPartitionInfo> toPrunedPartitionsByName(
+            List<HmsPartitionInfo> partitions, List<String> partKeyNames) {
+        Map<String, HmsPartitionInfo> result = new HashMap<>();
+        for (HmsPartitionInfo partition : partitions) {
+            result.put(HiveWriteUtils.makePartName(partKeyNames, partition.getValues()), partition);
         }
         return result;
     }
@@ -1339,6 +1430,10 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      */
     private static Map<String, String> toPartitionValueMap(String partitionName, List<String> partKeyNames) {
         List<String> values = HiveWriteUtils.toPartitionValues(partitionName);
+        return toPartitionValueMap(values, partKeyNames);
+    }
+
+    private static Map<String, String> toPartitionValueMap(List<String> values, List<String> partKeyNames) {
         if (partKeyNames == null || values.size() != partKeyNames.size()) {
             return Collections.emptyMap();
         }
@@ -2494,16 +2589,131 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * Prunes partition names based on extracted equality predicates.
      * Partition names follow the Hive convention: key1=val1/key2=val2
      */
-    private List<String> prunePartitionNames(List<String> allPartNames,
-            List<String> partKeyNames, Map<String, List<String>> predicates) {
+    private List<String> prunePartitionNames(List<String> allPartNames, List<String> partKeyNames,
+            Map<String, String> partKeyTypes, Map<String, List<String>> predicates) {
         List<String> matched = new ArrayList<>();
         for (String partName : allPartNames) {
             Map<String, String> partValues = parsePartitionName(partName, partKeyNames);
-            if (matchesPredicates(partValues, predicates)) {
+            if (matchesPredicates(partValues, partKeyTypes, predicates)) {
                 matched.add(partName);
             }
         }
         return matched;
+    }
+
+    private static String buildHmsPartitionFilter(List<String> partKeyNames, Map<String, String> partKeyTypes,
+            Map<String, List<String>> partitionPredicates) {
+        List<String> filters = new ArrayList<>();
+        for (String partKeyName : partKeyNames) {
+            List<String> values = partitionPredicates.get(partKeyName);
+            if (values == null || values.isEmpty()) {
+                continue;
+            }
+            if (!isHmsFilterIdentifier(partKeyName)) {
+                return null;
+            }
+            List<String> valueFilters = new ArrayList<>();
+            for (String value : values) {
+                String literal = toHmsFilterLiteral(value, partKeyTypes.get(partKeyName));
+                if (literal == null) {
+                    return null;
+                }
+                valueFilters.add(partKeyName + " = " + literal);
+            }
+            filters.add(valueFilters.size() == 1 ? valueFilters.get(0)
+                    : "(" + String.join(" OR ", valueFilters) + ")");
+        }
+        return filters.isEmpty() ? null : "(" + String.join(" AND ", filters) + ")";
+    }
+
+    private static boolean isHmsFilterIdentifier(String value) {
+        if (value.isEmpty() || !isHmsFilterLetterOrDigit(value.charAt(0))) {
+            return false;
+        }
+        // The metastore filter grammar (Filter.g) reserves a set of case-insensitive keyword tokens, and lexes
+        // an all-digit token as an IntegralLiteral (declared before Identifier); a key operand must be an
+        // Identifier, so such a partition key can never be named in a filter. Decline the direct path for it
+        // rather than sending a predictably invalid RPC that fails, taints the pooled client and repeats the
+        // whole enumeration.
+        String lowerCaseValue = value.toLowerCase(Locale.ROOT);
+        if (lowerCaseValue.equals("not") || lowerCaseValue.equals("and") || lowerCaseValue.equals("or")
+                || lowerCaseValue.equals("like") || lowerCaseValue.equals("date")
+                || lowerCaseValue.equals("const") || lowerCaseValue.equals("struct")
+                || isAllDigits(value)) {
+            return false;
+        }
+        for (int index = 1; index < value.length(); index++) {
+            char character = value.charAt(index);
+            if (!isHmsFilterLetterOrDigit(character) && character != '_') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isAllDigits(String value) {
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            if (character < '0' || character > '9') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isHmsFilterLetterOrDigit(char value) {
+        return value >= 'a' && value <= 'z'
+                || value >= 'A' && value <= 'Z'
+                || value >= '0' && value <= '9';
+    }
+
+    private static String toHmsFilterLiteral(String value, String typeName) {
+        if (isHmsIntegralType(typeName)) {
+            return isIntegralLiteral(value) ? value : null;
+        }
+        if (typeName != null && !isHmsStringType(typeName)) {
+            return null;
+        }
+        if (value.indexOf('\\') >= 0 || value.indexOf('\'') >= 0) {
+            return null;
+        }
+        return "'" + value + "'";
+    }
+
+    private static boolean isHmsIntegralType(String typeName) {
+        if (typeName == null) {
+            return false;
+        }
+        switch (typeName.toUpperCase(Locale.ROOT)) {
+            case "TINYINT":
+            case "SMALLINT":
+            case "INT":
+            case "INTEGER":
+            case "BIGINT":
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static boolean isHmsStringType(String typeName) {
+        String upperTypeName = typeName.toUpperCase(Locale.ROOT);
+        return "STRING".equals(upperTypeName) || "VARCHAR".equals(upperTypeName)
+                || "CHAR".equals(upperTypeName);
+    }
+
+    private static boolean isIntegralLiteral(String value) {
+        int start = value.startsWith("-") ? 1 : 0;
+        if (start == value.length()) {
+            return false;
+        }
+        for (int index = start; index < value.length(); index++) {
+            char character = value.charAt(index);
+            if (character < '0' || character > '9') {
+                return false;
+            }
+        }
+        return true;
     }
 
     static Map<String, String> parsePartitionName(String partName,
@@ -2528,17 +2738,56 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         return values;
     }
 
-    private boolean matchesPredicates(Map<String, String> partValues,
+    private boolean matchesPredicates(Map<String, String> partValues, Map<String, String> partKeyTypes,
             Map<String, List<String>> predicates) {
         for (Map.Entry<String, List<String>> entry : predicates.entrySet()) {
             String colName = entry.getKey();
             List<String> allowedValues = entry.getValue();
             String actualValue = partValues.get(colName);
-            if (actualValue == null || !allowedValues.contains(actualValue)) {
+            if (actualValue == null) {
+                return false;
+            }
+            if (!matchesAnyValue(actualValue, allowedValues, partKeyTypes.get(colName))) {
                 return false;
             }
         }
         return true;
+    }
+
+    /**
+     * Whether a rendered partition value matches one of the predicate literals for its key. Integral keys are
+     * compared NUMERICALLY, because this local prefilter's result is reused as the logical selected view: the
+     * typed Nereids pruner treats {@code 01} and {@code 1} as the same INT value, so a raw text compare here
+     * would silently drop a partition the logical plan selected (and, in batch mode, omit it from the scan
+     * altogether). Every other key type - including STRING, where {@code 01} and {@code 1} are different
+     * partitions - keeps the exact text comparison.
+     */
+    private static boolean matchesAnyValue(String actualValue, List<String> allowedValues, String typeName) {
+        if (isHmsIntegralType(typeName)) {
+            Long actual = parseIntegralValue(actualValue);
+            if (actual != null) {
+                for (String allowed : allowedValues) {
+                    Long candidate = parseIntegralValue(allowed);
+                    if (candidate != null ? candidate.equals(actual) : allowed.equals(actualValue)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        }
+        return allowedValues.contains(actualValue);
+    }
+
+    /** Parses a rendered integral partition value, or {@code null} when it is not an integral literal. */
+    private static Long parseIntegralValue(String value) {
+        if (value == null || value.isEmpty()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
