@@ -119,7 +119,7 @@ under the License.
           Spelled as classifier "tests" rather than type "test-jar", which resolve to the very same
           file: the build cache extension takes a dependency's type for its file extension when it
           hashes the module's inputs, so type "test-jar" sends it looking for a
-          fluss-server-1.0-SNAPSHOT.test-jar that exists in no repository, and the frontend build
+          fluss-server-<version>.test-jar that exists in no repository, and the frontend build
           fails before it compiles anything. No other module here depends on a foreign test-jar.
         -->
         <dependency>
@@ -130,11 +130,13 @@ under the License.
             <scope>test</scope>
         </dependency>
 
-        <!-- fluss's own test helpers (retry/await utilities the cluster extension calls into) -->
+        <!-- fluss's own test helpers (retry/await utilities the cluster extension calls into). Its own
+             property rather than ${fluss.version} only because the two snapshot build numbers differ;
+             see fe/pom.xml, which keeps them on the same deploy. -->
         <dependency>
             <groupId>org.apache.fluss</groupId>
             <artifactId>fluss-test-utils</artifactId>
-            <version>${fluss.version}</version>
+            <version>${fluss-test-utils.version}</version>
             <scope>test</scope>
         </dependency>
 
