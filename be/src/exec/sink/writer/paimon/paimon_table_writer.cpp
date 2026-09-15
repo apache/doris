@@ -23,6 +23,7 @@
 #include "core/block/materialize_block.h"
 #include "exprs/vexpr_context.h"
 #include "runtime/runtime_state.h"
+#include "util/debug_points.h"
 
 namespace doris {
 
@@ -48,7 +49,7 @@ Status PaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
 
     SCOPED_TIMER(_open_timer);
 
-    // Step 1: Create the backend (JNI or FFI) based on the sink configuration.
+    // Step 1: Create the backend selected by FE.
     RETURN_IF_ERROR(PaimonWriteBackendFactory::create(_t_sink.paimon_table_sink, &_backend));
     DCHECK(_backend);
     // Step 2: Open the backend — for JNI this loads the Java class and calls PaimonJniWriter.open().
@@ -83,79 +84,65 @@ Status PaimonTableWriter::write(RuntimeState* state, Block& block) {
     state->update_num_rows_load_total(block.rows());
     state->update_num_bytes_load_total(block.bytes());
 
-    // Step 2: Delegate to the backend writer (JNI or FFI). For the JNI path
+    // Step 2: Delegate to the backend writer. For the JNI path
     // this converts Block → Arrow RecordBatch → Arrow C Data → Java PaimonJniWriter.
     DCHECK(_writer);
     {
         SCOPED_TIMER(_file_store_write_timer);
         RETURN_IF_ERROR(_writer->write(state, output_block));
     }
-    _written_rows += block.rows();
     return Status::OK();
 }
 
 Status PaimonTableWriter::close(Status status) {
     SCOPED_TIMER(_close_timer);
 
-    // Prepare messages first, but do not publish them until the backend confirms
-    // that every SDK user has stopped and its native backing memory is safe to release.
+    // Local ownership guarantees destruction on every return, including message-retention OOM.
+    // Repeated close has no resources left to release; the task retains the original error.
+    auto backend = std::move(_backend);
+    auto writer = std::move(_writer);
+    if (!backend) return status;
+
     std::vector<TPaimonCommitMessage> messages;
     if (status.ok()) {
-        DCHECK(_writer);
-        {
+        DCHECK(writer);
+        status = paimon_write_call([&] {
             SCOPED_TIMER(_prepare_commit_timer);
-            Status prep_st = _writer->prepare_commit(messages);
-            if (!prep_st.ok()) {
-                status = prep_st;
-            }
-        }
+            return writer->prepare_commit(messages);
+        });
     }
 
-    // If prepare_commit failed or the incoming status was already an error,
-    // abort the writer to clean up uncommitted data files.
-    if (!status.ok()) {
-        LOG(WARNING) << "Paimon writer closing with error: " << status.to_string();
-        if (_writer) {
-            Status abort_st = _writer->abort();
+    if (!status.ok() && writer) {
+        // Abort failure must not skip backend close or replace the original task error.
+        (void)paimon_write_call([&] {
+            auto abort_st = writer->abort();
             if (!abort_st.ok()) {
                 LOG(WARNING) << "Paimon writer abort failed: " << abort_st.to_string();
             }
-        }
+            return abort_st;
+        });
     }
 
-    // The adapter only owns Arrow conversion resources. Release it before closing
-    // the backend, whose Java close is the authoritative SDK shutdown boundary.
-    _writer.reset();
+    writer.reset();
+    auto close_st = paimon_write_call([&] { return backend->close(); });
+    if (status.ok()) status = std::move(close_st);
+    if (!status.ok()) return status;
 
-    if (_backend) {
-        Status close_st = _backend->close();
-        if (!close_st.ok()) {
-            if (status.ok()) {
-                status = close_st;
-            } else {
-                LOG(WARNING) << "Paimon backend close also failed: " << close_st.to_string();
-            }
-        }
-    }
-
-    // Only a fully prepared and cleanly stopped writer may contribute payloads
-    // to the FE transaction. A Java close failure therefore aborts the Doris
-    // transaction instead of allowing it to commit potentially unsafe output.
-    if (status.ok()) {
+    // Only publish after SDK shutdown. Until handoff, backend destruction cleans native files.
+    return paimon_write_call([&] {
         COUNTER_UPDATE(_commit_payload_count, static_cast<int64_t>(messages.size()));
         for (const auto& msg : messages) {
             DORIS_CHECK(msg.__isset.payload);
             COUNTER_UPDATE(_commit_payload_bytes_counter, static_cast<int64_t>(msg.payload.size()));
         }
         if (!messages.empty()) {
+            DBUG_EXECUTE_IF("PaimonTableWriter.close.store_messages_oom",
+                            { throw std::bad_alloc(); });
             _state->add_paimon_commit_messages(messages);
-            LOG(INFO) << "Paimon writer closed: " << messages.size()
-                      << " commit messages, total rows=" << _written_rows;
         }
-    }
-
-    _backend.reset();
-    return status;
+        backend->on_commit_messages_transferred();
+        return Status::OK();
+    });
 }
 
 } // namespace doris

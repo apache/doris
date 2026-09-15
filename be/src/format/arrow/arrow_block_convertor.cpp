@@ -332,6 +332,17 @@ Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBat
         if (!arrow_st.ok()) {
             return to_doris_status(arrow_st);
         }
+        // MapBuilder reconstructs key/item fields without their metadata. Restore the pinned
+        // field metadata (also for maps nested in lists/structs), but only if the finished
+        // array has exactly the requested logical layout. Never reinterpret promoted offsets.
+        if (!storage_array->type()->Equals(builder_arrow_type, /*check_metadata=*/true) &&
+            storage_array->type()->Equals(builder_arrow_type, /*check_metadata=*/false)) {
+            auto restored = storage_array->View(builder_arrow_type);
+            if (!restored.ok()) {
+                return to_doris_status(restored.status());
+            }
+            storage_array = std::move(restored).ValueOrDie();
+        }
         if (has_extension) {
             RETURN_IF_ERROR(wrap_extension_arrays(target_arrow_type, storage_array,
                                                   &_arrays[_cur_field_idx]));

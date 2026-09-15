@@ -41,7 +41,7 @@ import java.util.TreeSet;
  *
  * <p>A time-travel snapshot attached to the Doris table is read-side state and must not affect
  * sink analysis. Capturing the latest remote table once also keeps schema binding, writer
- * distribution and the serialized JNI table on the same table generation.
+ * distribution and the shared writer table descriptor on the same table generation.
  */
 public final class PaimonWriteTarget {
     private final PaimonExternalTable dorisTable;

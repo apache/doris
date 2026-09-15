@@ -22,6 +22,7 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon,nonConcurrent") {
         return
     }
 
+    def originalWriteBackend = sql("SELECT @@paimon_write_backend")[0][0]
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String catalogName = "test_pw_variant_errors_catalog"
@@ -35,21 +36,32 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon,nonConcurrent") {
             id INT,
             payload VARIANT
         ) USING paimon
-        TBLPROPERTIES ('file.format' = 'parquet');
+        TBLPROPERTIES ('file.format' = 'parquet', 'write-only' = 'true');
 
         DROP TABLE IF EXISTS paimon.${dbName}.t_variant_nested_error;
         CREATE TABLE paimon.${dbName}.t_variant_nested_error (
             id INT,
             payloads ARRAY<VARIANT>
         ) USING paimon
-        TBLPROPERTIES ('file.format' = 'parquet');
+        TBLPROPERTIES ('file.format' = 'parquet', 'write-only' = 'true');
 
         DROP TABLE IF EXISTS paimon.${dbName}.t_variant_coercion_source;
         CREATE TABLE paimon.${dbName}.t_variant_coercion_source (
             id INT,
             payload VARIANT
         ) USING paimon
-        TBLPROPERTIES ('file.format' = 'parquet');
+        TBLPROPERTIES ('file.format' = 'parquet', 'write-only' = 'true');
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_variant_invalid_sdk_config;
+        CREATE TABLE paimon.${dbName}.t_variant_invalid_sdk_config (
+            id INT,
+            payload VARIANT
+        ) USING paimon
+        TBLPROPERTIES (
+            'file.format' = 'parquet',
+            'write-only' = 'true',
+            'variant.inferShreddingSchema' = 'invalid'
+        );
     """
 
     sql """DROP CATALOG IF EXISTS ${catalogName}"""
@@ -68,6 +80,7 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon,nonConcurrent") {
     sql """USE ${dbName}"""
 
     try {
+        sql """SET paimon_write_backend = 'CPP'"""
         // Both top-level and nested targets fail during analysis when V2 is disabled.
         setFeConfigTemporary([enable_variant_v2: false]) {
             assertFalse(getFeConfig("enable_variant_v2").toBoolean())
@@ -93,6 +106,21 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon,nonConcurrent") {
         setFeConfigTemporary([enable_variant_v2: true]) {
             assertTrue(getFeConfig("enable_variant_v2").toBoolean())
             sql """SET force_jni_scanner = true"""
+            explain {
+                sql "INSERT INTO t_variant_error VALUES (0, parse_to_variant('{}'))"
+                contains "backend: CPP"
+            }
+
+            // FE selects the capable SDK instead of duplicating its option validation. Invalid
+            // configuration must remain on the CPP path and expose the paimon-cpp diagnostic.
+            explain {
+                sql "INSERT INTO t_variant_invalid_sdk_config VALUES (1, parse_to_variant('{}'))"
+                contains "backend: CPP"
+            }
+            test {
+                sql "INSERT INTO t_variant_invalid_sdk_config VALUES (1, parse_to_variant('{}'))"
+                exception "Paimon native: Invalid: Invalid Config [variant.inferShreddingSchema: invalid]"
+            }
 
             sql """
                 INSERT INTO t_variant_coercion_source VALUES
@@ -226,6 +254,7 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon,nonConcurrent") {
             """
         }
     } finally {
+        sql """SET paimon_write_backend = '${originalWriteBackend}'"""
         sql """SET force_jni_scanner = false"""
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
     }

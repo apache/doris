@@ -22,10 +22,15 @@ suite("test_paimon_write_variant_nested", "p0,external,paimon,nonConcurrent") {
         return
     }
 
+    def originalWriteBackend = sql("SELECT @@paimon_write_backend")[0][0]
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String catalogName = "test_pw_variant_nested_catalog"
     String dbName = "test_pw_variant_nested_db"
+    String nestedShreddingSchema =
+            '{"type":"ROW","fields":[{"id":0,"name":"variant_struct","type":' +
+            '{"type":"ROW","fields":[{"id":1,"name":"payload","type":' +
+            '{"type":"ROW","fields":[{"id":2,"name":"kind","type":"STRING"}]}}]}}]}'
 
     spark_paimon_multi """
         CREATE DATABASE IF NOT EXISTS paimon.${dbName};
@@ -39,7 +44,23 @@ suite("test_paimon_write_variant_nested", "p0,external,paimon,nonConcurrent") {
             first_payload VARIANT,
             second_payload VARIANT
         ) USING paimon
-        TBLPROPERTIES ('file.format' = 'parquet');
+        TBLPROPERTIES (
+            'file.format' = 'parquet',
+            'write-only' = 'true',
+            'variant.inferShreddingSchema' = 'true',
+            'variant.shredding.inferenceMode' = 'adaptive'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_variant_nested_configured;
+        CREATE TABLE paimon.${dbName}.t_variant_nested_configured (
+            id INT,
+            variant_struct STRUCT<label:STRING, payload:VARIANT>
+        ) USING paimon
+        TBLPROPERTIES (
+            'file.format' = 'parquet',
+            'write-only' = 'true',
+            'parquet.variant.shreddingSchema' = '${nestedShreddingSchema}'
+        );
 
         DROP TABLE IF EXISTS paimon.${dbName}.t_variant_deep;
         CREATE TABLE paimon.${dbName}.t_variant_deep (
@@ -53,7 +74,7 @@ suite("test_paimon_write_variant_nested", "p0,external,paimon,nonConcurrent") {
                 >
             >
         ) USING paimon
-        TBLPROPERTIES ('file.format' = 'parquet');
+        TBLPROPERTIES ('file.format' = 'parquet', 'write-only' = 'true');
     """
 
     sql """DROP CATALOG IF EXISTS ${catalogName}"""
@@ -71,10 +92,49 @@ suite("test_paimon_write_variant_nested", "p0,external,paimon,nonConcurrent") {
     sql """SWITCH ${catalogName}"""
     sql """USE ${dbName}"""
 
+    String filesTableSuffix = '$files'
+    def dataFiles = { String tableName ->
+        spark_paimon("""
+            SELECT file_path
+            FROM paimon.${dbName}.`${tableName}${filesTableSuffix}`
+            ORDER BY file_path
+        """).collect { row -> row[0].toString() }
+    }
+    def rawColumnType = { String path, String columnName ->
+        def columns = sql """DESC FUNCTION S3(
+            "uri" = "${path}",
+            "s3.endpoint" = "http://${externalEnvIp}:${minioPort}",
+            "s3.access_key" = "admin",
+            "s3.secret_key" = "password",
+            "s3.region" = "us-east-1",
+            "use_path_style" = "true",
+            "format" = "parquet"
+        )"""
+        def column = columns.find { it[0].toString().equalsIgnoreCase(columnName) }
+        assertTrue(column != null, "No ${columnName} column in Paimon data file ${path}")
+        return column[1].toString().toLowerCase()
+    }
+    def strings = { rows -> rows.collect { row ->
+        row.collect { value -> value == null ? null : value.toString() }
+    } }
+
     try {
+        sql """SET paimon_write_backend = 'CPP'"""
         setFeConfigTemporary([enable_variant_v2: true]) {
             assertTrue(getFeConfig("enable_variant_v2").toBoolean())
             sql """SET force_jni_scanner = true"""
+            explain {
+                sql "INSERT INTO t_variant_nested VALUES (0, NULL, NULL, NULL, NULL, NULL)"
+                contains "backend: CPP"
+            }
+            explain {
+                sql "INSERT INTO t_variant_deep VALUES (0, NULL)"
+                contains "backend: CPP"
+            }
+            explain {
+                sql "INSERT INTO t_variant_nested_configured VALUES (0, NULL)"
+                contains "backend: CPP"
+            }
         // ARRAY, MAP, STRUCT and multiple Variant columns in one Arrow batch.
         sql """
             INSERT INTO t_variant_nested VALUES
@@ -108,6 +168,19 @@ suite("test_paimon_write_variant_nested", "p0,external,paimon,nonConcurrent") {
                 ),
                 (3, NULL, NULL, NULL, NULL, NULL)
         """
+
+        // Explicit shredding schemas address top-level Variant columns. A schema entry naming a
+        // nested container is safely ignored by both SDKs and must not force the entire write to
+        // JNI.
+        sql """
+            INSERT INTO t_variant_nested_configured VALUES
+                (1, named_struct('label', 'configured', 'payload',
+                    parse_to_variant('{"kind":"configured-nested"}'))),
+                (2, named_struct('label', 'null', 'payload', CAST(NULL AS VARIANT)))
+        """
+        assertEquals([["configured-nested"]], strings(spark_paimon("""SELECT
+            try_variant_get(variant_struct.payload, '\$.kind', 'string')
+            FROM paimon.${dbName}.t_variant_nested_configured WHERE id = 1""")))
 
         order_qt_variant_nested_values """
             SELECT
@@ -186,11 +259,48 @@ suite("test_paimon_write_variant_nested", "p0,external,paimon,nonConcurrent") {
             WHERE id = 2
         """
 
+        // Read through a different SDK/engine, including the deepest SQL container path.
+        assertEquals([["array-object", "2", "struct-object", "first", "second"]],
+                strings(spark_paimon("""SELECT
+                    try_variant_get(variants[0], '\$.kind', 'string'),
+                    try_variant_get(variant_map['object'], '\$.n', 'int'),
+                    try_variant_get(variant_struct.payload, '\$.kind', 'string'),
+                    try_variant_get(first_payload, '\$.column', 'string'),
+                    try_variant_get(second_payload, '\$[0]', 'string')
+                    FROM paimon.${dbName}.t_variant_nested WHERE id=1""")))
+        assertEquals([["deep-ok"]], strings(spark_paimon("""SELECT
+                    try_variant_get(deep.level1[0]['outer'].payload,
+                        '\$.level2.level3.level4.value', 'string')
+                    FROM paimon.${dbName}.t_variant_deep WHERE id=1""")))
+        assertEquals([["1"]], strings(spark_paimon("""SELECT
+                    CAST(deep.level1[0]['null-leaf'].payload IS NULL AS INT)
+                    FROM paimon.${dbName}.t_variant_deep WHERE id=2""")))
+
+        // C++ inference descends through STRUCT, so the nested payload is physically shredded.
+        // It intentionally does not descend through ARRAY or MAP containers; those elements keep
+        // the ordinary value/metadata representation. All layouts must remain Java-readable.
+        def inferredFiles = dataFiles("t_variant_nested")
+        assertTrue(!inferredFiles.isEmpty())
+        inferredFiles.each { filePath ->
+            String structType = rawColumnType(filePath, "variant_struct")
+            assertTrue(structType.contains("payload:struct"))
+            assertTrue(structType.contains("typed_value:struct"))
+            assertTrue(structType.contains("kind:struct"))
+            assertFalse(rawColumnType(filePath, "variants").contains("typed_value"))
+            assertFalse(rawColumnType(filePath, "variant_map").contains("typed_value"))
+        }
+        def configuredFiles = dataFiles("t_variant_nested_configured")
+        assertTrue(!configuredFiles.isEmpty())
+        configuredFiles.each { filePath ->
+            assertFalse(rawColumnType(filePath, "variant_struct").contains("typed_value"))
+        }
+
         // Refreshing metadata must not affect nested Variant reads.
         sql """REFRESH TABLE t_variant_deep"""
         qt_variant_deep_count """SELECT COUNT(*) FROM t_variant_deep"""
         }
     } finally {
+        sql """SET paimon_write_backend = '${originalWriteBackend}'"""
         sql """SET force_jni_scanner = false"""
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
     }
