@@ -71,8 +71,26 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
     private final LanceIndexJobManager jobManager;
 
     public LanceIndexJobDispatcher(LanceIndexJobManager jobManager) {
-        super("lance index job dispatcher", Config.lance_index_job_dispatch_interval_second * 1000L);
+        super("lance index job dispatcher", dispatchIntervalMs());
         this.jobManager = jobManager;
+    }
+
+    /**
+     * Values loaded from fe.conf bypass the config validator (only ADMIN SET runs
+     * it), so the positive invariant is re-asserted where a non-positive value
+     * would break the loop: a non-positive interval would kill this thread inside
+     * {@code Thread.sleep} or busy-spin it, a non-positive deadline would sweep
+     * every dispatched job UNKNOWN on the next round, and a zero cap would stall
+     * dispatch forever. The refresh retry interval needs no such defense: a
+     * non-positive value simply disengages the throttle.
+     */
+    private static long dispatchIntervalMs() {
+        return Math.max(1, Config.lance_index_job_dispatch_interval_second) * 1000L;
+    }
+
+    private static long executeDeadlineMs(long nowMs) {
+        long second = Math.max(1L, Config.lance_index_job_execute_deadline_second);
+        return second > (Long.MAX_VALUE - nowMs) / 1000L ? Long.MAX_VALUE : nowMs + second * 1000L;
     }
 
     @Override
@@ -83,7 +101,7 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
         if (Env.isCheckpointThread()) {
             return;
         }
-        setInterval(Config.lance_index_job_dispatch_interval_second * 1000L);
+        setInterval(dispatchIntervalMs());
         try {
             runOneRound();
         } catch (Throwable t) {
@@ -257,7 +275,7 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
      * and no backoff beyond the daemon period.
      */
     private void dispatchPendingJobs() {
-        int maxPerRound = Config.lance_index_job_max_dispatch_per_round;
+        int maxPerRound = Math.max(1, Config.lance_index_job_max_dispatch_per_round);
         Map<Long, Integer> inflightByBackend = countInflightByBackend();
         int attempted = 0;
         for (LanceIndexJob job : jobManager.getJobsNeedingDispatch(maxPerRound)) {
@@ -313,13 +331,18 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             return;
         }
         Integer inflight = inflightByBackend.get(backend.getId());
-        if (inflight != null && inflight >= Config.lance_index_job_max_inflight_per_backend) {
+        if (inflight != null && inflight >= Math.max(1, Config.lance_index_job_max_inflight_per_backend)) {
             return;
         }
         String invocationId = UUID.randomUUID().toString();
-        long deadlineMs = System.currentTimeMillis() + Config.lance_index_job_execute_deadline_second * 1000L;
+        // The process epoch is captured once, and the same value goes to the
+        // durable record and the wire: a heartbeat landing between the two reads
+        // must not split the dispatch identity (the callback matches the durable
+        // value, and the epoch sweep releases the slot against it).
+        long beProcessEpoch = backend.getProcessEpoch();
+        long deadlineMs = executeDeadlineMs(System.currentTimeMillis());
         if (!jobManager.markRunning(job.getJobId(), job.getRevision(), backend.getId(),
-                backend.getProcessEpoch(), invocationId, deadlineMs)) {
+                beProcessEpoch, invocationId, deadlineMs)) {
             // The compare-and-set lost: this attempt's dispatch identity is void and its
             // invocation id is discarded. A fresh identity is built from scratch next round.
             return;
@@ -340,7 +363,7 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
         }
         TLanceIndexJobDispatch dispatch;
         try {
-            dispatch = buildDispatch(fresh, invocationId, deadlineMs, backend.getProcessEpoch(),
+            dispatch = buildDispatch(fresh, invocationId, deadlineMs, beProcessEpoch,
                     resolveStorageOptions(fresh));
         } catch (Exception e) {
             // An FE-side resolution failure is not a trusted worker rejection, so it must
