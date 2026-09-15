@@ -303,6 +303,9 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             Map<String, Long> nameToLastModifiedMillis) {
         List<Type> types = partitionColumns.stream().map(Column::getType).collect(Collectors.toList());
         List<ConnectorPartitionInfo> parts = metadata.listPartitions(session, handle, Optional.empty());
+        int skipped = 0;
+        String firstSkippedName = null;
+        Exception firstSkippedCause = null;
         for (ConnectorPartitionInfo part : parts) {
             String partitionName = part.getPartitionName();
             nameToLastModifiedMillis.put(partitionName, part.getLastModifiedMillis());
@@ -324,25 +327,47 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
                         toListPartitionItem(partitionName, types,
                                 part.getOrderedPartitionValues(), part.getPartitionValueNullFlags()));
             } catch (Exception e) {
-                LOG.warn("toListPartitionItem failed, partitionColumns: {}, partitionName: {}",
-                        partitionColumns, partitionName, e);
+                // Counted here and reported once below. Both skip shapes are per-TABLE conditions that
+                // repeat on EVERY snapshot load, i.e. on every query planned against the table: a spec
+                // whose values are not representable in the partition columns' types (an iceberg spec
+                // mixing an identity field with a month()/bucket() transform, say - the connector
+                // supplies the transform result, keyed under the source column) fails for every
+                // partition, every time. A WARN with a stack trace per partition is then thousands of
+                // log lines per query, enough to fill an FE log volume; the per-partition detail stays
+                // available at DEBUG.
+                skipped++;
+                if (firstSkippedCause == null) {
+                    firstSkippedName = partitionName;
+                    firstSkippedCause = e;
+                }
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("toListPartitionItem failed, partitionColumns: {}, partitionName: {}",
+                            partitionColumns, partitionName, e);
+                }
             }
         }
-        // One line for the listing, next to the per-partition ones above.
+        // One line for the listing: the two counts, the first failure, and the fact that the table just
+        // went UNPARTITIONED for this read - not N copies of one stack trace.
         //
-        // A per-partition WARN is the right shape for the case this catch was written for - iceberg
-        // spec evolution, where SOME rows carry fewer values than the current spec has columns - but
-        // it is the wrong shape for the case where the two lists never agreed at all: every
-        // partition then fails for the same reason, and what the reader needs is the two counts and
-        // the fact that the whole table just went UNPARTITIONED, not N copies of one stack trace.
-        // That shape is what a pinned read produces when the at-snapshot schema declares partition
-        // columns the pinned listing does not match (see ConnectorMetadata.listsPartitionsAtSnapshot).
-        if (!parts.isEmpty() && nameToPartitionItem.isEmpty()) {
+        // The all-skipped shape is what a pinned read produces when the at-snapshot schema declares
+        // partition columns the pinned listing does not match (see
+        // ConnectorMetadata.listsPartitionsAtSnapshot): the two lists never agreed at all. The partial
+        // shape is iceberg spec evolution, where SOME rows carry fewer values than the current spec has
+        // columns.
+        if (skipped > 0 && nameToPartitionItem.isEmpty()) {
             LOG.warn("every partition of {}.{} was skipped while building partition items, so the "
                             + "table is reported UNPARTITIONED for this read: {} listed, 0 built, "
                             + "typed by {} partition column(s) {}. The connector's partition columns "
-                            + "and the values it lists do not agree.",
-                    getDbName(), getName(), parts.size(), types.size(), partitionColumns);
+                            + "and the values it lists do not agree. First failure: partitionName: {}, "
+                            + "cause: {}",
+                    getDbName(), getName(), parts.size(), types.size(), partitionColumns,
+                    firstSkippedName, firstSkippedCause.getMessage());
+        } else if (skipped > 0) {
+            LOG.warn("skipped {} of {} partitions of {}.{} while building partition items, so the table "
+                            + "is reported UNPARTITIONED for this read; typed by {} partition column(s) {}. "
+                            + "First failure: partitionName: {}, cause: {}",
+                    skipped, parts.size(), getDbName(), getName(), types.size(), partitionColumns,
+                    firstSkippedName, firstSkippedCause.getMessage());
         }
     }
 
