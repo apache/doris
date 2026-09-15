@@ -41,10 +41,13 @@ import org.apache.doris.nereids.load.NereidsCloudStreamLoadPlanner;
 import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
 import org.apache.doris.nereids.load.NereidsStreamLoadTask;
 import org.apache.doris.planner.GroupCommitPlanner;
+import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TDataSinkType;
+import org.apache.doris.thrift.TOlapTableSink;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
@@ -60,6 +63,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.security.SecureRandom;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -285,6 +289,7 @@ public class StreamLoadHandler {
                     ? multiTableFragmentInstanceIdIndex.getAndIncrement() : 0;
             TPipelineFragmentParams result = null;
             result = planner.plan(streamLoadTask.getId(), index);
+            assignAdaptiveRandomBucket(result);
             result.setTableName(table.getName());
             result.query_options.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
             result.setIsMowTable(table.getEnableUniqueKeyMergeOnWrite());
@@ -320,5 +325,45 @@ public class StreamLoadHandler {
 
     public List getFragmentParams() {
         return fragmentParams;
+    }
+
+    /**
+     * Stream load sends the whole plan to the BE that issued this request, so the sink routing
+     * has to be resolved for exactly that BE. Without it the BE only knows the sink is in
+     * adaptive random bucket mode, assumes it owns every bucket and fails with
+     * "unknown partition channel" as soon as a partition has no tablet on it.
+     */
+    void assignAdaptiveRandomBucket(TPipelineFragmentParams params) {
+        TOlapTableSink sink = getOlapTableSink(params);
+        if (!OlapTableSink.shouldAssignAdaptiveRandomBucket(sink)) {
+            return;
+        }
+        long sinkBackendId = request.isSetBackendId() ? request.getBackendId() : -1L;
+        if (sinkBackendId <= 0 || !sink.isSetLocation() || sink.getLocation() == null) {
+            // Old clients do not report the executing BE, and without the sink backend id or the
+            // tablet locations no assignment consistent with the receiver side can be computed
+            // here. Fall back to the non-adaptive per-batch routing, which never depends on the
+            // bucket owner.
+            LOG.warn("disable adaptive random bucket, stream load sink backend id is {}, db={}, table={}",
+                    sinkBackendId, request.getDb(), request.getTbl());
+            sink.unsetEnableAdaptiveRandomBucket();
+            return;
+        }
+        int sinkInstanceNum = Math.max(params.getLocalParamsSize(), 1);
+        Map<Long, Map<Long, OlapTableSink.AdaptiveBucketAssignment>> assignments =
+                OlapTableSink.computeAdaptiveRandomBucketAssignments(
+                        Lists.newArrayList(sinkBackendId), sink.getPartition().getPartitions(),
+                        sink.getLocation().getTablets(), sinkInstanceNum);
+        OlapTableSink.applyAdaptiveRandomBucketAssignments(
+                sink.getPartition().getPartitions(), assignments.get(sinkBackendId));
+    }
+
+    private static TOlapTableSink getOlapTableSink(TPipelineFragmentParams params) {
+        if (params == null || !params.isSetFragment() || params.getFragment() == null
+                || !params.getFragment().isSetOutputSink() || params.getFragment().getOutputSink() == null
+                || params.getFragment().getOutputSink().getType() != TDataSinkType.OLAP_TABLE_SINK) {
+            return null;
+        }
+        return params.getFragment().getOutputSink().getOlapTableSink();
     }
 }
