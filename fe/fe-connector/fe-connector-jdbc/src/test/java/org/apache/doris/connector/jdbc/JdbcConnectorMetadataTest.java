@@ -21,11 +21,13 @@ import org.apache.doris.connector.jdbc.client.JdbcConnectorClient;
 import org.apache.doris.connector.jdbc.client.JdbcFieldInfo;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorPushdownOps;
+import org.apache.doris.connector.spi.ConnectorQueryResult;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.PassthroughQueryTableHandle;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -281,6 +283,46 @@ class JdbcConnectorMetadataTest {
         Assertions.assertEquals(first, second, "getTableSchema over the shared (mutated) memo is stable");
         Assertions.assertTrue(first.contains("d:true"),
                 "the mutating type conversion's idempotent allowNull=true is reflected in the schema");
+    }
+
+    @Test
+    void primaryKeysAndProbeQueriesReachTheClient() {
+        List<String> pkRequests = new ArrayList<>();
+        List<String> queries = new ArrayList<>();
+        JdbcConnectorClient client = new JdbcConnectorClient("test_catalog", JdbcDbType.MYSQL,
+                "jdbc:mysql://h:3306/test_db", false, null, null, false, false) {
+            @Override
+            public List<String> getPrimaryKeys(String remoteDbName, String remoteTableName) {
+                pkRequests.add(remoteDbName + "." + remoteTableName);
+                return Arrays.asList("k2", "k1");
+            }
+
+            @Override
+            public ConnectorQueryResult executeQuery(String sql, List<Object> params) {
+                queries.add(sql + params);
+                return new ConnectorQueryResult(Collections.singletonList("v"),
+                        Collections.singletonList(Collections.singletonList("MYSQL")));
+            }
+
+            @Override
+            public ConnectorType jdbcTypeToConnectorType(JdbcFieldInfo fieldInfo) {
+                return ConnectorType.of("INT");
+            }
+        };
+        JdbcConnectorMetadata md = new JdbcConnectorMetadata(client, minimalCatalogProps());
+        ConnectorSession session = sessionWithProps(Collections.emptyMap());
+
+        // The key order the client reports is the key order the engine gets - it builds a UNIQUE KEY on it.
+        Assertions.assertEquals(Arrays.asList("k2", "k1"),
+                md.getPrimaryKeys(session, new JdbcTableHandle("db", "t")));
+        Assertions.assertEquals(Collections.singletonList("db.t"), pkRequests);
+        // A passthrough query has no table, hence no primary key.
+        Assertions.assertTrue(md.getPrimaryKeys(session, new PassthroughQueryTableHandle("select 1")).isEmpty());
+
+        ConnectorQueryResult result = md.executeQuery(session, "SHOW VARIABLES LIKE ?",
+                Collections.singletonList("ob_compatibility_mode"));
+        Assertions.assertEquals("MYSQL", result.getRows().get(0).get(0));
+        Assertions.assertEquals(Collections.singletonList("SHOW VARIABLES LIKE ?[ob_compatibility_mode]"), queries);
     }
 
     @Test

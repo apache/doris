@@ -18,9 +18,13 @@
 package org.apache.doris.connector;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.connector.spi.DriverUrlPolicy;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.Arrays;
+import java.util.Map;
 
 public class DefaultConnectorContextEnvironmentTest {
 
@@ -35,5 +39,36 @@ public class DefaultConnectorContextEnvironmentTest {
         } finally {
             Config.hadoop_config_dir = previous;
         }
+    }
+
+    @Test
+    public void forwardsTheDriverJarAllowListsUnderThePolicyKeys() {
+        // The connectors read these through DriverUrlPolicy.Settings.fromContext, keyed by the fe.conf names;
+        // the white list travels as one comma-joined value.
+        String previousPath = Config.jdbc_driver_secure_path;
+        String[] previousList = Config.jdbc_driver_url_white_list;
+        try {
+            Config.jdbc_driver_secure_path = "file:///opt/doris/jdbc_drivers";
+            Config.jdbc_driver_url_white_list = new String[] {"http://a/x.jar", "http://b/y.jar"};
+            Map<String, String> env = new DefaultConnectorContext("test", 1L).getEnvironment();
+            Assertions.assertEquals("file:///opt/doris/jdbc_drivers", env.get(DriverUrlPolicy.ENV_DRIVER_SECURE_PATH));
+            Assertions.assertEquals("http://a/x.jar,http://b/y.jar",
+                    env.get(DriverUrlPolicy.ENV_DRIVER_URL_WHITE_LIST));
+            Assertions.assertEquals(Config.jdbc_drivers_dir, env.get(DriverUrlPolicy.ENV_DRIVERS_DIR));
+            Assertions.assertEquals(Arrays.asList("http://a/x.jar", "http://b/y.jar"),
+                    DriverUrlPolicy.Settings.fromContext(new DefaultConnectorContext("test", 1L), null)
+                            .getUrlWhiteList());
+        } finally {
+            Config.jdbc_driver_secure_path = previousPath;
+            Config.jdbc_driver_url_white_list = previousList;
+        }
+    }
+
+    @Test
+    public void hasNoPluginFileStoreOutsideCloudMode() {
+        // A non-cloud deployment has no object store to fetch a missing driver jar from: the policy then
+        // reports the file as missing rather than the context inventing a path.
+        Assertions.assertFalse(new DefaultConnectorContext("test", 1L)
+                .fetchPluginFile("jdbc_drivers", "x.jar", "/tmp/x.jar").isPresent());
     }
 }

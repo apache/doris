@@ -81,11 +81,12 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Storage predicate pruning, provider-level DDL validation and ConnectorMetadata's
-        // listsPartitionsAtSnapshot - the method a connector answers "my partition listing is exact at
-        // the pinned snapshot" with - all changed the public surface in major 7. A plugin built against
-        // major 6 must be refused rather than run against a contract it did not compile against.
-        Assertions.assertEquals("7.0", version.getProperty("api.version"));
+        // Major 8 moved the driver-jar policy out of the engine: ConnectorValidationContext lost its two
+        // driver methods (validateAndResolveDriverPath / computeDriverChecksum), ConnectorContext gained
+        // fetchPluginFile, ConnectorMetadata gained getPrimaryKeys and ConnectorPassthroughSqlOps gained
+        // executeQuery. A plugin built against major 7 calls methods that no longer exist and must be
+        // refused rather than run against a contract it did not compile against.
+        Assertions.assertEquals("8.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */

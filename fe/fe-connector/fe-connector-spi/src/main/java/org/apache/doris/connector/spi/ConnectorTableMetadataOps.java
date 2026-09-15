@@ -53,7 +53,7 @@ import java.util.Optional;
  * <li><b>System tables</b>: {@link #listSupportedSysTables} plus {@link #getSysTableHandle};
  *     {@link #isPartitionValuesSysTable} only for a system table served by the engine's generic
  *     partition-values function rather than by a native scan.</li>
- * <li><b>Optional</b>: {@link #getTableComment}, {@link #renderShowCreateTableDdl}.</li>
+ * <li><b>Optional</b>: {@link #getTableComment}, {@link #renderShowCreateTableDdl}, {@link #getPrimaryKeys}.</li>
  * </ul>
  *
  * <p>Note that {@link #getTableComment} addresses a table by NAME, not by handle. A heterogeneous gateway
@@ -216,6 +216,21 @@ public interface ConnectorTableMetadataOps {
     default String getTableComment(ConnectorSession session,
             String dbName, String tableName) {
         return "";
+    }
+
+    /**
+     * The names of the table's primary-key columns in key order, or an empty list when the table declares
+     * none or the source has no notion of one.
+     *
+     * <p>This is a different question from {@link ConnectorColumn#isKey()}: that flag drives DESCRIBE's
+     * "Key" column and a source may answer it for every column (a JDBC table does, by the legacy convention),
+     * whereas a caller that builds a Doris UNIQUE KEY table from the remote schema — the streaming/CDC
+     * framework — needs the real constraint. The default answers "no primary key"; a connector whose source
+     * exposes the constraint (every JDBC dialect does, via {@code DatabaseMetaData.getPrimaryKeys})
+     * overrides it.</p>
+     */
+    default List<String> getPrimaryKeys(ConnectorSession session, ConnectorTableHandle handle) {
+        return Collections.emptyList();
     }
 
     /**

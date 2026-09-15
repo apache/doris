@@ -33,6 +33,7 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorTestResult;
 import org.apache.doris.connector.spi.ConnectorValidationContext;
+import org.apache.doris.connector.spi.DriverUrlPolicy;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.filesystem.Location;
@@ -620,11 +621,10 @@ public class PaimonConnector implements Connector {
     /**
      * Enforces JDBC driver-url security at CREATE CATALOG (rereview2 B-8b). For the JDBC flavor a
      * configured {@code driver_url} — read from either the {@code jdbc.driver_url} or the
-     * {@code paimon.jdbc.driver_url} alias — is routed through the engine's
-     * {@link ConnectorValidationContext#validateAndResolveDriverPath} hook, which applies the FE
-     * format / {@code jdbc_driver_url_white_list} / {@code jdbc_driver_secure_path} gates (legacy
-     * {@code JdbcResource.getFullDriverUrl}). A rejected url throws here, so CREATE CATALOG fails
-     * before the jar is ever loaded into the FE JVM by {@link #maybeRegisterJdbcDriver}. Mirrors
+     * {@code paimon.jdbc.driver_url} alias — is checked against the FE's shared driver-jar policy
+     * ({@link DriverUrlPolicy}: format / {@code jdbc_driver_url_white_list} / {@code jdbc_driver_secure_path},
+     * fed from the engine environment). A rejected url throws here, so CREATE CATALOG fails before the jar
+     * is ever loaded into the FE JVM by {@link #maybeRegisterJdbcDriver}. Mirrors
      * {@code JdbcDorisConnector.preCreateValidation}; non-JDBC flavors are a no-op.
      */
     @Override
@@ -634,7 +634,8 @@ public class PaimonConnector implements Connector {
         }
         String driverUrl = PaimonJdbcMetaStoreProperties.of(catalogProps.getRaw()).getDriverUrl();
         if (StringUtils.isNotBlank(driverUrl)) {
-            validationContext.validateAndResolveDriverPath(driverUrl);
+            DriverUrlPolicy.resolve(driverUrl,
+                    DriverUrlPolicy.Settings.fromContext(context, PaimonConf.driversDir(context)));
         }
     }
 
@@ -664,8 +665,8 @@ public class PaimonConnector implements Connector {
      *
      * <p>FE security validation (format / {@code jdbc_driver_url_white_list} /
      * {@code jdbc_driver_secure_path}) is enforced at CREATE CATALOG by {@link #preCreateValidation}
-     * via the engine's {@code ConnectorValidationContext.validateAndResolveDriverPath} hook — a
-     * rejected url fails catalog creation before this path is ever reached. Like the JDBC reference
+     * through the shared {@link DriverUrlPolicy} — a rejected url fails catalog creation before this
+     * path is ever reached. Like the JDBC reference
      * connector ({@code JdbcDorisConnector}), validation is CREATE-time only; catalogs reloaded after
      * an FE restart or reconfigured via ALTER CATALOG are not re-validated against a since-tightened
      * allow-list (a pre-existing fe-core gap shared by all plugin connectors — see deviations-log).

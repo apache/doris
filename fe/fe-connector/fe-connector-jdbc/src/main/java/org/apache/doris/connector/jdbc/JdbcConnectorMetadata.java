@@ -22,6 +22,7 @@ import org.apache.doris.connector.jdbc.client.JdbcFieldInfo;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorPassthroughSqlOps;
+import org.apache.doris.connector.spi.ConnectorQueryResult;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScopes;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
@@ -146,6 +147,15 @@ public class JdbcConnectorMetadata implements ConnectorMetadata, ConnectorPassth
     }
 
     @Override
+    public List<String> getPrimaryKeys(ConnectorSession session, ConnectorTableHandle handle) {
+        if (handle instanceof PassthroughQueryTableHandle) {
+            return Collections.emptyList();
+        }
+        JdbcTableHandle jdbcHandle = (JdbcTableHandle) handle;
+        return client.getPrimaryKeys(jdbcHandle.getRemoteDbName(), jdbcHandle.getRemoteTableName());
+    }
+
+    @Override
     public Optional<ConnectorTableStatistics> getTableStatistics(
             ConnectorSession session, ConnectorTableHandle handle) {
         if (handle instanceof PassthroughQueryTableHandle) {
@@ -248,6 +258,11 @@ public class JdbcConnectorMetadata implements ConnectorMetadata, ConnectorPassth
     @Override
     public void executeStmt(ConnectorSession session, String stmt) {
         client.executeStmt(stmt);
+    }
+
+    @Override
+    public ConnectorQueryResult executeQuery(ConnectorSession session, String sql, List<Object> params) {
+        return client.executeQuery(sql, params);
     }
 
     @Override

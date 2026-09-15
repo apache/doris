@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.spi;
 
+import java.util.List;
+
 /**
  * Passing a SQL string through to the remote source untouched, for a connector that fronts a system which
  * speaks SQL itself.
@@ -27,14 +29,14 @@ package org.apache.doris.connector.spi;
  * {@code SUPPORTS_PASSTHROUGH_QUERY} flag existed and was removed: it was a second overridable answer to the
  * question "can this connector run my SQL", and a connector could declare it while implementing nothing).</p>
  *
- * <p>Both methods take a SQL string the user wrote. A connector that implements them owns the consequences:
- * the engine does not parse, rewrite or authorize the statement beyond the catalog-level privilege check on
- * the entry points, so an implementation must send it under the catalog's own credentials and must not widen
- * what those credentials can reach.</p>
+ * <p>All three methods take a SQL string the caller wrote. A connector that implements them owns the
+ * consequences: the engine does not parse, rewrite or authorize the statement beyond the catalog-level
+ * privilege check on the entry points, so an implementation must send it under the catalog's own credentials
+ * and must not widen what those credentials can reach.</p>
  *
- * <p>Minimum implementation set: whichever of the two the connector actually supports. Each defaults to
+ * <p>Minimum implementation set: whichever of the three the connector actually supports. Each defaults to
  * refusing, so implementing the interface for the {@code query()} TVF alone does not silently claim
- * {@code CALL EXECUTE_STMT} as well.</p>
+ * {@code CALL EXECUTE_STMT} or {@link #executeQuery} as well.</p>
  */
 public interface ConnectorPassthroughSqlOps {
 
@@ -52,5 +54,19 @@ public interface ConnectorPassthroughSqlOps {
      */
     default ConnectorTableSchema getColumnsFromQuery(ConnectorSession session, String query) {
         throw new DorisConnectorException("getColumnsFromQuery not supported");
+    }
+
+    /**
+     * Runs a read-only query on the remote source and returns its rows, for an engine-side probe that must
+     * look at the source before it commits to something (a streaming job checking that a replication slot
+     * exists or which compatibility mode a server runs in, say).
+     *
+     * <p>{@code params} bind positionally to the {@code ?} placeholders of {@code sql}, so a name the caller
+     * took from user input reaches the source as a bound value and never as SQL text. The result is fully
+     * materialized; this is for the handful of rows a probe reads, not for data. Values are whatever the
+     * driver's {@code getObject} answers — see {@link ConnectorQueryResult}.</p>
+     */
+    default ConnectorQueryResult executeQuery(ConnectorSession session, String sql, List<Object> params) {
+        throw new DorisConnectorException("executeQuery not supported");
     }
 }

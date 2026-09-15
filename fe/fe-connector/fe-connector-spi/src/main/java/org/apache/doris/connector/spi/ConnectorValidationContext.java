@@ -15,18 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
+
 package org.apache.doris.connector.spi;
 
 /**
  * Context provided to connectors during pre-creation validation (CREATE CATALOG).
  *
- * <p>The engine implements this interface to expose infrastructure services
- * (driver validation, checksum computation, BE connectivity testing) that
- * connectors may need during validation. Each connector type calls only the
- * services relevant to its own validation logic.</p>
+ * <p>The engine implements this interface to expose the infrastructure services a connector may need
+ * while it validates a catalog it is about to create: reading and storing catalog properties, and
+ * deferring a BE-side connectivity test to the engine. Each connector type calls only the services
+ * relevant to its own validation logic.</p>
  *
- * <p>This keeps connector-specific validation inside the connector while
- * the engine provides the underlying capabilities.</p>
+ * <p>Validating and resolving a driver jar is NOT an engine service any more: the policy lives with the
+ * connectors, in {@link DriverUrlPolicy}, fed from {@link ConnectorContext#getEnvironment()}. Keeping it
+ * here meant the engine carried one connector family's file-format rules; every connector that loads a
+ * driver jar now applies the one shared policy itself.</p>
  */
 public interface ConnectorValidationContext {
 
@@ -38,25 +41,6 @@ public interface ConnectorValidationContext {
 
     /** Stores a computed property back into the catalog configuration. */
     void storeProperty(String key, String value);
-
-    /**
-     * Validates a driver URL: format, whitelist, secure_path, file existence.
-     * Returns the resolved full driver URL.
-     *
-     * @param driverUrl the raw driver URL from catalog properties
-     * @return the resolved, validated full URL
-     * @throws Exception if the driver URL is invalid or inaccessible
-     */
-    String validateAndResolveDriverPath(String driverUrl) throws Exception;
-
-    /**
-     * Computes the MD5 checksum for a driver file at the given URL.
-     *
-     * @param driverUrl the driver URL to checksum
-     * @return the hex-encoded MD5 checksum
-     * @throws Exception if checksum computation fails
-     */
-    String computeDriverChecksum(String driverUrl) throws Exception;
 
     /**
      * Registers a BE→external connectivity test request. The engine will

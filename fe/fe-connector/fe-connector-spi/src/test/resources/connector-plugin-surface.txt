@@ -35,6 +35,7 @@ org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_USER_SESSION
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_VIEW
 org.apache.doris.connector.spi.ConnectorContext#createSiblingConnector(java.lang.String,java.util.Map):org.apache.doris.connector.spi.Connector
 org.apache.doris.connector.spi.ConnectorContext#executeAuthenticated(java.util.concurrent.Callable):java.lang.Object
+org.apache.doris.connector.spi.ConnectorContext#fetchPluginFile(java.lang.String,java.lang.String,java.lang.String):java.util.Optional
 org.apache.doris.connector.spi.ConnectorContext#getCatalogId():long
 org.apache.doris.connector.spi.ConnectorContext#getCatalogName():java.lang.String
 org.apache.doris.connector.spi.ConnectorContext#getConnectorConfig():java.util.Map

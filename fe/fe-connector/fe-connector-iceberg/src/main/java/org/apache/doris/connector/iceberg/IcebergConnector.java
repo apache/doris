@@ -38,6 +38,7 @@ import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorTestResult;
 import org.apache.doris.connector.spi.ConnectorValidationContext;
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.DriverUrlPolicy;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.spi.procedure.ConnectorProcedureOps;
@@ -1549,9 +1550,9 @@ public class IcebergConnector implements Connector {
 
     /**
      * Enforces JDBC driver-url security at CREATE CATALOG (mirrors {@code PaimonConnector.preCreateValidation}):
-     * for the jdbc flavor a configured {@code iceberg.jdbc.driver_url} is routed through the engine's
-     * {@link ConnectorValidationContext#validateAndResolveDriverPath} hook (the FE format /
-     * {@code jdbc_driver_url_white_list} / {@code jdbc_driver_secure_path} gates), so a rejected url fails
+     * for the jdbc flavor a configured {@code iceberg.jdbc.driver_url} is checked against the FE's shared
+     * driver-jar policy ({@link DriverUrlPolicy}: format / {@code jdbc_driver_url_white_list} /
+     * {@code jdbc_driver_secure_path}, fed from the engine environment), so a rejected url fails
      * CREATE CATALOG before the jar is ever loaded by {@link #maybeRegisterJdbcDriver}. Non-jdbc flavors are
      * a no-op.
      */
@@ -1562,7 +1563,8 @@ public class IcebergConnector implements Connector {
         }
         String driverUrl = IcebergJdbcMetaStoreProperties.of(properties).getDriverUrl();
         if (StringUtils.isNotBlank(driverUrl)) {
-            validationContext.validateAndResolveDriverPath(driverUrl);
+            DriverUrlPolicy.resolve(driverUrl,
+                    DriverUrlPolicy.Settings.fromContext(context, configuredDriversDir()));
         }
     }
 

@@ -18,6 +18,7 @@
 package org.apache.doris.connector.jdbc.client;
 
 import org.apache.doris.connector.jdbc.JdbcDbType;
+import org.apache.doris.connector.spi.ConnectorQueryResult;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 
@@ -42,6 +43,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
@@ -438,19 +440,16 @@ public abstract class JdbcConnectorClient implements Closeable {
     }
 
     /**
-     * Get primary keys of one table.
+     * Get primary keys of one table, in key order.
      */
     public List<String> getPrimaryKeys(String remoteDbName, String remoteTableName) {
         Connection conn = getConnection();
         ResultSet rs = null;
-        List<String> primaryKeys = new ArrayList<>();
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String cat = getCatalogName(conn);
             rs = databaseMetaData.getPrimaryKeys(cat, remoteDbName, remoteTableName);
-            while (rs.next()) {
-                primaryKeys.add(rs.getString("COLUMN_NAME"));
-            }
+            return readPrimaryKeysInKeyOrder(rs);
         } catch (SQLException e) {
             throw new DorisConnectorException(
                     "Failed to get primary keys for " + remoteDbName + "." + remoteTableName
@@ -458,7 +457,29 @@ public abstract class JdbcConnectorClient implements Closeable {
         } finally {
             closeResources(rs, conn);
         }
-        return primaryKeys;
+    }
+
+    /**
+     * Reads a {@link DatabaseMetaData#getPrimaryKeys} result into column names ordered by {@code KEY_SEQ}.
+     * The JDBC contract orders the rows by COLUMN_NAME, not by position in the key, so a composite key
+     * read in row order comes back alphabetized — and a UNIQUE KEY table built from it would key on the
+     * wrong column order. Drivers that report no KEY_SEQ (0 for every row) keep row order.
+     */
+    protected static List<String> readPrimaryKeysInKeyOrder(ResultSet rs) throws SQLException {
+        TreeMap<Integer, String> byKeySeq = new TreeMap<>();
+        List<String> inRowOrder = new ArrayList<>();
+        boolean allSeqsKnown = true;
+        while (rs.next()) {
+            String column = rs.getString("COLUMN_NAME");
+            int keySeq = rs.getShort("KEY_SEQ");
+            inRowOrder.add(column);
+            if (keySeq <= 0 || byKeySeq.containsKey(keySeq)) {
+                allSeqsKnown = false;
+            } else {
+                byKeySeq.put(keySeq, column);
+            }
+        }
+        return allSeqsKnown ? new ArrayList<>(byKeySeq.values()) : inRowOrder;
     }
 
     /**
@@ -494,6 +515,46 @@ public abstract class JdbcConnectorClient implements Closeable {
             throw new DorisConnectorException("Failed to execute stmt: " + e.getMessage(), e);
         } finally {
             closeResources(stmt, conn);
+        }
+    }
+
+    /**
+     * Runs a read-only query with positional parameters and materializes every row, values as the driver's
+     * {@code getObject} answers them. For the engine's small probe queries only.
+     */
+    public ConnectorQueryResult executeQuery(String sql, List<Object> params) {
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+        try {
+            conn = getConnection();
+            pstmt = conn.prepareStatement(sql);
+            if (params != null) {
+                for (int i = 0; i < params.size(); i++) {
+                    pstmt.setObject(i + 1, params.get(i));
+                }
+            }
+            rs = pstmt.executeQuery();
+            ResultSetMetaData metaData = rs.getMetaData();
+            int columnCount = metaData.getColumnCount();
+            List<String> columnNames = new ArrayList<>(columnCount);
+            for (int i = 1; i <= columnCount; i++) {
+                columnNames.add(metaData.getColumnLabel(i));
+            }
+            List<List<Object>> rows = new ArrayList<>();
+            while (rs.next()) {
+                List<Object> row = new ArrayList<>(columnCount);
+                for (int i = 1; i <= columnCount; i++) {
+                    row.add(rs.getObject(i));
+                }
+                rows.add(row);
+            }
+            return new ConnectorQueryResult(columnNames, rows);
+        } catch (SQLException e) {
+            throw new DorisConnectorException("Failed to execute query: " + sql + ": "
+                    + getAllExceptionMessages(e), e);
+        } finally {
+            closeResources(rs, pstmt, conn);
         }
     }
 
