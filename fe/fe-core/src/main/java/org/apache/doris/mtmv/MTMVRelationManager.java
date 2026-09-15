@@ -68,10 +68,16 @@ public class MTMVRelationManager implements MTMVHookService {
     // `tableMTMVs` will have 3 pair: table1 ==> mv1, mv1==>mv2, table1 ==> mv2
     // `tableMTMVsOneLevelAndFromView` will have 2 pair: table1 ==> mv1, mv1==>mv2
     // `viewMTMVs` will have 2 pair: v1 ==> mv1, v2 ==> mv1
+    // Forward indexes: base -> mtmvs that depend on it.
     private final Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVs = Maps.newConcurrentMap();
     private final Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVsOneLevelAndFromView = Maps.newConcurrentMap();
     // view => mtmv
     private final Map<BaseTableInfo, Set<BaseTableInfo>> viewMTMVs = Maps.newConcurrentMap();
+
+    // Reverse indexes: mtmv -> the bases this mtmv is currently registered under.
+    private final Map<BaseTableInfo, Set<BaseTableInfo>> mtmvToBaseTables = Maps.newConcurrentMap();
+    private final Map<BaseTableInfo, Set<BaseTableInfo>> mtmvToBaseViews = Maps.newConcurrentMap();
+    private final Map<BaseTableInfo, Set<BaseTableInfo>> mtmvToBaseTablesOneLevelAndFromView = Maps.newConcurrentMap();
 
     public Set<BaseTableInfo> getMtmvsByBaseTable(BaseTableInfo table) {
         return tableMTMVs.getOrDefault(table, ImmutableSet.of());
@@ -218,12 +224,15 @@ public class MTMVRelationManager implements MTMVHookService {
             removeMTMV(mtmvInfo);
             return;
         }
+        Set<BaseTableInfo> staleTables = mtmvToBaseTables.get(mtmvInfo);
+        Set<BaseTableInfo> staleViews = mtmvToBaseViews.get(mtmvInfo);
+        Set<BaseTableInfo> staleOneLevel = mtmvToBaseTablesOneLevelAndFromView.get(mtmvInfo);
         // Publish new dependencies before pruning stale ones. A concurrent base-table DDL can then
         // find the MV through either relation and cannot miss invalidating its IVM baseline.
         addMTMV(relation, mtmvInfo);
-        removeMTMVFromStaleRelations(tableMTMVs, relation.getBaseTables(), mtmvInfo);
-        removeMTMVFromStaleRelations(viewMTMVs, relation.getBaseViews(), mtmvInfo);
-        removeMTMVFromStaleRelations(tableMTMVsOneLevelAndFromView,
+        removeMTMVFromStaleRelations(tableMTMVs, staleTables, relation.getBaseTables(), mtmvInfo);
+        removeMTMVFromStaleRelations(viewMTMVs, staleViews, relation.getBaseViews(), mtmvInfo);
+        removeMTMVFromStaleRelations(tableMTMVsOneLevelAndFromView, staleOneLevel,
                 relation.getBaseTablesOneLevelAndFromView(), mtmvInfo);
     }
 
@@ -240,7 +249,9 @@ public class MTMVRelationManager implements MTMVHookService {
         if (CollectionUtils.isEmpty(baseTables)) {
             return;
         }
-        for (BaseTableInfo baseTableInfo : baseTables) {
+        Set<BaseTableInfo> snapshot = ImmutableSet.copyOf(baseTables);
+        mtmvToBaseTables.put(mtmvInfo, snapshot);
+        for (BaseTableInfo baseTableInfo : snapshot) {
             getOrCreateMTMVs(baseTableInfo).add(mtmvInfo);
         }
     }
@@ -249,7 +260,9 @@ public class MTMVRelationManager implements MTMVHookService {
         if (CollectionUtils.isEmpty(baseTables)) {
             return;
         }
-        for (BaseTableInfo baseTableInfo : baseTables) {
+        Set<BaseTableInfo> snapshot = ImmutableSet.copyOf(baseTables);
+        mtmvToBaseViews.put(mtmvInfo, snapshot);
+        for (BaseTableInfo baseTableInfo : snapshot) {
             getOrCreateMTMVsView(baseTableInfo).add(mtmvInfo);
         }
     }
@@ -258,29 +271,48 @@ public class MTMVRelationManager implements MTMVHookService {
         if (CollectionUtils.isEmpty(baseTables)) {
             return;
         }
-        for (BaseTableInfo baseTableInfo : baseTables) {
+        Set<BaseTableInfo> snapshot = ImmutableSet.copyOf(baseTables);
+        mtmvToBaseTablesOneLevelAndFromView.put(mtmvInfo, snapshot);
+        for (BaseTableInfo baseTableInfo : snapshot) {
             getOrCreateMTMVsOneLevelAndFromView(baseTableInfo).add(mtmvInfo);
         }
     }
 
     private void removeMTMV(BaseTableInfo mtmvInfo) {
-        for (Set<BaseTableInfo> sets : tableMTMVs.values()) {
-            sets.remove(mtmvInfo);
+        removeFromForwardMap(tableMTMVs, mtmvToBaseTables, mtmvInfo);
+        removeFromForwardMap(viewMTMVs, mtmvToBaseViews, mtmvInfo);
+        removeFromForwardMap(tableMTMVsOneLevelAndFromView, mtmvToBaseTablesOneLevelAndFromView, mtmvInfo);
+    }
+
+    private void removeFromForwardMap(Map<BaseTableInfo, Set<BaseTableInfo>> forwardMap,
+            Map<BaseTableInfo, Set<BaseTableInfo>> reverseIndex, BaseTableInfo mtmvInfo) {
+        Set<BaseTableInfo> bases = reverseIndex.remove(mtmvInfo);
+        if (bases == null) {
+            return;
         }
-        for (Set<BaseTableInfo> sets : viewMTMVs.values()) {
-            sets.remove(mtmvInfo);
-        }
-        for (Set<BaseTableInfo> sets : tableMTMVsOneLevelAndFromView.values()) {
-            sets.remove(mtmvInfo);
+        for (BaseTableInfo base : bases) {
+            Set<BaseTableInfo> mtmvs = forwardMap.get(base);
+            if (mtmvs == null) {
+                continue;
+            }
+            mtmvs.remove(mtmvInfo);
         }
     }
 
     private void removeMTMVFromStaleRelations(Map<BaseTableInfo, Set<BaseTableInfo>> relationMap,
-            Set<BaseTableInfo> currentBaseTables, BaseTableInfo mtmvInfo) {
-        for (Map.Entry<BaseTableInfo, Set<BaseTableInfo>> entry : relationMap.entrySet()) {
-            if (CollectionUtils.isEmpty(currentBaseTables) || !currentBaseTables.contains(entry.getKey())) {
-                entry.getValue().remove(mtmvInfo);
+            Set<BaseTableInfo> previousBases, Set<BaseTableInfo> currentBaseTables, BaseTableInfo mtmvInfo) {
+        if (CollectionUtils.isEmpty(previousBases)) {
+            return;
+        }
+        for (BaseTableInfo previous : previousBases) {
+            if (currentBaseTables != null && currentBaseTables.contains(previous)) {
+                continue;
             }
+            Set<BaseTableInfo> mtmvs = relationMap.get(previous);
+            if (mtmvs == null) {
+                continue;
+            }
+            mtmvs.remove(mtmvInfo);
         }
     }
 
