@@ -28,10 +28,103 @@
 #include "core/column/column_string.h"
 #include "core/column/columns_common.h"
 #include "core/data_type/primitive_type.h"
+#include "exec/common/sip_hash.h"
 #include "exec/sort/sort_block.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
+void ColumnVarbinary::insert_many_continuous_binary_data(const char* data, const uint32_t* offsets,
+                                                         size_t num) {
+    reserve(size() + num);
+    for (size_t row = 0; row < num; ++row) {
+        insert_data(data + offsets[row], offsets[row + 1] - offsets[row]);
+    }
+}
+
+void ColumnVarbinary::insert_many_dict_data(const int32_t* data_array, size_t start_index,
+                                            const StringRef* dict, size_t data_num,
+                                            uint32_t dict_num) {
+    reserve(size() + data_num);
+    // Decoder pages can be released after the call; copy long dictionary entries into our arena.
+    for (size_t row = start_index; row < start_index + data_num; ++row) {
+        const auto& value = dict[data_array[row]];
+        insert_data(value.data, value.size);
+    }
+}
+
+// Hash the payload rather than StringView's representation: long values contain pointers,
+// while short values are inline. Equal binary keys must partition identically on every BE.
+void ColumnVarbinary::update_hash_with_value(size_t n, SipHash& hash) const {
+    const auto value = get_data_at(n);
+    hash.update(reinterpret_cast<const char*>(&value.size), sizeof(value.size));
+    hash.update(value.data, value.size);
+}
+
+void ColumnVarbinary::update_hashes_with_value(uint64_t* __restrict hashes,
+                                               const uint8_t* __restrict null_data) const {
+    for (size_t row = 0; row < size(); ++row) {
+        if (null_data == nullptr || null_data[row] == 0) {
+            const auto value = get_data_at(row);
+            hashes[row] = HashUtil::xxHash64WithSeed(value.data, value.size, hashes[row]);
+        }
+    }
+}
+
+void ColumnVarbinary::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                               const uint8_t* __restrict null_data) const {
+    for (size_t row = start; row < end; ++row) {
+        if (null_data == nullptr || null_data[row] == 0) {
+            const auto value = get_data_at(row);
+            hash = HashUtil::xxHash64WithSeed(value.data, value.size, hash);
+        }
+    }
+}
+
+void ColumnVarbinary::update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type,
+                                             uint32_t rows, uint32_t offset,
+                                             const uint8_t* __restrict null_data) const {
+    DCHECK_EQ(rows, size());
+    for (size_t row = 0; row < rows; ++row) {
+        if (null_data == nullptr || null_data[row] == 0) {
+            const auto& value = _data[row];
+            hashes[row] = HashUtil::zlib_crc_hash(value.data(), value.size(), hashes[row]);
+        }
+    }
+}
+
+void ColumnVarbinary::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
+                                            const uint8_t* __restrict null_data) const {
+    for (size_t row = start; row < end; ++row) {
+        if (null_data == nullptr || null_data[row] == 0) {
+            const auto& value = _data[row];
+            hash = HashUtil::zlib_crc_hash(value.data(), value.size(), hash);
+        }
+    }
+}
+
+void ColumnVarbinary::update_crc32c_batch(uint32_t* __restrict hashes,
+                                          const uint8_t* __restrict null_map) const {
+    for (size_t row = 0; row < size(); ++row) {
+        if (null_map == nullptr || null_map[row] == 0) {
+            const auto value = get_data_at(row);
+            hashes[row] = crc32c_extend(hashes[row], reinterpret_cast<const uint8_t*>(value.data),
+                                        value.size);
+        }
+    }
+}
+
+void ColumnVarbinary::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                           const uint8_t* __restrict null_map) const {
+    for (size_t row = start; row < end; ++row) {
+        if (null_map == nullptr || null_map[row] == 0) {
+            const auto value = get_data_at(row);
+            hash = crc32c_extend(hash, reinterpret_cast<const uint8_t*>(value.data), value.size);
+        }
+    }
+}
+
 MutableColumnPtr ColumnVarbinary::clone_resized(size_t size) const {
     auto res = create();
     if (size > 0) {

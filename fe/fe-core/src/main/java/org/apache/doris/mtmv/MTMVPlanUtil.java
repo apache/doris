@@ -484,9 +484,6 @@ public class MTMVPlanUtil {
             if (!colSets.add(col.getName())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, col.getName());
             }
-            if (col.getType().isVarBinaryType()) {
-                throw new AnalysisException("MTMV do not support varbinary type : " + col.getName());
-            }
             col.validate(true, keysSet, Sets.newHashSet(), finalEnableMergeOnWrite, KeysType.DUP_KEYS);
         }
     }
@@ -524,7 +521,7 @@ public class MTMVPlanUtil {
                 }
                 keys.add(column.getName());
                 column.setIsKey(true);
-                if (type.isVarcharType()) {
+                if (type.isVarcharType() || type.isVarBinaryType()) {
                     break;
                 }
             }

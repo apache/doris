@@ -51,13 +51,6 @@ public:
     }
     PrimitiveType get_primitive_type() const override { return _primitive_type; }
 
-    doris::FieldType get_storage_field_type() const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Data type {} get_storage_field_type ostr not implement.",
-                               get_name());
-        return doris::FieldType::OLAP_FIELD_TYPE_UNKNOWN;
-    }
-
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;

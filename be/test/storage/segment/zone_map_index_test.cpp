@@ -28,7 +28,10 @@
 #include <vector>
 
 #include "common/config.h"
+#include "core/block/block.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/decimal12.h"
 #include "core/type_limit.h"
@@ -40,14 +43,49 @@
 #include "exprs/function/cast/cast_to_string.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "storage/iterators.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/comparison_predicate.h"
+#include "storage/rowset/rowset_writer_context.h"
+#include "storage/segment/segment.h"
+#include "storage/segment/segment_writer.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
 #include "util/slice.h"
 
 namespace doris {
 namespace segment_v2 {
+
+TEST(BinaryZoneMapTest, BoundsOwnBytesAndCarryAcrossHighBytes) {
+    auto type = std::make_shared<DataTypeVarbinary>();
+    ZoneMapPB proto;
+    const std::string lower("\0a\0", 3);
+    const std::string upper(64, '\xff');
+    proto.set_has_not_null(true);
+    proto.set_min(lower);
+    proto.set_max(upper);
+    ZoneMap bounds;
+    ASSERT_TRUE(ZoneMap::from_proto(proto, type, bounds).ok());
+    proto.Clear();
+    EXPECT_EQ(bounds.min_value.get<TYPE_VARBINARY>().str(), lower);
+    EXPECT_EQ(bounds.max_value.get<TYPE_VARBINARY>().str(), upper);
+
+    TabletColumn column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                        FieldType::OLAP_FIELD_TYPE_VARBINARY);
+    std::unique_ptr<ZoneMapIndexWriter> writer;
+    ASSERT_TRUE(ZoneMapIndexWriter::create(type, &column, writer).ok());
+    std::string prefix(MAX_ZONE_MAP_INDEX_SIZE, '\xff');
+    prefix[0] = 'a';
+    bounds.max_value = Field::create_field<TYPE_VARBINARY>(StringView(prefix));
+    bounds.pass_all = false;
+    writer->modify_index_before_flush(bounds);
+    EXPECT_FALSE(bounds.pass_all);
+    EXPECT_EQ(bounds.max_value.get<TYPE_VARBINARY>().str(), "b");
+    prefix[0] = '\xff';
+    bounds.max_value = Field::create_field<TYPE_VARBINARY>(StringView(prefix));
+    writer->modify_index_before_flush(bounds);
+    EXPECT_TRUE(bounds.pass_all);
+}
 
 class ColumnZoneMapTest : public testing::Test {
 public:
@@ -649,6 +687,79 @@ public:
 
     io::FileSystemSPtr _fs;
 };
+
+TEST_F(ColumnZoneMapTest, BinarySegmentRoundTrip) {
+    auto schema = std::make_shared<TabletSchema>();
+    schema->append_column(*create_int_key(0, false));
+    TabletColumn binary(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                        FieldType::OLAP_FIELD_TYPE_VARBINARY);
+    binary.set_unique_id(1);
+    binary.set_name("payload");
+    binary.set_is_key(false);
+    binary.set_is_nullable(true);
+    schema->append_column(binary);
+    schema->set_storage_page_size(4096);
+
+    auto id_type = std::make_shared<DataTypeInt32>();
+    auto binary_type = make_nullable(std::make_shared<DataTypeVarbinary>());
+    auto ids = id_type->create_column();
+    auto payloads = binary_type->create_column();
+    const std::vector<std::string> values = {"", std::string("\0", 1), std::string("a\0\xff", 3),
+                                             std::string(700, '\xff'), std::string(64, 'a')};
+    for (int32_t row = 0; row < 2048; ++row) {
+        ids->insert(Field::create_field<TYPE_INT>(row));
+        payloads->insert(row % 7 == 0 ? Field()
+                                      : Field::create_field<TYPE_VARBINARY>(
+                                                StringView(values[row % values.size()])));
+    }
+    Block input({{std::move(ids), id_type, "id"}, {std::move(payloads), binary_type, "payload"}});
+    const auto path = kTestDir + "/binary_segment.dat";
+    io::FileWriterPtr file;
+    ASSERT_TRUE(_fs->create_file(path, &file).ok());
+    SegmentWriterOptions writer_options;
+    RowsetWriterContext rowset_context;
+    rowset_context.tablet_schema = schema;
+    writer_options.rowset_ctx = &rowset_context;
+    SegmentWriter writer(file.get(), 0, schema, nullptr, nullptr, writer_options, nullptr);
+    ASSERT_TRUE(writer.init().ok());
+    auto status = writer.append_block(&input, 0, input.rows());
+    ASSERT_TRUE(status.ok()) << status;
+    uint64_t file_size = 0;
+    uint64_t index_size = 0;
+    status = writer.finalize(&file_size, &index_size);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_TRUE(file->close().ok());
+
+    std::shared_ptr<Segment> segment;
+    status = Segment::open(_fs, path, 100, 0, RowsetId {.version = 1}, schema,
+                           io::FileReaderOptions {}, &segment);
+    ASSERT_TRUE(status.ok()) << status;
+    auto read_schema = std::make_shared<Schema>(schema->columns(), std::vector<ColumnId> {0, 1});
+    OlapReaderStatistics stats;
+    StorageReadOptions options;
+    options.stats = &stats;
+    options.tablet_schema = schema;
+    std::unique_ptr<RowwiseIterator> iter;
+    status = segment->new_iterator(read_schema, options, &iter);
+    ASSERT_TRUE(status.ok()) << status;
+    size_t row = 0;
+    while (true) {
+        Block output = input.clone_empty();
+        status = iter->next_batch(&output);
+        ASSERT_TRUE(status.ok() || status.is<ErrorCode::END_OF_FILE>()) << status;
+        for (size_t i = 0; i < output.rows(); ++i, ++row) {
+            ASSERT_LT(row, input.rows());
+            EXPECT_EQ((*input.get_by_position(0).column)[row],
+                      (*output.get_by_position(0).column)[i]);
+            EXPECT_EQ((*input.get_by_position(1).column)[row],
+                      (*output.get_by_position(1).column)[i]);
+        }
+        if (status.is<ErrorCode::END_OF_FILE>()) {
+            break;
+        }
+    }
+    EXPECT_EQ(input.rows(), row);
+}
 
 // Test for int
 TEST_F(ColumnZoneMapTest, NormalTestIntPage) {

@@ -320,9 +320,9 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
         sql """ drop database if exists ${view_db}"""
         sql """ create database if not exists ${view_db}"""
         sql """use ${view_db}"""
-        // Views cannot expose VARBINARY columns. Keep this join test on the columns it consumes.
-        sql """ create view test_tst_1 as select c2, c3 from ${catalog_name}.`db1`.all_table; """
-        sql """ create view test_tst_2 as select c2, c3 from ${catalog_name}.`db1`.all_table_with_parquet; """
+        // Include binary columns so view expansion exercises the catalog's native VARBINARY mapping.
+        sql """ create view test_tst_1 as select * from ${catalog_name}.`db1`.all_table; """
+        sql """ create view test_tst_2 as select * from ${catalog_name}.`db1`.all_table_with_parquet; """
         sql """ create view test_tst_5 as select * from ${catalog_name}.`db1`.array_nested; """
         sql """ create table test_tst_6 properties ("replication_num" = "1") as 
                         select f.c2,f.c3,c.c1 from 

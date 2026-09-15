@@ -467,6 +467,8 @@ public enum PrimitiveType {
                 return DATETIME_INDEX_LEN;
             case VARCHAR:
                 return VARCHAR_INDEX_LEN;
+            case VARBINARY:
+                return STRING_INDEX_LEN;
             case CHAR:
                 // char index size is length
                 return -1;

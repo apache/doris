@@ -56,6 +56,7 @@ constexpr std::array supported_mappings {
         TypePair {PrimitiveType::TYPE_DECIMALV2, FieldType::OLAP_FIELD_TYPE_DECIMAL},
         TypePair {PrimitiveType::TYPE_BITMAP, FieldType::OLAP_FIELD_TYPE_BITMAP},
         TypePair {PrimitiveType::TYPE_STRING, FieldType::OLAP_FIELD_TYPE_STRING},
+        TypePair {PrimitiveType::TYPE_VARBINARY, FieldType::OLAP_FIELD_TYPE_VARBINARY},
         TypePair {PrimitiveType::TYPE_QUANTILE_STATE, FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE},
         TypePair {PrimitiveType::TYPE_DATEV2, FieldType::OLAP_FIELD_TYPE_DATEV2},
         TypePair {PrimitiveType::TYPE_DATETIMEV2, FieldType::OLAP_FIELD_TYPE_DATETIMEV2},
@@ -82,6 +83,13 @@ TEST(StorageFieldTypeTest, SupportedMappingsRoundTrip) {
     }
 }
 
+TEST(StorageFieldTypeTest, VarbinaryStorageMappingPreservesLogicalType) {
+    FieldType field_type = FieldType::OLAP_FIELD_TYPE_UNKNOWN;
+    ASSERT_NO_THROW(field_type =
+                            primitive_type_to_storage_field_type(PrimitiveType::TYPE_VARBINARY));
+    EXPECT_EQ(PrimitiveType::TYPE_VARBINARY, storage_field_type_to_primitive_type(field_type));
+}
+
 TEST(StorageFieldTypeTest, UnsupportedPrimitiveTypesThrow) {
     constexpr std::array unsupported_types {
             PrimitiveType::TYPE_BINARY,
@@ -89,7 +97,6 @@ TEST(StorageFieldTypeTest, UnsupportedPrimitiveTypesThrow) {
             static_cast<PrimitiveType>(21), // TYPE_TIME (deprecated)
             static_cast<PrimitiveType>(33), // TYPE_LAMBDA_FUNCTION (deprecated)
             PrimitiveType::TYPE_FIXED_LENGTH_OBJECT,
-            PrimitiveType::TYPE_VARBINARY,
             static_cast<PrimitiveType>(43),
             static_cast<PrimitiveType>(255),
     };
@@ -107,7 +114,7 @@ TEST(StorageFieldTypeTest, UnsupportedOrInvalidFieldTypesThrow) {
             FieldType::OLAP_FIELD_TYPE_DISCRETE_DOUBLE,
             static_cast<FieldType>(-1),
             static_cast<FieldType>(0),
-            static_cast<FieldType>(41),
+            static_cast<FieldType>(42),
             static_cast<FieldType>(255),
     };
 

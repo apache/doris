@@ -119,7 +119,7 @@ public:
 template <PrimitiveType Type>
 class TypedZoneMapIndexWriter final : public ZoneMapIndexWriter {
 public:
-    using ValType = std::conditional_t<is_string_type(Type), StringRef,
+    using ValType = std::conditional_t<is_string_type(Type) || Type == TYPE_VARBINARY, StringRef,
                                        typename PrimitiveTypeTraits<Type>::StorageFieldType>;
     explicit TypedZoneMapIndexWriter(DataTypePtr&& data_type);
 

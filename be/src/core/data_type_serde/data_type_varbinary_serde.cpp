@@ -29,6 +29,17 @@
 #include "util/url_coding.h"
 
 namespace doris {
+
+std::string DataTypeVarbinarySerDe::to_olap_string(const Field& field) const {
+    return field.get<TYPE_VARBINARY>().str();
+}
+
+Status DataTypeVarbinarySerDe::from_olap_string(const std::string& str, Field& field,
+                                                const FormatOptions& options) const {
+    // Zone-map bounds are raw bytes; neither NUL trimming nor text/hex decoding is valid here.
+    field = Field::create_field<TYPE_VARBINARY>(StringView(str));
+    return Status::OK();
+}
 namespace {
 
 class VarbinaryParquetConsumer final : public ParquetFixedValueConsumer,

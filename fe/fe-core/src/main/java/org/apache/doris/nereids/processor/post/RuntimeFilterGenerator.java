@@ -282,6 +282,11 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         for (int i = 0; i < hashJoinConjuncts.size(); i++) {
             EqualPredicate equalTo = JoinUtils.swapEqualToForChildrenOrder(
                     (EqualPredicate) hashJoinConjuncts.get(i), join.left().getOutputSet());
+            // Binary hash joins are supported, but runtime-filter transport still assumes text
+            // columns. Do not instantiate a STRING filter for a VARBINARY payload.
+            if (equalTo.left().getDataType().isVarBinaryType()) {
+                continue;
+            }
             if (isUniqueValueEqualTo(join, equalTo)) {
                 continue;
             }
@@ -346,6 +351,9 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     private ComparisonPredicate normalizeNonEqual(AbstractPhysicalJoin<? extends Plan, ? extends Plan> join,
                                                   Expression expr) {
         if (!(expr instanceof ComparisonPredicate)) {
+            return null;
+        }
+        if (expr.child(0).getDataType().isVarBinaryType()) {
             return null;
         }
         if (!(expr instanceof LessThan) && !(expr instanceof LessThanEqual)

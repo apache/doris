@@ -121,7 +121,7 @@ inline HashKeyType get_hash_key_type(const std::vector<DataTypePtr>& data_types)
     // serialized cannot be used in the case of single column, because the join operator will have some processing of column nullable, resulting in incorrect serialized results.
     if (!t->have_maximum_size_of_value()) {
         if (is_string_type(t->get_primitive_type()) || t->get_primitive_type() == TYPE_ARRAY ||
-            t->get_primitive_type() == TYPE_JSONB) {
+            t->get_primitive_type() == TYPE_JSONB || t->get_primitive_type() == TYPE_VARBINARY) {
             return HashKeyType::string_key;
         }
         throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type, type={}", t->get_name());
