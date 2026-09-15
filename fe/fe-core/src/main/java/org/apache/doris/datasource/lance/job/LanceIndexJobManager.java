@@ -514,7 +514,10 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
      * pre-release revision still observes the existing release record, unlike
      * the stale-callback convention) -&gt; revision CAS -&gt; UNKNOWN state gate
      * (a null mutation state is treated as UNKNOWN, the safe direction, mirroring
-     * {@link LanceIndexJob#isUnresolved()}).
+     * {@link LanceIndexJob#isUnresolved()}). The short-circuit only honors a
+     * released record in a null/UNKNOWN state: a record that is force-released
+     * on a non-UNKNOWN state can only come from a corrupt journal or image, so
+     * it falls through to the CAS and the state gate instead (fail-closed).
      *
      * <p>The staged copy sets only the five FORCE audit fields and bumps
      * revision and update time; {@code possibleLiveOwned} and
@@ -537,7 +540,8 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
                 LOG.warn("reject force release of unknown lance index job {}", jobId);
                 return false;
             }
-            if (current.isForceReleased()) {
+            if (current.isForceReleased() && (current.getMutationState() == null
+                    || current.getMutationState() == LanceIndexJobMutationState.UNKNOWN)) {
                 return true;
             }
             if (current.getRevision() != expectedRevision) {
