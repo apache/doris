@@ -63,7 +63,6 @@
 #include "format/count_reader.h"
 #include "format/csv/csv_reader.h"
 #include "format/json/new_json_reader.h"
-#include "format/native/native_reader.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format/table/es/es_http_reader.h"
@@ -1228,15 +1227,6 @@ Status FileScanner::_get_next_reader() {
             _fill_base_init_context(&wal_ctx);
             wal_ctx.output_tuple_descriptor = _output_tuple_desc;
             init_status = _cur_reader->init_reader(&wal_ctx);
-            break;
-        }
-        case TFileFormatType::FORMAT_NATIVE: {
-            auto reader = NativeReader::create_unique(_profile, *_params, range, _io_ctx, _state);
-            ReaderInitContext native_ctx;
-            _fill_base_init_context(&native_ctx);
-            init_status = static_cast<GenericReader*>(reader.get())->init_reader(&native_ctx);
-            _cur_reader = std::move(reader);
-            need_to_get_parsed_schema = false;
             break;
         }
         case TFileFormatType::FORMAT_ARROW: {

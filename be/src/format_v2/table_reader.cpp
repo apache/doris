@@ -47,7 +47,6 @@
 #include "format_v2/delimited_text/csv_reader.h"
 #include "format_v2/delimited_text/text_reader.h"
 #include "format_v2/json/json_reader.h"
-#include "format_v2/native/native_reader.h"
 #include "format_v2/orc/orc_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "format_v2/table/schema_history_util.h" // get_field_ptr
@@ -87,8 +86,6 @@ std::string file_format_to_string(FileFormat format) {
         return "TEXT";
     case FileFormat::JNI:
         return "JNI";
-    case FileFormat::NATIVE:
-        return "NATIVE";
     case FileFormat::ARROW:
         return "ARROW";
     case FileFormat::WAL:
@@ -1412,11 +1409,6 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
                 _scan_params, _current_file_range_desc, *_file_slot_descs,
                 _current_range_compress_type, _current_range_load_id);
-        return Status::OK();
-    }
-    if (_format == FileFormat::NATIVE) {
-        *reader = std::make_unique<format::native::NativeReader>(
-                _system_properties, _current_task->data_file, _io_ctx, _scanner_profile);
         return Status::OK();
     }
     return Status::NotSupported("TableReader does not support file format {}",
