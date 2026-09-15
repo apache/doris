@@ -2422,7 +2422,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         OlapTable table = (OlapTable) tableIf;
         // Cloud retains the writer snapshot in the BE transaction cache. Local publish needs it
         // journaled by the owning FE, even if its current catalog differs from the writer's schema.
-        if (!Config.isCloudMode()) {
+        // Legacy clients omit all three fields for ordinary tables; validate any supplied snapshot.
+        if (!Config.isCloudMode() && (table.needRowBinlog()
+                || request.isSetRowBinlogColumnMappings() || request.isSetRowBinlogSourceIndexIds()
+                || request.isSetRowBinlogNeedHistoricalValues())) {
             if (!request.isSetRowBinlogColumnMappings() || !request.isSetRowBinlogSourceIndexIds()
                     || !request.isSetRowBinlogNeedHistoricalValues()) {
                 throw new AnalysisException("Missing row-binlog column mapping for remote transaction "

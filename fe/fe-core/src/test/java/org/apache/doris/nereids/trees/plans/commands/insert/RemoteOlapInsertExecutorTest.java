@@ -81,6 +81,7 @@ class RemoteOlapInsertExecutorTest {
     private final GlobalTransactionMgrIface manager = Mockito.mock(GlobalTransactionMgrIface.class);
     private final FeServiceClient client = Mockito.mock(FeServiceClient.class);
     private final RemoteOlapTable table = Mockito.mock(RemoteOlapTable.class);
+    private final OlapTable ownerTable = Mockito.mock(OlapTable.class);
     private MockedStatic<Env> envMock;
     private MockedStatic<EnvFactory> factoryMock;
     private FrontendServiceImpl service;
@@ -93,7 +94,7 @@ class RemoteOlapInsertExecutorTest {
         InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
         Database db = Mockito.mock(Database.class);
         Mockito.when(db.getId()).thenReturn(1L);
-        Mockito.when(db.getTableOrMetaException("target", TableType.OLAP)).thenReturn(Mockito.mock(OlapTable.class));
+        Mockito.when(db.getTableOrMetaException("target", TableType.OLAP)).thenReturn(ownerTable);
         Mockito.when(internalCatalog.getDbNullable("remote_db")).thenReturn(db);
         Mockito.when(manager.getTransactionState(1L, 100L)).thenReturn(owner);
         Mockito.when(manager.commitAndPublishTransaction(Mockito.eq(db), Mockito.anyList(), Mockito.eq(100L),
@@ -215,8 +216,29 @@ class RemoteOlapInsertExecutorTest {
     }
 
     @Test
-    void testOwnerRejectsMissingOrIncompleteSnapshotBeforeCommit() throws Exception {
+    void testOwnerAcceptsLegacyRequestWithoutRowBinlog() throws Exception {
+        TCommitRemoteTxnRequest received = new TCommitRemoteTxnRequest();
+        new TDeserializer().deserialize(received, new TSerializer().serialize(request()));
+        Assertions.assertEquals(TStatusCode.OK, service.commitRemoteTxn(received).getStatus().getStatusCode());
+        Mockito.verify(manager).commitAndPublishTransaction(Mockito.any(),
+                Mockito.eq(Collections.singletonList(ownerTable)), Mockito.eq(100L),
+                Mockito.eq(Collections.emptyList()), Mockito.eq(1000L), Mockito.isNull());
+        Assertions.assertTrue(owner.getRowBinlogColumnMappings(100L).isEmpty());
+    }
+
+    @Test
+    void testOwnerRejectsMissingSnapshotForRowBinlogTable() throws Exception {
+        Mockito.when(ownerTable.needRowBinlog()).thenReturn(true);
         assertRejected(request(), "mapping");
+        Mockito.verify(manager, Mockito.never()).commitAndPublishTransaction(Mockito.any(), Mockito.anyList(),
+                Mockito.anyLong(), Mockito.anyList(), Mockito.anyLong(), Mockito.isNull());
+    }
+
+    @Test
+    void testOwnerRejectsIncompleteSnapshotBeforeCommit() throws Exception {
+        assertRejected(request().setRowBinlogSourceIndexIds(Collections.emptyList()), "mapping");
+        assertRejected(request().setRowBinlogColumnMappings(Collections.emptyList()), "mapping");
+        assertRejected(request().setRowBinlogNeedHistoricalValues(Collections.emptyList()), "mapping");
         TCommitRemoteTxnRequest complete = request(Collections.singletonMap(10L, historicalMapping()));
         TCommitRemoteTxnRequest missing = complete.deepCopy();
         missing.unsetRowBinlogSourceIndexIds();
