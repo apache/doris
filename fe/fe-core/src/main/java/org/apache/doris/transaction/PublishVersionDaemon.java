@@ -37,8 +37,8 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.task.UpdateVisibleVersionTask;
 import org.apache.doris.thrift.TPartitionVersionInfo;
-import org.apache.doris.thrift.TRowBinlogWriteColumnMappings;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.transaction.TransactionState.RowBinlogWriteMapping;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -432,7 +432,7 @@ public class PublishVersionDaemon extends MasterDaemon {
             List<TPartitionVersionInfo> partitionVersionInfos, Map<Long, Set<Long>> beIdToBaseTabletIds,
             long createPublishVersionTaskTime,
             AgentBatchTask batchTask) {
-        Map<Long, TRowBinlogWriteColumnMappings> mappings =
+        Map<Long, RowBinlogWriteMapping> mappings =
                 transactionState.getRowBinlogColumnMappings(transactionId);
         for (Long backendId : publishBackends) {
             PublishVersionTask task = new PublishVersionTask(backendId,

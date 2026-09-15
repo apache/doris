@@ -24,10 +24,11 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.master.ReportHandler;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TOlapTableIndexSchema;
+import org.apache.doris.thrift.TOlapTableSchemaParam;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TPublishVersionRequest;
 import org.apache.doris.thrift.TRowBinlogWriteColumnMapping;
-import org.apache.doris.thrift.TRowBinlogWriteColumnMappings;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
@@ -35,6 +36,7 @@ import org.apache.doris.transaction.PartitionCommitInfo;
 import org.apache.doris.transaction.PublishVersionDaemon;
 import org.apache.doris.transaction.TableCommitInfo;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionState.RowBinlogWriteMapping;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.thrift.TDeserializer;
@@ -60,14 +62,36 @@ import java.util.Set;
 public class PublishVersionTaskTest {
 
     @Test
+    public void testPublishSnapshotIsIndependentOfWriterAndRequests() throws Exception {
+        TRowBinlogWriteColumnMapping column = new TRowBinlogWriteColumnMapping(1, 11)
+                .setBeforeColumnUniqueId(21);
+        TOlapTableIndexSchema index = new TOlapTableIndexSchema(10L, Collections.emptyList(), 1)
+                .setRowBinlogId(20L).setRowBinlogNeedHistoricalValue(true)
+                .setRowBinlogColumnMappings(Collections.singletonList(column));
+        PublishVersionTask task = new PublishVersionTask(1L, 100L, 1L, Collections.emptyList(), 0);
+        task.setRowBinlogColumnMappings(TransactionState.collectRowBinlogColumnMappings(
+                new TOlapTableSchemaParam().setIndexes(Collections.singletonList(index))));
+        column.setCurrentColumnUniqueId(99);
+        index.setRowBinlogNeedHistoricalValue(false);
+
+        TPublishVersionRequest first = task.toThrift();
+        Assertions.assertEquals(11, first.getRowBinlogColumnMappings().get(0).get(0).getCurrentColumnUniqueId());
+        first.getRowBinlogColumnMappings().get(0).get(0).setBeforeColumnUniqueId(99);
+        first.getRowBinlogNeedHistoricalValues().set(0, false);
+        TPublishVersionRequest retry = task.toThrift();
+        Assertions.assertEquals(Collections.singletonList(Collections.singletonList(
+                new TRowBinlogWriteColumnMapping(1, 11).setBeforeColumnUniqueId(21))),
+                retry.getRowBinlogColumnMappings());
+        Assertions.assertEquals(Collections.singletonList(true), retry.getRowBinlogNeedHistoricalValues());
+    }
+
+    @Test
     public void testPublishKeepsParallelIndexMappingsAndHistoricalModesAligned() throws Exception {
         TRowBinlogWriteColumnMapping first = new TRowBinlogWriteColumnMapping(0, 31);
         TRowBinlogWriteColumnMapping second = new TRowBinlogWriteColumnMapping(1, 11);
-        Map<Long, TRowBinlogWriteColumnMappings> mappings = new LinkedHashMap<>();
-        mappings.put(30L, new TRowBinlogWriteColumnMappings().setNeedHistoricalValue(false)
-                .setEntries(Collections.singletonList(first)));
-        mappings.put(10L, new TRowBinlogWriteColumnMappings().setNeedHistoricalValue(true)
-                .setEntries(Collections.singletonList(second)));
+        Map<Long, RowBinlogWriteMapping> mappings = new LinkedHashMap<>();
+        mappings.put(30L, new RowBinlogWriteMapping(false, Collections.singletonList(first)));
+        mappings.put(10L, new RowBinlogWriteMapping(true, Collections.singletonList(second)));
         PublishVersionTask task = new PublishVersionTask(1L, 100L, 1L, Collections.emptyList(), 0);
         task.setRowBinlogColumnMappings(mappings);
         TPublishVersionRequest request = new TPublishVersionRequest();

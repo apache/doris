@@ -19,8 +19,8 @@ package org.apache.doris.task;
 
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TPublishVersionRequest;
-import org.apache.doris.thrift.TRowBinlogWriteColumnMappings;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.transaction.TransactionState.RowBinlogWriteMapping;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -49,7 +49,7 @@ public class PublishVersionTask extends AgentTask {
     private List<Long> errorTablets;
 
     @Setter
-    private Map<Long, TRowBinlogWriteColumnMappings> rowBinlogColumnMappings = Maps.newHashMap();
+    private Map<Long, RowBinlogWriteMapping> rowBinlogColumnMappings = Maps.newHashMap();
 
     // tabletId => version, current version = 0
     // Initialized to an empty map (not null) so that getSuccTablets() never returns null
@@ -74,10 +74,10 @@ public class PublishVersionTask extends AgentTask {
         TPublishVersionRequest publishVersionRequest = new TPublishVersionRequest(transactionId,
                 partitionVersionInfos);
         publishVersionRequest.setBaseTabletIds(baseTabletsIds);
-        for (Map.Entry<Long, TRowBinlogWriteColumnMappings> entry : rowBinlogColumnMappings.entrySet()) {
+        for (Map.Entry<Long, RowBinlogWriteMapping> entry : rowBinlogColumnMappings.entrySet()) {
             publishVersionRequest.addToRowBinlogSourceIndexIds(entry.getKey());
-            publishVersionRequest.addToRowBinlogColumnMappings(entry.getValue().getEntries());
-            publishVersionRequest.addToRowBinlogNeedHistoricalValues(entry.getValue().isNeedHistoricalValue());
+            publishVersionRequest.addToRowBinlogColumnMappings(entry.getValue().toThriftEntries());
+            publishVersionRequest.addToRowBinlogNeedHistoricalValues(entry.getValue().isHistorical());
         }
         return publishVersionRequest;
     }
