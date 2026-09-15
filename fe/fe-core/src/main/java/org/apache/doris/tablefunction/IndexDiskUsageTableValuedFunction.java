@@ -184,6 +184,7 @@ public class IndexDiskUsageTableValuedFunction extends MetadataTableValuedFuncti
         Map<Long, String> resolvedPartitionNames = Maps.newLinkedHashMap();
         Map<Long, String> resolvedMaterializedIndexNames = Maps.newLinkedHashMap();
         Map<Long, List<Pair<Long, List<Tablet>>>> tabletsByPartition = Maps.newHashMap();
+        List<Long> versions = null;
         table.readLock();
         try {
             resolvedIndexIds = resolveIndexIds(table, validParams.get(INDEXES), qualifiedName);
@@ -198,11 +199,17 @@ public class IndexDiskUsageTableValuedFunction extends MetadataTableValuedFuncti
                 }
                 tabletsByPartition.put(partition.getId(), indexTablets);
             }
+            // Local replica choice filters replicas by version, so read it with the tablets it applies to.
+            if (!Config.isCloudMode()) {
+                versions = partitions.stream().map(Partition::getVisibleVersion).collect(Collectors.toList());
+            }
         } finally {
             table.readUnlock();
         }
-        // Cloud partitions may fetch visible versions from meta-service, so read them without the table lock.
-        List<Long> versions = visibleVersions(partitions);
+        // Cloud versions come from meta-service, so they are fetched without holding the table lock.
+        if (versions == null) {
+            versions = cloudVisibleVersions(partitions);
+        }
         List<TabletTarget> targets = Lists.newArrayList();
         for (int i = 0; i < partitions.size(); ++i) {
             long partitionId = partitions.get(i).getId();
@@ -345,10 +352,7 @@ public class IndexDiskUsageTableValuedFunction extends MetadataTableValuedFuncti
         return ids;
     }
 
-    private static List<Long> visibleVersions(List<Partition> partitions) {
-        if (!Config.isCloudMode()) {
-            return partitions.stream().map(Partition::getVisibleVersion).collect(Collectors.toList());
-        }
+    private static List<Long> cloudVisibleVersions(List<Partition> partitions) {
         List<CloudPartition> cloudPartitions =
                 partitions.stream().map(CloudPartition.class::cast).collect(Collectors.toList());
         List<Long> versions;
