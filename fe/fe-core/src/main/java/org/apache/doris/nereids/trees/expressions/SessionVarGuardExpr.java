@@ -67,8 +67,13 @@ public class SessionVarGuardExpr extends Expression implements UnaryExpression {
 
     @Override
     public String computeToSql() {
+        return computeToSql(SqlRenderMode.DEFAULT);
+    }
+
+    @Override
+    public String computeToSql(SqlRenderMode mode) {
         try (AutoCloseSessionVariable ignored = openGuard()) {
-            return child().toSql();
+            return child().toSql(mode);
         }
     }
 

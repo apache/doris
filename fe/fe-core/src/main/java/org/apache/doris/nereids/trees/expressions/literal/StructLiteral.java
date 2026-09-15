@@ -124,6 +124,22 @@ public class StructLiteral extends Literal {
 
     @Override
     public String computeToSql() {
+        return computeToSql(SqlRenderMode.DEFAULT);
+    }
+
+    @Override
+    public String computeToSql(SqlRenderMode mode) {
+        if (mode == SqlRenderMode.FOR_VIEW) {
+            StringBuilder sql = new StringBuilder("named_struct(");
+            for (int i = 0; i < fields.size(); i++) {
+                if (i > 0) {
+                    sql.append(", ");
+                }
+                sql.append(new StringLiteral(((StructType) dataType).getFields().get(i).getName()).toSql(mode))
+                        .append(", ").append(fields.get(i).toSql(mode));
+            }
+            return sql.append(")").toString();
+        }
         StringBuilder sb = new StringBuilder();
         sb.append("STRUCT(");
         for (int i = 0; i < fields.size(); i++) {
@@ -132,7 +148,7 @@ public class StructLiteral extends Literal {
             }
             sb.append("'").append(((StructType) dataType).getFields().get(i).getName()).append("'");
             sb.append(":");
-            sb.append(fields.get(i).toSql());
+            sb.append(fields.get(i).toSql(mode));
         }
         sb.append(")");
         return sb.toString();

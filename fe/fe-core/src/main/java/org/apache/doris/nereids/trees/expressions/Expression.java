@@ -198,6 +198,20 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         return fastChildrenHashCode;
     }
 
+    /** SQL rendering for diagnostics or a persisted view definition. */
+    public enum SqlRenderMode {
+        DEFAULT,
+        FOR_VIEW
+    }
+
+    protected String computeToSql(SqlRenderMode mode) {
+        if (!children().isEmpty() || this instanceof SubqueryExpr) {
+            throw new AnalysisException(
+                    "View SQL rendering is not supported for " + getClass().getSimpleName());
+        }
+        return computeToSql();
+    }
+
     protected String computeToSql() {
         throw new UnboundException("sql");
     }
@@ -291,6 +305,11 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
 
     public boolean isInferred() {
         return inferred;
+    }
+
+    /** View rendering deliberately bypasses the diagnostic SQL cache. */
+    public final String toSql(SqlRenderMode mode) {
+        return mode == SqlRenderMode.DEFAULT ? toSql() : computeToSql(mode);
     }
 
     public final String toSql() {

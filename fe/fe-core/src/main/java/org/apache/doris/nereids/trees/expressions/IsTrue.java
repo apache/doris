@@ -57,7 +57,12 @@ public class IsTrue extends Expression
 
     @Override
     public String computeToSql() throws UnboundException {
-        return child().toSql() + " IS TRUE";
+        return computeToSql(SqlRenderMode.DEFAULT);
+    }
+
+    @Override
+    public String computeToSql(SqlRenderMode mode) throws UnboundException {
+        return child().toSql(mode) + " IS TRUE";
     }
 
     @Override

@@ -1104,6 +1104,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
                 List<Slot> slots = exceptStarSlots(boundExcepts, boundStar);
 
+                List<NamedExpression> starProjects = new ArrayList<>();
                 List<NamedExpression> replaces = unboundStar.getReplacedAlias();
                 if (!replaces.isEmpty()) {
                     final Map<Expression, Expression> replaceMap = new HashMap<>();
@@ -1130,7 +1131,7 @@ public class BindExpression implements AnalysisRuleFactory {
                         if (s != e) {
                             replaced.add(s);
                         }
-                        boundProjectionsBuilder.add((NamedExpression) e);
+                        starProjects.add((NamedExpression) e);
                     }
 
                     if (replaced.size() != replaceMap.size()) {
@@ -1138,13 +1139,15 @@ public class BindExpression implements AnalysisRuleFactory {
                         throw new AnalysisException("Invalid replace column name: " + replaceMap.keySet());
                     }
                 } else {
-                    boundProjectionsBuilder.addAll(slots);
+                    starProjects.addAll(slots);
                 }
 
-                // for create view stmt expand star
-                List<Slot> slotsForLambda = slots;
+                boundProjectionsBuilder.addAll(starProjects);
+                // Persist the same projections that are used by the analyzed query, including REPLACE.
                 unboundStar.getIndexInSqlString().ifPresent(pair -> {
-                    statementContext.addIndexInSqlToString(pair, toSqlWithBackquote(slotsForLambda));
+                    statementContext.addIndexInSqlToString(pair, starProjects.stream()
+                            .map(item -> item.toSql(Expression.SqlRenderMode.FOR_VIEW))
+                            .collect(Collectors.joining(", ")));
                 });
             }
         }
@@ -1171,6 +1174,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
                 List<Slot> slots = exceptStarSlots(boundExcepts, boundStar);
 
+                List<NamedExpression> starProjects = new ArrayList<>();
                 List<NamedExpression> replaces = unboundStar.getReplacedAlias();
                 if (!replaces.isEmpty()) {
                     final Map<Expression, Expression> replaceMap = new HashMap<>();
@@ -1197,7 +1201,7 @@ public class BindExpression implements AnalysisRuleFactory {
                         if (s != e) {
                             replaced.add(s);
                         }
-                        boundProjections.add((NamedExpression) e);
+                        starProjects.add((NamedExpression) e);
                     }
 
                     if (replaced.size() != replaceMap.size()) {
@@ -1205,13 +1209,15 @@ public class BindExpression implements AnalysisRuleFactory {
                         throw new AnalysisException("Invalid replace column name: " + replaceMap.keySet());
                     }
                 } else {
-                    boundProjections.addAll(slots);
+                    starProjects.addAll(slots);
                 }
 
-                // for create view stmt expand star
-                List<Slot> slotsForLambda = slots;
+                boundProjections.addAll(starProjects);
+                // Persist the same projections that are used by the analyzed query, including REPLACE.
                 unboundStar.getIndexInSqlString().ifPresent(pair -> {
-                    statementContext.addIndexInSqlToString(pair, toSqlWithBackquote(slotsForLambda));
+                    statementContext.addIndexInSqlToString(pair, starProjects.stream()
+                            .map(item -> item.toSql(Expression.SqlRenderMode.FOR_VIEW))
+                            .collect(Collectors.joining(", ")));
                 });
             }
         }
@@ -2024,11 +2030,6 @@ public class BindExpression implements AnalysisRuleFactory {
     private interface CustomSlotBinderAnalyzer {
         ExpressionAnalyzer.SlotBinding bindSlot(
                 ExpressionAnalyzer analyzer, UnboundSlot unboundSlot, boolean bindRelationQualifierOnly);
-    }
-
-    public String toSqlWithBackquote(List<Slot> slots) {
-        return slots.stream().map(slot -> ((SlotReference) slot).getQualifiedNameWithBackquote())
-                .collect(Collectors.joining(", "));
     }
 
     private boolean hasAggregateFunction(Expression expression, FunctionRegistry functionRegistry) {

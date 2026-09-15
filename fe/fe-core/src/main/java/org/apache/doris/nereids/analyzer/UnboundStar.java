@@ -131,15 +131,20 @@ public class UnboundStar extends Slot implements LeafExpression, Unbound, Propag
 
     @Override
     public String computeToSql() {
+        return computeToSql(SqlRenderMode.DEFAULT);
+    }
+
+    @Override
+    public String computeToSql(SqlRenderMode mode) {
         StringBuilder builder = new StringBuilder();
         builder.append(Utils.qualifiedName(qualifier, "*"));
         if (!exceptedSlots.isEmpty()) {
-            String exceptStr = exceptedSlots.stream().map(NamedExpression::toSql)
+            String exceptStr = exceptedSlots.stream().map(expr -> expr.toSql(mode))
                     .collect(Collectors.joining(", ", " EXCEPT(", ")"));
             builder.append(exceptStr);
         }
         if (!replacedAlias.isEmpty()) {
-            String replaceStr = replacedAlias.stream().map(NamedExpression::toSql)
+            String replaceStr = replacedAlias.stream().map(expr -> expr.toSql(mode))
                     .collect(Collectors.joining(", ", " REPLACE(", ")"));
             builder.append(replaceStr);
         }

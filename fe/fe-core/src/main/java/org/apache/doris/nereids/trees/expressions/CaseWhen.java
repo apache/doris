@@ -157,12 +157,17 @@ public class CaseWhen extends Expression implements NeedSessionVarGuard, NullToN
 
     @Override
     public String computeToSql() throws UnboundException {
+        return computeToSql(SqlRenderMode.DEFAULT);
+    }
+
+    @Override
+    public String computeToSql(SqlRenderMode mode) throws UnboundException {
         StringBuilder output = new StringBuilder("CASE");
-        value.ifPresent(v -> output.append(" ").append(v.toSql()));
+        value.ifPresent(v -> output.append(" ").append(v.toSql(mode)));
         for (WhenClause whenClause : whenClauses) {
-            output.append(whenClause.toSql());
+            output.append(whenClause.toSql(mode));
         }
-        defaultValue.ifPresent(dv -> output.append(" ELSE ").append(dv.toSql()));
+        defaultValue.ifPresent(dv -> output.append(" ELSE ").append(dv.toSql(mode)));
         output.append(" END");
         return output.toString();
     }

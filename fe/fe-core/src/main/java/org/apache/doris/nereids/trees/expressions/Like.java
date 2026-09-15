@@ -62,10 +62,16 @@ public class Like extends StringRegexPredicate {
 
     @Override
     public String computeToSql() {
+        return computeToSql(SqlRenderMode.DEFAULT);
+    }
+
+    @Override
+    public String computeToSql(SqlRenderMode mode) {
         if (arity() == 2) {
-            return super.computeToSql();
+            return super.computeToSql(mode);
         }
-        return '(' + left().toSql() + ' ' + getName() + ' ' + right().toSql() + " escape " + child(2).toSql()
+        return '(' + left().toSql(mode) + ' ' + getName() + ' ' + right().toSql(mode) + " escape "
+                + child(2).toSql(mode)
                 + ')';
     }
 

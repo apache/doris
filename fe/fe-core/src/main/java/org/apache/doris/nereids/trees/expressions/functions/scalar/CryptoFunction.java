@@ -53,12 +53,20 @@ public abstract class CryptoFunction extends ScalarFunction
 
     @Override
     public String computeToSql() {
+        return computeToSql(SqlRenderMode.DEFAULT);
+    }
+
+    @Override
+    public String computeToSql(SqlRenderMode mode) {
+        if (mode == SqlRenderMode.FOR_VIEW) {
+            return super.computeToSql(mode);
+        }
         List<String> args = Lists.newArrayList();
         for (int i = 0; i < arity(); i++) {
             if (i == 1) {
                 args.add("\'***\'");
             } else {
-                args.add(getArgument(i).toSql());
+                args.add(getArgument(i).toSql(mode));
             }
         }
         return getName() + "(" + StringUtils.join(args, ", ") + ")";

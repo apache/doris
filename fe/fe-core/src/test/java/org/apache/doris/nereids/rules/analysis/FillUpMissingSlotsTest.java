@@ -747,7 +747,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                         logicalFilter(
                             logicalWindow(
                                 logicalEmptyRelation())
-                        ).when(filter -> filter.toString().contains("predicates=(row_number() OVER(ORDER BY profit asc null first)#5 > 1)"))
+                        ).when(filter -> filter.toString().contains("predicates=(row_number() OVER(ORDER BY profit ASC NULLS FIRST)#5 > 1)"))
                     )
                 )
         );
@@ -771,7 +771,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                         logicalFilter(
                             logicalWindow(
                                     logicalAggregate(logicalEmptyRelation()))
-                        ).when(filter -> filter.toString().contains("predicates=(rank() OVER(ORDER BY year asc null first)#5 > 1)"))
+                        ).when(filter -> filter.toString().contains("predicates=(rank() OVER(ORDER BY year ASC NULLS FIRST)#5 > 1)"))
                     )
                 )
         );
@@ -786,7 +786,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                     logicalAggregate(logicalEmptyRelation())
                                 ).when(filter -> filter.toString().contains("predicates=(total#5 > 100)"))
                             )
-                        ).when(filter -> filter.toString().contains("predicates=(row_number() OVER(ORDER BY year asc null first)#6 > 1)"))
+                        ).when(filter -> filter.toString().contains("predicates=(row_number() OVER(ORDER BY year ASC NULLS FIRST)#6 > 1)"))
                     )
                 )
         );
@@ -799,7 +799,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                             logicalFilter(
                                 logicalWindow(
                                     logicalEmptyRelation())
-                            ).when(filter -> filter.toString().contains("predicates=(row_number() OVER(ORDER BY (cast(profit as BIGINT) + 1) asc null first)#5 > 1)"))
+                            ).when(filter -> filter.toString().contains("predicates=(row_number() OVER(ORDER BY (cast(profit as BIGINT) + 1) ASC NULLS FIRST)#5 > 1)"))
                         )
                     )
                 )
@@ -813,7 +813,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                             logicalFilter(
                                 logicalWindow(
                                     logicalAggregate(logicalEmptyRelation()))
-                            ).when(filter -> filter.toString().contains("predicates=(row_number() OVER(ORDER BY year asc null first)#5 > 1)"))
+                            ).when(filter -> filter.toString().contains("predicates=(row_number() OVER(ORDER BY year ASC NULLS FIRST)#5 > 1)"))
                         )
                     )
                 )
@@ -829,7 +829,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                     logicalFilter(
                                         logicalWindow(
                                             logicalEmptyRelation())
-                                    ).when(filter -> filter.toString().contains("predicates=(row_number() OVER(ORDER BY year asc null first)#5 > 1)"))
+                                    ).when(filter -> filter.toString().contains("predicates=(row_number() OVER(ORDER BY year ASC NULLS FIRST)#5 > 1)"))
                                 )
                             )
                         ).when(filter -> filter.toString().contains("predicates=(sum(profit)#6 > 100)"))

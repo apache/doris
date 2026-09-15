@@ -68,7 +68,12 @@ public class Between extends Expression implements TernaryExpression {
 
     @Override
     public String computeToSql() {
-        return compareExpr.toSql() + " BETWEEN " + lowerBound.toSql() + " AND " + upperBound.toSql();
+        return computeToSql(SqlRenderMode.DEFAULT);
+    }
+
+    @Override
+    public String computeToSql(SqlRenderMode mode) {
+        return compareExpr.toSql(mode) + " BETWEEN " + lowerBound.toSql(mode) + " AND " + upperBound.toSql(mode);
     }
 
     @Override

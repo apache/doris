@@ -43,7 +43,7 @@ class RewriteSqlTest extends SqlTestBase {
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .applyTopDown(new ExtractSingleTableExpressionFromDisjunction())
-                .matches(logicalFilter().when(f -> f.getConjuncts().stream().anyMatch(e -> e.toSql().equals("OR[(a = 1),AND[(b = 2),OR[(c = 3),(d = 4)]]]"))));
+                .matches(logicalFilter().when(f -> f.getConjuncts().stream().anyMatch(e -> e.toSql().equals("((a = 1) OR ((b = 2) AND ((c = 3) OR (d = 4))))"))));
     }
 
 }

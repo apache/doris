@@ -108,7 +108,12 @@ public class Not extends Expression implements UnaryExpression, ExpectsInputType
 
     @Override
     public String computeToSql() {
-        return "( not " + child().toSql() + ")";
+        return computeToSql(SqlRenderMode.DEFAULT);
+    }
+
+    @Override
+    public String computeToSql(SqlRenderMode mode) {
+        return "( not " + child().toSql(mode) + ")";
     }
 
     @Override

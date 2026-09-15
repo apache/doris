@@ -107,6 +107,13 @@ public class MapLiteral extends Literal {
     }
 
     @Override
+    public String computeToSql(SqlRenderMode mode) {
+        return map.entrySet().stream()
+                .map(entry -> entry.getKey().toSql(mode) + ", " + entry.getValue().toSql(mode))
+                .collect(Collectors.joining(", ", "map(", ")"));
+    }
+
+    @Override
     public String computeToSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("map(");

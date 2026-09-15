@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -74,6 +75,12 @@ public abstract class SubqueryExpr extends Expression {
     @Override
     public boolean nullable() throws UnboundException {
         return true;
+    }
+
+    @Override
+    public String computeToSql(SqlRenderMode mode) {
+        throw new AnalysisException(
+                "Subqueries in star REPLACE cannot be rendered as view SQL");
     }
 
     @Override

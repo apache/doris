@@ -105,7 +105,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         RangePartitionItem item1 = new RangePartitionItem(range1);
 
         Set<Expression> predicates = UpdateMvByPartitionCommand.constructPredicates(Sets.newHashSet(item1), "s");
-        Assertions.assertEquals("OR[(s < 1),s IS NULL]", predicates.iterator().next().toSql());
+        Assertions.assertEquals("((s < 1) OR s IS NULL)", predicates.iterator().next().toSql());
 
     }
 
@@ -142,7 +142,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         listPartitionItem = new ListPartitionItem(ImmutableList.of(v1, v2));
         expr = UpdateMvByPartitionCommand.constructPredicates(Sets.newHashSet(listPartitionItem), "s").iterator()
                 .next();
-        Assertions.assertEquals("OR[s IS NULL,s IN (1)]", expr.toSql());
+        Assertions.assertEquals("(s IS NULL OR s IN (1))", expr.toSql());
     }
 
     @Test
