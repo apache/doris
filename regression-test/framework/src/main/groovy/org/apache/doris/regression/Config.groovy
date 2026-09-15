@@ -1351,8 +1351,7 @@ class Config {
 
     public static String buildUrlWithDb (String jdbcUrl, String dbName, String keyStorePath, String keyStorePassword, String trustStorePath, String trustStorePassword) {
         String urlWithDb = buildUrlWithDbImpl(jdbcUrl, dbName);
-        urlWithDb = addTlsUrl(urlWithDb, keyStorePath, keyStorePassword, trustStorePath, trustStorePassword);
-        urlWithDb = addTimeoutUrl(urlWithDb);
+        urlWithDb = buildTlsJdbcUrl(urlWithDb, keyStorePath, keyStorePassword, trustStorePath, trustStorePassword);
         return urlWithDb
     }
 
@@ -1362,6 +1361,22 @@ class Config {
             host, queryPort)
         url = buildUrlWithDb(url, dbName)
         return url
+    }
+
+    public static String buildUrlWithDb(String host, int queryPort, String dbName,
+                                        String keyStorePath, String keyStorePassword,
+                                        String trustStorePath, String trustStorePassword) {
+        def url = String.format(
+            "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
+            host, queryPort)
+        url = buildUrlWithDb(url, dbName, keyStorePath, keyStorePassword, trustStorePath, trustStorePassword)
+        return url
+    }
+
+    public static String buildTlsJdbcUrl(String jdbcUrl, String keyStorePath, String keyStorePassword,
+                                         String trustStorePath, String trustStorePassword) {
+        String tlsUrl = addTlsUrl(jdbcUrl, keyStorePath, keyStorePassword, trustStorePath, trustStorePassword)
+        return addTimeoutUrl(tlsUrl)
     }
 
     private static String addSslUrl(String url) {

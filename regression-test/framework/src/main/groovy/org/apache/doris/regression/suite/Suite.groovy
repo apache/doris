@@ -299,6 +299,11 @@ class Suite implements GroovyInterceptable {
         return context.connect(user, password, url, actionSupplier)
     }
 
+    public <T> T connectToDoris(String user = context.config.jdbcUser, String password = context.config.jdbcPassword,
+                                String url = context.getJdbcUrl(), Closure<T> actionSupplier) {
+        return context.connectToDoris(user, password, url, actionSupplier)
+    }
+
     public <T> T connectWithDockerCluster(
             SuiteCluster cluster,
             Boolean connectToFollower = false,
