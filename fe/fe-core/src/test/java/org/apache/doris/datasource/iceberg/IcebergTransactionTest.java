@@ -1340,6 +1340,25 @@ public class IcebergTransactionTest {
                         Collections.singletonMap("unknown", "2026-01-01"), spec, schema));
     }
 
+    @Test
+    public void testNullBinaryStaticOverwriteFilterForFullAndHybridSpecs() {
+        for (org.apache.iceberg.types.Type type : new org.apache.iceberg.types.Type[] {
+                Types.BinaryType.get(), Types.FixedType.ofLength(16), Types.UUIDType.get()}) {
+            Schema schema = new Schema(Types.NestedField.optional(1, "key", type),
+                    Types.NestedField.optional(2, "region", Types.StringType.get()));
+            for (boolean hybrid : new boolean[] {false, true}) {
+                PartitionSpec.Builder builder = PartitionSpec.builderFor(schema).identity("key");
+                if (hybrid) {
+                    builder.identity("region");
+                }
+                Expression filter = getTxn().buildPartitionFilter(
+                        Collections.singletonMap("key", null), builder.build(), schema);
+                Assert.assertEquals(Expression.Operation.IS_NULL, filter.op());
+                Assert.assertEquals("key", ((UnboundPredicate<?>) filter).ref().name());
+            }
+        }
+    }
+
     private DeleteFile buildDeletionVectorDeleteFile(String puffinPath, String referencedDataFile,
             long contentOffset, long contentLength) {
         return FileMetadata.deleteFileBuilder(PartitionSpec.unpartitioned())

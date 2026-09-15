@@ -429,6 +429,9 @@ public class PaimonScanNode extends FileQueryScanNode {
                 rangeDesc.setFormatType(TFileFormatType.FORMAT_ORC);
             } else if (fileFormat.equals("parquet")) {
                 rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
+                // History schemas also exist for ORC; only actual native Parquet requires its timestamp contract.
+                // Keep this scan-level flag set if a later range uses a different format.
+                params.setContainsNativeParquet(true);
             } else {
                 throw new RuntimeException("Unsupported file format: " + fileFormat);
             }

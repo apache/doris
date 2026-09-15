@@ -70,6 +70,22 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
         SELECT id, hex(part_key), region FROM demo.${db1}.${binaryTable} ORDER BY id
     """), binaryRows)
 
+    // NULL and empty bytes must select distinct partitions in both full-static and hybrid overwrite.
+    sql """ INSERT INTO ${binaryTable} VALUES
+        (21, NULL, 'a'), (22, NULL, 'b'), (23, X'', 'a') """
+    sql """ INSERT OVERWRITE TABLE ${binaryTable}
+        PARTITION (part_key=NULL, region='a') SELECT 31 """
+    assertEquals([[22, "NULL", "b"], [23, "", "a"], [31, "NULL", "a"]],
+            sql("SELECT id, coalesce(hex(part_key), 'NULL'), region FROM ${binaryTable} WHERE id >= 21 ORDER BY id"))
+    sql """ INSERT OVERWRITE TABLE ${binaryTable}
+        PARTITION (part_key=NULL) SELECT 32, 'c' """
+    def nullPartitionRows = sql("SELECT id, coalesce(hex(part_key), 'NULL'), region FROM ${binaryTable} ORDER BY id")
+    assertEquals([[3, "00FF", "a"], [20, "DEAD", "c"], [23, "", "a"], [32, "NULL", "c"]], nullPartitionRows)
+    spark_iceberg "REFRESH TABLE demo.${db1}.${binaryTable}"
+    assertSparkDorisResultEquals(spark_iceberg("""
+        SELECT id, coalesce(hex(part_key), 'NULL'), region FROM demo.${db1}.${binaryTable} ORDER BY id
+    """), nullPartitionRows)
+
     // Test Case 1: Full static partition overwrite (all partition columns specified)
     // Test overwriting a specific partition with all partition columns specified
     sql """ DROP TABLE IF EXISTS ${tb1} """
