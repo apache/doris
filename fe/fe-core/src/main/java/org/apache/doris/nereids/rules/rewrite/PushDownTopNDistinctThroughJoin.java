@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.properties.DataTrait;
-import org.apache.doris.nereids.properties.FuncDeps;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -215,20 +214,19 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
      * non-null unique key, covers every child output, or functionally determines every remaining child output.
      */
     private boolean isOrderKeyPrefixUniqueAfterDistinct(Plan joinChild, List<OrderKey> orderKeyPrefix) {
+        if (orderKeyPrefix.isEmpty()) {
+            return false;
+        }
         Set<Slot> childOutput = joinChild.getOutputSet();
-        DataTrait childTrait = joinChild.getLogicalProperties().getTrait();
-        FuncDeps validFuncDeps = childTrait.getAllValidFuncDeps(childOutput);
         Set<Slot> prefixSlots = new HashSet<>();
         for (OrderKey orderKey : orderKeyPrefix) {
             prefixSlots.add((Slot) orderKey.getExpr());
-            if (prefixSlots.containsAll(childOutput) || childTrait.isUniqueAndNotNull(prefixSlots)
-                    || childOutput.stream().allMatch(slot -> prefixSlots.contains(slot)
-                            || validFuncDeps.getItems().stream().anyMatch(funcDepsItem ->
-                                    prefixSlots.containsAll(funcDepsItem.determinants)
-                                            && funcDepsItem.dependencies.contains(slot)))) {
-                return true;
-            }
         }
-        return false;
+        if (prefixSlots.containsAll(childOutput)) {
+            return true;
+        }
+        DataTrait childTrait = joinChild.getLogicalProperties().getTrait();
+        return childTrait.isUniqueAndNotNull(prefixSlots)
+                || childTrait.isDependent(prefixSlots, childOutput);
     }
 }
