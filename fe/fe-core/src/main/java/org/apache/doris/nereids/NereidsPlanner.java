@@ -88,6 +88,7 @@ import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.TimeBasedChangeVisibleWaiter;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.statistics.query.QueryStatsRecorder;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TQueryCacheParam;
@@ -808,7 +809,7 @@ public class NereidsPlanner extends Planner {
                 && cascadesContext.getConnectContext().supportHandleByFe()
                 && physicalPlan instanceof ComputeResultSet) {
             Optional<ResultSet> resultSet = ((ComputeResultSet) physicalPlan).computeResultInFe(
-                    cascadesContext, Optional.empty(), physicalPlan.getOutput());
+                    cascadesContext, physicalPlan.getOutput());
             if (resultSet.isPresent()) {
                 notNeedBackend = true;
             }
@@ -1199,15 +1200,30 @@ public class NereidsPlanner extends Planner {
 
         setFormatOptions();
         if (physicalPlan instanceof ComputeResultSet) {
-            Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
             Optional<ResultSet> resultSet = ((ComputeResultSet) physicalPlan)
-                    .computeResultInFe(cascadesContext, sqlCacheContext, physicalPlan.getOutput());
+                    .computeResultInFe(cascadesContext, physicalPlan.getOutput());
             if (resultSet.isPresent()) {
+                tryAddResultSetToSqlCache(resultSet.get());
                 return resultSet;
             }
         }
 
         return Optional.empty();
+    }
+
+    private void tryAddResultSetToSqlCache(ResultSet resultSet) {
+        if (physicalPlan instanceof PhysicalSqlCache) {
+            return;
+        }
+        Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
+        if (!sqlCacheContext.isPresent()
+                || !CacheAnalyzer.canUseSqlCache(statementContext.getConnectContext().getSessionVariable())) {
+            return;
+        }
+        sqlCacheContext.get().setResultSetInFe(resultSet);
+        Env.getCurrentEnv().getSqlCacheManager().tryAddFeSqlCache(
+                statementContext.getConnectContext(),
+                statementContext.getOriginStatement().originStmt);
     }
 
     private void setFormatOptions() {
