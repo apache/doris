@@ -604,7 +604,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         }
     }
 
-    private Map<String, String> captureSchemaPin(PaimonTableHandle handle, Table table, long schemaId, long snapshotId) {
+    private Map<String, String> captureSchemaPin(
+            PaimonTableHandle handle, Table table, long schemaId, long snapshotId) {
         // Aliases and planning-only selectors share the first physical pin, not a later reload of the same name.
         Map<String, String> pin = statementSchemaPins.computeIfAbsent(handle,
                 ignored -> readSchemaAuthenticated(() -> PaimonSchemaPin.capture(table, schemaId, snapshotId)));
@@ -639,7 +640,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             // Rehydrate its exact schema once in the new scope, never through the historical memo.
             PaimonCatalogOps.PaimonSchemaSnapshot restored = statementSchemas.compute(handle, (key, previous) ->
                     previous != null && previous.isPresent() && previous.get().schemaId() == schemaId
-                            ? previous : Optional.of(readSchemaAuthenticated(() -> catalogOps.schemaAt(table, schemaId))))
+                            ? previous
+                            : Optional.of(readSchemaAuthenticated(() -> catalogOps.schemaAt(table, schemaId))))
                     .get();
             PaimonSchemaPin.validateSchema(restored, handle.getScanOptions());
             return restored;
