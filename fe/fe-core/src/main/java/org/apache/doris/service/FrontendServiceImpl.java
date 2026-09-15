@@ -93,6 +93,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SplitSource;
+import org.apache.doris.datasource.lance.job.LanceIndexJobReportHandler;
 import org.apache.doris.datasource.maxcompute.MCTransaction;
 import org.apache.doris.encryption.EncryptionKey;
 import org.apache.doris.ha.FrontendNodeType;
@@ -231,6 +232,7 @@ import org.apache.doris.thrift.TGroupCommitInfo;
 import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
 import org.apache.doris.thrift.TInitExternalCtlMetaResult;
 import org.apache.doris.thrift.TInvalidateFollowerStatsCacheRequest;
+import org.apache.doris.thrift.TLanceIndexJobReport;
 import org.apache.doris.thrift.TListPrivilegesResult;
 import org.apache.doris.thrift.TListTableMetadataNameIdsResult;
 import org.apache.doris.thrift.TListTableStatusResult;
@@ -1123,6 +1125,23 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return new TMasterResult().setStatus(status);
         }
         return masterImpl.finishTask(request);
+    }
+
+    /**
+     * Typed result envelope of one Lance index mutation invocation. Stale or
+     * identity-mismatched reports are logged and dropped; a complete matched
+     * report is classified into the durable job state. This layer stays thin:
+     * only the master accepts reports, and everything beyond identity checking
+     * and classification lives in the report handler.
+     */
+    @Override
+    public TStatus reportLanceIndexJobResult(TLanceIndexJobReport report) throws TException {
+        TStatus status = checkMaster();
+        if (status.getStatusCode() != TStatusCode.OK) {
+            return status;
+        }
+        new LanceIndexJobReportHandler(Env.getCurrentEnv().getLanceIndexJobManager()).handle(report);
+        return new TStatus(TStatusCode.OK);
     }
 
     @Override

@@ -23,8 +23,10 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.datasource.lance.job.LanceIndexNameNormalizer;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 
 import com.google.common.collect.ImmutableSet;
@@ -46,6 +48,13 @@ import java.util.Set;
  */
 public final class LanceIndexMutationValidator {
     private static final int MAX_INDEX_NAME_BYTES = 64;
+    /**
+     * System index entries such as {@code __lance_frag_reuse} and {@code __lance_mem_wal} are
+     * filtered out of every metadata read, so a user index under this prefix would be invisible
+     * to SHOW INDEX and impossible to drop through Doris. It is reserved for all three
+     * mutations (design sections 3.4/4.1).
+     */
+    private static final String RESERVED_INDEX_NAME_PREFIX = "__lance_";
     private static final Set<String> ANN_PROPERTY_KEYS = ImmutableSet.of(
             "index_type", "metric", "num_partitions", "num_sub_vectors", "num_bits");
     private static final Set<String> ANN_METRICS = ImmutableSet.of("l2", "cosine", "dot");
@@ -131,6 +140,20 @@ public final class LanceIndexMutationValidator {
         if (indexName.getBytes(StandardCharsets.UTF_8).length > MAX_INDEX_NAME_BYTES) {
             rejectInvalidDefinition("index name too long, the index name length at most is 64.");
         }
+        rejectIfReservedIndexName(indexName);
+    }
+
+    /**
+     * Reserved-name rejection shared with admission (same package): judged on the normalized
+     * name so case variants of the system prefix are covered, and applied to CREATE, CREATE OR
+     * REPLACE and DROP alike — DROP included, so a reserved name reports "reserved" instead of a
+     * misleading "not found" for an index Doris can never drop.
+     */
+    static void rejectIfReservedIndexName(String indexName) throws AnalysisException {
+        if (LanceIndexNameNormalizer.normalize(indexName).startsWith(RESERVED_INDEX_NAME_PREFIX)) {
+            rejectInvalidDefinition("index name '" + indexName
+                    + "' uses the reserved '__lance_' prefix of Lance system indexes");
+        }
     }
 
     private static void validateAnnIndex(Column column, Map<String, String> properties)
@@ -165,6 +188,20 @@ public final class LanceIndexMutationValidator {
         }
         checkRequiredPositiveInt(lowerCaseProperties, "num_partitions");
         checkRequiredPositiveInt(lowerCaseProperties, "num_sub_vectors");
+        // Design section 2.4 "configured static bounds apply": the positive checks above
+        // guarantee parseable ints here. The bounds are read at the validation point (the
+        // Env.java lower_case_table_names precedent), so a mutable override takes effect
+        // without a restart.
+        if (parsePositiveInt(lowerCaseProperties.get("num_partitions"))
+                > Config.lance_index_max_num_partitions) {
+            rejectInvalidDefinition("num_partitions must not exceed "
+                    + Config.lance_index_max_num_partitions + " (lance_index_max_num_partitions)");
+        }
+        if (parsePositiveInt(lowerCaseProperties.get("num_sub_vectors"))
+                > Config.lance_index_max_num_sub_vectors) {
+            rejectInvalidDefinition("num_sub_vectors must not exceed "
+                    + Config.lance_index_max_num_sub_vectors + " (lance_index_max_num_sub_vectors)");
+        }
         String numBits = lowerCaseProperties.get("num_bits");
         if (numBits != null && parsePositiveInt(numBits) != 8) {
             rejectInvalidDefinition("num_bits must be 8");
@@ -214,6 +251,15 @@ public final class LanceIndexMutationValidator {
             throws AnalysisException {
         ErrorReport.reportAnalysisException(ErrorCode.ERR_LANCE_INDEX_OPERATION_NOT_SUPPORTED,
                 operation, target);
+    }
+
+    /**
+     * Rejects a Lance index mutation while the admission gate stays off (the default). The
+     * rejection fires from validate() after static validation, before any metadata read or id
+     * allocation; admission itself never runs with the gate off.
+     */
+    public static void rejectMutationDisabled(String operation) throws AnalysisException {
+        ErrorReport.reportAnalysisException(ErrorCode.ERR_LANCE_INDEX_MUTATION_DISABLED, operation);
     }
 
     private static void rejectInvalidDefinition(String detail) throws AnalysisException {

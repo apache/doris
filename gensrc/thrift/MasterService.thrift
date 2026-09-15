@@ -164,3 +164,56 @@ struct TFetchResourceResult {
     2: required i64 resourceVersion
     3: required map<string, TUserResource> resourceByUser
 }
+
+// Typed result code of one Lance index mutation invocation. PRE_INVOCATION_* codes are
+// complete trusted rejections before the native call (dataset version / schema
+// contract / credential / resource revalidation) and prove NOT_COMMITTED. NATIVE_*
+// codes are the saved Lance error code of the single native invocation, read before
+// the consuming error message. NO_TRUSTED_RESULT is produced FE-side only and never
+// appears on the wire.
+enum TLanceIndexJobResultCode {
+    PRE_INVOCATION_STALE_ADMISSION = 1,
+    PRE_INVOCATION_UNSUPPORTED_SCHEMA_CONTRACT = 2,
+    PRE_INVOCATION_CREDENTIAL_EXPIRED = 3,
+    PRE_INVOCATION_RESOURCE_REJECTED = 4,
+    NATIVE_OK = 5,
+    NATIVE_COMMIT_CONFLICT = 6,
+    NATIVE_NOT_FOUND = 7,
+    NATIVE_INVALID_ARGUMENT = 8,
+    NATIVE_NOT_SUPPORTED = 9,
+    NATIVE_INDEX = 10,
+    NATIVE_IO = 11,
+    NATIVE_INTERNAL = 12
+}
+
+enum TLanceIndexCompletionReason {
+    NONE = 1,
+    IF_CONDITION_NOOP = 2
+}
+
+// Possible-live termination proof carried by the result envelope. BE_PROCESS_EPOCH_GONE
+// is derived FE-side from heartbeat epochs and never appears on the wire.
+enum TLanceIndexTerminationProof {
+    NONE = 1,
+    CHILD_REAPED = 2
+}
+
+// Typed result envelope of one Lance index mutation invocation, reported by the BE
+// supervisor to the master FE. The envelope carries only what is needed to classify
+// the single invocation: the matching invocation identity and BE process epoch, the
+// typed result code, a bounded sanitized message, and the matching child-reap proof
+// when available. Only a complete identity-matched envelope proves COMMITTED or
+// NOT_COMMITTED; EOF, signal, timeout, OOM, BE loss, malformed/partial protocol, or
+// identity mismatch after acceptance yields UNKNOWN on the FE side. Stale or
+// identity-mismatched reports are logged and dropped.
+struct TLanceIndexJobReport {
+    1: required i64 job_id
+    2: required i64 dispatch_revision
+    3: required string invocation_id
+    4: required i64 be_process_epoch
+    5: required TLanceIndexJobResultCode result_code
+    6: optional TLanceIndexCompletionReason completion_reason
+    7: optional string sanitized_message
+    8: optional bool external_metadata_advanced
+    9: optional TLanceIndexTerminationProof termination_proof
+}

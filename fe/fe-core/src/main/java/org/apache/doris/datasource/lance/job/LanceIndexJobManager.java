@@ -35,6 +35,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableSet;
@@ -595,6 +596,32 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
                 && job.getNormalizedIndexName() != null;
     }
 
+    /**
+     * True when the durable record carries the complete target identity the
+     * dispatcher needs to address a job: catalog, database, table, normalized
+     * locator, and the index/mutation identity. This is the eligibility of a
+     * PENDING job for dispatch; the dispatch quad (backend id, BE process
+     * epoch, dispatch revision, invocation id) does not exist before
+     * {@code markRunning} and is not required here. Corrupt identity-less
+     * records are never dispatchable.
+     */
+    private static boolean hasDispatchTarget(LanceIndexJob job) {
+        return job.getProvider() != null && job.getNormalizedLocator() != null
+                && job.getNormalizedIndexName() != null && job.getDisplayIndexName() != null
+                && job.getDbName() != null && job.getTableName() != null
+                && job.getMutationType() != null && job.getCatalogId() > 0;
+    }
+
+    /**
+     * True when the record additionally carries the full dispatch quad recorded
+     * by {@code markRunning}. The possible-live sweep requires the quad: only
+     * with it can {@code recordTerminationProof} address and release the slot.
+     */
+    private static boolean hasDispatchIdentity(LanceIndexJob job) {
+        return hasDispatchTarget(job) && job.getBackendId() != null && job.getBeProcessEpoch() != null
+                && job.getDispatchRevision() != null && job.getInvocationId() != null;
+    }
+
     // ------------------------------------------------------------------
     // Queries
     // ------------------------------------------------------------------
@@ -604,6 +631,42 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
         try {
             LanceIndexJob job = jobs.get(jobId);
             return job == null ? null : new LanceIndexJob(job);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    /**
+     * Returns a snapshot copy of every job, ordered by jobId. Used by SHOW LANCE INDEX JOBS.
+     */
+    public List<LanceIndexJob> getAllJobsSnapshot() {
+        readLock();
+        try {
+            List<LanceIndexJob> result = new ArrayList<>();
+            for (LanceIndexJob job : jobs.values()) {
+                if (job != null) {
+                    result.add(new LanceIndexJob(job));
+                }
+            }
+            result.sort(Comparator.comparingLong(LanceIndexJob::getJobId));
+            return result;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    /**
+     * Returns true if any unresolved job targets the given catalog. Used by catalog DDL guard (Section 4.4).
+     */
+    public boolean hasUnresolvedJobsForCatalog(long catalogId) {
+        readLock();
+        try {
+            for (LanceIndexJob job : jobs.values()) {
+                if (job != null && job.getCatalogId() == catalogId && job.isUnresolved()) {
+                    return true;
+                }
+            }
+            return false;
         } finally {
             readUnlock();
         }
@@ -636,7 +699,8 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
      * run, including jobs downgraded by the master-transfer sweep) or FAILED
      * (waiting for a retry). Both resume through the idempotent refresh path via
      * {@link #markRefreshRunning}; a FAILED job invisible here would hold its
-     * fence forever with no retry channel.
+     * fence forever with no retry channel. Force-released UNKNOWN jobs are excluded:
+     * their fence is already released and re-driving refresh would only add audit noise.
      */
     public List<LanceIndexJob> getJobsNeedingRefresh() {
         readLock();
@@ -645,8 +709,78 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
             for (LanceIndexJob job : jobs.values()) {
                 if (job != null && job.getMutationState() != null && job.getMutationState().isTerminal()
                         && hasFenceIdentity(job)
+                        && !job.isForceReleased()
                         && (job.getRefreshState() == LanceIndexJobRefreshState.REQUIRED
                                 || job.getRefreshState() == LanceIndexJobRefreshState.FAILED)) {
+                    result.add(new LanceIndexJob(job));
+                }
+            }
+            return result;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    /**
+     * PENDING jobs eligible for the dispatcher, in job id order (FIFO fairness),
+     * at most {@code limit} of them. Target identity must be complete: corrupt
+     * identity-less records are never dispatchable (their only exit is the
+     * force-release transition by job id) and are skipped here. The dispatch
+     * quad is deliberately not required: it is written by {@code markRunning},
+     * which is the step this query feeds. All matches are collected and ordered
+     * before truncating, so a stable subset of permanently undispatchable jobs
+     * can never crowd out later ids.
+     */
+    public List<LanceIndexJob> getJobsNeedingDispatch(int limit) {
+        readLock();
+        try {
+            List<LanceIndexJob> result = new ArrayList<>();
+            for (LanceIndexJob job : jobs.values()) {
+                if (job != null && job.getMutationState() == LanceIndexJobMutationState.PENDING
+                        && hasDispatchTarget(job)) {
+                    result.add(new LanceIndexJob(job));
+                }
+            }
+            result.sort(Comparator.comparingLong(LanceIndexJob::getJobId));
+            return result.size() <= limit ? result : new ArrayList<>(result.subList(0, limit));
+        } finally {
+            readUnlock();
+        }
+    }
+
+    /**
+     * RUNNING jobs whose wait deadline has expired. Expiry converges the job to
+     * UNKNOWN via completeWithResult(NO_TRUSTED_RESULT); it never proves
+     * termination and never releases a possible-live slot.
+     */
+    public List<LanceIndexJob> getExpiredRunningJobs(long nowMs) {
+        readLock();
+        try {
+            List<LanceIndexJob> result = new ArrayList<>();
+            for (LanceIndexJob job : jobs.values()) {
+                if (job != null && job.getMutationState() == LanceIndexJobMutationState.RUNNING
+                        && job.getDeadlineMs() != null && job.getDeadlineMs() < nowMs) {
+                    result.add(new LanceIndexJob(job));
+                }
+            }
+            return result;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    /**
+     * Jobs still holding a possible-live slot with complete dispatch identity,
+     * regardless of mutation state: the slot-release proof (BE process epoch no
+     * longer exists) is independent of the outcome, so UNKNOWN jobs swept by the
+     * deadline or master transfer are released here exactly like RUNNING ones.
+     */
+    public List<LanceIndexJob> getJobsHoldingPossibleLiveSlot() {
+        readLock();
+        try {
+            List<LanceIndexJob> result = new ArrayList<>();
+            for (LanceIndexJob job : jobs.values()) {
+                if (job != null && job.holdsPossibleLiveSlot() && hasDispatchIdentity(job)) {
                     result.add(new LanceIndexJob(job));
                 }
             }
