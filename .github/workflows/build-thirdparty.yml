@@ -19,6 +19,11 @@ name: Build Third Party Libraries
 
 on:
   pull_request:
+    paths:
+      - 'thirdparty/**'
+      - 'env.sh'
+      - 'regression-test/pipeline/external/conf/fe.conf'
+      - '.github/workflows/build-thirdparty.yml'
   workflow_dispatch:
   issue_comment:
     types: [ created ]  
