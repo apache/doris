@@ -1114,23 +1114,15 @@ public class CreateTableCommandTest extends TestWithFeService {
     }
 
     @Test
-    public void testMTMVRejectVarbinary() throws Exception {
+    public void testMTMVSupportsVarbinary() throws Exception {
         String mv = "CREATE MATERIALIZED VIEW mv_vb\n"
                 + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
                 + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
                 + " PROPERTIES ('replication_num' = '1')\n"
                 + " AS SELECT X'AB' as vb;";
 
-        LogicalPlan plan = new NereidsParser().parseSingle(mv);
-        Assertions.assertTrue(plan instanceof CreateMTMVCommand);
-        CreateMTMVCommand cmd = (CreateMTMVCommand) plan;
-
-        org.apache.doris.nereids.exceptions.AnalysisException ex = Assertions.assertThrows(
-                org.apache.doris.nereids.exceptions.AnalysisException.class,
-                () -> cmd.getCreateMTMVInfo().analyze(connectContext));
-        System.out.println(ex.getMessage());
-        Assertions.assertTrue(ex.getMessage().contains("MTMV do not support varbinary type"));
-        Assertions.assertTrue(ex.getMessage().contains("vb"));
+        // Use the statement context so persisted SQL retains the literal's original offsets.
+        Assertions.assertDoesNotThrow(() -> createMvByNereids(mv));
     }
 
     @Test

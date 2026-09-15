@@ -116,6 +116,17 @@ void RowCursor::_encode_column_value(const TabletColumn* column, const Field& va
     FieldType ft = column->type();
     const KeyCoder* coder = get_key_coder(ft);
 
+    if (ft == FieldType::OLAP_FIELD_TYPE_VARBINARY) {
+        const auto& binary = value.get<TYPE_VARBINARY>();
+        Slice slice(binary.data(), binary.size());
+        if (full_encode) {
+            coder->full_encode_ascending(&slice, buf);
+        } else {
+            coder->encode_ascending(&slice, column->index_length(), buf);
+        }
+        return;
+    }
+
     if (field_is_slice_type(ft)) {
         // String types: CHAR, VARCHAR, STRING — all stored as String in Field.
         const String& str = value.get<TYPE_STRING>();

@@ -356,6 +356,10 @@ public:
     }
 };
 
+template <>
+class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_VARBINARY>
+        : public KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {};
+
 template <FieldType field_type>
 class KeyCoderTraitsForFloat {
 public:

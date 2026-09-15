@@ -728,6 +728,10 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             // over the length: https://github.com/apache/doris/pull/6293
             if (mergeOp == PushDownAggOp.MIN_MAX || mergeOp == PushDownAggOp.MIX) {
                 PrimitiveType colType = column.getType().getPrimitiveType();
+                // Binary zone maps store conservative byte prefixes, not exact aggregate extrema.
+                if (colType == PrimitiveType.VARBINARY) {
+                    return canNotPush;
+                }
                 if (colType.isComplexType() || colType.isHllType() || colType.isBitmapType()
                          || (colType == PrimitiveType.STRING && !enablePushDownStringMinMax())) {
                     return canNotPush;

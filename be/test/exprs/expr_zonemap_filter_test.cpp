@@ -39,6 +39,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "core/value/vdatetime_value.h"
@@ -76,6 +77,26 @@
 #endif
 
 namespace doris {
+
+TEST(ExprBinaryZoneMapTest, MaterializesBinaryInSetAsBinaryLiterals) {
+    std::unique_ptr<HybridSetBase> set(create_set(TYPE_VARBINARY, true));
+    const std::vector<std::string> values = {"", std::string("\0", 1), std::string("a\0", 2),
+                                             std::string(64, '\xff')};
+    auto column = ColumnVarbinary::create();
+    for (const auto& value : values) {
+        column->insert_data(value.data(), value.size());
+    }
+    set->insert_range_from(column->get_ptr(), 0, column->size());
+    column->clear();
+    expr_zonemap::InZonemapMaterializedSet result;
+    ASSERT_TRUE(expr_zonemap::materialize_hybrid_set_for_zonemap_filter(
+                        *set, std::make_shared<DataTypeVarbinary>(), &result)
+                        .ok());
+    EXPECT_EQ(result.values.size(), values.size());
+    EXPECT_EQ(result.min_value.get<TYPE_VARBINARY>().str(), values.front());
+    EXPECT_EQ(result.max_value.get<TYPE_VARBINARY>().str(), values.back());
+}
+
 namespace {
 
 Field int_field(int32_t value) {

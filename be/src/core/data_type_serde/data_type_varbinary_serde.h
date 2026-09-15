@@ -39,6 +39,10 @@ public:
 
     std::string get_name() const override { return "Varbinary"; }
 
+    std::string to_olap_string(const Field& field) const override;
+    Status from_olap_string(const std::string& str, Field& field,
+                            const FormatOptions& options) const override;
+
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
 

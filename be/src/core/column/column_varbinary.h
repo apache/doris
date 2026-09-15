@@ -127,6 +127,21 @@ public:
 
     void serialize_vec(StringRef* keys, const size_t num_rows) const override;
 
+    void update_hash_with_value(size_t n, SipHash& hash) const override;
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data = nullptr) const override;
+    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                  const uint8_t* __restrict null_data) const override;
+    void update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type, uint32_t rows,
+                                uint32_t offset,
+                                const uint8_t* __restrict null_data) const override;
+    void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
+                               const uint8_t* __restrict null_data) const override;
+    void update_crc32c_batch(uint32_t* __restrict hashes,
+                             const uint8_t* __restrict null_map) const override;
+    void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                              const uint8_t* __restrict null_map) const override;
+
     void pop_back(size_t n) override { resize(size() - n); }
 
     StringRef serialize_value_into_arena(size_t n, Arena& arena,
@@ -189,6 +204,11 @@ public:
 
     void insert_many_strings_overflow(const StringRef* strings, size_t num,
                                       size_t max_length) override;
+
+    void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets,
+                                            size_t num) override;
+    void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
+                               size_t data_num, uint32_t dict_num = 0) override;
 
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;

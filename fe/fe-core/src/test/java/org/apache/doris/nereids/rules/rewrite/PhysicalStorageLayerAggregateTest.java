@@ -55,6 +55,20 @@ import java.util.Optional;
 public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSupported {
 
     @Test
+    public void testBinaryExtremaAreNotReadFromZoneMaps() {
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(1, "binary_values", 0);
+        scan.getTable().getBaseSchema().get(0).setType(Type.VARBINARY);
+        LogicalAggregate<LogicalOlapScan> aggregate = new LogicalAggregate<>(
+                Collections.emptyList(),
+                ImmutableList.of(new Alias(new Max(scan.getOutput().get(0)), "max")),
+                true, Optional.empty(), scan);
+        // A truncated binary upper bound can be larger and shorter than every stored value.
+        PlanChecker.from(MemoTestUtils.createCascadesContext(aggregate))
+                .applyImplementation(storageLayerAggregateWithoutProject())
+                .nonMatch(physicalStorageLayerAggregate());
+    }
+
+    @Test
     public void testWithoutProject() {
         LogicalOlapScan olapScan = PlanConstructor.newLogicalOlapScan(1, "tbl", 0);
         LogicalAggregate<LogicalOlapScan> aggregate;

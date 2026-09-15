@@ -148,8 +148,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
             LogicalAggregate<?> agg = (LogicalAggregate<?>) plan;
             for (Expression groupBy : agg.getGroupByExpressions()) {
                 if (groupBy.getDataType().isObjectType()
-                        || isLegacyVariant(groupBy.getDataType())
-                        || groupBy.getDataType().isVarBinaryType()) {
+                        || isLegacyVariant(groupBy.getDataType())) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             }
@@ -192,17 +191,11 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
             for (Expression conjunct : join.getHashJoinConjuncts()) {
                 if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVariantType())) {
                     throw new AnalysisException("variant type could not in join equal conditions: " + conjunct.toSql());
-                } else if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVarBinaryType())) {
-                    throw new AnalysisException(
-                            "varbinary type could not in join equal conditions: " + conjunct.toSql());
                 }
             }
             for (Expression conjunct : join.getMarkJoinConjuncts()) {
                 if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVariantType())) {
                     throw new AnalysisException("variant type could not in join equal conditions: " + conjunct.toSql());
-                } else if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVarBinaryType())) {
-                    throw new AnalysisException(
-                            "varbinary type could not in join equal conditions: " + conjunct.toSql());
                 }
             }
         }
