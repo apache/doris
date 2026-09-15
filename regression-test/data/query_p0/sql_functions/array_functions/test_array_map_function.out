@@ -132,3 +132,7 @@
 -- !select_28 --
 []
 
+-- !array_map_null_container --
+1	\N
+2	[32]
+
