@@ -348,6 +348,7 @@ static void recover_multiple_row_binlog_pairs(bool historical, bool key_only,
             EXPECT_EQ(info->rowset->rowset_meta()->rowset_state(), RowsetStatePB::COMMITTED);
             EXPECT_EQ(info->attach_row_binlog.rowset->rowset_meta()->rowset_state(),
                       RowsetStatePB::COMMITTED);
+            EXPECT_EQ(info->attach_row_binlog.column_mapping_snapshot, nullptr);
         }
     };
     EXPECT_FALSE(publish().ok());
@@ -419,7 +420,7 @@ static void recover_multiple_row_binlog_pairs(bool historical, bool key_only,
 
         // Committed-rowset recovery deliberately does not reconstruct a mapping snapshot.
         ASSERT_TRUE(txn_info->second->unique_key_merge_on_write);
-        EXPECT_TRUE(txn_info->second->attach_row_binlog.column_mappings.empty());
+        EXPECT_EQ(txn_info->second->attach_row_binlog.column_mapping_snapshot, nullptr);
 
         // Model ADD COLUMN after commit: publish must resolve the old snapshot against the
         // transaction rowsets, not this newer tablet schema requiring an additional mapping.
@@ -453,17 +454,20 @@ static void recover_multiple_row_binlog_pairs(bool historical, bool key_only,
         EXPECT_EQ(binlog_tablet->max_version().second, max_gap.has_value() ? 3 : 2);
         const auto& info = txn_infos.at(base_tablet->get_tablet_info());
         EXPECT_EQ(info->rowset->rowset_meta()->rowset_state(), RowsetStatePB::VISIBLE);
-        const auto& snapshot = info->attach_row_binlog;
-        EXPECT_EQ(snapshot.need_historical_value, historical);
-        ASSERT_EQ(snapshot.column_mappings.size(), key_only ? 1U : 2U);
-        EXPECT_EQ(snapshot.column_mappings[0].source_uid, 0);
-        EXPECT_EQ(snapshot.column_mappings[0].current_uid, 0);
-        EXPECT_FALSE(snapshot.column_mappings[0].before_uid.has_value());
+        const auto& snapshot = info->attach_row_binlog.column_mapping_snapshot;
+        ASSERT_NE(snapshot, nullptr);
+        EXPECT_EQ(snapshot->need_historical_value(), historical);
+        ASSERT_EQ(snapshot->entries_size(), key_only ? 1 : 2);
+        EXPECT_EQ(snapshot->entries(0).source_column_unique_id(), 0);
+        EXPECT_EQ(snapshot->entries(0).current_column_unique_id(), 0);
+        EXPECT_FALSE(snapshot->entries(0).has_before_column_unique_id());
         if (!key_only) {
-            EXPECT_EQ(snapshot.column_mappings[1].source_uid, 1);
-            EXPECT_EQ(snapshot.column_mappings[1].current_uid, 1);
-            EXPECT_EQ(snapshot.column_mappings[1].before_uid,
-                      historical ? std::optional<int32_t>(5) : std::nullopt);
+            EXPECT_EQ(snapshot->entries(1).source_column_unique_id(), 1);
+            EXPECT_EQ(snapshot->entries(1).current_column_unique_id(), 1);
+            EXPECT_EQ(snapshot->entries(1).has_before_column_unique_id(), historical);
+            if (historical) {
+                EXPECT_EQ(snapshot->entries(1).before_column_unique_id(), 5);
+            }
         }
     }
 }

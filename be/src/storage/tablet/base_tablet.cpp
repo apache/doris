@@ -1582,8 +1582,11 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
     if (binlog_rs != nullptr && binlog_rs->rowset_meta() != nullptr &&
         binlog_rs->rowset_meta()->is_row_binlog()) {
         DCHECK(txn_info->attach_row_binlog.tablet != nullptr);
+        DORIS_CHECK(txn_info->attach_row_binlog.column_mapping_snapshot != nullptr);
         row_binlog_rowset = binlog_rs;
-        build_row_binlog = is_partial_update || txn_info->attach_row_binlog.need_historical_value;
+        build_row_binlog =
+                is_partial_update ||
+                txn_info->attach_row_binlog.column_mapping_snapshot->need_historical_value();
     }
 
     // rewrite conflict only when partial update or need before
@@ -1734,10 +1737,10 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
         cfg.source.row_binlog_rowset = row_binlog_rowset;
         cfg.source.base_tablet = self;
 
-        cfg.need_historical_value = txn_info->attach_row_binlog.need_historical_value;
+        const auto& snapshot = *txn_info->attach_row_binlog.column_mapping_snapshot;
+        cfg.need_historical_value = snapshot.need_historical_value();
         cfg.column_mappings = DORIS_TRY(segment_v2::resolve_row_binlog_column_mappings(
-                *rowset->tablet_schema(), *row_binlog_rowset->tablet_schema(),
-                txn_info->attach_row_binlog.column_mappings));
+                *rowset->tablet_schema(), *row_binlog_rowset->tablet_schema(), snapshot));
 
         // Wrap two transient writers into a group writer for dual flush/build.
         RowsetWriterSharedPtr data_writer_sp(std::move(transient_rs_writer));

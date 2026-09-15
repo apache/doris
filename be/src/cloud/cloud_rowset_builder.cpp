@@ -172,8 +172,17 @@ Status CloudGroupRowsetBuilder::init() {
         }
         cfg.column_mappings = std::move(*mappings);
 
-        _attach_row_binlog.need_historical_value = cfg.need_historical_value;
-        _attach_row_binlog.column_mappings = source_index_schema->row_binlog_column_mappings;
+        auto snapshot = std::make_shared<PRowBinlogWriteColumnMappings>();
+        snapshot->set_need_historical_value(cfg.need_historical_value);
+        for (const auto& mapping : source_index_schema->row_binlog_column_mappings) {
+            auto* entry = snapshot->add_entries();
+            entry->set_source_column_unique_id(mapping.source_uid);
+            entry->set_current_column_unique_id(mapping.current_uid);
+            if (mapping.before_uid.has_value()) {
+                entry->set_before_column_unique_id(*mapping.before_uid);
+            }
+        }
+        _attach_row_binlog.column_mapping_snapshot = std::move(snapshot);
     }
 
     _rowset_writer = std::move(group_writer);

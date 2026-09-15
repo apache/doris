@@ -17,6 +17,8 @@
 
 #include "storage/transform/row_binlog_derive.h"
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include <algorithm>
 #include <array>
 #include <optional>
@@ -64,6 +66,26 @@ bool row_binlog_columns_have_compatible_shape(const TabletColumn& source,
 }
 
 } // namespace
+
+Result<std::vector<RowBinlogColumnCidMapping>> resolve_row_binlog_column_mappings(
+        const TabletSchema& source_schema, const TabletSchema& row_binlog_schema,
+        const PRowBinlogWriteColumnMappings& snapshot) {
+    if (!snapshot.has_need_historical_value() || !snapshot.IsInitialized()) {
+        return ResultError(Status::InvalidArgument("Invalid row-binlog mapping snapshot"));
+    }
+    std::vector<RowBinlogColumnUidMapping> mappings;
+    mappings.reserve(snapshot.entries_size());
+    for (const auto& entry : snapshot.entries()) {
+        mappings.push_back({
+                .source_uid = entry.source_column_unique_id(),
+                .current_uid = entry.current_column_unique_id(),
+                .before_uid = entry.has_before_column_unique_id()
+                                      ? std::optional(entry.before_column_unique_id())
+                                      : std::nullopt,
+        });
+    }
+    return resolve_row_binlog_column_mappings(source_schema, row_binlog_schema, mappings);
+}
 
 Result<std::vector<RowBinlogColumnCidMapping>> resolve_row_binlog_column_mappings(
         const TabletSchema& source_schema, const TabletSchema& row_binlog_schema,

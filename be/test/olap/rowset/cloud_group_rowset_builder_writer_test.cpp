@@ -418,6 +418,7 @@ protected:
                     &txn_info.rowset_ids, &expiration, &txn_info.partial_update_info,
                     &txn_info.publish_status, &txn_info.publish_info, &txn_info.attach_row_binlog);
         };
+        std::shared_ptr<const PRowBinlogWriteColumnMappings> saved_snapshot;
         for (bool evict_bitmap : {false, true}) {
             SCOPED_TRACE(evict_bitmap);
             if (evict_bitmap) {
@@ -430,21 +431,29 @@ protected:
             ASSERT_TRUE(get_txn_info().ok());
             EXPECT_EQ(*txn_info.publish_status, PublishStatus::INIT);
             const auto& attached = txn_info.attach_row_binlog;
-            EXPECT_EQ(attached.need_historical_value, historical);
-            ASSERT_EQ(attached.column_mappings.size(), key_only ? 1U : 2U);
-            EXPECT_EQ(attached.column_mappings[0].source_uid, 0);
-            EXPECT_EQ(attached.column_mappings[0].current_uid, 0);
-            EXPECT_FALSE(attached.column_mappings[0].before_uid.has_value());
+            const auto& snapshot = attached.column_mapping_snapshot;
+            ASSERT_NE(snapshot, nullptr);
+            if (evict_bitmap) {
+                EXPECT_EQ(snapshot, saved_snapshot);
+            }
+            saved_snapshot = snapshot;
+            EXPECT_EQ(snapshot->need_historical_value(), historical);
+            ASSERT_EQ(snapshot->entries_size(), key_only ? 1 : 2);
+            EXPECT_EQ(snapshot->entries(0).source_column_unique_id(), 0);
+            EXPECT_EQ(snapshot->entries(0).current_column_unique_id(), 0);
+            EXPECT_FALSE(snapshot->entries(0).has_before_column_unique_id());
             auto resolved = segment_v2::resolve_row_binlog_column_mappings(
                     *txn_info.rowset->tablet_schema(), *attached.rowset->tablet_schema(),
-                    attached.column_mappings);
+                    *snapshot);
             ASSERT_TRUE(resolved.has_value()) << resolved.error();
             EXPECT_EQ((*resolved)[0], (segment_v2::RowBinlogColumnCidMapping {0, 0, std::nullopt}));
             if (!key_only) {
-                EXPECT_EQ(attached.column_mappings[1].source_uid, 1);
-                EXPECT_EQ(attached.column_mappings[1].current_uid, 1);
-                EXPECT_EQ(attached.column_mappings[1].before_uid,
-                          historical ? std::optional<int32_t>(5) : std::nullopt);
+                EXPECT_EQ(snapshot->entries(1).source_column_unique_id(), 1);
+                EXPECT_EQ(snapshot->entries(1).current_column_unique_id(), 1);
+                EXPECT_EQ(snapshot->entries(1).has_before_column_unique_id(), historical);
+                if (historical) {
+                    EXPECT_EQ(snapshot->entries(1).before_column_unique_id(), 5);
+                }
                 EXPECT_EQ((*resolved)[1],
                           (segment_v2::RowBinlogColumnCidMapping {
                                   1, 1, historical ? std::optional<ColumnId>(5) : std::nullopt}));
@@ -476,12 +485,18 @@ protected:
                     << st;
 
             // The real transient writer must resolve the transaction snapshot, not rowset meta.
-            txn_info.attach_row_binlog.column_mappings[0].current_uid = 999999;
+            auto invalid_snapshot =
+                    std::make_shared<PRowBinlogWriteColumnMappings>(*saved_snapshot);
+            invalid_snapshot->mutable_entries(0)->set_current_column_unique_id(999999);
+            txn_info.attach_row_binlog.column_mapping_snapshot = std::move(invalid_snapshot);
             st = BaseTablet::update_delete_bitmap(_tablet, &txn_info, 20010, expiration);
             EXPECT_TRUE(st.is<ErrorCode::INVALID_ARGUMENT>()) << st;
             EXPECT_NE(st.to_string().find("Row-binlog mapping references a missing column uid"),
                       std::string::npos)
                     << st;
+            ASSERT_TRUE(get_txn_info().ok());
+            EXPECT_EQ(txn_info.attach_row_binlog.column_mapping_snapshot, saved_snapshot);
+            EXPECT_EQ(saved_snapshot->entries(0).current_column_unique_id(), 0);
         }
         cache.remove_unused_tablet_txn_info(20010, kDataTabletId);
         EXPECT_TRUE(get_txn_info().is<ErrorCode::NOT_FOUND>());
