@@ -231,6 +231,8 @@ TEST_F(HostLevelMSRpcRateLimitersTest, DisplayNames) {
     EXPECT_EQ(meta_service_rpc_display_name(MetaServiceRPC::PRECOMMIT_TXN), "precommit txn");
     EXPECT_EQ(meta_service_rpc_display_name(MetaServiceRPC::GET_OBJ_STORE_INFO),
               "get obj store info");
+    EXPECT_EQ(meta_service_rpc_display_name(MetaServiceRPC::REPORT_SPILL_STATS),
+              "report spill stats");
     EXPECT_EQ(meta_service_rpc_display_name(MetaServiceRPC::START_TABLET_JOB), "start tablet job");
     EXPECT_EQ(meta_service_rpc_display_name(MetaServiceRPC::FINISH_TABLET_JOB),
               "finish tablet job");

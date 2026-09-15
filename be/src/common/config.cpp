@@ -1615,6 +1615,13 @@ DEFINE_String(spill_storage_limit, "20%");               // 20%
 DEFINE_mInt32(spill_gc_interval_ms, "2000");             // 2s
 DEFINE_mInt32(spill_gc_work_time_ms, "2000");            // 2s
 DEFINE_mInt64(spill_file_part_size_bytes, "1073741824"); // 1GB
+DEFINE_String(spill_storage_type, "local");
+DEFINE_Validator(spill_storage_type, [](const std::string& config) -> bool {
+    return config == "local" || config == "s3";
+});
+DEFINE_String(spill_s3_storage_vault, "");
+DEFINE_mInt64(spill_s3_storage_limit_bytes, "0");
+DEFINE_mInt64(spill_s3_max_inflight_upload_bytes, "268435456"); // 256MB
 
 // paused query in queue timeout(ms) will be resumed or canceled
 DEFINE_Int64(spill_in_paused_queue_timeout_ms, "60000");

@@ -40,9 +40,13 @@ class FileSystem;
 } // namespace io
 
 SpillFileReader::SpillFileReader(RuntimeState* state, RuntimeProfile* profile,
-                                 std::string spill_dir, size_t part_count)
-        : _spill_dir(std::move(spill_dir)),
-          _part_count(part_count),
+                                 SpillDataDir* data_dir, std::string spill_dir,
+                                 std::vector<int64_t> part_sizes)
+        : _data_dir(data_dir),
+          _spill_dir(std::move(spill_dir)),
+          _part_sizes(std::move(part_sizes)),
+          _part_count(_part_sizes.size()),
+          _is_remote(data_dir != nullptr && data_dir->is_remote()),
           _resource_ctx(state->get_query_ctx()->resource_ctx()) {
     // Internalize counter setup. The counters themselves are registered by the owning
     // operator (SpillReadCounters::init), so look them up by the shared name constants:
@@ -62,6 +66,26 @@ SpillFileReader::SpillFileReader(RuntimeState* state, RuntimeProfile* profile,
     _read_file_size = get_counter(profile::SPILL_READ_FILE_BYTES);
     _read_rows_count = get_counter(profile::SPILL_READ_ROWS);
     _read_file_count = get_counter(profile::SPILL_READ_FILE_COUNT);
+    // Optional: older profiles may not register it.
+    _remote_read_requests = custom_profile->get_counter(profile::SPILL_REMOTE_READ_REQUESTS);
+}
+
+void SpillFileReader::_record_read(size_t bytes_read) {
+    COUNTER_UPDATE(_read_file_size, bytes_read);
+    ExecEnv::GetInstance()->spill_file_mgr()->update_spill_read_bytes(bytes_read);
+    if (_is_remote) {
+        // One read_at() is exactly one GET request on object storage.
+        if (_remote_read_requests != nullptr) {
+            COUNTER_UPDATE(_remote_read_requests, 1);
+        }
+        if (_resource_ctx) {
+            _resource_ctx->io_context()->update_spill_read_bytes_from_remote_storage(bytes_read);
+            _resource_ctx->io_context()->update_spill_remote_read_requests(1);
+        }
+        ExecEnv::GetInstance()->spill_file_mgr()->update_spill_remote_read(bytes_read, 1);
+    } else if (_resource_ctx) {
+        _resource_ctx->io_context()->update_spill_read_bytes_from_local_storage(bytes_read);
+    }
 }
 
 Status SpillFileReader::open() {
@@ -82,7 +106,15 @@ Status SpillFileReader::_open_part(size_t part_index) {
 
     SCOPED_TIMER(_read_file_timer);
     COUNTER_UPDATE(_read_file_count, 1);
-    RETURN_IF_ERROR(io::global_local_filesystem()->open_file(part_path, &_file_reader));
+    auto fs = _data_dir != nullptr ? _data_dir->fs() : io::global_local_filesystem();
+    if (fs == nullptr) {
+        return Status::InternalError("spill store {} is not ready", _data_dir->path());
+    }
+    io::FileReaderOptions opts;
+    opts.cache_type = io::FileCachePolicy::NO_CACHE;
+    // The writer recorded the part size; on object storage this saves a HEAD request.
+    opts.file_size = _part_sizes[part_index];
+    RETURN_IF_ERROR(fs->open_file(part_path, &_file_reader, &opts));
 
     size_t file_size = _file_reader->size();
     DCHECK(file_size >= 16); // max_sub_block_size + block count
@@ -93,12 +125,14 @@ Status SpillFileReader::_open_part(size_t part_index) {
     size_t bytes_read = 0;
     RETURN_IF_ERROR(_file_reader->read_at(file_size - sizeof(size_t), result, &bytes_read));
     DCHECK(bytes_read == 8);
+    _record_read(bytes_read);
 
     // read max sub block size
     bytes_read = 0;
     result.data = (char*)&_part_max_sub_block_size;
     RETURN_IF_ERROR(_file_reader->read_at(file_size - sizeof(size_t) * 2, result, &bytes_read));
     DCHECK(bytes_read == 8);
+    _record_read(bytes_read);
 
     // The buffer is used for two purposes:
     // 1. Reading the block start offsets array (needs _part_block_count * sizeof(size_t) bytes)
@@ -122,6 +156,7 @@ Status SpillFileReader::_open_part(size_t part_index) {
 
     RETURN_IF_ERROR(_file_reader->read_at(read_offset, result, &bytes_read));
     DCHECK(bytes_read == _part_block_count * sizeof(size_t));
+    _record_read(bytes_read);
 
     _block_start_offsets.resize(_part_block_count + 1);
     for (size_t i = 0; i < _part_block_count; ++i) {
@@ -185,11 +220,7 @@ Status SpillFileReader::read(Block* block, bool* eos) {
     DCHECK(bytes_read == bytes_to_read);
 
     if (bytes_read > 0) {
-        COUNTER_UPDATE(_read_file_size, bytes_read);
-        ExecEnv::GetInstance()->spill_file_mgr()->update_spill_read_bytes(bytes_read);
-        if (_resource_ctx) {
-            _resource_ctx->io_context()->update_spill_read_bytes_from_local_storage(bytes_read);
-        }
+        _record_read(bytes_read);
         COUNTER_UPDATE(_read_block_count, 1);
         {
             SCOPED_TIMER(_deserialize_timer);

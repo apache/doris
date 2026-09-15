@@ -133,6 +133,13 @@ public:
         _latest_fs = fs;
     }
 
+    // Default storage vault id of the instance as reported by meta-service. Empty when the
+    // instance runs without storage vaults or none has been set as default.
+    std::string default_vault_id() const {
+        std::lock_guard lock(_latest_fs_mtx);
+        return _default_vault_id;
+    }
+
     void get_cumu_compaction(int64_t tablet_id,
                              std::vector<std::shared_ptr<CloudCumulativeCompaction>>& res);
 
@@ -249,6 +256,7 @@ private:
     // FileSystem with latest shared storage info, new data will be written to this fs.
     mutable std::mutex _latest_fs_mtx;
     io::RemoteFileSystemSPtr _latest_fs;
+    std::string _default_vault_id;
 
     std::vector<std::shared_ptr<Thread>> _bg_threads;
 

@@ -388,6 +388,12 @@ public:
     // returns 0 for success otherwise error
     int recycle_expired_stage_objects();
 
+    // delete spill objects ("spill/" prefix of every storage vault) older than
+    // config::spill_objects_expire_time_second. They are left behind only by BEs that
+    // died and never restarted with the same cloud_unique_id.
+    // returns 0 for success otherwise error
+    int recycle_expired_spill_objects();
+
     // scan and recycle operation logs
     // returns 0 for success otherwise error
     int recycle_operation_logs();
