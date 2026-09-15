@@ -730,6 +730,12 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
         done
         touch "${PATCHED_MARK}"
     fi
+    # Existing source trees may already carry the earlier Lance patches.
+    if [[ ! -f "${PATCHED_MARK}_multivector" ]]; then
+        patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+            -p1 <"${TP_PATCH_DIR}/lance-c-0.1.9-multivector.patch"
+        touch "${PATCHED_MARK}_multivector"
+    fi
     cd -
     echo "Finished patching ${LANCE_C_SOURCE}"
 fi
