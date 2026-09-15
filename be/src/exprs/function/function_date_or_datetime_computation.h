@@ -41,6 +41,7 @@
 #include "core/block/columns_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/column/column_const.h"
+#include "core/column/column_execute_util.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
@@ -1682,26 +1683,23 @@ public:
         CHECK_EQ(arguments.size(), 3);
         auto res = ColumnFloat64::create();
 
-        bool date_consts[2];
-        date_consts[0] = is_column_const(*block.get_by_position(arguments[0]).column);
-        date_consts[1] = is_column_const(*block.get_by_position(arguments[1]).column);
-        ColumnPtr date_cols[2];
-        // convert const columns to full columns if necessary
-        default_preprocess_parameter_columns(date_cols, date_consts, {0, 1}, block, arguments);
-
-        const auto& [col3, col3_const] =
-                unpack_if_const(block.get_by_position(arguments[2]).column);
-        const auto& round_off_col = *assert_cast<const ColumnBool*>(col3.get());
-
         auto date_type = block.get_by_position(arguments[0]).type->get_primitive_type();
         DORIS_CHECK_EQ(date_type, block.get_by_position(arguments[1]).type->get_primitive_type());
+        auto round_off =
+                ColumnView<TYPE_BOOLEAN>::create(block.get_by_position(arguments[2]).column);
         if (date_type == TYPE_TIMESTAMP_NS) {
-            execute_typed<ColumnTimeStampNs>(input_rows_count, date_cols, date_consts, col3_const,
-                                             round_off_col, *res);
+            auto date1 = ColumnView<TYPE_TIMESTAMP_NS>::create(
+                    block.get_by_position(arguments[0]).column);
+            auto date2 = ColumnView<TYPE_TIMESTAMP_NS>::create(
+                    block.get_by_position(arguments[1]).column);
+            execute_typed(input_rows_count, date1, date2, round_off, *res);
         } else {
             DORIS_CHECK_EQ(date_type, TYPE_DATEV2);
-            execute_typed<ColumnDateV2>(input_rows_count, date_cols, date_consts, col3_const,
-                                        round_off_col, *res);
+            auto date1 =
+                    ColumnView<TYPE_DATEV2>::create(block.get_by_position(arguments[0]).column);
+            auto date2 =
+                    ColumnView<TYPE_DATEV2>::create(block.get_by_position(arguments[1]).column);
+            execute_typed(input_rows_count, date1, date2, round_off, *res);
         }
 
         block.replace_by_position(result, std::move(res));
@@ -1709,50 +1707,15 @@ public:
     }
 
 private:
-    template <typename DateColumn>
-    static void execute_typed(size_t input_rows_count, const ColumnPtr (&date_cols)[2],
-                              const bool (&date_consts)[2], bool round_off_const,
-                              const ColumnBool& round_off_col, ColumnFloat64& res) {
-        const auto& date1_col = *assert_cast<const DateColumn*>(date_cols[0].get());
-        const auto& date2_col = *assert_cast<const DateColumn*>(date_cols[1].get());
-        if (date_consts[0] && date_consts[1]) {
-            execute_vector<true, false>(input_rows_count, date1_col, date2_col, round_off_col, res);
-        } else if (round_off_const) {
-            execute_vector<false, true>(input_rows_count, date1_col, date2_col, round_off_col, res);
-        } else {
-            execute_vector<false, false>(input_rows_count, date1_col, date2_col, round_off_col,
-                                         res);
-        }
-    }
-
-    template <bool is_date_const, bool is_round_off_const, typename DateColumn>
-    static void execute_vector(const size_t input_rows_count, const DateColumn& date1_col,
-                               const DateColumn& date2_col, const ColumnBool& round_off_col,
-                               ColumnFloat64& res) {
+    template <PrimitiveType DateType>
+    static void execute_typed(size_t input_rows_count, const ColumnView<DateType>& date1,
+                              const ColumnView<DateType>& date2,
+                              const ColumnView<TYPE_BOOLEAN>& round_off, ColumnFloat64& res) {
         res.reserve(input_rows_count);
-        double months_between;
-        bool round_off;
-
-        if constexpr (is_date_const) {
-            auto dtv1 = date_v2_from_date_like(date1_col.get_element(0));
-            auto dtv2 = date_v2_from_date_like(date2_col.get_element(0));
-            months_between = calc_months_between(dtv1, dtv2);
-        }
-
-        if constexpr (is_round_off_const) {
-            round_off = round_off_col.get_element(0);
-        }
-
-        for (int i = 0; i < input_rows_count; ++i) {
-            if constexpr (!is_date_const) {
-                auto dtv1 = date_v2_from_date_like(date1_col.get_element(i));
-                auto dtv2 = date_v2_from_date_like(date2_col.get_element(i));
-                months_between = calc_months_between(dtv1, dtv2);
-            }
-            if constexpr (!is_round_off_const) {
-                round_off = round_off_col.get_element(i);
-            }
-            if (round_off) {
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            auto months_between = calc_months_between(date_v2_from_date_like(date1.value_at(i)),
+                                                      date_v2_from_date_like(date2.value_at(i)));
+            if (round_off.value_at(i)) {
                 months_between = round_months_between(months_between);
             }
             res.insert_value(months_between);
