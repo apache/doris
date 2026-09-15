@@ -67,6 +67,9 @@ public class LanceSchemaContractBuilderRealDatasetTest {
 
     @Test
     public void fixedListContractMatchesTheReconstructedSchemaOfARealDataset() throws Exception {
+        // The whole fixture goes through the real JNI bindings; on hosts where the bundled
+        // native library cannot load there is no meaningful subset of this test to run.
+        LanceJniTestSupport.assumeJniBindingsLoadable();
         Schema schema = new Schema(Arrays.asList(
                 new Field("v_f32", FieldType.notNullable(new ArrowType.FixedSizeList(4)),
                         Collections.singletonList(Field.nullable("item",

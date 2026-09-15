@@ -112,6 +112,7 @@ public class LanceExternalCatalogIndexAdmissionTest {
 
     @Test
     public void testLoadTableIndexAdmissionSnapshotWrapsMissingTableFailure(@TempDir Path warehouse) {
+        LanceJniTestSupport.assumeJniBindingsLoadable();
         Map<String, String> properties = new HashMap<>();
         properties.put("type", "lance");
         properties.put(LanceExternalCatalog.LANCE_CATALOG_TYPE, LanceExternalCatalog.LANCE_FILESYSTEM);

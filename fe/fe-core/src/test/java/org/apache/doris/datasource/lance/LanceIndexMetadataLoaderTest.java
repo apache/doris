@@ -826,6 +826,7 @@ public class LanceIndexMetadataLoaderTest {
 
     @Test
     public void testCollectPhysicalIndexInfosFiltersSortsAndMapsTypeNames() {
+        LanceJniTestSupport.assumeJniBindingsLoadable();
         Dataset dataset = Mockito.mock(Dataset.class);
         Mockito.when(dataset.getIndexes()).thenReturn(Arrays.asList(
                 index("__lance_frag_reuse", "44444444-4444-4444-4444-444444444444",
@@ -862,6 +863,7 @@ public class LanceIndexMetadataLoaderTest {
 
     @Test
     public void testCollectPhysicalIndexInfosBoundsRawListBeforeFiltering() {
+        LanceJniTestSupport.assumeJniBindingsLoadable();
         Dataset atLimitDataset = Mockito.mock(Dataset.class);
         List<Index> atLimit = new ArrayList<>(16384);
         for (int i = 0; i < 16384; ++i) {
@@ -891,6 +893,7 @@ public class LanceIndexMetadataLoaderTest {
 
     @Test
     public void testCollectPhysicalIndexInfosRejectsInvalidEntries() {
+        LanceJniTestSupport.assumeJniBindingsLoadable();
         Dataset nullIndexesDataset = Mockito.mock(Dataset.class);
         Mockito.when(nullIndexesDataset.getIndexes()).thenReturn(null);
         Assertions.assertThrows(IllegalArgumentException.class,
