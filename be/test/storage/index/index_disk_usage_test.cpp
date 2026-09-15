@@ -745,6 +745,21 @@ TEST_F(IndexDiskUsageCollectorTest, CollectV1ChecksCancellationPerIndexFile) {
     EXPECT_TRUE(records.empty());
 }
 
+// A rowset file system that cannot be resolved, for example after its tablet is dropped, fails
+// the query instead of being dereferenced.
+TEST_F(IndexDiskUsageCollectorTest, CollectWithoutFileSystemFails) {
+    auto schema = create_schema();
+    schema->append_index(text_index(1, true));
+    for (auto format : {InvertedIndexStorageFormatPB::V1, InvertedIndexStorageFormatPB::V2,
+                        InvertedIndexStorageFormatPB::SNII}) {
+        IndexDiskUsageCollector collector(nullptr, kTestDir + "/rs_no_fs", schema, format, 1001);
+        std::vector<IndexDiskUsageRecord> records;
+        const Status st = collector.collect(IndexDiskUsageOptions {}, &records);
+        EXPECT_TRUE(st.is<ErrorCode::INIT_FAILED>()) << st;
+        EXPECT_TRUE(records.empty());
+    }
+}
+
 // A V1 VARIANT index writes one file per extracted path under the parent index id, while the
 // rowset schema only lists the parent index.
 TEST_F(IndexDiskUsageCollectorTest, CollectV1VariantPathFilesFromFileInfo) {
