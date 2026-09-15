@@ -201,7 +201,7 @@ Result<InvertedIndexDirectoryMap> IndexFileReader::get_all_directories() {
     std::shared_lock<std::shared_mutex> lock(_mutex); // Lock for reading
     for (auto& [index, _] : _indices_entries) {
         auto&& [index_id, index_suffix] = index;
-        LOG(INFO) << "index_id:" << index_id << " index_suffix:" << index_suffix;
+        VLOG_DEBUG << "index_id:" << index_id << " index_suffix:" << index_suffix;
         auto ret = _open(index_id, index_suffix);
         if (!ret.has_value()) {
             return ResultError(ret.error());
@@ -360,6 +360,14 @@ Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> IndexFileReader::
 Result<std::unique_ptr<doris::snii::reader::LogicalIndexReader>> IndexFileReader::open_snii_index(
         const TabletIndex* index_meta, const io::IOContext* io_ctx,
         doris::snii::reader::LogicalIndexOpenMode open_mode) const {
+    return open_snii_logical_index(cast_set<uint64_t>(index_meta->index_id()),
+                                   index_meta->get_index_suffix(), io_ctx, open_mode);
+}
+
+Result<std::unique_ptr<doris::snii::reader::LogicalIndexReader>>
+IndexFileReader::open_snii_logical_index(
+        uint64_t index_id, std::string_view suffix, const io::IOContext* io_ctx,
+        doris::snii::reader::LogicalIndexOpenMode open_mode) const {
     DCHECK(_storage_format == InvertedIndexStorageFormatPB::SNII);
     std::shared_lock<std::shared_mutex> lock(_mutex);
     if (_snii_segment_reader == nullptr) {
@@ -376,14 +384,37 @@ Result<std::unique_ptr<doris::snii::reader::LogicalIndexReader>> IndexFileReader
     snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(&meta_io_ctx);
 
     auto logical_reader = std::make_unique<doris::snii::reader::LogicalIndexReader>();
-    auto status = _snii_segment_reader->open_index(cast_set<uint64_t>(index_meta->index_id()),
-                                                   index_meta->get_index_suffix(),
-                                                   logical_reader.get(), open_mode);
-    auto doris_status = status;
-    if (!doris_status.ok()) {
-        return ResultError(doris_status);
-    }
+    RETURN_IF_ERROR_RESULT(
+            _snii_segment_reader->open_index(index_id, suffix, logical_reader.get(), open_mode));
     return logical_reader;
+}
+
+Result<std::vector<doris::snii::format::LogicalIndexMetadataRef>>
+IndexFileReader::snii_logical_indexes() const {
+    DCHECK(_storage_format == InvertedIndexStorageFormatPB::SNII);
+    std::shared_lock<std::shared_mutex> lock(_mutex);
+    if (_snii_segment_reader == nullptr) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                "SNII index file {} is not opened",
+                InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix)));
+    }
+    return _snii_segment_reader->logical_indexes();
+}
+
+Status IndexFileReader::snii_core_metadata(uint64_t index_id, std::string_view suffix,
+                                           doris::snii::format::CoreMetadata* out) const {
+    DCHECK(_storage_format == InvertedIndexStorageFormatPB::SNII);
+    std::shared_lock<std::shared_mutex> lock(_mutex);
+    if (_snii_segment_reader == nullptr) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                "SNII index file {} is not opened",
+                InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix));
+    }
+    io::IOContext meta_io_ctx;
+    meta_io_ctx.is_inverted_index = true;
+    meta_io_ctx.is_index_data = true;
+    snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(&meta_io_ctx);
+    return _snii_segment_reader->core_metadata_for_index(index_id, suffix, out);
 }
 
 Result<std::unique_ptr<doris::snii::bkd::BkdSearcher>> IndexFileReader::open_snii_bkd_index(

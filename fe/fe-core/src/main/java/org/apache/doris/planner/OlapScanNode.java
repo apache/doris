@@ -1154,9 +1154,8 @@ public class OlapScanNode extends ScanNode {
         return scanRangeLocations;
     }
 
-    @VisibleForTesting
-    static boolean shouldFilterReplicaByResourceTag(boolean isInvalidComputeGroup, boolean isNotCloudComputeGroup,
-            ComputeGroup computeGroup, String beTagName) {
+    public static boolean shouldFilterReplicaByResourceTag(boolean isInvalidComputeGroup,
+            boolean isNotCloudComputeGroup, ComputeGroup computeGroup, String beTagName) {
         return isInvalidComputeGroup
                 || (Config.enable_resource_tag_location_check
                         && isNotCloudComputeGroup && !computeGroup.containsBackend(beTagName));
