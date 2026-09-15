@@ -259,6 +259,26 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testTransformValuesPreservesValueOffsetMetaPath() throws Exception {
+        assertAllAccessPathsContain(
+                "select transform_values((k, v) -> size(v), map_arr_col) from map_array_tbl",
+                ImmutableList.of(
+                        path("map_arr_col", "KEYS"),
+                        metaPath("map_arr_col", "VALUES", "OFFSET")),
+                ImmutableList.of(path("map_arr_col", "VALUES", "OFFSET")));
+    }
+
+    @Test
+    public void testTransformValuesPreservesValueNullMetaPath() throws Exception {
+        assertAllAccessPathsContain(
+                "select transform_values((k, v) -> v is null, element_at(s, 'data')[1]) from tbl",
+                ImmutableList.of(
+                        path("s", "data", "*", "KEYS"),
+                        metaPath("s", "data", "*", "VALUES", "NULL")),
+                ImmutableList.of(path("s", "data", "*", "VALUES", "NULL")));
+    }
+
+    @Test
     public void testFullFieldAccessKeepsExactMetadataPath() throws Exception {
         assertColumn("select element_at(s, 'city') from tbl "
                         + "where element_at(s, 'city') is null",
