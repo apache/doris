@@ -17,7 +17,9 @@
 
 #include "format/arrow/arrow_row_batch.h"
 
+#include <arrow/array/util.h>
 #include <arrow/buffer.h>
+#include <arrow/extension/uuid.h>
 #include <arrow/io/memory.h>
 #include <arrow/ipc/writer.h>
 #include <arrow/record_batch.h>
@@ -84,6 +86,9 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         break;
     case TYPE_IPV6:
         *result = arrow::utf8();
+        break;
+    case TYPE_UUID:
+        *result = arrow::extension::uuid();
         break;
     case TYPE_LARGEINT:
     case TYPE_VARCHAR:
@@ -198,6 +203,9 @@ std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
     } else if (primitive_type == PrimitiveType::TYPE_IPV6) {
         auto metadata = arrow::KeyValueMetadata::Make({"doris_type"}, {"IPV6"});
         return std::make_shared<arrow::Field>(field_name, arrow_type, is_nullable, metadata);
+    } else if (primitive_type == PrimitiveType::TYPE_UUID) {
+        auto metadata = arrow::KeyValueMetadata::Make({"doris_type"}, {"UUID"});
+        return std::make_shared<arrow::Field>(field_name, arrow_type, is_nullable, metadata);
     } else if (primitive_type == PrimitiveType::TYPE_LARGEINT) {
         auto metadata = arrow::KeyValueMetadata::Make({"doris_type"}, {"LARGEINT"});
         return std::make_shared<arrow::Field>(field_name, arrow_type, is_nullable, metadata);
@@ -287,12 +295,17 @@ Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::strin
 }
 
 Status serialize_arrow_schema(std::shared_ptr<arrow::Schema>* schema, std::string* result) {
-    auto make_empty_result = arrow::RecordBatch::MakeEmpty(*schema);
-    if (!make_empty_result.ok()) {
-        return Status::InternalError("serialize_arrow_schema failed, reason: {}",
-                                     make_empty_result.status().ToString());
+    std::vector<std::shared_ptr<arrow::Array>> columns;
+    columns.reserve((*schema)->num_fields());
+    for (const auto& field : (*schema)->fields()) {
+        auto empty = arrow::MakeArrayOfNull(field->type(), 0);
+        if (!empty.ok()) {
+            return Status::InternalError("serialize_arrow_schema failed, reason: {}",
+                                         empty.status().ToString());
+        }
+        columns.push_back(*empty);
     }
-    auto batch = make_empty_result.ValueOrDie();
+    auto batch = arrow::RecordBatch::Make(*schema, 0, columns);
     return serialize_record_batch(*batch, result);
 }
 

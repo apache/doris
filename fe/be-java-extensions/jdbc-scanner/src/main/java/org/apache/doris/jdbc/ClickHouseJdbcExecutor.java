@@ -33,6 +33,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * @deprecated Use {@link ClickHouseTypeHandler} instead.
@@ -90,6 +91,8 @@ public class ClickHouseJdbcExecutor extends BaseJdbcExecutor {
             case VARCHAR:
             case STRING:
                 return resultSet.getObject(columnIndex + 1, String.class);
+            case UUID:
+                return resultSet.getObject(columnIndex + 1, UUID.class);
             case ARRAY:
                 return convertArrayToList(resultSet.getArray(columnIndex + 1).getArray());
             default:

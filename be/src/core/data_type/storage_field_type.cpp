@@ -95,6 +95,8 @@ FieldType primitive_type_to_storage_field_type(PrimitiveType type) {
         return FieldType::OLAP_FIELD_TYPE_IPV4;
     case PrimitiveType::TYPE_IPV6:
         return FieldType::OLAP_FIELD_TYPE_IPV6;
+    case PrimitiveType::TYPE_UUID:
+        return FieldType::OLAP_FIELD_TYPE_UUID;
     case PrimitiveType::TYPE_UINT32:
         return FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT;
     case PrimitiveType::TYPE_UINT64:
@@ -191,6 +193,8 @@ PrimitiveType storage_field_type_to_primitive_type(FieldType type) {
         return PrimitiveType::TYPE_IPV4;
     case FieldType::OLAP_FIELD_TYPE_IPV6:
         return PrimitiveType::TYPE_IPV6;
+    case FieldType::OLAP_FIELD_TYPE_UUID:
+        return PrimitiveType::TYPE_UUID;
     case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
         return PrimitiveType::TYPE_TIMESTAMPTZ;
     case FieldType::OLAP_FIELD_TYPE_UNSIGNED_TINYINT:

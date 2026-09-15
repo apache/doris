@@ -33,6 +33,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * ClickHouse-specific type handler.
@@ -77,6 +78,8 @@ public class ClickHouseTypeHandler extends DefaultTypeHandler {
             case VARCHAR:
             case STRING:
                 return rs.getObject(columnIndex, String.class);
+            case UUID:
+                return rs.getObject(columnIndex, UUID.class);
             case ARRAY: {
                 Array array = rs.getArray(columnIndex);
                 if (array == null) {
@@ -208,4 +211,3 @@ public class ClickHouseTypeHandler extends DefaultTypeHandler {
         }
     }
 }
-

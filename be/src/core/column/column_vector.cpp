@@ -559,6 +559,7 @@ template class ColumnVector<TYPE_FLOAT>;
 template class ColumnVector<TYPE_DOUBLE>;
 template class ColumnVector<TYPE_IPV4>;
 template class ColumnVector<TYPE_IPV6>;
+template class ColumnVector<TYPE_UUID>;
 template class ColumnVector<TYPE_DATE>;
 template class ColumnVector<TYPE_DATEV2>;
 template class ColumnVector<TYPE_DATETIME>;

@@ -35,8 +35,10 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_uuid.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/orc_serde_utils.h"
+#include "core/value/uuid_value.h"
 #include "format/orc/vorc_reader.h"
 #include "format/table/iceberg/schema_parser.h"
 #include "io/fs/file_writer.h"
@@ -147,6 +149,85 @@ TEST_F(VOrcTransformerTest, IcebergBinaryTypesOverrideLegacyStringCarrier) {
     auto binary_type = transformer._build_orc_type(string_type, fields.data() + 2);
     EXPECT_EQ(orc::BINARY, binary_type->getKind());
     EXPECT_EQ("BINARY", binary_type->getAttributeValue("iceberg.binary-type"));
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): GTest assertions expand to branches.
+TEST_F(VOrcTransformerTest, NativeUuidBinaryFileRoundTrip) {
+    for (const std::string& schema_text : {"", "struct<u:binary,a:array<binary>,text:string>"}) {
+        auto uuid_type = make_nullable(std::make_shared<DataTypeUUID>());
+        auto array_type = std::make_shared<DataTypeArray>(uuid_type);
+        auto string_type = std::make_shared<DataTypeString>();
+        DataTypes types {uuid_type, array_type, string_type};
+        auto expressions = MockSlotRef::create_mock_contexts(types);
+        Block block;
+        const std::vector<std::string> inputs {
+                "00112233-4455-6677-8899-aabbccddeeff",
+                R"(["ffffffff-ffff-ffff-ffff-ffffffffffff",null,"00000000-0000-0000-0000-000000000000"])",
+                "00112233-4455-6677-8899-aabbccddeeff"};
+        for (size_t index = 0; index < types.size(); ++index) {
+            auto column = types[index]->create_column();
+            Slice input(inputs[index]);
+            ASSERT_TRUE(types[index]
+                                ->get_serde()
+                                ->deserialize_one_cell_from_json(*column, input, {})
+                                .ok());
+            column->insert_default();
+            block.insert({std::move(column), types[index], std::to_string(index)});
+        }
+        io::FileWriterPtr file_writer;
+        ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+        RuntimeState state;
+        state.set_timezone("UTC");
+        VOrcTransformer transformer(&state, file_writer.get(), expressions, schema_text,
+                                    {"u", "a", "text"}, false, TFileCompressType::PLAIN, nullptr,
+                                    _fs);
+        ASSERT_TRUE(transformer.open().ok());
+        ASSERT_TRUE(transformer.write(block).ok());
+        ASSERT_TRUE(transformer.close().ok());
+        auto reader = orc::createReader(orc::readLocalFile(_file_path), orc::ReaderOptions());
+        const auto& schema = reader->getType();
+        EXPECT_EQ(schema.getSubtype(0)->getKind(), orc::BINARY);
+        EXPECT_EQ(schema.getSubtype(0)->getAttributeValue("doris.logical_type"), "uuid");
+        EXPECT_EQ(schema.getSubtype(1)->getSubtype(0)->getKind(), orc::BINARY);
+        EXPECT_EQ(schema.getSubtype(1)->getSubtype(0)->getAttributeValue("doris.logical_type"),
+                  "uuid");
+        EXPECT_EQ(schema.getSubtype(2)->getKind(), orc::STRING);
+        auto row_reader = reader->createRowReader();
+        auto batch = row_reader->createRowBatch(10);
+        ASSERT_TRUE(row_reader->next(*batch));
+        const auto& root = assert_cast<const orc::StructVectorBatch&>(*batch);
+        const auto& uuid_batch = assert_cast<const orc::StringVectorBatch&>(*root.fields[0]);
+        EXPECT_EQ(uuid_batch.length[0], 16);
+        const std::array<uint8_t, 16> expected {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                                                0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+        EXPECT_EQ(std::memcmp(uuid_batch.data[0], expected.data(), expected.size()), 0);
+        for (size_t index = 0; index < types.size(); ++index) {
+            OrcDecodedColumnView view;
+            view.file_type = schema.getSubtype(index);
+            view.selected_type = view.file_type;
+            view.batch = root.fields[index];
+            view.rows = batch->numElements;
+            auto restored = types[index]->create_column();
+            ASSERT_TRUE(types[index]->get_serde()->read_column_from_orc(*restored, view).ok());
+            ASSERT_EQ(restored->size(), block.rows());
+            for (size_t row = 0; row < block.rows(); ++row) {
+                EXPECT_EQ((*restored)[row], (*block.get_by_position(index).column)[row]);
+            }
+        }
+    }
+}
+
+TEST_F(VOrcTransformerTest, RejectsTextSchemaForNativeUuid) {
+    auto array_type =
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeUUID>()));
+    auto expressions = MockSlotRef::create_mock_contexts(DataTypes {array_type});
+    RuntimeState state;
+    state.set_timezone("UTC");
+    VOrcTransformer transformer(&state, nullptr, expressions, "struct<a:array<string>>", {"a"},
+                                false, TFileCompressType::PLAIN, nullptr, _fs);
+    const auto status = transformer.open();
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("ORC UUID requires BINARY"), std::string::npos);
 }
 
 TEST_F(VOrcTransformerTest, ConvertsNestedLegacyUuidAndValidatesFixedBeforeOrcWrite) {
