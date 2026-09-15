@@ -693,12 +693,17 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             return canNotPush;
         }
 
-        // File MIN/MAX retains only source endpoints. A cast can turn both endpoints into NULL
-        // while an interior value remains valid. Ignore source nullability when checking the cast
-        // itself, so safe widening casts over nullable columns can still use metadata.
-        if (logicalScan instanceof LogicalFileScan && argumentsOfAggregateFunction.stream()
-                .anyMatch(argument -> argument instanceof Cast
-                        && Cast.castNullable(false, argument.child(0).getDataType(), argument.getDataType()))) {
+        // File footers and OLAP zone maps retain only source endpoints. Casts that introduce NULL
+        // can discard a valid interior value. Check the cast independently of source nullability
+        // so safe widening casts over nullable columns remain eligible. Floating sources may have
+        // NaNs omitted by file statistics; DOUBLE/DECIMAL-to-FLOAT can also underflow to signed
+        // zero and change the MIN/MAX representative even without introducing NULL.
+        if ((functionClasses.contains(Min.class) || functionClasses.contains(Max.class))
+                && argumentsOfAggregateFunction.stream().anyMatch(argument -> argument instanceof Cast
+                        && (Cast.castNullable(false, argument.child(0).getDataType(), argument.getDataType())
+                                || argument.child(0).getDataType().isFloatLikeType()
+                                || (argument.child(0).getDataType().isDecimalLikeType()
+                                        && argument.getDataType().isFloatType())))) {
             return canNotPush;
         }
 

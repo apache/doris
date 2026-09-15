@@ -42,10 +42,13 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate.PushDownAggOp;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -216,21 +219,67 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
         for (boolean projected : new boolean[] {false, true}) {
             for (boolean nullable : new boolean[] {false, true}) {
                 checkFileMinMaxCast(Type.INT, BigIntType.INSTANCE, nullable, projected, false, true);
+                checkFileMinMaxCast(Type.INT, DoubleType.INSTANCE, nullable, projected, false, true);
+                checkFileMinMaxCast(DecimalV3Type.createDecimalV3Type(3, 2).toCatalogDataType(),
+                        DecimalV3Type.createDecimalV3Type(4, 2), nullable, projected, false, true);
             }
         }
     }
 
+    @Test
+    public void testFileMinMaxFloatingCast() {
+        for (boolean projected : new boolean[] {false, true}) {
+            for (boolean nullable : new boolean[] {false, true}) {
+                for (boolean strict : new boolean[] {false, true}) {
+                    checkFileMinMaxCast(Type.DOUBLE, FloatType.INSTANCE, nullable, projected, strict, false);
+                    checkFileMinMaxCast(Type.FLOAT, DoubleType.INSTANCE, nullable, projected, strict, false);
+                    checkFileMinMaxCast(DecimalV3Type.createDecimalV3TypeNotCheck256(76, 60).toCatalogDataType(),
+                            FloatType.INSTANCE, nullable, projected, strict, false);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testOlapMinMaxCast() {
+        for (boolean projected : new boolean[] {false, true}) {
+            for (boolean nullable : new boolean[] {false, true}) {
+                for (boolean strict : new boolean[] {false, true}) {
+                    checkOlapMinMaxCast(Type.BIGINT, IntegerType.INSTANCE, nullable, projected, strict, false);
+                    checkOlapMinMaxCast(Type.DOUBLE, FloatType.INSTANCE, nullable, projected, strict, false);
+                    checkOlapMinMaxCast(Type.INT, BigIntType.INSTANCE, nullable, projected, strict, true);
+                }
+            }
+        }
+    }
+
+    private void checkOlapMinMaxCast(Type sourceType, DataType targetType, boolean nullable,
+            boolean projected, boolean strict, boolean expectedPushdown) {
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(1, "cast_table", 0);
+        scan.getTable().getFullSchema().get(0).setType(sourceType);
+        scan.getTable().getFullSchema().get(0).setIsAllowNull(nullable);
+        checkMinMaxCast(scan, targetType, projected, strict, expectedPushdown);
+    }
+
     private void checkFileMinMaxCast(Type sourceType, DataType targetType, boolean nullable,
             boolean projected, boolean strict, boolean expectedPushdown) {
-        LogicalFileScan fileScan = newFileScan(sourceType, nullable);
-        Expression argument = new Cast(fileScan.getOutput().get(0), targetType, true);
-        Plan child = fileScan;
-        RuleType ruleType = RuleType.STORAGE_LAYER_AGGREGATE_WITHOUT_PROJECT_FOR_FILE_SCAN;
+        checkMinMaxCast(newFileScan(sourceType, nullable), targetType, projected, strict, expectedPushdown);
+    }
+
+    private void checkMinMaxCast(LogicalRelation scan, DataType targetType,
+            boolean projected, boolean strict, boolean expectedPushdown) {
+        Expression argument = new Cast(scan.getOutput().get(0), targetType, true);
+        Plan child = scan;
+        RuleType ruleType = scan instanceof LogicalFileScan
+                ? RuleType.STORAGE_LAYER_AGGREGATE_WITHOUT_PROJECT_FOR_FILE_SCAN
+                : RuleType.STORAGE_LAYER_AGGREGATE_WITHOUT_PROJECT;
         if (projected) {
             Alias alias = new Alias(argument, "cast_value");
-            child = new LogicalProject<>(ImmutableList.of(alias), fileScan);
+            child = new LogicalProject<>(ImmutableList.of(alias), scan);
             argument = alias.toSlot();
-            ruleType = RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT_FOR_FILE_SCAN;
+            ruleType = scan instanceof LogicalFileScan
+                    ? RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT_FOR_FILE_SCAN
+                    : RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT;
         }
         LogicalAggregate<Plan> aggregate = new LogicalAggregate<>(Collections.emptyList(),
                 ImmutableList.of(new Alias(new Min(argument), "min"), new Alias(new Max(argument), "max")),

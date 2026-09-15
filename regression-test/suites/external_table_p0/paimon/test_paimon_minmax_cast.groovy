@@ -37,17 +37,18 @@ suite("test_paimon_minmax_cast", "p0,external,paimon,external_docker,external_do
         spark_paimon_multi """
             create database if not exists paimon.${dbName};
             drop table if exists paimon.${dbName}.minmax_cast;
-            create table paimon.${dbName}.minmax_cast (value bigint)
+            create table paimon.${dbName}.minmax_cast (value bigint, zero_value double, nan_value double)
                 using paimon tblproperties (
                     'bucket'='1',
                     'bucket-key'='value',
                     'file.format'='parquet'
                 );
             insert into paimon.${dbName}.minmax_cast
-                select /*+ coalesce(1) */ value from values
-                    (cast(-2147483649 as bigint)),
-                    (cast(0 as bigint)),
-                    (cast(2147483648 as bigint)) as data(value);
+                select /*+ coalesce(1) */ * from values
+                    (cast(-2147483649 as bigint), cast('0.0' as double), cast('0.0' as double)),
+                    (cast(0 as bigint), cast('-1e-320' as double), cast('NaN' as double)),
+                    (cast(2147483648 as bigint), cast(null as double), cast(null as double))
+                    as data(value, zero_value, nan_value) order by value;
         """
 
         sql """drop catalog if exists ${catalogName}"""
@@ -69,7 +70,11 @@ suite("test_paimon_minmax_cast", "p0,external,paimon,external_docker,external_do
         def queries = [
             "select min(cast(value as int)) from minmax_cast",
             "select max(cast(value as int)) from minmax_cast",
-            "select min(cast(value as int)), max(cast(value as int)) from minmax_cast"
+            "select min(cast(value as int)), max(cast(value as int)) from minmax_cast",
+            // Numeric equality hides signed zero, and footer extrema can omit NaN entirely.
+            "select signbit(min(cast(zero_value as float))), " +
+                    "signbit(max(cast(zero_value as float))) from minmax_cast",
+            "select isnan(max(cast(nan_value as float))) from minmax_cast"
         ]
         queries.each { query ->
             sql "set enable_push_down_no_group_agg=false"
@@ -80,6 +85,7 @@ suite("test_paimon_minmax_cast", "p0,external,paimon,external_docker,external_do
             explain {
                 sql(query)
                 contains "pushdown agg=NONE"
+                contains "paimonNativeReadSplits=1/1"
             }
         }
 
@@ -88,6 +94,8 @@ suite("test_paimon_minmax_cast", "p0,external,paimon,external_docker,external_do
             sql "select min(value), max(value) from minmax_cast"
             contains "pushdown agg=MINMAX"
             contains "inputSplitNum=1"
+            // One connector split alone does not rule out a JNI fallback.
+            contains "paimonNativeReadSplits=1/1"
         }
     } finally {
         originalSettings.each { name, value -> sql "set ${name}=${value}" }
