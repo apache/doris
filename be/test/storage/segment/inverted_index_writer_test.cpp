@@ -501,7 +501,8 @@ public:
     }
 
     // Helper method to create an inverted index with tokenization enabled
-    void create_tokenized_index(std::string_view rowset_id, int seg_id, bool enable_analyzer) {
+    void create_tokenized_index(std::string_view rowset_id, int seg_id, bool enable_analyzer,
+                                const std::string& index_suffix = "") {
         auto tablet_schema = create_schema();
 
         // Create index meta with tokenization setting
@@ -525,6 +526,9 @@ public:
 
         TabletIndex idx_meta;
         idx_meta.init_from_pb(*index_meta_pb.get());
+        if (!index_suffix.empty()) {
+            idx_meta.set_escaped_escaped_index_suffix_path(index_suffix);
+        }
 
         std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
                 local_segment_path(kTestDir, rowset_id, seg_id))};
@@ -1823,6 +1827,40 @@ TEST_F(InvertedIndexWriterTest, NormsFileCreationWithTokenization) {
             << "Expected .nrm file to NOT exist when tokenization is disabled (parser=none) "
             << "because setOmitNorms(false) is not called. This validates the fix in "
             << "inverted_index_writer.cpp where .nrm file creation depends on _should_analyzer.";
+}
+
+// A variant subcolumn index carries a non-empty index suffix. Its norms take one byte per segment
+// row even when the path is sparse, so they are written only when
+// inverted_index_write_norms_for_variant_subcolumn is enabled.
+TEST_F(InvertedIndexWriterTest, NormsFileSkippedForVariantSubcolumn) {
+    const bool original_config_value = config::inverted_index_write_norms_for_variant_subcolumn;
+    Defer restore_config {[&]() {
+        config::inverted_index_write_norms_for_variant_subcolumn = original_config_value;
+    }};
+
+    TabletIndexPB index_meta_pb;
+    index_meta_pb.set_index_type(IndexType::INVERTED);
+    index_meta_pb.set_index_id(1);
+    index_meta_pb.set_index_name("test");
+    index_meta_pb.add_col_unique_id(1); // c2 column id
+    (*index_meta_pb.mutable_properties())["parser"] = "standard";
+    TabletIndex subcolumn_index_meta;
+    subcolumn_index_meta.init_from_pb(index_meta_pb);
+    subcolumn_index_meta.set_escaped_escaped_index_suffix_path("v.s_host");
+
+    config::inverted_index_write_norms_for_variant_subcolumn = false;
+    create_tokenized_index("test_variant_subcolumn_without_norms", 0, true, "v.s_host");
+    std::string prefix_without_norms {InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, "test_variant_subcolumn_without_norms", 0))};
+    EXPECT_FALSE(check_norms_file_exists(prefix_without_norms, &subcolumn_index_meta))
+            << "a tokenized variant subcolumn index must not write .nrm by default";
+
+    config::inverted_index_write_norms_for_variant_subcolumn = true;
+    create_tokenized_index("test_variant_subcolumn_with_norms", 1, true, "v.s_host");
+    std::string prefix_with_norms {InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, "test_variant_subcolumn_with_norms", 1))};
+    EXPECT_TRUE(check_norms_file_exists(prefix_with_norms, &subcolumn_index_meta))
+            << "inverted_index_write_norms_for_variant_subcolumn=true must restore .nrm";
 }
 
 } // namespace doris::segment_v2
