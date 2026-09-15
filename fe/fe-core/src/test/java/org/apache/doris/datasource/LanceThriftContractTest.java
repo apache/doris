@@ -30,7 +30,9 @@ import org.apache.doris.thrift.TLanceScanParams;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.apache.thrift.TDeserializer;
+import org.apache.thrift.TFieldIdEnum;
 import org.apache.thrift.TSerializer;
+import org.apache.thrift.meta_data.FieldMetaData;
 import org.apache.thrift.protocol.TCompactProtocol;
 import org.junit.Assert;
 import org.junit.Test;
@@ -325,6 +327,52 @@ public class LanceThriftContractTest {
         Assert.assertNull(TLanceIndexCompletionReason.findByValue(3));
         Assert.assertNull(TLanceIndexTerminationProof.findByValue(0));
         Assert.assertNull(TLanceIndexTerminationProof.findByValue(3));
+    }
+
+    @Test
+    public void testLanceIndexJobStructFieldIdsMatchTheIdl() {
+        // Explicit field ids are the wire-drift defense of the dedicated channel. A
+        // symmetric round-trip cannot catch renumbering (reader and writer move
+        // together), so the ids are pinned against the generated metadata directly.
+        Map<String, Integer> expectedDispatchIds = new HashMap<>();
+        expectedDispatchIds.put("job_id", 1);
+        expectedDispatchIds.put("dispatch_revision", 2);
+        expectedDispatchIds.put("invocation_id", 3);
+        expectedDispatchIds.put("be_process_epoch", 4);
+        expectedDispatchIds.put("deadline_ms", 5);
+        expectedDispatchIds.put("mutation_type", 6);
+        expectedDispatchIds.put("index_name", 7);
+        expectedDispatchIds.put("column_name", 8);
+        expectedDispatchIds.put("index_type", 9);
+        expectedDispatchIds.put("properties_json", 10);
+        expectedDispatchIds.put("if_not_exists", 11);
+        expectedDispatchIds.put("if_exists", 12);
+        expectedDispatchIds.put("dataset_uri", 13);
+        expectedDispatchIds.put("admitted_dataset_version", 14);
+        expectedDispatchIds.put("schema_contract_json", 15);
+        expectedDispatchIds.put("storage_options", 16);
+        Assert.assertEquals(expectedDispatchIds, fieldIdsByName(TLanceIndexJobDispatch.metaDataMap));
+
+        Map<String, Integer> expectedReportIds = new HashMap<>();
+        expectedReportIds.put("job_id", 1);
+        expectedReportIds.put("dispatch_revision", 2);
+        expectedReportIds.put("invocation_id", 3);
+        expectedReportIds.put("be_process_epoch", 4);
+        expectedReportIds.put("result_code", 5);
+        expectedReportIds.put("completion_reason", 6);
+        expectedReportIds.put("sanitized_message", 7);
+        expectedReportIds.put("external_metadata_advanced", 8);
+        expectedReportIds.put("termination_proof", 9);
+        Assert.assertEquals(expectedReportIds, fieldIdsByName(TLanceIndexJobReport.metaDataMap));
+    }
+
+    private static Map<String, Integer> fieldIdsByName(
+            Map<? extends TFieldIdEnum, FieldMetaData> metaDataMap) {
+        Map<String, Integer> ids = new HashMap<>();
+        for (Map.Entry<? extends TFieldIdEnum, FieldMetaData> entry : metaDataMap.entrySet()) {
+            ids.put(entry.getValue().fieldName, (int) entry.getKey().getThriftFieldId());
+        }
+        return ids;
     }
 
     @Test

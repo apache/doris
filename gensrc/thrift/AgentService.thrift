@@ -667,7 +667,7 @@ enum TLanceIndexMutationType {
 // enqueues it into a bounded supervisor queue and answers immediately: OK means the
 // request was enqueued exactly once; an ERROR status means it was NOT enqueued and
 // this invocation id will never be executed. Execution and results are reported only
-// via FrontendService.report_lance_index_job_result.
+// via FrontendService.reportLanceIndexJobResult.
 struct TLanceIndexJobDispatch {
     1: required i64 job_id
     2: required i64 dispatch_revision
