@@ -462,7 +462,6 @@ TEST_F(BlockFileCacheTtlMgrTest, TabletTtlRemovedMovesBlocksBackToNormal) {
                                    std::chrono::seconds(5)));
 }
 
-
 TEST_F(BlockFileCacheTtlMgrTest, ExpiredTtlExtendedMovesBlocksBackToTtl) {
     constexpr int64_t kTabletId = 6006;
     auto tablet = std::make_shared<FakeTablet>(UnixSeconds(), 120);
@@ -618,9 +617,8 @@ TEST_F(BlockFileCacheTtlMgrTest, TtlExtensionWinsOverConcurrentExpirationScan) {
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     release_demote_scan.store(true, std::memory_order_release);
 
-    bool ends_as_ttl =
-            wait_for_condition([&]() { return block->cache_type() == FileCacheType::TTL; },
-                               std::chrono::seconds(10));
+    bool ends_as_ttl = wait_for_condition(
+            [&]() { return block->cache_type() == FileCacheType::TTL; }, std::chrono::seconds(10));
     sync_point->disable_processing();
     sync_point->clear_trace();
 

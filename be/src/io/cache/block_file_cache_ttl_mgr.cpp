@@ -283,9 +283,8 @@ void BlockFileCacheTtlMgr::run_backgroud_update_ttl_info_map() {
                     auto it = _ttl_info_map.find(tablet_id);
                     if (ttl > 0) {
                         if (it == _ttl_info_map.end()) {
-                            _ttl_info_map.emplace(
-                                    tablet_id,
-                                    TtlInfo {ttl, tablet_ctime, /*blocks_are_ttl=*/false});
+                            _ttl_info_map.emplace(tablet_id, TtlInfo {ttl, tablet_ctime,
+                                                                      /*blocks_are_ttl=*/false});
                         } else {
                             // Keep blocks_are_ttl: it describes the blocks, not the tablet meta.
                             it->second.ttl = ttl;
