@@ -546,6 +546,21 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testTryCastNotPrunedThroughFieldAccess() throws Exception {
+        // TRY_CAST of a composite type keeps whole-value semantics: the conversion fails
+        // (and TRY_CAST returns NULL) if ANY field conversion fails. An outer field access
+        // element_at(try_cast(s as struct<k:int,...>), 'k') must therefore not narrow the
+        // underlying read to the accessed field only — the whole struct is read and the
+        // cast target/identity are unchanged.
+        assertColumn(
+                "select element_at(try_cast(s as struct<k:int,l:array<map<int,struct<a:int,b:double>>>>), 'k')"
+                        + " from tbl",
+                "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s")),
+                ImmutableList.of());
+    }
+
+    @Test
     public void testPruneArrayLambda() throws Exception {
         // map_values(element_at(s, 'data').*)[0].a
         assertColumn("select element_at(array_map(x -> map_values(x)[0], element_at(s, 'data'))[0], 'a') from tbl",
