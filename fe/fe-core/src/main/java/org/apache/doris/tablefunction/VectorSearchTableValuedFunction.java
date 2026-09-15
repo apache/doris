@@ -81,8 +81,11 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
             vectorParams.setMetric(parseMetric(params.get(METRIC)));
         }
 
+        if (queryVector.isSetNumVectors() && vectorParams.getMetric() == TVectorMetric.HAMMING) {
+            throw new AnalysisException("Lance multi-vector search supports l2, cosine, and dot metrics");
+        }
         TExternalSearchRequest searchRequest = new TExternalSearchRequest()
-                .setSchemaVersion(1)
+                .setSchemaVersion(queryVector.isSetNumVectors() ? 2 : 1)
                 .setSearchQuery(TExternalSearchQuery.vector_search(vectorParams));
         TVectorSearchOptions vectorSearchOptions = buildVectorSearchOptions(params, useIndex);
         if (vectorSearchOptions != null) {
