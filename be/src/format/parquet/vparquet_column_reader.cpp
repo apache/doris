@@ -22,14 +22,18 @@
 #include <sys/types.h>
 
 #include <algorithm>
+#include <string_view>
 #include <utility>
 
+#include "common/exception.h"
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/column/column_struct.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
@@ -196,6 +200,36 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
         RETURN_IF_ERROR(struct_reader->init(std::move(child_readers), field));
         struct_reader->_filter_column_ids = filter_column_ids;
         reader.reset(struct_reader.release());
+    } else if (field->data_type->get_primitive_type() == TYPE_VARIANT) {
+        if (in_collection) {
+            return Status::NotSupported(
+                    "Parquet Variant column '{}' nested in a collection is not supported",
+                    field->name);
+        }
+        std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> child_readers;
+        for (auto& child : field->children) {
+            if (child.name == "typed_value") {
+                return Status::NotSupported(
+                        "shredded Parquet Variant column '{}' is not supported by the load "
+                        "reader, query it through a table valued function instead",
+                        field->name);
+            }
+            std::unique_ptr<ParquetColumnReader> child_reader;
+            RETURN_IF_ERROR(create(file, &child, row_group, row_ranges, ctz, io_ctx, child_reader,
+                                   max_buf_size, col_offsets, state, in_collection, column_ids,
+                                   filter_column_ids));
+            child_reader->set_column_in_nested();
+            child_readers[child.name] = std::move(child_reader);
+        }
+        auto carrier_reader =
+                StructColumnReader::create_unique(row_ranges, total_rows, ctz, io_ctx);
+        RETURN_IF_ERROR(carrier_reader->init(std::move(child_readers), field));
+        carrier_reader->_filter_column_ids = filter_column_ids;
+        auto variant_reader =
+                VariantColumnReader::create_unique(row_ranges, total_rows, ctz, io_ctx);
+        RETURN_IF_ERROR(variant_reader->init(std::move(carrier_reader), field));
+        variant_reader->_filter_column_ids = filter_column_ids;
+        reader.reset(variant_reader.release());
     } else {
         auto physical_index = field->physical_column_index;
         const tparquet::OffsetIndex* offset_index =
@@ -1018,6 +1052,90 @@ Status StructColumnReader::read_column_data(
 #ifndef NDEBUG
     doris_column->sanity_check();
 #endif
+    return Status::OK();
+}
+
+Status VariantColumnReader::init(std::unique_ptr<ParquetColumnReader> carrier_reader,
+                                 FieldSchema* field) {
+    _field_schema = field;
+    _carrier_reader = std::move(carrier_reader);
+    // StructColumnReader resolves its children by element name, so the carrier order is fixed
+    // here and does not depend on the order the writer used.
+    DataTypes leaf_types;
+    std::vector<std::string> leaf_names;
+    for (std::string_view name : {"metadata", "value"}) {
+        const auto leaf = std::ranges::find_if(
+                field->children, [name](const FieldSchema& child) { return child.name == name; });
+        DORIS_CHECK(leaf != field->children.end()) << "Parquet Variant lacks " << name;
+        leaf_types.push_back(make_nullable(leaf->data_type));
+        leaf_names.emplace_back(name);
+    }
+    _carrier_type = make_nullable(std::make_shared<DataTypeStruct>(leaf_types, leaf_names));
+    return Status::OK();
+}
+
+namespace {
+
+// Appends the decoded carrier rows to the Variant column and returns their SQL null map. A SQL
+// NULL row has no encoded bytes in the file, so it is stored as the Variant null value and the
+// caller records it in the outer null map.
+const NullMap& append_variant_rows(const IColumn& carrier, ColumnVariantV2& variants,
+                                   bool nullable_destination) {
+    const auto& carrier_nullable = assert_cast<const ColumnNullable&>(carrier);
+    const auto& carrier_nulls = carrier_nullable.get_null_map_data();
+    const auto& leaves = assert_cast<const ColumnStruct&>(carrier_nullable.get_nested_column());
+    const auto& metadata = assert_cast<const ColumnString&>(
+            assert_cast<const ColumnNullable&>(leaves.get_column(0)).get_nested_column());
+    const auto& values = assert_cast<const ColumnString&>(
+            assert_cast<const ColumnNullable&>(leaves.get_column(1)).get_nested_column());
+    if (!nullable_destination && carrier_nullable.has_null()) {
+        throw Exception(ErrorCode::CORRUPTION,
+                        "Not nullable Variant column has null values in parquet file");
+    }
+    variants.insert_encoded_pairs(metadata, values, &carrier_nulls);
+    return carrier_nulls;
+}
+
+} // namespace
+
+Status VariantColumnReader::read_column_data(
+        ColumnPtr& doris_column, const DataTypePtr& type,
+        const std::shared_ptr<TableSchemaChangeHelper::Node>& /*root_node*/, FilterMap& filter_map,
+        size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter,
+        int64_t real_column_size) {
+    if (type->get_primitive_type() != PrimitiveType::TYPE_VARIANT) {
+        return Status::Corruption(
+                "Wrong data type for column '{}', expected Variant type, actual type id {}.",
+                _field_schema->name, type->get_name());
+    }
+    DCHECK(!is_dict_filter);
+    // Decode the physical carrier with the ordinary struct reader, then hand the rows over.
+    ColumnPtr carrier = _carrier_type->create_column();
+    RETURN_IF_ERROR(_carrier_reader->read_column_data(
+            carrier, _carrier_type, TableSchemaChangeHelper::ConstNode::get_instance(), filter_map,
+            batch_size, read_rows, eof, false, real_column_size));
+
+    MutableColumnPtr data_column;
+    NullMap* null_map_ptr = nullptr;
+    doris_column = IColumn::mutate(std::move(doris_column));
+    if (is_column_nullable(*doris_column)) {
+        auto mutable_column = doris_column->assert_mutable();
+        auto* nullable_column = assert_cast<ColumnNullable*>(mutable_column.get());
+        null_map_ptr = &nullable_column->get_null_map_data();
+        data_column = nullable_column->get_nested_column_ptr();
+    } else {
+        if (_field_schema->data_type->is_nullable()) {
+            return Status::Corruption("Not nullable column has null values in parquet file");
+        }
+        data_column = doris_column->assert_mutable();
+    }
+    RETURN_IF_CATCH_EXCEPTION({
+        const NullMap& carrier_nulls = append_variant_rows(
+                *carrier, assert_cast<ColumnVariantV2&>(*data_column), null_map_ptr != nullptr);
+        if (null_map_ptr != nullptr) {
+            null_map_ptr->insert(carrier_nulls.begin(), carrier_nulls.end());
+        }
+    });
     return Status::OK();
 }
 

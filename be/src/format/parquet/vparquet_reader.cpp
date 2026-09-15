@@ -715,7 +715,9 @@ void ParquetReader::_classify_columns_for_lazy_read(
         auto file_column_name = _table_info_node_ptr->children_file_column_name(read_table_col);
         PrimitiveType column_type =
                 schema.get_column(file_column_name)->data_type->get_primitive_type();
-        if (is_complex_type(column_type)) {
+        // A Variant group is a carrier like a struct: the dictionary filter only understands
+        // scalar leaves.
+        if (is_complex_type(column_type) || column_type == TYPE_VARIANT) {
             _lazy_read_ctx.has_complex_type = true;
         }
         if (predicate_columns.size() > 0) {
@@ -1045,7 +1047,9 @@ std::vector<io::PrefetchRange> ParquetReader::_generate_random_access_ranges(
                     } else if (field->data_type->get_primitive_type() == TYPE_MAP) {
                         scalar_range(&field->children[0], row_group);
                         scalar_range(&field->children[1], row_group);
-                    } else if (field->data_type->get_primitive_type() == TYPE_STRUCT) {
+                    } else if (field->data_type->get_primitive_type() == TYPE_STRUCT ||
+                               field->data_type->get_primitive_type() == TYPE_VARIANT) {
+                        // A Variant group carries its metadata/value leaves like a struct.
                         for (int i = 0; i < field->children.size(); ++i) {
                             scalar_range(&field->children[i], row_group);
                         }
@@ -1194,7 +1198,8 @@ Status ParquetReader::_process_page_index_filter(
             } else if (field->data_type->get_primitive_type() == TYPE_MAP) {
                 f(&field->children[0]);
                 f(&field->children[1]);
-            } else if (field->data_type->get_primitive_type() == TYPE_STRUCT) {
+            } else if (field->data_type->get_primitive_type() == TYPE_STRUCT ||
+                       field->data_type->get_primitive_type() == TYPE_VARIANT) {
                 for (int i = 0; i < field->children.size(); ++i) {
                     f(&field->children[i]);
                 }

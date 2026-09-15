@@ -711,22 +711,43 @@ Status FileScanner::_cast_to_input_block(Block* block) {
         }
         auto& arg = _src_block_ptr->get_by_position(_src_block_name_to_idx[slot_desc->col_name()]);
         auto return_type = slot_desc->get_data_type_ptr();
+        // A Variant slot (Parquet loads, see NereidsLoadScanProvider) takes a native Parquet
+        // VARIANT column through the identity CAST, while a JSON string column keeps the parse the
+        // FE plans for string typed slots (NereidsLoadUtils.shouldParseVariantForLoad).
+        const bool parse_string_to_variant =
+                remove_nullable(return_type)->get_primitive_type() == TYPE_VARIANT &&
+                is_string_type(remove_nullable(arg.type)->get_primitive_type());
+        const std::string function_name = parse_string_to_variant ? "try_parse_to_variant" : "CAST";
         // remove nullable here, let the get_function decide whether nullable
         auto data_type = get_data_type_with_default_argument(remove_nullable(return_type));
-        ColumnsWithTypeAndName arguments {
-                arg, {data_type->create_column(), data_type, slot_desc->col_name()}};
-        auto func_cast =
-                SimpleFunctionFactory::instance().get_function("CAST", arguments, return_type, {});
+        ColumnsWithTypeAndName arguments {arg};
+        if (!parse_string_to_variant) {
+            arguments.push_back({data_type->create_column(), data_type, slot_desc->col_name()});
+        }
+        auto func_cast = SimpleFunctionFactory::instance().get_function(function_name, arguments,
+                                                                        return_type, {});
         if (!func_cast) {
-            return Status::InternalError("Function CAST[arg={}, col name={}, return={}] not found!",
-                                         arg.type->get_name(), slot_desc->col_name(),
+            return Status::InternalError("Function {}[arg={}, col name={}, return={}] not found!",
+                                         function_name, arg.type->get_name(), slot_desc->col_name(),
                                          return_type->get_name());
         }
         idx = _src_block_name_to_idx[slot_desc->col_name()];
         DCHECK(_state != nullptr);
         auto ctx = FunctionContext::create_context(_state, {}, {});
-        RETURN_IF_ERROR(
-                func_cast->execute(ctx.get(), *_src_block_ptr, {idx}, idx, arg.column->size()));
+        if (parse_string_to_variant) {
+            // The parse function takes its result type from the block, so it gets a scratch
+            // position; the argument keeps its file type until the result replaces it.
+            const auto result_idx = cast_set<uint32_t>(_src_block_ptr->columns());
+            _src_block_ptr->insert({nullptr, return_type, slot_desc->col_name()});
+            RETURN_IF_ERROR(func_cast->execute(ctx.get(), *_src_block_ptr, {idx}, result_idx,
+                                               arg.column->size()));
+            _src_block_ptr->get_by_position(idx).column =
+                    _src_block_ptr->get_by_position(result_idx).column;
+            _src_block_ptr->erase(result_idx);
+        } else {
+            RETURN_IF_ERROR(
+                    func_cast->execute(ctx.get(), *_src_block_ptr, {idx}, idx, arg.column->size()));
+        }
         _src_block_ptr->get_by_position(idx).type = std::move(return_type);
     }
     return Status::OK();
