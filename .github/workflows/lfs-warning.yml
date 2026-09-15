@@ -18,7 +18,7 @@
 ---
 name: 'Check Large File'
 
-on: [push, pull_request_target]
+on: pull_request_target
 
 jobs:
   large-file-checker:
@@ -44,4 +44,3 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           filesizelimit: 1MB
-
