@@ -103,6 +103,11 @@ public final class PaimonCatalogFactory {
      * plus each flavor's {@code appendCustomCatalogOptions()}.
      */
     public static Options buildCatalogOptions(PaimonCatalogProperties catalogProperties) {
+        return buildCatalogOptions(catalogProperties, false);
+    }
+
+    static Options buildCatalogOptions(
+            PaimonCatalogProperties catalogProperties, boolean hasEnclosingMetaCacheWeightLimit) {
         Options options = new Options();
         Map<String, String> props = catalogProperties.getRaw();
         String flavor = catalogProperties.getFlavor();
@@ -135,6 +140,9 @@ public final class PaimonCatalogFactory {
             default:
                 // filesystem: nothing custom.
                 break;
+        }
+        if (hasEnclosingMetaCacheWeightLimit && !options.contains(CatalogOptions.CACHE_ENABLED)) {
+            options.set(CatalogOptions.CACHE_ENABLED, false);
         }
         return options;
     }

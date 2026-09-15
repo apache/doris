@@ -173,8 +173,7 @@ public class PointQueryExecutor implements CoordInterface {
         updateScanNodeConjuncts(shortCircuitQueryContext.scanNode, colNameToConjunct);
         // short circuit plan and execution
         executor.executeAndSendResult(false, false,
-                shortCircuitQueryContext.analzyedQuery, executor.getContext()
-                        .getMysqlChannel(), null, null);
+                shortCircuitQueryContext.analzyedQuery, executor.getContext().getResultSender(), null, null);
     }
 
     private static void updateScanNodeConjuncts(OlapScanNode scanNode,

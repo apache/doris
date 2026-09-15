@@ -20,16 +20,19 @@ package org.apache.doris.connector.cache;
 import java.util.Objects;
 
 /**
- * Immutable cache key for {@link ConnectorMetadataCache}: {@code (db, table, snapshotId, schemaId)}.
+ * Immutable cache key for {@link ConnectorMetadataCache}:
+ * {@code (db, table, snapshotId, schemaId, metadataGeneration)}.
  *
  * <p>Engine-agnostic (external-partition-derived-cache design doc §5, "cache A"): a table's derived partition
  * view is a pure function of its identity plus the MVCC coordinate it was read at, so pinning that coordinate
  * into the key is what makes the cache "always correct" — a new snapshot/schema yields a new key, never a stale
  * hit. Non-MVCC engines (hive) or engines without a separate schema version pass {@code snapshotId = -1} /
- * {@code schemaId = -1}; the key still holds them, it just means "unversioned" for that axis.
+ * {@code schemaId = -1}; the key still holds them, it just means "unversioned" for that axis. Connectors whose
+ * derived view depends on another independently evolving metadata generation may use
+ * {@code metadataGeneration}; other connectors leave it at {@code -1} through the four-argument constructor.
  *
  * <p>{@link #matches} / {@link #matchesDb} back {@link ConnectorMetadataCache#invalidateTable} /
- * {@link ConnectorMetadataCache#invalidateDb}, which must drop every snapshot/schema of a (db, table) or
+ * {@link ConnectorMetadataCache#invalidateDb}, which must drop every metadata generation of a (db, table) or
  * every table of a db — mirrors the {@code matches}/{@code matchesDb} helpers on the sibling connector caches
  * ({@code MaxComputePartitionCache.PartitionKey}, {@code HiveFileListingCache.FileListingKey}).
  */
@@ -38,12 +41,18 @@ public final class ConnectorTableKey {
     private final String table;
     private final long snapshotId;
     private final long schemaId;
+    private final long metadataGeneration;
 
     public ConnectorTableKey(String db, String table, long snapshotId, long schemaId) {
+        this(db, table, snapshotId, schemaId, -1L);
+    }
+
+    public ConnectorTableKey(String db, String table, long snapshotId, long schemaId, long metadataGeneration) {
         this.db = db;
         this.table = table;
         this.snapshotId = snapshotId;
         this.schemaId = schemaId;
+        this.metadataGeneration = metadataGeneration;
     }
 
     public String getDb() {
@@ -62,12 +71,16 @@ public final class ConnectorTableKey {
         return schemaId;
     }
 
-    /** Whether this key belongs to the given (db, table), regardless of snapshotId/schemaId. */
+    public long getMetadataGeneration() {
+        return metadataGeneration;
+    }
+
+    /** Whether this key belongs to the given (db, table), regardless of its metadata coordinates. */
     public boolean matches(String db, String table) {
         return Objects.equals(this.db, db) && Objects.equals(this.table, table);
     }
 
-    /** Whether this key belongs to the given db, regardless of table/snapshotId/schemaId. */
+    /** Whether this key belongs to the given db, regardless of table or metadata coordinates. */
     public boolean matchesDb(String db) {
         return Objects.equals(this.db, db);
     }
@@ -83,18 +96,20 @@ public final class ConnectorTableKey {
         ConnectorTableKey that = (ConnectorTableKey) o;
         return snapshotId == that.snapshotId
                 && schemaId == that.schemaId
+                && metadataGeneration == that.metadataGeneration
                 && Objects.equals(db, that.db)
                 && Objects.equals(table, that.table);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(db, table, snapshotId, schemaId);
+        return Objects.hash(db, table, snapshotId, schemaId, metadataGeneration);
     }
 
     @Override
     public String toString() {
         return "ConnectorTableKey{db=" + db + ", table=" + table
-                + ", snapshotId=" + snapshotId + ", schemaId=" + schemaId + '}';
+                + ", snapshotId=" + snapshotId + ", schemaId=" + schemaId
+                + ", metadataGeneration=" + metadataGeneration + '}';
     }
 }
