@@ -30,6 +30,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
@@ -81,12 +82,20 @@ struct AggregateFunctionTopNData {
     }
 
     void merge(const AggregateFunctionTopNData& rhs) {
-        if (!rhs.top_num) {
+        if (!rhs.top_num || rhs.counter_map.empty()) {
             return;
         }
 
-        top_num = rhs.top_num;
-        capacity = rhs.capacity;
+        if (counter_map.empty()) {
+            *this = rhs;
+            return;
+        }
+        if (UNLIKELY(top_num != rhs.top_num || capacity != rhs.capacity)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "topn aggregate states have incompatible parameters: "
+                            "({}, {}) vs ({}, {}) (N, capacity)",
+                            top_num, capacity, rhs.top_num, rhs.capacity);
+        }
 
         bool lhs_full = (counter_map.size() >= capacity);
         bool rhs_full = (rhs.counter_map.size() >= capacity);
@@ -194,7 +203,11 @@ struct AggregateFunctionTopNData {
         }
     }
 
-    void reset() { counter_map.clear(); }
+    void reset() {
+        counter_map.clear();
+        top_num = 0;
+        capacity = 0;
+    }
 
     int top_num = 0;
     uint64_t capacity = 0;
