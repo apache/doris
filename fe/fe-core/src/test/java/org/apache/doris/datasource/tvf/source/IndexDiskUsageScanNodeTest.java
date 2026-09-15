@@ -298,6 +298,31 @@ public class IndexDiskUsageScanNodeTest {
         }
     }
 
+    @Test
+    public void testCloudSelectorUsesQueryableBackend() throws Exception {
+        Backend queryable = backend(2L, true);
+        TabletTarget target = target(102L, 10L, 5L);
+        Replica replica = replica(2L);
+        Mockito.when(target.getTablet().getReplicas()).thenReturn(Arrays.asList(replica));
+        IndexDiskUsageScanNode.BackendSelector selector = IndexDiskUsageScanNode.cloudSelector(
+                Replica::getBackendIdWithoutException, id -> id == 2L ? queryable : null);
+        Assertions.assertEquals(2L, selector.select(target));
+    }
+
+    @Test
+    public void testCloudSelectorRejectsSmoothUpgradeSource() {
+        // The old backend kept as a smooth upgrade fallback cannot run this scan and would return no rows.
+        Backend source = backend(1L, true);
+        Mockito.when(source.isSmoothUpgradeSrc()).thenReturn(true);
+        TabletTarget target = target(101L, 10L, 5L);
+        Replica replica = replica(1L);
+        Mockito.when(target.getTablet().getReplicas()).thenReturn(Arrays.asList(replica));
+        IndexDiskUsageScanNode.BackendSelector selector = IndexDiskUsageScanNode.cloudSelector(
+                Replica::getBackendIdWithoutException, id -> id == 1L ? source : null);
+        UserException e = Assertions.assertThrows(UserException.class, () -> selector.select(target));
+        Assertions.assertTrue(e.getMessage().contains("smooth upgrade source"), e.getMessage());
+    }
+
     private static Backend backend(long id, boolean queryAvailable) {
         return backend(id, queryAvailable, Tag.VALUE_DEFAULT_TAG, true);
     }
