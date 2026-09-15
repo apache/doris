@@ -18,9 +18,9 @@
 package org.apache.doris.arrowflight;
 
 import org.apache.doris.analysis.SetType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.util.Util;
+import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -62,8 +62,9 @@ import java.util.Map;
  * GetSessionOptions by the name it set it under. And what is read back can be set back: the empty
  * value, Flight's way of unsetting an option, puts a variable back to its default and the session
  * back into no database, as it started -- the state GetSessionOptions reports as an empty
- * {@code schema}, which sets it too. A session is always in some catalog, so {@code catalog} has no
- * empty value.
+ * {@code schema}, which sets it too. That one option runs no statement (there is no USE of
+ * nothing), so unlike every other it leaves no audit row: the frontend log records it. A session is
+ * always in some catalog, so {@code catalog} has no empty value.
  *
  * <p>The result of setting an option is one of the three {@link ErrorValue}s per name and nothing
  * else, so the reason a value was refused only reaches the frontend log.
@@ -144,12 +145,14 @@ public final class FlightSessionOptions {
             return ErrorValue.INVALID_VALUE;
         }
         // SWITCH checks the name's format before anything else and its error code would not reach
-        // here (see runStatement); the check is one of the value alone, so it is made here first.
-        try {
-            Util.checkCatalogAllRules(catalog);
-        } catch (AnalysisException e) {
+        // here (see runStatement); the check is one of the value alone, so it is made here first --
+        // the format check itself, not Util.checkCatalogAllRules: that reports through ErrorReport,
+        // which would leave ERR_WRONG_NAME_FORMAT on the session's state for an option that runs no
+        // statement to reset it.
+        if (!catalog.equals(InternalCatalog.INTERNAL_CATALOG_NAME)
+                && !catalog.matches(FeNameFormat.getCommonNameRegex())) {
             LOG.warn("session option {} of Arrow Flight SQL connection {} could not be set, catalog name {} "
-                    + "is malformed: {}", CATALOG, ctx.getConnectionId(), catalog, e.getMessage());
+                    + "is malformed", CATALOG, ctx.getConnectionId(), catalog);
             return ErrorValue.INVALID_VALUE;
         }
         return runStatement(ctx, CATALOG, "SWITCH " + quoteIdentifier(catalog), ErrorCode.ERR_UNKNOWN_CATALOG);
@@ -174,6 +177,9 @@ public final class FlightSessionOptions {
                 return ErrorValue.ERROR;
             }
             ctx.clearDatabase();
+            // No statement ran, so no audit row records this: the log is the only trace of it.
+            LOG.info("Arrow Flight SQL connection {} of user {} left its database through the empty {} option",
+                    ctx.getConnectionId(), ctx.getQualifiedUser(), SCHEMA);
             return null;
         }
         return runStatement(ctx, SCHEMA, "USE " + quoteIdentifier(database), ErrorCode.ERR_BAD_DB_ERROR);
@@ -304,7 +310,10 @@ public final class FlightSessionOptions {
 
         @Override
         public String visit(double value) {
-            return Double.isFinite(value) ? Double.toString(value) : null;
+            // As a string literal: SET parses the text with Double.parseDouble, so the value arrives
+            // exactly. An unquoted decimal beyond decimal128 precision (1.0E-40) would be parsed as a
+            // DoubleLiteral and rendered through FloatLiteral.getStringValue as "0".
+            return Double.isFinite(value) ? SqlLiteralUtils.quoteStringLiteral(Double.toString(value)) : null;
         }
 
         @Override

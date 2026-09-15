@@ -256,6 +256,12 @@ public class FlightSessionOptionsTest extends TestWithFeService {
         Assertions.assertNull(set(ctx, "insert_max_filter_ratio", SessionOptionValueFactory.makeSessionOptionValue(0.25)));
         Assertions.assertEquals(0.25, ctx.getSessionVariable().getInsertMaxFilterRatio());
         Assertions.assertEquals("0.25", get(ctx, "insert_max_filter_ratio"));
+        // A double arrives exactly, however small: it is handed to SET as text, not as an unquoted
+        // decimal that the parser would round to 0 beyond decimal128 precision.
+        Assertions.assertNull(set(ctx, "insert_max_filter_ratio",
+                SessionOptionValueFactory.makeSessionOptionValue(1.0E-40)));
+        Assertions.assertEquals(1.0E-40, ctx.getSessionVariable().getInsertMaxFilterRatio());
+        Assertions.assertEquals("1.0E-40", get(ctx, "insert_max_filter_ratio"));
     }
 
     @Test
@@ -283,8 +289,18 @@ public class FlightSessionOptionsTest extends TestWithFeService {
         try {
             Assertions.assertNull(set(ctx, "session_context", str(text)));
             Assertions.assertEquals(text, ctx.getSessionVariable().sessionContext);
+            // The second option of a request is quoted for the session's mode as well: the first
+            // option's statement left no context on the thread for the quoting to read the mode
+            // from, so the option reads it from the session itself.
+            ctx.getSessionVariable().sessionContext = "";
+            Map<String, SetSessionOptionsResult.Error> errors = setAll(ctx, ImmutableMap.of(
+                    "session_context", str(text), "ignore_shape_nodes", str(text)));
+            Assertions.assertTrue(errors.isEmpty(), errors.toString());
+            Assertions.assertEquals(text, ctx.getSessionVariable().sessionContext);
+            Assertions.assertEquals(text, ctx.getSessionVariable().ignoreShapePlanNodes);
         } finally {
             ctx.getSessionVariable().setSqlMode(sqlMode);
+            ctx.getSessionVariable().ignoreShapePlanNodes = "";
         }
     }
 
