@@ -49,6 +49,7 @@ suite("test_paimon_schema_only_snapshot_precision", "p0,external,paimon") {
             's3.access_key'='admin',
             's3.secret_key'='password',
             's3.path.style.access'='true',
+            'paimon.table-option.read.batch-size'='64',
             'meta.cache.paimon.table.ttl-second'='0'
         )
     """
@@ -118,6 +119,27 @@ suite("test_paimon_schema_only_snapshot_precision", "p0,external,paimon") {
             select id from ${tableName}
             where event_time = cast('2024-01-01 00:00:00.123456' as datetime(6))
         """
+
+        // Catalog reader policy must survive schema restoration even when it matched the old
+        // physical value. Relation overrides still take precedence for both reader paths.
+        String readerTable = "${tableName}_reader_options"
+        spark_paimon_multi """
+            drop table if exists paimon.${dbName}.${readerTable};
+            create table paimon.${dbName}.${readerTable} (id int) using paimon
+                tblproperties ('file.format'='parquet', 'read.batch-size'='64');
+            insert into paimon.${dbName}.${readerTable} values (1);
+        """
+        assertEquals([[1]], sql("select id from ${readerTable}"))
+        spark_paimon """
+            alter table paimon.${dbName}.${readerTable} set tblproperties ('read.batch-size'='0')
+        """
+        [false, true].each { forceJni ->
+            sql "set force_jni_scanner=${forceJni}"
+            assertEquals([[1]], sql("select id from ${readerTable}"))
+            assertEquals([[1]], sql("""
+                select id from ${readerTable}@options('read.batch-size'='32')
+            """))
+        }
     } finally {
         sql """set force_jni_scanner=false"""
         sql """drop catalog if exists ${catalogName}"""

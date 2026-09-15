@@ -1494,7 +1494,11 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     public ConnectorTableSchema getTableSchema(ConnectorSession session, ConnectorTableHandle handle,
             ConnectorMvccSnapshot snapshot) {
         if (!(handle instanceof HiveTableHandle)) {
-            return siblingMetadata(session, handle).getTableSchema(session, handle, snapshot);
+            // Retained latest schemas shadow the ordinary schema, so inherit the same scan capabilities.
+            SiblingOwner owner = siblingOwnerResolver.apply(handle);
+            ConnectorTableSchema schema = memoizedSiblingMetadata(session, owner.connector(), owner.label())
+                    .getTableSchema(session, handle, snapshot);
+            return reflectSiblingCapabilities(owner.connector(), schema);
         }
         // Hive has no schema-at-snapshot; the SPI default ignores the snapshot and returns the latest schema.
         return getTableSchema(session, handle);

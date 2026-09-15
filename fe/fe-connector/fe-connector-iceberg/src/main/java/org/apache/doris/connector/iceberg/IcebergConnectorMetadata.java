@@ -2159,6 +2159,14 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         IcebergLatestSnapshotCache.CachedSnapshot pin = latestSnapshotCache != null
                 ? latestSnapshotCache.getOrLoad(id, () -> loadLatestSnapshotPin(session, iceHandle))
                 : loadLatestSnapshotPin(session, iceHandle);
+        // Without a UUID, ordinary commits change the only available identity. Do not reuse these
+        // coordinates across statements; within a statement the frozen table still validates its pin.
+        if (latestSnapshotCache != null && pin.tableIdentity != null && pin.tableIdentity.startsWith("metadata:")) {
+            latestSnapshotCache.invalidate(id);
+            // A concurrent query may have observed the entry before eviction. Resolve from this
+            // statement's table even on that cache hit; a miss reuses the table it just froze.
+            pin = loadLatestSnapshotPin(session, iceHandle);
+        }
         ConnectorMvccSnapshot.Builder snapshot = ConnectorMvccSnapshot.builder()
                 .snapshotId(pin.snapshotId).schemaId(pin.schemaId);
         if (pin.tableIdentity != null) {

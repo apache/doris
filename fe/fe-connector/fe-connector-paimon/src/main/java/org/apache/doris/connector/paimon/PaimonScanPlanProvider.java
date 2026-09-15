@@ -361,8 +361,14 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
     }
 
+    private Map<String, String> effectiveScanOptions(PaimonTableHandle handle) {
+        Map<String, String> options = handle.getScanOptions();
+        return PaimonScanParams.preservesBoundSchema(options)
+                ? PaimonScanParams.withCatalogOptions(options, PaimonTableOptions.extract(catalogProps.getRaw())) : options;
+    }
+
     private Table applyScanOptions(PaimonTableHandle paimonHandle, Table table) {
-        Map<String, String> scanOptions = paimonHandle.getScanOptions();
+        Map<String, String> scanOptions = effectiveScanOptions(paimonHandle);
         Table finalTable = table;
         if (scanOptions != null && !scanOptions.isEmpty()
                 && !(paimonHandle.isSystemTable() && PaimonScanParams.preservesBoundSchema(scanOptions))) {
@@ -1194,7 +1200,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // These later property transformations can reopen schema files on the retained source,
         // after tableForBackend has already left its authentication and plugin classloader scope.
         return withBoundSchemaAuthentication(handle,
-                () -> PaimonReaderOptions.runtimeSafeSystemSource(source, handle.getScanOptions()));
+                () -> PaimonReaderOptions.runtimeSafeSystemSource(source, effectiveScanOptions(handle)));
     }
 
     /**
@@ -1254,7 +1260,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (resolvesOnBackend) {
             preparedDataTable = pinCatalogSnapshot(preparedDataTable, dataTable);
         }
-        Map<String, String> scanOptions = handle.getScanOptions();
+        Map<String, String> scanOptions = effectiveScanOptions(handle);
         boolean optionsAppliedToSource = PaimonScanParams.isOptionsPin(scanOptions);
         if (optionsAppliedToSource) {
             // Fallback snapshot translation consults each branch catalog, so options must be
@@ -1482,7 +1488,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             // A reloaded source still needs the bound schema and data selector; otherwise the
             // native dictionary can disagree with the wrapper after either cache or handle reload.
             return withBoundSchemaAuthentication(handle, () -> PaimonReaderOptions.runtimeSafeSystemSource(
-                    pinnedSource == null ? reloadBaseTable(handle) : pinnedSource, handle.getScanOptions()));
+                    pinnedSource == null ? reloadBaseTable(handle) : pinnedSource, effectiveScanOptions(handle)));
         }
         return null;
     }

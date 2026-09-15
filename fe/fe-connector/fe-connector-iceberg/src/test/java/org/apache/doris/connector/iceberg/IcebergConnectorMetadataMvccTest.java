@@ -340,6 +340,7 @@ public class IcebergConnectorMetadataMvccTest {
                 IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext(), cache);
         ConnectorMvccSnapshot pin = reader.beginQuerySnapshot(null, handle()).get();
         Assertions.assertTrue(reader.getColumnHandles(null, handle(), pin).containsKey("id"));
+        Assertions.assertEquals(0, cache.size(), "UUID-less coordinates must not be cached across statements");
         // Without a UUID, even matching numeric IDs cannot justify crossing metadata-file identities.
         ops.table = new BaseTable(new StaticTableOperations(
                 TableMetadataParser.fromJson("s3://bucket/table/metadata/replacement.json", json), new InMemoryFileIO()),
@@ -347,6 +348,36 @@ public class IcebergConnectorMetadataMvccTest {
         Assertions.assertThrows(DorisConnectorException.class, () -> reader.getTableSchema(null, handle(), pin));
         ConnectorMvccSnapshot retry = reader.beginQuerySnapshot(null, handle()).get();
         Assertions.assertTrue(reader.getColumnHandles(null, handle(), retry).containsKey("id"));
+    }
+
+    @Test
+    public void uuidlessOrdinaryCommitDoesNotReuseLatestCoordinates() throws Exception {
+        TableMetadata metadata = TableMetadata.newTableMetadata(SCHEMA_V0, PartitionSpec.unpartitioned(),
+                "s3://bucket/table", Collections.singletonMap("format-version", "1"));
+        ObjectNode json = (ObjectNode) JsonUtil.mapper().readTree(TableMetadataParser.toJson(metadata));
+        json.remove("table-uuid");
+        String firstLocation = "s3://bucket/table/metadata/first.json";
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = new BaseTable(new StaticTableOperations(
+                TableMetadataParser.fromJson(firstLocation, json), new InMemoryFileIO()), "db1.t1");
+        IcebergLatestSnapshotCache cache = new IcebergLatestSnapshotCache(100, 1000);
+        IcebergCatalogProperties props = IcebergCatalogProperties.of(Collections.emptyMap());
+        ConnectorMvccSnapshot first = new IcebergConnectorMetadata(ops, props, new RecordingConnectorContext(), cache)
+                .beginQuerySnapshot(null, handle()).get();
+        // A normal property commit retains the prior metadata in its ancestry and advances its file.
+        json.putArray("metadata-log").addObject()
+                .put("timestamp-ms", json.get("last-updated-ms").asLong()).put("metadata-file", firstLocation);
+        json.put("last-updated-ms", json.get("last-updated-ms").asLong() + 1);
+        ((ObjectNode) json.get("properties")).put("read.split.target-size", "67108864");
+        ops.table = new BaseTable(new StaticTableOperations(
+                TableMetadataParser.fromJson("s3://bucket/table/metadata/next.json", json), new InMemoryFileIO()),
+                "db1.t1");
+        IcebergConnectorMetadata nextQuery = new IcebergConnectorMetadata(
+                ops, props, new RecordingConnectorContext(), cache);
+        ConnectorMvccSnapshot next = nextQuery.beginQuerySnapshot(null, handle()).get();
+        Assertions.assertNotEquals(first.getProperties(), next.getProperties());
+        Assertions.assertTrue(nextQuery.getColumnHandles(null, handle(), next).containsKey("id"));
+        Assertions.assertEquals(0, cache.size());
     }
 
     @Test

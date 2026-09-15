@@ -202,8 +202,9 @@ public final class PaimonScanParams {
                     .forEach(key -> isolatedOptions.put(key, null));
         }
         String schemaId = options.get(BOUND_SCHEMA_ID);
-        if (schemaId != null && table.schema().id() != Long.parseLong(schemaId)) {
-            table = restoreBoundSchema(table, Long.parseLong(schemaId));
+        PaimonSchemaPin.validate(table, options);
+        if (schemaId != null) {
+            table = restoreBoundSchema(table, Long.parseLong(schemaId), options, "");
         }
         FileStoreTable effectiveTable = (FileStoreTable) PaimonReaderOptions.runtimeSafeTable(
                 table.copyWithoutTimeTravel(isolatedOptions));
@@ -211,16 +212,24 @@ public final class PaimonScanParams {
         return effectiveTable;
     }
 
-    private static FileStoreTable restoreBoundSchema(FileStoreTable table, long schemaId) {
+    private static FileStoreTable restoreBoundSchema(
+            FileStoreTable table, long schemaId, Map<String, String> options, String path) {
         if (table instanceof FallbackReadFileStoreTable) {
             FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
-            // Schema IDs are branch-local. Broadcasting the main schema through copy(TableSchema)
-            // overwrites the fallback's provenance and can even reset its branch to main.
-            return new FallbackReadFileStoreTable(restoreBoundSchema(pair.wrapped(), schemaId), pair.fallback());
+            // Each branch has its own schema history. Restore both children at their captured
+            // coordinates, preserving compatibility without broadcasting the main schema ID.
+            String fallbackPath = path + "fallback.";
+            long fallbackId = PaimonSchemaPin.fallbackSchemaId(options, fallbackPath,
+                    () -> pair.fallback().schemaManager().latest().orElseThrow(IllegalStateException::new).id());
+            return new FallbackReadFileStoreTable(restoreBoundSchema(pair.wrapped(), schemaId, options, path),
+                    restoreBoundSchema(pair.fallback(), fallbackId, options, fallbackPath));
         }
         if (table instanceof DelegatedFileStoreTable) {
             FileStoreTable wrapped = ((DelegatedFileStoreTable) table).wrapped();
-            return PaimonTableDecorators.replaceWrapped(table, restoreBoundSchema(wrapped, schemaId));
+            return PaimonTableDecorators.replaceWrapped(table, restoreBoundSchema(wrapped, schemaId, options, path));
+        }
+        if (table.schema().id() == schemaId) {
+            return table;
         }
         TableSchema bound = table.schemaManager().schema(schemaId);
         Map<String, String> persisted = table.schemaManager().schema(table.schema().id()).options();
@@ -230,6 +239,12 @@ public final class PaimonScanParams {
         table.options().forEach((key, value) -> {
             if (!Objects.equals(persisted.get(key), value)) {
                 merged.put(key, value);
+            }
+        });
+        // Explicit catalog overrides can equal old physical values; equality is not provenance.
+        options.forEach((key, value) -> {
+            if (key.startsWith(INTERNAL_PREFIX + "catalog-option.")) {
+                merged.put(key.substring((INTERNAL_PREFIX + "catalog-option.").length()), value);
             }
         });
         return table.copy(bound.copy(merged));
@@ -423,6 +438,12 @@ public final class PaimonScanParams {
             bound.put(BOUND_SCHEMA_ID, Long.toString(schemaId));
         }
         return bound;
+    }
+
+    static Map<String, String> withCatalogOptions(Map<String, String> options, Map<String, String> catalogOptions) {
+        Map<String, String> result = new HashMap<>(options);
+        catalogOptions.forEach((key, value) -> result.put(INTERNAL_PREFIX + "catalog-option." + key, value));
+        return result;
     }
 
     public static boolean preservesBoundSchema(Map<String, String> options) {

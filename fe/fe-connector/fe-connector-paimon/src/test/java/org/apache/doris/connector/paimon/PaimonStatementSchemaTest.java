@@ -69,6 +69,169 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 public class PaimonStatementSchemaTest {
+    @Test
+    public void latestPinSurvivesInsertScopeReset(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder().column("old_name", DataTypes.INT()).build(), false);
+            append((FileStoreTable) catalog.getTable(id), GenericRow.of(1));
+            PaimonCatalogOps ops = new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(catalog);
+            PaimonCatalogProperties props = PaimonCatalogProperties.of(Collections.emptyMap());
+            PaimonSchemaAtMemo memo = new PaimonSchemaAtMemo(1000);
+            PaimonTableHandle old = new PaimonTableHandle("db", "t", Collections.emptyList(), Collections.emptyList());
+            old.setPaimonTable(catalog.getTable(id));
+            new PaimonConnectorMetadata(ops, props, new RecordingConnectorContext(), memo)
+                    .getTableSchema(null, old, ConnectorMvccSnapshot.builder().snapshotId(1).schemaId(0)
+                            .property("scan.snapshot-id", "1").build());
+            Assertions.assertEquals(1, memo.size());
+            catalog.dropTable(id, false);
+            catalog.createTable(id, Schema.newBuilder().column("new_name", DataTypes.INT()).build(), false);
+            PaimonTableHandle handle = new PaimonTableHandle("db", "t", Collections.emptyList(), Collections.emptyList());
+            handle.setPaimonTable(catalog.getTable(id));
+            PaimonConnectorMetadata first = new PaimonConnectorMetadata(ops, props, new RecordingConnectorContext(), memo);
+            ConnectorMvccSnapshot pin = first.beginQuerySnapshot(null, handle).get();
+            Assertions.assertEquals("new_name", first.getTableSchema(null, handle, pin).getColumns().get(0).getName());
+            // INSERT replanning retains the source pin but creates a fresh connector metadata scope.
+            PaimonConnectorMetadata retry = new PaimonConnectorMetadata(ops, props, new RecordingConnectorContext(), memo);
+            Assertions.assertTrue(retry.getColumnHandles(null, handle, pin).containsKey("new_name"));
+            Assertions.assertEquals("new_name", retry.getTableSchema(null, handle, pin).getColumns().get(0).getName());
+        }
+    }
+
+    @Test
+    public void latestPinRejectsReplacementDuringStatement(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.INT()).build(), false);
+            append((FileStoreTable) catalog.getTable(id), GenericRow.of(1));
+            PaimonCatalogOps ops = new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(catalog);
+            PaimonCatalogProperties props = PaimonCatalogProperties.of(Collections.emptyMap());
+            PaimonTableHandle first = new PaimonTableHandle("db", "t", Collections.emptyList(), Collections.emptyList());
+            first.setPaimonTable(catalog.getTable(id));
+            PaimonConnectorMetadata md = new PaimonConnectorMetadata(ops, props, new RecordingConnectorContext());
+            ConnectorMvccSnapshot pin = md.beginQuerySnapshot(null, first).get();
+            md.getTableSchema(null, first, pin);
+            catalog.dropTable(id, false);
+            catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.INT()).build(), false);
+            append((FileStoreTable) catalog.getTable(id), GenericRow.of(2));
+            PaimonTableHandle replacement = new PaimonTableHandle("db", "t", Collections.emptyList(), Collections.emptyList());
+            replacement.setPaimonTable(catalog.getTable(id));
+            Assertions.assertEquals(pin.getSchemaId(), ((FileStoreTable) replacement.getPaimonTable()).schema().id());
+            ConnectorMvccSnapshot aliasPin = md.beginQuerySnapshot(null, replacement).get();
+            Assertions.assertEquals(pin.getProperties(), aliasPin.getProperties());
+            PaimonTableHandle scanHandle = (PaimonTableHandle) md.applySnapshot(null, replacement, pin);
+            scanHandle.setPaimonTable(null);
+            Assertions.assertTrue(Assertions.assertThrows(RuntimeException.class,
+                    () -> new PaimonScanPlanProvider(props, ops).resolveScanTable(scanHandle))
+                    .getMessage().contains("changed"));
+            Assertions.assertTrue(Assertions.assertThrows(RuntimeException.class,
+                    () -> md.getColumnHandles(null, replacement, pin)).getMessage().contains("changed"));
+        }
+    }
+
+    @Test
+    public void latestPinRejectsRecreationWhileCapturingSchema(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder().column("old_name", DataTypes.INT()).build(), false);
+            PaimonCatalogOps ops = new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(catalog) {
+                @Override
+                public Optional<PaimonSchemaSnapshot> latestSchema(Table table) {
+                    Optional<PaimonSchemaSnapshot> schema = super.latestSchema(table);
+                    try {
+                        catalog.dropTable(id, false);
+                        catalog.createTable(id,
+                                Schema.newBuilder().column("new_name", DataTypes.INT()).build(), false);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                    return schema;
+                }
+            };
+            PaimonTableHandle handle = new PaimonTableHandle("db", "t", Collections.emptyList(), Collections.emptyList());
+            handle.setPaimonTable(catalog.getTable(id));
+            PaimonConnectorMetadata md = new PaimonConnectorMetadata(ops,
+                    PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
+            Assertions.assertTrue(Assertions.assertThrows(RuntimeException.class,
+                    () -> md.beginQuerySnapshot(null, handle)).getMessage().contains("changed"));
+        }
+    }
+
+    @Test
+    public void fallbackCapturesBothLatestSchemas(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.INT())
+                    .column("v", DataTypes.INT()).primaryKey("id").option("bucket", "1").build(), false);
+            FileStoreTable main = (FileStoreTable) catalog.getTable(id);
+            append(main, GenericRow.of(1, 10));
+            main.createBranch("backup");
+            FileStoreTable fallback = main.switchToBranch("backup");
+            append(fallback, GenericRow.of(2, 20));
+            main.schemaManager().commitChanges(SchemaChange.addColumn("added", DataTypes.INT()));
+            fallback.schemaManager().commitChanges(SchemaChange.setOption("read.batch-size", "64"));
+            fallback.schemaManager().commitChanges(SchemaChange.addColumn("added", DataTypes.INT()));
+            PaimonTableHandle handle = new PaimonTableHandle("db", "t", Collections.emptyList(), Collections.emptyList());
+            handle.setPaimonTable(new FallbackReadFileStoreTable(main, fallback));
+            PaimonCatalogOps ops = new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(catalog);
+            PaimonCatalogProperties props = PaimonCatalogProperties.of(Collections.emptyMap());
+            PaimonConnectorMetadata md = new PaimonConnectorMetadata(ops, props, new RecordingConnectorContext());
+            ConnectorMvccSnapshot pin = md.beginQuerySnapshot(null, handle).get();
+            PaimonTableHandle pinned = (PaimonTableHandle) md.applySnapshot(null, handle, pin);
+            // Later branch changes must not move the already captured fallback schema.
+            fallback.schemaManager().commitChanges(SchemaChange.addColumn("later", DataTypes.INT()));
+            FileStoreTable scan = (FileStoreTable) new PaimonScanPlanProvider(props, ops).resolveScanTable(pinned);
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) scan;
+            Assertions.assertEquals(1, pair.wrapped().schema().id());
+            Assertions.assertEquals(2, pair.fallback().schema().id());
+            Assertions.assertEquals(pair.wrapped().rowType(), pair.fallback().rowType());
+            Assertions.assertEquals("backup", pair.fallback().coreOptions().branch());
+            Assertions.assertTrue(readIds(scan).contains(1));
+            Assertions.assertThrows(RuntimeException.class,
+                    () -> PaimonScanParams.applyOptionsWithoutTimeTravel(main, pinned.getScanOptions()));
+        }
+    }
+
+    @Test
+    public void explicitCatalogOptionSurvivesEqualOldPhysicalValue(@TempDir Path warehouse) throws Exception {
+        checkCatalogOptionPrecedence(warehouse.resolve("positive"), "128");
+        checkCatalogOptionPrecedence(warehouse.resolve("invalid"), "0");
+    }
+
+    private void checkCatalogOptionPrecedence(Path warehouse, String physicalValue) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.INT())
+                    .option("read.batch-size", "64").build(), false);
+            PaimonCatalogOps ops = new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(catalog,
+                    Collections.singletonMap("read.batch-size", "64"));
+            PaimonCatalogProperties props = PaimonCatalogProperties.of(
+                    Collections.singletonMap("paimon.table-option.read.batch-size", "64"));
+            PaimonTableHandle handle = new PaimonTableHandle("db", "t", Collections.emptyList(), Collections.emptyList());
+            handle.setPaimonTable(ops.getTable(id));
+            catalog.alterTable(id, Collections.singletonList(SchemaChange.setOption("read.batch-size", physicalValue)), false);
+            PaimonConnectorMetadata md = new PaimonConnectorMetadata(ops, props, new RecordingConnectorContext());
+            PaimonTableHandle pinned = (PaimonTableHandle) md.applySnapshot(null, handle,
+                    md.beginQuerySnapshot(null, handle).get());
+            Table scan = new PaimonScanPlanProvider(props, ops).resolveScanTable(pinned);
+            Assertions.assertEquals("64", scan.options().get("read.batch-size"));
+            Map<String, String> relationOptions = new java.util.HashMap<>(pinned.getScanOptions());
+            relationOptions.put("read.batch-size", "32");
+            Table relationScan = new PaimonScanPlanProvider(props, ops)
+                    .resolveScanTable(pinned.withScanOptions(relationOptions));
+            Assertions.assertEquals("32", relationScan.options().get("read.batch-size"));
+        }
+    }
 
     @Test
     public void latestSchemaSurvivesExternalRecreationWithReusedId(@TempDir Path warehouse) throws Exception {
@@ -103,7 +266,9 @@ public class PaimonStatementSchemaTest {
                     .getColumns().get(0).getName());
             // Warm the historical memo independently; latest reads must not reuse it after recreation.
             new PaimonConnectorMetadata(ops, props, new RecordingConnectorContext(), memo, cache)
-                    .getTableSchema(null, firstHandle, oldPin);
+                    .getTableSchema(null, firstHandle, ConnectorMvccSnapshot.builder()
+                            .snapshotId(oldPin.getSnapshotId()).schemaId(oldPin.getSchemaId())
+                            .property("scan.snapshot-id", "1").build());
             Assertions.assertEquals(1, memo.size());
             catalog.dropTable(id, false);
             catalog.createTable(id, Schema.newBuilder().column("new_name", DataTypes.INT()).build(), false);

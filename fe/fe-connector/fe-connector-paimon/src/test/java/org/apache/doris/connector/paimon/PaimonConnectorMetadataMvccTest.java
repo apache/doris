@@ -882,7 +882,8 @@ public class PaimonConnectorMetadataMvccTest {
                 rowType("id", "dt").getFields(), Arrays.asList("dt"), Collections.emptyList());
         ops1.schemaAt = atSchema;
         ops2.schemaAt = atSchema;
-        ConnectorMvccSnapshot snapshot = ConnectorMvccSnapshot.builder().snapshotId(7L).schemaId(2L).build();
+        ConnectorMvccSnapshot snapshot = ConnectorMvccSnapshot.builder().snapshotId(7L).schemaId(2L)
+                .property("scan.snapshot-id", "7").build();
 
         ConnectorTableSchema schema1 = metadataWith(ops1, memo).getTableSchema(null, handle, snapshot);
         ConnectorTableSchema schema2 = metadataWith(ops2, memo).getTableSchema(null, handle, snapshot);
