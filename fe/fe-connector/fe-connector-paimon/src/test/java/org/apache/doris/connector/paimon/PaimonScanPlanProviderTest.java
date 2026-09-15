@@ -270,8 +270,9 @@ public class PaimonScanPlanProviderTest {
         // Kerberos filesystem catalog that read runs on the PLUGIN's UGI copy, which only the plugin doAs
         // logs in (iceberg fourth-locus parity; iceberg CI proof: SELECT after INSERT failing SASL at the
         // plan-time manifest read). So planScan must wrap the enumeration in executeAuthenticated IN
-        // ADDITION to resolveTable's load wrap. MUTATION: dropping the planSplits wrap -> authCount stays
-        // 1 (load only) -> red.
+        // ADDITION to resolveTable's load wrap. The generation lookup is also a remote read and the fake
+        // below rejects it unless it runs inside authentication. MUTATION: dropping either remote-read
+        // wrap makes this test fail.
         try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
                 new org.apache.paimon.fs.Path(warehouse.toUri()))) {
             catalog.createDatabase("db", false);
@@ -295,7 +296,9 @@ public class PaimonScanPlanProviderTest {
             RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
             ops.table = table;
             RecordingConnectorContext ctx = new RecordingConnectorContext();
-            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops, ctx);
+            ops.latestSnapshotAuthentication = ctx::isAuthenticated;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops, ctx);
             PaimonTableHandle handle = new PaimonTableHandle(
                     "db", "t", Collections.emptyList(), Collections.emptyList());
 
@@ -315,10 +318,94 @@ public class PaimonScanPlanProviderTest {
             Assertions.assertFalse(ranges.isEmpty(), "one committed row must plan at least one split");
             Assertions.assertSame(ranges, reused,
                     "independently built but structurally equal filters must share one statement plan");
-            Assertions.assertEquals(2, ctx.authCount,
-                    "planScan must run BOTH the table load (resolveTable) AND the split enumeration "
-                            + "(scan.plan(), the remote manifest read) inside executeAuthenticated");
+            Assertions.assertEquals(4, ctx.authCount,
+                    "two scans must authenticate one memoized table load, two generation lookups, "
+                            + "and one memoized split enumeration");
         }
+    }
+
+    @Test
+    public void statementResolutionKeepsAliasesOnOnePhysicalGeneration() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+        FakePaimonTable generationA = new FakePaimonTable(
+                "generation-a", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        FakePaimonTable generationB = new FakePaimonTable(
+                "generation-b", rowType("id", "new_column"),
+                Collections.emptyList(), Collections.emptyList());
+        PaimonTableHandle firstAlias = new PaimonTableHandle(
+                "db", "t", Collections.emptyList(), Collections.emptyList());
+        firstAlias.setPaimonTable(generationA);
+        PaimonTableHandle secondAlias = new PaimonTableHandle(
+                "db", "t", Collections.emptyList(), Collections.emptyList());
+        secondAlias.setPaimonTable(generationB);
+        ConnectorSession session = sessionWithProps(
+                Collections.singletonMap("enable_external_scan_task_reuse", "true"),
+                new TestStatementScope());
+
+        Table first = provider.resolveScanTableConsistent(session, firstAlias);
+        Table second = provider.resolveScanTableConsistent(session, secondAlias);
+
+        Assertions.assertSame(generationA, first);
+        Assertions.assertSame(first, second,
+                "equal logical aliases must not mix generation-A ranges with generation-B properties");
+    }
+
+    @Test
+    public void systemTableResolutionKeepsWrapperAndSourceHandleLocal() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+        FakePaimonTable wrapperA = new FakePaimonTable(
+                "wrapper-a", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        FakePaimonTable wrapperB = new FakePaimonTable(
+                "wrapper-b", rowType("id", "new_column"),
+                Collections.emptyList(), Collections.emptyList());
+        FakePaimonTable sourceA = new FakePaimonTable(
+                "source-a", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        FakePaimonTable sourceB = new FakePaimonTable(
+                "source-b", rowType("id", "new_column"),
+                Collections.emptyList(), Collections.emptyList());
+        PaimonTableHandle firstAlias = PaimonTableHandle.forSystemTable("db", "t", "ro", false);
+        firstAlias.setPaimonTable(wrapperA);
+        firstAlias.setSystemTableSource(sourceA);
+        PaimonTableHandle secondAlias = PaimonTableHandle.forSystemTable("db", "t", "ro", false);
+        secondAlias.setPaimonTable(wrapperB);
+        secondAlias.setSystemTableSource(sourceB);
+        ConnectorSession session = sessionWithProps(
+                Collections.singletonMap("enable_external_scan_task_reuse", "true"),
+                new TestStatementScope());
+
+        Table first = provider.resolveScanTableConsistent(session, firstAlias);
+        Table second = provider.resolveScanTableConsistent(session, secondAlias);
+
+        Assertions.assertEquals(firstAlias, secondAlias,
+                "the regression requires aliases that would otherwise share the statement memo");
+        Assertions.assertSame(wrapperA, first);
+        Assertions.assertSame(wrapperB, second,
+                "system-table properties must use the same handle-local generation as split planning");
+        Assertions.assertSame(sourceA, firstAlias.getSystemTableSource());
+        Assertions.assertSame(sourceB, secondAlias.getSystemTableSource());
+    }
+
+    @Test
+    public void statementTableIdentityIncludesSystemTableBranchAndOptions() {
+        PaimonTableHandle base = new PaimonTableHandle(
+                "db", "t", Collections.emptyList(), Collections.emptyList());
+        PaimonTableHandle system = PaimonTableHandle.forSystemTable("db", "t", "snapshots", false);
+        PaimonTableHandle branch = base.withBranch("audit");
+        Map<String, String> pinnedOptions = Collections.singletonMap("scan.snapshot-id", "7");
+        PaimonTableHandle pinned = base.withScanOptions(pinnedOptions);
+
+        PaimonScanPlanProvider.PaimonTableResolutionKey baseKey =
+                new PaimonScanPlanProvider.PaimonTableResolutionKey(base, Collections.emptyMap());
+        Assertions.assertNotEquals(baseKey,
+                new PaimonScanPlanProvider.PaimonTableResolutionKey(system, Collections.emptyMap()));
+        Assertions.assertNotEquals(baseKey,
+                new PaimonScanPlanProvider.PaimonTableResolutionKey(branch, Collections.emptyMap()));
+        Assertions.assertNotEquals(baseKey,
+                new PaimonScanPlanProvider.PaimonTableResolutionKey(pinned, pinnedOptions));
     }
 
     @Test

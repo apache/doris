@@ -23,6 +23,7 @@ import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 
+import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -31,6 +32,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
@@ -53,7 +55,7 @@ class HudiScanReuseKeyTest {
     }
 
     private static HudiScanPlanProvider.HudiScanReuseKey key(HudiTableHandle handle) {
-        return HudiScanPlanProvider.hudiScanReuseKey(handle);
+        return HudiScanPlanProvider.hudiScanReuseKey(handle, "test-generation");
     }
 
     @Test
@@ -194,12 +196,51 @@ class HudiScanReuseKeyTest {
                 "a session from an older planning FE must not implicitly enable split reuse");
     }
 
+    @Test
+    void planningAndPropertiesUseTheSamePhysicalGeneration() {
+        RecordingScanProvider provider = new RecordingScanProvider();
+        ConnectorSession session = new MemoSession(new MemoScope());
+        HudiTableHandle handle = handle().toBuilder().prunedPartitionPaths(null).build();
+
+        provider.planScan(session, ConnectorScanRequest.builder(
+                handle, Collections.<ConnectorColumnHandle>emptyList()).build());
+        provider.getScanNodeProperties(
+                session, handle, Collections.<ConnectorColumnHandle>emptyList(), Optional.empty());
+
+        Assertions.assertSame(provider.statementTable, provider.plannedTable,
+                "split planning must use the meta client whose generation fenced the reuse key");
+        Assertions.assertSame(provider.statementTable, provider.propertiesTable,
+                "scan properties must use the same meta client as split planning");
+    }
+
+    @Test
+    void tableResolutionKeyIncludesThePhysicalBasePath() {
+        HudiTableHandle recreated = new HudiTableHandle.Builder(
+                "db", "t", "/warehouse/recreated-t", "COPY_ON_WRITE")
+                .inputFormat("org.apache.hudi.hadoop.HoodieParquetInputFormat")
+                .build();
+
+        Assertions.assertNotEquals(
+                new HudiScanPlanProvider.HudiTableResolutionKey(handle()),
+                new HudiScanPlanProvider.HudiTableResolutionKey(recreated),
+                "same logical name at a different path must resolve a different meta client");
+    }
+
     private static final class RecordingScanProvider extends HudiScanPlanProvider {
         private static final ConnectorScanRange RANGE = Collections::emptyMap;
+        private final HudiStatementTable statementTable =
+                new HudiStatementTable(null, "generation-a", new Configuration(false));
         private int planCalls;
+        private HudiStatementTable plannedTable;
+        private HudiStatementTable propertiesTable;
 
         private RecordingScanProvider() {
             super(Collections.emptyMap(), null);
+        }
+
+        @Override
+        HudiStatementTable resolveHudiTable(ConnectorSession session, HudiTableHandle handle) {
+            return statementTable;
         }
 
         @Override
@@ -209,6 +250,20 @@ class HudiScanReuseKeyTest {
             return scanHandle.getPrunedPartitionPaths() == null
                     ? Collections.singletonList(RANGE)
                     : Collections.emptyList();
+        }
+
+        @Override
+        List<ConnectorScanRange> doPlanScan(ConnectorSession session, ConnectorScanRequest request,
+                HudiStatementTable statementTable) {
+            plannedTable = statementTable;
+            return doPlanScan(session, request);
+        }
+
+        @Override
+        Optional<String> schemaEvolutionDict(HudiStatementTable statementTable, HudiTableHandle handle,
+                List<ConnectorColumnHandle> columns) {
+            propertiesTable = statementTable;
+            return Optional.empty();
         }
     }
 
