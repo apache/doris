@@ -132,13 +132,17 @@ public class IcebergSchemaUtilsTest {
     // --- top-level: iceberg field ids + lowercased names keyed off the requested columns ---
 
     @Test
-    public void topLevelFieldsCarryIcebergFieldIdsAndLowercasedNames() {
-        // buildCurrentSchema echoes the REQUESTED (pruned) column names VERBATIM as the dictionary's top-level
-        // names so BE's StructNode keys match the scan slots; here lowercase requested names -> lowercase
-        // top-level names. The field id is the iceberg field id (the rename-safe join key BE matches the file's
-        // embedded ids against), read from table.schema() (iceberg reassigns ids on creation) proving the
-        // dictionary carries ACTUAL field ids, not a fabricated/positional value. See
-        // topLevelFieldsPreserveMixedCaseRequestedNames for the case-preserving (#65094) path.
+    public void topLevelFieldsCarrySchemaCaseEvenWhenRequestIsLowercased() {
+        // The dictionary's top-level names must match the BE scan slots, and slots preserve the iceberg
+        // column case (the Doris Column keeps the schema's own spelling). A LOWERED requested name is
+        // therefore only a case-insensitive LOOKUP key; the emitted name must be the schema's own case.
+        // Echoing a lowered request verbatim made every mixed-case column unreadable in production:
+        // BE's ParquetReader guard compares the slot name ('channelId') against the dict verbatim and
+        // fails with "schema mapping is missing projected column". The field id is the iceberg field id
+        // (the rename-safe join key BE matches the file's embedded ids against), read from table.schema()
+        // (iceberg reassigns ids on creation) proving the dictionary carries ACTUAL field ids, not a
+        // fabricated/positional value. See topLevelFieldsPreserveMixedCaseRequestedNames for the
+        // already-cased request path (#65094) — both paths now converge on the schema's case.
         Schema mixed = new Schema(
                 Types.NestedField.required(7, "ID", Types.IntegerType.get()),
                 Types.NestedField.optional(9, "Name", Types.StringType.get()));
@@ -147,14 +151,15 @@ public class IcebergSchemaUtilsTest {
 
         Map<String, TField> fields = topFields(dict(table, "id", "name"));
 
-        Assertions.assertEquals(actual.caseInsensitiveFindField("id").fieldId(), fields.get("id").getId());
-        Assertions.assertEquals(actual.caseInsensitiveFindField("name").fieldId(), fields.get("name").getId());
-        // MUTATION: keep the iceberg case ("ID") -> the lowercase slot lookup misses -> red.
-        Assertions.assertFalse(fields.containsKey("ID"));
+        Assertions.assertEquals(actual.caseInsensitiveFindField("id").fieldId(), fields.get("ID").getId());
+        Assertions.assertEquals(actual.caseInsensitiveFindField("name").fieldId(), fields.get("Name").getId());
+        // MUTATION: echo the lowered request ("id") -> the case-preserving slot lookup misses -> red.
+        Assertions.assertFalse(fields.containsKey("id"));
+        Assertions.assertFalse(fields.containsKey("name"));
         // Current semantics preserve Iceberg required/optional metadata so BE can reject a missing required
         // field without an initial default instead of silently filling NULL.
-        Assertions.assertFalse(fields.get("id").isIsOptional());
-        Assertions.assertTrue(fields.get("name").isIsOptional());
+        Assertions.assertFalse(fields.get("ID").isIsOptional());
+        Assertions.assertTrue(fields.get("Name").isIsOptional());
     }
 
     @Test
