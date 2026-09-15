@@ -22,13 +22,14 @@ import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.common.DataSourceType;
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.streaming.DataSourceConfigValidator;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJdbcUrlNormalizer;
 import org.apache.doris.job.util.StreamingJobUtils;
+import org.apache.doris.job.util.StreamingSourceClient;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
 
@@ -218,20 +219,20 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
     public List<Column> getTableColumns() throws AnalysisException {
         DataSourceType dataSourceType =
                 DataSourceType.valueOf(processedParams.get(DataSourceConfigKeys.TYPE).toUpperCase());
-        JdbcClient jdbcClient = StreamingJobUtils.getJdbcClient(dataSourceType, processedParams);
-        try {
+        try (StreamingSourceClient sourceClient = StreamingJobUtils.openSourceClient(dataSourceType,
+                processedParams)) {
             String database = StreamingJobUtils.getRemoteDbName(dataSourceType, processedParams);
             String table = processedParams.get(DataSourceConfigKeys.TABLE);
-            if (!jdbcClient.isTableExist(database, table)) {
+            if (!sourceClient.tableExists(database, table)) {
                 throw new AnalysisException("Table does not exist: " + table);
             }
-            List<Column> columns = new ArrayList<>(jdbcClient.getColumnsFromJdbc(database, table));
+            List<Column> columns = new ArrayList<>(sourceClient.getColumns(database, table));
             if (includeDeleteSign) {
                 columns.add(new Column(Column.DELETE_SIGN, PrimitiveType.TINYINT, false));
             }
             return columns;
-        } finally {
-            jdbcClient.closeClient();
+        } catch (JobException e) {
+            throw new AnalysisException(e.getMessage(), e);
         }
     }
 

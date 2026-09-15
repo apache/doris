@@ -20,11 +20,11 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.util.StreamingJobUtils;
+import org.apache.doris.job.util.StreamingSourceClient;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Assertions;
@@ -86,16 +86,16 @@ public class CdcStreamTableValuedFunctionTest {
     }
 
     private List<Column> getTableColumns(Map<String, String> properties) throws Exception {
-        JdbcClient jdbcClient = Mockito.mock(JdbcClient.class);
+        StreamingSourceClient sourceClient = Mockito.mock(StreamingSourceClient.class);
         List<Column> sourceColumns = new ArrayList<>();
         sourceColumns.add(new Column("id", PrimitiveType.INT));
-        Mockito.when(jdbcClient.isTableExist("test_db", "test_table")).thenReturn(true);
-        Mockito.when(jdbcClient.getColumnsFromJdbc("test_db", "test_table")).thenReturn(sourceColumns);
+        Mockito.when(sourceClient.tableExists("test_db", "test_table")).thenReturn(true);
+        Mockito.when(sourceClient.getColumns("test_db", "test_table")).thenReturn(sourceColumns);
 
         try (MockedStatic<StreamingJobUtils> utils = Mockito.mockStatic(StreamingJobUtils.class)) {
-            utils.when(() -> StreamingJobUtils.getJdbcClient(
+            utils.when(() -> StreamingJobUtils.openSourceClient(
                             Mockito.eq(DataSourceType.MYSQL), Mockito.anyMap()))
-                    .thenReturn(jdbcClient);
+                    .thenReturn(sourceClient);
             utils.when(() -> StreamingJobUtils.getRemoteDbName(
                             Mockito.eq(DataSourceType.MYSQL), Mockito.anyMap()))
                     .thenReturn("test_db");

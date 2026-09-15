@@ -18,19 +18,18 @@
 package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.datasource.jdbc.client.JdbcClient;
+import org.apache.doris.connector.spi.ConnectorQueryResult;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.util.StreamingJobUtils;
+import org.apache.doris.job.util.StreamingSourceClient;
 
 import org.apache.commons.lang3.StringUtils;
 
 import java.nio.charset.StandardCharsets;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -61,8 +60,8 @@ public class PostgresResourceValidator {
             qualifiedTables.add(pgSchema + "." + name);
         }
 
-        JdbcClient jdbcClient = StreamingJobUtils.getJdbcClient(DataSourceType.POSTGRES, sourceProperties);
-        try (Connection conn = jdbcClient.getConnection()) {
+        try (StreamingSourceClient conn = StreamingJobUtils.openSourceClient(DataSourceType.POSTGRES,
+                sourceProperties)) {
             boolean pubExists = publicationExists(conn, publicationName);
             if (!pubExists && pubUserProvided) {
                 throw new JobException(
@@ -112,8 +111,6 @@ public class PostgresResourceValidator {
             throw new JobException(
                     "Failed to validate PG resources for publication " + publicationName
                             + ": " + e.getMessage(), e);
-        } finally {
-            jdbcClient.closeClient();
         }
     }
 
@@ -140,26 +137,20 @@ public class PostgresResourceValidator {
         }
     }
 
-    private static boolean publicationExists(Connection conn, String publicationName) throws Exception {
-        try (PreparedStatement ps = conn.prepareStatement("SELECT 1 FROM pg_publication WHERE pubname = ?")) {
-            ps.setString(1, publicationName);
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next();
-            }
-        }
+    private static boolean publicationExists(StreamingSourceClient conn, String publicationName) throws Exception {
+        ConnectorQueryResult rs = conn.executeQuery("SELECT 1 FROM pg_publication WHERE pubname = ?",
+                Collections.singletonList(publicationName));
+        return !rs.isEmpty();
     }
 
-    private static List<String> findMissingTables(Connection conn, String publicationName, List<String> tables)
-            throws Exception {
+    private static List<String> findMissingTables(StreamingSourceClient conn, String publicationName,
+            List<String> tables) throws Exception {
         Set<String> covered = new HashSet<>();
-        try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT schemaname, tablename FROM pg_publication_tables WHERE pubname = ?")) {
-            ps.setString(1, publicationName);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    covered.add(rs.getString(1) + "." + rs.getString(2));
-                }
-            }
+        ConnectorQueryResult rs = conn.executeQuery(
+                "SELECT schemaname, tablename FROM pg_publication_tables WHERE pubname = ?",
+                Collections.singletonList(publicationName));
+        for (List<Object> row : rs.getRows()) {
+            covered.add(row.get(0) + "." + row.get(1));
         }
         List<String> missing = new ArrayList<>();
         for (String table : tables) {
@@ -171,16 +162,13 @@ public class PostgresResourceValidator {
     }
 
     /** Returns the slot's active flag, or null when the slot does not exist. */
-    private static Boolean queryReplicationSlotActive(Connection conn, String slotName) throws Exception {
-        try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT active FROM pg_replication_slots WHERE slot_name = ?")) {
-            ps.setString(1, slotName);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (!rs.next()) {
-                    return null;
-                }
-                return rs.getBoolean(1);
-            }
+    private static Boolean queryReplicationSlotActive(StreamingSourceClient conn, String slotName) throws Exception {
+        ConnectorQueryResult rs = conn.executeQuery("SELECT active FROM pg_replication_slots WHERE slot_name = ?",
+                Collections.singletonList(slotName));
+        if (rs.isEmpty()) {
+            return null;
         }
+        // The driver hands a PostgreSQL boolean back as a Boolean; anything else reads as "not active".
+        return Boolean.TRUE.equals(rs.getRows().get(0).get(0));
     }
 }

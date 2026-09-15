@@ -17,8 +17,18 @@
 
 package org.apache.doris.job.common;
 
+/**
+ * The source databases a streaming (CDC) job can read. Every one of them is reached, for metadata
+ * discovery on the FE, through the connector plugin named by {@link #connectorType()}; the BE-side CDC
+ * client is chosen separately by the streaming framework.
+ */
 public enum DataSourceType {
     MYSQL,
     POSTGRES,
-    OCEANBASE
+    OCEANBASE;
+
+    /** The connector plugin type ({@code ConnectorProvider.getType()}) that serves this source's metadata. */
+    public String connectorType() {
+        return "jdbc";
+    }
 }

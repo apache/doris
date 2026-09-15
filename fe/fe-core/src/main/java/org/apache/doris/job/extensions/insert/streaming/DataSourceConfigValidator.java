@@ -17,12 +17,13 @@
 
 package org.apache.doris.job.extensions.insert.streaming;
 
-import org.apache.doris.datasource.jdbc.client.JdbcClient;
-import org.apache.doris.datasource.jdbc.client.JdbcClientException;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.spi.ConnectorQueryResult;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.util.StreamingJobUtils;
+import org.apache.doris.job.util.StreamingSourceClient;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -30,9 +31,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
 
-import java.sql.Connection;
-import java.sql.ResultSet;
-import java.sql.Statement;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -155,17 +155,17 @@ public class DataSourceConfigValidator {
 
     private static void validateOceanBaseCompatibilityMode(Map<String, String> sourceProperties)
             throws JobException {
-        // jdbc:mysql routes through JdbcMySQLClient so Connector/J is initialized consistently.
-        JdbcClient jdbcClient = StreamingJobUtils.getJdbcClient(
-                DataSourceType.OCEANBASE, sourceProperties);
-        try (Connection connection = jdbcClient.getConnection();
-                Statement statement = connection.createStatement();
-                ResultSet resultSet = statement.executeQuery(
-                        "SHOW VARIABLES LIKE 'ob_compatibility_mode'")) {
-            if (!resultSet.next()) {
+        // The jdbc_url is jdbc:mysql://, so the connector talks to OceanBase through the MySQL dialect and
+        // the compatibility mode is read the way a MySQL client reads a variable.
+        try (StreamingSourceClient sourceClient = StreamingJobUtils.openSourceClient(
+                DataSourceType.OCEANBASE, sourceProperties)) {
+            ConnectorQueryResult result = sourceClient.executeQuery(
+                    "SHOW VARIABLES LIKE 'ob_compatibility_mode'", Collections.emptyList());
+            if (result.isEmpty()) {
                 throw new JobException("Failed to determine OceanBase compatibility mode");
             }
-            String compatibilityMode = resultSet.getString(2);
+            List<Object> row = result.getRows().get(0);
+            String compatibilityMode = row.size() > 1 && row.get(1) != null ? row.get(1).toString() : null;
             if ("MYSQL".equalsIgnoreCase(compatibilityMode)) {
                 return;
             }
@@ -180,9 +180,7 @@ public class DataSourceConfigValidator {
         } catch (Exception e) {
             throw new JobException(
                     "Failed to validate OceanBase compatibility mode: "
-                            + JdbcClientException.getAllExceptionMessages(e), e);
-        } finally {
-            jdbcClient.closeClient();
+                            + Util.getAllExceptionMessages(e), e);
         }
     }
 
