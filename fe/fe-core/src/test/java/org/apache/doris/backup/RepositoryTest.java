@@ -33,6 +33,7 @@ import org.apache.doris.filesystem.Location;
 import org.apache.doris.foundation.fs.FsStorageType;
 import org.apache.doris.fs.FileSystemDescriptor;
 import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.TestFileSystemPluginManagers;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.service.FrontendOptions;
 
@@ -499,6 +500,9 @@ public class RepositoryTest {
                 + "\"fs\":{\"n\":\"broker\",\"prop\":{}}"
                 + "}";
 
+        // A legacy broker record is recognised by its name being a registered broker.
+        Mockito.when(mockedBrokerMgr.containsBroker("broker")).thenReturn(true);
+
         // GsonUtils.GSON triggers gsonPostProcess() automatically via PostProcessTypeAdapterFactory.
         // FileSystemFactory is already mocked in setUp() to return mockFs for non-broker types.
         Repository deserialized = GsonUtils.GSON.fromJson(legacyJson, Repository.class);
@@ -510,6 +514,86 @@ public class RepositoryTest {
         Assertions.assertEquals(FsStorageType.BROKER, fd.getStorageType());
         Assertions.assertEquals("broker", fd.getName());
     }
+
+    /**
+     * A legacy record no loaded provider claims and whose name is not a registered broker is not a
+     * broker repository: it is most likely a typed one whose plugin is absent. Migrating it to BROKER
+     * would persist that guess at the next checkpoint (the descriptor carries an explicit type), so the
+     * record must stay as it is, the repository must report why on every use, and the migration must
+     * succeed once the provider is back.
+     */
+    @Test
+    public void testLegacyRecordIsKeptUnchangedWhileItsProviderIsAbsent() {
+        // "hdfs.authentication.type" is claimed by the HDFS provider only (see the HDFS test above).
+        // Field names are the @SerializedName ones ("n", "lo", ...): this is what an image holds.
+        String legacyJson = "{"
+                + "\"id\":30000,"
+                + "\"n\":\"hdfsRepoWithoutPlugin\","
+                + "\"iro\":false,"
+                + "\"lo\":\"hdfs://ns/backup\","
+                + "\"ct\":-1,"
+                + "\"fs\":{\"n\":\"HDFS\",\"prop\":{\"hdfs.authentication.type\":\"simple\"}}"
+                + "}";
+        StorageAdapter.initPluginManager(TestFileSystemPluginManagers.withoutProviders("HDFS"));
+        try {
+            Repository deserialized = GsonUtils.GSON.fromJson(legacyJson, Repository.class);
+
+            Assertions.assertFalse(deserialized.hasFileSystemDescriptor(),
+                    "a record no provider claims must not be bound to a fallback type");
+            Assertions.assertNotNull(deserialized.getErrorMsg());
+            Assertions.assertTrue(deserialized.getErrorMsg().contains("'HDFS' is not a registered broker"),
+                    deserialized.getErrorMsg());
+
+            // What the next checkpoint writes: the legacy record, verbatim, and no descriptor.
+            String rewritten = GsonUtils.GSON.toJson(deserialized);
+            Assertions.assertFalse(rewritten.contains("fs_descriptor"), rewritten);
+            Assertions.assertTrue(rewritten.contains("\"fs\":{\"n\":\"HDFS\""), rewritten);
+
+            // Every use reports the reason instead of failing on a missing descriptor.
+            Status listing = deserialized.listSnapshots(Lists.newArrayList());
+            Assertions.assertFalse(listing.ok());
+            Assertions.assertTrue(listing.getErrMsg().contains("is not available"), listing.getErrMsg());
+            Status brokerAddress = deserialized.getBrokerAddress(1L, mockedEnv, Lists.newArrayList());
+            Assertions.assertFalse(brokerAddress.ok());
+            Assertions.assertTrue(brokerAddress.getErrMsg().contains("is not available"), brokerAddress.getErrMsg());
+            List<String> info = deserialized.getInfo();
+            Assertions.assertEquals("hdfsRepoWithoutPlugin", info.get(1));
+            Assertions.assertEquals("-", info.get(5));
+            Assertions.assertEquals("HDFS", info.get(6));
+            Assertions.assertEquals(deserialized.getErrorMsg(), info.get(7));
+            Assertions.assertThrows(IllegalStateException.class, deserialized::getCreateStatement);
+
+            // The provider is back: the untouched record migrates to its real type.
+            StorageAdapter.initPluginManager(TestFileSystemPluginManagers.withoutProviders());
+            Repository repaired = GsonUtils.GSON.fromJson(rewritten, Repository.class);
+            Assertions.assertTrue(repaired.hasFileSystemDescriptor());
+            Assertions.assertEquals(FsStorageType.HDFS, repaired.getFileSystemDescriptor().getStorageType());
+        } finally {
+            StorageAdapter.initPluginManager(null);
+        }
+    }
+
+    /** The broker fallback is taken on the one positive signal only: a registered broker name. */
+    @Test
+    public void testLegacyRecordNamingAnUnregisteredBrokerIsNotMigratedToBroker() {
+        String legacyJson = "{"
+                + "\"id\":40000,"
+                + "\"n\":\"legacyRepoGoneBroker\","
+                + "\"iro\":false,"
+                + "\"lo\":\"bos://backup/legacy\","
+                + "\"ct\":-1,"
+                + "\"fs\":{\"n\":\"gone_broker\",\"prop\":{}}"
+                + "}";
+        Mockito.when(mockedBrokerMgr.containsBroker("gone_broker")).thenReturn(false);
+
+        Repository deserialized = GsonUtils.GSON.fromJson(legacyJson, Repository.class);
+
+        Assertions.assertFalse(deserialized.hasFileSystemDescriptor());
+        Assertions.assertTrue(deserialized.getErrorMsg().contains("'gone_broker' is not a registered broker"),
+                deserialized.getErrorMsg());
+        Assertions.assertFalse(GsonUtils.GSON.toJson(deserialized).contains("fs_descriptor"));
+    }
+
 
     /**
      * H1: Verify migration when legacy props contain HDFS-specific keys that are recognized by

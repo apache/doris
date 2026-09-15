@@ -255,30 +255,67 @@ public class Repository implements Writable, GsonPostProcessable {
                 StorageAdapter storageAdapter = StorageAdapter.of(props);
                 fileSystemDescriptor = FileSystemDescriptor.fromStorageAdapter(storageAdapter, "");
             } catch (RuntimeException e) {
-                LOG.warn("Repository '{}': primary storage migration failed ({}), trying broker fallback",
-                        name, e.getMessage());
+                // The legacy record's name is the storage type ("S3", "HDFS", ...) for a typed
+                // repository and the broker name for a broker one. A registered broker name is the one
+                // positive signal that the record was a broker repository, so only then is BROKER the
+                // right descriptor. Anything else that no provider claims is left as it was: the
+                // descriptor carries an explicit type and is persisted by the next checkpoint, so a
+                // BROKER fallback here would permanently rewrite an S3 repository whose plugin merely
+                // failed to load. Keeping the legacy record instead retries the migration at the next
+                // start, and every use of the repository reports the reason until then.
+                if (!isRegisteredBroker(fsName)) {
+                    errMsg = "legacy filesystem metadata was not migrated: no loaded filesystem provider"
+                            + " claims its properties and '" + fsName + "' is not a registered broker ("
+                            + e.getMessage() + "). Install or repair the filesystem plugin for this"
+                            + " repository and restart the FE, or DROP and re-CREATE it.";
+                    LOG.warn("Repository '{}': {}", name, errMsg);
+                    return;
+                }
+                LOG.warn("Repository '{}': primary storage migration failed ({}), migrating as a broker"
+                        + " repository on broker '{}'", name, e.getMessage(), fsName);
                 try {
                     StorageAdapter brokerAdapter = StorageAdapter.ofBroker(fsName, props);
                     fileSystemDescriptor = FileSystemDescriptor.fromStorageAdapter(brokerAdapter, fsName);
                 } catch (RuntimeException e2) {
-                    LOG.error("Repository '{}': failed to migrate legacy filesystem metadata: {}",
-                            name, e2.getMessage());
+                    errMsg = "legacy filesystem metadata was not migrated: " + e2.getMessage();
+                    LOG.error("Repository '{}': {}", name, errMsg);
                     return;
                 }
             }
             fsProps = fileSystemDescriptor.getProperties();
         } else {
-            LOG.error("Repository '{}': metadata corrupt — both 'fs' and 'fs_descriptor' fields are missing", name);
+            errMsg = "metadata corrupt: both 'fs' and 'fs_descriptor' fields are missing";
+            LOG.error("Repository '{}': {}", name, errMsg);
             return;
         }
         // Initialize SPI filesystem for I/O; broker resolves a live endpoint per I/O call
         if (fileSystemDescriptor.getStorageType() != FsStorageType.BROKER) {
             try {
                 this.spiFs = FileSystemFactory.getFileSystem(StorageAdapter.of(fsProps));
-            } catch (IOException | RuntimeException e) {
+            } catch (IOException | RuntimeException | LinkageError e) {
+                // LinkageError included: this runs at image load and edit-log replay, where a plugin
+                // whose factory loaded but whose bind()/create() first links a jar it lacks must cost
+                // this repository, not the FE - the same catch CatalogFactory uses for catalogs.
                 LOG.warn("Failed to initialize SPI filesystem for repository {}: {}", name, e.getMessage());
             }
         }
+    }
+
+    /**
+     * Whether the repository has a storage descriptor. False only for a legacy record whose migration
+     * {@link #gsonPostProcess()} declined because no loaded filesystem provider claimed it; the record
+     * is then written back unchanged, {@link #getErrorMsg()} says why, and every I/O path fails with it.
+     */
+    public boolean hasFileSystemDescriptor() {
+        return fileSystemDescriptor != null;
+    }
+
+    private static boolean isRegisteredBroker(String brokerName) {
+        if (Strings.isNullOrEmpty(brokerName)) {
+            return false;
+        }
+        Env env = Env.getCurrentEnv();
+        return env != null && env.getBrokerMgr() != null && env.getBrokerMgr().containsBroker(brokerName);
     }
 
     public long getId() {
@@ -317,6 +354,9 @@ public class Repository implements Writable, GsonPostProcessable {
     private org.apache.doris.filesystem.FileSystem acquireSpiFs() throws IOException {
         if (spiFs != null) {
             return spiFs;
+        }
+        if (fileSystemDescriptor == null) {
+            throw new IOException("Repository '" + name + "' is not available: " + errMsg);
         }
         if (fileSystemDescriptor.getStorageType() != FsStorageType.BROKER) {
             // spiFs should have been initialized in the constructor or gsonPostProcess.
@@ -501,6 +541,11 @@ public class Repository implements Writable, GsonPostProcessable {
     public boolean ping() {
         if (FeConstants.runningUnitTest) {
             return true;
+        }
+        if (fileSystemDescriptor == null) {
+            // Not migrated (see gsonPostProcess): errMsg already says why, and the periodic ping must
+            // not keep rewrapping it.
+            return false;
         }
         // for s3 sdk, the headObject() method does not support list "dir",
         // so we check FILE_REPO_INFO instead.
@@ -817,6 +862,9 @@ public class Repository implements Writable, GsonPostProcessable {
     }
 
     public Status getBrokerAddress(Long beId, Env env, List<FsBroker> brokerAddrs) {
+        if (fileSystemDescriptor == null) {
+            return new Status(ErrCode.COMMON_ERROR, "Repository '" + name + "' is not available: " + errMsg);
+        }
         // get backend
         Backend be = Env.getCurrentSystemInfo().getBackend(beId);
         if (be == null) {
@@ -853,9 +901,15 @@ public class Repository implements Writable, GsonPostProcessable {
         info.add(TimeUtils.longToTimeString(createTime));
         info.add(String.valueOf(isReadOnly));
         info.add(location);
-        info.add(fileSystemDescriptor.getStorageType() != FsStorageType.BROKER
-                ? "-" : fileSystemDescriptor.getName());
-        info.add(fileSystemDescriptor.getStorageType().name());
+        if (fileSystemDescriptor == null) {
+            // A legacy record whose migration was declined (see gsonPostProcess): the reason is in errMsg.
+            info.add("-");
+            info.add(legacyFs != null && legacyFs.name != null ? legacyFs.name : FeConstants.null_string);
+        } else {
+            info.add(fileSystemDescriptor.getStorageType() != FsStorageType.BROKER
+                    ? "-" : fileSystemDescriptor.getName());
+            info.add(fileSystemDescriptor.getStorageType().name());
+        }
         info.add(errMsg == null ? FeConstants.null_string : errMsg);
         return info;
     }
@@ -886,6 +940,9 @@ public class Repository implements Writable, GsonPostProcessable {
     }
 
     public String getCreateStatement() {
+        if (fileSystemDescriptor == null) {
+            throw new IllegalStateException("Repository '" + name + "' is not available: " + errMsg);
+        }
         StringBuilder stmtBuilder = new StringBuilder();
         stmtBuilder.append("CREATE ");
         if (this.isReadOnly) {

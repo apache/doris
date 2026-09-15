@@ -237,6 +237,9 @@ public class BackupHandler extends MasterDaemon implements Writable {
             if (oldRepo == null) {
                 throw new DdlException("Repository does not exist");
             }
+            if (!oldRepo.hasFileSystemDescriptor()) {
+                throw new DdlException("Repository " + repoName + " is not available: " + oldRepo.getErrorMsg());
+            }
             // Merge new properties with the existing repository's properties
             Map<String, String> mergedProps = mergeProperties(oldRepo, newProps);
             // Create new Repository instance with merged properties

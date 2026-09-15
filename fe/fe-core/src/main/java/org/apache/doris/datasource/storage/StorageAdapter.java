@@ -183,6 +183,11 @@ public final class StorageAdapter {
      * Returns whether the named provider's guess heuristics claim the raw properties — the
      * facade twin of the legacy per-dialect {@code guessIsMe} statics (guess only, explicit
      * {@code fs.<x>.support} flags deliberately NOT consulted, matching the legacy call sites).
+     *
+     * @throws StoragePropertiesException if no provider of that name is loaded, like
+     *         {@link #ofProvider}: a caller deciding a persisted type on this answer must be able to
+     *         tell "not that provider's map" from "that provider is absent", or an absent plugin
+     *         silently turns into the wrong type on disk.
      */
     public static boolean matchesProviderGuess(String providerName, Map<String, String> origProps) {
         Map<String, String> props = origProps == null ? new HashMap<>() : origProps;
@@ -194,7 +199,8 @@ public final class StorageAdapter {
                 return provider.supportsGuess(probeView);
             }
         }
-        return false;
+        throw new StoragePropertiesException(
+                "Filesystem provider '" + providerName + "' is not available");
     }
 
     /**
