@@ -243,8 +243,9 @@ public class RoutineLoadManager implements Writable {
                         + " routine load jobs are running. exceed limit.");
             }
 
-            unprotectedAddJob(routineLoadJob);
+            // Persist the initial job before the scheduler can change its state or create tasks.
             Env.getCurrentEnv().getEditLog().logCreateRoutineLoadJob(routineLoadJob);
+            unprotectedAddJob(routineLoadJob);
         } finally {
             writeUnlock();
         }
