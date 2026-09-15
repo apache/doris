@@ -114,12 +114,12 @@ suite("analyze_agg") {
 
     test {
         sql "select sum(id) as x, max(id) as y from t1 group by grouping sets((x), (y));"
-        exception "GROUP BY expression must not contain aggregate functions: sum(id)"
+        exception "aggregate function is not allowed in LOGICAL_PROJECT"
     }
 
     test {
         sql "select 100000 as y from t1 group by grouping sets((sum(id)), (max(id)));"
-        exception "GROUP BY expression must not contain aggregate functions: sum(id)"
+        exception "aggregate function is not allowed in LOGICAL_PROJECT"
     }
 
     test {
