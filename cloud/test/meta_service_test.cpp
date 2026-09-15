@@ -2782,6 +2782,95 @@ TEST(MetaServiceTest, GetCurrentMaxTxnIdTest) {
     ASSERT_GE(max_txn_id_res.current_max_txn_id(), begin_txn_res.txn_id());
 }
 
+TEST(MetaServiceTest, TsoFenceIsMonotonicAndRejectsStaleCommit) {
+    bool old_enable_check_commit_tso_fence = config::enable_check_commit_tso_fence;
+    DORIS_CLOUD_DEFER {
+        config::enable_check_commit_tso_fence = old_enable_check_commit_tso_fence;
+    };
+    config::enable_check_commit_tso_fence = true;
+    auto meta_service = get_meta_service();
+    brpc::Controller cntl;
+    AdvanceTsoFenceRequest fence_request;
+    fence_request.set_cloud_unique_id("test_cloud_unique_id");
+    fence_request.set_proposed_fence_tso(100);
+    AdvanceTsoFenceResponse fence_response;
+    meta_service->advance_tso_fence(&cntl, &fence_request, &fence_response, nullptr);
+    ASSERT_EQ(fence_response.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(fence_response.tso_fence(), 100);
+
+    fence_request.set_proposed_fence_tso(90);
+    fence_response.Clear();
+    meta_service->advance_tso_fence(&cntl, &fence_request, &fence_response, nullptr);
+    ASSERT_EQ(fence_response.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(fence_response.tso_fence(), 100);
+
+    int64_t txn_id = -1;
+    begin_txn(meta_service.get(), 666, "tso_fence_commit", 1234, txn_id);
+    CommitTxnRequest commit_request;
+    commit_request.set_db_id(666);
+    commit_request.set_txn_id(txn_id);
+    commit_request.set_commit_tso(100);
+    commit_request.set_enable_check_commit_tso_fence(true);
+    CommitTxnResponse commit_response;
+    meta_service->commit_txn(&cntl, &commit_request, &commit_response, nullptr);
+    ASSERT_EQ(commit_response.status().actual_code(), MetaServiceCode::TXN_COMMIT_TSO_EXPIRED);
+    ASSERT_EQ(commit_response.tso_fence(), 100);
+
+    commit_request.set_commit_tso(101);
+    commit_response.Clear();
+    meta_service->commit_txn(&cntl, &commit_request, &commit_response, nullptr);
+    ASSERT_EQ(commit_response.status().code(), MetaServiceCode::OK);
+
+    // A response retry after the transaction became visible remains idempotent.
+    commit_request.set_commit_tso(100);
+    commit_response.Clear();
+    meta_service->commit_txn(&cntl, &commit_request, &commit_response, nullptr);
+    ASSERT_EQ(commit_response.status().code(), MetaServiceCode::OK);
+
+    // FE can disable the check for one request.
+    int64_t request_check_disabled_txn_id = -1;
+    begin_txn(meta_service.get(), 666, "tso_fence_request_check_disabled", 1234,
+              request_check_disabled_txn_id);
+    CommitTxnRequest request_check_disabled;
+    request_check_disabled.set_db_id(666);
+    request_check_disabled.set_txn_id(request_check_disabled_txn_id);
+    request_check_disabled.set_commit_tso(100);
+    CommitTxnResponse request_check_disabled_response;
+    meta_service->commit_txn(&cntl, &request_check_disabled, &request_check_disabled_response,
+                             nullptr);
+    ASSERT_EQ(request_check_disabled_response.status().code(), MetaServiceCode::OK);
+
+    // MS can disable the check globally.
+    config::enable_check_commit_tso_fence = false;
+    int64_t server_check_disabled_txn_id = -1;
+    begin_txn(meta_service.get(), 666, "tso_fence_server_check_disabled", 1234,
+              server_check_disabled_txn_id);
+    CommitTxnRequest server_check_disabled;
+    server_check_disabled.set_db_id(666);
+    server_check_disabled.set_txn_id(server_check_disabled_txn_id);
+    server_check_disabled.set_commit_tso(100);
+    server_check_disabled.set_enable_check_commit_tso_fence(true);
+    CommitTxnResponse server_check_disabled_response;
+    meta_service->commit_txn(&cntl, &server_check_disabled, &server_check_disabled_response,
+                             nullptr);
+    ASSERT_EQ(server_check_disabled_response.status().code(), MetaServiceCode::OK);
+
+    // Transactions without a commit TSO do not participate in binlog fencing.
+    int64_t non_tso_txn_id = -1;
+    begin_txn(meta_service.get(), 666, "tso_fence_non_tso_commit", 1234, non_tso_txn_id);
+    CommitTxnRequest non_tso_commit_request;
+    non_tso_commit_request.set_db_id(666);
+    non_tso_commit_request.set_txn_id(non_tso_txn_id);
+    CommitTxnResponse non_tso_commit_response;
+    meta_service->commit_txn(&cntl, &non_tso_commit_request, &non_tso_commit_response, nullptr);
+    ASSERT_EQ(non_tso_commit_response.status().code(), MetaServiceCode::OK);
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->remove(txn_tso_fence_key({mock_instance}));
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+}
+
 TEST(MetaServiceTest, CreateMetaSyncPointTest) {
     auto meta_service = get_meta_service();
     const std::string cloud_unique_id = "test_cloud_unique_id";

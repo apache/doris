@@ -1270,6 +1270,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithFailedLazyCommitTaskTest) {
     commit_req.set_db_id(db_id);
     commit_req.set_txn_id(txn_id);
     commit_req.set_is_2pc(false);
+    commit_req.set_commit_tso(12345);
     commit_req.set_enable_txn_lazy_commit(true);
     CommitTxnResponse commit_res;
     meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),

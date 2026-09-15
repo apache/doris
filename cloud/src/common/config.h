@@ -350,6 +350,7 @@ CONF_Bool(delete_bitmap_enable_retry_txn_conflict, "true");
 CONF_mInt64(max_txn_commit_byte, "7340032");
 
 CONF_Bool(enable_cloud_txn_lazy_commit, "true");
+CONF_mBool(enable_check_commit_tso_fence, "true");
 CONF_Int32(txn_lazy_commit_rowsets_thresold, "1000");
 CONF_Int32(txn_lazy_commit_num_threads, "8");
 CONF_mBool(enable_cloud_parallel_txn_lazy_commit, "true");
