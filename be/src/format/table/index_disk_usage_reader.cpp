@@ -32,14 +32,12 @@
 #include "core/column/column_vector.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/rowset/rowset.h"
 #include "storage/tablet/base_tablet.h"
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris {
 
-using segment_v2::IndexDiskUsageCollector;
 using segment_v2::IndexDiskUsageLevel;
 using segment_v2::IndexDiskUsageRecord;
 using segment_v2::IndexDiskUsageRow;
@@ -150,6 +148,10 @@ Status IndexDiskUsageReader::init_reader() {
     _level = DORIS_TRY(parse_level(params.level));
     _options.position_detail = params.position_detail;
     _options.index_ids.insert(params.index_ids.begin(), params.index_ids.end());
+    _options.check_cancelled = [state = _state]() {
+        RETURN_IF_CANCELLED(state);
+        return Status::OK();
+    };
     _slot_columns.clear();
     for (const SlotDescriptor* slot : _slots) {
         const Column column = DORIS_TRY(column_of(slot->col_name()));
@@ -199,32 +201,8 @@ Status IndexDiskUsageReader::_collect_tablet(const TIndexDiskUsageTablet& target
     *current_schema = tablet->tablet_schema();
 
     for (const RowsetSharedPtr& rowset : rowsets) {
-        const TabletSchemaSPtr schema = rowset->tablet_schema();
-        if (!schema->has_inverted_or_ann_index()) {
-            continue;
-        }
-        const InvertedIndexStorageFormatPB format = schema->get_inverted_index_storage_format();
-        const std::string rowset_id = rowset->rowset_id().to_string();
-        for (auto segment : rowset->segments()) {
-            RETURN_IF_CANCELLED(_state);
-            const std::string segment_path = DORIS_TRY(segment.path());
-            IndexDiskUsageCollector collector(
-                    rowset->rowset_meta()->fs(),
-                    std::string(InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)),
-                    schema, format, target.tablet_id);
-            std::vector<IndexDiskUsageRecord> records;
-            RETURN_IF_ERROR(collector.collect(_options, &records));
-            for (auto& record : records) {
-                IndexDiskUsageRow row;
-                row.rowset_id = rowset_id;
-                row.segment_id = cast_set<int32_t>(segment.id());
-                row.segment_count = 1;
-                row.row_count = segment.has_num_rows() ? segment.num_rows() : 0;
-                row.format = format;
-                row.record = std::move(record);
-                rows->push_back(std::move(row));
-            }
-        }
+        RETURN_IF_ERROR(segment_v2::collect_rowset_index_disk_usage(rowset, _options,
+                                                                    target.tablet_id, rows));
     }
     return Status::OK();
 }

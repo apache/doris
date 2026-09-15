@@ -201,7 +201,7 @@ Result<InvertedIndexDirectoryMap> IndexFileReader::get_all_directories() {
     std::shared_lock<std::shared_mutex> lock(_mutex); // Lock for reading
     for (auto& [index, _] : _indices_entries) {
         auto&& [index_id, index_suffix] = index;
-        LOG(INFO) << "index_id:" << index_id << " index_suffix:" << index_suffix;
+        VLOG_DEBUG << "index_id:" << index_id << " index_suffix:" << index_suffix;
         auto ret = _open(index_id, index_suffix);
         if (!ret.has_value()) {
             return ResultError(ret.error());
