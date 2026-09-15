@@ -239,8 +239,23 @@ public class ConnectorPluginManager {
      * @return true if the provider was admitted
      */
     boolean registerDiscovered(ConnectorProvider provider, boolean failFast) {
-        String type = provider.getType();
-        Set<String> engineNames = provider.acceptedCreateTableEngineNames();
+        String type;
+        Set<String> engineNames;
+        try {
+            type = provider.getType();
+            engineNames = provider.acceptedCreateTableEngineNames();
+        } catch (RuntimeException | LinkageError e) {
+            // The first calls into plugin code after loading: a getType() that touches a class the
+            // plugin neither bundles nor inherits arrives here as a LinkageError the loader never saw.
+            // For a directory plugin that is one plugin's problem, not the FE's - same guard as
+            // FileSystemPluginManager's sensitivePropertyKeys() call. Built-ins keep failing loudly.
+            if (failFast) {
+                throw e;
+            }
+            LOG.error("Rejected connector provider {}: getType()/acceptedCreateTableEngineNames() failed."
+                    + " The connector will not be available.", provider.getClass().getName(), e);
+            return false;
+        }
         String problem = typeNameProblem(type);
         if (problem == null) {
             problem = createTableEngineNameProblem(engineNames);
@@ -312,13 +327,24 @@ public class ConnectorPluginManager {
                 classLoadingPolicy,
                 API_VERSION_GATE);
 
-        LOG.info("Connector plugin load summary: rootsScanned={}, dirsScanned={}, "
-                        + "successCount={}, failureCount={}",
-                report.getRootsScanned(), report.getDirsScanned(),
-                report.getSuccesses().size(), report.getFailures().size());
+        if (report.getFailures().isEmpty()) {
+            LOG.info("Connector plugin load summary: rootsScanned={}, dirsScanned={}, "
+                            + "successCount={}, failureCount=0",
+                    report.getRootsScanned(), report.getDirsScanned(), report.getSuccesses().size());
+        } else {
+            // A shipped plugin that failed to load is an FE serving degraded: every catalog of that
+            // type is unusable until the plugin directory is repaired, so the summary is an ERROR.
+            LOG.error("Connector plugin load summary: rootsScanned={}, dirsScanned={}, "
+                            + "successCount={}, failureCount={}; the FE continues without the plugins"
+                            + " that failed, each is reported below with its cause",
+                    report.getRootsScanned(), report.getDirsScanned(),
+                    report.getSuccesses().size(), report.getFailures().size());
+        }
 
         for (LoadFailure failure : report.getFailures()) {
-            LOG.warn("Connector plugin load failure: dir={}, stage={}, message={}, cause={}",
+            // Three placeholders, four arguments: the trailing throwable is logged with its stack
+            // trace, which a "cause={}" placeholder would reduce to toString().
+            LOG.warn("Connector plugin load failure: dir={}, stage={}, message={}",
                     failure.getPluginDir(), failure.getStage(), failure.getMessage(),
                     failure.getCause());
         }

@@ -173,8 +173,10 @@ public class LineageEventProcessor {
                     LineagePluginFactory.class, policy, API_VERSION_GATE);
 
             for (LoadFailure failure : report.getFailures()) {
+                // Three placeholders, four arguments: the trailing throwable is logged with its
+                // stack trace, which a "cause={}" placeholder would reduce to toString().
                 LOG.warn("Skip lineage plugin directory due to load failure:"
-                                + " pluginDir={}, stage={}, message={}, cause={}",
+                                + " pluginDir={}, stage={}, message={}",
                         failure.getPluginDir(), failure.getStage(),
                         failure.getMessage(), failure.getCause());
             }
@@ -218,8 +220,12 @@ public class LineageEventProcessor {
                     plugins.add(plugin);
                     LOG.info("Loaded lineage plugin: {}, pluginPath={}", pluginName, props.get("plugin.path"));
                 }
-            } catch (Exception e) {
+            } catch (Exception | LinkageError e) {
+                // create() and initialize() are the first calls into the plugin implementation (the
+                // factory only named it): a dependency it lacks arrives here as NoClassDefFoundError,
+                // which must cost this plugin alone, not FE startup. Its classloader goes with it.
                 LOG.warn("Failed to create/initialize lineage plugin: {}", pluginName, e);
+                runtimeManager.discard(pluginName);
             }
         }
         initPlugins(plugins);

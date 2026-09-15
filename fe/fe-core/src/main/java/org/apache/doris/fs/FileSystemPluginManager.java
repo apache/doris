@@ -143,13 +143,25 @@ public class FileSystemPluginManager {
                 classLoadingPolicy,
                 API_VERSION_GATE);
 
-        LOG.info("Filesystem plugin load summary: rootsScanned={}, dirsScanned={}, "
-                        + "successCount={}, failureCount={}",
-                report.getRootsScanned(), report.getDirsScanned(),
-                report.getSuccesses().size(), report.getFailures().size());
+        if (report.getFailures().isEmpty()) {
+            LOG.info("Filesystem plugin load summary: rootsScanned={}, dirsScanned={}, "
+                            + "successCount={}, failureCount=0",
+                    report.getRootsScanned(), report.getDirsScanned(), report.getSuccesses().size());
+        } else {
+            // A shipped plugin that failed to load is an FE serving degraded: every repository, vault
+            // and catalog on that storage is unusable until the plugin directory is repaired, so the
+            // summary is an ERROR.
+            LOG.error("Filesystem plugin load summary: rootsScanned={}, dirsScanned={}, "
+                            + "successCount={}, failureCount={}; the FE continues without the plugins"
+                            + " that failed, each is reported below with its cause",
+                    report.getRootsScanned(), report.getDirsScanned(),
+                    report.getSuccesses().size(), report.getFailures().size());
+        }
 
         for (LoadFailure failure : report.getFailures()) {
-            LOG.warn("Filesystem plugin load failure: dir={}, stage={}, message={}, cause={}",
+            // Three placeholders, four arguments: the trailing throwable is logged with its stack
+            // trace, which a "cause={}" placeholder would reduce to toString().
+            LOG.warn("Filesystem plugin load failure: dir={}, stage={}, message={}",
                     failure.getPluginDir(), failure.getStage(), failure.getMessage(),
                     failure.getCause());
         }

@@ -17,12 +17,20 @@
 
 package org.apache.doris.nereids.lineage;
 
+import org.apache.doris.common.Config;
+import org.apache.doris.extension.loader.ApiVersionGate;
 import org.apache.doris.extension.spi.PluginContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -30,6 +38,10 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.jar.Attributes;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
+import java.util.jar.Manifest;
 
 /**
  * Unit tests for {@link LineageEventProcessor} SPI-based plugin management
@@ -41,6 +53,70 @@ public class LineageEventProcessorTest {
     private static final long WORKER_WAIT_TIMEOUT_SECONDS = 10L;
     private static final long TEST_CONTEXT_TIMESTAMP_MS = 1000L;
     private static final long TEST_CONTEXT_DURATION_MS = 50L;
+
+    // ==================== a plugin that fails after loading ====================
+
+    /** Its factory loads fine; the plugin implementation it names reaches a class the jar lacks. */
+    public static class UnlinkableLineagePluginFactory implements LineagePluginFactory {
+        @Override
+        public String name() {
+            return "unlinkable-lineage-test";
+        }
+
+        @Override
+        public String description() {
+            return "create() links a class this plugin does not carry";
+        }
+
+        @Override
+        public LineagePlugin create() {
+            throw new NoClassDefFoundError("org/example/AbsentHttpClient");
+        }
+    }
+
+    /**
+     * {@code create()} / {@code initialize()} are the first calls into the plugin implementation, one
+     * step after the loader handed back the factory. A {@code NoClassDefFoundError} there is an Error
+     * the old {@code catch (Exception)} let through to FE startup; it must cost this plugin alone.
+     */
+    @Test
+    public void testAPluginWhoseCreateCannotLinkIsSkippedNotFatal(@TempDir Path tempDir) throws IOException {
+        writeLineagePluginJar(tempDir.resolve("lineage").resolve("unlinkable").resolve("unlinkable.jar"),
+                UnlinkableLineagePluginFactory.class);
+        String savedPluginDir = Config.plugin_dir;
+        String[] savedActive = Config.activate_lineage_plugin;
+        Config.plugin_dir = tempDir.toString();
+        Config.activate_lineage_plugin = new String[0];
+        try {
+            LineageEventProcessor processor = new LineageEventProcessor();
+            Assertions.assertDoesNotThrow(processor::start);
+            Assertions.assertFalse(processor.hasActivePlugins(), "the plugin that failed to link is not active");
+        } finally {
+            Config.plugin_dir = savedPluginDir;
+            Config.activate_lineage_plugin = savedActive;
+        }
+    }
+
+    private static void writeLineagePluginJar(Path jarPath, Class<? extends LineagePluginFactory> factoryClass)
+            throws IOException {
+        Files.createDirectories(jarPath.getParent());
+        ApiVersionGate gate = ApiVersionGate.forFamily("lineage", LineagePluginFactory.class);
+        Manifest manifest = new Manifest();
+        manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+        manifest.getMainAttributes().putValue(gate.getManifestAttribute(), gate.getExpectedVersion());
+        String classEntry = factoryClass.getName().replace('.', '/') + ".class";
+        try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(jarPath), manifest)) {
+            jar.putNextEntry(new JarEntry(classEntry));
+            try (InputStream bytes = factoryClass.getClassLoader().getResourceAsStream(classEntry)) {
+                Assertions.assertNotNull(bytes, "class bytes not found: " + classEntry);
+                jar.write(bytes.readAllBytes());
+            }
+            jar.closeEntry();
+            jar.putNextEntry(new JarEntry("META-INF/services/" + LineagePluginFactory.class.getName()));
+            jar.write((factoryClass.getName() + "\n").getBytes(StandardCharsets.UTF_8));
+            jar.closeEntry();
+        }
+    }
 
     // ==================== hasActivePlugins / refreshPlugins ====================
 
