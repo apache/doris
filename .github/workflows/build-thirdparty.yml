@@ -22,7 +22,6 @@ on:
     paths:
       - 'thirdparty/**'
       - 'env.sh'
-      - 'regression-test/pipeline/external/conf/fe.conf'
       - '.github/workflows/build-thirdparty.yml'
   workflow_dispatch:
   issue_comment:
@@ -61,7 +60,6 @@ jobs:
               - 'thirdparty/**'
               - 'env.sh'
             focused_test_changes:
-              - 'regression-test/pipeline/external/conf/fe.conf'
               - 'thirdparty/test/adbc-jni-config-test.sh'
               - '.github/workflows/build-thirdparty.yml'
 
