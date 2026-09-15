@@ -190,35 +190,47 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             Set<? extends Expression> queryTopPlanGroupBySet = queryGroupAndFunctionPair.key();
             Set<? extends Expression> queryTopPlanFunctionSet = queryGroupAndFunctionPair.value();
             // try to rewrite the query top plan expressions, the query top plan output expressions
-            // are used as the repeat output expressions directly
-            for (Expression topExpression : queryTopPlan.getOutput()) {
-                if (queryTopPlanFunctionSet.contains(topExpression)) {
-                    // if agg function, try to roll up and rewrite
-                    Expression rollupedExpression = tryRewriteExpression(queryStructInfo, topExpression,
-                            mvExprToMvScanExprQueryBased, aggregateFunctionMode, materializationContext,
-                            "Query function roll up fail",
-                            () -> String.format("queryExpression = %s,\n mvExprToMvScanExprQueryBased = %s",
-                                    topExpression, mvExprToMvScanExprQueryBased));
-                    if (rollupedExpression == null) {
-                        return null;
+            // are used as the repeat output expressions directly. The repeat output keeps the original top
+            // output expr id equivalence classes, see rewriteOutputInOriginalExprIdEquivalenceClass, so the
+            // rewritten output set size equals the query output set size and the repeat rewrite is not
+            // rejected by the output set size guard of MaterializedViewUtils.rewriteByRules.
+            Map<ExprId, NamedExpression> originalExprIdToRewrittenOutput = new HashMap<>();
+            Set<ExprId> usedRewrittenOutputExprIds = new HashSet<>();
+            for (Slot topPlanOutput : queryTopPlan.getOutput()) {
+                NamedExpression rewrittenOutput = originalExprIdToRewrittenOutput.get(topPlanOutput.getExprId());
+                if (rewrittenOutput == null) {
+                    if (queryTopPlanFunctionSet.contains(topPlanOutput)) {
+                        // if agg function, try to roll up and rewrite
+                        Expression rollupedExpression = tryRewriteExpression(queryStructInfo, topPlanOutput,
+                                mvExprToMvScanExprQueryBased, aggregateFunctionMode, materializationContext,
+                                "Query function roll up fail",
+                                () -> String.format("queryExpression = %s,\n mvExprToMvScanExprQueryBased = %s",
+                                        topPlanOutput, mvExprToMvScanExprQueryBased));
+                        if (rollupedExpression == null) {
+                            return null;
+                        }
+                        rewrittenOutput = rewriteOutputInOriginalExprIdEquivalenceClass(
+                                originalExprIdToRewrittenOutput, usedRewrittenOutputExprIds,
+                                topPlanOutput.getExprId(), rollupedExpression);
+                    } else {
+                        // if group by dimension, try to rewrite
+                        Expression rewrittenGroupByExpression = tryRewriteExpression(
+                                queryStructInfo, topPlanOutput, mvExprToMvScanExprQueryBased, groupByMode,
+                                materializationContext,
+                                "View dimensions doesn't not cover the query dimensions",
+                                () -> String.format("mvExprToMvScanExprQueryBased is %s,\n queryExpression is %s",
+                                        mvExprToMvScanExprQueryBased, topPlanOutput));
+                        if (rewrittenGroupByExpression == null) {
+                            // group expr can not rewrite by view
+                            return null;
+                        }
+                        rewrittenOutput = rewriteOutputInOriginalExprIdEquivalenceClass(
+                                originalExprIdToRewrittenOutput, usedRewrittenOutputExprIds,
+                                topPlanOutput.getExprId(), rewrittenGroupByExpression);
+                        finalGroupExpressions.add(rewrittenOutput);
                     }
-                    finalOutputExpressions.add(new Alias(rollupedExpression));
-                } else {
-                    // if group by dimension, try to rewrite
-                    Expression rewrittenGroupByExpression = tryRewriteExpression(queryStructInfo, topExpression,
-                            mvExprToMvScanExprQueryBased, groupByMode, materializationContext,
-                            "View dimensions doesn't not cover the query dimensions",
-                            () -> String.format("mvExprToMvScanExprQueryBased is %s,\n queryExpression is %s",
-                                    mvExprToMvScanExprQueryBased, topExpression));
-                    if (rewrittenGroupByExpression == null) {
-                        // group expr can not rewrite by view
-                        return null;
-                    }
-                    NamedExpression groupByExpression = rewrittenGroupByExpression instanceof NamedExpression
-                            ? (NamedExpression) rewrittenGroupByExpression : new Alias(rewrittenGroupByExpression);
-                    finalOutputExpressions.add(groupByExpression);
-                    finalGroupExpressions.add(groupByExpression);
                 }
+                finalOutputExpressions.add(rewrittenOutput);
             }
             // handle the scene that query top plan not use the group by in query bottom aggregate
             if (needCompensateGroupBy(queryTopPlanGroupBySet, queryGroupByExpressions)) {
@@ -333,15 +345,8 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         // expression, so a projection of the group by key in the query top plan can be recomputed
         // by a project above the rewritten aggregate.
         List<NamedExpression> topProjectExpressions = new ArrayList<>();
-        // Preserve the original top output expr id multiplicity: several query top plan output positions
-        // can share one original expr id (e.g. the unaliased `select k, k from t group by k` references the
-        // same output slot twice). Such repeated positions must also share one rewritten output expr id,
-        // otherwise the rewritten output set is inflated and MaterializedViewUtils.rewriteByRules returns at
-        // its output-set-size guard before the whole-tree normalization and partition pruning, which can
-        // miscompute invalid-partition compensation or leave the new aggregate unnormalized. Conversely,
-        // positions with distinct original expr ids that are rewritten to the same aggregate output (e.g.
-        // `select sum(v) as s1, sum(v) as s2 from t group by a`) still need distinct output expr ids, so the
-        // rewritten output set is not collapsed.
+        // Preserve the original top output expr id equivalence classes, see
+        // rewriteOutputInOriginalExprIdEquivalenceClass for the details.
         List<Slot> queryTopPlanOutputs = queryTopPlan.getOutput();
         Map<ExprId, NamedExpression> originalExprIdToRewritten = new HashMap<>();
         Set<ExprId> usedRewrittenExprIds = new HashSet<>();
@@ -349,16 +354,9 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             ExprId originalExprId = queryTopPlanOutputs.get(i).getExprId();
             NamedExpression groupRewrittenExpression = originalExprIdToRewritten.get(originalExprId);
             if (groupRewrittenExpression == null) {
-                Expression replacedExpression = ExpressionUtils.replace(shuttledTopPlanOutputs.get(i),
-                        bottomAggOutputToNewExprMap);
-                groupRewrittenExpression = replacedExpression instanceof NamedExpression
-                        ? (NamedExpression) replacedExpression : new Alias(replacedExpression);
-                if (!usedRewrittenExprIds.add(groupRewrittenExpression.getExprId())) {
-                    // The rewritten expr id is already used by another original expr id group, keep a
-                    // distinct output expr id for this group.
-                    groupRewrittenExpression = new Alias(replacedExpression);
-                }
-                originalExprIdToRewritten.put(originalExprId, groupRewrittenExpression);
+                groupRewrittenExpression = rewriteOutputInOriginalExprIdEquivalenceClass(
+                        originalExprIdToRewritten, usedRewrittenExprIds, originalExprId,
+                        ExpressionUtils.replace(shuttledTopPlanOutputs.get(i), bottomAggOutputToNewExprMap));
             }
             topProjectExpressions.add(groupRewrittenExpression);
         }
@@ -416,6 +414,43 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         // if the slots query top project use can not cover the slots which query bottom aggregate use
         // Should compensate.
         return !queryTopPlanGroupByUseNamedExpressions.containsAll(queryGroupByUseNamedExpressions);
+    }
+
+    /**
+     * Build one rewritten output of a query top plan output position, keeping the rewritten output
+     * consistent with the original top output expr id equivalence classes.
+     * <p>
+     * Positions which share one original expr id (such as the unaliased `select k, k from t group by k`,
+     * where both positions reference the same top output slot) must share one rewritten output expr id,
+     * otherwise the rewritten output set is inflated. Conversely, positions with distinct original expr ids
+     * which are rewritten to the same view output (such as `select k as k1, k as k2 from t group by k`,
+     * where both positions rewrite to the same view slot) must keep distinct rewritten output expr ids,
+     * otherwise the rewritten output set is collapsed.
+     * <p>
+     * Both directions matter because the rewritten output set size must equal the query output set size,
+     * which is the guard of MaterializedViewUtils.rewriteByRules. When the guard is hit, the whole-tree
+     * normalization and partition pruning are skipped, and the repeat rewrite returns an aggregate with
+     * normalized=false whose derived projections are still inside the unnormalized aggregate, so that the
+     * physical translation can not resolve them when the top plan output is projected.
+     *
+     * @param originalExprIdToRewritten rewritten output of the original expr id, reused when present
+     * @param usedRewrittenExprIds rewritten output expr ids which are used by other expr id classes already
+     * @param originalExprId original expr id of the query top plan output position
+     * @param rewrittenExpression expression which the query top plan output position is rewritten to
+     * @return rewritten output expression of the query top plan output position
+     */
+    private static NamedExpression rewriteOutputInOriginalExprIdEquivalenceClass(
+            Map<ExprId, NamedExpression> originalExprIdToRewritten, Set<ExprId> usedRewrittenExprIds,
+            ExprId originalExprId, Expression rewrittenExpression) {
+        NamedExpression rewrittenOutput = rewrittenExpression instanceof NamedExpression
+                ? (NamedExpression) rewrittenExpression : new Alias(rewrittenExpression);
+        if (!usedRewrittenExprIds.add(rewrittenOutput.getExprId())) {
+            // The rewritten expr id is used by another original expr id equivalence class already, keep a
+            // distinct output expr id for this class.
+            rewrittenOutput = new Alias(rewrittenExpression);
+        }
+        originalExprIdToRewritten.put(originalExprId, rewrittenOutput);
+        return rewrittenOutput;
     }
 
     /**

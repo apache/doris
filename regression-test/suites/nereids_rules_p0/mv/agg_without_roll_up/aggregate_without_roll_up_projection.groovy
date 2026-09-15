@@ -103,4 +103,59 @@ suite("aggregate_without_roll_up_projection") {
             + "from sync_tz_base where ts is not null group by date_trunc(ts, 'day');", "sync_tz_day")
     order_qt_select_mv_dup_bare_group """select date_trunc(ts, 'day'), date_trunc(ts, 'day'), sum(v)
             from sync_tz_base where ts is not null group by date_trunc(ts, 'day') order by 1;"""
+
+    // The grouping sets rewrite is a separate path of the aggregate rule: the rewritten repeat outputs
+    // are built from the query top plan outputs directly, so the same duplicate aliasing has to keep the
+    // original top output expr id equivalence classes there too. Re-enable the aggregate rule, as the
+    // cases above only exercise the project filter aggregate rule.
+    sql "set disable_nereids_rules=''"
+
+    // A dedicated table and mv without any predicate, because the repeated group sets are rewritten by
+    // the mv group sets directly and the mv predicate is not compensated on this path.
+    sql """ DROP TABLE IF EXISTS sync_tz_gs; """
+
+    sql """
+        create table sync_tz_gs(
+            id int null,
+            ts timestamptz(6) null,
+            v int null
+        )
+        duplicate key (id)
+        distributed BY hash(id) buckets 3
+        properties("replication_num" = "1");
+    """
+
+    sql "insert into sync_tz_gs values (1, '2024-01-01 10:00:00', 3), (2, '2024-01-01 12:00:00', 4), (3, '2024-01-02 08:00:00', 3), (4, null, 7);"
+
+    create_sync_mv(db, "sync_tz_gs", "sync_tz_gs_mv",
+            "select date_trunc(ts, 'day') as day_ts, id as id2, sum(v) as day_sum from sync_tz_gs "
+                    + "group by date_trunc(ts, 'day'), id;")
+
+    sql "analyze table sync_tz_gs with sync;"
+    sql """alter table sync_tz_gs modify column id set stats ('row_count'='4');"""
+
+    // Two separately aliased duplicates of the group by key in a grouping sets query (`d1` and `d2`)
+    // both rewrite to the same mv slot. If every position keeps that slot expr id, the rewritten repeat
+    // output set collapses from 4 to 3 members, so MaterializedViewUtils.rewriteByRules returns at its
+    // output set size guard before the whole-tree normalization. The derived `cast(id as string)`
+    // projection then stays inside the repeat aggregate, which NormalizeRepeat returns as
+    // normalized=false, so the physical translation can not resolve that output and the query fails
+    // with a null pointer exception while translating the final projection.
+    mv_rewrite_success("select date_trunc(ts, 'day') as d1, date_trunc(ts, 'day') as d2, "
+            + "cast(id as string) as id_s, sum(v) as s from sync_tz_gs "
+            + "group by grouping sets ((date_trunc(ts, 'day'), id), (date_trunc(ts, 'day')));",
+            "sync_tz_gs_mv")
+    order_qt_select_mv_grouping_sets """select date_trunc(ts, 'day') as d1, date_trunc(ts, 'day') as d2,
+            cast(id as string) as id_s, sum(v) as s from sync_tz_gs
+            group by grouping sets ((date_trunc(ts, 'day'), id), (date_trunc(ts, 'day'))) order by 1, 3, 4;"""
+
+    // The opposite direction of the same equivalence class: a repeated unaliased bare output references
+    // the same original output slot twice, and both positions must reuse one rewritten repeat output.
+    // Forcing a fresh alias on the repeated position would inflate the rewritten output set instead.
+    mv_rewrite_success("select date_trunc(ts, 'day'), date_trunc(ts, 'day'), sum(v) from sync_tz_gs "
+            + "group by grouping sets ((date_trunc(ts, 'day'), id), (date_trunc(ts, 'day')));",
+            "sync_tz_gs_mv")
+    order_qt_select_mv_grouping_sets_bare_group """select date_trunc(ts, 'day'), date_trunc(ts, 'day'), sum(v)
+            from sync_tz_gs
+            group by grouping sets ((date_trunc(ts, 'day'), id), (date_trunc(ts, 'day'))) order by 1, 3;"""
 }
