@@ -110,6 +110,11 @@ public final class MetaCache<K, V> {
         return metrics().isEffectiveEnabled();
     }
 
+    /** Whether this entry currently participates in byte-based memory governance. */
+    public boolean isWeightBounded() {
+        return metrics().isWeightBounded();
+    }
+
     public long size() {
         return metrics().getPhysicalEntryCount();
     }

@@ -1967,6 +1967,10 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setStringVal(
                             formatMetaCacheTime(entryStats.getLastLoadFailureTimeMs(), timeZone)));
                     trow.addToColumnValue(new TCell().setStringVal(entryStats.getLastError())); // LAST_ERROR
+                    trow.addToColumnValue(new TCell().setLongVal(entryStats.getMaxWeight()));
+                    trow.addToColumnValue(new TCell().setLongVal(entryStats.getEstimatedWeight()));
+                    trow.addToColumnValue(new TCell().setLongVal(entryStats.getWeightAdmissionRejectedCount()));
+                    trow.addToColumnValue(new TCell().setStringVal(entryStats.getLastWeightRejectReason()));
                     dataBatch.add(trow);
                 }
             }

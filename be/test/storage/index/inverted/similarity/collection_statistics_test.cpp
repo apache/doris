@@ -453,7 +453,7 @@ protected:
         return file_writer.finish_close();
     }
 
-    // 分词 + 带位置 + norms 的普通 SNII 段：这就是新 writer 对可打分索引写出的形态。
+    // A normal analyzed SNII segment with positions and norms, as emitted for scoring indexes.
     Status write_snii_scoring_segment(const std::string& segment_path) {
         const std::string index_path_prefix {
                 segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)};
@@ -603,7 +603,7 @@ protected:
         return tablet_schema;
     }
 
-    // 落在 SNII 内部命名空间（\x1f 开头）里的词项，对 V3（CLucene）索引只是普通字节。
+    // Terms in SNII's internal namespace (starting with \x1f) are ordinary bytes in V3 (CLucene).
     VExprContextSPtrs create_reserved_exact_search_contexts() {
         return create_search_contexts("EXACT",
                                       std::string(snii::format::kPhraseBigramTermMarker) + "user");
@@ -1090,7 +1090,7 @@ protected:
     std::unique_ptr<TestableCollectionStatistics> stats_;
 };
 
-// 一个 SNII 段能参与打分的条件只有两个物理事实：带位置、带 norms；统计量直接取 stats 块。
+// SNII scoring requires only positions and norms; statistics come directly from the stats block.
 TEST(CollectionStatisticsSniiScoringTest, ResolveUsesPhysicalDocAndTokenCounts) {
     auto result = resolve_snii_scoring_segment(3, 7, /*has_positions=*/true, /*has_norms=*/true);
 
@@ -1132,7 +1132,7 @@ TEST_F(CollectionStatisticsTest, CollectionStatisticsInstancesKeepAdmissionState
     EXPECT_FLOAT_EQ(second.get_or_calculate_avg_dl(L"1"), 5.0F);
 }
 
-// 老段（没有 norms）混进来就整体拒绝打分，已收集的统计量一并清空。
+// An older segment without norms disables scoring for the whole collection and clears its stats.
 TEST_F(CollectionStatisticsTest, SegmentWithoutNormsRejectsWholeCollection) {
     ASSERT_TRUE(admit_snii_segment_for_test(stats_.get(), L"1", 2, 6).ok());
 

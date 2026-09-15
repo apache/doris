@@ -115,9 +115,9 @@ Status SniiIndexColumnWriter::init() {
         return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                 "SNII create analyzer failed: {}", e.what());
     }
-    // A2：分词 + 带位置的索引一律写 norms（每 doc 的词元数，clamp 到 1..255），与 CLucene 的
-    // 打分能力对齐；keyword 或不带位置的索引不写。norms 是 core 元数据里的可选 region，
-    // 不认识它的老 reader 会原样忽略。
+    // A2: Analyzed indexes with positions always write norms (tokens per document, clamped to
+    // 1..255), matching CLucene's scoring capabilities. Keyword or positionless indexes omit
+    // them. Norms are an optional core-metadata region ignored by older readers.
     _writes_norms = _should_analyzer && _has_positions;
     return Status::OK();
 }
@@ -253,8 +253,8 @@ Status SniiIndexColumnWriter::add_array_values(size_t field_size, const void* va
             row_token_count += token_count;
         }
         if (_writes_norms) {
-            // 一行 ARRAY 的文档长度 = 所有元素的词元数之和（NULL 行由 add_array_nulls 声明，
-            // 但同样经过这里，长度为 0）。
+            // An ARRAY row's document length is the total token count across its elements.
+            // NULL rows also pass here with length 0 and are marked by add_array_nulls.
             _encoded_norms.push_back(::doris::snii::query::encode_norm(row_token_count));
             _report_encoded_norms_capacity();
         }

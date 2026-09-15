@@ -151,8 +151,10 @@ PhysicalResultSink
 -- !two_args_func_avg_weighted_shape --
 PhysicalResultSink
 --PhysicalProject
-----filter((test_unique2.__DORIS_DELETE_SIGN__ = 0))
-------PhysicalOlapScan[test_unique2]
+----hashAgg[GLOBAL]
+------PhysicalProject
+--------filter((test_unique2.__DORIS_DELETE_SIGN__ = 0))
+----------PhysicalOlapScan[test_unique2]
 
 -- !two_args_func_percentile_shape --
 PhysicalResultSink

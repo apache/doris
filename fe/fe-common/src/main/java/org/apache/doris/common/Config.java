@@ -2204,6 +2204,11 @@ public class Config extends ConfigBase {
     @ConfField(description = "The auto-refresh interval of the external meta cache.")
     public static long external_cache_refresh_time_minutes = 10; // 10 mins
 
+    @ConfField(mutable = false, masterOnly = false,
+            description = "FE-wide maximum weight for managed external metadata caches. Supports byte units "
+                    + "or a percentage of the JVM max heap; 0 disables the global quota.")
+    public static String external_meta_cache_max_weight = "0";
+
     // Enable manual miss load for external meta cache to avoid blocking replayer on slow loaders.
     @ConfField(mutable = true, masterOnly = false,
             description = "Whether external meta cache uses manual miss load instead of Caffeine sync load.")
@@ -3495,7 +3500,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = "Cloud table and partition version syncer interval. All frontends will perform the "
             + "checking.")
-    public static int cloud_version_syncer_interval_second = 20;
+    public static int cloud_version_syncer_interval_second = 60;
 
     @ConfField(mutable = true, description = "Whether to enable the function of syncing table and partition version "
             + "in cloud mode.")
@@ -3508,7 +3513,10 @@ public class Config extends ConfigBase {
     public static int cloud_sync_version_task_threads_num = 4;
 
     @ConfField(mutable = true, description = "Maximum table or partition batch size for get version tasks.")
-    public static int cloud_get_version_task_batch_size = 2000;
+    public static int cloud_get_version_task_batch_size = 200;
+
+    @ConfField(mutable = true, description = "Maximum retry times for cloud version syncer get version tasks.")
+    public static int cloud_version_syncer_get_version_retry_times = 3;
 
     @ConfField(mutable = true, description = "Whether to enable retry when a schema change job fails, default is true.")
     public static boolean enable_schema_change_retry = true;
@@ -3683,9 +3691,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = "Whether to allow the use of inverted index v1 for "
             + "variant.")
     public static boolean enable_inverted_index_v1_for_variant = false;
-
-    @ConfField(mutable = true, description = "Whether to enable ColumnVariantV2 for Variant execution and storage.")
-    public static boolean enable_variant_v2 = false;
 
     @ConfField(mutable = true, description = "Prometheus output table dimension metric count limit.")
     public static int prom_output_table_metrics_limit = 10000;

@@ -128,7 +128,7 @@ void BuildIndexBytes(const Corpus& corpus, doris::snii::format::IndexConfig conf
     in.config = config;
     in.doc_count = static_cast<uint32_t>(corpus.docs.size());
     if (config == doris::snii::format::IndexConfig::kDocsPositions) {
-        // 带位置的索引一并写 norms（A2），让打分查询在这些边界用例里也可用。
+        // Indexes with positions also write norms (A2), enabling scoring in these edge cases.
         in.encoded_norms.assign(corpus.docs.size(), 1);
     }
     in.terms = buf.finalize_sorted();

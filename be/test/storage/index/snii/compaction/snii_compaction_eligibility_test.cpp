@@ -211,7 +211,7 @@ TEST(SniiCompactionEligibilityTest, RejectsPhysicalShapesOutsidePlainT2) {
     }
 }
 
-// 带 norms 的段（新 writer 对分词 + 带位置索引的产物）与不带 norms 的老段都是合法的 T2 源。
+// Both current segments with norms and older segments without norms are valid T2 sources.
 TEST(SniiCompactionEligibilityTest, AcceptsSourcesWithOrWithoutNorms) {
     auto with_norms = open_index(IndexShape {.has_norms = true});
     auto without_norms = open_index({});
@@ -223,8 +223,8 @@ TEST(SniiCompactionEligibilityTest, AcceptsSourcesWithOrWithoutNorms) {
     EXPECT_TRUE(compaction::validate_plain_t2_compaction_eligibility(sources, *destination).ok());
 }
 
-// A2：目标索引分词就写 norms（哪怕所有源都是没有 norms 的老段——合并时从 postings 重建）；
-// 不分词的 keyword 索引不写。
+// A2: An analyzed destination writes norms, rebuilt from postings even if all sources lack them.
+// Keyword indexes without analysis do not write norms.
 TEST(SniiCompactionEligibilityTest, DestinationWritesNormsExactlyWhenAnalyzed) {
     auto legacy = open_index({});
 

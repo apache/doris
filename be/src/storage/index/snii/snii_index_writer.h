@@ -93,7 +93,7 @@ private:
     bool _should_analyzer = false;
     bool _has_positions = false;
     const bool _is_char;
-    // A2：分词 + 带位置的索引一律写 norms（与 CLucene 一致），供 BM25 使用。
+    // A2: Analyzed indexes with positions always write BM25 norms, matching CLucene.
     bool _writes_norms = false;
     // Latch: set_direct_load() ran. The first call wins; a repeat or late call
     // is ignored (and logged) so one index keeps one stable compression-tier

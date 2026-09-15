@@ -687,7 +687,7 @@ public class CloudGlobalTransactionMgrTest {
         OlapTable firstTable = getCloudTable(first);
         OlapTable secondTable = getCloudTable(second);
         CommitTxnResponse response = visibleRetry(List.of(first.getTableId(), second.getTableId()));
-        try (MockedStatic<VersionHelper> versions = Mockito.mockStatic(VersionHelper.class)) {
+        try (MockedStatic<VersionHelper> versions = mockVersionHelper()) {
             versions.when(() -> VersionHelper.getVersionFromMeta(Mockito.any())).thenReturn(partitionVersion(4));
             masterTransMgr.afterCommitTxnResp(response, null, List.of());
             versions.verifyNoInteractions();
@@ -715,7 +715,7 @@ public class CloudGlobalTransactionMgrTest {
     public void testIncompleteCommitDoesNotRefreshPartitionVersions() throws Exception {
         CloudPartition partition = addCloudPartition(1000);
         CommitTxnResponse response = visibleRetry(List.of(partition.getTableId()));
-        try (MockedStatic<VersionHelper> versions = Mockito.mockStatic(VersionHelper.class)) {
+        try (MockedStatic<VersionHelper> versions = mockVersionHelper()) {
             masterTransMgr.afterCommitTxnResp(response.toBuilder().setTxnInfo(response.getTxnInfo().toBuilder()
                     .setStatus(Cloud.TxnStatusPB.TXN_STATUS_COMMITTED)).build(), null, List.of());
             masterTransMgr.afterCommitTxnResp(response.toBuilder().setIsLazyCommit(true)
@@ -727,7 +727,7 @@ public class CloudGlobalTransactionMgrTest {
 
     @Test
     public void testVisibleRetrySkipsDroppedTable() throws Exception {
-        try (MockedStatic<VersionHelper> versions = Mockito.mockStatic(VersionHelper.class)) {
+        try (MockedStatic<VersionHelper> versions = mockVersionHelper()) {
             masterTransMgr.afterCommitTxnResp(visibleRetry(List.of(1000L)), null, List.of());
             versions.verifyNoInteractions();
         }
@@ -743,7 +743,7 @@ public class CloudGlobalTransactionMgrTest {
                 .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK))
                 .setTxnInfo(txnInfo).build());
         try (MockedStatic<MetaServiceProxy> proxyMock = Mockito.mockStatic(MetaServiceProxy.class);
-                MockedStatic<VersionHelper> versions = Mockito.mockStatic(VersionHelper.class)) {
+                MockedStatic<VersionHelper> versions = mockVersionHelper()) {
             proxyMock.when(MetaServiceProxy::getInstance).thenReturn(proxy);
             versions.when(() -> VersionHelper.getVersionFromMeta(Mockito.any())).thenReturn(partitionVersion(4));
             Method check = CloudGlobalTransactionMgr.class.getDeclaredMethod("checkTransactionStateBeforeCommit",
@@ -773,7 +773,7 @@ public class CloudGlobalTransactionMgrTest {
         Table table = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(partition.getTableId());
         try (MockedStatic<MetaServiceProxy> proxyMock = Mockito.mockStatic(MetaServiceProxy.class);
-                MockedStatic<VersionHelper> versions = Mockito.mockStatic(VersionHelper.class)) {
+                MockedStatic<VersionHelper> versions = mockVersionHelper()) {
             proxyMock.when(MetaServiceProxy::getInstance).thenReturn(proxy);
             versions.when(() -> VersionHelper.getVersionFromMeta(Mockito.any()))
                     .thenThrow(new RpcException("MS", "unavailable"));
@@ -821,7 +821,7 @@ public class CloudGlobalTransactionMgrTest {
         OlapTable table = getCloudTable(partition);
         ConnectContext.get().getSessionVariable().cloudPartitionVersionCacheTtlMs = 0;
         ConnectContext.get().getSessionVariable().cloudTableVersionCacheTtlMs = 0;
-        try (MockedStatic<VersionHelper> versions = Mockito.mockStatic(VersionHelper.class)) {
+        try (MockedStatic<VersionHelper> versions = mockVersionHelper()) {
             versions.when(() -> VersionHelper.getVersionFromMeta(Mockito.any())).thenAnswer(invocation -> {
                 // The MS snapshot predates the commit, but its reply arrives after cache invalidation.
                 masterTransMgr.afterCommitTxnResp(visibleRetry(List.of(table.getId())), null, List.of());
@@ -886,7 +886,7 @@ public class CloudGlobalTransactionMgrTest {
         table.addPartition(second);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         AtomicReference<CompletableFuture<Void>> snapshotReader = new AtomicReference<>();
-        try (MockedStatic<VersionHelper> versions = Mockito.mockStatic(VersionHelper.class)) {
+        try (MockedStatic<VersionHelper> versions = mockVersionHelper()) {
             versions.when(() -> VersionHelper.getVersionFromMeta(Mockito.any())).thenReturn(
                     partitionVersion(4).toBuilder().addVersions(4).addVersionUpdateTimeMs(40).addCommitTsos(400).build());
             Mockito.doAnswer(invocation -> {
@@ -928,7 +928,7 @@ public class CloudGlobalTransactionMgrTest {
                 .setTableVersionInfos(List.of(new TCloudVersionInfo().setTableId(table.getId()).setVersion(-1)));
         Mockito.doReturn(false).when(masterEnv).isMaster();
         FrontendServiceImpl service = new FrontendServiceImpl(null);
-        try (MockedStatic<VersionHelper> versions = Mockito.mockStatic(VersionHelper.class)) {
+        try (MockedStatic<VersionHelper> versions = mockVersionHelper()) {
             Assertions.assertEquals(TStatusCode.OK, service.syncCloudVersion(request).getStatusCode());
             versions.verifyNoInteractions();
             // Even a delayed regular version push must leave these caches invalid.
@@ -1002,6 +1002,14 @@ public class CloudGlobalTransactionMgrTest {
         table.setCachedTableVersion(2);
         masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1).registerTable(table);
         return partition;
+    }
+
+    private MockedStatic<VersionHelper> mockVersionHelper() {
+        MockedStatic<VersionHelper> versions = Mockito.mockStatic(VersionHelper.class);
+        // Batch reads pass an explicit retry limit; share the response stub with single-version reads.
+        versions.when(() -> VersionHelper.getVersionFromMeta(Mockito.any(), Mockito.anyInt()))
+                .thenAnswer(invocation -> VersionHelper.getVersionFromMeta(invocation.getArgument(0)));
+        return versions;
     }
 
     private CommitTxnResponse visibleRetry(List<Long> tableIds) {

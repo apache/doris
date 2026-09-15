@@ -17,7 +17,10 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
+import org.apache.doris.connector.cache.ConnectorTableKey;
+import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 
@@ -27,8 +30,10 @@ import org.apache.paimon.types.RowType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -104,6 +109,21 @@ public class PaimonConnectorMetadataPartitionViewCacheTest {
     }
 
     @Test
+    public void largePartitionViewCanBeEstimatedWithoutTheReflectiveVisitLimit() {
+        List<ConnectorPartitionInfo> partitions = new ArrayList<>();
+        for (int index = 0; index < 20_000; index++) {
+            String value = Integer.toString(index);
+            partitions.add(new ConnectorPartitionInfo("p=" + value,
+                    Collections.singletonMap("p", value), Collections.emptyMap(),
+                    Collections.singletonList(value), Collections.emptyList()));
+        }
+
+        PaimonPartitionView view = new PaimonPartitionView(
+                new ConnectorTableKey("db", "table", 1L, 1L), partitions);
+        Assertions.assertTrue(view.getSizeEstimate().isComplete());
+    }
+
+    @Test
     public void listPartitionsCachesDerivedListAcrossQueries() {
         // WHY: cache A must memoize the BUILT List<ConnectorPartitionInfo> keyed by (db, table, snapshotId,
         // schemaId), so a repeated query on the same (unchanged) latest snapshot skips the derived rebuild AND
@@ -124,6 +144,85 @@ public class PaimonConnectorMetadataPartitionViewCacheTest {
         Assertions.assertEquals(Arrays.asList("region=cn", "region=us"), names(first));
         Assertions.assertEquals(names(first), names(second), "the cached list is returned verbatim");
         Assertions.assertEquals(1, loadCount(ops), "a cache hit must not re-enumerate (listPartitions once)");
+    }
+
+    @Test
+    public void weightBoundedPartitionViewIsEstimatedAndCached() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable table = regionTable();
+        ops.table = table;
+        ops.latestSnapshotId = OptionalLong.of(100L);
+        ops.partitions = Arrays.asList(partition("cn"), partition("us"));
+        Map<String, String> properties = Collections.singletonMap(
+                "meta.cache.paimon.partition_view.max-weight", "1MB");
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = new ConnectorMetadataCache<>(
+                    owner, "paimon.partition-view", "paimon", "partition_view", properties,
+                    key -> ScopePath.table(key.getDb(), key.getTable()),
+                    PaimonPartitionViewSizeEstimator::estimateEntry);
+            PaimonConnectorMetadata metadata = metadataWithCache(ops, cache);
+            PaimonTableHandle handle = handle(table);
+
+            List<ConnectorPartitionInfo> first = metadata.listPartitions(null, handle, Optional.empty());
+            List<ConnectorPartitionInfo> second = metadata.listPartitions(null, handle, Optional.empty());
+
+            Assertions.assertSame(first, second);
+            Assertions.assertEquals(1, loadCount(ops));
+        }
+    }
+
+    @Test
+    public void disabledBoundedPartitionViewDoesNotPrepareWeight() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable table = regionTable();
+        ops.table = table;
+        ops.latestSnapshotId = OptionalLong.of(100L);
+        ops.partitions = Collections.singletonList(partition("cn"));
+        Map<String, String> properties = new HashMap<>();
+        properties.put("meta.cache.paimon.partition_view.max-weight", "1MB");
+        properties.put("meta.cache.paimon.partition_view.enable", "false");
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = new ConnectorMetadataCache<>(
+                    owner, "paimon.partition-view", "paimon", "partition_view", properties,
+                    key -> ScopePath.table(key.getDb(), key.getTable()),
+                    PaimonPartitionViewSizeEstimator::estimateEntry);
+            PaimonConnectorMetadata metadata = metadataWithCache(ops, cache);
+            List<ConnectorPartitionInfo> first = metadata.listPartitions(null, handle(table), Optional.empty());
+            List<ConnectorPartitionInfo> second = metadata.listPartitions(null, handle(table), Optional.empty());
+            Assertions.assertFalse(first instanceof PaimonPartitionView);
+            Assertions.assertEquals(first, second);
+            Assertions.assertNotSame(first, second);
+            Assertions.assertEquals(2, loadCount(ops));
+        }
+    }
+
+    @Test
+    public void unsampledLongTailRejectsAdmissionWithoutFailingPartitionListing() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable table = regionTable();
+        ops.table = table;
+        ops.latestSnapshotId = OptionalLong.of(100L);
+        ops.partitions = new ArrayList<>();
+        for (int index = 0; index < 1_000; index++) {
+            ops.partitions.add(partition("region-" + index));
+        }
+        ops.partitions.set(998, partition("x".repeat(1024 * 1024)));
+        Map<String, String> properties = Collections.singletonMap(
+                "meta.cache.paimon.partition_view.max-weight", "1MB");
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = new ConnectorMetadataCache<>(
+                    owner, "paimon.partition-view", "paimon", "partition_view", properties,
+                    key -> ScopePath.table(key.getDb(), key.getTable()),
+                    PaimonPartitionViewSizeEstimator::estimateEntry);
+            PaimonConnectorMetadata metadata = metadataWithCache(ops, cache);
+            PaimonTableHandle handle = handle(table);
+            List<ConnectorPartitionInfo> first = metadata.listPartitions(null, handle, Optional.empty());
+            List<ConnectorPartitionInfo> second = metadata.listPartitions(null, handle, Optional.empty());
+            Assertions.assertEquals(1_000, first.size());
+            Assertions.assertEquals(first, second);
+            Assertions.assertNotSame(first, second, "oversized views are returned, not cached");
+            Assertions.assertEquals(2, loadCount(ops));
+        }
     }
 
     @Test

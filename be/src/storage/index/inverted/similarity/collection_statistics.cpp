@@ -251,7 +251,7 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
 
             ::doris::snii::reader::DictBlockCache dict_block_cache;
             for (const auto& logical_term_bytes : collect_info.unique_terms) {
-                // SNII 的 term 键就是分词后的原始字节，没有任何转义或版本。
+                // SNII term keys are the raw analyzed bytes, with no escaping or version prefix.
                 const std::string& physical_term = logical_term_bytes;
                 const auto logical_term =
                         segment_v2::inverted_index::StringHelper::to_wstring(logical_term_bytes);

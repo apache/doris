@@ -33,7 +33,7 @@ import java.util.List;
  * AggregateFunction 'percentile_approx_weighted'.
  */
 public class PercentileApproxWeighted extends NullableAggregateFunction
-        implements ExplicitlyCastableSignature {
+        implements ExplicitlyCastableSignature, NullIgnoringAggregateFunction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
 

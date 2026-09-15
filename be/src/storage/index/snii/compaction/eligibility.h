@@ -52,9 +52,9 @@ using AnalyzerProviderFactory = std::function<segment_v2::inverted_index::Analyz
         const InvertedIndexAnalyzerConfig&)>;
 
 struct SniiCompactionEligibility {
-    // A2：目标索引是"分词 + 带位置"时，合并产物必须带 norms。norms 在合并 postings 的同一趟里
-    // 从各源的词频重建（每 doc Σfreq，clamp 到 1..255），所以老段（没有 norms 的 T2）也能
-    // 不重分词地升级成带 norms 的段。
+    // A2: An analyzed destination index with positions must include norms. The posting merge
+    // rebuilds them from source term frequencies (sum per document, clamped to 1..255), so older
+    // T2 segments without norms can gain norms without reanalysis.
     bool destination_writes_norms = false;
 };
 

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_ivm_rewrite_projection", "nonConcurrent") {
+suite("test_ivm_rewrite_projection") {
     sql """drop materialized view if exists rewrite_projection_ivm;"""
     sql """drop table if exists rewrite_projection_base;"""
 

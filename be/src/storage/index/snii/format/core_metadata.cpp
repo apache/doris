@@ -72,9 +72,9 @@ Status decode_core_pb(const doris::snii::SniiCoreMetadataPB& input, CoreMetadata
         !stats.has_null_count()) {
         return corrupted("core metadata: missing statistics field");
     }
-    // sum_total_term_freq（字段 5）与 norms（字段 5）是后加的可选字段：已上线的生产
-    // 3.1 系 writer 不写它们。缺失 = 该段没有打分统计 / 没有 norms，
-    // 只影响 BM25 打分是否可用，不影响任何过滤查询。
+    // sum_total_term_freq (stats field 5) and norms (section_refs field 5) are optional additions
+    // absent from the deployed 3.1-series writer. Missing fields mean no scoring statistics or
+    // norms, affecting BM25 availability but not filtering queries.
     out->stats = {.doc_count = stats.doc_count(),
                   .indexed_doc_count = stats.indexed_doc_count(),
                   .term_count = stats.term_count(),
@@ -97,15 +97,16 @@ Status decode_core_pb(const doris::snii::SniiCoreMetadataPB& input, CoreMetadata
     RETURN_IF_ERROR(decode_region_ref(refs.null_bitmap(), &out->section_refs.null_bitmap));
     RETURN_IF_ERROR(decode_region_ref(refs.bsbf(), &out->section_refs.bsbf));
 
-    // 墓碑：CommonGrams 功能已删除。带过字段 4/5 的段只可能是用 CommonGrams analyzer 写出来的
-    // （含 gram 词项、键转义或混合 posting 策略），term 键与查询语义都已不可解释，必须重建索引。
-    // 生产 writer 从未写过这两个字段，所以升级路径不受影响。
+    // Tombstones for the removed CommonGrams feature. Fields 4/5 identify segments written with
+    // a CommonGrams analyzer (gram terms, escaped keys, or mixed posting policies). Their term
+    // keys and query semantics are no longer supported, so these indexes must be rebuilt.
+    // Production writers never emitted these fields, so upgrades are unaffected.
     if (input.has_legacy_common_grams() || input.has_legacy_common_grams_posting_policy()) {
         return unsupported(
                 "core metadata: segment was written with CommonGrams, which is no longer "
                 "supported; rebuild the index");
     }
-    // norms（每 doc 一字节的 BM25 文档长度）只对带位置的段有意义：打分的词频来自位置。
+    // Norms encode BM25 document lengths in one byte and require positions for term frequencies.
     if (out->section_refs.norms.length != 0 && !has_positions(out->index_config)) {
         return corrupted("core metadata: norms require positions");
     }
@@ -130,7 +131,7 @@ Status encode_core_metadata(const CoreMetadata& metadata, ByteSink* out) {
     auto* refs = core.mutable_section_refs();
     encode_region_ref(metadata.section_refs.dict_region, refs->mutable_dict_region());
     encode_region_ref(metadata.section_refs.posting_region, refs->mutable_posting_region());
-    // 没有 norms 的段不写字段 5：与生产 writer 的字节形态一致，老 reader 也无需感知。
+    // Omit field 5 when norms are absent, matching production bytes without affecting old readers.
     if (metadata.section_refs.norms.length != 0) {
         encode_region_ref(metadata.section_refs.norms, refs->mutable_norms());
     }
