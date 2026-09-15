@@ -27,7 +27,9 @@ import org.apache.paimon.table.ExpireSnapshots;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.table.sink.StreamWriteBuilder;
+import org.apache.paimon.table.source.FullTextSearchBuilder;
 import org.apache.paimon.table.source.ReadBuilder;
+import org.apache.paimon.table.source.VectorSearchBuilder;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.SimpleFileReader;
 
@@ -208,6 +210,11 @@ final class FakePaimonTable implements Table {
     }
 
     @Override
+    public void rollbackSchema(long schemaId) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public void createBranch(String branchName) {
         throw new UnsupportedOperationException();
     }
@@ -218,7 +225,22 @@ final class FakePaimonTable implements Table {
     }
 
     @Override
+    public void createBranch(String branchName, boolean forceCreate) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void createBranch(String branchName, String tagName, boolean forceCreate) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public void deleteBranch(String branchName) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void renameBranch(String branchName, String targetBranchName) {
         throw new UnsupportedOperationException();
     }
 
@@ -234,6 +256,16 @@ final class FakePaimonTable implements Table {
 
     @Override
     public ExpireSnapshots newExpireChangelog() {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public VectorSearchBuilder newVectorSearchBuilder() {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public FullTextSearchBuilder newFullTextSearchBuilder() {
         throw new UnsupportedOperationException();
     }
 
