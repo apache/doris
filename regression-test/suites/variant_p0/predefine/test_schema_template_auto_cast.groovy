@@ -162,12 +162,9 @@ suite("test_schema_template_auto_cast", "p0") {
     qt_agg_min_max """ SELECT MIN(data['num_a']), MAX(data['num_a']) FROM ${tableName} """
     qt_agg_count_distinct """ SELECT COUNT(DISTINCT data['str_name']) FROM ${tableName} """
 
-    // Test 11: FE allows Variant ordering; the legacy BE column still requires auto-cast.
+    // Test 11: Variant V2 supports ordering without schema auto-cast.
     sql """ set enable_variant_schema_auto_cast = false """
-    test {
-        sql """ SELECT id FROM ${tableName} ORDER BY data['num_a'] """
-        exception "get_permutation for var_scalar"
-    }
+    qt_order_by_without_auto_cast """ SELECT id FROM ${tableName} ORDER BY data['num_a'] """
     sql """ set enable_variant_schema_auto_cast = true """
 
     sql "DROP TABLE IF EXISTS ${tableName}"

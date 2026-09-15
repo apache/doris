@@ -148,6 +148,12 @@ charlie	50
 -- !agg_count_distinct --
 3
 
+-- !order_by_without_auto_cast --
+1
+4
+2
+3
+
 -- !join_on --
 1	first
 2	second

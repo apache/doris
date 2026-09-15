@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_variant_relational_corners", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
         qt_constant_types """SELECT
             parse_to_variant('true') = parse_to_variant('1'),
             parse_to_variant('false') = parse_to_variant('0'),
@@ -119,5 +118,4 @@ suite("test_variant_relational_corners", "p0,nonConcurrent") {
         qt_spill_join """SELECT l.id, r.id FROM variant_relational_corners l
             JOIN [shuffle] variant_relational_corners r ON l.v['k'] <=> r.v['k']
             ORDER BY l.id, r.id"""
-    }
 }

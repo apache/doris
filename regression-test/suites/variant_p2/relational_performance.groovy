@@ -40,7 +40,6 @@ suite("variant_relational_performance", "p2,nonConcurrent") {
     }
     keys = keys.findAll { key, ignored -> requestedKeys.contains(key) }
 
-    setFeConfigTemporary([enable_variant_v2: true]) {
         def actualRows = (sql("SELECT count(*) FROM github_events"))[0][0].toString().toLong()
         assertEquals(expectedRows, actualRows)
         if (phase == "prepare") {
@@ -152,5 +151,4 @@ suite("variant_relational_performance", "p2,nonConcurrent") {
             }
         }
         record([event: "complete", time: new Date().toString()])
-    }
 }

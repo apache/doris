@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_variant_subfield_comparison", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
         // Keep the JSON text as well as its stored Variant representation: reading a
         // subcolumn can promote types, while parsing the text preserves each input.
         sql "DROP TABLE IF EXISTS variant_subfield_comparison"
@@ -174,5 +173,4 @@ suite("test_variant_subfield_comparison", "p0,nonConcurrent") {
             qt_sql """SELECT id FROM variant_subfield_numeric
                 WHERE v['a'] ${op} v['b'] ORDER BY id"""
         }
-    }
 }

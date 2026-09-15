@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.thrift.TUniqueId;
@@ -56,59 +55,36 @@ class VariantEqualityContextTest extends TestWithFeService {
     }
 
     @Test
-    void testRejectedVariantComparisons() {
-        assertVariantComparisonRejected("SELECT v = v FROM t1");
-        assertVariantComparisonRejected("SELECT v != v FROM t1");
-        assertVariantComparisonRejected("SELECT v <=> v FROM t1");
+    void testRejectedVariantOrderingAndMixedComparisons() {
         assertVariantComparisonRejected("SELECT v = k FROM t1");
         assertVariantComparisonRejected("SELECT v > v FROM t1");
-        assertVariantComparisonRejected("SELECT * FROM t1 WHERE v = v");
-        assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v = t2.v");
-        assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v <=> t2.v");
-        assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v = t2.v AND t1.k = t2.k");
-        assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v = t2.v OR t1.k = t2.k");
-        assertVariantComparisonRejected("SELECT EXISTS(SELECT 1 FROM t2 WHERE t1.v = t2.v) FROM t1");
         assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v > t2.v");
     }
 
     @Test
-    void testVariantV2Equality() {
-        boolean previous = Config.enable_variant_v2;
-        Config.enable_variant_v2 = true;
-        try {
-            assertAllAccepted(
-                    "SELECT v = v, v != v, v <=> v FROM t1",
-                    "SELECT * FROM t1 JOIN t2 ON t1.v = t2.v",
-                    "SELECT * FROM t1 LEFT JOIN t2 ON t1.v <=> t2.v",
-                    "SELECT * FROM t1 FULL JOIN t2 ON t1.v = t2.v AND t1.k = t2.k",
-                    "SELECT * FROM t1 JOIN t2 ON t1.v = t2.v OR t1.k = t2.k",
-                    "SELECT EXISTS(SELECT 1 FROM t2 WHERE t1.v = t2.v) FROM t1",
-                    "SELECT * FROM t1 WHERE v IN (SELECT v FROM t2)",
-                    "SELECT * FROM t1 WHERE v NOT IN (SELECT v FROM t2)",
-                    "SELECT * FROM t1 JOIN t2 ON t1.v['id'] = t2.v['id']");
-            connectContext.setQueryId(new TUniqueId(1, 1));
-            Assertions.assertTrue(PlanChecker.from(connectContext)
-                    .plan("SELECT * FROM t1 JOIN t2 ON t1.v = t2.v").getRuntimeFilters().isEmpty());
-            assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v > t2.v");
-            assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v = t2.k");
-        } finally {
-            Config.enable_variant_v2 = previous;
-        }
+    void testVariantEquality() {
+        assertAllAccepted(
+                "SELECT v = v, v != v, v <=> v FROM t1",
+                "SELECT * FROM t1 JOIN t2 ON t1.v = t2.v",
+                "SELECT * FROM t1 LEFT JOIN t2 ON t1.v <=> t2.v",
+                "SELECT * FROM t1 FULL JOIN t2 ON t1.v = t2.v AND t1.k = t2.k",
+                "SELECT * FROM t1 JOIN t2 ON t1.v = t2.v OR t1.k = t2.k",
+                "SELECT EXISTS(SELECT 1 FROM t2 WHERE t1.v = t2.v) FROM t1",
+                "SELECT * FROM t1 WHERE v IN (SELECT v FROM t2)",
+                "SELECT * FROM t1 WHERE v NOT IN (SELECT v FROM t2)",
+                "SELECT * FROM t1 JOIN t2 ON t1.v['id'] = t2.v['id']");
+        connectContext.setQueryId(new TUniqueId(1, 1));
+        Assertions.assertTrue(PlanChecker.from(connectContext)
+                .plan("SELECT * FROM t1 JOIN t2 ON t1.v = t2.v").getRuntimeFilters().isEmpty());
+        assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v > t2.v");
+        assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v = t2.k");
     }
 
     @Test
-    void testVariantOrderingDoesNotDependOnV2Config() {
-        boolean previous = Config.enable_variant_v2;
-        try {
-            for (boolean enabled : new boolean[] {false, true}) {
-                Config.enable_variant_v2 = enabled;
-                assertPlanAccepted("SELECT v FROM t1 ORDER BY v");
-                assertPlanAccepted("SELECT v FROM t1 ORDER BY v LIMIT 10");
-                assertPlanAccepted("SELECT row_number() OVER (ORDER BY v) FROM t1");
-            }
-        } finally {
-            Config.enable_variant_v2 = previous;
-        }
+    void testVariantOrdering() {
+        assertPlanAccepted("SELECT v FROM t1 ORDER BY v");
+        assertPlanAccepted("SELECT v FROM t1 ORDER BY v LIMIT 10");
+        assertPlanAccepted("SELECT row_number() OVER (ORDER BY v) FROM t1");
     }
 
     @Test

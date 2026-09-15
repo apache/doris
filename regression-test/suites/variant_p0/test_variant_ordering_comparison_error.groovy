@@ -20,7 +20,6 @@ suite("test_variant_ordering_comparison_error", "p0,nonConcurrent") {
     sql "SET enable_nereids_planner = true"
     sql "SET enable_fallback_to_original_planner = false"
 
-    setFeConfigTemporary([enable_variant_v2: true]) {
         qt_variant_order """
             SELECT id
             FROM (
@@ -55,8 +54,6 @@ suite("test_variant_ordering_comparison_error", "p0,nonConcurrent") {
             ) t
             ORDER BY id
         """
-    }
-
     test {
         sql "SELECT CAST('2' AS VARIANT) > CAST('1' AS VARIANT)"
         exception "CAST to a concrete type first"
@@ -65,13 +62,6 @@ suite("test_variant_ordering_comparison_error", "p0,nonConcurrent") {
     test {
         sql "SELECT CAST('2' AS VARIANT) > 1"
         exception "CAST to a concrete type first"
-    }
-
-    setFeConfigTemporary([enable_variant_v2: false]) {
-        test {
-            sql "SELECT CAST('2' AS VARIANT) <=> CAST('1' AS VARIANT)"
-            exception "CAST to a concrete type first"
-        }
     }
 
     order_qt_explicit_cast_order """

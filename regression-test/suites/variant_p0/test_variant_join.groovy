@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_variant_join", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
         sql "DROP TABLE IF EXISTS variant_join_left"
         sql "DROP TABLE IF EXISTS variant_join_right"
         sql """CREATE TABLE variant_join_left (id INT, v VARIANT)
@@ -80,5 +79,4 @@ suite("test_variant_join", "p0,nonConcurrent") {
             sql "SELECT * FROM variant_join_left l JOIN variant_join_right r ON l.v > r.v"
             exception "CAST to a concrete type first"
         }
-    }
 }
