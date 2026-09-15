@@ -95,10 +95,12 @@ under the License.
             <scope>test</scope>
         </dependency>
 
+        <!-- Same deploy as fluss.version, under its own property only because the snapshot build
+             numbers differ; see fe/pom.xml. -->
         <dependency>
             <groupId>org.apache.fluss</groupId>
             <artifactId>fluss-test-utils</artifactId>
-            <version>${fluss.version}</version>
+            <version>${fluss-test-utils.version}</version>
             <scope>test</scope>
         </dependency>
 
