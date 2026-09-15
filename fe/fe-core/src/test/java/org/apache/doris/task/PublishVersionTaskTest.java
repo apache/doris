@@ -20,7 +20,6 @@ package org.apache.doris.task;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.LocalTabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.master.ReportHandler;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -39,6 +38,8 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.RowBinlogWriteMapping;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.LinkedHashMultimap;
+import com.google.common.collect.SetMultimap;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TSerializer;
 import org.junit.jupiter.api.Assertions;
@@ -51,7 +52,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Regression tests for the invariant: PublishVersionTask.getSuccTablets() must never return null,
@@ -124,26 +124,69 @@ public class PublishVersionTaskTest {
         partition.setVersion(3L);
         table.addPartitionCommitInfo(partition);
         state.getSubTxnIdToTableCommitInfo().put(101L, table);
-        Map<Long, Pair<TransactionState, Set<TPartitionVersionInfo>>> classified = new HashMap<>();
+        Map<Long, SetMultimap<Long, TPartitionVersionInfo>> classified = new HashMap<>();
+        Map<Long, Map<Long, RowBinlogWriteMapping>> mappings = new HashMap<>();
         TabletMeta tablet = new TabletMeta(1L, 123L, 2L, 10L, 1, TStorageMedium.HDD, false);
         LocalTabletInvertedIndex index = new LocalTabletInvertedIndex();
-        Deencapsulation.invoke(index, "publishPartition", state, 101L, tablet, 2L, classified);
-        Deencapsulation.invoke(index, "publishPartition", state, 101L, tablet, 2L, classified);
+        Deencapsulation.invoke(index, "publishPartition", state, 101L, tablet, 2L, classified, mappings);
+        // Repeated collection and republish must keep the first snapshot, not read transaction-owned data again.
+        Deencapsulation.setField(state, "rowBinlogColumnMappings", ImmutableMap.of());
+        Deencapsulation.invoke(index, "publishPartition", state, 101L, tablet, 2L, classified, mappings);
         Assertions.assertEquals(1, classified.size());
-        Assertions.assertEquals(1, classified.get(101L).second.size());
+        Assertions.assertEquals(1, classified.get(1L).get(101L).size());
         long backendId = 10002L;
         // Becoming VISIBLE removes the subtransaction alias, not the parent state's snapshot.
         GlobalTransactionMgrIface manager = Mockito.mock(GlobalTransactionMgrIface.class);
         try (MockedStatic<Env> env = Mockito.mockStatic(Env.class);
                 MockedStatic<AgentTaskExecutor> executor = Mockito.mockStatic(AgentTaskExecutor.class)) {
             env.when(Env::getCurrentGlobalTransactionMgr).thenReturn(manager);
-            Deencapsulation.invoke(ReportHandler.class, "handleRepublishVersionInfo", classified, backendId);
+            Deencapsulation.invoke(ReportHandler.class, "handleRepublishVersionInfo", classified, mappings, backendId);
             PublishVersionTask task = (PublishVersionTask) AgentTaskQueue.getTask(
                     backendId, TTaskType.PUBLISH_VERSION, 101L);
             Assertions.assertNotNull(task);
             assertWireMapping(task, 101L, 31, false);
         } finally {
             AgentTaskQueue.removeTask(backendId, TTaskType.PUBLISH_VERSION, 101L);
+        }
+    }
+
+    @Test
+    public void testReportPreservesDatabaseGroupsWithoutRowBinlog() {
+        Map<Long, SetMultimap<Long, TPartitionVersionInfo>> classified = new HashMap<>();
+        Map<Long, Map<Long, RowBinlogWriteMapping>> mappings = new HashMap<>();
+        LocalTabletInvertedIndex index = new LocalTabletInvertedIndex();
+        for (long dbId : Arrays.asList(1L, 2L)) {
+            long txnId = 100L + dbId;
+            TransactionState state = GsonUtils.GSON.fromJson(
+                    "{\"dbId\":" + dbId + ",\"txnId\":" + txnId + "}", TransactionState.class);
+            TableCommitInfo table = new TableCommitInfo(123L);
+            table.setCommitTSO(17L);
+            PartitionCommitInfo partition = new PartitionCommitInfo();
+            Deencapsulation.setField(partition, "partitionId", 2L);
+            partition.setVersion(3L);
+            table.addPartitionCommitInfo(partition);
+            state.getIdToTableCommitInfos().put(123L, table);
+            TabletMeta tablet = new TabletMeta(dbId, 123L, 2L, 10L, 1, TStorageMedium.HDD, false);
+            Deencapsulation.invoke(index, "publishPartition", state, txnId, tablet, 2L, classified, mappings);
+            Assertions.assertEquals(Collections.singleton(new TPartitionVersionInfo(2L, 3L, 0L).setCommitTso(17L)),
+                    classified.get(dbId).get(txnId));
+            Assertions.assertEquals(Collections.emptyMap(), mappings.get(txnId));
+        }
+        long backendId = 10003L;
+        try (MockedStatic<AgentTaskExecutor> executor = Mockito.mockStatic(AgentTaskExecutor.class)) {
+            Deencapsulation.invoke(ReportHandler.class, "handleRepublishVersionInfo", classified, mappings, backendId);
+            for (long dbId : Arrays.asList(1L, 2L)) {
+                PublishVersionTask task = (PublishVersionTask) AgentTaskQueue.getTask(
+                        backendId, TTaskType.PUBLISH_VERSION, 100L + dbId);
+                Assertions.assertNotNull(task);
+                Assertions.assertEquals(dbId, task.getDbId());
+                Assertions.assertFalse(task.toThrift().isSetRowBinlogColumnMappings());
+                Assertions.assertFalse(task.toThrift().isSetRowBinlogSourceIndexIds());
+                Assertions.assertFalse(task.toThrift().isSetRowBinlogNeedHistoricalValues());
+            }
+        } finally {
+            AgentTaskQueue.removeTask(backendId, TTaskType.PUBLISH_VERSION, 101L);
+            AgentTaskQueue.removeTask(backendId, TTaskType.PUBLISH_VERSION, 102L);
         }
     }
 
@@ -164,8 +207,11 @@ public class PublishVersionTaskTest {
             assertWireMapping((PublishVersionTask) batch.getAllTasks().get(0), 100L, 11, true);
 
             try (MockedStatic<AgentTaskExecutor> executor = Mockito.mockStatic(AgentTaskExecutor.class)) {
+                SetMultimap<Long, TPartitionVersionInfo> versions = LinkedHashMultimap.create();
+                versions.put(101L, version);
                 Deencapsulation.invoke(ReportHandler.class, "handleRepublishVersionInfo",
-                        ImmutableMap.of(101L, Pair.of(state, Collections.singleton(version))), backendId);
+                        ImmutableMap.of(1L, versions),
+                        ImmutableMap.of(101L, state.getRowBinlogColumnMappings(101L)), backendId);
                 PublishVersionTask republish = (PublishVersionTask) AgentTaskQueue.getTask(
                         backendId, TTaskType.PUBLISH_VERSION, 101L);
                 Assertions.assertNotNull(republish);
