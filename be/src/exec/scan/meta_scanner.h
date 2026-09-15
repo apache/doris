@@ -21,6 +21,7 @@
 #include <gen_cpp/Types_types.h>
 
 #include <cstdint>
+#include <set>
 #include <vector>
 
 #include "common/factory_creator.h"
@@ -49,7 +50,7 @@ class MetaScanner : public Scanner {
 public:
     MetaScanner(RuntimeState* state, ScanLocalStateBase* local_state, TupleId tuple_id,
                 const TScanRangeParams& scan_range, int64_t limit, RuntimeProfile* profile,
-                TUserIdentity user_identity);
+                TUserIdentity user_identity, std::set<std::string> current_roles);
 
     Status _open_impl(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
@@ -86,6 +87,11 @@ private:
     bool _meta_eos;
     TupleId _tuple_id;
     TUserIdentity _user_identity;
+    // SU narrowing: the session's active role subset, forwarded on every metadata request so the
+    // FE narrows its privilege checks to it. Empty = not narrowed.
+    std::set<std::string> _current_roles;
+    // Stamps who is asking (and the narrowing, if any) on a metadata request.
+    void _set_session_identity(TMetadataTableRequestParams* params) const;
     const TupleDescriptor* _tuple_desc = nullptr;
     std::vector<TRow> _batch_data;
     const TScanRange& _scan_range;

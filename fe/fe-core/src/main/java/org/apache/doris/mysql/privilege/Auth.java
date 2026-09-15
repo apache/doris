@@ -27,6 +27,7 @@ import org.apache.doris.analysis.WorkloadGroupPattern;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
@@ -272,7 +273,49 @@ public class Auth implements Writable {
         }
     }
 
+    // SU narrowing: FE-side SU narrowing for BE->FE metadata RPC handler threads, which have NO
+    // ConnectContext. The handler installs the calling session's narrowed role NAMES here (keyed by
+    // the target identity) around its privilege filter; getRolesByUserWithLdap then narrows exactly
+    // as a live SU session would. The handler MUST clear it in a finally (thrift threads are pooled).
+    private static final ThreadLocal<Map<UserIdentity, Set<String>>> RPC_SESSION_NARROWING =
+            new ThreadLocal<>();
+
+    public static void setRpcSessionNarrowing(UserIdentity user, Set<String> roleNames) {
+        Map<UserIdentity, Set<String>> m = Maps.newHashMap();
+        m.put(user, roleNames);
+        RPC_SESSION_NARROWING.set(m);
+    }
+
+    public static void clearRpcSessionNarrowing() {
+        RPC_SESSION_NARROWING.remove();
+    }
+
+    // The SU-narrowed role set: exactly the override roles + the implicit information_schema/mysql
+    // read baseline (see narrowingBaselineRole). Shared by the live-session and RPC-handler paths.
+    private Set<Role> narrowedRoleSet(Set<String> overrideRoleNames) {
+        Set<Role> narrowed = Sets.newHashSet();
+        for (String roleName : overrideRoleNames) {
+            Role role = roleManager.getRole(roleName);
+            if (role != null) {
+                narrowed.add(role);
+            }
+        }
+        Role baseline = narrowingBaselineRole();
+        if (baseline != null) {
+            narrowed.add(baseline);
+        }
+        return narrowed;
+    }
+
     public Set<Role> getRolesByUserWithLdap(UserIdentity userIdentity) {
+        Map<UserIdentity, Set<String>> rpcNarrow = RPC_SESSION_NARROWING.get();
+        if (rpcNarrow != null) {
+            Set<String> rpcOverride = rpcNarrow.get(userIdentity);
+            if (rpcOverride != null) {
+                // SU narrowing: a BE->FE metadata RPC carried this session's narrowed role subset.
+                return narrowedRoleSet(rpcOverride);
+            }
+        }
         Set<Role> roles = Sets.newHashSet();
         Set<String> roleNames = userRoleManager.getRolesByUser(userIdentity);
         for (String roleName : roleNames) {
@@ -289,6 +332,13 @@ public class Auth implements Writable {
         }
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null && userIdentity.equals(ctx.getCurrentUserIdentity())) {
+            Set<String> sessionRoleOverride = ctx.getSessionRoleOverride();
+            if (sessionRoleOverride != null) {
+                // SU-narrowed session: the override REPLACES every role source (user grants, LDAP,
+                // authenticated roles); SuUserCommand enforced the ceiling at switch time. Return the
+                // override roles + the information_schema/mysql read baseline (see narrowedRoleSet).
+                return narrowedRoleSet(sessionRoleOverride);
+            }
             for (String roleName : ctx.getAuthenticatedRoles()) {
                 Role role = roleManager.getRole(roleName);
                 if (role != null) {
@@ -297,6 +347,85 @@ public class Auth implements Writable {
             }
         }
         return roles;
+    }
+
+    /**
+     * The role names granted to an identity (user grants + LDAP), ignoring any SU narrowing of the
+     * current session. Used for the SU ceiling check and for existence probing.
+     */
+    public Set<String> getGrantedRoleNames(UserIdentity userIdentity) {
+        Set<String> names = Sets.newHashSet(userRoleManager.getRolesByUser(userIdentity));
+        if (isLdapAuthEnabled()) {
+            Set<Role> ldapRoles = ldapManager.getUserRoles(userIdentity.getQualifiedUser());
+            if (!CollectionUtils.isEmpty(ldapRoles)) {
+                for (Role r : ldapRoles) {
+                    names.add(r.getRoleName());
+                }
+            }
+        }
+        return names;
+    }
+
+    // The implicit information_schema/mysql read grants that RoleManager.createDefaultRole gives
+    // every user's default role, isolated into a synthetic role so an SU-narrowed session keeps
+    // them (self-filtered by the session's real privileges) without re-including the default role's
+    // privilege-bearing direct grants. Built once.
+    private static volatile Role narrowingBaselineRoleCache = null;
+
+    private static Role narrowingBaselineRole() {
+        Role cached = narrowingBaselineRoleCache;
+        if (cached != null) {
+            return cached;
+        }
+        try {
+            List<TablePattern> tablePatterns = Lists.newArrayList();
+            TablePattern info = new TablePattern(DEFAULT_CATALOG, InfoSchemaDb.DATABASE_NAME, "*");
+            info.analyze();
+            tablePatterns.add(info);
+            TablePattern mysql = new TablePattern(DEFAULT_CATALOG, MysqlDb.DATABASE_NAME, "*");
+            mysql.analyze();
+            tablePatterns.add(mysql);
+            WorkloadGroupPattern wg = new WorkloadGroupPattern(WorkloadGroupMgr.DEFAULT_GROUP_NAME);
+            wg.analyze();
+            Role role = new Role("su_narrowing_baseline", tablePatterns,
+                    PrivBitSet.of(Privilege.SELECT_PRIV), wg, PrivBitSet.of(Privilege.USAGE_PRIV));
+            narrowingBaselineRoleCache = role;
+            return role;
+        } catch (Exception e) {
+            LOG.warn("failed to build SU narrowing baseline role (information_schema/mysql reads "
+                    + "will not be preserved in narrowed sessions)", e);
+            return null;
+        }
+    }
+
+    /**
+     * The role set consulted for WORKLOAD GROUP privilege checks. Identical to
+     * {@link #getRolesByUserWithLdap} for a normal session. In an SU-narrowed session the
+     * narrowed set is widened with the effective identity's own granted roles (its default
+     * role (where direct grants live) plus explicit and LDAP roles), so the narrowed session
+     * may use exactly the workload groups
+     * the person's own session could use. A workload group is placement, not data authority:
+     * the narrowed session runs in the target's default_workload_group (the same resolution as
+     * the person's own session), and the person's USAGE on it is typically a direct grant that
+     * narrowing would otherwise drop. Only the workload-group predicate reads this set;
+     * table, database, resource and cloud checks stay on the narrowed set, so data access
+     * cannot widen through it.
+     */
+    private Set<Role> getRolesForWorkloadGroupCheck(UserIdentity userIdentity) {
+        Set<Role> roles = getRolesByUserWithLdap(userIdentity);
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null || ctx.getSessionRoleOverride() == null
+                || !userIdentity.equals(ctx.getCurrentUserIdentity())) {
+            return roles;
+        }
+        Set<Role> widened = Sets.newHashSet(roles);
+        for (String roleName : getGrantedRoleNames(userIdentity)) {
+            Role role = roleManager.getRole(roleName);
+            if (role != null) {
+                widened.add(role);
+            }
+        }
+        return widened;
     }
 
     public Set<String> getRoleNamesByUserWithLdap(UserIdentity user, boolean showUserDefaultRole) {
@@ -486,7 +615,7 @@ public class Auth implements Writable {
                 return true;
             }
 
-            Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            Set<Role> roles = getRolesForWorkloadGroupCheck(currentUser);
             PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
                 if (role.checkWorkloadGroupPriv(workloadGroupName, wanted, savedPrivs)) {

@@ -85,6 +85,9 @@ Status SchemaColumnsScanner::start(RuntimeState* state) {
     }
     if (nullptr != _param->common_param->current_user_ident) {
         db_params.__set_current_user_ident(*_param->common_param->current_user_ident);
+        if (!_param->common_param->current_roles.empty()) {
+            db_params.__set_current_roles(_param->common_param->current_roles);
+        }
     } else {
         if (nullptr != _param->common_param->user) {
             db_params.__set_user(*(_param->common_param->user));
@@ -320,6 +323,9 @@ Status SchemaColumnsScanner::_get_new_desc() {
 
     if (nullptr != _param->common_param->current_user_ident) {
         desc_params.__set_current_user_ident(*(_param->common_param->current_user_ident));
+        if (!_param->common_param->current_roles.empty()) {
+            desc_params.__set_current_roles(_param->common_param->current_roles);
+        }
     } else {
         if (nullptr != _param->common_param->user) {
             desc_params.__set_user(*(_param->common_param->user));
@@ -355,6 +361,9 @@ Status SchemaColumnsScanner::_get_new_table() {
     }
     if (nullptr != _param->common_param->current_user_ident) {
         table_params.__set_current_user_ident(*(_param->common_param->current_user_ident));
+        if (!_param->common_param->current_roles.empty()) {
+            table_params.__set_current_roles(_param->common_param->current_roles);
+        }
     } else {
         if (nullptr != _param->common_param->user) {
             table_params.__set_user(*(_param->common_param->user));
