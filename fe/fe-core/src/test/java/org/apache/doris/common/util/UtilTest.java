@@ -121,6 +121,17 @@ public class UtilTest {
     }
 
     @Test
+    public void allExceptionMessagesJoinTheCauseChain() {
+        Exception root = new IllegalStateException("root");
+        Exception middle = new RuntimeException("middle", root);
+        Exception top = new Exception("top", middle);
+        Assertions.assertEquals("top | Caused by: middle | Caused by: root", Util.getAllExceptionMessages(top));
+        // Causes without a message are skipped rather than rendered as "null".
+        Assertions.assertEquals("top", Util.getAllExceptionMessages(new Exception("top", new RuntimeException())));
+        Assertions.assertEquals("", Util.getAllExceptionMessages(null));
+    }
+
+    @Test
     public void strictBooleanPropertyRejectsInvalidValue() {
         Map<String, String> properties = new HashMap<>();
         properties.put("flag", "not_a_bool");

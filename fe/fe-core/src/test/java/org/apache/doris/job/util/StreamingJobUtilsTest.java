@@ -25,7 +25,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
@@ -49,7 +48,7 @@ import java.util.Map;
 public class StreamingJobUtilsTest {
 
     @Mock
-    private JdbcClient jdbcClient;
+    private StreamingSourceClient sourceClient;
 
     @BeforeEach
     public void setUp() {
@@ -71,8 +70,8 @@ public class StreamingJobUtilsTest {
         mockColumns.add(new Column("name", ScalarType.createVarcharType(50)));
         mockColumns.add(new Column("address", ScalarType.createVarcharType(200)));
 
-        Mockito.when(jdbcClient.getColumnsFromJdbc(ArgumentMatchers.anyString(), ArgumentMatchers.anyString())).thenReturn(mockColumns);
-        List<Column> result = StreamingJobUtils.getColumns(jdbcClient, database, table, primaryKeys);
+        Mockito.when(sourceClient.getColumns(ArgumentMatchers.anyString(), ArgumentMatchers.anyString())).thenReturn(mockColumns);
+        List<Column> result = StreamingJobUtils.getColumns(sourceClient, database, table, primaryKeys);
 
         // Verify primary keys are at the front in correct order
         Assertions.assertEquals(5, result.size());
@@ -103,8 +102,8 @@ public class StreamingJobUtilsTest {
         mockColumns.add(new Column("short_name", ScalarType.createVarcharType(50)));
         mockColumns.add(new Column("long_name", ScalarType.createVarcharType(20000)));
 
-        Mockito.when(jdbcClient.getColumnsFromJdbc(ArgumentMatchers.anyString(), ArgumentMatchers.anyString())).thenReturn(mockColumns);
-        List<Column> result = StreamingJobUtils.getColumns(jdbcClient, database, table, primaryKeys);
+        Mockito.when(sourceClient.getColumns(ArgumentMatchers.anyString(), ArgumentMatchers.anyString())).thenReturn(mockColumns);
+        List<Column> result = StreamingJobUtils.getColumns(sourceClient, database, table, primaryKeys);
 
         // Verify varchar length multiplication by 3
         Column shortName = result.stream()
@@ -133,8 +132,8 @@ public class StreamingJobUtilsTest {
         mockColumns.add(new Column("id", ScalarType.createStringType()));
         mockColumns.add(new Column("name", ScalarType.createVarcharType(50)));
 
-        Mockito.when(jdbcClient.getColumnsFromJdbc(ArgumentMatchers.anyString(), ArgumentMatchers.anyString())).thenReturn(mockColumns);
-        List<Column> result = StreamingJobUtils.getColumns(jdbcClient, database, table, primaryKeys);
+        Mockito.when(sourceClient.getColumns(ArgumentMatchers.anyString(), ArgumentMatchers.anyString())).thenReturn(mockColumns);
+        List<Column> result = StreamingJobUtils.getColumns(sourceClient, database, table, primaryKeys);
 
         // Verify string type primary key is converted to varchar
         Column idColumn = result.stream()
@@ -157,8 +156,8 @@ public class StreamingJobUtilsTest {
         mockColumns.add(new Column("col2", ScalarType.createVarcharType(100)));
         mockColumns.add(new Column("col3", ScalarType.createType(PrimitiveType.BIGINT)));
 
-        Mockito.when(jdbcClient.getColumnsFromJdbc(ArgumentMatchers.anyString(), ArgumentMatchers.anyString())).thenReturn(mockColumns);
-        List<Column> result = StreamingJobUtils.getColumns(jdbcClient, database, table, primaryKeys);
+        Mockito.when(sourceClient.getColumns(ArgumentMatchers.anyString(), ArgumentMatchers.anyString())).thenReturn(mockColumns);
+        List<Column> result = StreamingJobUtils.getColumns(sourceClient, database, table, primaryKeys);
 
         // Verify columns maintain original order when no primary keys
         Assertions.assertEquals(3, result.size());
@@ -181,8 +180,8 @@ public class StreamingJobUtilsTest {
         mockColumns.add(new Column("pk3", ScalarType.createType(PrimitiveType.INT)));
         mockColumns.add(new Column("data3", ScalarType.createVarcharType(50)));
 
-        Mockito.when(jdbcClient.getColumnsFromJdbc(ArgumentMatchers.anyString(), ArgumentMatchers.anyString())).thenReturn(mockColumns);
-        List<Column> result = StreamingJobUtils.getColumns(jdbcClient, database, table, primaryKeys);
+        Mockito.when(sourceClient.getColumns(ArgumentMatchers.anyString(), ArgumentMatchers.anyString())).thenReturn(mockColumns);
+        List<Column> result = StreamingJobUtils.getColumns(sourceClient, database, table, primaryKeys);
 
         // Verify primary keys are sorted in the order defined in primaryKeys list
         Assertions.assertEquals(6, result.size());
@@ -205,10 +204,10 @@ public class StreamingJobUtilsTest {
         mockColumns.add(new Column("id", ScalarType.createType(PrimitiveType.INT)));
         mockColumns.add(new Column("unsupported_col", new ScalarType(PrimitiveType.UNSUPPORTED)));
 
-        Mockito.when(jdbcClient.getColumnsFromJdbc(ArgumentMatchers.anyString(), ArgumentMatchers.anyString())).thenReturn(mockColumns);
+        Mockito.when(sourceClient.getColumns(ArgumentMatchers.anyString(), ArgumentMatchers.anyString())).thenReturn(mockColumns);
         // This should throw IllegalArgumentException due to unsupported column type
         try {
-            StreamingJobUtils.getColumns(jdbcClient, database, table, primaryKeys);
+            StreamingJobUtils.getColumns(sourceClient, database, table, primaryKeys);
             Assertions.fail("Expected IllegalArgumentException to be thrown");
         } catch (IllegalArgumentException e) {
             // Verify the exception message contains expected information
@@ -230,8 +229,8 @@ public class StreamingJobUtilsTest {
         mockColumns.add(new Column("pk_varchar", ScalarType.createVarcharType(100)));
         mockColumns.add(new Column("normal_varchar", ScalarType.createVarcharType(50)));
 
-        Mockito.when(jdbcClient.getColumnsFromJdbc(ArgumentMatchers.anyString(), ArgumentMatchers.anyString())).thenReturn(mockColumns);
-        List<Column> result = StreamingJobUtils.getColumns(jdbcClient, database, table, primaryKeys);
+        Mockito.when(sourceClient.getColumns(ArgumentMatchers.anyString(), ArgumentMatchers.anyString())).thenReturn(mockColumns);
+        List<Column> result = StreamingJobUtils.getColumns(sourceClient, database, table, primaryKeys);
 
         // Verify varchar primary key column has length multiplied by 3
         Column pkVarcharColumn = result.stream()
@@ -260,20 +259,20 @@ public class StreamingJobUtilsTest {
     }
 
     @Test
-    public void testGenerateCreateTableCmdsClosesJdbcClientOnFailure() {
+    public void testGenerateCreateTableCmdsClosesSourceClientOnFailure() throws Exception {
         Map<String, String> properties = new HashMap<>();
         try (MockedStatic<StreamingJobUtils> utils = Mockito.mockStatic(StreamingJobUtils.class,
                 Mockito.CALLS_REAL_METHODS)) {
-            utils.when(() -> StreamingJobUtils.getJdbcClient(DataSourceType.OCEANBASE, properties))
-                    .thenReturn(jdbcClient);
+            utils.when(() -> StreamingJobUtils.openSourceClient(DataSourceType.OCEANBASE, properties))
+                    .thenReturn(sourceClient);
             utils.when(() -> StreamingJobUtils.getRemoteDbName(DataSourceType.OCEANBASE, properties))
                     .thenReturn("test_db");
-            Mockito.when(jdbcClient.getTablesNameList("test_db")).thenReturn(new ArrayList<>());
+            Mockito.when(sourceClient.listTables("test_db")).thenReturn(new ArrayList<>());
 
             Assertions.assertThrows(JobException.class, () -> StreamingJobUtils.generateCreateTableCmds(
                     "target_db", DataSourceType.OCEANBASE, properties, new HashMap<>()));
 
-            Mockito.verify(jdbcClient).closeClient();
+            Mockito.verify(sourceClient).close();
         }
     }
 
@@ -291,11 +290,11 @@ public class StreamingJobUtilsTest {
         InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
         Mockito.when(env.getInternalCatalog()).thenReturn(internalCatalog);
         Mockito.when(internalCatalog.getDbNullable("target_db")).thenReturn(targetDatabase);
-        Mockito.when(jdbcClient.getTablesNameList("source_db"))
+        Mockito.when(sourceClient.listTables("source_db"))
                 .thenReturn(Arrays.asList("source_table"));
-        Mockito.when(jdbcClient.getPrimaryKeys("source_db", "source_table"))
+        Mockito.when(sourceClient.getPrimaryKeys("source_db", "source_table"))
                 .thenReturn(Arrays.asList("id"));
-        Mockito.when(jdbcClient.getColumnsFromJdbc("source_db", "source_table"))
+        Mockito.when(sourceClient.getColumns("source_db", "source_table"))
                 .thenReturn(Arrays.asList(
                         new Column("id", ScalarType.createType(PrimitiveType.INT)),
                         new Column("unsupported_col", new ScalarType(PrimitiveType.UNSUPPORTED))));
@@ -306,8 +305,8 @@ public class StreamingJobUtilsTest {
                 MockedStatic<StreamingJobUtils> utils = Mockito.mockStatic(StreamingJobUtils.class,
                         Mockito.CALLS_REAL_METHODS)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            utils.when(() -> StreamingJobUtils.getJdbcClient(DataSourceType.POSTGRES, properties))
-                    .thenReturn(jdbcClient);
+            utils.when(() -> StreamingJobUtils.openSourceClient(DataSourceType.POSTGRES, properties))
+                    .thenReturn(sourceClient);
 
             Assertions.assertFalse(StreamingJobUtils.generateCreateTableCmds(
                     "target_db", DataSourceType.POSTGRES, properties, new HashMap<>())

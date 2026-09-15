@@ -539,6 +539,26 @@ public class Util {
         return rootCause;
     }
 
+    /**
+     * The messages of {@code throwable} and of every cause below it, joined with {@code " | Caused by: "},
+     * for an error report that should show the whole chain (a connection failure wrapped by a client
+     * wrapped by a validator) rather than only the root.
+     */
+    public static String getAllExceptionMessages(Throwable throwable) {
+        StringBuilder sb = new StringBuilder();
+        while (throwable != null) {
+            String message = throwable.getMessage();
+            if (message != null && !message.isEmpty()) {
+                if (sb.length() > 0) {
+                    sb.append(" | Caused by: ");
+                }
+                sb.append(message);
+            }
+            throwable = throwable.getCause();
+        }
+        return sb.toString();
+    }
+
     public static String getRootCauseWithSuppressedMessage(Throwable t) {
         String rootCause;
         Throwable p = t;

@@ -33,8 +33,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.jdbc.client.JdbcClient;
-import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.common.DataSourceType;
@@ -263,15 +261,14 @@ public class StreamingJobUtils {
         return ctx;
     }
 
-    public static JdbcClient getJdbcClient(DataSourceType sourceType, Map<String, String> properties) {
-        JdbcClientConfig config = new JdbcClientConfig();
-        config.setCatalog(sourceType.name());
-        config.setUser(properties.get(DataSourceConfigKeys.USER));
-        config.setPassword(properties.get(DataSourceConfigKeys.PASSWORD));
-        config.setDriverClass(properties.get(DataSourceConfigKeys.DRIVER_CLASS));
-        config.setDriverUrl(properties.get(DataSourceConfigKeys.DRIVER_URL));
-        config.setJdbcUrl(properties.get(DataSourceConfigKeys.JDBC_URL));
-        return JdbcClient.createJdbcClient(config);
+    /**
+     * Opens the source database of a streaming job for metadata discovery, through its connector plugin.
+     * The job's source properties use the same names a JDBC catalog does ({@code jdbc_url}, {@code user},
+     * {@code password}, {@code driver_url}, {@code driver_class}), so they are handed over as they are.
+     */
+    public static StreamingSourceClient openSourceClient(DataSourceType sourceType, Map<String, String> properties)
+            throws JobException {
+        return StreamingSourceClient.open(sourceType, properties);
     }
 
     public static Backend selectBackend(String cloudCluster) throws JobException {
@@ -379,10 +376,10 @@ public class StreamingJobUtils {
             excludeTablesList = Arrays.asList(excludeTables.split(","));
         }
 
-        JdbcClient jdbcClient = getJdbcClient(sourceType, properties);
+        StreamingSourceClient sourceClient = openSourceClient(sourceType, properties);
         try {
             String database = getRemoteDbName(sourceType, properties);
-            List<String> tablesNameList = jdbcClient.getTablesNameList(database);
+            List<String> tablesNameList = sourceClient.listTables(database);
             if (tablesNameList.isEmpty()) {
                 throw new JobException("No tables found in database " + database);
             }
@@ -406,7 +403,7 @@ public class StreamingJobUtils {
                     continue;
                 }
 
-                List<String> primaryKeys = jdbcClient.getPrimaryKeys(database, table);
+                List<String> primaryKeys = sourceClient.getPrimaryKeys(database, table);
                 if (primaryKeys.isEmpty()) {
                     noPrimaryKeyTables.add(table);
                 }
@@ -421,8 +418,8 @@ public class StreamingJobUtils {
                 Set<String> excludeColumns = parseExcludeColumns(properties, table);
                 if (targetDatabase.isTableExist(targetTableName)) {
                     if (!excludeColumns.isEmpty()) {
-                        Set<String> columnNames = jdbcClient.getJdbcColumnsInfo(database, table).stream()
-                                .map(field -> field.getColumnName())
+                        Set<String> columnNames = sourceClient.getColumns(database, table).stream()
+                                .map(Column::getName)
                                 .collect(Collectors.toSet());
                         validateExcludeColumns(excludeColumns, table, columnNames, primaryKeys);
                     }
@@ -430,7 +427,7 @@ public class StreamingJobUtils {
                     continue;
                 }
 
-                List<Column> columns = getColumns(jdbcClient, database, table, primaryKeys);
+                List<Column> columns = getColumns(sourceClient, database, table, primaryKeys);
                 if (!excludeColumns.isEmpty()) {
                     Set<String> columnNames = columns.stream().map(Column::getName).collect(Collectors.toSet());
                     validateExcludeColumns(excludeColumns, table, columnNames, primaryKeys);
@@ -488,15 +485,15 @@ public class StreamingJobUtils {
             }
             return createtblCmds;
         } finally {
-            jdbcClient.closeClient();
+            sourceClient.close();
         }
     }
 
-    public static List<Column> getColumns(JdbcClient jdbcClient,
+    public static List<Column> getColumns(StreamingSourceClient sourceClient,
             String database,
             String table,
-            List<String> primaryKeys) {
-        List<Column> columns = jdbcClient.getColumnsFromJdbc(database, table);
+            List<String> primaryKeys) throws JobException {
+        List<Column> columns = sourceClient.getColumns(database, table);
         columns.forEach(col -> {
             Preconditions.checkArgument(!col.getType().isUnsupported(),
                     "Unsupported column type, table:[%s], column:[%s]", table, col.getName());
