@@ -210,8 +210,11 @@ WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr&
                 block.insert(block.get_by_position(arguments[0]));
             }
 
+            /// get_nullable_column_info() already scanned the NULL map of the source, so the mask is
+            /// handed to the cast only when it really contains a NULL. An all zero mask is the common
+            /// case, and passing it would add a load and a branch to every row of the cast kernels.
             const NullMap::value_type* arg_null_map = nullptr;
-            if (source_info.is_nullable) {
+            if (source_info.has_null) {
                 arg_null_map = block.get_by_position(arguments[0])
                                        .get_nullable_null_map_column()
                                        ->get_data()

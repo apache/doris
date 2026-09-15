@@ -2352,4 +2352,28 @@ TEST_F(FunctionCastToIntTest, test_strict_cast_skips_null_covered_payload) {
     run_and_check(std::make_shared<DataTypeNullable>(std::make_shared<DataTypeFloat64>()),
                   ColumnHelper::create_nullable_column<DataTypeFloat64>({128.0, 1.0}, {1, 0}), 1);
 }
+
+// A nullable source whose NULL map is empty has nothing to skip, so the cast is a plain row by row
+// conversion: every value is converted and none of them is treated as masked.
+TEST_F(FunctionCastToIntTest, test_strict_cast_nullable_without_null) {
+    auto ctx = create_context(true);
+    auto from_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+    auto to_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt8>());
+
+    auto fn = get_cast_wrapper(ctx.get(), from_type, to_type);
+    ASSERT_TRUE(fn != nullptr);
+
+    Block block = {
+            {ColumnHelper::create_nullable_column<DataTypeInt32>({1, 2}, {0, 0}), from_type,
+             "from"},
+            {nullptr, to_type, "to"},
+    };
+    ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    EXPECT_EQ(result.get_null_map_data()[0], 0);
+    EXPECT_EQ(result.get_null_map_data()[1], 0);
+    EXPECT_EQ(to_type->to_string(*block.get_by_position(1).column, 0), "1");
+    EXPECT_EQ(to_type->to_string(*block.get_by_position(1).column, 1), "2");
+}
 } // namespace doris
