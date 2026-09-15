@@ -72,7 +72,7 @@ suite("product_quantization") {
             duplicate key(id)
             distributed by hash(id) buckets 1
             properties('replication_num' = '1');"""
-        exception """only support ann index with quantizer flat, sq4, sq8 or pq"""
+        exception """only support ann index with quantizer flat, sq4, sq8, pq or rabitq"""
     }
 
     sql """drop table if exists product_quantization"""
