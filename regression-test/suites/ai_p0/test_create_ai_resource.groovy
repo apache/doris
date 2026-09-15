@@ -102,6 +102,21 @@ suite("test_create_ai_resource") {
     assertTrue(res.size() > 0)
     assertTrue(res.any { row -> row[2] == 'ai.max_retries' && row[3] == '0' })
     assertFalse(res.collect { row -> row[2] }.contains('ai.validity_check'))
+    def propertiesBeforeInvalidAlter = res.collectEntries { row -> [(row[2]): row[3]] }
+
+    test {
+        sql """ALTER RESOURCE "${resourceName}" PROPERTIES ('ai.dimensions' = '0')"""
+        exception "Dimensions must be a positive integer or -1"
+    }
+
+    def propertiesAfterInvalidAlter = (sql """SHOW RESOURCES WHERE NAME = '${resourceName}'""")
+            .collectEntries { row -> [(row[2]): row[3]] }
+    assertEquals(propertiesBeforeInvalidAlter, propertiesAfterInvalidAlter)
+
+    sql """ALTER RESOURCE "${resourceName}" PROPERTIES ('ai.max_retries' = '2')"""
+    def propertiesAfterValidAlter = (sql """SHOW RESOURCES WHERE NAME = '${resourceName}'""")
+            .collectEntries { row -> [(row[2]): row[3]] }
+    assertEquals('2', propertiesAfterValidAlter['ai.max_retries'])
 
     try_sql("""DROP RESOURCE '${resourceName}'""")
 }

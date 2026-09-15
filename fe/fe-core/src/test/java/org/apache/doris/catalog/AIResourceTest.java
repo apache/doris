@@ -54,6 +54,12 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class AIResourceTest {
     private static final Logger LOG = LogManager.getLogger(AIResourceTest.class);
@@ -377,6 +383,131 @@ public class AIResourceTest {
         }
         Assertions.assertEquals("QWEN", replayedResource.getProperty(AIProperties.PROVIDER_TYPE));
         Assertions.assertEquals("QWEN", replayedResource.toThrift().getProviderType());
+    }
+
+    @Test
+    public void testModifyPropertiesWithDefaultDimensions() throws DdlException {
+        AIResource aiResource = new AIResource("default-dimensions-resource");
+        aiResource.setProperties(ImmutableMap.copyOf(aiProperties));
+
+        Assertions.assertEquals(AIProperties.DEFAULT_DIMENSIONS,
+                aiResource.getProperty(AIProperties.DIMENSIONS));
+        Assertions.assertDoesNotThrow(() -> aiResource.modifyProperties(
+                ImmutableMap.of(AIProperties.PROVIDER_TYPE, "QWEN")));
+
+        DdlException exception = Assertions.assertThrows(DdlException.class, () ->
+                aiResource.modifyProperties(ImmutableMap.of(AIProperties.DIMENSIONS, "0")));
+        Assertions.assertTrue(exception.getMessage().contains("Dimensions must be a positive integer"));
+    }
+
+    @Test
+    public void testInvalidNumericAlterIsAtomic() throws DdlException {
+        AIResource aiResource = new AIResource("invalid-numeric-alter-resource");
+        aiResource.setProperties(ImmutableMap.copyOf(aiProperties));
+        long originalVersion = aiResource.version;
+
+        DdlException exception = Assertions.assertThrows(DdlException.class, () ->
+                aiResource.modifyProperties(ImmutableMap.of(AIProperties.MAX_RETRIES, "not-an-int")));
+
+        Assertions.assertTrue(exception.getMessage().contains("Max retries"));
+        Assertions.assertEquals(AIProperties.DEFAULT_MAX_RETRIES,
+                aiResource.getProperty(AIProperties.MAX_RETRIES));
+        Assertions.assertEquals(originalVersion, aiResource.version);
+    }
+
+    @Test
+    public void testReadersWaitForConcurrentAlter() throws Exception {
+        CountDownLatch readLockAttempts = new CountDownLatch(3);
+        AIResource aiResource = new AIResource("concurrent-reader-resource") {
+            @Override
+            public void readLock() {
+                readLockAttempts.countDown();
+                super.readLock();
+            }
+        };
+        aiResource.setProperties(ImmutableMap.copyOf(aiProperties));
+        ExecutorService executor = Executors.newFixedThreadPool(3);
+
+        try {
+            aiResource.writeLock();
+            Future<String> property = executor.submit(() -> aiResource.getProperty(AIProperties.ENDPOINT));
+            Future<Map<String, String>> copiedProperties = executor.submit(aiResource::getCopiedProperties);
+            Future<TAIResource> thrift = executor.submit(aiResource::toThrift);
+            try {
+                Assertions.assertTrue(readLockAttempts.await(5, TimeUnit.SECONDS));
+                Assertions.assertFalse(property.isDone());
+                Assertions.assertFalse(copiedProperties.isDone());
+                Assertions.assertFalse(thrift.isDone());
+            } finally {
+                aiResource.writeUnlock();
+            }
+
+            Assertions.assertEquals(endpoint, property.get(5, TimeUnit.SECONDS));
+            Assertions.assertEquals(endpoint, copiedProperties.get(5, TimeUnit.SECONDS).get(AIProperties.ENDPOINT));
+            Assertions.assertEquals(endpoint, thrift.get(5, TimeUnit.SECONDS).getEndpoint());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testConcurrentAltersMergeAgainstLatestSnapshot() throws Exception {
+        CountDownLatch firstWriteLockAttempt = new CountDownLatch(1);
+        CountDownLatch secondWriteLockAttempt = new CountDownLatch(1);
+        CountDownLatch firstAlterFinished = new CountDownLatch(1);
+        AtomicInteger writeLockAttempts = new AtomicInteger();
+        AIResource aiResource = new AIResource("concurrent-alter-resource") {
+            @Override
+            public void writeLock() {
+                int attempt = writeLockAttempts.incrementAndGet();
+                if (attempt == 1) {
+                    firstWriteLockAttempt.countDown();
+                    awaitLatch(secondWriteLockAttempt);
+                } else if (attempt == 2) {
+                    secondWriteLockAttempt.countDown();
+                    awaitLatch(firstAlterFinished);
+                }
+                super.writeLock();
+            }
+
+            @Override
+            public void writeUnlock() {
+                super.writeUnlock();
+                firstAlterFinished.countDown();
+            }
+        };
+        aiResource.setProperties(ImmutableMap.copyOf(aiProperties));
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<?> endpointAlter = executor.submit(() -> {
+                aiResource.modifyProperties(ImmutableMap.of(AIProperties.ENDPOINT, "https://new-endpoint"));
+                return null;
+            });
+            Assertions.assertTrue(firstWriteLockAttempt.await(5, TimeUnit.SECONDS));
+            Future<?> temperatureAlter = executor.submit(() -> {
+                aiResource.modifyProperties(ImmutableMap.of(AIProperties.TEMPERATURE, "0.8"));
+                return null;
+            });
+
+            endpointAlter.get(5, TimeUnit.SECONDS);
+            temperatureAlter.get(5, TimeUnit.SECONDS);
+            Assertions.assertEquals("https://new-endpoint", aiResource.getProperty(AIProperties.ENDPOINT));
+            Assertions.assertEquals("0.8", aiResource.getProperty(AIProperties.TEMPERATURE));
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private static void awaitLatch(CountDownLatch latch) {
+        try {
+            if (!latch.await(5, TimeUnit.SECONDS)) {
+                throw new AssertionError("Timed out waiting for concurrent test coordination");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("Interrupted while coordinating concurrent test", e);
+        }
     }
 
     @Test
