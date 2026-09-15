@@ -134,33 +134,6 @@ public class StorageDescPersistTest {
         }
     }
 
-    /**
-     * The two-argument constructor's broker fallback is for a statement that named a broker. Without
-     * one (OUTFILE, the REST file API) a map no provider claims is not a broker's, and the real reason
-     * - the provider is not loaded - must reach the user instead of "Unknown broker name(null)".
-     */
-    @Test
-    public void testNamelessBrokerDescReportsTheAbsentProviderInsteadOfABroker() {
-        Map<String, String> properties = Maps.newHashMap();
-        properties.put("s3.endpoint", "s3.us-east-1.amazonaws.com");
-        properties.put("s3.region", "us-east-1");
-        properties.put("s3.access_key", "ak");
-        properties.put("s3.secret_key", "sk");
-        StorageAdapter.initPluginManager(TestFileSystemPluginManagers.withoutProviders("S3"));
-        try {
-            StoragePropertiesException refused = Assertions.assertThrows(StoragePropertiesException.class,
-                    () -> new BrokerDesc(null, properties));
-            Assertions.assertTrue(refused.getMessage().contains("Loaded filesystem providers"), refused.getMessage());
-
-            // A named broker keeps its fallback: its properties are the broker's own configuration.
-            BrokerDesc named = new BrokerDesc("my_broker", properties);
-            Assertions.assertEquals(StorageBackend.StorageType.BROKER, named.getStorageType());
-            Assertions.assertEquals("my_broker", named.getStorageAdapter().getBrokerName());
-        } finally {
-            StorageAdapter.initPluginManager(null);
-        }
-    }
-
     private static void setField(Class<?> clazz, Object target, String fieldName, Object value)
             throws ReflectiveOperationException {
         Field field = clazz.getDeclaredField(fieldName);

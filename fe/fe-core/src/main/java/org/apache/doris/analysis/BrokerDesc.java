@@ -88,14 +88,8 @@ public class BrokerDesc extends StorageDesc implements Writable {
                 // Override the storage type based on property configuration
                 this.storageType = StorageBackend.StorageType.valueOfIgnoreCase(storageAdapter.getStorageName());
             } catch (StoragePropertiesException e) {
-                // A map no provider claims is a broker's own configuration when the statement named
-                // a broker: keep the storage type as BROKER and bind a broker adapter. Without a
-                // broker name (OUTFILE, the REST file API) nothing could serve it as BROKER either,
-                // and "Unknown broker name(null)" at dispatch would hide the real reason - typically
-                // that the filesystem provider for these properties is not loaded - so report that.
-                if (StringUtils.isBlank(name)) {
-                    throw e;
-                }
+                // Currently ignored: these properties might be broker-specific.
+                // Just keep the storage type as BROKER, and bind a broker adapter
                 this.storageAdapter = StorageAdapter.ofBroker(name, this.properties);
                 this.storageType = StorageBackend.StorageType.BROKER;
             }
