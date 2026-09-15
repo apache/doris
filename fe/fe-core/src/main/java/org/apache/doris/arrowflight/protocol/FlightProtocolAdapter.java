@@ -22,6 +22,8 @@ import org.apache.doris.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.Status;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectPoolMgr;
@@ -32,6 +34,7 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.protocol.ProtocolAdapter;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TResultSinkType;
+import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -294,6 +297,12 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
             String errMsg = "Only be one stmt that returns the result and it is at the end. "
                     + "stmts.size(): " + stmtCount;
             LOG.warn(errMsg);
+            if (!returnResultFromLocal) {
+                // Nobody will pull this result: stop the query on the backends now rather than
+                // leave it to the BE's result buffer timer (execution_timeout + 5s). A result this
+                // frontend cached (a forwarded SHOW's) has nothing to cancel.
+                executor.cancel(new Status(TStatusCode.CANCELLED, errMsg));
+            }
             ctx.getState().setError(ErrorCode.ERR_ARROW_FLIGHT_SQL_MUST_ONLY_RESULT_STMT, errMsg);
             ctx.getState().setErrType(QueryState.ErrType.OTHER_ERR);
             return false;
@@ -413,15 +422,37 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
      * a request that failed after deferring its query, which no DoGet will ever pull.
      */
     public void closeDeferredExecutors() {
-        List<StmtExecutor> taken;
-        synchronized (deferredExecutors) {
-            if (deferredExecutors.isEmpty()) {
-                return;
+        finalizeDeferredExecutors(takeDeferredExecutors());
+    }
+
+    /**
+     * Like {@link #closeDeferredExecutors()}, for a request that failed after deferring its query:
+     * no DoGet will ever pull the result, so the query is cancelled on the backends first -- a query
+     * still producing would otherwise run on until the BE's result buffer timer
+     * (execution_timeout + 5s) -- and the executor is then finalized.
+     */
+    public void cancelDeferredExecutors(Status cancelReason) {
+        List<StmtExecutor> taken = takeDeferredExecutors();
+        for (StmtExecutor deferredExecutor : taken) {
+            try {
+                deferredExecutor.cancel(cancelReason);
+            } catch (Throwable t) {
+                LOG.warn("failed to cancel deferred arrow flight query {}",
+                        DebugUtil.printId(deferredExecutor.getDeferredQueryId()), t);
             }
-            taken = new ArrayList<>(deferredExecutors);
-            deferredExecutors.clear();
         }
         finalizeDeferredExecutors(taken);
+    }
+
+    private List<StmtExecutor> takeDeferredExecutors() {
+        synchronized (deferredExecutors) {
+            if (deferredExecutors.isEmpty()) {
+                return Collections.emptyList();
+            }
+            List<StmtExecutor> taken = new ArrayList<>(deferredExecutors);
+            deferredExecutors.clear();
+            return taken;
+        }
     }
 
     /**

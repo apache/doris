@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.qe.ConnectContext;
@@ -35,6 +36,7 @@ import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TResultSinkType;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
@@ -45,6 +47,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
@@ -394,14 +398,17 @@ public class FlightProtocolAdapterTest {
         Assertions.assertTrue(adapter.finishStatement(ctx, executor, 1, 2));
         Assertions.assertNotEquals(MysqlStateType.ERR, ctx.getState().getStateType());
 
-        // ... one produced earlier stops the request with the error the client will see.
+        // ... one produced earlier stops the request with the error the client will see. A result
+        // cached on this frontend has nothing to cancel.
         Assertions.assertFalse(adapter.finishStatement(ctx, executor, 0, 2));
         Assertions.assertEquals(MysqlStateType.ERR, ctx.getState().getStateType());
         Assertions.assertEquals(ErrorCode.ERR_ARROW_FLIGHT_SQL_MUST_ONLY_RESULT_STMT, ctx.getState().getErrorCode());
+        Mockito.verify(executor, Mockito.never()).cancel(Mockito.any(Status.class));
 
         // A result left on the backends counts the same as one cached here: the FlightInfo of the
         // request describes exactly one result, so a query that is not the last statement stops the
-        // request too, wherever its result is ...
+        // request too, wherever its result is -- and the query, which nobody will pull from the
+        // backends, is cancelled there rather than left to the BE's result buffer timer ...
         adapter.beginRequest();
         ctx.getState().reset();
         adapter.beforeStatement(ctx);
@@ -409,6 +416,9 @@ public class FlightProtocolAdapterTest {
         Assertions.assertEquals(0, adapter.getChannel().resultNum());
         Assertions.assertFalse(adapter.finishStatement(ctx, executor, 0, 2));
         Assertions.assertEquals(ErrorCode.ERR_ARROW_FLIGHT_SQL_MUST_ONLY_RESULT_STMT, ctx.getState().getErrorCode());
+        ArgumentCaptor<Status> cancelReason = ArgumentCaptor.forClass(Status.class);
+        Mockito.verify(executor).cancel(cancelReason.capture());
+        Assertions.assertEquals(TStatusCode.CANCELLED, cancelReason.getValue().getErrorCode());
         // ... and as the last statement its result is the request's.
         ctx.getState().reset();
         adapter.beforeStatement(ctx);
@@ -423,6 +433,28 @@ public class FlightProtocolAdapterTest {
         ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "the query's own error");
         Assertions.assertTrue(adapter.finishStatement(ctx, executor, 0, 2));
         Assertions.assertEquals(ErrorCode.ERR_UNKNOWN_ERROR, ctx.getState().getErrorCode());
+    }
+
+    // A request that fails after deferring its query (GetFlightInfo failed after planning) returns
+    // no FlightInfo, so no DoGet will pull the result: the query is cancelled on the backends and
+    // its executor finalized, once, in that order.
+    @Test
+    public void testAFailedRequestCancelsTheQueryItDeferred() {
+        ConnectContext ctx = flightSession();
+        StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
+        ctx.addFlightSqlDeferredExecutor(deferred);
+        Status reason = new Status(TStatusCode.CANCELLED, "get flight info statement failed");
+
+        ctx.cancelFlightSqlDeferredExecutors(reason);
+
+        InOrder inOrder = Mockito.inOrder(deferred);
+        inOrder.verify(deferred).cancel(reason);
+        inOrder.verify(deferred).finalizeArrowFlightQuery();
+        Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
+        // Nothing left to take: a second call is a no-op.
+        ctx.cancelFlightSqlDeferredExecutors(reason);
+        Mockito.verify(deferred, Mockito.times(1)).cancel(reason);
+        Mockito.verify(deferred, Mockito.times(1)).finalizeArrowFlightQuery();
     }
 
     // Session teardown (CloseSession, the bearer token's expiry, KILL, the timeout checker) does

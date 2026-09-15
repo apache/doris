@@ -1049,6 +1049,14 @@ public class ConnectContext {
         }
     }
 
+    // A request that failed after deferring its query: the query is cancelled on the backends, then
+    // its executor finalized (see FlightProtocolAdapter.cancelDeferredExecutors).
+    public void cancelFlightSqlDeferredExecutors(Status cancelReason) {
+        if (protocolAdapter instanceof FlightProtocolAdapter) {
+            ((FlightProtocolAdapter) protocolAdapter).cancelDeferredExecutors(cancelReason);
+        }
+    }
+
     // The session is over (see FlightProtocolAdapter.tearDown): its deferred executors are
     // finalized, and it keeps none and runs no command from now on. Nothing to do for a
     // connection of any other protocol.

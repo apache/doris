@@ -24,11 +24,13 @@ import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.arrowflight.results.FlightSqlResultCacheEntry;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
@@ -309,15 +311,16 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         } catch (Throwable e) {
             // GetFlightInfo failed (e.g. the BE Arrow schema fetch above timed out or returned an
             // error) after this query's coordinator may already have been deferred during planning.
-            // No FlightInfo is returned, so no DoGet will ever pull this query's results; finalize
-            // the deferred coordinator now (releasing its external-table batch SplitSource, query
-            // queue slot and query registration) instead of leaking it until the next query starts
-            // or the connection is torn down. The previous query's deferred coordinator was already
-            // finalized at the top of this method, so this only closes this failed query. See #62259.
-            connectContext.closeFlightSqlDeferredExecutors();
+            // No FlightInfo is returned, so no DoGet will ever pull this query's results; cancel the
+            // query on the backends and finalize the deferred coordinator now (releasing its
+            // external-table batch SplitSource, query queue slot and query registration) instead of
+            // leaking it until the next query starts or the connection is torn down. The previous
+            // query's deferred coordinator was already finalized at the top of this method, so this
+            // only closes this failed query. See #62259.
             String errMsg = "get flight info statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(e)
                     + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
                     + connectContext.getState().getErrorMessage();
+            connectContext.cancelFlightSqlDeferredExecutors(new Status(TStatusCode.CANCELLED, errMsg));
             LOG.error(errMsg, e);
             throw CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException();
         } finally {
