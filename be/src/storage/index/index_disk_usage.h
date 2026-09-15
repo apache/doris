@@ -17,9 +17,11 @@
 
 #pragma once
 
+#include <gen_cpp/olap_common.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
 #include <cstdint>
+#include <functional>
 #include <set>
 #include <string>
 #include <string_view>
@@ -27,6 +29,7 @@
 
 #include "common/status.h"
 #include "io/fs/file_system.h"
+#include "storage/rowset/rowset_fwd.h"
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris::segment_v2 {
@@ -52,6 +55,9 @@ struct IndexDiskUsageOptions {
     bool position_detail = false;
     // Empty means all indexes.
     std::set<int64_t> index_ids;
+    // Returns an error once the query is cancelled. Called before each segment and each SNII
+    // dictionary block; unset means the work cannot be cancelled.
+    std::function<Status()> check_cancelled;
 };
 
 enum class IndexDiskUsageLevel : uint8_t { kTablet, kRowset, kSegment };
@@ -71,16 +77,19 @@ struct IndexDiskUsageRow {
 std::vector<IndexDiskUsageRow> aggregate_index_disk_usage(std::vector<IndexDiskUsageRow> rows,
                                                           IndexDiskUsageLevel level);
 
-// Adds a CLucene sub-file to the component it belongs to. BKD sub-files only count toward the
-// total and mark the record as a BKD structure.
+// Adds a CLucene sub-file to the component it belongs to. BKD and ANN sub-files only count toward
+// the total and mark the record with their structure.
 void classify_clucene_file(std::string_view name, int64_t length, IndexDiskUsageRecord* record);
 
 // Reads the index file metadata of one segment and reports the bytes of each index.
 class IndexDiskUsageCollector {
 public:
+    // `index_file_info` holds the index file sizes persisted in the rowset meta. Without them the
+    // file sizes are requested from the filesystem.
     IndexDiskUsageCollector(io::FileSystemSPtr fs, std::string index_path_prefix,
                             TabletSchemaSPtr schema, InvertedIndexStorageFormatPB format,
-                            int64_t tablet_id);
+                            int64_t tablet_id,
+                            InvertedIndexFileInfo index_file_info = InvertedIndexFileInfo());
 
     // Appends one record per index, plus a container record for a shared file when no index
     // filter is given.
@@ -99,6 +108,12 @@ private:
     TabletSchemaSPtr _schema;
     InvertedIndexStorageFormatPB _format;
     int64_t _tablet_id;
+    InvertedIndexFileInfo _index_file_info;
 };
+
+// Appends one row per index record of every segment in `rowset`.
+Status collect_rowset_index_disk_usage(const RowsetSharedPtr& rowset,
+                                       const IndexDiskUsageOptions& options, int64_t tablet_id,
+                                       std::vector<IndexDiskUsageRow>* rows);
 
 } // namespace doris::segment_v2

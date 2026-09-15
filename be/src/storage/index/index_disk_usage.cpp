@@ -19,17 +19,23 @@
 
 #include <algorithm>
 #include <map>
+#include <memory>
 #include <tuple>
 #include <utility>
 
 #include "common/cast_set.h"
 #include "common/check.h"
 #include "io/io_common.h"
+#include "storage/index/ann/ann_index_files.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/snii/format/dict_entry.h"
 #include "storage/index/snii/format/format_constants.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/olap_common.h"
+#include "storage/rowset/beta_rowset.h"
+#include "storage/rowset/rowset.h"
+#include "storage/rowset/rowset_meta.h"
 
 namespace doris::segment_v2 {
 
@@ -41,8 +47,35 @@ bool is_bkd_file(std::string_view name) {
            name == InvertedIndexDescriptor::get_temporary_bkd_index_file_name();
 }
 
+bool is_ann_file(std::string_view name) {
+    return name == faiss_index_fila_name || name == faiss_ivfdata_file_name;
+}
+
 bool is_wanted(const IndexDiskUsageOptions& options, int64_t index_id) {
     return options.index_ids.empty() || options.index_ids.contains(index_id);
+}
+
+Status check_cancelled(const IndexDiskUsageOptions& options) {
+    return options.check_cancelled ? options.check_cancelled() : Status::OK();
+}
+
+// A segment may have no index file on purpose, for example when every ANN index skipped a segment
+// too small to train, or when a legacy table skipped writing indexes on load. Such a file holds
+// no index bytes, while any other error is still reported.
+bool is_absent_index_file(const Status& status) {
+    return status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>() ||
+           status.is<ErrorCode::INVERTED_INDEX_BYPASS>() || status.is<ErrorCode::NOT_FOUND>();
+}
+
+// Returns the V1 index file size persisted in the rowset meta, or -1 when it is not recorded.
+int64_t persisted_v1_file_size(const InvertedIndexFileInfo& file_info, const TabletIndex& index) {
+    for (const auto& index_info : file_info.index_info()) {
+        if (index_info.index_id() == index.index_id() &&
+            index_info.index_suffix() == index.get_index_suffix()) {
+            return index_info.index_file_size() > 0 ? index_info.index_file_size() : -1;
+        }
+    }
+    return -1;
 }
 
 // Classifies every sub-file of a CLucene directory into `record` and adds their total length to
@@ -70,7 +103,8 @@ Status add_directory_files(const lucene::store::Directory& dir, IndexDiskUsageRe
 // Sums the position bytes of the dictionary entries whose postings live in the posting region.
 // Inline postings stay in the dictionary region and are not counted.
 Status sum_snii_position_bytes(const IndexFileReader& reader, uint64_t index_id,
-                               std::string_view suffix, int64_t* position_bytes) {
+                               std::string_view suffix, const IndexDiskUsageOptions& options,
+                               int64_t* position_bytes) {
     // A full dictionary scan should not evict blocks that queries keep in the file cache.
     io::IOContext io_ctx;
     io_ctx.is_disposable = true;
@@ -80,6 +114,7 @@ Status sum_snii_position_bytes(const IndexFileReader& reader, uint64_t index_id,
     snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(&io_ctx);
     std::vector<snii::format::DictEntry> entries;
     for (uint32_t block = 0; block < logical->n_dict_blocks(); ++block) {
+        RETURN_IF_ERROR(check_cancelled(options));
         uint64_t frq_base = 0;
         uint64_t prx_base = 0;
         RETURN_IF_ERROR(logical->decode_dict_block(block, &entries, &frq_base, &prx_base));
@@ -139,6 +174,10 @@ void classify_clucene_file(std::string_view name, int64_t length, IndexDiskUsage
         record->structure = IndexDiskUsageStructure::kBkd;
         return;
     }
+    if (is_ann_file(name)) {
+        record->structure = IndexDiskUsageStructure::kAnn;
+        return;
+    }
     const size_t dot = name.rfind('.');
     const std::string_view extension =
             dot == std::string_view::npos ? std::string_view() : name.substr(dot + 1);
@@ -159,12 +198,14 @@ IndexDiskUsageCollector::IndexDiskUsageCollector(io::FileSystemSPtr fs,
                                                  std::string index_path_prefix,
                                                  TabletSchemaSPtr schema,
                                                  InvertedIndexStorageFormatPB format,
-                                                 int64_t tablet_id)
+                                                 int64_t tablet_id,
+                                                 InvertedIndexFileInfo index_file_info)
         : _fs(std::move(fs)),
           _index_path_prefix(std::move(index_path_prefix)),
           _schema(std::move(schema)),
           _format(format),
-          _tablet_id(tablet_id) {}
+          _tablet_id(tablet_id),
+          _index_file_info(std::move(index_file_info)) {}
 
 Status IndexDiskUsageCollector::collect(const IndexDiskUsageOptions& options,
                                         std::vector<IndexDiskUsageRecord>* out) {
@@ -185,23 +226,35 @@ Status IndexDiskUsageCollector::collect(const IndexDiskUsageOptions& options,
 
 Status IndexDiskUsageCollector::_collect_v1(const IndexDiskUsageOptions& options,
                                             std::vector<IndexDiskUsageRecord>* out) {
-    IndexFileReader reader(_fs, _index_path_prefix, _format, InvertedIndexFileInfo(), _tablet_id);
+    IndexFileReader reader(_fs, _index_path_prefix, _format, _index_file_info, _tablet_id);
     RETURN_IF_ERROR(reader.init());
     for (const TabletIndex* index : _schema->inverted_indexes()) {
         if (!is_wanted(options, index->index_id())) {
             continue;
         }
-        const std::string path = InvertedIndexDescriptor::get_index_file_path_v1(
-                _index_path_prefix, index->index_id(), index->get_index_suffix());
-        int64_t file_size = 0;
-        RETURN_IF_ERROR(_fs->file_size(path, &file_size));
-        auto directory = DORIS_TRY(reader.open(index));
+        int64_t file_size = persisted_v1_file_size(_index_file_info, *index);
+        if (file_size < 0) {
+            const std::string path = InvertedIndexDescriptor::get_index_file_path_v1(
+                    _index_path_prefix, index->index_id(), index->get_index_suffix());
+            const Status size_status = _fs->file_size(path, &file_size);
+            if (is_absent_index_file(size_status)) {
+                continue;
+            }
+            RETURN_IF_ERROR(size_status);
+        }
+        auto directory = reader.open(index);
+        if (!directory.has_value()) {
+            if (is_absent_index_file(directory.error())) {
+                continue;
+            }
+            return directory.error();
+        }
 
         IndexDiskUsageRecord record;
         record.index_id = index->index_id();
         record.index_suffix = index->get_index_suffix();
         int64_t files_bytes = 0;
-        RETURN_IF_ERROR(add_directory_files(*directory, &record, &files_bytes));
+        RETURN_IF_ERROR(add_directory_files(*directory.value(), &record, &files_bytes));
         // Each V1 index owns its file, so its compound header is part of the index.
         record.other_bytes += file_size - files_bytes;
         record.total_bytes += file_size - files_bytes;
@@ -212,8 +265,10 @@ Status IndexDiskUsageCollector::_collect_v1(const IndexDiskUsageOptions& options
 
 Status IndexDiskUsageCollector::_collect_compound(const IndexDiskUsageOptions& options,
                                                   std::vector<IndexDiskUsageRecord>* out) {
-    IndexFileReader reader(_fs, _index_path_prefix, _format, InvertedIndexFileInfo(), _tablet_id);
-    RETURN_IF_ERROR(reader.init());
+    IndexFileReader reader(_fs, _index_path_prefix, _format, _index_file_info, _tablet_id);
+    if (const Status st = reader.init(); !st.ok()) {
+        return is_absent_index_file(st) ? Status::OK() : st;
+    }
     auto directories = DORIS_TRY(reader.get_all_directories());
 
     // Every index counts toward the attributed bytes, even the filtered ones, so the container
@@ -240,8 +295,10 @@ Status IndexDiskUsageCollector::_collect_compound(const IndexDiskUsageOptions& o
 
 Status IndexDiskUsageCollector::_collect_snii(const IndexDiskUsageOptions& options,
                                               std::vector<IndexDiskUsageRecord>* out) {
-    IndexFileReader reader(_fs, _index_path_prefix, _format, InvertedIndexFileInfo(), _tablet_id);
-    RETURN_IF_ERROR(reader.init());
+    IndexFileReader reader(_fs, _index_path_prefix, _format, _index_file_info, _tablet_id);
+    if (const Status st = reader.init(); !st.ok()) {
+        return is_absent_index_file(st) ? Status::OK() : st;
+    }
     const auto entries = DORIS_TRY(reader.snii_logical_indexes());
 
     int64_t attributed_bytes = 0;
@@ -271,7 +328,7 @@ Status IndexDiskUsageCollector::_collect_snii(const IndexDiskUsageOptions& optio
             } else if (options.position_detail) {
                 int64_t position_bytes = 0;
                 RETURN_IF_ERROR(sum_snii_position_bytes(reader, entry.index_id, entry.index_suffix,
-                                                        &position_bytes));
+                                                        options, &position_bytes));
                 record.position_bytes = position_bytes;
                 record.posting_bytes -= position_bytes;
             } else {
@@ -297,6 +354,58 @@ Status IndexDiskUsageCollector::_collect_snii(const IndexDiskUsageOptions& optio
         container.total_bytes = reader.get_inverted_file_size() - attributed_bytes;
         container.other_bytes = container.total_bytes;
         out->push_back(std::move(container));
+    }
+    return Status::OK();
+}
+
+Status collect_rowset_index_disk_usage(const RowsetSharedPtr& rowset,
+                                       const IndexDiskUsageOptions& options, int64_t tablet_id,
+                                       std::vector<IndexDiskUsageRow>* rows) {
+    const TabletSchemaSPtr schema = rowset->tablet_schema();
+    if (!schema->has_inverted_or_ann_index()) {
+        return Status::OK();
+    }
+    const InvertedIndexStorageFormatPB format = schema->get_inverted_index_storage_format();
+    const std::string rowset_id = rowset->rowset_id().to_string();
+    // Rowsets written before per-segment row counts were persisted read them from the footers.
+    std::vector<uint32_t> footer_rows;
+    for (auto segment : rowset->segments()) {
+        RETURN_IF_ERROR(check_cancelled(options));
+        const std::string segment_path = DORIS_TRY(segment.path());
+        IndexDiskUsageCollector collector(
+                rowset->rowset_meta()->fs(),
+                std::string(InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)),
+                schema, format, tablet_id, segment.inverted_index_file_info());
+        std::vector<IndexDiskUsageRecord> records;
+        RETURN_IF_ERROR(collector.collect(options, &records));
+        if (records.empty()) {
+            continue;
+        }
+        int64_t row_count = 0;
+        if (segment.has_num_rows()) {
+            row_count = segment.num_rows();
+        } else {
+            if (footer_rows.empty()) {
+                OlapReaderStatistics stats;
+                RETURN_IF_ERROR(std::static_pointer_cast<BetaRowset>(rowset)->get_segment_num_rows(
+                        &footer_rows, /*enable_segment_cache=*/false, &stats));
+            }
+            if (segment.pos() >= footer_rows.size()) {
+                return Status::InternalError("rowset {} has row counts of {} segments, but not {}",
+                                             rowset_id, footer_rows.size(), segment.pos());
+            }
+            row_count = footer_rows[segment.pos()];
+        }
+        for (auto& record : records) {
+            IndexDiskUsageRow row;
+            row.rowset_id = rowset_id;
+            row.segment_id = cast_set<int32_t>(segment.id());
+            row.segment_count = 1;
+            row.row_count = row_count;
+            row.format = format;
+            row.record = std::move(record);
+            rows->push_back(std::move(row));
+        }
     }
     return Status::OK();
 }

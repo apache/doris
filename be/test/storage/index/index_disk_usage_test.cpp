@@ -26,6 +26,7 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "storage/index/index_file_reader.h"
@@ -36,6 +37,7 @@
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/options.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/defer_op.h"
 #include "util/slice.h"
 
 namespace doris::segment_v2 {
@@ -376,15 +378,69 @@ TEST_F(IndexDiskUsageCollectorTest, CollectFiltersIndexIds) {
     EXPECT_EQ(IndexDiskUsageStructure::kBkd, records[0].structure);
 }
 
-TEST_F(IndexDiskUsageCollectorTest, CollectMissingFileFails) {
+// A segment may have no index file, for example when every ANN index skipped a segment too small
+// to train, so a missing or empty container holds no index bytes.
+TEST_F(IndexDiskUsageCollectorTest, CollectMissingContainerReportsNothing) {
     auto schema = create_schema();
-    const std::string prefix = kTestDir + "/missing_0";
+    for (auto format : {InvertedIndexStorageFormatPB::V2, InvertedIndexStorageFormatPB::V3,
+                        InvertedIndexStorageFormatPB::SNII}) {
+        const std::string name = InvertedIndexStorageFormatPB_Name(format);
+        const std::string prefix = kTestDir + "/missing_" + name + "_0";
+        IndexDiskUsageCollector collector(io::global_local_filesystem(), prefix, schema, format,
+                                          1001);
+        std::vector<IndexDiskUsageRecord> records;
+        const Status st = collector.collect(IndexDiskUsageOptions {}, &records);
+        ASSERT_TRUE(st.ok()) << name << ": " << st;
+        EXPECT_TRUE(records.empty()) << name;
+    }
+}
+
+TEST_F(IndexDiskUsageCollectorTest, CollectEmptyContainerReportsNothing) {
+    auto schema = create_schema();
+    const std::string prefix = kTestDir + "/empty_0";
+    io::FileWriterPtr writer;
+    ASSERT_TRUE(
+            io::global_local_filesystem()
+                    ->create_file(InvertedIndexDescriptor::get_index_file_path_v2(prefix), &writer)
+                    .ok());
+    ASSERT_TRUE(writer->close().ok());
+
     IndexDiskUsageCollector collector(io::global_local_filesystem(), prefix, schema,
                                       InvertedIndexStorageFormatPB::V2, 1001);
     std::vector<IndexDiskUsageRecord> records;
     const Status st = collector.collect(IndexDiskUsageOptions {}, &records);
-    EXPECT_FALSE(st.ok());
-    EXPECT_NE(st.to_string().find("missing_0"), std::string::npos) << st;
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_TRUE(records.empty());
+}
+
+TEST_F(IndexDiskUsageCollectorTest, CollectMissingV1IndexFileSkipsIndex) {
+    auto schema = create_schema();
+    schema->append_index(text_index(1, true));
+    const std::string prefix = kTestDir + "/missing_v1_0";
+    IndexDiskUsageCollector collector(io::global_local_filesystem(), prefix, schema,
+                                      InvertedIndexStorageFormatPB::V1, 1001);
+    std::vector<IndexDiskUsageRecord> records;
+    const Status st = collector.collect(IndexDiskUsageOptions {}, &records);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_TRUE(records.empty());
+}
+
+TEST_F(IndexDiskUsageCollectorTest, CollectCorruptContainerFails) {
+    auto schema = create_schema();
+    const std::string prefix = kTestDir + "/corrupt_0";
+    io::FileWriterPtr writer;
+    ASSERT_TRUE(
+            io::global_local_filesystem()
+                    ->create_file(InvertedIndexDescriptor::get_index_file_path_v2(prefix), &writer)
+                    .ok());
+    ASSERT_TRUE(writer->append(Slice("not an inverted index container")).ok());
+    ASSERT_TRUE(writer->close().ok());
+
+    // SNII validates its tail, so a damaged file is reported as an error instead of a crash.
+    IndexDiskUsageCollector collector(io::global_local_filesystem(), prefix, schema,
+                                      InvertedIndexStorageFormatPB::SNII, 1001);
+    std::vector<IndexDiskUsageRecord> records;
+    EXPECT_FALSE(collector.collect(IndexDiskUsageOptions {}, &records).ok());
 }
 
 TEST_F(IndexDiskUsageCollectorTest, CollectV1TextIndex) {
@@ -481,6 +537,164 @@ TEST_F(IndexDiskUsageCollectorTest, CollectSniiBkdIndex) {
     ASSERT_NE(bkd, nullptr);
     EXPECT_GT(bkd->total_bytes, 0);
     EXPECT_EQ(container_file_size(prefix), sum_total(records));
+}
+
+TEST(IndexDiskUsageClassifyTest, AnnFilesMarkAnnStructure) {
+    IndexDiskUsageRecord record;
+    classify_clucene_file("ann.faiss", 100, &record);
+    classify_clucene_file("ann.ivfdata", 50, &record);
+    EXPECT_EQ(IndexDiskUsageStructure::kAnn, record.structure);
+    EXPECT_EQ(150, record.total_bytes);
+    EXPECT_EQ(0, record.other_bytes);
+}
+
+namespace {
+
+// Forwards to the local filesystem and counts file size lookups, each of which is a remote request
+// on object storage.
+class SizeCountingFileSystem final : public io::FileSystem {
+public:
+    SizeCountingFileSystem() : io::FileSystem("size_counting_fs", io::FileSystemType::LOCAL) {}
+
+    int size_requests() const { return _size_requests; }
+    void reset() { _size_requests = 0; }
+
+protected:
+    Status create_file_impl(const io::Path& file, io::FileWriterPtr* writer,
+                            const io::FileWriterOptions* opts) override {
+        return _local->create_file_impl(file, writer, opts);
+    }
+    Status open_file_impl(const io::Path& file, io::FileReaderSPtr* reader,
+                          const io::FileReaderOptions* opts) override {
+        // An open without a known size makes the filesystem look the size up.
+        if (opts == nullptr || opts->file_size < 0) {
+            ++_size_requests;
+        }
+        return _local->open_file_impl(file, reader, opts);
+    }
+    Status create_directory_impl(const io::Path& dir, bool failed_if_exists) override {
+        return _local->create_directory_impl(dir, failed_if_exists);
+    }
+    Status delete_file_impl(const io::Path& file) override {
+        return _local->delete_file_impl(file);
+    }
+    Status batch_delete_impl(const std::vector<io::Path>& files) override {
+        return _local->batch_delete_impl(files);
+    }
+    Status delete_directory_impl(const io::Path& dir) override {
+        return _local->delete_directory_impl(dir);
+    }
+    Status exists_impl(const io::Path& path, bool* res) const override {
+        return _local->exists_impl(path, res);
+    }
+    Status file_size_impl(const io::Path& file, int64_t* file_size) const override {
+        ++_size_requests;
+        return _local->file_size_impl(file, file_size);
+    }
+    Status list_impl(const io::Path& dir, bool only_file, std::vector<io::FileInfo>* files,
+                     bool* exists) override {
+        return _local->list_impl(dir, only_file, files, exists);
+    }
+    Status rename_impl(const io::Path& orig_name, const io::Path& new_name) override {
+        return _local->rename_impl(orig_name, new_name);
+    }
+    Status absolute_path(const io::Path& path, io::Path& abs_path) const override {
+        return _local->absolute_path(path, abs_path);
+    }
+
+private:
+    std::shared_ptr<io::LocalFileSystem> _local = io::global_local_filesystem();
+    mutable int _size_requests = 0;
+};
+
+} // namespace
+
+// A persisted size is trusted as on the query path, which saves a size request per file.
+TEST_F(IndexDiskUsageCollectorTest, CollectUsesPersistedContainerSize) {
+    auto schema = create_schema();
+    std::vector<IndexSpec> specs {
+            {.index = text_index(1, true), .column_index = 1, .feed = feed_text}};
+    const std::string prefix =
+            write_segment(InvertedIndexStorageFormatPB::V2, "rs_persisted_v2", schema, &specs);
+    const int64_t file_size = container_file_size(prefix);
+    auto fs = std::make_shared<SizeCountingFileSystem>();
+    std::vector<IndexDiskUsageRecord> records;
+
+    IndexDiskUsageCollector unknown_size(fs, prefix, schema, InvertedIndexStorageFormatPB::V2,
+                                         1001);
+    ASSERT_TRUE(unknown_size.collect(IndexDiskUsageOptions {}, &records).ok());
+    EXPECT_GT(fs->size_requests(), 0);
+
+    fs->reset();
+    records.clear();
+    InvertedIndexFileInfo file_info;
+    file_info.set_index_size(file_size);
+    IndexDiskUsageCollector persisted_size(fs, prefix, schema, InvertedIndexStorageFormatPB::V2,
+                                           1001, file_info);
+    const Status st = persisted_size.collect(IndexDiskUsageOptions {}, &records);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(0, fs->size_requests());
+    EXPECT_EQ(file_size, sum_total(records));
+}
+
+TEST_F(IndexDiskUsageCollectorTest, CollectUsesPersistedV1IndexFileSize) {
+    auto schema = create_schema();
+    schema->append_index(text_index(1, true));
+    std::vector<IndexSpec> specs {
+            {.index = text_index(1, true), .column_index = 1, .feed = feed_text}};
+    const std::string prefix =
+            write_segment(InvertedIndexStorageFormatPB::V1, "rs_persisted_v1", schema, &specs);
+    int64_t file_size = 0;
+    ASSERT_TRUE(io::global_local_filesystem()
+                        ->file_size(InvertedIndexDescriptor::get_index_file_path_v1(prefix, 1, ""),
+                                    &file_size)
+                        .ok());
+    auto fs = std::make_shared<SizeCountingFileSystem>();
+    std::vector<IndexDiskUsageRecord> records;
+
+    IndexDiskUsageCollector unknown_size(fs, prefix, schema, InvertedIndexStorageFormatPB::V1,
+                                         1001);
+    ASSERT_TRUE(unknown_size.collect(IndexDiskUsageOptions {}, &records).ok());
+    EXPECT_GT(fs->size_requests(), 0);
+
+    fs->reset();
+    records.clear();
+    InvertedIndexFileInfo file_info;
+    auto* index_info = file_info.add_index_info();
+    index_info->set_index_id(1);
+    index_info->set_index_suffix("");
+    index_info->set_index_file_size(file_size);
+    IndexDiskUsageCollector persisted_size(fs, prefix, schema, InvertedIndexStorageFormatPB::V1,
+                                           1001, file_info);
+    const Status st = persisted_size.collect(IndexDiskUsageOptions {}, &records);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(0, fs->size_requests());
+    EXPECT_EQ(file_size, sum_total(records));
+}
+
+TEST_F(IndexDiskUsageCollectorTest, CollectSniiPositionDetailChecksCancellationPerBlock) {
+    // Small dictionary blocks make the position scan cross many blocks.
+    const int32_t saved_block_bytes = config::snii_target_dict_block_bytes;
+    config::snii_target_dict_block_bytes = 256;
+    Defer restore_block_bytes {[&] { config::snii_target_dict_block_bytes = saved_block_bytes; }};
+    auto schema = create_schema();
+    std::vector<IndexSpec> specs {
+            {.index = text_index(1, true), .column_index = 1, .feed = feed_many_text}};
+    const std::string prefix =
+            write_segment(InvertedIndexStorageFormatPB::SNII, "rs_snii_cancel", schema, &specs);
+
+    int checks = 0;
+    IndexDiskUsageOptions options;
+    options.position_detail = true;
+    options.check_cancelled = [&checks]() {
+        return ++checks < 2 ? Status::OK() : Status::Cancelled("query is cancelled");
+    };
+    IndexDiskUsageCollector collector(io::global_local_filesystem(), prefix, schema,
+                                      InvertedIndexStorageFormatPB::SNII, 1001);
+    std::vector<IndexDiskUsageRecord> records;
+    const Status st = collector.collect(options, &records);
+    EXPECT_TRUE(st.is<ErrorCode::CANCELLED>()) << st;
+    EXPECT_EQ(2, checks);
 }
 
 } // namespace doris::segment_v2
