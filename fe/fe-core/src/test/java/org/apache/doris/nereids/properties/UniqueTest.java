@@ -17,8 +17,13 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -44,6 +49,21 @@ class UniqueTest extends TestWithFeService {
                 + "name varchar(128) not null)\n"
                 + "UNIQUE KEY(id)\n"
                 + "distributed by hash(id) buckets 10\n"
+                + "properties('replication_num' = '1');");
+        createTable("create table test.bool_uni (\n"
+                + "id boolean not null)\n"
+                + "UNIQUE KEY(id)\n"
+                + "distributed by hash(id) buckets 1\n"
+                + "properties('replication_num' = '1');");
+        createTable("create table test.decimal_uni (\n"
+                + "id decimalv2(9, 2) not null)\n"
+                + "UNIQUE KEY(id)\n"
+                + "distributed by hash(id) buckets 1\n"
+                + "properties('replication_num' = '1');");
+        createTable("create table test.string_uni (\n"
+                + "id varchar(128) not null)\n"
+                + "UNIQUE KEY(id)\n"
+                + "distributed by hash(id) buckets 1\n"
                 + "properties('replication_num' = '1');");
         connectContext.setDatabase("test");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
@@ -76,6 +96,81 @@ class UniqueTest extends TestWithFeService {
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isUnique(plan.getOutput().get(3)));
 
+    }
+
+    @Test
+    void testAggregateOutputInjectivity() {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("select sum(abs(id)) as s from agg group by id")
+                .getPlan();
+        Assertions.assertFalse(plan.getLogicalProperties().getTrait()
+                .isUnique(plan.getOutput().get(0)));
+
+        plan = PlanChecker.from(connectContext)
+                .analyze("select avg(cast(id as bigint)) as a from agg group by id")
+                .getPlan();
+        Assertions.assertFalse(plan.getLogicalProperties().getTrait()
+                .isUnique(plan.getOutput().get(0)));
+
+        plan = PlanChecker.from(connectContext)
+                .analyze("select sum(cast(id as bigint)) as s from agg group by id")
+                .getPlan();
+        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
+                .isUnique(plan.getOutput().get(0)));
+
+        plan = PlanChecker.from(connectContext)
+                .analyze("select max(cast(id as bigint)) as m from agg group by id")
+                .getPlan();
+        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
+                .isUnique(plan.getOutput().get(0)));
+
+        plan = PlanChecker.from(connectContext)
+                .analyze("select sum(cast(id as tinyint)) as s from agg group by id")
+                .getPlan();
+        Assertions.assertFalse(plan.getLogicalProperties().getTrait()
+                .isUnique(plan.getOutput().get(0)));
+
+        plan = PlanChecker.from(connectContext)
+                .analyze("select max(cast(id as char(1))) as m from agg group by id")
+                .getPlan();
+        Assertions.assertFalse(plan.getLogicalProperties().getTrait()
+                .isUnique(plan.getOutput().get(0)));
+
+        plan = PlanChecker.from(connectContext)
+                .analyze("select max(cast(id as varchar(1))) as m from agg group by id")
+                .getPlan();
+        Assertions.assertFalse(plan.getLogicalProperties().getTrait()
+                .isUnique(plan.getOutput().get(0)));
+
+        plan = PlanChecker.from(connectContext)
+                .analyze("select max(id) as m from string_uni group by id")
+                .getPlan();
+        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
+                .isUnique(plan.getOutput().get(0)));
+
+        plan = PlanChecker.from(connectContext)
+                .analyze("select sum(id) as s from bool_uni group by id")
+                .getPlan();
+        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
+                .isUnique(plan.getOutput().get(0)));
+        assertImplicitCast(plan, Sum.class);
+
+        plan = PlanChecker.from(connectContext)
+                .analyze("select max(id) as m from decimal_uni group by id")
+                .getPlan();
+        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
+                .isUnique(plan.getOutput().get(0)));
+        assertImplicitCast(plan, Max.class);
+    }
+
+    private void assertImplicitCast(Plan plan, Class<? extends AggregateFunction> aggregateType) {
+        LogicalAggregate<?> aggregate = plan.<LogicalAggregate<?>>collectFirst(
+                LogicalAggregate.class::isInstance).orElseThrow(AssertionError::new);
+        Assertions.assertEquals(1, aggregate.getAggregateFunctions().size());
+        AggregateFunction function = aggregate.getAggregateFunctions().iterator().next();
+        Assertions.assertTrue(aggregateType.isInstance(function));
+        Assertions.assertInstanceOf(Cast.class, function.child(0));
+        Assertions.assertFalse(((Cast) function.child(0)).isExplicitType());
     }
 
     @Test
