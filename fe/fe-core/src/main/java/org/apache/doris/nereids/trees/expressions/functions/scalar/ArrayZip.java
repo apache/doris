@@ -18,12 +18,14 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.ChildDerivedSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
+import org.apache.doris.nereids.trees.expressions.functions.PreserveChildTypePrecision;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
-import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
@@ -41,7 +43,7 @@ import java.util.List;
  * ScalarFunction 'array_zip'.
  */
 public class ArrayZip extends ScalarFunction implements ExplicitlyCastableSignature,
-        BinaryExpression, PropagateNullable {
+        PropagateNullable, ChildDerivedSignature, PreserveChildTypePrecision {
 
     /**
      * constructor with more than 0 arguments.
@@ -71,7 +73,7 @@ public class ArrayZip extends ScalarFunction implements ExplicitlyCastableSignat
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        if (arity() == 0) {
+        if (children.isEmpty()) {
             SearchSignature.throwCanNotFoundFunctionException(getName(), getArguments());
         }
         if (!children.stream()
@@ -92,5 +94,32 @@ public class ArrayZip extends ScalarFunction implements ExplicitlyCastableSignat
 
         return ImmutableList.of(FunctionSignature.ret(ArrayType.of(new StructType(structFieldBuilder.build())))
                 .args(children.stream().map(ExpressionTrait::getDataType).toArray(DataType[]::new)));
+    }
+
+    @Override
+    public FunctionSignature deriveSignatureFromChildren(
+            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments) {
+        int argumentCount = children.size();
+        ImmutableList.Builder<DataType> argumentTypes = ImmutableList.builderWithExpectedSize(argumentCount);
+        ImmutableList.Builder<StructField> structFields = ImmutableList.builderWithExpectedSize(argumentCount);
+        for (int i = 0; i < argumentCount; i++) {
+            DataType currentType = getArgument(i).getDataType();
+            if (!(currentType instanceof ArrayType) && !currentType.isNullType()) {
+                throw new AnalysisException(
+                        "Cannot safely reuse array_zip signature with a non-array argument");
+            }
+            // A newly added array has no prior item binding. Existing positions must retain theirs.
+            boolean existingPosition = i < immediateOriginArguments.size();
+            DataType resolvedType = existingPosition ? resolvedSignature.getArgType(i) : currentType;
+            DataType originType = existingPosition
+                    ? immediateOriginArguments.get(i).getDataType() : currentType;
+            DataType argumentType = ChildDerivedSignature.refreshNestedTypeMetadata(
+                    resolvedType, currentType, originType);
+            argumentTypes.add(argumentType);
+            DataType itemType = argumentType instanceof ArrayType
+                    ? ((ArrayType) argumentType).getItemType() : TinyIntType.INSTANCE;
+            structFields.add(new StructField(StructField.DEFAULT_FIELD_NAME + (i + 1), itemType, true, ""));
+        }
+        return FunctionSignature.of(ArrayType.of(new StructType(structFields.build())), argumentTypes.build());
     }
 }

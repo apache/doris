@@ -21,11 +21,14 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.functions.ChildDerivedSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
+import org.apache.doris.nereids.trees.expressions.functions.PreserveChildTypePrecision;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.collect.ImmutableList;
@@ -36,7 +39,8 @@ import java.util.List;
  * ScalarFunction 'struct'.
  */
 public class CreateStruct extends ScalarFunction
-        implements ExplicitlyCastableSignature, AlwaysNotNullable {
+        implements ExplicitlyCastableSignature, AlwaysNotNullable, ChildDerivedSignature,
+        PreserveChildTypePrecision {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(StructType.SYSTEM_DEFAULT).args()
@@ -88,5 +92,27 @@ public class CreateStruct extends ScalarFunction
             return ImmutableList.of(FunctionSignature.ret(StructLiteral.computeDataType(children))
                     .args(children.stream().map(ExpressionTrait::getDataType).toArray(DataType[]::new)));
         }
+    }
+
+    @Override
+    public FunctionSignature deriveSignatureFromChildren(
+            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments) {
+        StructType currentReturnType = StructLiteral.computeDataType(children);
+        ImmutableList.Builder<DataType> argumentTypes = ImmutableList.builderWithExpectedSize(arity());
+        ImmutableList.Builder<StructField> fields = ImmutableList.builderWithExpectedSize(arity());
+        for (int i = 0; i < arity(); i++) {
+            DataType currentType = getArgument(i).getDataType();
+            // A newly added independent field has no prior scalar binding. Existing positions must retain theirs.
+            DataType argumentType = i < immediateOriginArguments.size()
+                    ? ChildDerivedSignature.refreshNestedTypeMetadata(
+                            resolvedSignature.getArgType(i), currentType,
+                            immediateOriginArguments.get(i).getDataType())
+                    : currentType;
+            argumentTypes.add(argumentType);
+            StructField currentField = currentReturnType.getFields().get(i);
+            fields.add(currentField.withDataTypeAndNullable(argumentType, currentField.isNullable()));
+        }
+        return resolvedSignature.withArgumentTypes(false, argumentTypes.build())
+                .withReturnType(new StructType(fields.build()));
     }
 }

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.functions.ChildDerivedSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
@@ -38,7 +39,7 @@ import java.util.List;
  * ScalarFunction 'map'.
  */
 public class CreateMap extends ScalarFunction
-        implements ExplicitlyCastableSignature, AlwaysNotNullable {
+        implements ExplicitlyCastableSignature, AlwaysNotNullable, ChildDerivedSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(MapType.SYSTEM_DEFAULT).args()
@@ -54,30 +55,6 @@ public class CreateMap extends ScalarFunction
     /** constructor for withChildren and reuse signature */
     private CreateMap(ScalarFunctionParams functionParams) {
         super(functionParams);
-    }
-
-    @Override
-    public DataType getDataType() {
-        if (arity() >= 2) {
-            // use Array function to get the common key and value type
-            // first collect all key types in odd position, and value types in even position
-            // then get the common type of key and value
-            List<Expression> keyExpressions = new ArrayList<>();
-            List<Expression> valueExpressions = new ArrayList<>();
-            for (int i = 0; i < children.size(); i++) {
-                if (i % 2 == 0) {
-                    keyExpressions.add(children.get(i));
-                } else {
-                    valueExpressions.add(children.get(i));
-                }
-            }
-            Array keyArr = new Array(keyExpressions);
-            DataType keyType = ((ArrayType) keyArr.getDataType()).getItemType();
-            Array valueArr = new Array(valueExpressions);
-            DataType valueType = ((ArrayType) valueArr.getDataType()).getItemType();
-            return MapType.of(keyType, valueType);
-        }
-        return MapType.SYSTEM_DEFAULT;
     }
 
     @Override
@@ -135,7 +112,7 @@ public class CreateMap extends ScalarFunction
                 }
             }
             return ImmutableList.of(FunctionSignature.of(
-                    getDataType(),
+                    MapType.of(keyType, valueType),
                     childTypes.build())
             );
         }
@@ -144,5 +121,49 @@ public class CreateMap extends ScalarFunction
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
         return signature;
+    }
+
+    @Override
+    public FunctionSignature deriveSignatureFromChildren(
+            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments) {
+        if (arity() % 2 != 0) {
+            throw new AnalysisException("Cannot safely refresh map with an odd argument count");
+        }
+        if (arity() != immediateOriginArguments.size()
+                || arity() != resolvedSignature.argumentsTypes.size()) {
+            throw new AnalysisException(
+                    "Cannot safely reuse map signature after changing its argument count");
+        }
+        if (arity() == 0) {
+            return resolvedSignature;
+        }
+        if (!(resolvedSignature.returnType instanceof MapType)) {
+            throw new AnalysisException("Cannot safely reuse map signature with a non-map return type");
+        }
+        List<DataType> currentKeyTypes = new ArrayList<>(arity() / 2);
+        List<DataType> currentValueTypes = new ArrayList<>(arity() / 2);
+        List<DataType> originKeyTypes = new ArrayList<>(arity() / 2);
+        List<DataType> originValueTypes = new ArrayList<>(arity() / 2);
+        for (int i = 0; i < arity(); i += 2) {
+            currentKeyTypes.add(getArgument(i).getDataType());
+            currentValueTypes.add(getArgument(i + 1).getDataType());
+            originKeyTypes.add(immediateOriginArguments.get(i).getDataType());
+            originValueTypes.add(immediateOriginArguments.get(i + 1).getDataType());
+        }
+        MapType resolvedMapType = (MapType) resolvedSignature.returnType;
+        DataType keyType = ChildDerivedSignature.mergeNestedTypeMetadata(
+                resolvedMapType.getKeyType(), currentKeyTypes, originKeyTypes)
+                .orElseThrow(() -> new AnalysisException(
+                        "Cannot safely reuse map signature with incompatible key metadata"));
+        DataType valueType = ChildDerivedSignature.mergeNestedTypeMetadata(
+                resolvedMapType.getValueType(), currentValueTypes, originValueTypes)
+                .orElseThrow(() -> new AnalysisException(
+                        "Cannot safely reuse map signature with incompatible value metadata"));
+        ImmutableList.Builder<DataType> argumentTypes = ImmutableList.builderWithExpectedSize(arity());
+        for (int i = 0; i < arity(); i++) {
+            argumentTypes.add(i % 2 == 0 ? keyType : valueType);
+        }
+        return resolvedSignature.withArgumentTypes(false, argumentTypes.build())
+                .withReturnType(MapType.of(keyType, valueType));
     }
 }
