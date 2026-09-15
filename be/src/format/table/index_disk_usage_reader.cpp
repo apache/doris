@@ -100,16 +100,6 @@ std::string_view structure_name(IndexDiskUsageStructure structure) {
     return "UNKNOWN";
 }
 
-const TabletIndex* find_index(const TabletSchema& schema, const IndexDiskUsageRecord& record) {
-    for (const TabletIndex* index : schema.inverted_and_ann_indexes()) {
-        if (index->index_id() == record.index_id &&
-            index->get_index_suffix() == record.index_suffix) {
-            return index;
-        }
-    }
-    return nullptr;
-}
-
 void insert_null(IColumn* column) {
     auto& nullable = reinterpret_cast<ColumnNullable&>(*column);
     nullable.get_nested_column().insert_default();
@@ -341,7 +331,8 @@ void IndexDiskUsageReader::_append_rows(std::vector<MutableColumnPtr>& columns,
         view.partition_name = partition == partition_names.end() ? nullptr : &partition->second;
         view.row = &row;
         if (row.record.structure != IndexDiskUsageStructure::kContainer) {
-            view.index = find_index(schema, row.record);
+            view.index = segment_v2::resolve_disk_usage_index(schema, row.record.index_id,
+                                                              row.record.index_suffix);
         }
         if (view.index != nullptr && !view.index->col_unique_ids().empty()) {
             const int32_t ordinal = schema.field_index(view.index->col_unique_ids()[0]);

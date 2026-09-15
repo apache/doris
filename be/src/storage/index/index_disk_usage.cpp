@@ -36,6 +36,7 @@
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_meta.h"
+#include "storage/segment/segment.h"
 
 namespace doris::segment_v2 {
 
@@ -67,15 +68,38 @@ bool is_absent_index_file(const Status& status) {
            status.is<ErrorCode::INVERTED_INDEX_BYPASS>() || status.is<ErrorCode::NOT_FOUND>();
 }
 
-// Returns the V1 index file size persisted in the rowset meta, or -1 when it is not recorded.
-int64_t persisted_v1_file_size(const InvertedIndexFileInfo& file_info, const TabletIndex& index) {
-    for (const auto& index_info : file_info.index_info()) {
-        if (index_info.index_id() == index.index_id() &&
-            index_info.index_suffix() == index.get_index_suffix()) {
-            return index_info.index_file_size() > 0 ? index_info.index_file_size() : -1;
+// A V1 index file and its size persisted in the rowset meta, or -1 when the size is not recorded.
+struct V1IndexFile {
+    const TabletIndex* index;
+    int64_t persisted_size;
+};
+
+// Lists the V1 index files of a segment. The rowset meta records every file, including the
+// extracted VARIANT paths that the schema does not list; rowsets written without that record fall
+// back to the schema indexes. `owned` keeps the indexes built from the rowset meta.
+std::vector<V1IndexFile> list_v1_index_files(const TabletSchema& schema,
+                                             const InvertedIndexFileInfo& file_info,
+                                             std::vector<TabletIndex>* owned) {
+    std::vector<V1IndexFile> files;
+    if (file_info.index_info_size() == 0) {
+        for (const TabletIndex* index : schema.inverted_indexes()) {
+            files.push_back({.index = index, .persisted_size = -1});
         }
+        return files;
     }
-    return -1;
+    owned->reserve(file_info.index_info_size());
+    for (const auto& index_info : file_info.index_info()) {
+        TabletIndexPB index_pb;
+        index_pb.set_index_type(IndexType::INVERTED);
+        index_pb.set_index_id(index_info.index_id());
+        index_pb.set_index_suffix_name(index_info.index_suffix());
+        owned->emplace_back().init_from_pb(index_pb);
+        files.push_back({.index = &owned->back(),
+                         .persisted_size = index_info.index_file_size() > 0
+                                                   ? index_info.index_file_size()
+                                                   : -1});
+    }
+    return files;
 }
 
 // Classifies every sub-file of a CLucene directory into `record` and adds their total length to
@@ -228,21 +252,23 @@ Status IndexDiskUsageCollector::_collect_v1(const IndexDiskUsageOptions& options
                                             std::vector<IndexDiskUsageRecord>* out) {
     IndexFileReader reader(_fs, _index_path_prefix, _format, _index_file_info, _tablet_id);
     RETURN_IF_ERROR(reader.init());
-    for (const TabletIndex* index : _schema->inverted_indexes()) {
-        if (!is_wanted(options, index->index_id())) {
+    std::vector<TabletIndex> file_indexes;
+    for (const V1IndexFile& file : list_v1_index_files(*_schema, _index_file_info, &file_indexes)) {
+        const TabletIndex& index = *file.index;
+        if (!is_wanted(options, index.index_id())) {
             continue;
         }
-        int64_t file_size = persisted_v1_file_size(_index_file_info, *index);
+        int64_t file_size = file.persisted_size;
         if (file_size < 0) {
             const std::string path = InvertedIndexDescriptor::get_index_file_path_v1(
-                    _index_path_prefix, index->index_id(), index->get_index_suffix());
+                    _index_path_prefix, index.index_id(), index.get_index_suffix());
             const Status size_status = _fs->file_size(path, &file_size);
             if (is_absent_index_file(size_status)) {
                 continue;
             }
             RETURN_IF_ERROR(size_status);
         }
-        auto directory = reader.open(index);
+        auto directory = reader.open(&index);
         if (!directory.has_value()) {
             if (is_absent_index_file(directory.error())) {
                 continue;
@@ -251,8 +277,8 @@ Status IndexDiskUsageCollector::_collect_v1(const IndexDiskUsageOptions& options
         }
 
         IndexDiskUsageRecord record;
-        record.index_id = index->index_id();
-        record.index_suffix = index->get_index_suffix();
+        record.index_id = index.index_id();
+        record.index_suffix = index.get_index_suffix();
         int64_t files_bytes = 0;
         RETURN_IF_ERROR(add_directory_files(*directory.value(), &record, &files_bytes));
         // Each V1 index owns its file, so its compound header is part of the index.
@@ -358,6 +384,25 @@ Status IndexDiskUsageCollector::_collect_snii(const IndexDiskUsageOptions& optio
     return Status::OK();
 }
 
+const TabletIndex* resolve_disk_usage_index(const TabletSchema& schema, int64_t index_id,
+                                            std::string_view suffix) {
+    // An extracted VARIANT path keeps its parent index id under a path suffix that the current
+    // schema may not list, so an unmatched suffix resolves to the index of the same id.
+    const TabletIndex* same_id = nullptr;
+    for (const TabletIndex* index : schema.inverted_and_ann_indexes()) {
+        if (index->index_id() != index_id) {
+            continue;
+        }
+        if (index->get_index_suffix() == suffix) {
+            return index;
+        }
+        if (same_id == nullptr || index->get_index_suffix().empty()) {
+            same_id = index;
+        }
+    }
+    return same_id;
+}
+
 Status collect_rowset_index_disk_usage(const RowsetSharedPtr& rowset,
                                        const IndexDiskUsageOptions& options, int64_t tablet_id,
                                        std::vector<IndexDiskUsageRow>* rows) {
@@ -367,8 +412,6 @@ Status collect_rowset_index_disk_usage(const RowsetSharedPtr& rowset,
     }
     const InvertedIndexStorageFormatPB format = schema->get_inverted_index_storage_format();
     const std::string rowset_id = rowset->rowset_id().to_string();
-    // Rowsets written before per-segment row counts were persisted read them from the footers.
-    std::vector<uint32_t> footer_rows;
     for (auto segment : rowset->segments()) {
         RETURN_IF_ERROR(check_cancelled(options));
         const std::string segment_path = DORIS_TRY(segment.path());
@@ -385,16 +428,13 @@ Status collect_rowset_index_disk_usage(const RowsetSharedPtr& rowset,
         if (segment.has_num_rows()) {
             row_count = segment.num_rows();
         } else {
-            if (footer_rows.empty()) {
-                OlapReaderStatistics stats;
-                RETURN_IF_ERROR(std::static_pointer_cast<BetaRowset>(rowset)->get_segment_num_rows(
-                        &footer_rows, /*enable_segment_cache=*/false, &stats));
-            }
-            if (segment.pos() >= footer_rows.size()) {
-                return Status::InternalError("rowset {} has row counts of {} segments, but not {}",
-                                             rowset_id, footer_rows.size(), segment.pos());
-            }
-            row_count = footer_rows[segment.pos()];
+            // Rowsets without persisted row counts read them from the segment footer. Loading the
+            // segment directly keeps a transient failure out of the rowset's run-once row cache.
+            SegmentSharedPtr loaded;
+            OlapReaderStatistics stats;
+            RETURN_IF_ERROR(std::static_pointer_cast<BetaRowset>(rowset)->load_segment(
+                    segment.ref(), &stats, &loaded));
+            row_count = loaded->num_rows();
         }
         for (auto& record : records) {
             IndexDiskUsageRow row;

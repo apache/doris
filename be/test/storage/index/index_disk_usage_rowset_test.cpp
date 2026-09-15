@@ -22,12 +22,14 @@
 #include <vector>
 
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "storage/index/index_disk_usage.h"
 #include "storage/index/index_writer.h"
 #include "storage/olap_common.h"
 #include "storage/options.h"
+#include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
@@ -94,9 +96,11 @@ protected:
         return schema;
     }
 
-    Status write_rowset(const TabletSchemaSPtr& schema, int32_t num_rows, RowsetSharedPtr* rowset) {
+    // Each test uses its own rowset id, so segment footers cached by another test are not reused.
+    Status write_rowset(const TabletSchemaSPtr& schema, int64_t rowset_id, int32_t num_rows,
+                        RowsetSharedPtr* rowset) {
         RowsetWriterContext context;
-        context.rowset_id.init(20001);
+        context.rowset_id.init(rowset_id);
         context.tablet_id = 1001;
         context.tablet_schema_hash = 1111;
         context.partition_id = 10;
@@ -125,7 +129,7 @@ protected:
 
 TEST_F(IndexDiskUsageRowsetTest, RowCountFallsBackToSegmentFooters) {
     RowsetSharedPtr rowset;
-    const Status write_status = write_rowset(create_schema(), 8, &rowset);
+    const Status write_status = write_rowset(create_schema(), 20001, 8, &rowset);
     ASSERT_TRUE(write_status.ok()) << write_status;
     // Rowsets written before per-segment row counts were persisted have none in their meta.
     rowset->rowset_meta()->set_num_segment_rows({});
@@ -138,6 +142,40 @@ TEST_F(IndexDiskUsageRowsetTest, RowCountFallsBackToSegmentFooters) {
     for (const auto& row : rows) {
         EXPECT_EQ(8, row.row_count) << "index " << row.record.index_id;
     }
+}
+
+// A failed footer read must not stay cached in the rowset, where later queries and compactions
+// would keep getting it.
+TEST_F(IndexDiskUsageRowsetTest, RowCountFailureIsNotCachedInRowset) {
+    RowsetSharedPtr rowset;
+    const Status write_status = write_rowset(create_schema(), 20002, 8, &rowset);
+    ASSERT_TRUE(write_status.ok()) << write_status;
+    rowset->rowset_meta()->set_num_segment_rows({});
+
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->enable_processing();
+    {
+        SyncPoint::CallbackGuard guard;
+        sync_point->set_call_back(
+                "Segment::parse_footer:magic_number_corruption",
+                [](auto&& args) {
+                    auto* buf = try_any_cast<uint8_t*>(args[0]);
+                    buf[8] = 0xFF;
+                },
+                &guard);
+        std::vector<IndexDiskUsageRow> rows;
+        EXPECT_FALSE(collect_rowset_index_disk_usage(rowset, IndexDiskUsageOptions {},
+                                                     /*tablet_id=*/1001, &rows)
+                             .ok());
+    }
+    sync_point->disable_processing();
+
+    std::vector<uint32_t> segment_rows;
+    OlapReaderStatistics stats;
+    const Status st = std::static_pointer_cast<BetaRowset>(rowset)->get_segment_num_rows(
+            &segment_rows, /*enable_segment_cache=*/false, &stats);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(std::vector<uint32_t>({8}), segment_rows);
 }
 
 } // namespace doris::segment_v2
