@@ -419,6 +419,47 @@ TEST_F(RowBinlogDeriveTest, ResolvesExplicitUidMappings) {
                                {0, 1, std::nullopt}, {1, 3, 0}, {3, 5, std::nullopt}}));
 }
 
+TEST_F(RowBinlogDeriveTest, ResolvesAndValidatesMappingSnapshot) {
+    auto source_schema = create_test_schema({{10, "key", "INT", true}, {11, "value", "INT"}});
+    auto target_schema = create_test_schema({{103, "before", "INT"},
+                                             {100, "key", "INT", true},
+                                             {200, "tso", "BIGINT"},
+                                             {101, "current", "INT"},
+                                             {201, "lsn", "BIGINT"},
+                                             {202, "op", "BIGINT"}},
+                                            2, 4, 5);
+    PRowBinlogWriteColumnMappings snapshot;
+    snapshot.set_need_historical_value(true);
+    auto* key = snapshot.add_entries();
+    key->set_source_column_unique_id(10);
+    key->set_current_column_unique_id(100);
+    auto* value = snapshot.add_entries();
+    value->set_source_column_unique_id(11);
+    value->set_current_column_unique_id(101);
+    value->set_before_column_unique_id(103);
+
+    auto result = segment_v2::resolve_row_binlog_column_mappings(*source_schema, *target_schema,
+                                                                 snapshot);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(*result, (std::vector<segment_v2::RowBinlogColumnCidMapping> {{0, 1, std::nullopt},
+                                                                            {1, 3, 0}}));
+
+    snapshot.clear_need_historical_value();
+    EXPECT_FALSE(
+            segment_v2::resolve_row_binlog_column_mappings(*source_schema, *target_schema, snapshot)
+                    .has_value());
+    snapshot.set_need_historical_value(true);
+    value->clear_current_column_unique_id();
+    EXPECT_FALSE(
+            segment_v2::resolve_row_binlog_column_mappings(*source_schema, *target_schema, snapshot)
+                    .has_value());
+    value->set_current_column_unique_id(101);
+    value->set_before_column_unique_id(999);
+    EXPECT_FALSE(
+            segment_v2::resolve_row_binlog_column_mappings(*source_schema, *target_schema, snapshot)
+                    .has_value());
+}
+
 TEST_F(RowBinlogDeriveTest, RejectsInvalidUidMappings) {
     auto source_schema = create_test_schema({
             {10, "key", "INT", true},

@@ -242,15 +242,14 @@ Status TxnManager::commit_txn(TPartitionId partition_id, const Tablet& tablet,
                       std::move(guard), is_recovery, partial_update_info, attach_row_binlog);
 }
 
-Status TxnManager::publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
-                               TTransactionId transaction_id, const Version& version,
-                               TabletPublishStatistics* stats,
-                               std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info,
-                               const int64_t commit_tso,
-                               const PRowBinlogWriteColumnMappings* row_binlog_column_mappings) {
+Status TxnManager::publish_txn(
+        TPartitionId partition_id, const TabletSharedPtr& tablet, TTransactionId transaction_id,
+        const Version& version, TabletPublishStatistics* stats,
+        std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info, const int64_t commit_tso,
+        std::shared_ptr<const PRowBinlogWriteColumnMappings> row_binlog_column_mappings) {
     return publish_txn(tablet->data_dir()->get_meta(), partition_id, transaction_id,
                        tablet->tablet_id(), tablet->tablet_uid(), version, stats,
-                       extend_tablet_txn_info, commit_tso, row_binlog_column_mappings);
+                       extend_tablet_txn_info, commit_tso, std::move(row_binlog_column_mappings));
 }
 
 void TxnManager::abort_txn(TPartitionId partition_id, TTransactionId transaction_id,
@@ -534,13 +533,12 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
 }
 
 // remove a txn from txn manager
-Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
-                               TTransactionId transaction_id, TTabletId tablet_id,
-                               TabletUid tablet_uid, const Version& version,
-                               TabletPublishStatistics* stats,
-                               std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info,
-                               const int64_t commit_tso,
-                               const PRowBinlogWriteColumnMappings* row_binlog_column_mappings) {
+Status TxnManager::publish_txn(
+        OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
+        TTabletId tablet_id, TabletUid tablet_uid, const Version& version,
+        TabletPublishStatistics* stats, std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info,
+        const int64_t commit_tso,
+        std::shared_ptr<const PRowBinlogWriteColumnMappings> row_binlog_column_mappings) {
     auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
         return Status::OK();
@@ -606,25 +604,14 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                     "Missing row-binlog publish mapping snapshot, tablet_id={}, txn_id={}",
                     tablet_id, transaction_id);
         }
-        std::vector<RowBinlogColumnUidMapping> mappings;
-        mappings.reserve(row_binlog_column_mappings->entries_size());
-        for (const auto& entry : row_binlog_column_mappings->entries()) {
-            mappings.push_back({
-                    .source_uid = entry.source_column_unique_id(),
-                    .current_uid = entry.current_column_unique_id(),
-                    .before_uid = entry.has_before_column_unique_id()
-                                          ? std::optional(entry.before_column_unique_id())
-                                          : std::nullopt,
-            });
-        }
         auto& binlog_info = tablet_txn_info->attach_row_binlog;
         auto resolved = segment_v2::resolve_row_binlog_column_mappings(
-                *rowset->tablet_schema(), *binlog_info.rowset->tablet_schema(), mappings);
+                *rowset->tablet_schema(), *binlog_info.rowset->tablet_schema(),
+                *row_binlog_column_mappings);
         if (!resolved.has_value()) {
             return resolved.error();
         }
-        binlog_info.need_historical_value = row_binlog_column_mappings->need_historical_value();
-        binlog_info.column_mappings = std::move(mappings);
+        binlog_info.column_mapping_snapshot = std::move(row_binlog_column_mappings);
     }
 
     /// Step 2: make rowset visible
