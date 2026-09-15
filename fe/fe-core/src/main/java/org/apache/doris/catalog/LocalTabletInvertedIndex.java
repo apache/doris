@@ -34,11 +34,13 @@ import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.PartitionCommitInfo;
 import org.apache.doris.transaction.TableCommitInfo;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionState.RowBinlogWriteMapping;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -102,7 +104,8 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
                              Set<Long> tabletFoundInMeta,
                              ListMultimap<TStorageMedium, Long> tabletMigrationMap,
                              Map<Long, Long> partitionVersionSyncMap,
-                             Map<Long, Pair<TransactionState, Set<TPartitionVersionInfo>>> transactionsToPublish,
+                             Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
+                             Map<Long, Map<Long, RowBinlogWriteMapping>> rowBinlogColumnMappings,
                              SetMultimap<Long, Long> transactionsToClear,
                              ListMultimap<Long, Long> tabletRecoveryMap,
                              List<TTabletMetaInfo> tabletToUpdate,
@@ -123,8 +126,8 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
                 feTabletNum = replicaMetaWithBackend.size();
                 processTabletReportAsync(backendId, backendTablets, backendPartitionsVersion, storageMediumMap,
                         tabletSyncMap, tabletDeleteFromMeta, tabletFoundInMeta, tabletMigrationMap,
-                        partitionVersionSyncMap, transactionsToPublish, transactionsToClear, tabletRecoveryMap,
-                        tabletToUpdate, cooldownTablets, replicaMetaWithBackend);
+                        partitionVersionSyncMap, transactionsToPublish, rowBinlogColumnMappings, transactionsToClear,
+                        tabletRecoveryMap, tabletToUpdate, cooldownTablets, replicaMetaWithBackend);
             } else {
                 processPartitionVersions(backendPartitionsVersion, partitionVersionSyncMap);
             }
@@ -152,8 +155,8 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
                                           Set<Long> tabletFoundInMeta,
                                           ListMultimap<TStorageMedium, Long> tabletMigrationMap,
                                           Map<Long, Long> partitionVersionSyncMap,
-                                          Map<Long, Pair<TransactionState, Set<TPartitionVersionInfo>>>
-                                                  transactionsToPublish,
+                                          Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
+                                          Map<Long, Map<Long, RowBinlogWriteMapping>> rowBinlogColumnMappings,
                                           SetMultimap<Long, Long> transactionsToClear,
                                           ListMultimap<Long, Long> tabletRecoveryMap,
                                           List<TTabletMetaInfo> tabletToUpdate,
@@ -188,7 +191,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
                     Map.Entry<Long, Replica> entry = entries.get(j);
                     processTabletEntry(backendId, backendTablets, storageMediumMap, tabletSyncMap,
                             tabletDeleteFromMeta, tabletFoundInMeta, tabletMigrationMap,
-                            transactionsToPublish, transactionsToClear, tabletRecoveryMap,
+                            transactionsToPublish, rowBinlogColumnMappings, transactionsToClear, tabletRecoveryMap,
                             tabletToUpdate, cooldownTablets, entry);
                 }
             }, taskPool);
@@ -215,8 +218,8 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
                                      ListMultimap<Long, Long> tabletDeleteFromMeta,
                                      Set<Long> tabletFoundInMeta,
                                      ListMultimap<TStorageMedium, Long> tabletMigrationMap,
-                                     Map<Long, Pair<TransactionState, Set<TPartitionVersionInfo>>>
-                                             transactionsToPublish,
+                                     Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
+                                     Map<Long, Map<Long, RowBinlogWriteMapping>> rowBinlogColumnMappings,
                                      SetMultimap<Long, Long> transactionsToClear,
                                      ListMultimap<Long, Long> tabletRecoveryMap,
                                      List<TTabletMetaInfo> tabletToUpdate,
@@ -238,7 +241,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
 
             processExistingTablet(backendId, tabletId, replica, tabletMeta, backendTabletInfo,
                     storageMediumMap, tabletSyncMap, tabletMigrationMap, transactionsToPublish,
-                    transactionsToClear, tabletRecoveryMap, tabletToUpdate, cooldownTablets);
+                    rowBinlogColumnMappings, transactionsToClear, tabletRecoveryMap, tabletToUpdate, cooldownTablets);
         } else {
             // Tablet exists in FE but not in BE - may need deletion
             processDeletedTablet(backendId, tabletId, tabletMeta, tabletDeleteFromMeta);
@@ -253,8 +256,8 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
                                         HashMap<Long, TStorageMedium> storageMediumMap,
                                         ListMultimap<Long, Long> tabletSyncMap,
                                         ListMultimap<TStorageMedium, Long> tabletMigrationMap,
-                                        Map<Long, Pair<TransactionState, Set<TPartitionVersionInfo>>>
-                                                transactionsToPublish,
+                                        Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
+                                        Map<Long, Map<Long, RowBinlogWriteMapping>> rowBinlogColumnMappings,
                                         SetMultimap<Long, Long> transactionsToClear,
                                         ListMultimap<Long, Long> tabletRecoveryMap,
                                         List<TTabletMetaInfo> tabletToUpdate,
@@ -296,7 +299,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
         // Handle transactions
         if (backendTabletInfo.isSetTransactionIds()) {
             handleBackendTransactions(backendId, backendTabletInfo.getTransactionIds(), tabletId,
-                    tabletMeta, transactionsToPublish, transactionsToClear);
+                    tabletMeta, transactionsToPublish, rowBinlogColumnMappings, transactionsToClear);
         }
 
         // Update replica version count
@@ -467,8 +470,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
                                          Set<Long> tabletFoundInMeta,
                                          ListMultimap<TStorageMedium, Long> tabletMigrationMap,
                                          Map<Long, Long> partitionVersionSyncMap,
-                                         Map<Long, Pair<TransactionState, Set<TPartitionVersionInfo>>>
-                                                 transactionsToPublish,
+                                         Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
                                          SetMultimap<Long, Long> transactionsToClear,
                                          List<TTabletMetaInfo> tabletToUpdate,
                                          ListMultimap<Long, Long> tabletRecoveryMap,
@@ -476,9 +478,10 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
         long endTime = System.currentTimeMillis();
         long toClearTransactionsNum = transactionsToClear.keySet().size();
         long toClearTransactionsPartitions = transactionsToClear.values().size();
-        long toPublishTransactionsNum = transactionsToPublish.size();
+        long toPublishTransactionsNum = transactionsToPublish.values().stream()
+                .mapToLong(m -> m.keySet().size()).sum();
         long toPublishTransactionsPartitions = transactionsToPublish.values().stream()
-                .mapToLong(p -> p.second.size()).sum();
+                .mapToLong(m -> m.values().size()).sum();
 
         LOG.info("finished to do tablet diff with backend[{}]. fe tablet num: {}, backend tablet num: {}. "
                         + "sync: {}, metaDel: {}, foundInMeta: {}, migration: {}, "
@@ -495,7 +498,8 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
     }
 
     private void handleBackendTransactions(long backendId, List<Long> transactionIds, long tabletId,
-            TabletMeta tabletMeta, Map<Long, Pair<TransactionState, Set<TPartitionVersionInfo>>> transactionsToPublish,
+            TabletMeta tabletMeta, Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
+            Map<Long, Map<Long, RowBinlogWriteMapping>> rowBinlogColumnMappings,
             SetMultimap<Long, Long> transactionsToClear) {
         GlobalTransactionMgrIface transactionMgr = Env.getCurrentGlobalTransactionMgr();
         long partitionId = tabletMeta.getPartitionId();
@@ -510,7 +514,8 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
                             transactionId, backendId);
                 }
             } else if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
-                publishPartition(transactionState, transactionId, tabletMeta, partitionId, transactionsToPublish);
+                publishPartition(transactionState, transactionId, tabletMeta, partitionId,
+                        transactionsToPublish, rowBinlogColumnMappings);
             } else if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
                 // for some reasons, transaction pushlish succeed replica num less than quorum,
                 // this transaction's status can not to be VISIBLE, and this publish task of
@@ -528,7 +533,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
                             for (int i = 0; i < errorTablets.size(); i++) {
                                 if (tabletId == errorTablets.get(i)) {
                                     publishPartition(transactionState, transactionId, tabletMeta, partitionId,
-                                            transactionsToPublish);
+                                            transactionsToPublish, rowBinlogColumnMappings);
                                     break;
                                 }
                             }
@@ -559,14 +564,20 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
     }
 
     private void publishPartition(TransactionState transactionState, long transactionId, TabletMeta tabletMeta,
-            long partitionId, Map<Long, Pair<TransactionState, Set<TPartitionVersionInfo>>> transactionsToPublish) {
+            long partitionId, Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
+            Map<Long, Map<Long, RowBinlogWriteMapping>> rowBinlogColumnMappings) {
         TPartitionVersionInfo versionInfo = generatePartitionVersionInfoWhenReport(transactionState,
                 transactionId, tabletMeta, partitionId);
         if (versionInfo != null) {
             synchronized (transactionsToPublish) {
-                // Retain the state: becoming VISIBLE removes child-to-parent transaction aliases.
-                transactionsToPublish.computeIfAbsent(transactionId,
-                        id -> Pair.of(transactionState, Sets.newLinkedHashSet())).second.add(versionInfo);
+                SetMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(transactionState.getDbId());
+                if (map == null) {
+                    map = LinkedHashMultimap.create();
+                    transactionsToPublish.put(transactionState.getDbId(), map);
+                }
+                map.put(transactionId, versionInfo);
+                // Capture once: becoming VISIBLE removes child-to-parent transaction aliases.
+                rowBinlogColumnMappings.computeIfAbsent(transactionId, transactionState::getRowBinlogColumnMappings);
             }
         }
     }

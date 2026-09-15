@@ -93,7 +93,7 @@ import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTabletMetaInfo;
 import org.apache.doris.thrift.TTabletRole;
 import org.apache.doris.thrift.TTaskType;
-import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionState.RowBinlogWriteMapping;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.LinkedHashMultimap;
@@ -606,8 +606,10 @@ public class ReportHandler extends Daemon {
         // partition id -> visible version
         Map<Long, Long> partitionVersionSyncMap = Maps.newConcurrentMap();
 
-        // actual txn id -> (retained transaction state, partition infos)
-        Map<Long, Pair<TransactionState, Set<TPartitionVersionInfo>>> transactionsToPublish = Maps.newHashMap();
+        // db id -> transaction id -> partition version info
+        Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish = Maps.newHashMap();
+        // Actual transaction id -> source index id -> mapping snapshot, guarded by transactionsToPublish.
+        Map<Long, Map<Long, RowBinlogWriteMapping>> rowBinlogColumnMappings = Maps.newHashMap();
         SetMultimap<Long, Long> transactionsToClear = LinkedHashMultimap.create();
 
         // db id -> tablet id
@@ -627,6 +629,7 @@ public class ReportHandler extends Daemon {
                 tabletMigrationMap,
                 partitionVersionSyncMap,
                 transactionsToPublish,
+                rowBinlogColumnMappings,
                 transactionsToClear,
                 tabletRecoveryMap,
                 tabletToUpdate,
@@ -668,7 +671,7 @@ public class ReportHandler extends Daemon {
 
         // 7. send publish version request to be
         if (!transactionsToPublish.isEmpty()) {
-            handleRepublishVersionInfo(transactionsToPublish, backendId);
+            handleRepublishVersionInfo(transactionsToPublish, rowBinlogColumnMappings, backendId);
         }
 
         // 8. send recover request to be
@@ -1311,19 +1314,20 @@ public class ReportHandler extends Daemon {
     }
 
     private static void handleRepublishVersionInfo(
-            Map<Long, Pair<TransactionState, Set<TPartitionVersionInfo>>> transactionsToPublish, long backendId) {
+            Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
+            Map<Long, Map<Long, RowBinlogWriteMapping>> rowBinlogColumnMappings, long backendId) {
         AgentBatchTask batchTask = new AgentBatchTask();
         long createPublishVersionTaskTime = System.currentTimeMillis();
-        for (Map.Entry<Long, Pair<TransactionState, Set<TPartitionVersionInfo>>> entry
-                : transactionsToPublish.entrySet()) {
-            long txnId = entry.getKey();
-            TransactionState state = entry.getValue().first;
-            PublishVersionTask task = new PublishVersionTask(backendId, txnId, state.getDbId(),
-                    Lists.newArrayList(entry.getValue().second), createPublishVersionTaskTime);
-            task.setRowBinlogColumnMappings(state.getRowBinlogColumnMappings(txnId));
-            batchTask.addTask(task);
-            // add to AgentTaskQueue for handling finish report.
-            AgentTaskQueue.addTask(task);
+        for (Long dbId : transactionsToPublish.keySet()) {
+            SetMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(dbId);
+            for (long txnId : map.keySet()) {
+                PublishVersionTask task = new PublishVersionTask(backendId, txnId, dbId,
+                        Lists.newArrayList(map.get(txnId)), createPublishVersionTaskTime);
+                task.setRowBinlogColumnMappings(Preconditions.checkNotNull(rowBinlogColumnMappings.get(txnId)));
+                batchTask.addTask(task);
+                // add to AgentTaskQueue for handling finish report.
+                AgentTaskQueue.addTask(task);
+            }
         }
         AgentTaskExecutor.submit(batchTask);
     }
