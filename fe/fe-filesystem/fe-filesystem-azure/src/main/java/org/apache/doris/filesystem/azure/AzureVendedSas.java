@@ -90,10 +90,9 @@ final class AzureVendedSas {
             matched.put(key, value);
         }
         if (accountHost == null) {
-            if (credentials.keySet().stream().anyMatch("adls.token"::equalsIgnoreCase)) {
-                throw new StoragePropertiesException(
-                        "Azure vended access tokens are not supported; an account-scoped SAS token is required");
-            }
+            // ADLSFileIO may carry an OAuth access token under adls.token. This provider only
+            // consumes account-scoped SAS credentials; leave that dialect to Iceberg instead of
+            // rejecting an otherwise valid static Azure binding.
             return Optional.empty();
         }
         if (token == null) {
@@ -105,14 +104,18 @@ final class AzureVendedSas {
     private static String parseHost(String host) {
         try {
             // The property suffix is an account host, not a URL or an object path. Reject query,
-            // userinfo and port syntax here without including the credential-bearing input.
+            // userinfo and object paths here without including the credential-bearing input.
             URI uri = new URI("https://" + host);
-            if (uri.getHost() == null || !host.equalsIgnoreCase(uri.getHost())) {
+            String expectedAuthority = uri.getHost() == null ? "" : uri.getHost()
+                    + (uri.getPort() < 0 ? "" : ":" + uri.getPort());
+            if (uri.getHost() == null || uri.getRawUserInfo() != null || uri.getRawQuery() != null
+                    || uri.getRawFragment() != null || (uri.getPath() != null && !uri.getPath().isEmpty())
+                    || !host.equalsIgnoreCase(expectedAuthority)) {
                 throw new StoragePropertiesException("Invalid Azure ADLS SAS account host");
             }
             // DFS and Blob address the same account; only canonicalize the grouping key.
-            // Retain the original property names for Iceberg's exact-host credential lookup.
-            return AzureAccountHost.parse(uri.getHost().toLowerCase(Locale.ROOT)).dfsHost();
+            // Retain an explicit transport port for custom/proxied FileIO endpoints.
+            return AzureAccountHost.parse(expectedAuthority.toLowerCase(Locale.ROOT)).dfsHost();
         } catch (URISyntaxException e) {
             throw new StoragePropertiesException("Invalid Azure ADLS SAS account host");
         }

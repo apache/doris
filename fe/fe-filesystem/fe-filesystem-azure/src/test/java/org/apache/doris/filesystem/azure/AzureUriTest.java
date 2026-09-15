@@ -236,8 +236,17 @@ class AzureUriTest {
 
         Assertions.assertEquals("storage", uri.accountName());
         Assertions.assertEquals("", uri.accountHost().orElseThrow().cloudSuffix());
-        Assertions.assertEquals("storage.example.test", uri.accountHost().orElseThrow().blobHost());
+        Assertions.assertEquals("storage.example.test:8443", uri.accountHost().orElseThrow().blobHost());
         Assertions.assertEquals(location, uri.toString());
+    }
+
+    @Test
+    void parse_acceptsMixedCaseOneLakeWorkspaceAsAuthorityScope() throws IOException {
+        AzureUri uri = AzureUri.parse(
+                "abfss://SalesWorkspace@onelake.dfs.fabric.microsoft.com/lakehouse/Tables/data/file");
+
+        Assertions.assertEquals("SalesWorkspace", uri.container());
+        Assertions.assertEquals("lakehouse/Tables/data/file", uri.key());
     }
 
     @Test

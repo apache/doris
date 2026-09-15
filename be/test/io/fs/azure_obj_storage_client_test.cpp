@@ -114,6 +114,19 @@ TEST(AzureAuthFactoryTest, BuildsSasClientWithoutSharedKey) {
     EXPECT_EQ(result.shared_key_credential, nullptr);
 }
 
+TEST(AzureAuthFactoryTest, AcceptsAzureSasExpiryPrecisionAndEmptyQueryFields) {
+    for (const auto* token : {"sv=2024-01-01&se=2100-01-02&sig=temporary",
+                              "sv=2024-01-01&se=2100-01-02T03%3A04Z&sig=temporary",
+                              "sv=2024-01-01&&se=2100-01-02T03%3A04%2B00%3A00&sig=temporary"}) {
+        AzureCredentialOptions credentials;
+        credentials.type = AzureCredentialType::SAS;
+        credentials.sas_token = token;
+        auto result = AzureAuthFactory::create("https://account.blob.core.windows.net/container",
+                                               credentials, {});
+        ASSERT_TRUE(result) << result.error << " token=" << token;
+    }
+}
+
 TEST(AzureAuthFactoryTest, RejectsExpiredOrMalformedSas) {
     AzureCredentialOptions credentials;
     credentials.type = AzureCredentialType::SAS;

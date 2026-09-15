@@ -49,6 +49,24 @@ class AzureSasTokenTest {
     }
 
     @Test
+    void of_readsMinutePrecisionExpiryWithoutChangingSignature() {
+        String raw = "se=2026-01-02T03%3A04Z&sig=x";
+        AzureSasToken token = AzureSasToken.of(raw, null);
+
+        Assertions.assertEquals(Instant.parse("2026-01-02T03:04:00Z"),
+                token.expiresAt().orElseThrow());
+        Assertions.assertEquals(raw, token.value());
+    }
+
+    @Test
+    void of_readsDateOnlyExpiryAtStartOfUtcDay() {
+        AzureSasToken token = AzureSasToken.of("se=2026-01-02&sig=x", null);
+
+        Assertions.assertEquals(Instant.parse("2026-01-02T00:00:00Z"),
+                token.expiresAt().orElseThrow());
+    }
+
+    @Test
     void of_readsEncodedOffsetWithoutChangingSignature() {
         String raw = "se=2026-01-02T08%3A00%3A00%2B08%3A00&sig=a+b%2Fc";
         AzureSasToken token = AzureSasToken.of(raw, null);

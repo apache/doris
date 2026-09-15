@@ -59,6 +59,24 @@ final class IcebergRestFileIOProperties {
         private Map<String, String> hadoopProperties = Collections.emptyMap();
     }
 
+    static final class AuthenticationSelection {
+        private final Map<String, String> properties;
+        private final boolean vended;
+
+        private AuthenticationSelection(Map<String, String> properties, boolean vended) {
+            this.properties = properties;
+            this.vended = vended;
+        }
+
+        Map<String, String> properties() {
+            return properties;
+        }
+
+        boolean vended() {
+            return vended;
+        }
+    }
+
     IcebergRestFileIOProperties(ConnectorStorageContext storage, Map<String, String> clientProperties) {
         this.storage = storage;
         this.clientProperties = Collections.unmodifiableMap(new HashMap<>(clientProperties));
@@ -119,7 +137,8 @@ final class IcebergRestFileIOProperties {
         if (load != null) {
             load.hadoopProperties = Collections.emptyMap();
         }
-        Map<String, String> authentication = selectAuthentication(table);
+        AuthenticationSelection selectedAuthentication = selectAuthentication(table);
+        Map<String, String> authentication = selectedAuthentication.properties();
         Map<String, String> providerAuthentication = providerAuthenticationProperties(authentication);
         Map<String, String> fileIOProperties = new HashMap<>(authentication);
         Map<String, String> configured = withoutAzureAuthentication(serverConfig.merge(clientProperties));
@@ -137,7 +156,7 @@ final class IcebergRestFileIOProperties {
                 }
                 filesystem.validateAndNormalizeUri(metadataLocation);
                 if (HadoopFileIO.class.getName().equals(configured.get(CatalogProperties.FILE_IO_IMPL))) {
-                    if (!authentication.isEmpty()) {
+                    if (selectedAuthentication.vended()) {
                         throw new DorisConnectorException("HadoopFileIO cannot consume vended Azure"
                                 + " FileIO authentication; its static Hadoop configuration"
                                 + " must not silently reuse the previous identity");
@@ -191,33 +210,43 @@ final class IcebergRestFileIOProperties {
                 TableProperties.WRITE_METADATA_LOCATION, table.tableMetadata().location() + "/metadata");
     }
 
-    private Map<String, String> selectAuthentication(LoadTableResponse table) {
-        Map<String, String> scopedAuthentication = scopedSasAuthentication(table);
+    AuthenticationSelection selectAuthentication(LoadTableResponse table) {
+        return selectAuthentication(table.config(), table.credentials(), metadataLocation(table));
+    }
+
+    AuthenticationSelection selectAuthentication(Map<String, String> tableConfig,
+            List<Credential> credentials, String metadataLocation) {
+        Map<String, String> scopedAuthentication = scopedSasAuthentication(credentials, metadataLocation);
         if (!scopedAuthentication.isEmpty()) {
-            return scopedAuthentication;
+            return new AuthenticationSelection(scopedAuthentication, true);
         }
         // REST precedence applies to a credential generation, not to individual aliases or
         // expiry fields. A new token with unknown expiry must not inherit an old expiry.
-        for (Map<String, String> source : List.of(table.config(), serverConfig.overrides(), clientProperties)) {
+        for (Map<String, String> source : List.of(tableConfig, serverConfig.overrides())) {
             Map<String, String> authentication = authenticationProperties(source);
             if (!authentication.isEmpty()) {
-                return authentication;
+                return new AuthenticationSelection(authentication, true);
             }
+        }
+        Map<String, String> staticAuthentication = authenticationProperties(clientProperties);
+        if (!staticAuthentication.isEmpty()) {
+            return new AuthenticationSelection(staticAuthentication, false);
         }
         // Native catalog credentials are also client options. Defaults cannot override them
         // merely because the provider has not emitted its Iceberg dialect yet. Do not emit
         // that static view before higher-priority vended credentials have been considered.
         if (storage.getStorageProperties().stream().anyMatch(binding -> binding.type() == FileSystemType.AZURE)) {
-            return Collections.emptyMap();
+            return new AuthenticationSelection(Collections.emptyMap(), false);
         }
-        return authenticationProperties(serverConfig.defaults());
+        return new AuthenticationSelection(authenticationProperties(serverConfig.defaults()), true);
     }
 
-    private static Map<String, String> scopedSasAuthentication(LoadTableResponse table) {
-        Location metadata = Location.of(metadataLocation(table));
+    private static Map<String, String> scopedSasAuthentication(List<Credential> credentials,
+            String metadataLocation) {
+        Location metadata = Location.of(metadataLocation);
         Credential selected = null;
         Map<String, String> authentication = Collections.emptyMap();
-        for (Credential credential : table.credentials()) {
+        for (Credential credential : credentials) {
             if (!credential.config().keySet().stream().anyMatch(IcebergRestFileIOProperties::isAzureSasProperty)
                     || !metadata.startsWith(Location.of(credential.prefix()))) {
                 continue;

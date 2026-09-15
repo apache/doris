@@ -204,4 +204,36 @@ public class S3SourceOffsetProviderTest {
             Assertions.assertFalse(matcher.matcher(key).matches(), "Unexpected file: " + key);
         }
     }
+
+    @Test
+    void objectKeyUsesThePathForEveryObjectStoreScheme() {
+        Assertions.assertEquals("dir/part-000.parquet",
+                S3SourceOffsetProvider.objectKey("s3://bucket/dir/part-000.parquet"));
+        Assertions.assertEquals("dir/part-000.parquet",
+                S3SourceOffsetProvider.objectKey(
+                        "abfss://container@account.dfs.core.windows.net/dir/part-000.parquet"));
+        Assertions.assertEquals("dir/part-000.parquet",
+                S3SourceOffsetProvider.objectKey("wasbs://container@account.blob.core.windows.net/dir/part-000.parquet"));
+        Assertions.assertEquals("dir/", S3SourceOffsetProvider.objectKey("dir/"));
+    }
+
+    @Test
+    void fileListsPreserveTheOriginalObjectStoreUri() {
+        List<TBrokerFileStatus> s3Files = List.of(
+                file("s3://bucket/dir/part-000.parquet"),
+                file("s3://bucket/dir/part-001.parquet"));
+        Assertions.assertEquals("s3://bucket/dir/{part-000.parquet,part-001.parquet}",
+                S3SourceOffsetProvider.buildFileListUri(s3Files));
+
+        List<TBrokerFileStatus> azureFiles = List.of(
+                file("abfss://container@account.dfs.core.windows.net/dir/part-000.parquet"),
+                file("abfss://container@account.dfs.core.windows.net/dir/part-001.parquet"));
+        Assertions.assertEquals("abfss://container@account.dfs.core.windows.net/dir/"
+                        + "{part-000.parquet,part-001.parquet}",
+                S3SourceOffsetProvider.buildFileListUri(azureFiles));
+    }
+
+    private static TBrokerFileStatus file(String uri) {
+        return new TBrokerFileStatus(uri, false, 1, true);
+    }
 }

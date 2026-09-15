@@ -649,7 +649,7 @@ public final class StorageAdapter {
                 .map(Map.Entry::getValue)
                 .findFirst()
                 .orElse("SharedKey");
-        if (!"OAuth2".equalsIgnoreCase(authType)) {
+        if (!"OAuth2".equals(authType)) {
             return;
         }
         boolean hasIcebergType = origProps.entrySet().stream()

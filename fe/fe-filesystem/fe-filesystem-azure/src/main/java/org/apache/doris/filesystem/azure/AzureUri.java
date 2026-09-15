@@ -109,7 +109,7 @@ public final class AzureUri {
         } else {
             throw new IOException("Unsupported Azure URI scheme");
         }
-        if (!CONTAINER_NAME_PATTERN.matcher(parsed.container).matches()) {
+        if (!isOneLake(parsed) && !CONTAINER_NAME_PATTERN.matcher(parsed.container).matches()) {
             throw new IOException("Invalid Azure container name");
         }
         return parsed;
@@ -185,6 +185,13 @@ public final class AzureUri {
             // The decoder error may contain the input. Do not retain URI credential material.
             throw new IOException("Invalid percent encoding in Azure object path");
         }
+    }
+
+    private static boolean isOneLake(AzureUri uri) {
+        return isAdlsScheme(uri.scheme)
+                && uri.accountHost != null
+                && uri.accountHost.isDfsHost()
+                && "fabric.microsoft.com".equalsIgnoreCase(uri.accountHost.cloudSuffix());
     }
 
     private static boolean isAdlsScheme(String scheme) {

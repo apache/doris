@@ -24,7 +24,9 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.DateTimeException;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.Optional;
@@ -121,7 +123,15 @@ public final class AzureSasToken {
             try {
                 expiry = OffsetDateTime.parse(decodedExpiry, DateTimeFormatter.ISO_OFFSET_DATE_TIME).toInstant();
             } catch (DateTimeParseException e) {
-                expiry = Instant.parse(decodedExpiry);
+                try {
+                    // Azure SAS permits a date-only expiry. Treat it as the start of that
+                    // UTC day, matching the service/CLI interpretation without changing the
+                    // signed token itself.
+                    expiry = LocalDate.parse(decodedExpiry, DateTimeFormatter.ISO_LOCAL_DATE)
+                            .atStartOfDay(ZoneOffset.UTC).toInstant();
+                } catch (DateTimeParseException dateException) {
+                    expiry = Instant.parse(decodedExpiry);
+                }
             }
             // The native protocol represents expiry as signed Unix milliseconds.
             expiry.toEpochMilli();

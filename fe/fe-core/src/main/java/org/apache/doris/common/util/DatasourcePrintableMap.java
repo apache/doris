@@ -173,6 +173,9 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
             return true;
         }
         String lower = stringKey.toLowerCase(Locale.ROOT);
+        if (lower.startsWith("adls.sas-token.")) {
+            return true;
+        }
         if (lower.equals("fluss.client.security.sasl.username")
                 || lower.equals("fluss.client.security.sasl.password")
                 || lower.equals("fluss.client.security.sasl.jaas.config")) {

@@ -64,6 +64,8 @@ class AzureFileSystemProviderTest {
         Assertions.assertFalse(provider.supports(props));
         Assertions.assertFalse(provider.supportsGuess(props));
         Assertions.assertTrue(provider.sensitivePropertyKeys().contains("AZURE_SAS_TOKEN"));
+        Assertions.assertTrue(provider.sensitivePropertyKeys().contains("adls.auth.shared-key.account.key"));
+        Assertions.assertTrue(provider.sensitivePropertyKeys().contains("adls.sas-token"));
     }
 
     @Test

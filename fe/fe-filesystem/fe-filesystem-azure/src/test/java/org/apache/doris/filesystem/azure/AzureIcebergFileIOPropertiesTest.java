@@ -60,9 +60,9 @@ class AzureIcebergFileIOPropertiesTest {
         Map<String, String> connections = storage.toIcebergFileIOConnectionProperties();
 
         Assertions.assertEquals(Map.of(
-                "adls.connection-string.account.dfs.core.windows.net",
+                "adls.connection-string.account.dfs.core.windows.net:10000",
                 "http://account.blob.core.windows.net:10000/proxy%2Fpath",
-                "adls.connection-string.account.blob.core.windows.net",
+                "adls.connection-string.account.blob.core.windows.net:10000",
                 "http://account.blob.core.windows.net:10000/proxy%2Fpath"), connections);
         Assertions.assertThrows(UnsupportedOperationException.class, () -> connections.put("io-impl", "other"));
         StoragePropertiesException failure = Assertions.assertThrows(StoragePropertiesException.class,
@@ -81,15 +81,15 @@ class AzureIcebergFileIOPropertiesTest {
         Assertions.assertEquals(Map.of(
                 "adls.auth.shared-key.account.name", "account",
                 "adls.auth.shared-key.account.key", "test-key",
-                "adls.connection-string.account.dfs.core.windows.net",
+                "adls.connection-string.account.dfs.core.windows.net:10000",
                 "http://account.blob.core.windows.net:10000/proxy%2Fpath",
-                "adls.connection-string.account.blob.core.windows.net",
+                "adls.connection-string.account.blob.core.windows.net:10000",
                 "http://account.blob.core.windows.net:10000/proxy%2Fpath"), output);
         Assertions.assertThrows(UnsupportedOperationException.class, () -> output.put("io-impl", "other"));
         Assertions.assertEquals(Map.of(
-                "adls.connection-string.account.dfs.core.windows.net",
+                "adls.connection-string.account.dfs.core.windows.net:10000",
                 "http://account.blob.core.windows.net:10000/proxy%2Fpath",
-                "adls.connection-string.account.blob.core.windows.net",
+                "adls.connection-string.account.blob.core.windows.net:10000",
                 "http://account.blob.core.windows.net:10000/proxy%2Fpath"),
                 storage.toIcebergFileIOConnectionProperties());
         Assertions.assertEquals(storage.toHadoopConfigurationMap(),

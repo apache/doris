@@ -41,6 +41,37 @@ bool contains_line_break(std::string_view value) {
     return value.find('\r') != std::string_view::npos || value.find('\n') != std::string_view::npos;
 }
 
+bool is_digit(std::string_view value, size_t begin, size_t count) {
+    if (begin + count > value.size()) {
+        return false;
+    }
+    for (size_t i = begin; i < begin + count; ++i) {
+        if (value[i] < '0' || value[i] > '9') {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::string normalize_sas_expiry_for_parser(std::string value) {
+    // Azure SAS accepts date-only and minute-precision values. Azure Core's RFC3339
+    // parser requires a time component with seconds, so normalize only the parser
+    // input; the signed token itself remains untouched.
+    if (value.size() == 10 && value[4] == '-' && value[7] == '-' && is_digit(value, 0, 4) &&
+        is_digit(value, 5, 2) && is_digit(value, 8, 2)) {
+        return value + "T00:00:00Z";
+    }
+    if (value.size() >= 17 && value[10] == 'T' && value[13] == ':' && is_digit(value, 0, 4) &&
+        is_digit(value, 5, 2) && is_digit(value, 8, 2) && is_digit(value, 11, 2) &&
+        is_digit(value, 14, 2)) {
+        const size_t timezone = value.find_first_of("Z+-", 16);
+        if (timezone == 16) {
+            value.insert(timezone, ":00");
+        }
+    }
+    return value;
+}
+
 int64_t unix_millis_now() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
                    std::chrono::system_clock::now().time_since_epoch())
@@ -55,6 +86,13 @@ std::optional<int64_t> sas_expiry_from_token(std::string_view token, std::string
         const auto end = token.find('&', begin);
         const auto field = token.substr(
                 begin, end == std::string_view::npos ? token.size() - begin : end - begin);
+        if (field.empty()) {
+            if (end == std::string_view::npos) {
+                break;
+            }
+            begin = end + 1;
+            continue;
+        }
         const auto separator = field.find('=');
         if (separator == std::string_view::npos || separator == 0) {
             *error = "Azure SAS credential has an invalid query field";
@@ -77,8 +115,9 @@ std::optional<int64_t> sas_expiry_from_token(std::string_view token, std::string
                 return std::nullopt;
             }
             try {
+                auto decoded_expiry = Azure::Core::Url::Decode(std::string(encoded_expiry));
                 const auto expiry = Azure::DateTime::Parse(
-                        Azure::Core::Url::Decode(std::string(encoded_expiry)),
+                        normalize_sas_expiry_for_parser(std::move(decoded_expiry)),
                         Azure::DateTime::DateFormat::Rfc3339);
                 const auto system_time = static_cast<std::chrono::system_clock::time_point>(expiry);
                 result = std::chrono::duration_cast<std::chrono::milliseconds>(
