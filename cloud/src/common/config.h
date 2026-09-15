@@ -226,6 +226,10 @@ CONF_String(arn_id, "");
 CONF_String(arn_ak, "");
 CONF_String(arn_sk, "");
 CONF_Int64(internal_stage_objects_expire_time_second, "259200"); // 3 * 24 * 3600 seconds
+// Spill objects written by BEs (spill_storage_type=s3) live under "spill/" of every storage
+// vault. BEs delete them when the query ends and at startup; this is the bottom line for BEs
+// that never come back. Must be larger than the longest query the cluster allows.
+CONF_mInt64(spill_objects_expire_time_second, "604800"); // 7 * 24 * 3600 seconds
 
 // format with base64: eg, "cloudcloudcloudcloud" -> "c2VsZWN0ZGJzZWxlY3RkYnNlbGVjdGRic2VsZWN0ZGI="
 CONF_String(encryption_key, "c2VsZWN0ZGJzZWxlY3RkYnNlbGVjdGRic2VsZWN0ZGI=");

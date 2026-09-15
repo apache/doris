@@ -45,6 +45,7 @@ namespace doris::cloud {
     X(ABORT_TXN, abort_txn, "abort txn")                                  \
     X(PRECOMMIT_TXN, precommit_txn, "precommit txn")                      \
     X(GET_OBJ_STORE_INFO, get_obj_store_info, "get obj store info")       \
+    X(REPORT_SPILL_STATS, report_spill_stats, "report spill stats")       \
     X(START_TABLET_JOB, start_tablet_job, "start tablet job")             \
     X(FINISH_TABLET_JOB, finish_tablet_job, "finish tablet job")          \
     X(GET_DELETE_BITMAP, get_delete_bitmap, "get delete bitmap")          \

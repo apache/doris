@@ -33,6 +33,7 @@
 namespace doris {
 class RuntimeState;
 class Block;
+class SpillDataDir;
 
 /// SpillFileReader reads blocks sequentially across all parts of a SpillFile.
 ///
@@ -44,10 +45,13 @@ class Block;
 ///
 /// Part boundaries are transparent to the caller. When the current part is
 /// exhausted, the reader automatically opens the next part.
+///
+/// Parts are opened on the SpillDataDir's file system (local disk or object storage).
+/// Part sizes are known from the writer, so no size lookup is needed on open.
 class SpillFileReader {
 public:
-    SpillFileReader(RuntimeState* state, RuntimeProfile* profile, std::string spill_dir,
-                    size_t part_count);
+    SpillFileReader(RuntimeState* state, RuntimeProfile* profile, SpillDataDir* data_dir,
+                    std::string spill_dir, std::vector<int64_t> part_sizes);
 
     ~SpillFileReader() { (void)close(); }
 
@@ -75,9 +79,15 @@ private:
     /// Close the current part's file reader.
     void _close_current_part();
 
+    /// Account bytes read from the store (local or remote) as one request.
+    void _record_read(size_t bytes_read);
+
     // ── Configuration ──
+    SpillDataDir* _data_dir = nullptr;
     std::string _spill_dir;
+    std::vector<int64_t> _part_sizes;
     size_t _part_count;
+    bool _is_remote = false;
 
     // ── Current part state ──
     size_t _current_part_index = 0;
@@ -100,6 +110,8 @@ private:
     RuntimeProfile::Counter* _read_file_size = nullptr;
     RuntimeProfile::Counter* _read_rows_count = nullptr;
     RuntimeProfile::Counter* _read_file_count = nullptr;
+    // Remote only, may be null when the profile does not register it.
+    RuntimeProfile::Counter* _remote_read_requests = nullptr;
 
     std::shared_ptr<ResourceContext> _resource_ctx = nullptr;
 };
