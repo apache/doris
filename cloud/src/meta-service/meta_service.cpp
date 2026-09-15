@@ -3530,6 +3530,143 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
     }
 }
 
+void MetaServiceImpl::report_spill_stats(::google::protobuf::RpcController* controller,
+                                         const ReportSpillStatsRequest* request,
+                                         ReportSpillStatsResponse* response,
+                                         ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(report_spill_stats, put);
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+    RPC_RATE_LIMIT(report_spill_stats)
+    if (!request->has_stats() || request->stats().cloud_unique_id().empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "spill stats without cloud_unique_id";
+        return;
+    }
+    const auto& spill_stats = request->stats();
+    if (spill_stats.boot_id() <= 0 || spill_stats.remote_write_bytes() < 0 ||
+        spill_stats.remote_put_requests() < 0) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("invalid spill stats, boot_id={} write_bytes={} put_requests={}",
+                          spill_stats.boot_id(), spill_stats.remote_write_bytes(),
+                          spill_stats.remote_put_requests());
+        return;
+    }
+
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = fmt::format("failed to create txn, err={}", err);
+        return;
+    }
+    // One record per BE. The report carries totals since boot, so a report of the same boot
+    // replaces the previous one (a retry cannot double count). The first report of a new boot
+    // folds the previous process' totals into prior_boots_*, which keeps the record count
+    // bounded by the number of BEs instead of the number of BE restarts.
+    std::string key = stats_spill_key({instance_id, spill_stats.cloud_unique_id()});
+    std::string existing_val;
+    err = txn->get(key, &existing_val);
+    if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get spill stats, err={}", err);
+        return;
+    }
+    SpillStatsPB value = spill_stats;
+    if (err == TxnErrorCode::TXN_OK) {
+        SpillStatsPB existing;
+        if (!existing.ParseFromString(existing_val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = fmt::format("malformed spill stats, key={}", hex(key));
+            return;
+        }
+        int64_t prior_bytes = existing.prior_boots_write_bytes();
+        int64_t prior_requests = existing.prior_boots_put_requests();
+        if (existing.boot_id() != spill_stats.boot_id()) {
+            prior_bytes += existing.remote_write_bytes();
+            prior_requests += existing.remote_put_requests();
+        } else {
+            // Totals of one process only grow; a late-delivered duplicate must not roll back.
+            value.set_remote_write_bytes(
+                    std::max(existing.remote_write_bytes(), spill_stats.remote_write_bytes()));
+            value.set_remote_put_requests(
+                    std::max(existing.remote_put_requests(), spill_stats.remote_put_requests()));
+        }
+        value.set_prior_boots_write_bytes(prior_bytes);
+        value.set_prior_boots_put_requests(prior_requests);
+    }
+    value.set_update_time_ms(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                     std::chrono::system_clock::now().time_since_epoch())
+                                     .count());
+    txn->put(key, value.SerializeAsString());
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        msg = fmt::format("failed to commit spill stats, err={} cloud_unique_id={} boot_id={}", err,
+                          spill_stats.cloud_unique_id(), spill_stats.boot_id());
+        return;
+    }
+}
+
+void MetaServiceImpl::get_spill_stats(::google::protobuf::RpcController* controller,
+                                      const GetSpillStatsRequest* request,
+                                      GetSpillStatsResponse* response,
+                                      ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(get_spill_stats, get);
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+    RPC_RATE_LIMIT(get_spill_stats)
+
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = fmt::format("failed to create txn, err={}", err);
+        return;
+    }
+    std::string key0 = stats_spill_key_prefix(instance_id);
+    std::string key1 = key0;
+    key1.push_back('\xff');
+
+    int64_t total_bytes = 0;
+    int64_t total_requests = 0;
+    std::unique_ptr<RangeGetIterator> it;
+    while (it == nullptr /* may be not init */ || it->more()) {
+        err = txn->get(key0, key1, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get spill stats, err={}", err);
+            return;
+        }
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            SpillStatsPB* pb = response->add_stats();
+            if (!pb->ParseFromArray(v.data(), v.size())) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = fmt::format("malformed spill stats, key={}", hex(k));
+                response->clear_stats();
+                return;
+            }
+            total_bytes += pb->remote_write_bytes() + pb->prior_boots_write_bytes();
+            total_requests += pb->remote_put_requests() + pb->prior_boots_put_requests();
+            if (!it->has_next()) {
+                key0 = k;
+            }
+        }
+        key0.push_back('\x00');
+    }
+    response->set_total_remote_write_bytes(total_bytes);
+    response->set_total_remote_put_requests(total_requests);
+}
+
 static bool check_delete_bitmap_lock(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
                                      std::unique_ptr<Transaction>& txn, std::string& instance_id,
                                      int64_t table_id, int64_t lock_id, int64_t lock_initiator,

@@ -547,6 +547,42 @@ TEST(KeysTest, TxnKeysTest) {
     }
 }
 
+TEST(KeysTest, StatsSpillKeyTest) {
+    using namespace doris::cloud;
+    std::string instance_id = "instance_id_deadbeef";
+
+    // 0x01 "stats" ${instance_id} "spill" ${cloud_unique_id} -> SpillStatsPB
+    std::string cloud_unique_id = "1:instance_id_deadbeef:be-1";
+    std::string key = stats_spill_key({instance_id, cloud_unique_id});
+    std::cout << hex(key) << std::endl;
+
+    std::string_view key_sv(key);
+    std::string dec_prefix;
+    std::string dec_instance_id;
+    std::string dec_infix;
+    std::string dec_cloud_unique_id;
+    remove_user_space_prefix(&key_sv);
+    ASSERT_EQ(decode_bytes(&key_sv, &dec_prefix), 0);
+    ASSERT_EQ(decode_bytes(&key_sv, &dec_instance_id), 0);
+    ASSERT_EQ(decode_bytes(&key_sv, &dec_infix), 0);
+    ASSERT_EQ(decode_bytes(&key_sv, &dec_cloud_unique_id), 0);
+    ASSERT_TRUE(key_sv.empty());
+    EXPECT_EQ("stats", dec_prefix);
+    EXPECT_EQ(instance_id, dec_instance_id);
+    EXPECT_EQ("spill", dec_infix);
+    EXPECT_EQ(cloud_unique_id, dec_cloud_unique_id);
+
+    // The prefix covers every spill record of the instance and nothing of tablet stats.
+    std::string prefix = stats_spill_key_prefix(instance_id);
+    EXPECT_TRUE(key.starts_with(prefix));
+    std::string tablet_key = stats_tablet_key({instance_id, 1, 2, 3, 4});
+    EXPECT_FALSE(tablet_key.starts_with(prefix));
+    EXPECT_FALSE(stats_spill_key({instance_id + "x", cloud_unique_id}).starts_with(prefix));
+    // A cloud_unique_id that is a prefix of another one must not share its key prefix.
+    EXPECT_FALSE(stats_spill_key({instance_id, cloud_unique_id + "0"})
+                         .starts_with(stats_spill_key({instance_id, cloud_unique_id})));
+}
+
 TEST(KeysTest, RecycleKeysTest) {
     using namespace doris::cloud;
     std::string instance_id = "instance_id_deadbeef";

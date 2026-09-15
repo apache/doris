@@ -881,6 +881,8 @@ int InstanceRecycler::do_recycle() {
                 .add(task_wrapper([this]() { return InstanceRecycler::recycle_stage(); }))
                 .add(task_wrapper(
                         [this]() { return InstanceRecycler::recycle_expired_stage_objects(); }))
+                .add(task_wrapper(
+                        [this]() { return InstanceRecycler::recycle_expired_spill_objects(); }))
                 .add(task_wrapper([this]() { return InstanceRecycler::recycle_versions(); }))
                 .add(task_wrapper([this]() { return InstanceRecycler::recycle_restore_jobs(); }));
         bool finished = true;
@@ -1107,6 +1109,11 @@ int InstanceRecycler::recycle_deleted_instance_metadata() {
     std::string start_stats_tablet_key = stats_tablet_key({instance_id_, 0, 0, 0, 0});
     std::string end_stats_tablet_key = stats_tablet_key({instance_id_, INT64_MAX, 0, 0, 0});
     txn->remove(start_stats_tablet_key, end_stats_tablet_key);
+    // Spill traffic records (SHOW DATA billing input) live under their own infix.
+    std::string start_stats_spill_key = stats_spill_key_prefix(instance_id_);
+    std::string end_stats_spill_key = start_stats_spill_key;
+    end_stats_spill_key.push_back('\xff');
+    txn->remove(start_stats_spill_key, end_stats_spill_key);
     std::string start_copy_key = copy_key_prefix(instance_id_);
     std::string end_copy_key = copy_key_prefix(instance_id_ + '\x00');
     txn->remove(start_copy_key, end_copy_key);
@@ -7819,6 +7826,50 @@ int InstanceRecycler::recycle_expired_stage_objects() {
         if (ret1 != 0) {
             LOG(WARNING) << "failed to recycle expired stage objects, ret=" << ret1 << " "
                          << ss.str();
+            ret = -1;
+            continue;
+        }
+        metrics_context.total_recycled_num++;
+        metrics_context.report();
+    }
+    return ret;
+}
+
+int InstanceRecycler::recycle_expired_spill_objects() {
+    LOG_INFO("begin to recycle expired spill objects").tag("instance_id", instance_id_);
+
+    int64_t start_time = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
+    RecyclerMetricsContext metrics_context(instance_id_, "recycle_expired_spill_objects");
+
+    DORIS_CLOUD_DEFER {
+        int64_t cost =
+                duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
+        metrics_context.finish_report();
+        LOG_INFO("recycle expired spill objects, cost={}s", cost).tag("instance_id", instance_id_);
+    };
+
+    int64_t expiration_time =
+            duration_cast<seconds>(system_clock::now().time_since_epoch()).count() -
+            config::spill_objects_expire_time_second;
+    if (config::force_immediate_recycle) {
+        expiration_time = INT64_MAX;
+    }
+
+    int ret = 0;
+    for (const auto& [resource_id, accessor] : accessor_map_) {
+        if (stopped()) {
+            break;
+        }
+        // BE writes spill only to S3 vaults, and only S3Accessor::delete_prefix honours the
+        // expiration time (HdfsAccessor deletes the whole prefix). Keep MOCK for unit tests.
+        if (accessor->type() != AccessorType::S3 && accessor->type() != AccessorType::MOCK) {
+            continue;
+        }
+        // Objects are written by BE under "{vault prefix}/spill/{cloud_unique_id}/{boot_id}/...".
+        int ret1 = accessor->delete_prefix("spill/", expiration_time);
+        if (ret1 != 0) {
+            LOG(WARNING) << "failed to recycle expired spill objects, ret=" << ret1
+                         << " instance_id=" << instance_id_ << " resource_id=" << resource_id;
             ret = -1;
             continue;
         }

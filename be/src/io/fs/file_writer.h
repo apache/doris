@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <atomic>
+#include <functional>
 #include <future>
 #include <memory>
 
@@ -32,6 +34,26 @@ namespace doris::io {
 class FileSystem;
 struct FileCacheAllocatorBuilder;
 struct EncryptionInfo;
+
+// Request statistics reported by remote file writers when the caller passes an instance
+// through FileWriterOptions::remote_write_stats. All fields are cumulative.
+struct RemoteWriteStats {
+    std::atomic<int64_t> put_object_requests {0};
+    std::atomic<int64_t> create_multipart_requests {0};
+    std::atomic<int64_t> upload_part_requests {0};
+    std::atomic<int64_t> complete_multipart_requests {0};
+    std::atomic<int64_t> head_requests {0};
+    std::atomic<int64_t> failed_requests {0};
+    // Bytes acknowledged by object storage (PutObject and UploadPart payloads).
+    std::atomic<int64_t> uploaded_bytes {0};
+    // Sum of request latencies. Requests run concurrently, so this is not wall-clock time.
+    std::atomic<int64_t> request_time_ns {0};
+
+    int64_t total_requests() const {
+        return put_object_requests + create_multipart_requests + upload_part_requests +
+               complete_multipart_requests + head_requests;
+    }
+};
 
 // Only affects remote file writers
 struct FileWriterOptions {
@@ -49,6 +71,25 @@ struct FileWriterOptions {
     bool sync_file_data = true;              // Whether flush data into storage system
     uint64_t file_cache_expiration_time = 0; // Relative time
     uint64_t approximate_bytes_to_write = 0; // Approximate bytes to write, used for file cache
+    // Upload flow control, honoured by S3FileWriter only (other writers ignore both hooks).
+    //
+    // upload_submit_gate is called on the appending thread (appendv, or close for the last
+    // buffer) right before a data buffer is submitted for upload, with the bytes the buffer
+    // carries. It may block. A non-OK status fails the writer: the buffer is dropped, no
+    // further data is accepted and close() reports the error.
+    //
+    // upload_done_callback is called exactly once for every buffer that passed the gate, when
+    // the upload of that buffer has finished (success, provider error, or skipped because an
+    // earlier buffer failed) and also when its submission failed. It runs on the upload thread
+    // strictly before the buffer's status is published, so it always happens before the writer
+    // reports a final close status or is destroyed. It must not block and must not touch the
+    // FileWriter. Buffers that fail before being submitted (e.g. a checksum mismatch detected
+    // inside the upload buffer) do not call back; callers that need exact accounting reconcile
+    // after the writer reached its final state.
+    std::function<Status(size_t)> upload_submit_gate = nullptr;
+    std::function<void(size_t)> upload_done_callback = nullptr;
+    // Optional sink for per-request statistics of remote file writers.
+    std::shared_ptr<RemoteWriteStats> remote_write_stats = nullptr;
 };
 
 struct AsyncCloseStatusPack {
