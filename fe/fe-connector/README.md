@@ -319,9 +319,9 @@ String, convert inside `of()`, log a warning) explicitly.
   you touch fe-connector-spi, run that module's tests — a consumer-only test
   run will not catch a stale baseline.
 - **Architecture gates** run in the `validate` phase of every FE build: the
-  forbidden-import gate for this directory and the metadata-funnel gate for
-  fe-core. Scripts and their self-tests live in `build-support/` and
-  `build-support/tests/`.
+  forbidden-import gate for this directory, and the metadata-funnel and
+  JDBC-free gates for fe-core. Scripts and their self-tests live in
+  `build-support/` and `build-support/tests/`.
 - **End-to-end**: docker environments under
   `docker/thirdparties/docker-compose/`, suites under
   `regression-test/suites/external_table_p0` and `external_table_p2`.

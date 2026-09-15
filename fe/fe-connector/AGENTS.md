@@ -33,7 +33,7 @@ mvn -f fe/pom.xml -pl :fe-connector-spi -am test \
 
 ## Machine-Checked Obligations
 
-Two architecture gates run in the `validate` phase (scripts and their
+Three architecture gates run in the `validate` phase (scripts and their
 self-tests live in `build-support/` and `build-support/tests/`):
 
 1. **Forbidden imports** — `build-support/check-fe-connector-imports.sh`,
@@ -46,6 +46,14 @@ self-tests live in `build-support/` and `build-support/tests/`):
    `PluginDrivenMetadata` may call `Connector#getMetadata`; exempt call
    sites carry a `getMetadata-funnel-exempt` marker, and deleting a marker
    auto-tightens the gate.
+3. **No JDBC access in fe-core** — `build-support/check-fe-core-jdbc-free.sh`,
+   wired into fe-core's `pom.xml`. fe-core main sources must not import
+   `org.apache.doris.datasource.jdbc.*`, `com.zaxxer.hikari.*` or the
+   `java.sql` connection/statement types; a JDBC source is reached through
+   the SPI (`PluginDrivenExternalCatalog`, `StreamingSourceClient`), and
+   dialect logic belongs in `fe-connector-jdbc`. The driver-jar policy every
+   connector applies is `DriverUrlPolicy` in fe-connector-spi. Only
+   `httpv2/` (JDBC to the FE itself) is exempt.
 
 **Changing the shared SPI surface (fe-connector-spi):** regenerate BOTH
 recorded baselines in the SAME commit — `connector-metadata-methods.txt`

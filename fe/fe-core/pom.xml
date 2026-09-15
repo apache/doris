@@ -788,10 +788,6 @@ under the License.
         </dependency>
 
         <dependency>
-            <groupId>com.zaxxer</groupId>
-            <artifactId>HikariCP</artifactId>
-        </dependency>
-        <dependency>
             <groupId>org.apache.kafka</groupId>
             <artifactId>kafka-clients</artifactId>
         </dependency>
@@ -1158,12 +1154,20 @@ under the License.
                 </configuration>
             </plugin>
             <!--
-              Arch gate: the per-statement ConnectorMetadata funnel. Every fe-core read / scan /
-              DDL / MVCC seam must acquire metadata through PluginDrivenMetadata.get(session, connector),
-              so a statement reuses ONE ConnectorMetadata per catalog (closed deterministically at
-              statement end). A bare connector.getMetadata(session) elsewhere in fe-core is a build
-              error. See build-support/check-fe-core-metadata-funnel.sh
-              (self-test build-support/tests/test-fe-core-metadata-funnel.sh).
+              Arch gates (both run in the validate phase; scripts and self-tests live in build-support/):
+
+              1. The per-statement ConnectorMetadata funnel. Every fe-core read / scan / DDL / MVCC seam
+                 must acquire metadata through PluginDrivenMetadata.get(session, connector), so a
+                 statement reuses ONE ConnectorMetadata per catalog (closed deterministically at
+                 statement end). A bare connector.getMetadata(session) elsewhere in fe-core is a build
+                 error. See build-support/check-fe-core-metadata-funnel.sh
+                 (self-test build-support/tests/test-fe-core-metadata-funnel.sh).
+
+              2. No JDBC data-source access in fe-core. Dialect clients, type mappings, the driver-jar
+                 policy and connection pools live in fe/fe-connector and are reached through the SPI;
+                 fe-core must not import org.apache.doris.datasource.jdbc.*, com.zaxxer.hikari.* or the
+                 java.sql connection/statement types (httpv2, JDBC to the FE itself, is exempt). See
+                 build-support/check-fe-core-jdbc-free.sh (self-test build-support/tests/test-fe-core-jdbc-free.sh).
             -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
@@ -1178,6 +1182,19 @@ under the License.
                         </goals>
                         <configuration>
                             <executable>${project.basedir}/../../build-support/check-fe-core-metadata-funnel.sh</executable>
+                            <arguments>
+                                <argument>${project.basedir}</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>check-fe-core-jdbc-free</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>${project.basedir}/../../build-support/check-fe-core-jdbc-free.sh</executable>
                             <arguments>
                                 <argument>${project.basedir}</argument>
                             </arguments>
