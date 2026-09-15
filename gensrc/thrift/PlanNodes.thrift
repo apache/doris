@@ -129,7 +129,6 @@ enum TFileFormatType {
     FORMAT_WAL = 15,
     FORMAT_ARROW = 16,
     FORMAT_TEXT = 17,
-    FORMAT_NATIVE = 18,
     FORMAT_LANCE = 19,
     FORMAT_ES_HTTP = 20
 }
