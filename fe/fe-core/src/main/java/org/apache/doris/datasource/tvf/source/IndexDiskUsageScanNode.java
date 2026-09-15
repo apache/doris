@@ -53,8 +53,8 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
- * Scan node of index_disk_usage. Each tablet is read by one backend that holds it, and every
- * backend gets a single scan range carrying only its own tablets.
+ * Scan node of index_disk_usage. Each tablet is read by one backend that holds it, and the tablets
+ * of a backend are split into a few scan ranges so that its scanners can read them in parallel.
  */
 public class IndexDiskUsageScanNode extends MetadataScanNode {
 
@@ -79,11 +79,19 @@ public class IndexDiskUsageScanNode extends MetadataScanNode {
     public void init() throws UserException {
         super.init();
         SystemInfoService systemInfo = Env.getCurrentSystemInfo();
-        BackendSelector selector = Config.isCloudMode() ? cloudSelector(systemInfo) : localSelector(systemInfo);
+        ConnectContext context = ConnectContext.get();
+        BackendSelector selector;
+        if (Config.isCloudMode()) {
+            selector = cloudSelector(systemInfo);
+        } else {
+            selector = localSelector(systemInfo::getBackend,
+                    queryableIn(context == null ? null : context.getComputeGroupSafely()));
+        }
         Map<Long, List<TabletTarget>> groups = groupByBackend(tvf.getTabletTargets(), selector);
         TMetaScanRange template = tvf.getMetaScanRange(Lists.newArrayList());
+        int rangesPerBackend = context == null ? 1 : context.getSessionVariable().getMaxScannersConcurrency();
         scanRanges.clear();
-        scanRanges.addAll(buildScanRangeLocations(template, groups, systemInfo::getBackend));
+        scanRanges.addAll(buildScanRangeLocations(template, groups, systemInfo::getBackend, rangesPerBackend));
         numNodes = scanRanges.size();
     }
 
@@ -144,40 +152,72 @@ public class IndexDiskUsageScanNode extends MetadataScanNode {
         return candidates.get((int) Math.floorMod(tabletId, (long) candidates.size()));
     }
 
+    // Splits the tablets of each backend into at most `rangesPerBackend` consecutive ranges, the
+    // way MetadataScanNode splits serialized splits by scanner concurrency.
     static List<TScanRangeLocations> buildScanRangeLocations(TMetaScanRange template,
-            Map<Long, List<TabletTarget>> groups, LongFunction<Backend> backendLookup) {
-        // Drop the table-wide tablet list once, so each backend copy only carries its own tablets.
+            Map<Long, List<TabletTarget>> groups, LongFunction<Backend> backendLookup, int rangesPerBackend) {
+        Map<Long, String> partitionNames = template.getIndexDiskUsageParams().getPartitionNames();
+        // Drop the table-wide lists once, so each range copy only carries its own tablets and partitions.
         TMetaScanRange base = template.deepCopy();
         base.getIndexDiskUsageParams().unsetTablets();
+        base.getIndexDiskUsageParams().unsetPartitionNames();
         List<TScanRangeLocations> ranges = Lists.newArrayList();
         for (Map.Entry<Long, List<TabletTarget>> group : groups.entrySet()) {
             Backend backend = backendLookup.apply(group.getKey());
             Preconditions.checkState(backend != null, "backend %s is not found", group.getKey());
-            TMetaScanRange metaScanRange = base.deepCopy();
-            metaScanRange.getIndexDiskUsageParams().setTablets(
-                    group.getValue().stream().map(TabletTarget::toThrift).collect(Collectors.toList()));
-
-            TScanRange scanRange = new TScanRange();
-            scanRange.setMetaScanRange(metaScanRange);
-            TScanRangeLocation location = new TScanRangeLocation();
-            location.setBackendId(backend.getId());
-            location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
-            TScanRangeLocations locations = new TScanRangeLocations();
-            locations.addToLocations(location);
-            locations.setScanRange(scanRange);
-            ranges.add(locations);
+            List<TabletTarget> tablets = group.getValue();
+            int chunkSize = (int) Math.ceil((double) tablets.size() / Math.max(1, rangesPerBackend));
+            for (int from = 0; from < tablets.size(); from += chunkSize) {
+                List<TabletTarget> chunk = tablets.subList(from, Math.min(from + chunkSize, tablets.size()));
+                ranges.add(buildScanRange(base, chunk, partitionNames, backend));
+            }
         }
         return ranges;
     }
 
-    private static BackendSelector localSelector(SystemInfoService systemInfo) {
-        ConnectContext context = ConnectContext.get();
-        Predicate<Backend> eligible = queryableIn(context == null ? null : context.getComputeGroupSafely());
+    private static TScanRangeLocations buildScanRange(TMetaScanRange base, List<TabletTarget> tablets,
+            Map<Long, String> partitionNames, Backend backend) {
+        TMetaScanRange metaScanRange = base.deepCopy();
+        metaScanRange.getIndexDiskUsageParams().setTablets(
+                tablets.stream().map(TabletTarget::toThrift).collect(Collectors.toList()));
+        if (partitionNames != null) {
+            Map<Long, String> names = Maps.newHashMap();
+            for (TabletTarget tablet : tablets) {
+                String name = partitionNames.get(tablet.getPartitionId());
+                if (name != null) {
+                    names.put(tablet.getPartitionId(), name);
+                }
+            }
+            metaScanRange.getIndexDiskUsageParams().setPartitionNames(names);
+        }
+
+        TScanRange scanRange = new TScanRange();
+        scanRange.setMetaScanRange(metaScanRange);
+        TScanRangeLocation location = new TScanRangeLocation();
+        location.setBackendId(backend.getId());
+        location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
+        TScanRangeLocations locations = new TScanRangeLocations();
+        locations.addToLocations(location);
+        locations.setScanRange(scanRange);
+        return locations;
+    }
+
+    static BackendSelector localSelector(LongFunction<Backend> backendLookup, Predicate<Backend> eligible) {
+        // Tablets share backends, so the alive disks of each backend are collected once per scan.
+        Map<Long, Set<Long>> alivePathHashes = Maps.newHashMap();
         return target -> {
             Tablet tablet = target.getTablet();
-            List<Replica> replicas = tablet.getQueryableReplicas(target.getVersion(),
-                    alivePathHashes(tablet, systemInfo), false);
-            return chooseBackend(target.getTabletId(), replicas, systemInfo::getBackend, eligible);
+            for (Replica replica : tablet.getReplicas()) {
+                long backendId = replica.getBackendIdWithoutException();
+                if (!alivePathHashes.containsKey(backendId)) {
+                    Backend backend = backendLookup.apply(backendId);
+                    if (backend != null) {
+                        alivePathHashes.put(backendId, alivePathHashes(backend));
+                    }
+                }
+            }
+            List<Replica> replicas = tablet.getQueryableReplicas(target.getVersion(), alivePathHashes, false);
+            return chooseBackend(target.getTabletId(), replicas, backendLookup, eligible);
         };
     }
 
@@ -195,17 +235,10 @@ public class IndexDiskUsageScanNode extends MetadataScanNode {
         };
     }
 
-    private static Map<Long, Set<Long>> alivePathHashes(Tablet tablet, SystemInfoService systemInfo) {
-        Map<Long, Set<Long>> result = Maps.newHashMap();
-        for (Replica replica : tablet.getReplicas()) {
-            Backend backend = systemInfo.getBackend(replica.getBackendIdWithoutException());
-            if (backend != null) {
-                result.computeIfAbsent(backend.getId(), id -> backend.getDisks().values().stream()
-                        .filter(DiskInfo::isAlive)
-                        .map(DiskInfo::getPathHash)
-                        .collect(Collectors.toSet()));
-            }
-        }
-        return result;
+    private static Set<Long> alivePathHashes(Backend backend) {
+        return backend.getDisks().values().stream()
+                .filter(DiskInfo::isAlive)
+                .map(DiskInfo::getPathHash)
+                .collect(Collectors.toSet());
     }
 }

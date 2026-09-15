@@ -145,7 +145,7 @@ public class IndexDiskUsageScanNodeTest {
                 1L, backend(1L, true), 2L, backend(2L, true), 3L, backend(3L, true));
 
         List<TScanRangeLocations> ranges =
-                IndexDiskUsageScanNode.buildScanRangeLocations(template, groups, backends::get);
+                IndexDiskUsageScanNode.buildScanRangeLocations(template, groups, backends::get, 1);
         Assertions.assertEquals(3, ranges.size());
         for (TScanRangeLocations range : ranges) {
             long backendId = range.getLocations().get(0).getBackendId();
@@ -156,6 +156,66 @@ public class IndexDiskUsageScanNodeTest {
         // Planning must not copy every tablet once per backend.
         Assertions.assertTrue(allTablets.iterations <= 1, "template tablets iterated " + allTablets.iterations);
         Assertions.assertSame(allTablets, params.getTablets(), "the template must not be mutated");
+    }
+
+    @Test
+    public void testSplitsBackendGroupIntoBoundedRanges() {
+        TIndexDiskUsageMetadataParams params = new TIndexDiskUsageMetadataParams();
+        params.setLevel("tablet");
+        params.setPartitionNames(ImmutableMap.of(10L, "p1", 11L, "p2"));
+        TMetaScanRange template = new TMetaScanRange();
+        template.setMetadataType(TMetadataType.INDEX_DISK_USAGE);
+        template.setIndexDiskUsageParams(params);
+
+        Map<Long, List<TabletTarget>> groups = ImmutableMap.of(
+                1L, Arrays.asList(target(101, 10, 5), target(102, 10, 5), target(103, 11, 7),
+                        target(104, 11, 7), target(105, 11, 7)),
+                2L, Arrays.asList(target(106, 10, 5)));
+        Map<Long, Backend> backends = ImmutableMap.of(1L, backend(1L, true), 2L, backend(2L, true));
+
+        // Two ranges per backend: backend 1 splits its five tablets, backend 2 keeps its single one.
+        List<TScanRangeLocations> ranges =
+                IndexDiskUsageScanNode.buildScanRangeLocations(template, groups, backends::get, 2);
+        Assertions.assertEquals(3, ranges.size());
+        Assertions.assertEquals(Arrays.asList(1L, 1L, 2L), ranges.stream()
+                .map(range -> range.getLocations().get(0).getBackendId()).collect(Collectors.toList()));
+        Assertions.assertEquals(Arrays.asList(101L, 102L, 103L), rangeTabletIds(ranges.get(0)));
+        Assertions.assertEquals(Arrays.asList(104L, 105L), rangeTabletIds(ranges.get(1)));
+        Assertions.assertEquals(Arrays.asList(106L), rangeTabletIds(ranges.get(2)));
+        // Each range only names the partitions of its own tablets.
+        Assertions.assertEquals(ImmutableMap.of(10L, "p1", 11L, "p2"), rangePartitionNames(ranges.get(0)));
+        Assertions.assertEquals(ImmutableMap.of(11L, "p2"), rangePartitionNames(ranges.get(1)));
+        Assertions.assertEquals(ImmutableMap.of(10L, "p1"), rangePartitionNames(ranges.get(2)));
+    }
+
+    @Test
+    public void testAlivePathsAreBuiltOncePerBackend() throws Exception {
+        Backend be1 = backend(1L, true);
+        Backend be2 = backend(2L, true);
+        Map<Long, Backend> backends = ImmutableMap.of(1L, be1, 2L, be2);
+        List<Replica> replicas = Arrays.asList(replica(1L), replica(2L));
+        IndexDiskUsageScanNode.BackendSelector selector =
+                IndexDiskUsageScanNode.localSelector(backends::get, IndexDiskUsageScanNode.queryableIn(null));
+        for (long tabletId = 101; tabletId <= 103; ++tabletId) {
+            Tablet tablet = Mockito.mock(Tablet.class);
+            Mockito.when(tablet.getId()).thenReturn(tabletId);
+            Mockito.when(tablet.getReplicas()).thenReturn(replicas);
+            Mockito.when(tablet.getQueryableReplicas(Mockito.anyLong(), Mockito.anyMap(), Mockito.eq(false)))
+                    .thenReturn(replicas);
+            selector.select(new TabletTarget(tablet, 10, 5));
+        }
+        // Every tablet shares the backends' disk snapshot instead of rebuilding it.
+        Mockito.verify(be1, Mockito.times(1)).getDisks();
+        Mockito.verify(be2, Mockito.times(1)).getDisks();
+    }
+
+    private static List<Long> rangeTabletIds(TScanRangeLocations range) {
+        return range.getScanRange().getMetaScanRange().getIndexDiskUsageParams().getTablets().stream()
+                .map(TIndexDiskUsageTablet::getTabletId).collect(Collectors.toList());
+    }
+
+    private static Map<Long, String> rangePartitionNames(TScanRangeLocations range) {
+        return range.getScanRange().getMetaScanRange().getIndexDiskUsageParams().getPartitionNames();
     }
 
     // Counts full traversals, which thrift deep copies perform once per copy.
@@ -186,7 +246,7 @@ public class IndexDiskUsageScanNodeTest {
         Map<Long, Backend> backends = ImmutableMap.of(1L, backend(1L, true), 2L, backend(2L, true));
 
         List<TScanRangeLocations> ranges =
-                IndexDiskUsageScanNode.buildScanRangeLocations(template, groups, backends::get);
+                IndexDiskUsageScanNode.buildScanRangeLocations(template, groups, backends::get, 1);
         Assertions.assertEquals(2, ranges.size());
         for (TScanRangeLocations range : ranges) {
             Assertions.assertEquals(1, range.getLocationsSize());
@@ -249,6 +309,7 @@ public class IndexDiskUsageScanNodeTest {
         Mockito.when(backend.getBePort()).thenReturn(9060);
         Mockito.when(backend.isQueryAvailable()).thenReturn(queryAvailable);
         Mockito.when(backend.isMixNode()).thenReturn(mixNode);
+        Mockito.when(backend.getDisks()).thenReturn(ImmutableMap.of());
         Mockito.when(backend.getLocationTag()).thenReturn(Tag.createNotCheck(Tag.TYPE_LOCATION, locationTag));
         return backend;
     }
