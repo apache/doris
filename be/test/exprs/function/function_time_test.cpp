@@ -1802,6 +1802,24 @@ TEST(VTimestampFunctionsTest, next_day_test) {
     }
 }
 
+TEST(VTimestampFunctionsTest, relative_day_nullable_test) {
+    const InputTypeSet nullable_input_types = {Nullable {PrimitiveType::TYPE_DATEV2},
+                                               Nullable {PrimitiveType::TYPE_VARCHAR}};
+    const DataSet nullable_data_set = {
+            {{std::string("2024-01-01"), std::string("MON")}, std::string("2024-01-08")},
+            {{Null(), Null()}, Null()},
+            {{std::string("2024-01-01"), Null()}, Null()},
+            {{Null(), std::string("MON")}, Null()}};
+    static_cast<void>(check_function<DataTypeDateV2, true>("next_day", nullable_input_types,
+                                                           nullable_data_set));
+    static_cast<void>(check_function<DataTypeDateV2, true>(
+            "previous_day", nullable_input_types,
+            {{{std::string("2024-01-01"), std::string("MON")}, std::string("2023-12-25")},
+             {{Null(), Null()}, Null()},
+             {{std::string("2024-01-01"), Null()}, Null()},
+             {{Null(), std::string("MON")}, Null()}}));
+}
+
 TEST(VTimestampFunctionsTest, from_iso8601_date) {
     std::string func_name = "from_iso8601_date";
     InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
