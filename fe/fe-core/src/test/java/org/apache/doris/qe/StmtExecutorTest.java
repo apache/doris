@@ -24,6 +24,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
@@ -104,6 +105,30 @@ public class StmtExecutorTest extends TestWithFeService {
             connectContext.getSessionVariable().setQueryTimeoutS(savedQueryTimeout);
             Config.arrow_flight_deferred_query_idle_timeout_second = savedIdleTimeout;
         }
+    }
+
+    // ExecuteCommand swaps in a fresh per-EXECUTE StatementContext through this setter (see
+    // ExecuteCommandTest). Both the executor's own field and the owning ConnectContext must follow,
+    // because the execution and result-sending paths read them (StmtExecutor.executeAndSendResult,
+    // sendFields). If they keep pointing at the previous context, the freshly allocated one is dead
+    // weight and the per-execution OOM fix has no effect.
+    @Test
+    public void testSetStatementContextSwitchesExecutorAndConnectContext() throws Exception {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "select 1");
+        StatementContext previous = connectContext.getStatementContext();
+        StatementContext fresh = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        Assertions.assertNotSame(previous, fresh);
+
+        stmtExecutor.setStatementContext(fresh);
+
+        Assertions.assertSame(fresh, connectContext.getStatementContext(),
+                "the ConnectContext must follow the executor onto the fresh context");
+        Assertions.assertSame(connectContext, fresh.getConnectContext());
+        Assertions.assertEquals("select 1", fresh.getOriginStatement().originStmt);
+        Field field = StmtExecutor.class.getDeclaredField("statementContext");
+        field.setAccessible(true);
+        Assertions.assertSame(fresh, field.get(stmtExecutor),
+                "the executor's own field must be switched too");
     }
 
     // Arrow Flight SQL keeps a query's coordinator alive across GetFlightInfo -> DoGet (see #62259);
