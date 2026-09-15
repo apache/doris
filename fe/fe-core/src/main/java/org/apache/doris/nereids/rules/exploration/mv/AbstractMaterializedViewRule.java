@@ -328,16 +328,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             rewrittenPlan = rewriteQueryByView(matchMode, queryStructInfo, viewStructInfo, viewToQuerySlotMapping,
                     rewrittenPlan, materializationContext, cascadesContext);
             // Deferred cache-guard rejection: the rewrite's dependencies (which view outputs the query maps
-            // to, and which predicates get compensated) are only known now. A rewrite that consumes a
+            // to, and which predicates get compensated) are only known now. A rewrite that reads a
             // cache-guarded value would silently return the creation-session materialization (e.g. the UTC
             // day boundary of a date_trunc output column), so it is rejected; a guard on a view output the
-            // query does not read never reaches the rewritten plan and is harmless.
-            if (rewrittenPlan != null && (rewrittenPlanReadsGuardedOutput(
-                    rewrittenPlan, materializationContext)
-                    // a sub plan rewrite may drop the guarded output from the rewritten plan even though
-                    // the query's top project still computes it from the substituted columns
-                    || queryOutputReadsGuardedOutput(cascadesContext.getRewritePlan(), viewToQuerySlotMapping,
-                    materializationContext))) {
+            // query does not read never reaches the rewritten plan and is harmless, and recomputing the same
+            // value from the independent raw scan columns is evaluated in the query session and stays valid.
+            if (rewrittenPlan != null && rewrittenPlanReadsGuardedOutput(
+                    rewrittenPlan, materializationContext)) {
                 Plan guardedRewrittenPlan = rewrittenPlan;
                 materializationContext.recordFailReason(queryStructInfo,
                         "Materialized view cache carries a session-variable guard",
@@ -1136,16 +1133,16 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     /**
      * Whether the rewritten plan consumes a cache-guarded value. The cache guard lives on the view's
      * logical output expression (e.g. Alias(SessionVarGuardExpr(date_trunc(...)))) and its key in the
-     * shuttled output to MV scan mapping. Once the rewrite maps a query output onto such an expression
-     * the guard itself disappears from the plan in one of two ways: either the query output is mapped
-     * directly to the materialized column (the rewritten plan references the guarded MV scan slot), or -
-     * because a query-side nested-object guard never equals the cache guard - the expression is
-     * recomputed from the guarded output's base columns (the rewritten plan contains the unguarded
-     * recomputation pattern, e.g. date_trunc(ts#3, 'day') for the guarded output date_trunc(ts#0,'day')
-     * whose base column ts#0 materializes ts#3). Both consume a value that the cache declares
-     * creation-session dependent and must be rejected. Guards on view outputs the query does not read
-     * never reach the rewritten plan and are harmless, which is what makes a projection-subset rewrite
-     * (selecting only the zone-invariant columns of a UTC MV) safe.
+     * shuttled output to MV scan mapping. The fence follows the MV scan-column lineage the rewritten plan
+     * actually reads: a scan column that materializes a cache-guarded view output (e.g. mv_scan.d, the
+     * creation-session day boundary) carries the creation-session materialization and must be rejected,
+     * whether it is read directly or as an input of a further expression. A recomputation of the same
+     * value from independent, unguarded scan columns (e.g. date_trunc(mv_scan.ts, 'day') over the raw
+     * instant) is NOT rejected: it is evaluated in the current query session, so it returns exactly what
+     * the direct query would compute, and a query that selects only such value shapes must keep rewriting.
+     * Guards on view outputs the query does not read never reach the rewritten plan and are harmless,
+     * which is what makes a projection-subset rewrite (selecting only the zone-invariant columns of a UTC
+     * MV) safe.
      */
     private static boolean rewrittenPlanReadsGuardedOutput(Plan rewrittenPlan,
             MaterializationContext materializationContext) {
@@ -1154,48 +1151,16 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             // creation-session value directly
             return true;
         }
-        ExpressionMapping shuttledExprToScanExprMapping = materializationContext.getShuttledExprToScanExprMapping();
-        if (shuttledExprToScanExprMapping == null) {
-            return false;
-        }
-        Multimap<Expression, Expression> outputToScanMapping = shuttledExprToScanExprMapping.getExpressionMapping();
-        // base column mapping: the view's shuttled base columns (slots) -> the MV scan columns that
-        // materialize them, e.g. ts#0 -> ts#3
-        Map<Expression, Expression> baseColumnToScanExpr = new HashMap<>();
-        for (Map.Entry<Expression, Expression> entry : outputToScanMapping.entries()) {
-            if (entry.getKey() instanceof Slot && entry.getValue() instanceof Slot) {
-                baseColumnToScanExpr.put(entry.getKey(), entry.getValue());
-            }
-        }
-        // the MV scan columns that directly materialize a cache-guarded view output, and the unguarded
-        // recomputation patterns (base columns already mapped to MV scan columns) of those outputs
-        Set<Slot> guardedScanSlots = new HashSet<>();
-        Set<Expression> guardedRecomputePatterns = new HashSet<>();
-        for (Expression outputExpr : outputToScanMapping.keySet()) {
-            Optional<SessionVarGuardExpr> guard = outputExpr.collectFirst(SessionVarGuardExpr.class::isInstance);
-            if (!guard.isPresent() || !guard.get().isCacheGuard()) {
-                continue;
-            }
-            for (Expression scanExpr : outputToScanMapping.get(outputExpr)) {
-                if (scanExpr instanceof Slot) {
-                    guardedScanSlots.add((Slot) scanExpr);
-                }
-            }
-            // the guarded shuttled output expression may nest guards (e.g. a cast over a guarded child),
-            // strip every guard to get the value-shape, then map the base columns to MV scan columns
-            guardedRecomputePatterns.add(ExpressionUtils.replace(
-                    stripSessionVarGuards(guard.get().child(0)), baseColumnToScanExpr));
-        }
-        if (guardedScanSlots.isEmpty() && guardedRecomputePatterns.isEmpty()) {
+        Set<Slot> guardedScanSlots = guardedScanSlots(materializationContext);
+        if (guardedScanSlots.isEmpty()) {
             return false;
         }
         for (Plan node : rewrittenPlan.<Plan>collectToList(p -> true)) {
             for (Expression expr : node.getExpressions()) {
                 // the guard is transparent for the value it wraps, so compare its stripped form
-                Expression stripped = stripSessionVarGuards(expr);
-                for (Expression subExpr : stripped.<Expression>collectToSet(e -> true)) {
-                    if ((subExpr instanceof Slot && guardedScanSlots.contains(subExpr))
-                            || guardedRecomputePatterns.contains(subExpr)) {
+                Set<Slot> strippedSlots = stripSessionVarGuards(expr).collectToSet(Slot.class::isInstance);
+                for (Slot slot : strippedSlots) {
+                    if (guardedScanSlots.contains(slot)) {
                         return true;
                     }
                 }
@@ -1205,47 +1170,26 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     }
 
     /**
-     * Whether the full query output consumes a cache-guarded view output. A rewrite can substitute the
-     * MV scan for a sub plan of the query (e.g. the scan below the query's top project), so the rewritten
-     * plan alone may not contain the guarded output even though the query's top project computes it from
-     * the substituted columns; such a rewrite must be rejected too. The query output is compared against
-     * every cache-guarded view output after permuting the view slots to query slots and stripping the
-     * transparent guards, e.g. the guarded output svGuard(date_trunc(ts, 'day')) matches a query output
-     * svGuard(date_trunc(ts, 'day')) or date_trunc(ts, 'day').
+     * The MV scan columns that materialize a cache-guarded view output, e.g. mv_scan.d for the guarded
+     * output date_trunc(ts, 'day'). Reading any of them consumes the creation-session materialization.
      */
-    private static boolean queryOutputReadsGuardedOutput(Plan queryPlan, SlotMapping viewToQuerySlotMapping,
-            MaterializationContext materializationContext) {
+    private static Set<Slot> guardedScanSlots(MaterializationContext materializationContext) {
         ExpressionMapping shuttledExprToScanExprMapping = materializationContext.getShuttledExprToScanExprMapping();
         if (shuttledExprToScanExprMapping == null) {
-            return false;
+            return ImmutableSet.of();
         }
-        Multimap<Expression, Expression> outputToScanMapping = shuttledExprToScanExprMapping.getExpressionMapping();
-        // the unguarded query-slot shapes of every cache-guarded view output
-        Set<Expression> guardedOutputQueryShapes = new HashSet<>();
-        for (Expression outputExpr : outputToScanMapping.keySet()) {
-            Optional<SessionVarGuardExpr> guard = outputExpr.collectFirst(SessionVarGuardExpr.class::isInstance);
+        Set<Slot> guardedScanSlots = new HashSet<>();
+        for (Map.Entry<Expression, Expression> entry
+                : shuttledExprToScanExprMapping.getExpressionMapping().entries()) {
+            Optional<SessionVarGuardExpr> guard = entry.getKey()
+                    .collectFirst(SessionVarGuardExpr.class::isInstance);
             if (!guard.isPresent() || !guard.get().isCacheGuard()) {
                 continue;
             }
-            Expression queryBased = ExpressionUtils.replace(outputExpr, viewToQuerySlotMapping.toSlotReferenceMap());
-            guardedOutputQueryShapes.add(stripSessionVarGuards(queryBased));
+            Set<Slot> scanSlots = entry.getValue().collectToSet(Slot.class::isInstance);
+            guardedScanSlots.addAll(scanSlots);
         }
-        if (guardedOutputQueryShapes.isEmpty()) {
-            return false;
-        }
-        // shuttle the query top output with lineage so an output alias is compared by its value expression
-        // at the base level, e.g. the alias f1*f2 is compared as the multiply expression
-        List<? extends Expression> queryOutputShuttled = ExpressionUtils.shuttleExpressionWithLineage(
-                queryPlan.getOutput(), queryPlan);
-        for (Expression queryOutputExpr : queryOutputShuttled) {
-            Expression stripped = stripSessionVarGuards(queryOutputExpr);
-            for (Expression subExpr : stripped.<Expression>collectToSet(e -> true)) {
-                if (guardedOutputQueryShapes.contains(subExpr)) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        return guardedScanSlots;
     }
 
     /**

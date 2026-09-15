@@ -142,8 +142,18 @@ suite("test_timestamptz_partition_mtmv_preserve_creation_timezone","mtmv") {
     Assert.assertEquals("projection-subset cross-zone rewrite must return the same rows",
             subsetRewriteOff, subsetRewriteOn)
 
-    // A cross-zone query that reads the guarded day_str output must NOT be rewritten by the
-    // creation-zone materialization (the materialized day boundary was computed in the creation zone).
+    // A cross-zone query for the day string cannot consume the guarded day_str output: the query-side
+    // expression never equals the cache-guarded one, so the rewrite recomputes the value from the MV's raw
+    // ts column. That recomputation uses only the independent, unguarded scan columns and is evaluated in
+    // the query session, so it returns exactly what the direct query computes and the rewrite IS allowed
+    // (the cost tie between the recomputed MV plan and the base-table plan is left to the CBO).
     sql "SET time_zone = '${crossTz}'"
-    mv_rewrite_fail("SELECT CAST(date_trunc(ts, 'day') AS STRING), v FROM ${tableName}", mvName)
+    sql "SET enable_materialized_view_rewrite=false"
+    def recomputeOff = sql "SELECT CAST(date_trunc(ts, 'day') AS STRING), v FROM ${tableName}"
+    sql "SET enable_materialized_view_rewrite=true"
+    mv_rewrite_success_without_check_chosen("SELECT CAST(date_trunc(ts, 'day') AS STRING), v FROM ${tableName}",
+            mvName)
+    def recomputeOn = sql "SELECT CAST(date_trunc(ts, 'day') AS STRING), v FROM ${tableName}"
+    Assert.assertEquals("recomputed cross-zone rewrite must return the direct-query rows",
+            recomputeOff, recomputeOn)
 }

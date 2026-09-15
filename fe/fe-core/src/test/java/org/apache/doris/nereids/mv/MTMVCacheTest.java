@@ -40,8 +40,10 @@ import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.qe.ConnectContext;
@@ -56,12 +58,14 @@ import java.lang.reflect.Field;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 /**
  * Relevant test case about mtmv cache.
@@ -144,14 +148,15 @@ public class MTMVCacheTest extends SqlTestBase {
     }
 
     /**
-     * A query in +08:00 going through a view created in UTC must NOT be rewritten by an MTMV created in UTC
-     * when pre_materialized_view_rewrite_strategy = FORCE_IN_RBO. Expanding the view adds a query-side guard
-     * (the view's UTC creation vars) around the time-zone sensitive expression, and the MTMV cache built for
-     * the +08:00 session carries the identical-looking cache-mismatch guard (same child, same session vars).
-     * If the cache guard were not structurally distinct from the nested persisted-object guard, pre-RBO
-     * matching would substitute the UTC-materialized MTMV and read values that differ from what the query
-     * would compute in +08:00 after dropping the guard (e.g. for 2024-01-01 20:30Z, local January 2 midnight
-     * versus the UTC-truncated January 1 08:00).
+     * A query in +08:00 going through a view created in UTC must not CONSUME the UTC-materialized day column
+     * of an MTMV created in UTC when pre_materialized_view_rewrite_strategy = FORCE_IN_RBO. Expanding the
+     * view adds a query-side guard (the view's UTC creation vars) around the time-zone sensitive expression,
+     * and the MTMV cache built for the +08:00 session carries the identical-looking cache-mismatch guard
+     * (same child, same session vars). The cache guard must be structurally distinct from the nested
+     * persisted-object guard so that the materialized day column is never substituted (for 2024-01-01
+     * 20:30Z the UTC day is January 1 while the +08:00 day is January 2).
+     * Recomputing the day from the MTMV's raw ts column is a different, valid rewrite: it is evaluated in
+     * the current query session and returns exactly what the direct query computes, so it stays allowed.
      */
     @Test
     void testUtcViewNotRewrittenByUtcMtmvForCrossZoneQueryInRbo() throws Exception {
@@ -220,10 +225,34 @@ public class MTMVCacheTest extends SqlTestBase {
                     "the two guards carry the same session vars, so only the cache-guard distinction "
                             + "prevents the pre-RBO match");
 
-            // the pre rewrite must NOT substitute the UTC-materialized MTMV for the +08:00 query
+            // the pre rewrite must not read the UTC-materialized day column: the day is recomputed from the
+            // raw ts scan column in the +08:00 query session, which is what the direct query computes
             checker.preMvRewrite();
-            Assertions.assertTrue(c1.getStatementContext().getRewrittenPlansByMv().isEmpty(),
-                    "a cross-zone query through a UTC view must not be rewritten by the UTC MTMV in FORCE_IN_RBO");
+            List<Plan> rewrittenPlans = c1.getStatementContext().getRewrittenPlansByMv();
+            Assertions.assertFalse(rewrittenPlans.isEmpty(),
+                    "recomputing the day from the raw instant must keep rewriting across zones");
+            for (Plan rewrittenPlan : rewrittenPlans) {
+                List<LogicalOlapScan> scans = rewrittenPlan.collectToList(LogicalOlapScan.class::isInstance);
+                Optional<LogicalOlapScan> mvScan = scans.stream()
+                        .filter(scan -> "tz_cross_zone_mv".equals(scan.getTable().getName()))
+                        .findFirst();
+                Assertions.assertTrue(mvScan.isPresent(),
+                        "the rewritten plan must scan the materialized view");
+                Set<Slot> materializedDaySlots = mvScan.get().getOutput().stream()
+                        .filter(slot -> "d".equals(slot.getName()))
+                        .collect(Collectors.toSet());
+                List<Plan> planNodes = rewrittenPlan.collectToList(plan -> true);
+                for (Plan node : planNodes) {
+                    for (Expression expr : node.getExpressions()) {
+                        Set<Slot> exprSlots = expr.collectToSet(Slot.class::isInstance);
+                        for (Slot slot : exprSlots) {
+                            Assertions.assertFalse(materializedDaySlots.contains(slot),
+                                    "the cross-zone rewrite must not read the creation-zone materialized day "
+                                            + "column " + slot + ", plan is " + rewrittenPlan.treeString());
+                        }
+                    }
+                }
+            }
         } finally {
             connectContext.getSessionVariable().setTimeZone(originTimeZone);
             dropView("DROP VIEW IF EXISTS tz_cross_zone_view");

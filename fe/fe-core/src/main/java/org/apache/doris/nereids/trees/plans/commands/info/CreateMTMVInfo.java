@@ -174,25 +174,27 @@ public class CreateMTMVInfo extends CreateTableInfo {
             // the MV is physically created with IVM metadata.
             enableIvm = isExplicitIncremental();
             analyzeQuery(ctx);
-            // For a TIMESTAMPTZ-partitioned MTMV (date_trunc on a timestamptz column) the derived partition
-            // boundaries are UTC-aligned (see MTMVPartitionExprDateTrunc). Persist time_zone=UTC as the effective
-            // creation zone so the background refresh evaluates the partition key in UTC (matching the UTC
-            // boundaries) and the rewrite guard compares queries against the same UTC semantics. Without this,
-            // content expressions would be materialized in a zone different from the persisted one, and queries
-            // in the persisted (non-UTC) zone could rewrite against a cache built with different semantics.
-            if (usesUtcTimeZonePartition()) {
-                Map<String, String> effectiveSessionVariables = Maps.newHashMap(sessionVariables);
-                effectiveSessionVariables.put(SessionVariable.TIME_ZONE, TimeUtils.getUTCTimeZone().getID());
-                this.sessionVariables = effectiveSessionVariables;
-            }
-            this.partitionDesc = generatePartitionDesc(ctx);
-            // An omitted DISTRIBUTED BY is resolved below: an IVM (INCREMENTAL) MV auto-generates a HASH
-            // distribution on its hidden row-id column, and any other MTMV falls back to RANDOM. Requiring
-            // an explicit distribution here would break both cases (e.g. CREATE ... REFRESH INCREMENTAL
-            // without DISTRIBUTED BY must still auto-generate the row-id distribution).
+        }
+        // For a TIMESTAMPTZ-partitioned MTMV (date_trunc on a timestamptz column) the derived partition
+        // boundaries are UTC-aligned (see MTMVPartitionExprDateTrunc). Persist time_zone=UTC as the effective
+        // creation zone so the background refresh evaluates the partition key in UTC (matching the UTC
+        // boundaries) and the rewrite guard compares queries against the same UTC semantics. Without this,
+        // content expressions would be materialized in a zone different from the persisted one, and queries
+        // in the persisted (non-UTC) zone could rewrite against a cache built with different semantics.
+        // This must run after EITHER analysis arm has finalized mvPartitionInfo: for REFRESH AUTO the IVM
+        // probe may fall back to the regular path (an aliased date_trunc partition is an EXPR partition,
+        // which the IVM probe rejects), and the persisted session map would otherwise keep the non-UTC DDL
+        // zone while the physical boundaries stay UTC-aligned, so the refresh computes a day boundary that
+        // falls into no MV partition (or into the preceding UTC one).
+        if (usesUtcTimeZonePartition()) {
+            Map<String, String> effectiveSessionVariables = Maps.newHashMap(sessionVariables);
+            effectiveSessionVariables.put(SessionVariable.TIME_ZONE, TimeUtils.getUTCTimeZone().getID());
+            this.sessionVariables = effectiveSessionVariables;
         }
         validateRefreshStrategyForCreate();
         validateIvmOnlyProperties();
+        // An omitted DISTRIBUTED BY is resolved below: an IVM (INCREMENTAL) MV auto-generates a HASH
+        // distribution on its hidden row-id column, and any other MTMV falls back to RANDOM.
         this.partitionDesc = generatePartitionDesc(ctx);
 
         if (properties == null) {
