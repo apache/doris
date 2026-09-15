@@ -363,9 +363,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
     private Map<String, String> effectiveScanOptions(PaimonTableHandle handle) {
         Map<String, String> options = handle.getScanOptions();
-        return PaimonScanParams.preservesBoundSchema(options)
-                ? PaimonScanParams.withCatalogOptions(options, PaimonTableOptions.extract(catalogProps.getRaw()))
-                : options;
+        if (PaimonScanParams.preservesBoundSchema(options)) {
+            // Replayed catalogs already ignored legacy options during binding; scans must use the same policy.
+            return PaimonScanParams.withCatalogOptions(options,
+                    PaimonTableOptions.extractCompatible(catalogProps.getRaw()));
+        }
+        return options;
     }
 
     private Table applyScanOptions(PaimonTableHandle paimonHandle, Table table) {

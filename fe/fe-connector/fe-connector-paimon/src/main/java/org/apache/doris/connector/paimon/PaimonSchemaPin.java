@@ -29,6 +29,7 @@ import org.apache.paimon.table.Table;
 import org.apache.paimon.utils.SnapshotManager;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.LongSupplier;
@@ -121,6 +122,15 @@ final class PaimonSchemaPin {
                     throw changed();
                 }
             }
+        }
+    }
+
+    static void validateRetainedSchema(TableSchema retained, TableSchema persisted) {
+        // Dynamic copies legitimately overlay options, but preserve the schema's structural metadata
+        // and creation timestamp. Compare those against the same ID's physical history, not latest.
+        if (!schemaDigest(retained.copy(Collections.emptyMap()))
+                .equals(schemaDigest(persisted.copy(Collections.emptyMap())))) {
+            throw changed();
         }
     }
 

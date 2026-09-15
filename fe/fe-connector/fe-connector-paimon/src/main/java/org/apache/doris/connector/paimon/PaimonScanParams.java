@@ -252,11 +252,15 @@ public final class PaimonScanParams {
             FileStoreTable wrapped = ((DelegatedFileStoreTable) table).wrapped();
             return PaimonTableDecorators.replaceWrapped(table, restoreBoundSchema(wrapped, schemaId, options, path));
         }
+        TableSchema persistedSchema = table.schemaManager().schema(table.schema().id());
+        // A live pin can describe a replacement while this object still belongs to the old table.
+        // Validate its own schema version before either returning it or inferring dynamic overrides.
+        PaimonSchemaPin.validateRetainedSchema(table.schema(), persistedSchema);
         if (table.schema().id() == schemaId) {
             return table;
         }
         TableSchema bound = table.schemaManager().schema(schemaId);
-        Map<String, String> persisted = table.schemaManager().schema(table.schema().id()).options();
+        Map<String, String> persisted = persistedSchema.options();
         Map<String, String> merged = new HashMap<>(bound.options());
         // Field-referencing options evolve with the schema (e.g. bucket-key and sequence.field
         // on rename). Only replay the catalog/runtime delta, never another generation's options.
