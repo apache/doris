@@ -89,8 +89,7 @@ public class TimeDiff extends ScalarFunction
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
         signature = super.computeSignature(signature);
-        // TIMEV2 stores at most microseconds. A TIMESTAMP_NS operand therefore fixes the result
-        // at TIMEV2(6); do not feed its scale 9 into TimeV2Type.of().
+        // TIMESTAMP_NS has fixed scale 9, so its TIMEV2 difference keeps nanosecond precision.
         if (getArgument(0).getDataType() instanceof TimeStampNsType
                 || getArgument(1).getDataType() instanceof TimeStampNsType) {
             return signature.withReturnType(TimeV2Type.MAX);

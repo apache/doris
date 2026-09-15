@@ -19,6 +19,7 @@ package org.apache.doris.mysql;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MysqlColType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 
@@ -295,6 +296,12 @@ public class MysqlSerializer {
             case TIMESTAMP_NS:
                 // yyyy-MM-dd HH:mm:ss.nnnnnnnnn
                 return 29;
+            case TIMEV2:
+                if (isNanosecondTime(type)) {
+                    // -838:59:59.nnnnnnnnn
+                    return 20;
+                }
+                return 10;
             case DATETIME:
             case DATETIMEV2: {
                 if (type.getPrimitiveType().isTimeType()) {
@@ -336,7 +343,7 @@ public class MysqlSerializer {
 
     // this is used for decimal scale
     public int getMysqlDecimals(Type type) {
-        if (isTimestampNs(type)) {
+        if (isNanosecondTemporalString(type)) {
             return 0;
         }
         switch (type.getPrimitiveType()) {
@@ -357,14 +364,23 @@ public class MysqlSerializer {
     }
 
     private MysqlColType getMysqlResultType(Type type) {
-        // MySQL's binary temporal value contains at most microseconds. TIMESTAMP_NS is
-        // serialized by BE as a length-encoded string so the metadata must advertise a string too.
-        return isTimestampNs(type) ? MysqlColType.MYSQL_TYPE_STRING
+        // MySQL's binary temporal values contain at most microseconds. Nanosecond temporal
+        // values are serialized by BE as length-encoded strings, so advertise them as strings.
+        return isNanosecondTemporalString(type) ? MysqlColType.MYSQL_TYPE_STRING
                 : type.getPrimitiveType().toMysqlType();
+    }
+
+    private boolean isNanosecondTemporalString(Type type) {
+        return isTimestampNs(type) || isNanosecondTime(type);
     }
 
     private boolean isTimestampNs(Type type) {
         return type.isTimeStampNs();
+    }
+
+    private boolean isNanosecondTime(Type type) {
+        return type.getPrimitiveType() == PrimitiveType.TIMEV2
+                && ((ScalarType) type).decimalScale() > 6;
     }
 
     // see https://github.com/mysql/mysql-server/blob/trunk/include/mysql_com.h#L161

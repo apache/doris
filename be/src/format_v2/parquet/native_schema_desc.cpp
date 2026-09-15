@@ -863,7 +863,12 @@ std::pair<DataTypePtr, bool> NativeFieldDescriptor::convert_to_doris_type(
             }
         }
     } else if (logicalType.__isset.TIME) {
-        const int scale = logicalType.TIME.unit.__isset.MILLIS ? 3 : 6;
+        int scale = 9;
+        if (logicalType.TIME.unit.__isset.MILLIS) {
+            scale = 3;
+        } else if (logicalType.TIME.unit.__isset.MICROS) {
+            scale = 6;
+        }
         // TIME stores an integer unit, so its Doris scale must preserve the footer unit or
         // sub-second values are silently truncated by the target SerDe.
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_TIMEV2, nullable, 0, scale);

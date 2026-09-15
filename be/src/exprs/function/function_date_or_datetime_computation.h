@@ -673,7 +673,11 @@ struct TimeDiffImpl {
     static inline DataTypeTimeV2::FieldType execute(const ArgType& t0, const ArgType& t1) {
         const auto& ts0 = reinterpret_cast<const ValueType&>(t0);
         const auto& ts1 = reinterpret_cast<const ValueType&>(t1);
-        if constexpr (UsingTimev2) {
+        if constexpr (DateType == TYPE_TIMESTAMP_NS) {
+            const __int128 difference =
+                    static_cast<__int128>(ts0.epoch_nanos()) - ts1.epoch_nanos();
+            return TimeValue::from_nanoseconds_with_limit(difference);
+        } else if constexpr (UsingTimev2) {
             int64_t diff_m = ts0.datetime_diff_in_microseconds(ts1);
             return TimeValue::limit_with_bound(diff_m);
         } else {
@@ -711,7 +715,37 @@ struct MixedTimeDiffImpl : TimeDiffImpl<LeftType> {
                                                     const RightFieldType& right) {
         const auto& left_value = reinterpret_cast<const LeftValueType&>(left);
         const auto& right_value = reinterpret_cast<const RightValueType&>(right);
-        return TimeValue::limit_with_bound(left_value.datetime_diff_in_microseconds(right_value));
+        const auto left_datetime = [&] {
+            if constexpr (LeftType == TYPE_TIMESTAMP_NS) {
+                return left_value.to_datetime();
+            } else {
+                return left_value;
+            }
+        }();
+        const auto right_datetime = [&] {
+            if constexpr (RightType == TYPE_TIMESTAMP_NS) {
+                return right_value.to_datetime();
+            } else {
+                return right_value;
+            }
+        }();
+        const uint32_t left_nanosecond = [&] {
+            if constexpr (LeftType == TYPE_TIMESTAMP_NS) {
+                return left_value.nanosecond();
+            } else {
+                return left_value.microsecond() * TimeValue::NANOS_PER_MICROSECOND;
+            }
+        }();
+        const uint32_t right_nanosecond = [&] {
+            if constexpr (RightType == TYPE_TIMESTAMP_NS) {
+                return right_value.nanosecond();
+            } else {
+                return right_value.microsecond() * TimeValue::NANOS_PER_MICROSECOND;
+            }
+        }();
+        const __int128 difference = datetime_diff_in_nanoseconds(right_datetime, right_nanosecond,
+                                                                 left_datetime, left_nanosecond);
+        return TimeValue::from_nanoseconds_with_limit(difference);
     }
 
     static DataTypes get_variadic_argument_types() {
@@ -1380,15 +1414,18 @@ struct CurrentTimeImpl {
             const auto* col = assert_cast<const ColumnInt8*>(
                     block.get_by_position(arguments[0]).column.get());
             uint8_t precision = col->get_element(0);
-            if (precision <= 6) {
+            if (precision <= DataTypeTimeV2::MAX_SCALE) {
+                const int32_t factor = common::exp10_i32(TimeValue::NANOS_SCALE - precision);
+                const int32_t nanosecond = context->state()->nano_seconds() / factor * factor;
                 dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                                   context->state()->nano_seconds(),
-                                  context->state()->timezone_obj(), precision);
-                time = TimeValue::make_time(dtv.hour(), dtv.minute(), dtv.second(),
-                                            dtv.microsecond());
+                                  context->state()->timezone_obj(),
+                                  std::min<uint8_t>(precision, TimeValue::MICROS_SCALE));
+                time = TimeValue::make_time_from_nanoseconds(dtv.hour(), dtv.minute(), dtv.second(),
+                                                             nanosecond);
             } else {
                 return Status::InvalidArgument(
-                        "The precision in function CURTIME should be between 0 and 6, but got "
+                        "The precision in function CURTIME should be between 0 and 9, but got "
                         "{}",
                         precision);
             }
@@ -1590,7 +1627,8 @@ struct UtcImpl {
         auto col_to = PrimitiveTypeTraits<ReturnType>::ColumnType::create();
         DateV2Value<DateTimeV2ValueType> dtv;
         if (dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
-                              context->state()->nano_seconds(), "+00:00", scale)) {
+                              context->state()->nano_seconds(), "+00:00",
+                              std::min(scale, DATETIMEV2_MAX_SCALE))) {
             if constexpr (ReturnType == TYPE_DATETIMEV2) {
                 col_to->insert_data(reinterpret_cast<char*>(&dtv), 0);
             } else if constexpr (ReturnType == TYPE_DATEV2) {
@@ -1598,8 +1636,10 @@ struct UtcImpl {
                 dv.assign_from(dtv);
                 col_to->insert_data(reinterpret_cast<char*>(&dv), 0);
             } else if constexpr (ReturnType == TYPE_TIMEV2) {
-                double time = TimeValue::make_time(dtv.hour(), dtv.minute(), dtv.second(),
-                                                   dtv.microsecond());
+                const int32_t factor = common::exp10_i32(TimeValue::NANOS_SCALE - scale);
+                const int32_t nanosecond = context->state()->nano_seconds() / factor * factor;
+                double time = TimeValue::make_time_from_nanoseconds(dtv.hour(), dtv.minute(),
+                                                                    dtv.second(), nanosecond);
                 col_to->insert_data(reinterpret_cast<char*>(&time), 0);
             }
         } else {
@@ -1898,9 +1938,8 @@ private:
         auto& res_data = res->get_data();
         for (size_t i = 0; i < arg.size(); ++i) {
             const auto& v = arg.get_element(i);
-            // TIMEV2 has microsecond precision, so TIMESTAMP_NS intentionally drops digits 7-9.
             if constexpr (PType == TYPE_TIMESTAMP_NS) {
-                res_data[i] = static_cast<TimeValue::TimeType>(v.time_part_to_microsecond());
+                res_data[i] = TimeValue::from_nanoseconds(v.time_part_to_nanosecond());
             } else {
                 res_data[i] =
                         TimeValue::make_time(v.hour(), v.minute(), v.second(), v.microsecond());
@@ -2150,14 +2189,14 @@ public:
             const auto& arg2 = right_data[index_check_const(i, cols_info[1].is_const)];
 
             if constexpr (PType == TYPE_TIMESTAMP_NS) {
-                auto result = arg1;
-                auto tv2 = static_cast<TimeValue::TimeType>(arg2);
-                TimeInterval interval(TimeUnit::MICROSECOND, tv2, IsNegative);
-                if (!result.template date_add_interval<TimeUnit::MICROSECOND>(interval))
-                        [[unlikely]] {
+                const __int128 delta = TimeValue::to_nanoseconds(arg2);
+                const __int128 result_nanos =
+                        static_cast<__int128>(arg1.epoch_nanos()) + (IsNegative ? -delta : delta);
+                if (result_nanos < std::numeric_limits<int64_t>::min() ||
+                    result_nanos > std::numeric_limits<int64_t>::max()) [[unlikely]] {
                     throw_invalid_strings(name, arg1.to_string(), std::to_string(arg2));
                 }
-                res_col->insert_value(result);
+                res_col->insert_value(TimeStampNsValue(static_cast<int64_t>(result_nanos)));
             } else if constexpr (PType == TYPE_DATETIMEV2 || PType == TYPE_TIMESTAMPTZ) {
                 DateV2Value<DateTimeV2ValueType> dtv1(arg1.to_date_int_val());
                 auto tv2 = static_cast<TimeValue::TimeType>(arg2);
@@ -2168,10 +2207,11 @@ public:
                 }
                 res_col->insert_value(dtv1);
             } else if constexpr (PType == TYPE_TIMEV2) {
-                auto tv1 = static_cast<TimeValue::TimeType>(arg1);
-                auto tv2 = static_cast<TimeValue::TimeType>(arg2);
-                double res = TimeValue::limit_with_bound(IsNegative ? tv1 - tv2 : tv1 + tv2);
-                res_col->insert_value(res);
+                const __int128 left_nanoseconds = TimeValue::to_nanoseconds(arg1);
+                const __int128 right_nanoseconds = TimeValue::to_nanoseconds(arg2);
+                res_col->insert_value(TimeValue::from_nanoseconds_with_limit(
+                        IsNegative ? left_nanoseconds - right_nanoseconds
+                                   : left_nanoseconds + right_nanoseconds));
             } else {
                 throw Exception(ErrorCode::FATAL_ERROR, "not support type for function {}", name);
             }

@@ -20,7 +20,9 @@
 #include <arrow/array.h>
 #include <arrow/type.h>
 
+#include <algorithm>
 #include <limits>
+#include <utility>
 
 #include "common/config.h"
 #include "core/data_type/data_type_decimal.h"
@@ -30,6 +32,7 @@
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "core/value/time_value.h"
+#include "exec/common/int_exp.h"
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/cast_to_time_impl.hpp"
 #include "util/unaligned.h"
@@ -37,40 +40,40 @@
 namespace doris {
 namespace {
 
-TimeValue::TimeType read_time_decoded_value(const DecodedColumnView& view, int64_t row) {
-    int64_t micros = 0;
+TimeValue::TimeType time_from_nanoseconds(int64_t nanoseconds, int scale) {
+    const int effective_scale = std::max(scale, static_cast<int>(TimeValue::MICROS_SCALE));
+    const int64_t divisor = common::exp10_i64(TimeValue::NANOS_SCALE - effective_scale);
+    return TimeValue::from_nanoseconds(nanoseconds / divisor * divisor);
+}
+
+TimeValue::TimeType read_time_decoded_value(const DecodedColumnView& view, int64_t row, int scale) {
     if (view.value_kind == DecodedValueKind::INT32) {
         const auto* values = reinterpret_cast<const int32_t*>(view.values);
-        micros = static_cast<int64_t>(values[row]) * 1000;
-    } else {
-        const auto* values = reinterpret_cast<const int64_t*>(view.values);
-        micros = values[row];
-        if (view.time_unit == DecodedTimeUnit::MILLIS) {
-            micros *= 1000;
-        } else if (view.time_unit == DecodedTimeUnit::NANOS) {
-            micros /= 1000;
-        }
+        return static_cast<TimeValue::TimeType>(values[row]) * 1000;
     }
-    const bool negative = micros < 0;
-    const int64_t abs_micros = std::abs(micros);
-    return TimeValue::make_time(
-            abs_micros / TimeValue::ONE_HOUR_MICROSECONDS,
-            (abs_micros % TimeValue::ONE_HOUR_MICROSECONDS) / TimeValue::ONE_MINUTE_MICROSECONDS,
-            (abs_micros % TimeValue::ONE_MINUTE_MICROSECONDS) / TimeValue::ONE_SECOND_MICROSECONDS,
-            abs_micros % TimeValue::ONE_SECOND_MICROSECONDS, negative);
+    const auto* values = reinterpret_cast<const int64_t*>(view.values);
+    if (view.time_unit == DecodedTimeUnit::MILLIS) {
+        return static_cast<TimeValue::TimeType>(values[row]) * 1000;
+    }
+    if (view.time_unit == DecodedTimeUnit::NANOS) {
+        return time_from_nanoseconds(values[row], scale);
+    }
+    return static_cast<TimeValue::TimeType>(values[row]);
 }
 
 class TimeV2ParquetConsumer final : public ParquetFixedValueConsumer {
 public:
-    TimeV2ParquetConsumer(IColumn& column, const ParquetDecodeContext& context,
+    TimeV2ParquetConsumer(IColumn& column, int scale, const ParquetDecodeContext& context,
                           ParquetMaterializationState* state = nullptr)
             : _data(assert_cast<ColumnTimeV2&>(column).get_data()),
+              _scale(scale),
               _context(context),
               _state(state) {}
 
-    TimeV2ParquetConsumer(ColumnTimeV2::Container& data, const ParquetDecodeContext& context,
+    TimeV2ParquetConsumer(ColumnTimeV2::Container& data, int scale,
+                          const ParquetDecodeContext& context,
                           ParquetMaterializationState* state = nullptr)
-            : _data(data), _context(context), _state(state) {}
+            : _data(data), _scale(scale), _context(context), _state(state) {}
 
     Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
         const size_t old_size = _data.size();
@@ -106,21 +109,20 @@ public:
                 return Status::DataQualityError(
                         "Parquet TIME value {} is outside the one-day domain", raw_value);
             }
-            int64_t micros = raw_value;
+            TimeValue::TimeType time = raw_value;
             if (_context.time_unit == ParquetTimeUnit::MILLIS) {
-                micros *= 1000;
+                time *= 1000;
             } else if (_context.time_unit == ParquetTimeUnit::NANOS) {
-                micros /= 1000;
+                time = time_from_nanoseconds(raw_value, _scale);
             }
-            // Doris TIMEV2 stores signed microseconds in a double. Splitting into calendar fields
-            // and immediately recombining them is an identity operation with several divisions.
-            _data[old_size + row] = static_cast<TimeValue::TimeType>(micros);
+            _data[old_size + row] = time;
         }
         return Status::OK();
     }
 
 private:
     ColumnTimeV2::Container& _data;
+    const int _scale;
     const ParquetDecodeContext& _context;
     ParquetMaterializationState* _state;
 };
@@ -134,11 +136,12 @@ public:
 
 class TimeV2PredicateParquetConsumer final : public ParquetFixedValueConsumer {
 public:
-    TimeV2PredicateParquetConsumer(const ParquetDecodeContext& context, bool enable_strict_mode,
-                                   ParquetLogicalValueConsumer& consumer,
+    TimeV2PredicateParquetConsumer(const ParquetDecodeContext& context, int scale,
+                                   bool enable_strict_mode, ParquetLogicalValueConsumer& consumer,
                                    ColumnTimeV2::Container& logical_values,
                                    IColumn::Filter& conversion_nulls)
             : _context(context),
+              _scale(scale),
               _enable_strict_mode(enable_strict_mode),
               _consumer(consumer),
               _logical_values(logical_values),
@@ -151,7 +154,7 @@ public:
         ParquetMaterializationState state;
         state.enable_strict_mode = _enable_strict_mode;
         state.conversion_failure_null_map = &_conversion_nulls;
-        TimeV2ParquetConsumer converter(_logical_values, _context, &state);
+        TimeV2ParquetConsumer converter(_logical_values, _scale, _context, &state);
         RETURN_IF_ERROR(converter.consume(values, num_values, value_width));
         return _consumer.consume(reinterpret_cast<const uint8_t*>(_logical_values.data()),
                                  num_values, sizeof(TimeValue::TimeType), _conversion_nulls.data());
@@ -159,6 +162,7 @@ public:
 
 private:
     const ParquetDecodeContext& _context;
+    const int _scale;
     bool _enable_strict_mode;
     ParquetLogicalValueConsumer& _consumer;
     ColumnTimeV2::Container& _logical_values;
@@ -173,7 +177,14 @@ Status DataTypeTimeV2SerDe::write_column_to_mysql_binary(const IColumn& column,
                                                          const FormatOptions& options) const {
     const auto& data = assert_cast<const ColumnTimeV2&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
-    if (UNLIKELY(0 != result.push_timev2(data[col_index], _scale))) {
+    int push_result;
+    if (std::cmp_greater(_scale, TimeValue::MICROS_SCALE)) {
+        const auto value = TimeValue::to_string(data[col_index], _scale);
+        push_result = result.push_string(value.data(), value.size());
+    } else {
+        push_result = result.push_timev2(data[col_index], _scale);
+    }
+    if (UNLIKELY(push_result != 0)) {
         return Status::InternalError("pack mysql buffer failed.");
     }
     return Status::OK();
@@ -365,8 +376,10 @@ Status DataTypeTimeV2SerDe::read_column_from_arrow(IColumn& column, const arrow:
                         "Arrow Time64 value is outside the time-of-day range: row={}, value={}",
                         row, value);
             }
-            const int64_t micros = type->unit() == arrow::TimeUnit::NANO ? value / 1000 : value;
-            data.emplace_back(static_cast<TimeValue::TimeType>(micros));
+            const auto time = type->unit() == arrow::TimeUnit::NANO
+                                      ? time_from_nanoseconds(value, _scale)
+                                      : static_cast<TimeValue::TimeType>(value);
+            data.emplace_back(time);
         }
         return Status::OK();
     }
@@ -391,14 +404,14 @@ Status DataTypeTimeV2SerDe::read_column_from_decoded_values(IColumn& column,
             data.push_back(TimeValue::TimeType());
             continue;
         }
-        data.push_back(read_time_decoded_value(view, row));
+        data.push_back(read_time_decoded_value(view, row, _scale));
     }
     return Status::OK();
 }
 
 Status DataTypeTimeV2SerDe::read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
                                                     const ParquetDecodeContext& context) const {
-    TimeV2ParquetConsumer consumer(column, context);
+    TimeV2ParquetConsumer consumer(column, _scale, context);
     RejectTimeV2BinaryConsumer binary_consumer;
     return source.decode_dictionary(consumer, binary_consumer);
 }
@@ -412,14 +425,14 @@ Status DataTypeTimeV2SerDe::read_column_from_parquet(IColumn& column, ParquetDec
         context.logical_type != ParquetLogicalType::TIME) {
         return Status::NotSupported("TIMEV2 expects Parquet TIME stored as INT32 or INT64");
     }
-    TimeV2ParquetConsumer consumer(column, context, &state);
+    TimeV2ParquetConsumer consumer(column, _scale, context, &state);
     if (context.encoding != ParquetValueEncoding::DICTIONARY) {
         return source.decode_fixed_values(num_values, consumer);
     }
     if (state.dictionary_generation != source.dictionary_generation()) {
         state.typed_dictionary = column.clone_empty();
         auto* output_null_map = state.begin_dictionary_conversion(source.dictionary_size());
-        TimeV2ParquetConsumer dictionary_consumer(*state.typed_dictionary, context, &state);
+        TimeV2ParquetConsumer dictionary_consumer(*state.typed_dictionary, _scale, context, &state);
         RejectTimeV2BinaryConsumer binary_consumer;
         const Status dictionary_status =
                 source.decode_dictionary(dictionary_consumer, binary_consumer);
@@ -445,7 +458,7 @@ Status DataTypeTimeV2SerDe::read_parquet_raw_predicate(
     if (!supports_parquet_raw_predicate(context)) {
         return Status::NotSupported("Unsupported Parquet raw predicate conversion for TIMEV2");
     }
-    TimeV2PredicateParquetConsumer predicate_consumer(context, enable_strict_mode, consumer,
+    TimeV2PredicateParquetConsumer predicate_consumer(context, _scale, enable_strict_mode, consumer,
                                                       _parquet_predicate_values,
                                                       _parquet_predicate_nulls);
     return source.decode_fixed_values(num_values, predicate_consumer);

@@ -87,6 +87,13 @@ TEST(TimestampNsFunctionTest, calendar_extract_and_format) {
                          {{{std::string("12:34:56.123456"), std::string("%f|%n")},
                            std::string("123456|123456000")}})
                          .ok()));
+    const InputTypeSet timev2_scale9_format_arguments = {{PrimitiveType::TYPE_TIMEV2, 9},
+                                                         Consted {PrimitiveType::TYPE_VARCHAR}};
+    EXPECT_TRUE((check_function<DataTypeString, true>(
+                         "time_format", timev2_scale9_format_arguments,
+                         {{{std::string("12:34:56.123456789"), std::string("%f|%n")},
+                           std::string("123456|123456789")}})
+                         .ok()));
 
     EXPECT_TRUE((check_function<DataTypeString, true>(
                          "year_month", one_argument,
@@ -360,6 +367,24 @@ TEST(TimestampNsFunctionTest, arithmetic_preserves_nanoseconds_and_checks_range)
                            std::string("1969-12-31 23:59:59.999999001")}})
                          .ok()));
 
+    const InputTypeSet nanosecond_time_arguments = {{PrimitiveType::TYPE_TIMESTAMP_NS},
+                                                    {PrimitiveType::TYPE_TIMEV2, 9}};
+    EXPECT_TRUE((check_function<DataTypeTimeStampNs, true>(
+                         "add_time", nanosecond_time_arguments,
+                         {{{std::string("2024-02-29 12:34:56.123456789"),
+                            std::string("00:00:00.000000001")},
+                           std::string("2024-02-29 12:34:56.123456790")}})
+                         .ok()));
+
+    const InputTypeSet time_only_arguments = {{PrimitiveType::TYPE_TIMEV2, 9},
+                                              {PrimitiveType::TYPE_TIMEV2, 9}};
+    EXPECT_TRUE((check_function<DataTypeTimeV2, true>(
+                         "sub_time", time_only_arguments,
+                         {{{std::string("12:34:56.123456789"), std::string("00:00:00.000000001")},
+                           std::string("12:34:56.123456788")}},
+                         9)
+                         .ok()));
+
     EXPECT_FALSE((check_function<DataTypeTimeStampNs, true>(
                           "seconds_add", subday_arguments,
                           {{{std::string("2262-04-11 23:47:16.854775807"), int64_t(1)},
@@ -423,11 +448,11 @@ TEST(TimestampNsFunctionTest, differences_keep_submicrosecond_ordering) {
             (check_function<DataTypeTimeV2, true>("timediff", arguments,
                                                   {{{std::string("1970-01-01 00:00:00.000000000"),
                                                      std::string("1969-12-31 23:59:59.999999999")},
-                                                    std::string("0.0")},
+                                                    std::string("00:00:00.000000001")},
                                                    {{std::string("2024-02-29 12:34:56.123456789"),
                                                      std::string("2024-02-29 12:34:55.000000001")},
-                                                    std::string("00:00:01.123456")}},
-                                                  6)
+                                                    std::string("00:00:01.123456788")}},
+                                                  9)
                      .ok()));
     EXPECT_TRUE(
             (check_function<DataTypeInt64, true>("microseconds_diff", arguments,
@@ -476,8 +501,8 @@ TEST(TimestampNsFunctionTest, mixed_datetimev2_differences_do_not_narrow_datetim
             (check_function<DataTypeTimeV2, true>("timediff", timestamp_ns_first,
                                                   {{{std::string("2024-01-02 00:00:00.000001789"),
                                                      std::string("2024-01-02 00:00:00.000000")},
-                                                    std::string("00:00:00.000001")}},
-                                                  6)
+                                                    std::string("00:00:00.000001789")}},
+                                                  9)
                      .ok()));
 
     EXPECT_TRUE(

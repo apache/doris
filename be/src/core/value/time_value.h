@@ -39,9 +39,13 @@ public:
     constexpr static int64_t ONE_SECOND_MICROSECONDS = 1000000;
     constexpr static int64_t ONE_MINUTE_MICROSECONDS = 60 * ONE_SECOND_MICROSECONDS;
     constexpr static int64_t ONE_HOUR_MICROSECONDS = 60 * ONE_MINUTE_MICROSECONDS;
+    constexpr static int64_t NANOS_PER_MICROSECOND = 1000;
+    constexpr static int64_t ONE_SECOND_NANOSECONDS =
+            ONE_SECOND_MICROSECONDS * NANOS_PER_MICROSECOND;
     constexpr static int64_t ONE_MINUTE_SECONDS = 60;
     constexpr static int64_t ONE_HOUR_SECONDS = 60 * ONE_MINUTE_SECONDS;
     constexpr static uint32_t MICROS_SCALE = 6;
+    constexpr static uint32_t NANOS_SCALE = 9;
     constexpr static int64_t MAX_TIME = 838 * ONE_HOUR_MICROSECONDS + 59 * ONE_MINUTE_MICROSECONDS +
                                         59 * ONE_SECOND_MICROSECONDS; // 838:59:59.000000
 
@@ -50,13 +54,13 @@ public:
     using ColumnTimeV2 = typename PrimitiveTypeTraits<TYPE_TIMEV2>::ColumnType;
 
 #include "common/compile_check_avoid_begin.h"
-    static int64_t round_time(TimeType value, uint32_t scale) {
-        int64_t time = value;
-        DCHECK(scale <= MICROS_SCALE);
-        int64_t factor = std::pow(10, 6 - scale);
-        int64_t roundedValue = (time >= 0) ? (time + factor / 2) / factor * factor
-                                           : (time - factor / 2) / factor * factor;
-        return roundedValue;
+    static TimeType round_time(TimeType value, uint32_t scale) {
+        DCHECK(scale <= NANOS_SCALE);
+        int64_t time = to_nanoseconds(value);
+        int64_t factor = std::pow(10, NANOS_SCALE - scale);
+        int64_t rounded_value = (time >= 0) ? (time + factor / 2) / factor * factor
+                                            : (time - factor / 2) / factor * factor;
+        return from_nanoseconds(rounded_value);
     }
 
     // Construct time based on hour/minute/second/microsecond
@@ -80,6 +84,27 @@ public:
         return static_cast<TimeType>(negative ? -value : value);
     }
 
+    // Construct time based on hour/minute/second/nanosecond.
+    template <bool CHECK = false>
+    static TimeType make_time_from_nanoseconds(int64_t hour, int64_t minute, int64_t second,
+                                               int64_t nanosecond = 0, bool negative = false) {
+        if constexpr (CHECK) {
+            if (std::abs(hour) > 838 || std::abs(minute) >= 60 || std::abs(second) >= 60 ||
+                std::abs(nanosecond) >= ONE_SECOND_NANOSECONDS) [[unlikely]] {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Invalid time value: hour={}, minute={}, second={}, nanosecond={}",
+                                hour, minute, second, nanosecond);
+            }
+        }
+        DCHECK(hour >= 0 && minute >= 0 && second >= 0 && nanosecond >= 0)
+                << "Hour, minute, second and nanosecond must be non-negative but got " << hour
+                << ":" << minute << ":" << second << "." << nanosecond;
+        const int64_t value = ((hour * ONE_HOUR_SECONDS) + (minute * ONE_MINUTE_SECONDS) + second) *
+                                      ONE_SECOND_NANOSECONDS +
+                              nanosecond;
+        return from_nanoseconds(negative ? -value : value);
+    }
+
     // if time is negative, ms should be negative too. in existing scenario, we ensure microsecond's bound by caller.
     static TimeType init_microsecond(TimeType time, int32_t microsecond) {
         DCHECK(std::signbit(time) == std::signbit(microsecond) || !time || !microsecond)
@@ -87,6 +112,14 @@ public:
                 << microsecond;
 
         return static_cast<TimeType>(time + microsecond);
+    }
+
+    // If time is negative, nanosecond should be negative too. Callers validate its bound.
+    static TimeType init_nanosecond(TimeType time, int64_t nanosecond) {
+        DCHECK(std::signbit(time) == std::signbit(nanosecond) || !time || !nanosecond)
+                << "Time and nanosecond must have the same sign but got " << time << " and "
+                << nanosecond;
+        return time + static_cast<TimeType>(nanosecond) / NANOS_PER_MICROSECOND;
     }
 #include "common/compile_check_avoid_end.h"
 
@@ -107,25 +140,45 @@ public:
 
     /// Return the hour/minute/second part of the time, ignoring the sign
     static int32_t hour(TimeType time) {
-        return (int32_t)std::abs(
-                static_cast<int64_t>(limit_with_bound(time) / ONE_HOUR_MICROSECONDS));
+        return static_cast<int32_t>(
+                std::abs(to_nanoseconds(time) / (ONE_HOUR_MICROSECONDS * NANOS_PER_MICROSECOND)));
     }
 
     static int32_t minute(TimeType time) {
-        return (int32_t)std::abs(
-                (static_cast<int64_t>(limit_with_bound(time)) % ONE_HOUR_MICROSECONDS) /
-                ONE_MINUTE_MICROSECONDS);
+        return static_cast<int32_t>(
+                std::abs((to_nanoseconds(time) % (ONE_HOUR_MICROSECONDS * NANOS_PER_MICROSECOND)) /
+                         (ONE_MINUTE_MICROSECONDS * NANOS_PER_MICROSECOND)));
     }
 
     static int32_t second(TimeType time) {
-        return (int32_t)std::abs(
-                (static_cast<int64_t>(limit_with_bound(time)) / ONE_SECOND_MICROSECONDS) %
-                ONE_MINUTE_SECONDS);
+        return static_cast<int32_t>(
+                std::abs((to_nanoseconds(time) / ONE_SECOND_NANOSECONDS) % ONE_MINUTE_SECONDS));
     }
 
-    static int32_t microsecond(TimeType time) {
-        return (int32_t)std::abs(static_cast<int64_t>(limit_with_bound(time)) %
-                                 ONE_SECOND_MICROSECONDS);
+    static int32_t microsecond(TimeType time) { return nanosecond(time) / NANOS_PER_MICROSECOND; }
+
+    static int32_t nanosecond(TimeType time) {
+        return static_cast<int32_t>(std::abs(to_nanoseconds(time) % ONE_SECOND_NANOSECONDS));
+    }
+
+    static int64_t to_nanoseconds(TimeType time) {
+        return std::llround(limit_with_bound(time) * NANOS_PER_MICROSECOND);
+    }
+
+    static TimeType from_nanoseconds(int64_t nanoseconds) {
+        return static_cast<TimeType>(nanoseconds) / NANOS_PER_MICROSECOND;
+    }
+
+    static TimeType from_nanoseconds_with_limit(__int128 nanoseconds) {
+        constexpr __int128 max_time_nanoseconds =
+                static_cast<__int128>(MAX_TIME) * NANOS_PER_MICROSECOND;
+        if (nanoseconds > max_time_nanoseconds) {
+            return MAX_TIME;
+        }
+        if (nanoseconds < -max_time_nanoseconds) {
+            return -MAX_TIME;
+        }
+        return from_nanoseconds(static_cast<int64_t>(nanoseconds));
     }
 
     static int8_t sign(TimeType time) { return (time < 0) ? -1 : 1; }
@@ -167,7 +220,7 @@ public:
         return DatetimeValueUtil::to_format_string_without_check<true>(
                 format, len, to, max_valid_length, 0, 0, 0, TimeValue::hour(time),
                 TimeValue::minute(time), TimeValue::second(time), TimeValue::microsecond(time),
-                nanosecond);
+                nanosecond < 0 ? TimeValue::nanosecond(time) : nanosecond);
     }
 };
 } // namespace doris
