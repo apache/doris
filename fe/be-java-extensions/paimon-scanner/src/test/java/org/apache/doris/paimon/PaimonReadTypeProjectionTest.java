@@ -17,7 +17,7 @@
 
 package org.apache.doris.paimon;
 
-import org.apache.doris.common.jni.vec.ColumnType;
+import org.apache.doris.jni.spi.vec.ColumnType;
 
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;
@@ -25,8 +25,8 @@ import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 
@@ -56,27 +56,27 @@ public class PaimonReadTypeProjectionTest {
 
         RowType projected = (RowType) PaimonReadTypeProjection.project(tableType, requiredType);
 
-        Assert.assertFalse(projected.isNullable());
-        Assert.assertEquals(Arrays.asList("profile", "events", "attributes"), projected.getFieldNames());
+        Assertions.assertFalse(projected.isNullable());
+        Assertions.assertEquals(Arrays.asList("profile", "events", "attributes"), projected.getFieldNames());
 
         DataField profile = projected.getFields().get(0);
-        Assert.assertEquals(1, profile.id());
-        Assert.assertEquals("profile description", profile.description());
+        Assertions.assertEquals(1, profile.id());
+        Assertions.assertEquals("profile description", profile.description());
         RowType projectedProfile = (RowType) profile.type();
-        Assert.assertFalse(projectedProfile.isNullable());
-        Assert.assertEquals(Arrays.asList("city"), projectedProfile.getFieldNames());
-        Assert.assertEquals(2, projectedProfile.getFields().get(0).id());
-        Assert.assertEquals("city description", projectedProfile.getFields().get(0).description());
+        Assertions.assertFalse(projectedProfile.isNullable());
+        Assertions.assertEquals(Arrays.asList("city"), projectedProfile.getFieldNames());
+        Assertions.assertEquals(2, projectedProfile.getFields().get(0).id());
+        Assertions.assertEquals("city description", projectedProfile.getFields().get(0).description());
 
         ArrayType projectedEvents = (ArrayType) projected.getTypeAt(1);
-        Assert.assertFalse(projectedEvents.isNullable());
-        Assert.assertEquals(Arrays.asList("score"),
+        Assertions.assertFalse(projectedEvents.isNullable());
+        Assertions.assertEquals(Arrays.asList("score"),
                 ((RowType) projectedEvents.getElementType()).getFieldNames());
 
         MapType projectedAttributes = (MapType) projected.getTypeAt(2);
-        Assert.assertFalse(projectedAttributes.isNullable());
-        Assert.assertEquals(DataTypes.STRING(), projectedAttributes.getKeyType());
-        Assert.assertEquals(Arrays.asList("code"),
+        Assertions.assertFalse(projectedAttributes.isNullable());
+        Assertions.assertEquals(DataTypes.STRING(), projectedAttributes.getKeyType());
+        Assertions.assertEquals(Arrays.asList("code"),
                 ((RowType) projectedAttributes.getValueType()).getFieldNames());
     }
 
@@ -85,9 +85,9 @@ public class PaimonReadTypeProjectionTest {
         RowType tableType = new RowType(Arrays.asList(new DataField(1, "known", DataTypes.INT())));
         ColumnType requiredType = ColumnType.parseType("root", "struct<missing:int>");
 
-        IllegalArgumentException exception = Assert.assertThrows(IllegalArgumentException.class,
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> PaimonReadTypeProjection.project(tableType, requiredType));
-        Assert.assertTrue(exception.getMessage(), exception.getMessage().contains("missing"));
+        Assertions.assertTrue(exception.getMessage().contains("missing"), exception.getMessage());
     }
 
     @Test
@@ -99,7 +99,7 @@ public class PaimonReadTypeProjectionTest {
                 new DataField(2, "b", DataTypes.STRING())));
         ColumnType requiredType = ColumnType.parseType("root", "struct<a:int,b:string>");
 
-        Assert.assertSame(tableType, PaimonReadTypeProjection.project(tableType, requiredType));
+        Assertions.assertSame(tableType, PaimonReadTypeProjection.project(tableType, requiredType));
     }
 
     @Test
@@ -108,7 +108,7 @@ public class PaimonReadTypeProjectionTest {
         // must win, or the reader decodes with a precision the file was not written at.
         DataType tableType = DataTypes.TIMESTAMP(9);
 
-        Assert.assertSame(tableType, PaimonReadTypeProjection.project(tableType,
+        Assertions.assertSame(tableType, PaimonReadTypeProjection.project(tableType,
                 ColumnType.parseType("root", "datetimev2(6)")));
     }
 
@@ -124,9 +124,9 @@ public class PaimonReadTypeProjectionTest {
 
         RowType projected = (RowType) PaimonReadTypeProjection.project(tableType, requiredType);
 
-        Assert.assertEquals(Arrays.asList("zip"), projected.getFieldNames());
-        Assert.assertEquals(3, projected.getFields().get(0).id());
-        Assert.assertEquals("zip", projected.getFields().get(0).name());
+        Assertions.assertEquals(Arrays.asList("zip"), projected.getFieldNames());
+        Assertions.assertEquals(3, projected.getFields().get(0).id());
+        Assertions.assertEquals("zip", projected.getFields().get(0).name());
     }
 
     @Test
@@ -141,10 +141,10 @@ public class PaimonReadTypeProjectionTest {
 
         RowType projected = (RowType) PaimonReadTypeProjection.project(tableType, requiredType);
 
-        Assert.assertEquals(Arrays.asList("zip", "city"), projected.getFieldNames());
-        Assert.assertEquals(3, projected.getFields().get(0).id());
-        Assert.assertEquals("zip", projected.getFields().get(0).name());
-        Assert.assertEquals(2, projected.getFields().get(1).id());
-        Assert.assertEquals("city", projected.getFields().get(1).name());
+        Assertions.assertEquals(Arrays.asList("zip", "city"), projected.getFieldNames());
+        Assertions.assertEquals(3, projected.getFields().get(0).id());
+        Assertions.assertEquals("zip", projected.getFields().get(0).name());
+        Assertions.assertEquals(2, projected.getFields().get(1).id());
+        Assertions.assertEquals("city", projected.getFields().get(1).name());
     }
 }

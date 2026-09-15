@@ -17,9 +17,9 @@
 
 package org.apache.doris.fluss;
 
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ColumnValue;
-import org.apache.doris.common.jni.vec.NestedProjection;
+import org.apache.doris.jni.spi.vec.ColumnType;
+import org.apache.doris.jni.spi.vec.ColumnValue;
+import org.apache.doris.jni.toolkit.vec.NestedProjection;
 
 import org.apache.fluss.row.BinaryString;
 import org.apache.fluss.row.GenericArray;
