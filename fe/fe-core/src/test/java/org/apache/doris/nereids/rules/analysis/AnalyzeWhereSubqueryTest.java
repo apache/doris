@@ -35,6 +35,7 @@ import org.apache.doris.nereids.rules.rewrite.UnCorrelatedApplyProjectFilter;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -341,6 +342,37 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                                         new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
                                                 ImmutableList.of("test", "t7"))))))
                 );
+    }
+
+    @Test
+    public void testNestedCorrelatedInSubqueryKeepsBothCorrelationPredicates() {
+        // two layered correlated predicates in one IN subquery: inner (r.r1 = l.x) and outer
+        // (q.r2 = l.x). the second UnCorrelatedApplyProjectFilter application must AND the
+        // newly extracted predicate with the accumulated correlationFilter instead of
+        // overwriting it, otherwise the outer predicate silently disappears from the final
+        // semi join and the query returns a wrong (too true) result.
+        String sql = "select l.x, l.x in ("
+                + "select q.r1 from ("
+                + "select r.r1, r.r2 from ("
+                + "select 0 as r1, 2 as r2 union all select 2 as r1, 0 as r2"
+                + ") r where r.r1 = l.x"
+                + ") q where q.r2 = l.x"
+                + ") pred from (select 0 as x union all select 2) l";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .applyBottomUp(new LogicalSubQueryAliasToLogicalProject())
+                .applyBottomUp(new UnCorrelatedApplyProjectFilter())
+                .applyBottomUp(new MergeProjectable())
+                .applyBottomUp(new UnCorrelatedApplyProjectFilter())
+                .applyBottomUp(new InApplyToJoin())
+                .matches(logicalJoin().when(join -> {
+                    List<Expression> conjuncts = join.getOtherJoinConjuncts();
+                    // the IN equality (l.x = q.r1) plus both correlated predicates
+                    // (r.r1 = l.x and q.r2 = l.x) must all be kept in the final join
+                    return conjuncts.size() == 3
+                            && conjuncts.stream().anyMatch(c -> c.toSql().contains("r2"))
+                            && conjuncts.stream().anyMatch(c -> c.toSql().contains("r1"));
+                }));
     }
 
     @Test

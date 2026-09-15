@@ -467,6 +467,15 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     ),
                     // query rewrite support window, so add this rule here
                     custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION, AggScalarSubQueryToWindowFunction::new),
+                    // the analyzer may create redundant passthrough projects around the aggregate
+                    // (e.g. the group-by normalization projects of `GROUP BY`), which block
+                    // UnCorrelatedApplyAggregateFilter /
+                    // PullUpCorrelatedFilterUnderApplyAggregateProject
+                    // (they need Apply(Aggregate(Filter)) to pull up the correlated predicate under
+                    // the aggregate). eliminate them before unnesting so that the correlated predicate
+                    // under the aggregate is extracted into the apply's correlationFilter instead of
+                    // being silently dropped after apply-to-join.
+                    custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
                     bottomUp(
                             new EliminateUselessPlanUnderApply(),
                             // CorrelateApplyToUnCorrelateApply and ApplyToJoin
