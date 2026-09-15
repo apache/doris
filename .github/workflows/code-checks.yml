@@ -17,7 +17,14 @@
 
 name: Code Checks
 
-on: [push, pull_request_target]
+on:
+  push:
+    paths:
+      - '**/*.sh'
+      - '**/*.bash'
+      - '**/*.zsh'
+      - 'tools/single-node-cluster/multi-fe'
+  pull_request_target:
 
 jobs:
   shellcheck:
