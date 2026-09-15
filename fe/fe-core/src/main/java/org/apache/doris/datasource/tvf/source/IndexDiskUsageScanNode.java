@@ -26,8 +26,11 @@ import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.tablefunction.IndexDiskUsageTableValuedFunction;
@@ -46,6 +49,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.LongFunction;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
@@ -80,6 +84,13 @@ public class IndexDiskUsageScanNode extends MetadataScanNode {
         TMetaScanRange template = tvf.getMetaScanRange(Lists.newArrayList());
         scanRanges.clear();
         scanRanges.addAll(buildScanRangeLocations(template, groups, systemInfo::getBackend));
+        numNodes = scanRanges.size();
+    }
+
+    @Override
+    protected void initBackendPolicy() {
+        // Tablet replicas decide where this scan runs, so the external file backend policy, which
+        // also requires load-available backends, does not apply.
     }
 
     @Override
@@ -106,15 +117,24 @@ public class IndexDiskUsageScanNode extends MetadataScanNode {
         return groups;
     }
 
-    // Spreads tablets over their queryable backends by tablet id, so one backend does not read a
+    // Applies the replica rule of OLAP scans: a queryable mix node inside the caller's compute group.
+    static Predicate<Backend> queryableIn(ComputeGroup computeGroup) {
+        boolean invalidComputeGroup = ComputeGroup.INVALID_COMPUTE_GROUP.equals(computeGroup);
+        boolean notCloudComputeGroup = computeGroup != null && !Config.isCloudMode();
+        return backend -> backend.isQueryAvailable() && backend.isMixNode()
+                && !OlapScanNode.shouldFilterReplicaByResourceTag(invalidComputeGroup, notCloudComputeGroup,
+                        computeGroup, backend.getLocationTag().value);
+    }
+
+    // Spreads tablets over their eligible backends by tablet id, so one backend does not read a
     // whole table while the choice stays deterministic.
-    static long chooseBackend(long tabletId, List<Replica> replicas, LongFunction<Backend> backendLookup)
-            throws UserException {
+    static long chooseBackend(long tabletId, List<Replica> replicas, LongFunction<Backend> backendLookup,
+            Predicate<Backend> eligible) throws UserException {
         List<Long> candidates = replicas.stream()
                 .map(Replica::getBackendIdWithoutException)
                 .filter(backendId -> {
                     Backend backend = backendLookup.apply(backendId);
-                    return backend != null && backend.isQueryAvailable();
+                    return backend != null && eligible.test(backend);
                 })
                 .sorted()
                 .collect(Collectors.toList());
@@ -126,11 +146,14 @@ public class IndexDiskUsageScanNode extends MetadataScanNode {
 
     static List<TScanRangeLocations> buildScanRangeLocations(TMetaScanRange template,
             Map<Long, List<TabletTarget>> groups, LongFunction<Backend> backendLookup) {
+        // Drop the table-wide tablet list once, so each backend copy only carries its own tablets.
+        TMetaScanRange base = template.deepCopy();
+        base.getIndexDiskUsageParams().unsetTablets();
         List<TScanRangeLocations> ranges = Lists.newArrayList();
         for (Map.Entry<Long, List<TabletTarget>> group : groups.entrySet()) {
             Backend backend = backendLookup.apply(group.getKey());
             Preconditions.checkState(backend != null, "backend %s is not found", group.getKey());
-            TMetaScanRange metaScanRange = template.deepCopy();
+            TMetaScanRange metaScanRange = base.deepCopy();
             metaScanRange.getIndexDiskUsageParams().setTablets(
                     group.getValue().stream().map(TabletTarget::toThrift).collect(Collectors.toList()));
 
@@ -148,11 +171,13 @@ public class IndexDiskUsageScanNode extends MetadataScanNode {
     }
 
     private static BackendSelector localSelector(SystemInfoService systemInfo) {
+        ConnectContext context = ConnectContext.get();
+        Predicate<Backend> eligible = queryableIn(context == null ? null : context.getComputeGroupSafely());
         return target -> {
             Tablet tablet = target.getTablet();
             List<Replica> replicas = tablet.getQueryableReplicas(target.getVersion(),
                     alivePathHashes(tablet, systemInfo), false);
-            return chooseBackend(target.getTabletId(), replicas, systemInfo::getBackend);
+            return chooseBackend(target.getTabletId(), replicas, systemInfo::getBackend, eligible);
         };
     }
 
