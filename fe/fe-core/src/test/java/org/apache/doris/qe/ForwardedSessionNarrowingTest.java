@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -77,6 +78,8 @@ public class ForwardedSessionNarrowingTest extends TestWithFeService {
         ConnectContext ctx = new ConnectContext();
         ctx.setCurrentUserIdentity(ident("alice"));
         ctx.setRemoteIP("127.0.0.1");
+        // the forward request carries the client's negotiated capabilities; a bare test context has none
+        ctx.setCapability(MysqlCapability.DEFAULT_CAPABILITY);
 
         TMasterOpRequest plain = forwardRequestOf(ctx);
         Assertions.assertFalse(plain.isSetIsSuUser());
