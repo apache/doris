@@ -24,6 +24,7 @@
 
 // AWS Kinesis SDK includes
 #include <aws/core/client/ClientConfiguration.h>
+#include <aws/core/client/DefaultRetryStrategy.h>
 #include <aws/core/utils/Outcome.h>
 #include <aws/kinesis/KinesisClient.h>
 #include <aws/kinesis/model/GetRecordsRequest.h>
@@ -607,8 +608,10 @@ bool KafkaDataConsumer::match(std::shared_ptr<StreamLoadContext> ctx) {
 
 // ==================== AWS Kinesis Data Consumer Implementation ====================
 
-KinesisDataConsumer::KinesisDataConsumer(std::shared_ptr<StreamLoadContext> ctx)
-        : _region(ctx->kinesis_info->region),
+KinesisDataConsumer::KinesisDataConsumer(std::shared_ptr<StreamLoadContext> ctx,
+                                         int scan_request_timeout_ms)
+        : _scan_request_timeout_ms(scan_request_timeout_ms),
+          _region(ctx->kinesis_info->region),
           _stream(ctx->kinesis_info->stream),
           _endpoint(ctx->kinesis_info->endpoint) {
     VLOG_NOTICE << "construct Kinesis consumer: stream=" << _stream << ", region=" << _region;
@@ -752,6 +755,12 @@ Status KinesisDataConsumer::_create_kinesis_client(std::shared_ptr<StreamLoadCon
                                          &aws_config.connectTimeoutMs));
     }
 
+    if (_scan_request_timeout_ms > 0) {
+        aws_config.httpRequestTimeoutMs = _scan_request_timeout_ms;
+        // The scan loop owns retries so backoff remains cancellable.
+        aws_config.retryStrategy = std::make_shared<Aws::Client::DefaultRetryStrategy>(0);
+    }
+
     // Create credentials provider (reuses S3 infrastructure)
     auto credentials = S3ClientFactory::instance().create_aws_credentials_provider(s3_conf);
     if (!credentials) {
@@ -822,6 +831,89 @@ Status KinesisDataConsumer::_get_shard_iterator(const std::string& shard_id,
     *iterator = outcome.GetResult().GetShardIterator();
     VLOG_NOTICE << "Got shard iterator for shard: " << shard_id;
     return Status::OK();
+}
+
+namespace {
+
+Status wait_for_kinesis_scan(const std::function<Status()>& check_status, int wait_ms) {
+    for (int elapsed = 0; elapsed < wait_ms; elapsed += 100) {
+        RETURN_IF_ERROR(check_status());
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    return check_status();
+}
+
+template <typename Call, typename Retryable, typename Outcome>
+Status invoke_kinesis_scan_request(const std::string& shard_id,
+                                   const std::function<Status()>& check_status, const Call& call,
+                                   const Retryable& retryable, Outcome* outcome) {
+    for (int retries = 0;; ++retries) {
+        RETURN_IF_ERROR(check_status());
+        *outcome = call();
+        RETURN_IF_ERROR(check_status());
+        if (outcome->IsSuccess()) {
+            return Status::OK();
+        }
+        const auto& error = outcome->GetError();
+        if (!retryable(error) || retries == 3) {
+            return Status::InternalError("Failed to scan Kinesis shard {}: {}", shard_id,
+                                         error.GetMessage());
+        }
+        RETURN_IF_ERROR(wait_for_kinesis_scan(check_status, 1000 << retries));
+    }
+}
+
+} // namespace
+
+Status KinesisDataConsumer::get_latest_sequence_number(const std::string& shard_id,
+                                                       const std::function<Status()>& check_status,
+                                                       std::string* sequence_number) {
+    RETURN_IF_ERROR(check_status());
+    auto continue_request = [check_status](const Aws::Http::HttpRequest*) {
+        return check_status().ok();
+    };
+    auto invoke = [&](auto call, auto* outcome) {
+        return invoke_kinesis_scan_request(
+                shard_id, check_status, call,
+                [this](const auto& error) { return _is_retriable_error(error); }, outcome);
+    };
+    Aws::Kinesis::Model::GetShardIteratorRequest iterator_request;
+    RETURN_IF_ERROR(_kinesis_conf->apply_to_get_shard_iterator_request(iterator_request, _stream,
+                                                                       shard_id, "TRIM_HORIZON"));
+    iterator_request.SetContinueRequestHandler(continue_request);
+    Aws::Kinesis::Model::GetShardIteratorOutcome iterator_outcome;
+    RETURN_IF_ERROR(invoke([&] { return _kinesis_client->GetShardIterator(iterator_request); },
+                           &iterator_outcome));
+    std::string iterator = iterator_outcome.GetResult().GetShardIterator();
+    std::string last_sequence;
+    int64_t scanned_records = 0;
+    while (true) {
+        Aws::Kinesis::Model::GetRecordsRequest request;
+        RETURN_IF_ERROR(_kinesis_conf->apply_to_get_records_request(request, iterator));
+        // Metadata scanning is independent of a data task's batch limit.
+        request.SetLimit(10000);
+        request.SetContinueRequestHandler(continue_request);
+        Aws::Kinesis::Model::GetRecordsOutcome outcome;
+        RETURN_IF_ERROR(invoke([&] { return _kinesis_client->GetRecords(request); }, &outcome));
+        const auto& result = outcome.GetResult();
+        const auto& records = result.GetRecords();
+        if (!records.empty()) {
+            last_sequence = records.back().GetSequenceNumber();
+            DCHECK(!last_sequence.empty());
+            scanned_records += static_cast<int64_t>(records.size());
+        }
+        iterator = result.GetNextShardIterator();
+        // An empty intermediate page is not the end of a shard. Follow its
+        // iterator until the service reports the tip or a closed shard's end.
+        if (result.GetMillisBehindLatest() == 0 || iterator.empty()) {
+            *sequence_number = last_sequence.empty() ? "TRIM_HORIZON" : last_sequence;
+            LOG(INFO) << "Resolved initial Kinesis position, shard: " << shard_id
+                      << ", position: " << *sequence_number
+                      << ", scanned records: " << scanned_records;
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(wait_for_kinesis_scan(check_status, 200));
+    }
 }
 
 Status KinesisDataConsumer::group_consume(

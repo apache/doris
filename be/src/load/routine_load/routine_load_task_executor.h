@@ -19,7 +19,9 @@
 
 #include <stdint.h>
 
+#include <atomic>
 #include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -39,6 +41,7 @@ class TRoutineLoadTask;
 class PIntegerPair;
 class PKafkaMetaProxyRequest;
 class PKinesisMetaProxyRequest;
+struct KinesisLatestSequenceBatch;
 
 // A routine load task executor will receive routine load
 // tasks from FE, put it to a fixed thread pool.
@@ -77,9 +80,17 @@ public:
     Status get_kinesis_shard_meta(const PKinesisMetaProxyRequest& request,
                                   std::vector<std::string>* shard_ids);
 
+    using KinesisScanCallback =
+            std::function<void(const Status&, const std::map<std::string, std::string>&)>;
+    void get_kinesis_latest_sequence_numbers(const PKinesisMetaProxyRequest& request,
+                                             int64_t timeout_ms, std::function<bool()> is_cancelled,
+                                             KinesisScanCallback on_finish);
+
     ThreadPool& get_thread_pool() { return *_thread_pool; }
 
 private:
+    Status _run_kinesis_scan_worker(const std::shared_ptr<KinesisLatestSequenceBatch>& batch);
+
     // execute the task
     void exec_task(std::shared_ptr<StreamLoadContext> ctx, DataConsumerPool* pool,
                    ExecFinishCallback cb);
@@ -101,6 +112,8 @@ private:
 private:
     ExecEnv* _exec_env = nullptr;
     std::unique_ptr<ThreadPool> _thread_pool;
+    std::unique_ptr<ThreadPool> _kinesis_scan_pool;
+    std::atomic<bool> _kinesis_scan_stopping {false};
     DataConsumerPool _data_consumer_pool;
 
     std::mutex _lock;
