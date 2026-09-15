@@ -477,9 +477,10 @@ public class PluginDrivenExternalTable extends ExternalTable {
     @Override
     public Optional<SchemaCacheValue> initSchema() {
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
-        // Keep the JDBC schema delay debug point available for manual regression verification.
-        if ("jdbc".equalsIgnoreCase(pluginCatalog.getType())
-                && DebugPointUtil.isEnable("PluginDrivenExternalTable.initSchema.sleep")) {
+        // Schema-load delay debug point for regression tests of non-blocking schema refresh; it applies to
+        // any plugin-driven table (the engine gates nothing by source name), and only the test that needs
+        // it turns it on.
+        if (DebugPointUtil.isEnable("PluginDrivenExternalTable.initSchema.sleep")) {
             long sleepMs = DebugPointUtil.getDebugParamOrDefault(
                     "PluginDrivenExternalTable.initSchema.sleep", "sleepMs", 0L);
             if (sleepMs > 0) {
