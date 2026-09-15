@@ -193,7 +193,15 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
         for (AbstractJob job : getAllCurrentJobs()) {
             job.setEnv(env);
-            job.run();
+            try {
+                job.run();
+            } catch (Exception | LinkageError e) {
+                // One job's throw must not skip every job after it in this cycle, nor go unrecorded:
+                // a job that keeps throwing here is retried each cycle until its timeout, so the log
+                // is the only place its cause shows up.
+                LOG.warn("backup/restore job {} threw out of run() and will be retried next cycle",
+                        job.getJobId(), e);
+            }
         }
     }
 
@@ -237,8 +245,9 @@ public class BackupHandler extends MasterDaemon implements Writable {
             if (oldRepo == null) {
                 throw new DdlException("Repository does not exist");
             }
-            if (!oldRepo.hasFileSystemDescriptor()) {
-                throw new DdlException("Repository " + repoName + " is not available: " + oldRepo.getErrorMsg());
+            if (oldRepo.getUnavailableReason() != null) {
+                throw new DdlException("Repository " + repoName + " is not available: "
+                        + oldRepo.getUnavailableReason());
             }
             // Merge new properties with the existing repository's properties
             Map<String, String> mergedProps = mergeProperties(oldRepo, newProps);

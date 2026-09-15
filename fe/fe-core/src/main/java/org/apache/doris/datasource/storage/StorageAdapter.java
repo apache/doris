@@ -179,6 +179,16 @@ public final class StorageAdapter {
                 "Filesystem provider '" + providerName + "' is not available");
     }
 
+    /** Whether a provider of that name is loaded - the question {@link #ofProvider} answers by throwing. */
+    public static boolean hasProvider(String providerName) {
+        for (FileSystemProvider<?> provider : manager().getProviders()) {
+            if (provider.name().equalsIgnoreCase(providerName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * Returns whether the named provider's guess heuristics claim the raw properties — the
      * facade twin of the legacy per-dialect {@code guessIsMe} statics (guess only, explicit

@@ -30,9 +30,11 @@ import org.apache.doris.filesystem.DorisOutputFile;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.foundation.fs.FsStorageType;
 import org.apache.doris.fs.FileSystemDescriptor;
 import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.FileSystemPluginManager;
 import org.apache.doris.fs.TestFileSystemPluginManagers;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.service.FrontendOptions;
@@ -541,7 +543,9 @@ public class RepositoryTest {
             Assertions.assertFalse(deserialized.hasFileSystemDescriptor(),
                     "a record no provider claims must not be bound to a fallback type");
             Assertions.assertNotNull(deserialized.getErrorMsg());
-            Assertions.assertTrue(deserialized.getErrorMsg().contains("'HDFS' is not a registered broker"),
+            Assertions.assertTrue(deserialized.getErrorMsg().contains("'HDFS' was not migrated"),
+                    deserialized.getErrorMsg());
+            Assertions.assertTrue(deserialized.getErrorMsg().contains("provider is not loaded"),
                     deserialized.getErrorMsg());
 
             // What the next checkpoint writes: the legacy record, verbatim, and no descriptor.
@@ -568,6 +572,221 @@ public class RepositoryTest {
             Repository repaired = GsonUtils.GSON.fromJson(rewritten, Repository.class);
             Assertions.assertTrue(repaired.hasFileSystemDescriptor());
             Assertions.assertEquals(FsStorageType.HDFS, repaired.getFileSystemDescriptor().getStorageType());
+        } finally {
+            StorageAdapter.initPluginManager(null);
+        }
+    }
+
+    /**
+     * A broker may legally be named like a storage type. With that type's plugin absent, the typed
+     * record still names an absent provider, and that - not the broker registry - explains why nothing
+     * claims its properties. Persisting BROKER "HDFS" here would be the original defect through a
+     * narrower door.
+     */
+    @Test
+    public void testLegacyTypedRecordIsNotMigratedToABrokerOfTheSameNameWhileItsProviderIsAbsent() {
+        String legacyJson = "{"
+                + "\"id\":31000,"
+                + "\"n\":\"hdfsRepoBrokerCollision\","
+                + "\"iro\":false,"
+                + "\"lo\":\"hdfs://ns/backup\","
+                + "\"ct\":-1,"
+                + "\"fs\":{\"n\":\"HDFS\",\"prop\":{\"hdfs.authentication.type\":\"simple\"}}"
+                + "}";
+        Mockito.when(mockedBrokerMgr.containsBroker("HDFS")).thenReturn(true);
+        StorageAdapter.initPluginManager(TestFileSystemPluginManagers.withoutProviders("HDFS"));
+        try {
+            Repository deserialized = GsonUtils.GSON.fromJson(legacyJson, Repository.class);
+            Assertions.assertFalse(deserialized.hasFileSystemDescriptor(),
+                    "a typed record whose provider is absent must not become BROKER, whatever brokers exist");
+            Assertions.assertTrue(deserialized.getUnavailableReason().contains("'HDFS' was not migrated"),
+                    deserialized.getUnavailableReason());
+            Assertions.assertTrue(deserialized.getUnavailableReason().contains("provider is not loaded"),
+                    deserialized.getUnavailableReason());
+            Assertions.assertFalse(GsonUtils.GSON.toJson(deserialized).contains("fs_descriptor"));
+        } finally {
+            StorageAdapter.initPluginManager(null);
+        }
+    }
+
+    /**
+     * The most common shape: a repository that already carries fs_descriptor, on an FE whose provider
+     * for it is absent. It must report that on every path a job or an operator takes - never re-bind
+     * per call and throw past the Status/errMsg reporting.
+     */
+    @Test
+    public void testRepositoryWithDescriptorWhoseProviderIsAbsentReportsInsteadOfThrowing() {
+        String json = "{"
+                + "\"id\":32000,"
+                + "\"n\":\"hdfsRepoDescriptor\","
+                + "\"iro\":false,"
+                + "\"lo\":\"hdfs://ns/backup\","
+                + "\"ct\":-1,"
+                + "\"fs_descriptor\":{\"fs_type\":\"HDFS\",\"fs_name\":\"\","
+                + "\"fs_props\":{\"hdfs.authentication.type\":\"simple\"}}"
+                + "}";
+        StorageAdapter.initPluginManager(TestFileSystemPluginManagers.withoutProviders("HDFS"));
+        try {
+            Repository deserialized = GsonUtils.GSON.fromJson(json, Repository.class);
+            Assertions.assertTrue(deserialized.hasFileSystemDescriptor(), "the descriptor is kept as it is");
+            Assertions.assertNotNull(deserialized.getUnavailableReason());
+            Assertions.assertTrue(deserialized.getUnavailableReason().contains("did not bind at load"),
+                    deserialized.getUnavailableReason());
+            Assertions.assertEquals(deserialized.getUnavailableReason(), deserialized.getErrorMsg(),
+                    "SHOW REPOSITORIES shows the reason before the first ping");
+            Assertions.assertEquals("hdfs://ns/backup", deserialized.getLocation(),
+                    "the raw location, without re-binding the provider");
+
+            // The periodic ping keeps the reason as it is and does not throw.
+            FeConstants.runningUnitTest = false;
+            try {
+                Assertions.assertFalse(deserialized.ping());
+            } finally {
+                FeConstants.runningUnitTest = true;
+            }
+            Assertions.assertEquals(deserialized.getUnavailableReason(), deserialized.getErrorMsg());
+
+            Status listing = deserialized.listSnapshots(Lists.newArrayList());
+            Assertions.assertFalse(listing.ok());
+            Assertions.assertTrue(listing.getErrMsg().contains("did not bind at load"), listing.getErrMsg());
+            Status brokerAddress = deserialized.getBrokerAddress(1L, mockedEnv, Lists.newArrayList());
+            Assertions.assertFalse(brokerAddress.ok(), "a job's first repository call fails with a Status");
+            Assertions.assertTrue(brokerAddress.getErrMsg().contains("did not bind at load"), brokerAddress.getErrMsg());
+            List<String> info = deserialized.getInfo();
+            Assertions.assertEquals("HDFS", info.get(6));
+            Assertions.assertEquals(deserialized.getUnavailableReason(), info.get(7));
+            // What it prints and re-serialises is unchanged.
+            Assertions.assertTrue(deserialized.getCreateStatement().contains("WITH  HDFS"));
+            Assertions.assertTrue(GsonUtils.GSON.toJson(deserialized).contains("\"fs_type\":\"HDFS\""));
+
+            // The provider is back: the same record binds and is usable.
+            StorageAdapter.initPluginManager(TestFileSystemPluginManagers.withoutProviders());
+            Repository repaired = GsonUtils.GSON.fromJson(json, Repository.class);
+            Assertions.assertNull(repaired.getUnavailableReason());
+            Assertions.assertNull(repaired.getErrorMsg());
+        } finally {
+            StorageAdapter.initPluginManager(null);
+        }
+    }
+
+    /** The unmigrated shape's ping guard, executed rather than short-circuited by runningUnitTest. */
+    @Test
+    public void testPingOfAnUnmigratedRecordReportsWithoutRewrappingTheReason() {
+        String legacyJson = "{"
+                + "\"id\":33000,"
+                + "\"n\":\"hdfsRepoPing\","
+                + "\"iro\":false,"
+                + "\"lo\":\"hdfs://ns/backup\","
+                + "\"ct\":-1,"
+                + "\"fs\":{\"n\":\"HDFS\",\"prop\":{\"hdfs.authentication.type\":\"simple\"}}"
+                + "}";
+        StorageAdapter.initPluginManager(TestFileSystemPluginManagers.withoutProviders("HDFS"));
+        try {
+            Repository deserialized = GsonUtils.GSON.fromJson(legacyJson, Repository.class);
+            String reason = deserialized.getErrorMsg();
+            Assertions.assertNotNull(reason);
+            FeConstants.runningUnitTest = false;
+            try {
+                Assertions.assertFalse(deserialized.ping());
+                Assertions.assertFalse(deserialized.ping());
+            } finally {
+                FeConstants.runningUnitTest = true;
+            }
+            Assertions.assertEquals(reason, deserialized.getErrorMsg(), "ping must not rewrap the reason");
+        } finally {
+            StorageAdapter.initPluginManager(null);
+        }
+    }
+
+    /**
+     * The migration binds run plugin code at image load: a provider that fails to link there must cost
+     * this repository, not the FE. A fake provider that throws NoClassDefFoundError is registered under
+     * the name the registry consults first, so it is the first one bindPrimary probes.
+     */
+    @Test
+    public void testLegacyMigrationSurvivesAProviderThatFailsToLink() {
+        String legacyJson = "{"
+                + "\"id\":34000,"
+                + "\"n\":\"hdfsRepoLinkage\","
+                + "\"iro\":false,"
+                + "\"lo\":\"hdfs://ns/backup\","
+                + "\"ct\":-1,"
+                + "\"fs\":{\"n\":\"HDFS\",\"prop\":{\"hdfs.authentication.type\":\"simple\"}}"
+                + "}";
+        FileSystemPluginManager manager = TestFileSystemPluginManagers.withoutProviders();
+        manager.registerProvider(new FileSystemProvider<org.apache.doris.filesystem.properties.FileSystemProperties>() {
+            @Override
+            public String name() {
+                return "JFS";
+            }
+
+            @Override
+            public String description() {
+                return "a provider whose first call reaches a class it does not carry";
+            }
+
+            @Override
+            public boolean supports(Map<String, String> properties) {
+                throw new NoClassDefFoundError("org/example/AbsentDependency");
+            }
+
+            @Override
+            public boolean supportsExplicit(Map<String, String> properties) {
+                throw new NoClassDefFoundError("org/example/AbsentDependency");
+            }
+
+            @Override
+            public org.apache.doris.filesystem.FileSystem create(Map<String, String> properties) {
+                throw new NoClassDefFoundError("org/example/AbsentDependency");
+            }
+
+            @Override
+            public org.apache.doris.extension.spi.Plugin create() {
+                return new org.apache.doris.extension.spi.Plugin() {
+                };
+            }
+        });
+        StorageAdapter.initPluginManager(manager);
+        try {
+            Repository deserialized = Assertions.assertDoesNotThrow(
+                    () -> GsonUtils.GSON.fromJson(legacyJson, Repository.class));
+            Assertions.assertFalse(deserialized.hasFileSystemDescriptor(), "the record is kept, not guessed");
+            Assertions.assertTrue(deserialized.getUnavailableReason().contains("AbsentDependency"),
+                    deserialized.getUnavailableReason());
+        } finally {
+            StorageAdapter.initPluginManager(null);
+        }
+    }
+
+    /**
+     * A replayed ALTER REPOSITORY is the master's validated decision; an FE whose copy is the
+     * unmigrated record must apply it as logged, or it silently diverges from the journal.
+     */
+    @Test
+    public void testReplayedAlterRepositoryAppliesToAnUnmigratedCopy() {
+        String legacyJson = "{"
+                + "\"id\":35000,"
+                + "\"n\":\"alteredRepo\","
+                + "\"iro\":false,"
+                + "\"lo\":\"hdfs://ns/backup\","
+                + "\"ct\":-1,"
+                + "\"fs\":{\"n\":\"HDFS\",\"prop\":{\"hdfs.authentication.type\":\"simple\"}}"
+                + "}";
+        StorageAdapter.initPluginManager(TestFileSystemPluginManagers.withoutProviders("HDFS"));
+        try {
+            Repository unmigrated = GsonUtils.GSON.fromJson(legacyJson, Repository.class);
+            Assertions.assertFalse(unmigrated.hasFileSystemDescriptor());
+            RepositoryMgr mgr = new RepositoryMgr();
+            Assertions.assertTrue(mgr.addAndInitRepoIfNotExist(unmigrated, true).ok());
+
+            // The replayed record was built by the master and carries its descriptor.
+            Repository altered = new Repository(35000, "alteredRepo", false, "hdfs://ns/backup",
+                    StorageAdapter.ofBroker("broker", Maps.newHashMap()));
+            Assertions.assertFalse(mgr.alterRepo(altered, false).ok(),
+                    "the command path keeps refusing what it cannot validate locally");
+            Assertions.assertTrue(mgr.alterRepo(altered, true).ok(), "a replay is applied as logged");
+            Assertions.assertSame(altered, mgr.getRepo("alteredRepo"));
+            Assertions.assertSame(altered, mgr.getRepo(35000));
         } finally {
             StorageAdapter.initPluginManager(null);
         }

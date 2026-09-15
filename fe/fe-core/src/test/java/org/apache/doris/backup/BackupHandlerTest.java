@@ -33,7 +33,9 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
@@ -66,6 +68,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 
@@ -136,6 +139,26 @@ public class BackupHandlerTest {
 
         File backupDir = new File(BackupHandler.BACKUP_ROOT_DIR.toString());
         Assertions.assertTrue(backupDir.exists());
+    }
+
+    /**
+     * One job throwing out of run() - a repository whose provider is absent used to do that on every
+     * tick - must neither stop the cycle for the jobs after it nor escape the daemon.
+     */
+    @Test
+    public void testAJobThatThrowsDoesNotStopTheOtherJobsOfTheCycle() {
+        handler = new BackupHandler(env);
+        AbstractJob throwing = Mockito.mock(AbstractJob.class);
+        Mockito.doThrow(new StoragePropertiesException("No supported storage type found")).when(throwing).run();
+        AbstractJob next = Mockito.mock(AbstractJob.class);
+        Map<Long, Deque<AbstractJob>> jobs = Deencapsulation.getField(handler, "dbIdToBackupOrRestoreJobs");
+        jobs.put(1L, Lists.newLinkedList(Lists.newArrayList(throwing)));
+        jobs.put(2L, Lists.newLinkedList(Lists.newArrayList(next)));
+
+        Assertions.assertDoesNotThrow(() -> handler.runAfterCatalogReady());
+
+        Mockito.verify(throwing).run();
+        Mockito.verify(next).run();
     }
 
     @Test
