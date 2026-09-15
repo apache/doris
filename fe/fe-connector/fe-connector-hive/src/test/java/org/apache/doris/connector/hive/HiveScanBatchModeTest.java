@@ -31,6 +31,7 @@ import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -416,6 +417,30 @@ public class HiveScanBatchModeTest {
                 "BE-canonical AWS_* creds must be emitted for the native reader (legacy parity)");
         // the raw s3. alias is still forwarded (harmless, ignored by BE), so no configured key is dropped
         Assertions.assertEquals("aliasAK", props.get("location.s3.access_key"));
+    }
+
+    @Test
+    public void getScanNodePropertiesUsesCsvTableParametersForPartitionedAndUnpartitionedTables() {
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), new CountingLister());
+        for (List<String> partitionKeys : Arrays.asList(Collections.<String>emptyList(),
+                Collections.singletonList("bucket"))) {
+            HiveTableHandle handle = new HiveTableHandle.Builder("db", "csv_table", HiveTableType.HIVE)
+                    .inputFormat("org.apache.hadoop.mapred.TextInputFormat")
+                    .serializationLib(HiveTextProperties.HIVE_OPEN_CSV_SERDE)
+                    .partitionKeyNames(partitionKeys)
+                    .tableParameters(Map.of("separatorChar", "s", "quoteChar", "q", "escapeChar", "e"))
+                    .build();
+            Map<String, String> props = provider.getScanNodeProperties(
+                    new FakeSession(), handle, Collections.emptyList(), Optional.empty());
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals("csv", props.get(ScanNodePropertyKeys.FILE_FORMAT_TYPE)),
+                    () -> Assertions.assertEquals("s", props.get(ScanNodePropertyKeys.TEXT_COLUMN_SEPARATOR)),
+                    () -> Assertions.assertEquals("q", props.get(ScanNodePropertyKeys.TEXT_ENCLOSE)),
+                    () -> Assertions.assertEquals("e", props.get(ScanNodePropertyKeys.TEXT_ESCAPE)),
+                    () -> Assertions.assertEquals("false", props.get(ScanNodePropertyKeys.TEXT_TRIM_DOUBLE_QUOTES)));
+            Assertions.assertEquals(partitionKeys.isEmpty() ? null : "bucket",
+                    props.get(ScanNodePropertyKeys.PATH_PARTITION_KEYS));
+        }
     }
 
     // ============ #65437: scan-level transactional_hive marker (FileScannerV2 exclusion) ============

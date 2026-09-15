@@ -117,7 +117,7 @@ public final class HiveTextProperties {
         if (HIVE_TEXT_SERDE.equals(serDeLib) || multiDelimit) {
             extractTextSerDeProps(sdParams, tableParams, result, multiDelimit);
         } else if (HIVE_OPEN_CSV_SERDE.equals(serDeLib)) {
-            extractCsvSerDeProps(sdParams, result);
+            extractCsvSerDeProps(sdParams, tableParams, result);
         } else if (HIVE_JSON_SERDE.equals(serDeLib) || LEGACY_HIVE_JSON_SERDE.equals(serDeLib)
                 || OPENX_JSON_SERDE.equals(serDeLib)) {
             extractJsonSerDeProps(serDeLib, sdParams, tableParams, result);
@@ -160,11 +160,14 @@ public final class HiveTextProperties {
     }
 
     private static void extractCsvSerDeProps(Map<String, String> params,
-            Map<String, String> result) {
+            Map<String, String> tableParams, Map<String, String> result) {
+        // Trino stores CSV settings in table parameters. Honor Hive's table-over-SerDe precedence
+        // so valid CSV files are not silently split with the default delimiter and quote characters.
         result.put(ScanNodePropertyKeys.TEXT_COLUMN_SEPARATOR,
-                getParamOrDefault(params, SEPARATOR_CHAR, ","));
-        result.put(ScanNodePropertyKeys.TEXT_LINE_DELIMITER, getLineDelimiter(params));
-        String quoteChar = getParamOrDefault(params, QUOTE_CHAR, "\"");
+                getParamOrDefault(params, tableParams, SEPARATOR_CHAR, ","));
+        result.put(ScanNodePropertyKeys.TEXT_LINE_DELIMITER,
+                getParamOrDefault(params, tableParams, LINE_DELIM, DEFAULT_LINE_DELIM));
+        String quoteChar = getParamOrDefault(params, tableParams, QUOTE_CHAR, "\"");
         result.put(ScanNodePropertyKeys.TEXT_ENCLOSE, quoteChar);
         // #65501: BE strips the wrapping quotes only when the enclose char is exactly the double-quote '"'.
         // The connector owns this CSV serde semantics, so decide here and pass an explicit flag; the generic
@@ -172,7 +175,7 @@ public final class HiveTextProperties {
         // first byte, matching how the node sets enclose (enclose.getBytes()[0]) and BE's getEnclose() == '"'.
         boolean trimDoubleQuotes = !quoteChar.isEmpty() && quoteChar.getBytes()[0] == (byte) '"';
         result.put(ScanNodePropertyKeys.TEXT_TRIM_DOUBLE_QUOTES, String.valueOf(trimDoubleQuotes));
-        String escapeChar = getParamOrDefault(params, ESCAPE_CHAR, "\\");
+        String escapeChar = getParamOrDefault(params, tableParams, ESCAPE_CHAR, "\\");
         result.put(ScanNodePropertyKeys.TEXT_ESCAPE, escapeChar);
         result.put(ScanNodePropertyKeys.TEXT_NULL_FORMAT, "");
     }
@@ -201,10 +204,6 @@ public final class HiveTextProperties {
         }
         // MultiDelimitSerDe delimiters may be multiple characters; keep them raw (no byte decode).
         return supportMultiChar ? delim : getByte(delim, DEFAULT_FIELD_DELIM);
-    }
-
-    private static String getLineDelimiter(Map<String, String> params) {
-        return getParamOrDefault(params, LINE_DELIM, "\n");
     }
 
     /**
@@ -257,12 +256,9 @@ public final class HiveTextProperties {
         }
     }
 
-    private static String getParamOrDefault(Map<String, String> params,
+    private static String getParamOrDefault(Map<String, String> params, Map<String, String> tableParams,
             String key, String defaultVal) {
-        if (params == null) {
-            return defaultVal;
-        }
-        String val = params.get(key);
+        String val = serdeVal(params, tableParams, key);
         return (val != null) ? val : defaultVal;
     }
 }

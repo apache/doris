@@ -176,4 +176,60 @@ public class HiveTextPropertiesTest {
         Map<String, String> r = HiveTextProperties.extract(OPEN_CSV_SERDE, sd("quoteChar", "\""), new HashMap<>());
         Assertions.assertEquals("true", r.get(PREFIX + "trim_double_quotes"));
     }
+
+    @Test
+    public void testCsvTableParameters() {
+        Map<String, String> result = HiveTextProperties.extract(OPEN_CSV_SERDE, sd(),
+                sd("separatorChar", "s", "quoteChar", "q", "escapeChar", "e"));
+        assertCsvProperties(result, "s", "q", "e", "false");
+    }
+
+    @Test
+    public void testCsvTableParametersOverrideSerdeParameters() {
+        Map<String, String> result = HiveTextProperties.extract(OPEN_CSV_SERDE,
+                sd("separatorChar", ",", "quoteChar", "\"", "escapeChar", "\\"),
+                sd("separatorChar", "s", "quoteChar", "q", "escapeChar", "e"));
+        assertCsvProperties(result, "s", "q", "e", "false");
+    }
+
+    @Test
+    public void testCsvPropertiesFallBackIndividually() {
+        Map<String, String> result = HiveTextProperties.extract(OPEN_CSV_SERDE,
+                sd("separatorChar", "s", "quoteChar", "q"), sd("quoteChar", "\""));
+        assertCsvProperties(result, "s", "\"", "\\", "true");
+    }
+
+    @Test
+    public void testCsvSerdeParameters() {
+        Map<String, String> result = HiveTextProperties.extract(OPEN_CSV_SERDE,
+                sd("separatorChar", "s", "quoteChar", "q", "escapeChar", "e"), null);
+        assertCsvProperties(result, "s", "q", "e", "false");
+    }
+
+    @Test
+    public void testCsvDefaultsWithMissingParameterMaps() {
+        assertCsvProperties(HiveTextProperties.extract(OPEN_CSV_SERDE, null, null),
+                ",", "\"", "\\", "true");
+        assertCsvProperties(HiveTextProperties.extract(OPEN_CSV_SERDE, null,
+                sd("separatorChar", "s", "quoteChar", "q", "escapeChar", "e")),
+                "s", "q", "e", "false");
+    }
+
+    @Test
+    public void testCsvExplicitEmptyTableParametersOverrideSerdeParameters() {
+        Map<String, String> result = HiveTextProperties.extract(OPEN_CSV_SERDE,
+                sd("quoteChar", "q", "escapeChar", "e"), sd("quoteChar", "", "escapeChar", ""));
+        assertCsvProperties(result, ",", "", "", "false");
+    }
+
+    private static void assertCsvProperties(Map<String, String> result,
+            String separator, String quote, String escape, String trimDoubleQuotes) {
+        Assertions.assertAll(
+                () -> Assertions.assertEquals(separator, result.get(PREFIX + "column_separator")),
+                () -> Assertions.assertEquals(quote, result.get(PREFIX + "enclose")),
+                () -> Assertions.assertEquals(escape, result.get(PREFIX + "escape")),
+                () -> Assertions.assertEquals(trimDoubleQuotes, result.get(PREFIX + "trim_double_quotes")),
+                () -> Assertions.assertEquals("\n", result.get(PREFIX + "line_delimiter")),
+                () -> Assertions.assertEquals("", result.get(PREFIX + "null_format")));
+    }
 }
