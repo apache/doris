@@ -693,6 +693,15 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             return canNotPush;
         }
 
+        // File MIN/MAX retains only source endpoints. A cast can turn both endpoints into NULL
+        // while an interior value remains valid. Ignore source nullability when checking the cast
+        // itself, so safe widening casts over nullable columns can still use metadata.
+        if (logicalScan instanceof LogicalFileScan && argumentsOfAggregateFunction.stream()
+                .anyMatch(argument -> argument instanceof Cast
+                        && Cast.castNullable(false, argument.child(0).getDataType(), argument.getDataType()))) {
+            return canNotPush;
+        }
+
         Set<PushDownAggOp> pushDownAggOps = functionClasses.stream()
                 .map(supportedAgg::get)
                 .collect(Collectors.toSet());

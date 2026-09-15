@@ -31,11 +31,14 @@ import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
@@ -44,6 +47,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate.PushDownAggOp;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -170,7 +177,15 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
     }
 
     private LogicalAggregate<LogicalFileScan> newNullableFileCountAggregate() {
-        Column nullableColumn = new Column("value", Type.INT, true);
+        LogicalFileScan fileScan = newFileScan(Type.INT, true);
+        return new LogicalAggregate<>(
+                Collections.emptyList(),
+                ImmutableList.of(new Alias(new Count(fileScan.getOutput().get(0)), "count")),
+                true, Optional.empty(), fileScan);
+    }
+
+    private LogicalFileScan newFileScan(Type type, boolean nullable) {
+        Column nullableColumn = new Column("value", type, nullable);
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         Mockito.when(table.initSelectedPartitions(Mockito.any()))
                 .thenReturn(SelectedPartitions.NOT_PRUNED);
@@ -186,13 +201,62 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
         Mockito.when(database.getCatalog()).thenReturn(catalog);
         Mockito.when(database.getFullName()).thenReturn("db");
         Mockito.when(table.getDatabase()).thenReturn(database);
-        LogicalFileScan fileScan = new LogicalFileScan(new RelationId(1), table,
+        return new LogicalFileScan(new RelationId(1), table,
                 ImmutableList.of("catalog", "db"), Collections.emptyList(),
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
-        return new LogicalAggregate<>(
-                Collections.emptyList(),
-                ImmutableList.of(new Alias(new Count(fileScan.getOutput().get(0)), "count")),
-                true, Optional.empty(), fileScan);
+    }
+
+    @Test
+    public void testFileMinMaxUnsafeCast() {
+        for (boolean projected : new boolean[] {false, true}) {
+            for (boolean nullable : new boolean[] {false, true}) {
+                for (boolean strict : new boolean[] {false, true}) {
+                    checkFileMinMaxCast(Type.BIGINT, IntegerType.INSTANCE, nullable, projected, strict, false);
+                    checkFileMinMaxCast(Type.DOUBLE, IntegerType.INSTANCE, nullable, projected, strict, false);
+                    checkFileMinMaxCast(DecimalV3Type.createDecimalV3Type(3, 2).toCatalogDataType(),
+                            DecimalV3Type.createDecimalV3Type(2, 1), nullable, projected, strict, false);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testFileMinMaxSafeCast() {
+        for (boolean projected : new boolean[] {false, true}) {
+            for (boolean nullable : new boolean[] {false, true}) {
+                checkFileMinMaxCast(Type.INT, BigIntType.INSTANCE, nullable, projected, false, true);
+            }
+        }
+    }
+
+    private void checkFileMinMaxCast(Type sourceType, DataType targetType, boolean nullable,
+            boolean projected, boolean strict, boolean expectedPushdown) {
+        LogicalFileScan fileScan = newFileScan(sourceType, nullable);
+        Expression argument = new Cast(fileScan.getOutput().get(0), targetType, true, strict);
+        Plan child = fileScan;
+        RuleType ruleType = RuleType.STORAGE_LAYER_AGGREGATE_WITHOUT_PROJECT_FOR_FILE_SCAN;
+        if (projected) {
+            Alias alias = new Alias(argument, "cast_value");
+            child = new LogicalProject<>(ImmutableList.of(alias), fileScan);
+            argument = alias.toSlot();
+            ruleType = RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT_FOR_FILE_SCAN;
+        }
+        LogicalAggregate<Plan> aggregate = new LogicalAggregate<>(Collections.emptyList(),
+                ImmutableList.of(new Alias(new Min(argument), "min"), new Alias(new Max(argument), "max")),
+                true, Optional.empty(), child);
+        CascadesContext context = MemoTestUtils.createCascadesContext(aggregate);
+        context.getConnectContext().getSessionVariable().enableStrictCast = strict;
+        RuleType selectedRuleType = ruleType;
+        Rule rule = new AggregateStrategies().buildRules().stream()
+                .filter(candidate -> candidate.getRuleType() == selectedRuleType).findFirst().get();
+        PlanChecker checker = PlanChecker.from(context).applyImplementation(rule);
+        if (expectedPushdown) {
+            checker.matches(projected
+                    ? logicalAggregate(logicalProject(physicalStorageLayerAggregate()))
+                    : logicalAggregate(physicalStorageLayerAggregate()));
+        } else {
+            checker.nonMatch(physicalStorageLayerAggregate());
+        }
     }
 
     @Override
