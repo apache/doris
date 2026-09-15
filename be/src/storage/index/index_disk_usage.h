@@ -111,6 +111,11 @@ private:
     InvertedIndexFileInfo _index_file_info;
 };
 
+// Returns the schema index that describes the physical index `(index_id, suffix)`, or nullptr
+// when the index no longer exists in `schema`.
+const TabletIndex* resolve_disk_usage_index(const TabletSchema& schema, int64_t index_id,
+                                            std::string_view suffix);
+
 // Appends one row per index record of every segment in `rowset`.
 Status collect_rowset_index_disk_usage(const RowsetSharedPtr& rowset,
                                        const IndexDiskUsageOptions& options, int64_t tablet_id,

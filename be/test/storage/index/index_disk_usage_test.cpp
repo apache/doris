@@ -697,4 +697,94 @@ TEST_F(IndexDiskUsageCollectorTest, CollectSniiPositionDetailChecksCancellationP
     EXPECT_EQ(2, checks);
 }
 
+// A V1 VARIANT index writes one file per extracted path under the parent index id, while the
+// rowset schema only lists the parent index.
+TEST_F(IndexDiskUsageCollectorTest, CollectV1VariantPathFilesFromFileInfo) {
+    auto schema = create_schema();
+    schema->append_index(text_index(1, true));
+    auto path_index = [](const std::string& suffix) {
+        TabletIndexPB index_pb;
+        index_pb.set_index_type(IndexType::INVERTED);
+        index_pb.set_index_id(1);
+        index_pb.set_index_name("idx_text");
+        index_pb.add_col_unique_id(1);
+        (*index_pb.mutable_properties())["parser"] = "english";
+        (*index_pb.mutable_properties())["support_phrase"] = "true";
+        index_pb.set_index_suffix_name(suffix);
+        TabletIndex index;
+        index.init_from_pb(index_pb);
+        return index;
+    };
+    std::vector<IndexSpec> specs {
+            {.index = path_index("v%2Ea"), .column_index = 1, .feed = feed_text},
+            {.index = path_index("v%2Eb"), .column_index = 1, .feed = feed_text}};
+    const std::string prefix =
+            write_segment(InvertedIndexStorageFormatPB::V1, "rs_v1_variant", schema, &specs);
+
+    InvertedIndexFileInfo file_info;
+    int64_t files_size = 0;
+    for (const char* suffix : {"v%2Ea", "v%2Eb"}) {
+        int64_t size = 0;
+        ASSERT_TRUE(io::global_local_filesystem()
+                            ->file_size(InvertedIndexDescriptor::get_index_file_path_v1(prefix, 1,
+                                                                                        suffix),
+                                        &size)
+                            .ok());
+        auto* index_info = file_info.add_index_info();
+        index_info->set_index_id(1);
+        index_info->set_index_suffix(suffix);
+        index_info->set_index_file_size(size);
+        files_size += size;
+    }
+    IndexDiskUsageCollector collector(io::global_local_filesystem(), prefix, schema,
+                                      InvertedIndexStorageFormatPB::V1, 1001, file_info);
+    std::vector<IndexDiskUsageRecord> records;
+    const Status st = collector.collect(IndexDiskUsageOptions {}, &records);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(2U, records.size());
+    EXPECT_EQ("v%2Ea", records[0].index_suffix);
+    EXPECT_EQ("v%2Eb", records[1].index_suffix);
+    EXPECT_EQ(files_size, sum_total(records));
+}
+
+static TabletIndex usage_test_index(int64_t index_id, const std::string& name,
+                                    const std::string& suffix) {
+    TabletIndexPB index_pb;
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.set_index_id(index_id);
+    index_pb.set_index_name(name);
+    index_pb.add_col_unique_id(1);
+    index_pb.set_index_suffix_name(suffix);
+    TabletIndex index;
+    index.init_from_pb(index_pb);
+    return index;
+}
+
+// An extracted VARIANT path keeps the parent index id with its own suffix, which the current
+// schema does not list.
+TEST(IndexDiskUsageResolveIndexTest, ResolvesVariantPathToParentIndex) {
+    TabletSchema schema;
+    schema.append_index(usage_test_index(1, "idx_v", ""));
+    schema.append_index(usage_test_index(2, "idx_other", ""));
+
+    const TabletIndex* path_index = resolve_disk_usage_index(schema, 1, "v%2Ea");
+    ASSERT_NE(nullptr, path_index);
+    EXPECT_EQ("idx_v", path_index->index_name());
+    const TabletIndex* other = resolve_disk_usage_index(schema, 2, "");
+    ASSERT_NE(nullptr, other);
+    EXPECT_EQ("idx_other", other->index_name());
+    // A dropped index is not resolved.
+    EXPECT_EQ(nullptr, resolve_disk_usage_index(schema, 3, ""));
+}
+
+TEST(IndexDiskUsageResolveIndexTest, PrefersExactSuffixMatch) {
+    TabletSchema schema;
+    schema.append_index(usage_test_index(1, "idx_v", ""));
+    schema.append_index(usage_test_index(1, "idx_v", "v%2Ea"));
+
+    const TabletIndex* index = resolve_disk_usage_index(schema, 1, "v%2Ea");
+    ASSERT_NE(nullptr, index);
+    EXPECT_EQ("v%2Ea", index->get_index_suffix());
+}
+
 } // namespace doris::segment_v2
