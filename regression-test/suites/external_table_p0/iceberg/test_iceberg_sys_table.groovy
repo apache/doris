@@ -210,8 +210,8 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
 
     def test_systable_manifests = { table, systableType ->
         def systableName = "${table}\$${systableType}"
-        // Binary data-file metadata is exposed by files/entries, not by the manifest-table schema.
-        order_qt_desc_manifests """desc ${systableName}"""
+        // all_manifests also exposes binary key_metadata; it must not reuse the manifests schema.
+        "order_qt_desc_${systableType}"("""desc ${systableName}""")
 
         List<List<Object>> desc1 = sql """desc ${systableName}"""
         List<List<Object>> desc2 = sql """desc ${db_name}.${systableName}"""
