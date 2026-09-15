@@ -698,18 +698,24 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
             // Look up the inverted index for each field (needed for variant subcolumn analyzer)
             Index invertedIndex = null;
+            String analyzer = searchExpression.getQsPlan().getFieldBindings()
+                    .get(fieldIndexes.size()).getAnalyzerName();
             if (slotExpr instanceof SlotReference) {
                 SlotReference slot = (SlotReference) slotExpr;
                 OlapTable olapTbl = getOlapTableDirectly(slot);
                 if (olapTbl != null) {
                     Column column = slot.getOriginalColumn().orElse(null);
                     if (column != null) {
-                        invertedIndex = olapTbl.getInvertedIndex(column, slot.getSubPath());
+                        invertedIndex = olapTbl.getInvertedIndex(column, slot.getSubPath(), analyzer);
                     }
                 }
             }
-            if (invertedIndex == null) {
+            if (invertedIndex == null && analyzer == null) {
                 invertedIndex = getInvertedIndexFromTranslatedSlot(translatedSlot, context);
+            }
+            if (analyzer != null && invertedIndex == null) {
+                throw new AnalysisException("No inverted index found for SEARCH analyzer '" + analyzer
+                        + "' on " + slotExpr.toSql());
             }
             fieldIndexes.add(invertedIndex);
         }

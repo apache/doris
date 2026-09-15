@@ -113,15 +113,12 @@ suite("test_search_usage_restrictions", "p0") {
         exception "predicates are only supported inside WHERE filters on single-table scans"
     }
 
-    // Test 10: search() with JOIN should fail (not single table)
-    test {
-        sql """
-            SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ t1.id FROM ${tableName} t1
-            JOIN ${tableName2} t2 ON t1.id = t2.id
-            WHERE search('title:Learning')
-        """
-        exception "single"
-    }
+    // Test 10: SEARCH fields belong to t1 even though the WHERE is above a join.
+    order_qt_valid_join """
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ t1.id FROM ${tableName} t1
+        JOIN ${tableName2} t2 ON t1.id = t2.id
+        WHERE search('content:tutorial')
+    """
 
     // Test 11: search() in ORDER BY should fail
     test {

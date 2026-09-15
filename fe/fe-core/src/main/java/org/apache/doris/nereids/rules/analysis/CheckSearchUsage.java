@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
@@ -36,7 +37,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 
 /**
- * Check search expression usage - search() can only be used in WHERE filters on single-table OLAP scans.
+ * Check that search() is used in WHERE filters over OLAP tables.
  * This rule validates that search() expressions only appear in supported contexts.
  * Must run in analysis phase before search() gets optimized away.
  */
@@ -99,10 +100,8 @@ public class CheckSearchUsage implements AnalysisRuleFactory {
         LOG.debug("validateSearchUsage: {}", plan.treeString());
         if (plan instanceof LogicalFilter) {
             Plan child = plan.child(0);
-            if (!isSingleTableScanPipeline(child)) {
-                throw new AnalysisException("search() predicate only supports filtering directly on a single "
-                        + "table scan; remove joins, subqueries, or additional operators between search() "
-                        + "and the target table");
+            if (!isOlapScanPipeline(child)) {
+                throw new AnalysisException("search() predicates require an OLAP scan pipeline");
             }
         } else if (!(plan instanceof LogicalProject)) {
             // search() can only appear in LogicalFilter or specific LogicalProject nodes
@@ -132,11 +131,15 @@ public class CheckSearchUsage implements AnalysisRuleFactory {
         return false;
     }
 
-    private boolean isSingleTableScanPipeline(Plan plan) {
+    private boolean isOlapScanPipeline(Plan plan) {
         Plan current = plan;
         while (true) {
             if (current instanceof LogicalOlapScan) {
                 return true;
+            }
+            if (current instanceof LogicalJoin) {
+                return isOlapScanPipeline(current.child(0))
+                        && isOlapScanPipeline(current.child(1));
             }
             if (current.arity() != 1) {
                 return false;

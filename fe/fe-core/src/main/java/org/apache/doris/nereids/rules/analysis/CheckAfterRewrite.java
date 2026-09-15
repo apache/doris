@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
+import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
@@ -65,6 +66,13 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
             checkUnexpectedExpression(plan);
             checkMetricTypeIsUsedCorrectly(plan);
             checkMatchIsUsedCorrectly(plan);
+            if (!(plan instanceof LogicalOlapScan)
+                    && !(plan instanceof LogicalFilter && plan.child(0) instanceof LogicalOlapScan)
+                    && plan.getExpressions().stream().anyMatch(expression ->
+                            expression.anyMatch(e -> e instanceof SearchExpression))) {
+                throw new AnalysisException("SEARCH must be evaluated by an OLAP scan; "
+                        + "unsupported expression placement in " + plan.getType());
+            }
             return null;
         }).toRule(RuleType.CHECK_ANALYSIS);
     }

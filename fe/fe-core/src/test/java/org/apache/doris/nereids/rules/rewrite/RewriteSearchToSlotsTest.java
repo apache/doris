@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.PlanConstructor;
@@ -244,7 +245,7 @@ public class RewriteSearchToSlotsTest {
         Search searchFunc = new Search(new StringLiteral("NAME:alice"));
 
         Method rewriteMethod = RewriteSearchToSlots.class.getDeclaredMethod(
-                "rewriteSearch", Search.class, LogicalOlapScan.class);
+                "rewriteSearch", Search.class, Plan.class);
         rewriteMethod.setAccessible(true);
 
         Object rewritten = rewriteMethod.invoke(rewriteRule, searchFunc, scan);
@@ -268,7 +269,7 @@ public class RewriteSearchToSlotsTest {
         Search searchFunc = new Search(new StringLiteral("V.foo:bar"));
 
         Method rewriteMethod = RewriteSearchToSlots.class.getDeclaredMethod(
-                "rewriteSearch", Search.class, LogicalOlapScan.class);
+                "rewriteSearch", Search.class, Plan.class);
         rewriteMethod.setAccessible(true);
 
         Object rewritten = rewriteMethod.invoke(rewriteRule, searchFunc, scan);
@@ -293,7 +294,7 @@ public class RewriteSearchToSlotsTest {
         Search searchFunc = new Search(new StringLiteral("unknown_field:value"));
 
         Method rewriteMethod = RewriteSearchToSlots.class.getDeclaredMethod(
-                "rewriteSearch", Search.class, LogicalOlapScan.class);
+                "rewriteSearch", Search.class, Plan.class);
         rewriteMethod.setAccessible(true);
 
         InvocationTargetException thrown = Assertions.assertThrows(InvocationTargetException.class,
@@ -312,7 +313,7 @@ public class RewriteSearchToSlotsTest {
         Search searchFunc = new Search(new StringLiteral("name:alice"));
 
         Method rewriteMethod = RewriteSearchToSlots.class.getDeclaredMethod(
-                "rewriteSearch", Search.class, LogicalOlapScan.class);
+                "rewriteSearch", Search.class, Plan.class);
         rewriteMethod.setAccessible(true);
 
         InvocationTargetException thrown = Assertions.assertThrows(InvocationTargetException.class,
@@ -331,7 +332,7 @@ public class RewriteSearchToSlotsTest {
         Search searchFunc = new Search(new StringLiteral("name:alice"));
 
         Method rewriteMethod = RewriteSearchToSlots.class.getDeclaredMethod(
-                "rewriteSearch", Search.class, LogicalOlapScan.class);
+                "rewriteSearch", Search.class, Plan.class);
         rewriteMethod.setAccessible(true);
 
         Object rewritten = rewriteMethod.invoke(rewriteRule, searchFunc, scan);

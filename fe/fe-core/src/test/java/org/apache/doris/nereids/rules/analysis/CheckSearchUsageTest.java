@@ -28,7 +28,7 @@ import org.junit.jupiter.api.Test;
 /**
  * Unit tests for CheckSearchUsage rule.
  * This test validates that search() function can only be used in WHERE clauses
- * on single-table OLAP scans, and is rejected in other contexts.
+ * over OLAP scans and joins, and is rejected in other contexts.
  */
 public class CheckSearchUsageTest extends TestWithFeService implements MemoPatternMatchSupported {
 
@@ -160,7 +160,7 @@ public class CheckSearchUsageTest extends TestWithFeService implements MemoPatte
     }
 
     @Test
-    public void testSearchWithJoinRejected() {
+    public void testSearchWithJoinAllowed() {
         // Create second table for join test
         try {
             createTable("CREATE TABLE test_search_table2 (\n"
@@ -174,19 +174,12 @@ public class CheckSearchUsageTest extends TestWithFeService implements MemoPatte
             // Table might already exist from previous test
         }
 
-        // Invalid: search() in WHERE with JOIN
+        // SEARCH depends only on title from the first input.
         String sql = "SELECT t1.id FROM test_search_table t1 "
                 + "JOIN test_search_table2 t2 ON t1.id = t2.id "
                 + "WHERE search('title:hello')";
 
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> {
-            PlanChecker.from(connectContext).analyze(sql);
-        });
-
-        Assertions.assertTrue(
-                exception.getMessage().contains("search()")
-                        && exception.getMessage().contains("single"),
-                "Expected error about single table, got: " + exception.getMessage());
+        Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext).analyze(sql));
     }
 
     @Test
