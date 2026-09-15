@@ -794,6 +794,10 @@ public:
         RETURN_IF_ERROR(std::visit(
                 [&](auto multiply_may_overflow, auto narrow_integral) {
                     for (size_t i = 0; i < size; i++) {
+                        // Skip hidden payload of rows marked as null by the input null map.
+                        if (null_map && null_map[i]) {
+                            continue;
+                        }
                         if (!CastToDecimal::_from_int<typename FromDataType::FieldType,
                                                       typename ToDataType::FieldType,
                                                       multiply_may_overflow, narrow_integral>(
@@ -875,6 +879,10 @@ public:
                 DataTypeDecimal<ToFieldType::PType>::get_max_digits_number(to_precision);
         typename ToFieldType::NativeType min_result = -max_result;
         for (size_t i = 0; i < size; i++) {
+            // Skip hidden payload of rows marked as null by the input null map.
+            if (null_map && null_map[i]) {
+                continue;
+            }
             if (!CastToDecimal::_from_float<typename FromDataType::FieldType,
                                             typename ToDataType::FieldType>(
                         vec_from_data[i], vec_to_data[i], to_precision, to_scale, scale_multiplier,
@@ -993,6 +1001,10 @@ public:
         RETURN_IF_ERROR(std::visit(
                 [&](auto multiply_may_overflow, auto narrow_integral) {
                     for (size_t i = 0; i < size; i++) {
+                        // Skip hidden payload of rows marked as null by the input null map.
+                        if (null_map && null_map[i]) {
+                            continue;
+                        }
                         if (!CastToDecimal::_from_decimal<FromFieldType, ToFieldType,
                                                           multiply_may_overflow, narrow_integral>(
                                     vec_from_data[i], from_precision, from_scale, vec_to_data[i],
@@ -1100,6 +1112,10 @@ public:
         RETURN_IF_ERROR(std::visit(
                 [&](auto multiply_may_overflow, auto narrow_integral) {
                     for (size_t i = 0; i < size; i++) {
+                        // Skip hidden payload of rows marked as null by the input null map.
+                        if (null_map && null_map[i]) {
+                            continue;
+                        }
                         if (!CastToDecimal::_from_decimal<FromFieldType, ToFieldType,
                                                           multiply_may_overflow, narrow_integral>(
                                     vec_from_data[i], from_precision, from_scale, vec_to_data[i],

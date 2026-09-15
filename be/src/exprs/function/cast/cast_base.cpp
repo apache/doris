@@ -17,10 +17,61 @@
 
 #include "exprs/function/cast/cast_base.h"
 
+#include <algorithm>
 #include <cstdint>
+#include <utility>
 
 #include "util/jsonb_writer.h"
 namespace doris::CastWrapper {
+
+bool has_masked_row(const NullMap::value_type* null_map, size_t rows) {
+    return std::any_of(null_map, null_map + rows,
+                       [](const NullMap::value_type value) { return value != 0; });
+}
+
+ChildNullMask build_child_null_mask(const NullMap::value_type* parent_null_map,
+                                    const IColumn::Offsets64* offsets, const ColumnPtr& child) {
+    if (parent_null_map == nullptr) {
+        return {.column = child, .null_map = nullptr, .mask_holder = nullptr};
+    }
+    const size_t rows = offsets == nullptr ? child->size() : offsets->size();
+    if (!has_masked_row(parent_null_map, rows)) {
+        return {.column = child, .null_map = nullptr, .mask_holder = nullptr};
+    }
+
+    auto mask = ColumnUInt8::create(child->size(), 0);
+    auto& mask_data = mask->get_data();
+    if (offsets == nullptr) {
+        // The children of a STRUCT share the rows of their parent.
+        std::copy_n(parent_null_map, rows, mask_data.begin());
+    } else {
+        // ARRAY and MAP children are flattened, so the NULL of a row has to be expanded to every
+        // element/entry that belongs to it.
+        for (size_t row = 0; row < rows; ++row) {
+            if (parent_null_map[row] == 0) {
+                continue;
+            }
+            const size_t first_child = row == 0 ? 0 : (*offsets)[row - 1];
+            std::fill(mask_data.begin() + first_child, mask_data.begin() + (*offsets)[row], 1);
+        }
+    }
+
+    const auto* nullable_child = check_and_get_column<ColumnNullable>(child.get());
+    if (nullable_child == nullptr) {
+        return {.column = child, .null_map = mask_data.data(), .mask_holder = std::move(mask)};
+    }
+
+    // The NULL state of a child is the union of its own NULL map and the mask inherited from the
+    // rows of its parent. Merge it into `mask` instead of building a second mask of the same size.
+    const auto& child_null_map = nullable_child->get_null_map_data();
+    for (size_t i = 0; i < mask_data.size(); ++i) {
+        mask_data[i] |= child_null_map[i];
+    }
+    return {.column = ColumnNullable::create(nullable_child->get_nested_column_ptr(),
+                                             std::move(mask)),
+            .null_map = nullptr,
+            .mask_holder = nullptr};
+}
 
 Status cast_from_generic_to_jsonb(FunctionContext* context, Block& block,
                                   const ColumnNumbers& arguments, uint32_t result,
