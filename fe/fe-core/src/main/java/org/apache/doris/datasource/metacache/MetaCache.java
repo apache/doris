@@ -174,19 +174,15 @@ public class MetaCache<T> {
 
     public List<String> refreshNames() {
         throwIfInterrupted();
-        NamesLoad loadInProgress;
+        // Retire any active load so the forced refresh is not blocked behind a stuck
+        // background refresh. The old load's connector call continues but its result
+        // is discarded; its slot is freed so getNames(true) can start a fresh load.
         synchronized (namesMutationLock) {
-            loadInProgress = activeNamesLoad;
-        }
-        if (loadInProgress != null) {
-            try {
-                awaitNamesLoad(loadInProgress);
-            } catch (RuntimeException e) {
-                if (Thread.currentThread().isInterrupted()) {
-                    throw e;
-                }
-                // This load started before the forced refresh and must not decide its result.
+            if (activeNamesLoad != null) {
+                activeNamesLoad.result.complete(null);
+                activeNamesLoad = null;
             }
+            physicalNamesLoads.clear();
         }
         throwIfInterrupted();
         return getNames(true).stream().map(Pair::value).collect(Collectors.toList());
@@ -449,20 +445,20 @@ public class MetaCache<T> {
 
     public Optional<T> getMetaObj(String name, long id) {
         Optional<T> val = metaObjCache.getIfPresent(name);
-        if (val == null || !val.isPresent()) {
-            synchronized (metaObjCache) {
-                val = metaObjCache.getIfPresent(name);
-                if (val != null && val.isPresent()) {
-                    return val;
-                }
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("trigger getMetaObj in metacache {}, obj name: {}, id: {}",
-                            this.name, name, id, new Exception());
-                }
-                metaObjCache.invalidate(name);
-                val = metaObjCache.get(name);
-                idToName.put(id, name);
-            }
+        if (val != null && val.isPresent()) {
+            return val;
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("trigger getMetaObj in metacache {}, obj name: {}, id: {}",
+                    this.name, name, id, new Exception());
+        }
+        // Do not hold a cache-wide monitor during the blocking loader call
+        // (buildDbForInit → connector I/O). Caffeine serializes same-key loads internally;
+        // different keys can load in parallel without blocking updateCache/invalidate.
+        metaObjCache.invalidate(name);
+        val = metaObjCache.get(name);
+        if (val != null && val.isPresent()) {
+            idToName.put(id, name);
         }
         return val;
     }
@@ -485,24 +481,20 @@ public class MetaCache<T> {
     }
 
     public boolean updateCache(String remoteName, String localName, T obj, long id, long expectedEpoch) {
-        // Object loaders already use this monitor and can re-enter listNames(). Keep the same lock
-        // order here, and never enter Caffeine's same-key mutation while holding namesMutationLock.
-        synchronized (metaObjCache) {
-            synchronized (namesMutationLock) {
-                if (!namesLoadEpochValidator.test(expectedEpoch)) {
-                    return false;
-                }
-                long generation = advanceNamesGeneration();
-                NamesCacheValue current = namesCache.getIfPresent("");
-                Map<String, Pair<String, String>> names = current == null
-                        ? Maps.newLinkedHashMap() : current.names;
-                names.put(localName, Pair.of(remoteName, localName));
-                namesCache.put("", new NamesCacheValue(generation, names, current != null && current.complete));
-                nameUpdateAction.accept(remoteName, localName);
-                idToName.put(id, localName);
+        synchronized (namesMutationLock) {
+            if (!namesLoadEpochValidator.test(expectedEpoch)) {
+                return false;
             }
-            metaObjCache.put(localName, Optional.of(obj));
+            long generation = advanceNamesGeneration();
+            NamesCacheValue current = namesCache.getIfPresent("");
+            Map<String, Pair<String, String>> names = current == null
+                    ? Maps.newLinkedHashMap() : current.names;
+            names.put(localName, Pair.of(remoteName, localName));
+            namesCache.put("", new NamesCacheValue(generation, names, current != null && current.complete));
+            nameUpdateAction.accept(remoteName, localName);
+            idToName.put(id, localName);
         }
+        metaObjCache.put(localName, Optional.of(obj));
         return true;
     }
 
@@ -519,23 +511,21 @@ public class MetaCache<T> {
     }
 
     public void invalidate(String localName, long id) {
-        synchronized (metaObjCache) {
-            synchronized (namesMutationLock) {
-                long generation = advanceNamesGeneration();
-                NamesCacheValue current = namesCache.getIfPresent("");
-                if (current != null) {
-                    current.names.remove(localName);
-                    namesCache.put("", new NamesCacheValue(generation, current.names, current.complete));
-                }
-                nameInvalidationAction.accept(localName);
-                idToName.remove(id);
+        synchronized (namesMutationLock) {
+            long generation = advanceNamesGeneration();
+            NamesCacheValue current = namesCache.getIfPresent("");
+            if (current != null) {
+                current.names.remove(localName);
+                namesCache.put("", new NamesCacheValue(generation, current.names, current.complete));
             }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("invalidate obj in metacache {}, obj name: {}, id: {}",
-                        name, localName, id, new Exception());
-            }
-            metaObjCache.invalidate(localName);
+            nameInvalidationAction.accept(localName);
+            idToName.remove(id);
         }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalidate obj in metacache {}, obj name: {}, id: {}",
+                    name, localName, id, new Exception());
+        }
+        metaObjCache.invalidate(localName);
     }
 
     public void invalidateNames() {
@@ -550,10 +540,8 @@ public class MetaCache<T> {
         if (LOG.isDebugEnabled()) {
             LOG.debug("invalidate objects in metacache {}", name, new Exception());
         }
-        synchronized (metaObjCache) {
-            metaObjCache.invalidateAll();
-            idToName.clear();
-        }
+        metaObjCache.invalidateAll();
+        idToName.clear();
     }
 
     public void invalidateAll() {
