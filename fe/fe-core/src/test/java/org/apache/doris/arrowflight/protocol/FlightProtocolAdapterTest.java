@@ -385,6 +385,7 @@ public class FlightProtocolAdapterTest {
                 Lists.<List<String>>newArrayList(Lists.newArrayList("v")));
 
         // A statement without a result lets the request go on.
+        adapter.beforeStatement(ctx);
         Assertions.assertTrue(adapter.finishStatement(ctx, executor, 0, 2));
 
         // A result produced by the last statement is fine ...
@@ -397,6 +398,86 @@ public class FlightProtocolAdapterTest {
         Assertions.assertFalse(adapter.finishStatement(ctx, executor, 0, 2));
         Assertions.assertEquals(MysqlStateType.ERR, ctx.getState().getStateType());
         Assertions.assertEquals(ErrorCode.ERR_ARROW_FLIGHT_SQL_MUST_ONLY_RESULT_STMT, ctx.getState().getErrorCode());
+
+        // A result left on the backends counts the same as one cached here: the FlightInfo of the
+        // request describes exactly one result, so a query that is not the last statement stops the
+        // request too, wherever its result is ...
+        adapter.beginRequest();
+        ctx.getState().reset();
+        adapter.beforeStatement(ctx);
+        adapter.beforeQuery(ctx);
+        Assertions.assertEquals(0, adapter.getChannel().resultNum());
+        Assertions.assertFalse(adapter.finishStatement(ctx, executor, 0, 2));
+        Assertions.assertEquals(ErrorCode.ERR_ARROW_FLIGHT_SQL_MUST_ONLY_RESULT_STMT, ctx.getState().getErrorCode());
+        // ... and as the last statement its result is the request's.
+        ctx.getState().reset();
+        adapter.beforeStatement(ctx);
+        adapter.beforeQuery(ctx);
+        Assertions.assertTrue(adapter.finishStatement(ctx, executor, 1, 2));
+        Assertions.assertNotEquals(MysqlStateType.ERR, ctx.getState().getStateType());
+        // A query that failed produced no result, wherever it was headed: the request stops with
+        // the query's own error, not with this one.
+        ctx.getState().reset();
+        adapter.beforeStatement(ctx);
+        adapter.beforeQuery(ctx);
+        ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "the query's own error");
+        Assertions.assertTrue(adapter.finishStatement(ctx, executor, 0, 2));
+        Assertions.assertEquals(ErrorCode.ERR_UNKNOWN_ERROR, ctx.getState().getErrorCode());
+    }
+
+    // Session teardown (CloseSession, the bearer token's expiry, KILL, the timeout checker) does
+    // not wait for the command that may be running: the command goes on, and its query may be
+    // deferred after teardown took everything the list held. Nothing would ever take that
+    // executor -- the session runs no next request, the timeout checker no longer sees it -- so a
+    // torn-down session finalizes what is deferred to it on the spot, and runs no further command.
+    @Test
+    public void testATornDownSessionFinalizesWhatIsDeferredToItOnTheSpot() throws Exception {
+        ConnectScheduler scheduler = new ConnectScheduler(10, 10);
+        ConnectContext ctx = flightSession();
+        ctx.setConnectScheduler(scheduler);
+        scheduler.submit(ctx);
+        Assertions.assertEquals(-1, scheduler.getFlightSqlConnectPoolMgr().registerConnection(ctx));
+        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
+        StmtExecutor before = Mockito.mock(StmtExecutor.class);
+        StmtExecutor late = Mockito.mock(StmtExecutor.class);
+        CountDownLatch commandStarted = new CountDownLatch(1);
+        CountDownLatch tornDown = new CountDownLatch(1);
+        ctx.addFlightSqlDeferredExecutor(before);
+
+        // A command of the session is running, and defers its query once the session is gone.
+        Thread command = new Thread(() -> holdSession(adapter, ctx, () -> {
+            commandStarted.countDown();
+            tornDown.await();
+            ctx.addFlightSqlDeferredExecutor(late);
+        }));
+        command.start();
+        Assertions.assertTrue(commandStarted.await(10, TimeUnit.SECONDS));
+
+        // Teardown (here KILL, the same unregisterConnection as CloseSession and token expiry) goes
+        // through without waiting for the command ...
+        ctx.kill(true);
+        Assertions.assertNull(scheduler.getContext(ctx.getConnectionId()));
+        Mockito.verify(before).finalizeArrowFlightQuery();
+        Mockito.verify(late, Mockito.never()).finalizeArrowFlightQuery();
+        Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
+
+        // ... and what the command defers afterwards is finalized by the command itself, once.
+        tornDown.countDown();
+        command.join(10_000);
+        Assertions.assertFalse(command.isAlive());
+        Mockito.verify(late).finalizeArrowFlightQuery();
+        Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
+        ctx.closeFlightSqlDeferredExecutors();
+        Mockito.verify(late, Mockito.times(1)).finalizeArrowFlightQuery();
+
+        // A command that gets its turn after teardown does not run on the session, and leaves the
+        // thread as it found it.
+        ConnectContext.remove();
+        FlightRuntimeException e = Assertions.assertThrows(FlightRuntimeException.class,
+                () -> adapter.runCommand(ctx, () -> Assertions.fail("must not run on a torn-down session")));
+        Assertions.assertEquals(FlightStatusCode.UNAUTHENTICATED, e.status().code());
+        Assertions.assertTrue(e.status().description().contains("closed"), e.status().description());
+        Assertions.assertNull(ConnectContext.get());
     }
 
     @Test

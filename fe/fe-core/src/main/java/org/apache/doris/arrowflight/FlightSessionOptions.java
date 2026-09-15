@@ -163,8 +163,16 @@ public final class FlightSessionOptions {
         // No database: the state the session started in, which GetSessionOptions reports as the
         // empty string and the empty value asks for back (Flight's way of unsetting an option; what
         // the ADBC driver sends to erase one). No statement leads there -- there is no USE of
-        // nothing -- so it is not one the session runs, and there is nothing in it to check.
+        // nothing -- so it is not one the session runs, and nothing of the value is left to check.
+        // What every statement is checked for first still holds, though: a transaction takes only
+        // its own statements (the executor refuses USE, SWITCH and SET while one is open), and the
+        // session leaves its database no more than it enters another.
         if (database.isEmpty()) {
+            if (ctx.isTxnModel()) {
+                LOG.warn("session option {} of Arrow Flight SQL connection {} could not be set, the session is "
+                        + "in a transaction", SCHEMA, ctx.getConnectionId());
+                return ErrorValue.ERROR;
+            }
             ctx.clearDatabase();
             return null;
         }

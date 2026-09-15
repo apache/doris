@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.SqlModeHelper;
@@ -98,6 +99,18 @@ public class FlightSessionOptionsTest extends TestWithFeService {
             Map<String, SessionOptionValue> options) {
         try {
             return FlightSessionOptions.set(ctx, options);
+        } finally {
+            connectContext.setThreadLocalInfo();
+        }
+    }
+
+    // Runs a statement of the session the way a request does, and leaves the test's own context on
+    // the thread afterwards.
+    private void run(ConnectContext ctx, String statement) throws Exception {
+        try (FlightSqlConnectProcessor processor = new FlightSqlConnectProcessor(ctx)) {
+            processor.handleQuery(statement);
+            Assertions.assertNotEquals(MysqlStateType.ERR, ctx.getState().getStateType(),
+                    statement + " failed: " + ctx.getState().getErrorMessage());
         } finally {
             connectContext.setThreadLocalInfo();
         }
@@ -177,6 +190,38 @@ public class FlightSessionOptionsTest extends TestWithFeService {
         Assertions.assertNull(set(ctx, FlightSessionOptions.SCHEMA, str("")));
         Assertions.assertNull(set(flightSession(UserIdentity.createAnalyzedUserIdentWithIp(USER, "%")),
                 FlightSessionOptions.SCHEMA, SessionOptionValueFactory.makeEmptySessionOptionValue()));
+    }
+
+    // A transaction takes only its own statements -- an insert, a commit, a rollback -- so while one
+    // is open every option is refused as the statement it stands for is. Leaving the database is
+    // refused with them, though no statement is run for it: the one change an option makes to the
+    // session on its own goes through the same gate as the ones the statements make.
+    @Test
+    public void testNoOptionChangesTheSessionInsideATransaction() throws Exception {
+        ConnectContext ctx = rootSession();
+        Assertions.assertNull(set(ctx, FlightSessionOptions.SCHEMA, str(DB)));
+        int queryTimeout = ctx.getSessionVariable().getQueryTimeoutS();
+        run(ctx, "BEGIN");
+        Assertions.assertTrue(ctx.isTxnModel());
+        try {
+            Assertions.assertEquals(ErrorValue.ERROR,
+                    set(ctx, FlightSessionOptions.SCHEMA, SessionOptionValueFactory.makeEmptySessionOptionValue()));
+            Assertions.assertEquals(ErrorValue.ERROR, set(ctx, FlightSessionOptions.SCHEMA, str("")));
+            Assertions.assertEquals(ErrorValue.ERROR, set(ctx, FlightSessionOptions.SCHEMA, str(OTHER_DB)));
+            Assertions.assertEquals(ErrorValue.ERROR, set(ctx, FlightSessionOptions.CATALOG, str("internal")));
+            // Every refusal of SET is reported as the value's (see setVariable), this one included.
+            Assertions.assertEquals(ErrorValue.INVALID_VALUE,
+                    set(ctx, "query_timeout", SessionOptionValueFactory.makeSessionOptionValue(queryTimeout + 1L)));
+            Assertions.assertEquals(DB, ctx.getDatabase());
+            Assertions.assertEquals(DB, get(ctx, FlightSessionOptions.SCHEMA));
+            Assertions.assertEquals(queryTimeout, ctx.getSessionVariable().getQueryTimeoutS());
+            Assertions.assertTrue(ctx.isTxnModel());
+        } finally {
+            run(ctx, "ROLLBACK");
+        }
+        Assertions.assertFalse(ctx.isTxnModel());
+        Assertions.assertNull(set(ctx, FlightSessionOptions.SCHEMA, str("")));
+        Assertions.assertEquals("", ctx.getDatabase());
     }
 
     @Test

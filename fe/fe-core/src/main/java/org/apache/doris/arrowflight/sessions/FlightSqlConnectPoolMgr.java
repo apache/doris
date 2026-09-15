@@ -76,8 +76,10 @@ public class FlightSqlConnectPoolMgr extends ConnectPoolMgr {
         }
         // Finalize any Arrow Flight query whose coordinator was kept alive across the
         // GetFlightInfo -> DoGet phases (see #62259), releasing its resources (e.g. external-table
-        // batch SplitSources and the query queue slot).
-        ctx.closeFlightSqlDeferredExecutors();
+        // batch SplitSources and the query queue slot), and close the session for good: teardown
+        // does not wait for a command that may still be running, and what that command defers
+        // afterwards is finalized on the spot (FlightProtocolAdapter.tearDown).
+        ctx.tearDownFlightSqlSession();
         ctx.closeTxn();
         if (connectionMap.remove(ctx.getConnectionId()) != null) {
             numberConnection.decrementAndGet();

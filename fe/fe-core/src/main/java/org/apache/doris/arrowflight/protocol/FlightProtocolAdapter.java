@@ -76,10 +76,13 @@ import java.util.concurrent.locks.ReentrantLock;
  * that runs no command of the session (the timeout checker, a token expiry). It is finalized
  * exactly once, by whoever takes it out of the list under the list's lock -- the next request
  * ({@link #beginRequest}), the timeout checker ({@link #takeExpiredDeferredExecutors}, each
- * executor by its own deadline) or teardown ({@link #closeDeferredExecutors}) -- deciding and
- * taking in one critical section, finalizing outside it. The frontend has no signal for the moment
- * a query is done on the backends; the next request stands in for it, as it has since #62259,
- * and the deadline bounds the wait when no request comes.
+ * executor by its own deadline) or teardown ({@link #tearDown}) -- deciding and taking in one
+ * critical section, finalizing outside it. Teardown does not wait for a running command, so a
+ * query may be deferred after teardown took everything the list held; it is then finalized on the
+ * spot by the command that deferred it ({@link #addDeferredExecutor}), since nothing would take it
+ * later. The frontend has no signal for the moment a query is done on the backends; the next
+ * request stands in for it, as it has since #62259, and the deadline bounds the wait when no
+ * request comes.
  */
 public class FlightProtocolAdapter implements ProtocolAdapter {
     private static final Logger LOG = LogManager.getLogger(FlightProtocolAdapter.class);
@@ -110,6 +113,10 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     // the commands of the session add and take under the command lock, the timeout checker and
     // teardown take without it.
     private final List<StmtExecutor> deferredExecutors = new ArrayList<>();
+    // Whether the session has been torn down (tearDown): set under the monitor of
+    // deferredExecutors, so that a publication sees either the list or the tombstone; read at the
+    // entry of every command as well.
+    private volatile boolean closed = false;
     // Serializes the commands of this session, see runCommand.
     private final ReentrantLock commandLock = new ReentrantLock();
 
@@ -265,7 +272,10 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
      * A statement forwarded to the master has its outcome carried into this session here, the
      * way {@code MysqlProtocolAdapter.finishCommand} replays it to a MySQL client. And of the
      * statements of one request only the last may produce a result: the FlightInfo returned for
-     * the request describes exactly one.
+     * the request describes exactly one, wherever it is. A result this frontend cached and one
+     * left on the backends count the same -- the endpoints of two queries in one FlightInfo would
+     * be read as the partitions of one result, and a query before a SET would have its endpoints
+     * dropped for the SET's status.
      */
     @Override
     public boolean finishStatement(ConnectContext ctx, StmtExecutor executor, int stmtIndex, int stmtCount)
@@ -274,7 +284,13 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
             carryForwardedOutcome(ctx, executor);
         }
         Preconditions.checkState(channel.resultNum() <= 1);
-        if (channel.resultNum() == 1 && stmtIndex != stmtCount - 1) {
+        // A statement that succeeded produced a result when it cached one on the channel or left
+        // one on the backends for the client to pull (beforeQuery); one that failed produced none,
+        // whatever it registered before failing, and the request stops with the statement's own
+        // error.
+        boolean producedResult = ctx.getState().getStateType() != QueryState.MysqlStateType.ERR
+                && (channel.resultNum() == 1 || !returnResultFromLocal);
+        if (producedResult && stmtIndex != stmtCount - 1) {
             String errMsg = "Only be one stmt that returns the result and it is at the end. "
                     + "stmts.size(): " + stmtCount;
             LOG.warn(errMsg);
@@ -374,16 +390,27 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
         returnResultFromLocal = true;
     }
 
+    /**
+     * Keeps a deferred executor for the session to finalize later -- unless the session has been
+     * torn down meanwhile ({@link #tearDown}). Teardown does not wait for a running command, so
+     * its query may be deferred after teardown took everything the list held, and nothing would
+     * take it then: the session runs no next request, and the timeout checker no longer sees it.
+     * Such an executor is finalized here and now, by the command that deferred it.
+     */
     public void addDeferredExecutor(StmtExecutor executor) {
         synchronized (deferredExecutors) {
-            deferredExecutors.add(executor);
+            if (!closed) {
+                deferredExecutors.add(executor);
+                return;
+            }
         }
+        finalizeDeferredExecutors(Collections.singletonList(executor));
     }
 
     /**
      * Takes every deferred executor out of the list and finalizes it: the next request of the
      * session ({@link #beginRequest}), which stands in for the end of the previous query's DoGet, and
-     * the session's teardown.
+     * a request that failed after deferring its query, which no DoGet will ever pull.
      */
     public void closeDeferredExecutors() {
         List<StmtExecutor> taken;
@@ -391,6 +418,24 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
             if (deferredExecutors.isEmpty()) {
                 return;
             }
+            taken = new ArrayList<>(deferredExecutors);
+            deferredExecutors.clear();
+        }
+        finalizeDeferredExecutors(taken);
+    }
+
+    /**
+     * Tears the session down: takes every deferred executor out of the list and finalizes it, and
+     * closes the list for good. Teardown -- CloseSession, the bearer token's expiry, KILL, the
+     * timeout checker -- does not wait for the command that may be running, so that command may
+     * still defer its query afterwards, which is then finalized on the spot
+     * ({@link #addDeferredExecutor}); and a command that was waiting for the session does not run
+     * on it ({@link #callCommand}). Reached through the pool's unregisterConnection.
+     */
+    public void tearDown() {
+        List<StmtExecutor> taken;
+        synchronized (deferredExecutors) {
+            closed = true;
             taken = new ArrayList<>(deferredExecutors);
             deferredExecutors.clear();
         }
@@ -485,7 +530,9 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
      * finds another one still running waits for it up to the session's execution timeout and then
      * fails with {@code UNAVAILABLE} instead of running concurrently on the same context.
      *
-     * <p>Session teardown (bearer token expiry, CloseSession, KILL) does not go through here.
+     * <p>Session teardown (bearer token expiry, CloseSession, KILL) does not go through here and
+     * does not wait for the running command ({@link #tearDown}); a command that gets its turn
+     * after teardown fails with {@code UNAUTHENTICATED}, as any later call of the session would.
      */
     public <E extends Exception> void runCommand(ConnectContext ctx, SessionAction<E> action) throws E {
         this.<Void, E>callCommand(ctx, () -> {
@@ -497,10 +544,15 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     /** {@link #runCommand} for a command that returns a value. */
     public <T, E extends Exception> T callCommand(ConnectContext ctx, SessionCommand<T, E> command) throws E {
         acquireCommandLock(ctx);
-        ctx.refreshStartTime();
         ConnectContext previous = ConnectContext.get();
-        ctx.setThreadLocalInfo();
         try {
+            if (closed) {
+                throw CallStatus.UNAUTHENTICATED.withDescription(String.format("this Arrow Flight SQL session "
+                        + "was closed, connection id: %d; reconnect to run further commands", ctx.getConnectionId()))
+                        .toRuntimeException();
+            }
+            ctx.refreshStartTime();
+            ctx.setThreadLocalInfo();
             return command.call();
         } finally {
             if (previous == null) {

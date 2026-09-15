@@ -1049,6 +1049,15 @@ public class ConnectContext {
         }
     }
 
+    // The session is over (see FlightProtocolAdapter.tearDown): its deferred executors are
+    // finalized, and it keeps none and runs no command from now on. Nothing to do for a
+    // connection of any other protocol.
+    public void tearDownFlightSqlSession() {
+        if (protocolAdapter instanceof FlightProtocolAdapter) {
+            ((FlightProtocolAdapter) protocolAdapter).tearDown();
+        }
+    }
+
     // A snapshot; empty for a connection of any other protocol.
     @VisibleForTesting
     public List<StmtExecutor> getFlightSqlDeferredExecutors() {
