@@ -39,27 +39,30 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class MTMVCacheManagerTest {
 
+    private static final int GUARD_NONE = 0;
+    private static final int GUARD_TIME_ZONE = 1;
+
     @Test
     public void testPutGetInvalidate() {
         MTMVCacheManager manager = new MTMVCacheManager();
         MTMVCache cacheGuarded = Mockito.mock(MTMVCache.class);
         MTMVCache cacheUnguarded = Mockito.mock(MTMVCache.class);
-        manager.put(1L, true, cacheGuarded);
-        manager.put(1L, false, cacheUnguarded);
-        Assertions.assertSame(cacheGuarded, manager.getIfPresent(1L, true));
-        Assertions.assertSame(cacheUnguarded, manager.getIfPresent(1L, false));
+        manager.put(1L, GUARD_TIME_ZONE, cacheGuarded);
+        manager.put(1L, GUARD_NONE, cacheUnguarded);
+        Assertions.assertSame(cacheGuarded, manager.getIfPresent(1L, GUARD_TIME_ZONE));
+        Assertions.assertSame(cacheUnguarded, manager.getIfPresent(1L, GUARD_NONE));
         Assertions.assertEquals(2L, manager.size());
 
         manager.invalidate(1L);
-        Assertions.assertNull(manager.getIfPresent(1L, true));
-        Assertions.assertNull(manager.getIfPresent(1L, false));
+        Assertions.assertNull(manager.getIfPresent(1L, GUARD_TIME_ZONE));
+        Assertions.assertNull(manager.getIfPresent(1L, GUARD_NONE));
         Assertions.assertEquals(0L, manager.size());
     }
 
     @Test
     public void testPutRejectsNull() {
         MTMVCacheManager manager = new MTMVCacheManager();
-        Assertions.assertThrows(NullPointerException.class, () -> manager.put(1L, true, null));
+        Assertions.assertThrows(NullPointerException.class, () -> manager.put(1L, GUARD_TIME_ZONE, null));
     }
 
     @Test
@@ -67,20 +70,20 @@ public class MTMVCacheManagerTest {
         MTMVCacheManager manager = new MTMVCacheManager();
         MTMVCache c1 = Mockito.mock(MTMVCache.class);
         MTMVCache c2 = Mockito.mock(MTMVCache.class);
-        manager.put(1L, true, c1);
-        manager.put(2L, true, c2);
+        manager.put(1L, GUARD_TIME_ZONE, c1);
+        manager.put(2L, GUARD_TIME_ZONE, c2);
         manager.invalidate(1L);
-        Assertions.assertNull(manager.getIfPresent(1L, true));
-        Assertions.assertSame(c2, manager.getIfPresent(2L, true));
+        Assertions.assertNull(manager.getIfPresent(1L, GUARD_TIME_ZONE));
+        Assertions.assertSame(c2, manager.getIfPresent(2L, GUARD_TIME_ZONE));
     }
 
     @Test
     public void testSnapshotReportsHitAndMiss() {
         MTMVCacheManager manager = new MTMVCacheManager();
         MTMVCache c1 = Mockito.mock(MTMVCache.class);
-        manager.put(1L, true, c1);
-        manager.getIfPresent(1L, true);
-        manager.getIfPresent(1L, false);
+        manager.put(1L, GUARD_TIME_ZONE, c1);
+        manager.getIfPresent(1L, GUARD_TIME_ZONE);
+        manager.getIfPresent(1L, GUARD_NONE);
         Snapshot snap = manager.snapshot();
         Assertions.assertEquals(1L, snap.size);
         Assertions.assertTrue(snap.hitCount >= 1);
@@ -95,7 +98,7 @@ public class MTMVCacheManagerTest {
         for (int i = 0; i < 5; i++) {
             MTMVCache c = Mockito.mock(MTMVCache.class);
             values.add(c);
-            manager.put(i, true, c);
+            manager.put(i, GUARD_TIME_ZONE, c);
         }
         List<HotEntry> hot = manager.hotEntries(3);
         Assertions.assertEquals(3, hot.size());
@@ -110,7 +113,7 @@ public class MTMVCacheManagerTest {
     public void testHotEntriesEmptyForZeroOrNegativeLimit() {
         MTMVCacheManager manager = new MTMVCacheManager();
         MTMVCache c = Mockito.mock(MTMVCache.class);
-        manager.put(1L, true, c);
+        manager.put(1L, GUARD_TIME_ZONE, c);
         Assertions.assertTrue(manager.hotEntries(0).isEmpty());
         Assertions.assertTrue(manager.hotEntries(-1).isEmpty());
     }
@@ -119,8 +122,8 @@ public class MTMVCacheManagerTest {
     public void testInvalidateAll() {
         MTMVCacheManager manager = new MTMVCacheManager();
         MTMVCache c = Mockito.mock(MTMVCache.class);
-        manager.put(1L, true, c);
-        manager.put(2L, false, c);
+        manager.put(1L, GUARD_TIME_ZONE, c);
+        manager.put(2L, GUARD_NONE, c);
         manager.invalidateAll();
         Assertions.assertEquals(0L, manager.size());
     }
@@ -162,7 +165,7 @@ public class MTMVCacheManagerTest {
             Policy<Key, MTMVCache> policy = mockPolicy();
             Mockito.when(policy.expireAfterAccess()).thenReturn(Optional.empty());
             Mockito.when(original.asMap()).thenReturn(
-                    new ConcurrentHashMap<>(Collections.singletonMap(new Key(1L, true),
+                    new ConcurrentHashMap<>(Collections.singletonMap(new Key(1L, GUARD_TIME_ZONE),
                             Mockito.mock(MTMVCache.class))));
             Mockito.when(original.policy()).thenAnswer(invocation -> {
                 // Swapping to a disabled cache would leave the fresh instance empty.
@@ -214,7 +217,7 @@ public class MTMVCacheManagerTest {
             Config.mtmv_cache_manage_num = 0;
             MTMVCacheManager manager = new MTMVCacheManager();
             for (int i = 0; i < 5; i++) {
-                manager.put(i, true, Mockito.mock(MTMVCache.class));
+                manager.put(i, GUARD_TIME_ZONE, Mockito.mock(MTMVCache.class));
             }
             manager.getCachesForTest().cleanUp();
             Assertions.assertEquals(0L, manager.size());
@@ -233,7 +236,7 @@ public class MTMVCacheManagerTest {
             for (int i = 0; i < 10; i++) {
                 MTMVCache c = Mockito.mock(MTMVCache.class);
                 values.add(c);
-                manager.put(i, true, c);
+                manager.put(i, GUARD_TIME_ZONE, c);
             }
             manager.getCachesForTest().cleanUp();
             Assertions.assertEquals(10L, manager.size());
@@ -246,7 +249,7 @@ public class MTMVCacheManagerTest {
             manager.updateConfig();
             Assertions.assertEquals(0L, manager.size());
             MTMVCache discarded = Mockito.mock(MTMVCache.class);
-            manager.put(99L, true, discarded);
+            manager.put(99L, GUARD_TIME_ZONE, discarded);
             manager.getCachesForTest().cleanUp();
             Assertions.assertEquals(0L, manager.size());
             Reference.reachabilityFence(values);
@@ -258,9 +261,9 @@ public class MTMVCacheManagerTest {
 
     @Test
     public void testKeyEqualityAndHash() {
-        Key k1 = new Key(42L, true);
-        Key k2 = new Key(42L, true);
-        Key k3 = new Key(42L, false);
+        Key k1 = new Key(42L, GUARD_TIME_ZONE);
+        Key k2 = new Key(42L, GUARD_TIME_ZONE);
+        Key k3 = new Key(42L, GUARD_NONE);
         Assertions.assertEquals(k1, k2);
         Assertions.assertEquals(k1.hashCode(), k2.hashCode());
         Assertions.assertNotEquals(k1, k3);
