@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TAIResource;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.gson.JsonObject;
@@ -44,6 +45,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.nio.file.Files;
@@ -51,6 +54,12 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class AIResourceTest {
     private static final Logger LOG = LogManager.getLogger(AIResourceTest.class);
@@ -86,7 +95,6 @@ public class AIResourceTest {
         aiProperties.put("ai.provider_type", providerType);
         aiProperties.put("ai.api_key", apiKey);
         aiProperties.put("ai.model_name", modelName);
-        aiProperties.put("ai.validity_check", "false");
     }
 
     @Test
@@ -256,13 +264,14 @@ public class AIResourceTest {
                 "ai.endpoint", endpoint,
                 "ai.provider_type", providerType,
                 "ai.api_key", apiKey,
-                "ai.model_name", modelName,
-                "ai.validity_check", "false"
+                "ai.model_name", modelName
         );
         AIResource aiResource2 = new AIResource("ai_2");
         aiResource2.setCreatedByRoot(true);
         aiResource2.setProperties(properties);
-        aiResource2.write(aiDos);
+        JsonObject legacyAIResourceJson = JsonParser.parseString(GsonUtils.GSON.toJson(aiResource2)).getAsJsonObject();
+        legacyAIResourceJson.getAsJsonObject("properties").addProperty("ai.validity_check", "false");
+        Text.writeString(aiDos, legacyAIResourceJson.toString());
 
         aiDos.flush();
         aiDos.close();
@@ -286,6 +295,7 @@ public class AIResourceTest {
         Assertions.assertEquals(rAiResource2.getProperty(AIProperties.MAX_RETRIES), AIProperties.DEFAULT_MAX_RETRIES);
         Assertions.assertEquals(rAiResource2.getProperty(AIProperties.RETRY_DELAY_SECOND),
                             AIProperties.DEFAULT_RETRY_DELAY_SECOND);
+        Assertions.assertNull(rAiResource2.getProperty("ai.validity_check"));
 
         // 3. delete
         aiDis.close();
@@ -298,8 +308,7 @@ public class AIResourceTest {
                 "ai.endpoint", endpoint,
                 "ai.provider_type", providerType,
                 "ai.api_key", apiKey,
-                "ai.model_name", modelName,
-                "ai.validity_check", "false"
+                "ai.model_name", modelName
         );
         AIResource aiResource = new AIResource("t_ai_source");
         aiResource.setProperties(properties);
@@ -315,6 +324,230 @@ public class AIResourceTest {
     }
 
     @Test
+    public void testLegacyValidityCheckIsIgnored() throws DdlException {
+        Map<String, String> properties = new HashMap<>(aiProperties);
+        properties.put("ai.validity_check", "false");
+        AIResource aiResource = new AIResource("legacy-validity-check-resource");
+        aiResource.setProperties(ImmutableMap.copyOf(properties));
+        Assertions.assertNull(aiResource.getProperty("ai.validity_check"));
+
+        aiResource.modifyProperties(ImmutableMap.of("ai.validity_check", "true"));
+        Assertions.assertNull(aiResource.getProperty("ai.validity_check"));
+    }
+
+    @Test
+    public void testEndpointIsNotValidatedOnCreateOrAlter() throws DdlException {
+        Map<String, String> properties = new HashMap<>(aiProperties);
+        properties.put(AIProperties.ENDPOINT, "not-a-url");
+        AIResource aiResource = new AIResource("unchecked-endpoint-resource");
+
+        Assertions.assertDoesNotThrow(() -> aiResource.setProperties(ImmutableMap.copyOf(properties)));
+        Assertions.assertDoesNotThrow(() -> aiResource.modifyProperties(
+                ImmutableMap.of(AIProperties.ENDPOINT, "still-not-a-url")));
+    }
+
+    @Test
+    public void testModifyProviderFromLocalRequiresApiKey() throws DdlException {
+        AIResource aiResource = new AIResource("local-resource-without-api-key");
+        aiResource.setProperties(ImmutableMap.of(
+                AIProperties.ENDPOINT, "http://localhost:8000/v1/chat/completions",
+                AIProperties.PROVIDER_TYPE, "local",
+                AIProperties.MODEL_NAME, "local-model"));
+
+        DdlException exception = Assertions.assertThrows(DdlException.class, () ->
+                aiResource.modifyProperties(ImmutableMap.of(AIProperties.PROVIDER_TYPE, "qwen")));
+
+        Assertions.assertTrue(exception.getMessage().contains("Missing [ai.api_key]"));
+        Assertions.assertEquals("LOCAL", aiResource.getProperty(AIProperties.PROVIDER_TYPE));
+    }
+
+    @Test
+    public void testModifyProviderStoresNormalizedValue() throws Exception {
+        AIResource aiResource = new AIResource("normalize-provider-resource");
+        aiResource.setProperties(ImmutableMap.copyOf(aiProperties));
+
+        aiResource.modifyProperties(ImmutableMap.of(AIProperties.PROVIDER_TYPE, "qwen"));
+
+        Assertions.assertEquals("QWEN", aiResource.getProperty(AIProperties.PROVIDER_TYPE));
+        TAIResource thriftResource = aiResource.toThrift();
+        Assertions.assertEquals("QWEN", thriftResource.getProviderType());
+
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        try (DataOutputStream dataOutput = new DataOutputStream(output)) {
+            aiResource.write(dataOutput);
+        }
+        AIResource replayedResource;
+        try (DataInputStream dataInput = new DataInputStream(
+                new ByteArrayInputStream(output.toByteArray()))) {
+            replayedResource = (AIResource) Resource.read(dataInput);
+        }
+        Assertions.assertEquals("QWEN", replayedResource.getProperty(AIProperties.PROVIDER_TYPE));
+        Assertions.assertEquals("QWEN", replayedResource.toThrift().getProviderType());
+    }
+
+    @Test
+    public void testModifyPropertiesWithDefaultDimensions() throws DdlException {
+        AIResource aiResource = new AIResource("default-dimensions-resource");
+        aiResource.setProperties(ImmutableMap.copyOf(aiProperties));
+
+        Assertions.assertEquals(AIProperties.DEFAULT_DIMENSIONS,
+                aiResource.getProperty(AIProperties.DIMENSIONS));
+        Assertions.assertDoesNotThrow(() -> aiResource.modifyProperties(
+                ImmutableMap.of(AIProperties.PROVIDER_TYPE, "QWEN")));
+
+        DdlException exception = Assertions.assertThrows(DdlException.class, () ->
+                aiResource.modifyProperties(ImmutableMap.of(AIProperties.DIMENSIONS, "0")));
+        Assertions.assertTrue(exception.getMessage().contains("Dimensions must be a positive integer"));
+    }
+
+    @Test
+    public void testInvalidNumericAlterIsAtomic() throws DdlException {
+        AIResource aiResource = new AIResource("invalid-numeric-alter-resource");
+        aiResource.setProperties(ImmutableMap.copyOf(aiProperties));
+        long originalVersion = aiResource.version;
+
+        DdlException exception = Assertions.assertThrows(DdlException.class, () ->
+                aiResource.modifyProperties(ImmutableMap.of(AIProperties.MAX_RETRIES, "not-an-int")));
+
+        Assertions.assertTrue(exception.getMessage().contains("Max retries"));
+        Assertions.assertEquals(AIProperties.DEFAULT_MAX_RETRIES,
+                aiResource.getProperty(AIProperties.MAX_RETRIES));
+        Assertions.assertEquals(originalVersion, aiResource.version);
+    }
+
+    @Test
+    public void testReadersWaitForConcurrentAlter() throws Exception {
+        CountDownLatch readLockAttempts = new CountDownLatch(3);
+        AIResource aiResource = new AIResource("concurrent-reader-resource") {
+            @Override
+            public void readLock() {
+                readLockAttempts.countDown();
+                super.readLock();
+            }
+        };
+        aiResource.setProperties(ImmutableMap.copyOf(aiProperties));
+        ExecutorService executor = Executors.newFixedThreadPool(3);
+
+        try {
+            aiResource.writeLock();
+            Future<String> property = executor.submit(() -> aiResource.getProperty(AIProperties.ENDPOINT));
+            Future<Map<String, String>> copiedProperties = executor.submit(aiResource::getCopiedProperties);
+            Future<TAIResource> thrift = executor.submit(aiResource::toThrift);
+            try {
+                Assertions.assertTrue(readLockAttempts.await(5, TimeUnit.SECONDS));
+                Assertions.assertFalse(property.isDone());
+                Assertions.assertFalse(copiedProperties.isDone());
+                Assertions.assertFalse(thrift.isDone());
+            } finally {
+                aiResource.writeUnlock();
+            }
+
+            Assertions.assertEquals(endpoint, property.get(5, TimeUnit.SECONDS));
+            Assertions.assertEquals(endpoint, copiedProperties.get(5, TimeUnit.SECONDS).get(AIProperties.ENDPOINT));
+            Assertions.assertEquals(endpoint, thrift.get(5, TimeUnit.SECONDS).getEndpoint());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testConcurrentAltersMergeAgainstLatestSnapshot() throws Exception {
+        CountDownLatch firstWriteLockAttempt = new CountDownLatch(1);
+        CountDownLatch secondWriteLockAttempt = new CountDownLatch(1);
+        CountDownLatch firstAlterFinished = new CountDownLatch(1);
+        AtomicInteger writeLockAttempts = new AtomicInteger();
+        AIResource aiResource = new AIResource("concurrent-alter-resource") {
+            @Override
+            public void writeLock() {
+                int attempt = writeLockAttempts.incrementAndGet();
+                if (attempt == 1) {
+                    firstWriteLockAttempt.countDown();
+                    awaitLatch(secondWriteLockAttempt);
+                } else if (attempt == 2) {
+                    secondWriteLockAttempt.countDown();
+                    awaitLatch(firstAlterFinished);
+                }
+                super.writeLock();
+            }
+
+            @Override
+            public void writeUnlock() {
+                super.writeUnlock();
+                firstAlterFinished.countDown();
+            }
+        };
+        aiResource.setProperties(ImmutableMap.copyOf(aiProperties));
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<?> endpointAlter = executor.submit(() -> {
+                aiResource.modifyProperties(ImmutableMap.of(AIProperties.ENDPOINT, "https://new-endpoint"));
+                return null;
+            });
+            Assertions.assertTrue(firstWriteLockAttempt.await(5, TimeUnit.SECONDS));
+            Future<?> temperatureAlter = executor.submit(() -> {
+                aiResource.modifyProperties(ImmutableMap.of(AIProperties.TEMPERATURE, "0.8"));
+                return null;
+            });
+
+            endpointAlter.get(5, TimeUnit.SECONDS);
+            temperatureAlter.get(5, TimeUnit.SECONDS);
+            Assertions.assertEquals("https://new-endpoint", aiResource.getProperty(AIProperties.ENDPOINT));
+            Assertions.assertEquals("0.8", aiResource.getProperty(AIProperties.TEMPERATURE));
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private static void awaitLatch(CountDownLatch latch) {
+        try {
+            if (!latch.await(5, TimeUnit.SECONDS)) {
+                throw new AssertionError("Timed out waiting for concurrent test coordination");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("Interrupted while coordinating concurrent test", e);
+        }
+    }
+
+    @Test
+    public void testRejectInvalidNumericProperties() {
+        assertInvalidNumericProperty(AIProperties.TEMPERATURE, "", "Temperature");
+        assertInvalidNumericProperty(AIProperties.TEMPERATURE, "not-a-double", "Temperature");
+        assertInvalidNumericProperty(AIProperties.TEMPERATURE, "NaN", "Temperature");
+        assertInvalidNumericProperty(AIProperties.TEMPERATURE, "Infinity", "Temperature");
+        assertInvalidNumericProperty(AIProperties.TEMPERATURE, "-Infinity", "Temperature");
+        assertInvalidNumericProperty(AIProperties.TEMPERATURE, "1.1", "Temperature");
+        assertInvalidNumericProperty(AIProperties.MAX_TOKEN, "", "Max token");
+        assertInvalidNumericProperty(AIProperties.MAX_TOKEN, "not-a-long", "Max token");
+        assertInvalidNumericProperty(AIProperties.MAX_TOKEN, "9223372036854775808", "Max token");
+        assertInvalidNumericProperty(AIProperties.MAX_TOKEN, "0", "Max token");
+        assertInvalidNumericProperty(AIProperties.MAX_RETRIES, "", "Max retries");
+        assertInvalidNumericProperty(AIProperties.MAX_RETRIES, "not-an-int", "Max retries");
+        assertInvalidNumericProperty(AIProperties.MAX_RETRIES, "2147483648", "Max retries");
+        assertInvalidNumericProperty(AIProperties.MAX_RETRIES, "2147483647", "Max retries");
+        assertInvalidNumericProperty(AIProperties.MAX_RETRIES, "-1", "Max retries");
+        assertInvalidNumericProperty(AIProperties.RETRY_DELAY_SECOND, "", "Retry delay second");
+        assertInvalidNumericProperty(AIProperties.RETRY_DELAY_SECOND, "not-an-int", "Retry delay second");
+        assertInvalidNumericProperty(AIProperties.RETRY_DELAY_SECOND, "2147483648", "Retry delay second");
+        assertInvalidNumericProperty(AIProperties.RETRY_DELAY_SECOND, "-1", "Retry delay second");
+        assertInvalidNumericProperty(AIProperties.DIMENSIONS, "", "Dimensions");
+        assertInvalidNumericProperty(AIProperties.DIMENSIONS, "not-an-int", "Dimensions");
+        assertInvalidNumericProperty(AIProperties.DIMENSIONS, "2147483648", "Dimensions");
+        assertInvalidNumericProperty(AIProperties.DIMENSIONS, "0", "Dimensions");
+    }
+
+    private void assertInvalidNumericProperty(String property, String value, String expectedMessage) {
+        Map<String, String> properties = new HashMap<>(aiProperties);
+        properties.put(property, value);
+        AIResource aiResource = new AIResource("invalid-numeric-resource");
+
+        DdlException exception = Assertions.assertThrows(DdlException.class,
+                () -> aiResource.setProperties(ImmutableMap.copyOf(properties)));
+        Assertions.assertTrue(exception.getMessage().contains(expectedMessage));
+    }
+
+    @Test
     public void testDifferentProviders() throws DdlException {
         // 1. OpenAI
         Map<String, String> openaiProps = new HashMap<>();
@@ -322,7 +555,6 @@ public class AIResourceTest {
         openaiProps.put("ai.provider_type", "openai");
         openaiProps.put("ai.api_key", "openai-key");
         openaiProps.put("ai.model_name", "gpt-4");
-        openaiProps.put("ai.validity_check", "false");
 
         AIResource openaiResource = new AIResource("openai-resource");
         openaiResource.setProperties(ImmutableMap.copyOf(openaiProps));
@@ -333,7 +565,6 @@ public class AIResourceTest {
         geminiProps.put("ai.provider_type", "gemini");
         geminiProps.put("ai.api_key", "gemini-api-key");
         geminiProps.put("ai.model_name", "gemini-pro");
-        geminiProps.put("ai.validity_check", "false");
 
         AIResource geminiResource = new AIResource("gemini-resource");
         geminiResource.setProperties(ImmutableMap.copyOf(geminiProps));
@@ -345,7 +576,6 @@ public class AIResourceTest {
         anthropicProps.put("ai.api_key", "anthropic-api-key");
         anthropicProps.put("ai.model_name", "claude-3-opus");
         anthropicProps.put("ai.anthropic_version", "2023-06-01");
-        anthropicProps.put("ai.validity_check", "false");
 
         AIResource anthropicResource = new AIResource("anthropic-resource");
         anthropicResource.setProperties(ImmutableMap.copyOf(anthropicProps));
@@ -356,7 +586,6 @@ public class AIResourceTest {
         localProps.put("ai.provider_type", "local");
         localProps.put("ai.api_key", "local-key");
         localProps.put("ai.model_name", "local-model");
-        localProps.put("ai.validity_check", "false");
 
         AIResource localResource = new AIResource("local-resource");
         localResource.setProperties(ImmutableMap.copyOf(localProps));

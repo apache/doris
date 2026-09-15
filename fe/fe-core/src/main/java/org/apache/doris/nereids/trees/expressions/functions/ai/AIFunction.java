@@ -61,7 +61,7 @@ public abstract class AIFunction extends ScalarFunction
             if (!(resource instanceof AIResource)) {
                 throw new AnalysisException("AI resource '" + resourceName + "' does not exist");
             }
-            Resource.registerUsedAIResourceName(resourceName);
+            Resource.registerUsedAIResource((AIResource) resource);
         }
     }
 

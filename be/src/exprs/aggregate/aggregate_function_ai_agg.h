@@ -170,7 +170,7 @@ private:
 #endif
 
         return HttpClient::execute_with_retry(
-                _ai_config.max_retries, _ai_config.retry_delay_second,
+                ai_http_request_attempts(_ai_config.max_retries), _ai_config.retry_delay_second,
                 [this, &request_body, &response](HttpClient* client) -> Status {
                     return this->do_send_request(client, request_body, response);
                 });
