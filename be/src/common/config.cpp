@@ -1207,7 +1207,7 @@ DEFINE_Validator(variant_storage_parse_mode,
                  [](const int config) -> bool { return config >= 0 && config <= 2; });
 
 // block file cache
-DEFINE_Bool(enable_file_cache, "false");
+DEFINE_Bool(enable_file_cache, "true");
 // ATTENTION: For test only. Keep this enabled in production.
 // Whether S3 storage write paths populate file cache while writing data to object storage.
 // Disable this for tests that need load and compaction output to bypass file cache while keeping
