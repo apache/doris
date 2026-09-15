@@ -16,6 +16,7 @@
 // under the License.
 
 #include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_date_time.h"
 #include "exprs/function/cast/cast_test.h"
 
 namespace doris {
@@ -146,11 +147,35 @@ TEST_F(FunctionCastTest, string_to_datetime6_invalid_cases_in_strict_mode) {
     check_function_for_cast_strict_mode<DataTypeDateTimeV2>(input_types, data_set, "datetime", 6);
 }
 
+TEST_F(FunctionCastTest, string_to_datetime_rejects_whitespace_after_timezone_in_strict_mode) {
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    DataSet data_set = {
+            {{std::string("2023-07-16T19:20:30.123+08:00 ")}, Null()},
+            {{std::string("20230716192030+08:00 ")}, Null()},
+    };
+    check_function_for_cast_strict_mode<DataTypeDateTimeV2>(input_types, data_set, "datetime", 6);
+    check_function_for_cast_strict_mode<DataTypeDateTime>(input_types, data_set, "datetime");
+}
+
+TEST_F(FunctionCastTest, string_to_datetime_accepts_whitespace_after_timezone_in_non_strict_mode) {
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    DataSet data_set = {
+            {{std::string("2023-07-16T19:20:30.123+08:00 ")},
+             std::string("2023-07-16 19:20:30.123000")},
+            {{std::string("20230716192030+08:00 ")}, std::string("2023-07-16 19:20:30")},
+            {{std::string("2023-07-16T19+08:00 ")}, std::string("2023-07-16 19:00:00")},
+    };
+    check_function_for_cast<DataTypeDateTimeV2>(input_types, data_set, 6);
+    check_function_for_cast<DataTypeDateTime>(input_types, data_set);
+}
+
 TEST_F(FunctionCastTest, string_to_datetime6_strict_case_non_strict_mode) {
     InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
     DataSet data_set = {
             // Valid ISO 8601 format with timezone
             {{std::string("2023-07-16T19:20:30.123+08:00")},
+             std::string("2023-07-16 19:20:30.123000")},
+            {{std::string("2023-07-16T19:20:30.123+08:00 ")},
              std::string("2023-07-16 19:20:30.123000")},
             {{std::string("2023-07-16T19+08:00")}, std::string("2023-07-16 19:00:00.000000")},
             {{std::string("2023-07-16T1920+08:00")}, std::string("2023-07-16 19:20:00.000000")},

@@ -701,7 +701,9 @@ FRAC:
             res.template unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)local.second());
         }
 
-        static_cast<void>(skip_any_whitespace(ptr, end));
+        if constexpr (!IsStrict) {
+            static_cast<void>(skip_any_whitespace(ptr, end));
+        }
         SET_PARAMS_RET_FALSE_IFN(ptr == end,
                                  "invalid datetime string '{}', extra characters after timezone",
                                  std::string {ptr, end});
