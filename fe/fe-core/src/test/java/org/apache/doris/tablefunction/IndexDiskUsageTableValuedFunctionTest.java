@@ -132,6 +132,17 @@ public class IndexDiskUsageTableValuedFunctionTest {
     }
 
     @Test
+    public void testRejectsIndexFilterWithoutNames() {
+        // An empty index list would reach BE as "all indexes" and turn a narrowed query into a full scan.
+        assertAnalysisError("'indexes' must list at least one name", params("indexes", " , "));
+    }
+
+    @Test
+    public void testRejectsPartitionFilterWithoutNames() {
+        assertAnalysisError("'partitions' must list at least one name", params("partitions", ","));
+    }
+
+    @Test
     public void testRejectsUnknownIndex() {
         assertAnalysisError("Unknown index 'idx9' in table db.logs", params("indexes", "idx9"));
     }

@@ -321,7 +321,7 @@ public class IndexDiskUsageTableValuedFunction extends MetadataTableValuedFuncti
             return Lists.newArrayList(table.getPartitions());
         }
         List<Partition> partitions = Lists.newArrayList();
-        for (String name : splitNames(raw)) {
+        for (String name : splitNames(PARTITIONS, raw)) {
             // Temporary partitions are excluded, so look the name up among formal partitions only.
             Partition partition = table.getPartition(name, false);
             if (partition == null) {
@@ -337,7 +337,7 @@ public class IndexDiskUsageTableValuedFunction extends MetadataTableValuedFuncti
             return Lists.newArrayList();
         }
         List<Long> ids = Lists.newArrayList();
-        for (String name : splitNames(raw)) {
+        for (String name : splitNames(INDEXES, raw)) {
             Index index = table.getIndexes().stream()
                     .filter(candidate -> candidate.getIndexName().equalsIgnoreCase(name))
                     .findFirst()
@@ -370,11 +370,16 @@ public class IndexDiskUsageTableValuedFunction extends MetadataTableValuedFuncti
         return versions;
     }
 
-    private static Collection<String> splitNames(String raw) {
-        return Arrays.stream(raw.split(","))
+    // A filter that names nothing would silently widen or empty the scan, so it is rejected.
+    private static Collection<String> splitNames(String property, String raw) {
+        Collection<String> names = Arrays.stream(raw.split(","))
                 .map(String::trim)
                 .filter(name -> !name.isEmpty())
                 .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (names.isEmpty()) {
+            throw new AnalysisException("'" + property + "' must list at least one name");
+        }
+        return names;
     }
 
     private void checkPositionDetailLimit() {
