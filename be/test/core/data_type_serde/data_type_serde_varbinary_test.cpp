@@ -27,6 +27,7 @@
 #include <memory>
 #include <orc/OrcFile.hh>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "core/arena.h"
@@ -56,6 +57,54 @@ static std::string make_bytes(size_t n, uint8_t seed = 0x31) {
 }
 
 class DataTypeVarbinarySerDeTest : public ::testing::Test {};
+
+TEST_F(DataTypeVarbinarySerDeTest, HiveTextBinaryUsesBase64InsteadOfJsonBytes) {
+    DataTypeVarbinarySerDe serde;
+    auto column = ColumnVarbinary::create();
+    auto options = DataTypeSerDe::get_default_format_options();
+    // Hive LazyBinary decodes Base64, whereas JSON/CSV and binary file readers keep raw bytes.
+    const std::vector<std::pair<std::string, std::string>> cases = {
+            {"dGVzdDI=", "test2"},
+            {"AP8=", std::string("\0\xff", 2)},
+            {"", ""},
+            {"not!base64", "not!base64"},
+            {"====", "===="},
+            {"dGVzdDI", "test2"},
+            {"dG Vz\tdDI=\r\n", "test2"},
+            {"-_8=", std::string("\xfb\xff", 2)},
+            {"YWJjZ", "abc"}};
+    for (const auto& [encoded, expected] : cases) {
+        Slice slice(encoded);
+        ASSERT_TRUE(serde.deserialize_one_cell_from_hive_text(*column, slice, options).ok());
+        EXPECT_EQ(expected, column->get_data_at(column->size() - 1).to_string());
+    }
+    auto output = ColumnString::create();
+    VectorBufferWriter writer(*output);
+    auto binary = ColumnVarbinary::create();
+    binary->insert_data("\0\xff", 2);
+    ASSERT_TRUE(serde.serialize_one_cell_to_hive_text(*binary, 0, writer, options).ok());
+    writer.commit();
+    EXPECT_EQ("AP8=", output->get_data_at(0).to_string());
+
+    std::string encoded = "dGVzdDI=";
+    Slice raw(encoded);
+    ASSERT_TRUE(serde.deserialize_one_cell_from_json(*column, raw, options).ok());
+    EXPECT_EQ(encoded, column->get_data_at(column->size() - 1).to_string());
+
+    auto vector_column = ColumnVarbinary::create();
+    std::vector<Slice> slices;
+    for (const auto& [text, expected] : cases) {
+        slices.emplace_back(text);
+    }
+    uint64_t count = 0;
+    ASSERT_TRUE(serde.deserialize_column_from_hive_text_vector(*vector_column, slices, &count,
+                                                               options, 2)
+                        .ok());
+    ASSERT_EQ(cases.size(), count);
+    for (size_t i = 0; i < cases.size(); ++i) {
+        EXPECT_EQ(cases[i].second, vector_column->get_data_at(i).to_string());
+    }
+}
 
 TEST_F(DataTypeVarbinarySerDeTest, FromHexStringPreservesBinaryPartitionBytes) {
     DataTypeVarbinarySerDe serde;

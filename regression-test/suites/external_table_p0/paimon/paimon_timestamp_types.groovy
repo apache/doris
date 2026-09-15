@@ -110,7 +110,8 @@ suite("paimon_timestamp_types", "p0,external,doris,external_docker,external_dock
         // test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_parquet")
 
         sql """set force_jni_scanner=false"""
-        // Versioned Paimon native-Parquet scans require V2 even when the session toggle is off.
+        // Only native Parquet is forced to V2. ORC remains on V1 here and truncates,
+        // rather than rounds, sub-microsecond digits in the native c1 expectation.
         sql """set enable_file_scanner_v2=false"""
         test_scale()
         // test_ltz_ntz("test_timestamp_ntz_ltz_orc")
