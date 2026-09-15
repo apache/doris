@@ -141,13 +141,42 @@ public class FlightSessionOptionsTest extends TestWithFeService {
         Assertions.assertEquals(ErrorValue.INVALID_VALUE, set(ctx, FlightSessionOptions.SCHEMA, str("no_such_db")));
         Assertions.assertEquals("", ctx.getDatabase());
         // A catalog or a database is named by a string, and by nothing else.
-        Assertions.assertEquals(ErrorValue.INVALID_VALUE, set(ctx, FlightSessionOptions.CATALOG, str("")));
-        Assertions.assertEquals(ErrorValue.INVALID_VALUE,
-                set(ctx, FlightSessionOptions.SCHEMA, SessionOptionValueFactory.makeEmptySessionOptionValue()));
         Assertions.assertEquals(ErrorValue.INVALID_VALUE,
                 set(ctx, FlightSessionOptions.SCHEMA, SessionOptionValueFactory.makeSessionOptionValue(true)));
         Assertions.assertEquals(ErrorValue.INVALID_VALUE, set(ctx, FlightSessionOptions.CATALOG,
                 SessionOptionValueFactory.makeSessionOptionValue(new String[] {"internal"})));
+        // A session is always in some catalog: there is none the empty value or string could name.
+        Assertions.assertEquals(ErrorValue.INVALID_VALUE, set(ctx, FlightSessionOptions.CATALOG, str("")));
+        Assertions.assertEquals(ErrorValue.INVALID_VALUE,
+                set(ctx, FlightSessionOptions.CATALOG, SessionOptionValueFactory.makeEmptySessionOptionValue()));
+        Assertions.assertEquals("internal", ctx.getDefaultCatalog());
+    }
+
+    // What GetSessionOptions reads back can be set back, the no-database state included: the empty
+    // value (Flight's way of unsetting an option; what the ADBC driver sends to erase one) and the
+    // empty string GET reports for it both put the session back into no database.
+    @Test
+    public void testTheEmptyValueOrStringLeavesTheDatabase() {
+        ConnectContext ctx = rootSession();
+        Assertions.assertNull(set(ctx, FlightSessionOptions.SCHEMA, str(DB)));
+        Assertions.assertEquals(DB, ctx.getDatabase());
+        Assertions.assertNull(set(ctx, FlightSessionOptions.SCHEMA, SessionOptionValueFactory.makeEmptySessionOptionValue()));
+        Assertions.assertEquals("", ctx.getDatabase());
+        Assertions.assertEquals("", get(ctx, FlightSessionOptions.SCHEMA));
+        Assertions.assertEquals(-1, ctx.getCurrentDbId());
+
+        // The round trip: what GET answered for a fresh session, set back after a database was chosen.
+        String initial = get(rootSession(), FlightSessionOptions.SCHEMA);
+        Assertions.assertEquals("", initial);
+        Assertions.assertNull(set(ctx, FlightSessionOptions.SCHEMA, str(DB)));
+        Assertions.assertNull(set(ctx, FlightSessionOptions.SCHEMA, str(initial)));
+        Assertions.assertEquals("", ctx.getDatabase());
+        Assertions.assertEquals("", get(ctx, FlightSessionOptions.SCHEMA));
+        // Leaving a database the session is not in is nothing, not an error; and a user without any
+        // privilege may leave as well: nothing is entered.
+        Assertions.assertNull(set(ctx, FlightSessionOptions.SCHEMA, str("")));
+        Assertions.assertNull(set(flightSession(UserIdentity.createAnalyzedUserIdentWithIp(USER, "%")),
+                FlightSessionOptions.SCHEMA, SessionOptionValueFactory.makeEmptySessionOptionValue()));
     }
 
     @Test

@@ -994,6 +994,15 @@ public class ConnectContext {
 
     public void changeDefaultCatalog(String catalogName) {
         defaultCatalog = catalogName;
+        clearDatabase();
+    }
+
+    /**
+     * No current database: the state a session starts in and switching catalogs puts it back into.
+     * No statement leads back to it (there is no USE of nothing), so a client that means to be in
+     * none again, e.g. through the Arrow Flight SQL {@code schema} session option, comes here.
+     */
+    public void clearDatabase() {
         currentDb = "";
         currentDbId = -1;
     }

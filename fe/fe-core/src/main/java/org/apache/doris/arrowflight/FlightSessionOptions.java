@@ -59,7 +59,11 @@ import java.util.Map;
  * {@code SHOW VARIABLES} shows, every value as a string: the one representation {@code SET} accepts
  * back, whatever the Java type of the variable behind it. The names an option goes by are exactly
  * the names that are read back, spelled the same: a client looks an option up in the result of
- * GetSessionOptions by the name it set it under.
+ * GetSessionOptions by the name it set it under. And what is read back can be set back: the empty
+ * value, Flight's way of unsetting an option, puts a variable back to its default and the session
+ * back into no database, as it started -- the state GetSessionOptions reports as an empty
+ * {@code schema}, which sets it too. A session is always in some catalog, so {@code catalog} has no
+ * empty value.
  *
  * <p>The result of setting an option is one of the three {@link ErrorValue}s per name and nothing
  * else, so the reason a value was refused only reaches the frontend log.
@@ -118,7 +122,8 @@ public final class FlightSessionOptions {
 
     /**
      * The options of the session: the current catalog, the current database (an empty string when
-     * none has been chosen) and every session variable {@code SHOW VARIABLES} would list, in its text.
+     * the session is in none, the value that puts it back there) and every session variable
+     * {@code SHOW VARIABLES} would list, in its text.
      */
     public static Map<String, SessionOptionValue> get(ConnectContext ctx) {
         Map<String, SessionOptionValue> options = new LinkedHashMap<>();
@@ -134,6 +139,7 @@ public final class FlightSessionOptions {
 
     private static ErrorValue switchCatalog(ConnectContext ctx, SessionOptionValue value) {
         String catalog = value.acceptVisitor(STRING_VALUE);
+        // A session is always in some catalog, so there is no catalog the empty value could stand for.
         if (catalog == null || catalog.isEmpty()) {
             return ErrorValue.INVALID_VALUE;
         }
@@ -151,8 +157,16 @@ public final class FlightSessionOptions {
 
     private static ErrorValue useDatabase(ConnectContext ctx, SessionOptionValue value) {
         String database = value.acceptVisitor(STRING_VALUE);
-        if (database == null || database.isEmpty()) {
+        if (database == null) {
             return ErrorValue.INVALID_VALUE;
+        }
+        // No database: the state the session started in, which GetSessionOptions reports as the
+        // empty string and the empty value asks for back (Flight's way of unsetting an option; what
+        // the ADBC driver sends to erase one). No statement leads there -- there is no USE of
+        // nothing -- so it is not one the session runs, and there is nothing in it to check.
+        if (database.isEmpty()) {
+            ctx.clearDatabase();
+            return null;
         }
         return runStatement(ctx, SCHEMA, "USE " + quoteIdentifier(database), ErrorCode.ERR_BAD_DB_ERROR);
     }
@@ -223,7 +237,10 @@ public final class FlightSessionOptions {
         return "`" + name.replace("`", "``") + "`";
     }
 
-    /** The string of a string-valued option; null for any other kind of value. */
+    /**
+     * The string of a string-valued option, the empty string for the empty value (no value, which
+     * is what the empty string says too); null for any other kind of value.
+     */
     private static final SessionOptionValueVisitor<String> STRING_VALUE = new SessionOptionValueVisitor<String>() {
         @Override
         public String visit(String value) {
@@ -252,7 +269,7 @@ public final class FlightSessionOptions {
 
         @Override
         public String visit(Void value) {
-            return null;
+            return "";
         }
     };
 

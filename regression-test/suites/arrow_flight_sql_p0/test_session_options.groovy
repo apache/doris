@@ -123,7 +123,23 @@ suite("test_session_options") {
         assertEquals("internal", options()["catalog"])
         assertEquals(context.dbName, options()["schema"])
 
-        // 4. A session variable takes a value of its own type or a string, reads back as text, and
+        // 4. And the session can leave its database again, back to how it started: with the empty
+        //    value (Flight's way of unsetting an option, what the ADBC driver sends to erase one) or
+        //    with the empty string GetSessionOptions reported for a fresh session, set back as read.
+        //    A session is always in some catalog, so `catalog` takes no empty value.
+        assertEquals([:], set([schema: SessionOptionValueFactory.makeEmptySessionOptionValue()]))
+        assertEquals("", options()["schema"])
+        statementFails("SHOW TABLES LIKE 'session_options_tbl'", "No database selected")
+        assertEquals([:], set([schema: str(context.dbName)]))
+        assertEquals(context.dbName, options()["schema"])
+        assertEquals([:], set([schema: str(initial["schema"])]))
+        assertEquals("", options()["schema"])
+        assertEquals([catalog: "INVALID_VALUE"], set([catalog: SessionOptionValueFactory.makeEmptySessionOptionValue()]))
+        assertEquals([catalog: "INVALID_VALUE"], set([catalog: str("")]))
+        assertEquals("internal", options()["catalog"])
+        assertEquals([:], set([schema: str(context.dbName)]))
+
+        // 5. A session variable takes a value of its own type or a string, reads back as text, and
         //    is what the session's statements see. The empty value sets it back to its default.
         def defaultTimeout = rows("SHOW VARIABLES LIKE 'query_timeout'")[0][2]
         assertEquals([:], set([query_timeout: SessionOptionValueFactory.makeSessionOptionValue(77L)]))
@@ -135,7 +151,7 @@ suite("test_session_options") {
         assertEquals([:], set([query_timeout: SessionOptionValueFactory.makeEmptySessionOptionValue()]))
         assertEquals(defaultTimeout, options()["query_timeout"])
 
-        // 5. Each option of a request is set on its own and answered on its own. A variable is named
+        // 6. Each option of a request is set on its own and answered on its own. A variable is named
         //    as GetSessionOptions names it, and only so: not in another case, not without the prefix
         //    an experimental one is shown with, and a hidden or a retired one is no option at all.
         assertEquals([no_such_variable: "INVALID_NAME"], set([no_such_variable: str("1")]))
@@ -156,12 +172,12 @@ suite("test_session_options") {
                 set([query_timeout: str("66"), no_such_variable: str("1"), time_zone: str("Mars/Olympus_Mons")]))
         assertEquals("66", options()["query_timeout"])
 
-        // 6. A string value arrives as sent, quotes and backslashes included.
+        // 7. A string value arrives as sent, quotes and backslashes included.
         String text = "it's \"quoted\" and back\\slashed"
         assertEquals([:], set([session_context: str(text)]))
         assertEquals(text, options()["session_context"])
 
-        // 7. CloseSession invalidates the bearer token: the session is gone, and so is the token.
+        // 8. CloseSession invalidates the bearer token: the session is gone, and so is the token.
         assertEquals("CLOSED", flight.closeSession(new CloseSessionRequest(), cred).getStatus().name())
         try {
             flight.getSessionOptions(new GetSessionOptionsRequest(), cred)
@@ -174,7 +190,7 @@ suite("test_session_options") {
         allocator.close()
     }
 
-    // 8. What a real driver does with it: the Flight SQL JDBC driver sets the `catalog` session
+    // 9. What a real driver does with it: the Flight SQL JDBC driver sets the `catalog` session
     //    option while connecting when the URL names one, and refuses to connect when that fails.
     Class.forName("org.apache.arrow.driver.jdbc.ArrowFlightJdbcDriver")
     def jdbcUrl = { String catalog ->
