@@ -140,14 +140,24 @@ Status EnginePublishVersionTask::execute() {
 #endif
 
     std::vector<std::shared_ptr<TabletPublishTxnTask>> tablet_tasks;
+    const auto& index_ids = _publish_version_req.row_binlog_source_index_ids;
+    const auto& column_mappings = _publish_version_req.row_binlog_column_mappings;
+    const auto& historical_values = _publish_version_req.row_binlog_need_historical_values;
+    const auto& isset = _publish_version_req.__isset;
+    if (isset.row_binlog_source_index_ids != isset.row_binlog_column_mappings ||
+        isset.row_binlog_source_index_ids != isset.row_binlog_need_historical_values ||
+        index_ids.size() != column_mappings.size() ||
+        index_ids.size() != historical_values.size()) {
+        return Status::InvalidArgument(
+                "Row-binlog publish mapping lists must be present together and aligned, txn_id={}",
+                transaction_id);
+    }
     std::map<int64_t, std::shared_ptr<const PRowBinlogWriteColumnMappings>> mapping_snapshots;
-    for (const auto& [index_id, thrift_mappings] :
-         _publish_version_req.row_binlog_column_mappings) {
+    // NOLINTNEXTLINE(modernize-loop-convert) - Index all three parallel lists together.
+    for (size_t i = 0; i < index_ids.size(); ++i) {
         auto snapshot = std::make_shared<PRowBinlogWriteColumnMappings>();
-        if (thrift_mappings.__isset.need_historical_value) {
-            snapshot->set_need_historical_value(thrift_mappings.need_historical_value);
-        }
-        for (const auto& mapping : thrift_mappings.entries) {
+        snapshot->set_need_historical_value(historical_values[i]);
+        for (const auto& mapping : column_mappings[i]) {
             auto* entry = snapshot->add_entries();
             entry->set_source_column_unique_id(mapping.source_column_unique_id);
             entry->set_current_column_unique_id(mapping.current_column_unique_id);
@@ -155,7 +165,10 @@ Status EnginePublishVersionTask::execute() {
                 entry->set_before_column_unique_id(mapping.before_column_unique_id);
             }
         }
-        mapping_snapshots.emplace(index_id, std::move(snapshot));
+        if (!mapping_snapshots.emplace(index_ids[i], std::move(snapshot)).second) {
+            return Status::InvalidArgument("Duplicate row-binlog source index {}, txn_id={}",
+                                           index_ids[i], transaction_id);
+        }
     }
     // each partition
     for (auto& par_ver_info : _publish_version_req.partition_version_infos) {

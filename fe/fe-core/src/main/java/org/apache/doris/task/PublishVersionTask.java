@@ -74,8 +74,10 @@ public class PublishVersionTask extends AgentTask {
         TPublishVersionRequest publishVersionRequest = new TPublishVersionRequest(transactionId,
                 partitionVersionInfos);
         publishVersionRequest.setBaseTabletIds(baseTabletsIds);
-        if (!rowBinlogColumnMappings.isEmpty()) {
-            publishVersionRequest.setRowBinlogColumnMappings(rowBinlogColumnMappings);
+        for (Map.Entry<Long, TRowBinlogWriteColumnMappings> entry : rowBinlogColumnMappings.entrySet()) {
+            publishVersionRequest.addToRowBinlogSourceIndexIds(entry.getKey());
+            publishVersionRequest.addToRowBinlogColumnMappings(entry.getValue().getEntries());
+            publishVersionRequest.addToRowBinlogNeedHistoricalValues(entry.getValue().isNeedHistoricalValue());
         }
         return publishVersionRequest;
     }
