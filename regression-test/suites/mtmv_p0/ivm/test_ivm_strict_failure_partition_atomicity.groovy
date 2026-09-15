@@ -18,7 +18,7 @@
 import org.awaitility.Awaitility
 import static java.util.concurrent.TimeUnit.SECONDS
 
-suite("test_ivm_strict_failure_partition_atomicity", "nonConcurrent") {
+suite("test_ivm_strict_failure_partition_atomicity") {
     sql """DROP MATERIALIZED VIEW IF EXISTS ivm_strict_atomicity_mv"""
     sql """DROP TABLE IF EXISTS ivm_strict_atomicity_t"""
     sql """

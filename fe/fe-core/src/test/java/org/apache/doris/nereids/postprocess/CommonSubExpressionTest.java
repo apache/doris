@@ -24,19 +24,27 @@ import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -105,6 +113,103 @@ public class CommonSubExpressionTest extends ExpressionRewriteTestHelper {
             Assertions.assertEquals(exprs.get(i).getExprId().asInt(), l2.get(i).getExprId().asInt());
         }
 
+    }
+
+    @Test
+    public void testGuardDoesNotReuseUnguardedRoot() {
+        Slot platform = new SlotReference("platform", VarcharType.createVarcharType(65533));
+        Expression coalesce = new Coalesce(platform, new StringLiteral(""));
+        SessionVarGuardExpr guard = new SessionVarGuardExpr(coalesce,
+                ImmutableMap.of("enable_decimal256", "false"));
+        Alias unguarded = new Alias(coalesce, "unguarded");
+
+        // Even an available alias for the root cannot replace the protected computation.
+        Assertions.assertEquals(guard, guard.accept(CommonSubExpressionOpt.ExpressionReplacer.INSTANCE,
+                ImmutableMap.of(coalesce, unguarded)));
+
+        SessionVarGuardExpr otherGuard = new SessionVarGuardExpr(coalesce,
+                ImmutableMap.of("enable_decimal256", "true"));
+        Assertions.assertEquals(guard, guard.accept(CommonSubExpressionOpt.ExpressionReplacer.INSTANCE,
+                ImmutableMap.of(otherGuard, new Alias(otherGuard, "other_session"))));
+    }
+
+    @Test
+    public void testReuseWholeGuardAndGuardedArgument() {
+        Slot platform = new SlotReference("platform", VarcharType.createVarcharType(65533));
+        Map<String, String> sessionVars = ImmutableMap.of("enable_decimal256", "false");
+        SessionVarGuardExpr inner = new SessionVarGuardExpr(
+                new Coalesce(platform, new StringLiteral("")), sessionVars);
+        Alias computed = new Alias(inner, "computed");
+        Map<Expression, Alias> aliases = ImmutableMap.of(inner, computed);
+
+        Assertions.assertEquals(computed.toSlot(),
+                inner.accept(CommonSubExpressionOpt.ExpressionReplacer.INSTANCE, aliases));
+
+        SessionVarGuardExpr outer = new SessionVarGuardExpr(
+                new If(new EqualTo(inner, new StringLiteral("")), NullLiteral.INSTANCE, inner), sessionVars);
+        Expression expected = new SessionVarGuardExpr(
+                new If(new EqualTo(computed.toSlot(), new StringLiteral("")),
+                        NullLiteral.INSTANCE, computed.toSlot()), sessionVars);
+        Assertions.assertEquals(expected,
+                outer.accept(CommonSubExpressionOpt.ExpressionReplacer.INSTANCE, aliases));
+    }
+
+    @Test
+    public void testGuardCseProjectionDependencies() throws Exception {
+        Slot platform = new SlotReference("platform", VarcharType.createVarcharType(65533));
+        Expression coalesce = new Coalesce(platform, new StringLiteral(""));
+        Map<String, String> sessionVars = ImmutableMap.of("enable_decimal256", "false");
+        SessionVarGuardExpr guardedCoalesce = new SessionVarGuardExpr(coalesce, sessionVars);
+        Expression guardedIf = new SessionVarGuardExpr(new If(
+                new EqualTo(guardedCoalesce, new StringLiteral("")), NullLiteral.INSTANCE, guardedCoalesce),
+                sessionVars);
+        Alias x = new Alias(coalesce, "x");
+        Alias y = new Alias(coalesce, "y");
+        Alias z = new Alias(guardedIf, "z");
+        Method method = CommonSubExpressionOpt.class
+                .getDeclaredMethod("computeMultiLayerProjections", Set.class, List.class);
+        method.setAccessible(true);
+
+        // Use the expanded alias-function reproducer in both projection orders.
+        for (List<NamedExpression> projects : ImmutableList.of(
+                ImmutableList.<NamedExpression>of(x, y, z), ImmutableList.<NamedExpression>of(z, x, y))) {
+            List<List<NamedExpression>> layers = (List<List<NamedExpression>>) method.invoke(
+                    new CommonSubExpressionOpt(), coalesce.getInputSlots(), projects);
+            Assertions.assertEquals(2, layers.size());
+            Map<Expression, Alias> extracted = new HashMap<>();
+            for (NamedExpression expression : layers.get(0)) {
+                if (expression instanceof Alias) {
+                    extracted.put(expression.child(0), (Alias) expression);
+                }
+            }
+            Assertions.assertEquals(2, extracted.size());
+            Assertions.assertTrue(extracted.containsKey(coalesce));
+            Assertions.assertTrue(extracted.containsKey(guardedCoalesce));
+
+            // Check the entire layer before making any of its outputs available.
+            Set<Slot> inputs = new HashSet<>(coalesce.getInputSlots());
+            for (List<NamedExpression> layer : layers) {
+                Set<Slot> outputs = new HashSet<>();
+                for (NamedExpression expression : layer) {
+                    Assertions.assertTrue(inputs.containsAll(expression.getInputSlots()),
+                            "Projection references an unavailable input: " + expression);
+                    outputs.add(expression.toSlot());
+                }
+                inputs = outputs;
+            }
+            Slot guardedSlot = extracted.get(guardedCoalesce).toSlot();
+            Expression expectedIf = new SessionVarGuardExpr(new If(
+                    new EqualTo(guardedSlot, new StringLiteral("")), NullLiteral.INSTANCE, guardedSlot), sessionVars);
+            Map<ExprId, Expression> expected = ImmutableMap.of(
+                    x.getExprId(), extracted.get(coalesce).toSlot(),
+                    y.getExprId(), extracted.get(coalesce).toSlot(), z.getExprId(), expectedIf);
+            for (int i = 0; i < projects.size(); i++) {
+                NamedExpression output = layers.get(1).get(i);
+                Assertions.assertEquals(projects.get(i).getExprId(), output.getExprId());
+                Assertions.assertEquals(projects.get(i).getName(), output.getName());
+                Assertions.assertEquals(expected.get(output.getExprId()), output.child(0));
+            }
+        }
     }
 
     private void assertExpression(Expression expr, String str) {

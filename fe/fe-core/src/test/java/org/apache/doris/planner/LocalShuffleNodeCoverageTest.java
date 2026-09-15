@@ -548,6 +548,26 @@ public class LocalShuffleNodeCoverageTest {
     }
 
     @Test
+    public void testPassToOneBoundaryKeepsParallelSubtreeLocalExchange() {
+        PlanTranslatorContext ctx = new PlanTranslatorContext();
+        TrackingPlanNode leaf = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        HashRequiringPlanNode parallelSubtree = new HashRequiringPlanNode(nextPlanNodeId(), leaf);
+        SerialPipelineBoundaryNode serialParent = new SerialPipelineBoundaryNode(
+                nextPlanNodeId(), parallelSubtree);
+        serialParent.fragment = Mockito.mock(PlanFragment.class);
+        Mockito.when(serialParent.fragment.useSerialSource(Mockito.any())).thenReturn(true);
+
+        Pair<PlanNode, LocalExchangeType> output = serialParent.enforceAndDeriveLocalExchange(
+                ctx, null, LocalExchangeTypeRequire.noRequire());
+
+        Assertions.assertEquals(LocalExchangeType.PASS_TO_ONE, output.second);
+        assertChildLocalExchangeType(serialParent, 0, LocalExchangeType.PASS_TO_ONE);
+        Assertions.assertSame(parallelSubtree, serialParent.getChild(0).getChild(0));
+        assertChildLocalExchangeType(parallelSubtree, 0,
+                LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+    }
+
+    @Test
     public void testNestedLoopJoinNodeBranches() {
         PlanTranslatorContext ctx = new PlanTranslatorContext();
         List<TupleId> tupleIds = Lists.newArrayList(new TupleId(NEXT_ID.getAndIncrement()));
@@ -753,8 +773,10 @@ public class LocalShuffleNodeCoverageTest {
         // Output is still PASSTHROUGH (hardcoded for useSerialSource + ScanNode child).
         SerialTrackingScanNode serialScan = new SerialTrackingScanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
         SortNode scanSort = new SortNode(nextPlanNodeId(), serialScan, sortInfo, false);
-        scanSort.fragment = Mockito.mock(PlanFragment.class);
-        Mockito.when(scanSort.fragment.useSerialSource(Mockito.any())).thenReturn(true);
+        PlanFragment serialSortFragment = Mockito.mock(PlanFragment.class);
+        Mockito.when(serialSortFragment.useSerialSource(Mockito.any())).thenReturn(true);
+        scanSort.setFragment(serialSortFragment);
+        serialScan.setFragment(serialSortFragment);
         Pair<PlanNode, LocalExchangeType> scanOutput = scanSort.enforceAndDeriveLocalExchange(
                 ctx, null, LocalExchangeTypeRequire.noRequire());
         // Non-merge, non-analytic SortNode: isSerialNode()=true, requireChild=noRequire,
@@ -809,6 +831,24 @@ public class LocalShuffleNodeCoverageTest {
         Assertions.assertEquals(LocalExchangeType.NOOP, noPartitionOutput.second);
         Assertions.assertSame(noPartitionChild, noPartition.getChild(0));
 
+        // A serial analytic consumer over a parallel subtree needs the generic
+        // parallel-to-serial boundary inserted by PlanNode.enforceRequire. The analytic
+        // special case may remove a redundant exchange directly above a serial Exchange,
+        // but must retain this PASS_TO_ONE gather.
+        TrackingPlanNode parallelChild = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        AnalyticEvalNode serialOverParallel = new AnalyticEvalNode(nextPlanNodeId(), parallelChild,
+                Collections.emptyList(), Collections.emptyList(), Collections.emptyList(),
+                null, new TupleDescriptor(new TupleId(NEXT_ID.getAndIncrement())));
+        PlanFragment serialAnalyticFragment = Mockito.mock(PlanFragment.class);
+        Mockito.when(serialAnalyticFragment.useSerialSource(Mockito.any())).thenReturn(true);
+        serialOverParallel.setFragment(serialAnalyticFragment);
+        parallelChild.setFragment(serialAnalyticFragment);
+        Pair<PlanNode, LocalExchangeType> serialOverParallelOutput
+                = serialOverParallel.enforceAndDeriveLocalExchange(
+                        ctx, null, LocalExchangeTypeRequire.noRequire());
+        Assertions.assertEquals(LocalExchangeType.NOOP, serialOverParallelOutput.second);
+        assertChildLocalExchangeType(serialOverParallel, 0, LocalExchangeType.PASS_TO_ONE);
+
         // Analytic with partition but no orderBy, non-colocated → noRequire/NOOP.
         // (Non-colocated analytic relies on parent SortNode to handle distribution.)
         TrackingScanNode hashChild = new TrackingScanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
@@ -826,12 +866,14 @@ public class LocalShuffleNodeCoverageTest {
                 Collections.emptyList(), Collections.singletonList(Mockito.mock(Expr.class)),
                 Collections.singletonList(new OrderByElement(Mockito.mock(Expr.class), true, true)),
                 null, new TupleDescriptor(new TupleId(NEXT_ID.getAndIncrement())));
-        orderedAnalytic.fragment = Mockito.mock(PlanFragment.class);
-        Mockito.when(orderedAnalytic.fragment.useSerialSource(Mockito.any())).thenReturn(true);
+        PlanFragment orderedAnalyticFragment = Mockito.mock(PlanFragment.class);
+        Mockito.when(orderedAnalyticFragment.useSerialSource(Mockito.any())).thenReturn(true);
+        orderedAnalytic.setFragment(orderedAnalyticFragment);
+        serialScan.setFragment(orderedAnalyticFragment);
         Pair<PlanNode, LocalExchangeType> orderedOutput = orderedAnalytic.enforceAndDeriveLocalExchange(
                 ctx, null, LocalExchangeTypeRequire.noRequire());
-        // Serial AnalyticEval returns NOOP — lets framework serial check handle fan-out
-        Assertions.assertEquals(LocalExchangeType.NOOP, orderedOutput.second);
+        Assertions.assertEquals(LocalExchangeType.PASSTHROUGH, orderedOutput.second);
+        assertChildLocalExchangeType(orderedAnalytic, 0, LocalExchangeType.PASSTHROUGH);
     }
 
     @Test
@@ -1194,6 +1236,69 @@ public class LocalShuffleNodeCoverageTest {
             // Require hash so the satisfy() check fails on the child's NOOP output,
             // forcing the framework into Layer 1 — which is where the
             // isSerialNode/isSerialOperatorOnBe choice matters.
+            Pair<PlanNode, LocalExchangeType> result = enforceRequire(translatorContext,
+                    children.get(0), 0, LocalExchangeTypeRequire.requireHash());
+            children = Lists.newArrayList(result.first);
+            return Pair.of(this, result.second);
+        }
+
+        @Override
+        protected void toThrift(TPlanNode msg) {
+        }
+
+        @Override
+        public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+            return "";
+        }
+    }
+
+    private static class SerialPipelineBoundaryNode extends PlanNode {
+        SerialPipelineBoundaryNode(PlanNodeId id, PlanNode child) {
+            super(id, Lists.newArrayList(new TupleId(id.asInt() + 30000)),
+                    "SERIAL_PIPELINE_BOUNDARY");
+            children.add(child);
+        }
+
+        @Override
+        public boolean isSerialNode() {
+            return true;
+        }
+
+        @Override
+        protected boolean shouldResetSerialFlagForChild(int childIndex) {
+            return true;
+        }
+
+        @Override
+        public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
+                PlanTranslatorContext translatorContext, PlanNode parent,
+                LocalExchangeTypeRequire parentRequire) {
+            Pair<PlanNode, LocalExchangeType> result = enforceRequire(translatorContext,
+                    children.get(0), 0, LocalExchangeTypeRequire.noRequire());
+            children = Lists.newArrayList(result.first);
+            return Pair.of(this, result.second);
+        }
+
+        @Override
+        protected void toThrift(TPlanNode msg) {
+        }
+
+        @Override
+        public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+            return "";
+        }
+    }
+
+    private static class HashRequiringPlanNode extends PlanNode {
+        HashRequiringPlanNode(PlanNodeId id, PlanNode child) {
+            super(id, Lists.newArrayList(new TupleId(id.asInt() + 40000)), "HASH_REQUIRING");
+            children.add(child);
+        }
+
+        @Override
+        public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
+                PlanTranslatorContext translatorContext, PlanNode parent,
+                LocalExchangeTypeRequire parentRequire) {
             Pair<PlanNode, LocalExchangeType> result = enforceRequire(translatorContext,
                     children.get(0), 0, LocalExchangeTypeRequire.requireHash());
             children = Lists.newArrayList(result.first);

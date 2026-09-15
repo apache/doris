@@ -39,10 +39,13 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
 #include "storage/index/snii/format/metadata_directory.h"
 #include "storage/index/snii/snii_doris_adapter.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 
 using doris::Status;
 using doris::segment_v2::snii_doris::DorisSniiFileReader;
@@ -207,6 +210,39 @@ TEST(SniiBlobDirectory, MissingFileFailsWithoutThrowing) {
     EXPECT_FALSE(fx.dir->openInput("nope", raw, err));
     EXPECT_EQ(nullptr, raw);
     EXPECT_EQ(CL_ERR_IO, err.number());
+}
+
+// A read-stage NotFound must surface as CL_ERR_FileNotFound, not collapse into CL_ERR_IO.
+TEST(SniiBlobDirectory, ReadFailureKeepsNotFoundDistinguishable) {
+    Fixture fx;
+    fx.Build();
+    ASSERT_FALSE(::testing::Test::HasFatalFailure());
+
+    const auto old_enable = doris::config::enable_debug_points;
+    doris::config::enable_debug_points = true;
+    const std::string point = "LocalFileReader::read_at_impl.io_error";
+    doris::DebugPoints::instance()->add_with_params(
+            point, {{"errno", std::to_string(ENOENT)}, {"sub_path", "snii_blob_dir_test"}});
+    doris::Defer dp {[&]() {
+        doris::DebugPoints::instance()->remove(point);
+        doris::config::enable_debug_points = old_enable;
+    }};
+
+    lucene::store::IndexInput* raw = nullptr;
+    CLuceneError err;
+    ASSERT_TRUE(fx.dir->openInput("a", raw, err));
+    std::unique_ptr<lucene::store::IndexInput> input(raw);
+
+    std::vector<uint8_t> got(fx.payload_a.size(), 0);
+    bool threw = false;
+    try {
+        input->readBytes(got.data(), static_cast<int32_t>(got.size()));
+    } catch (CLuceneError& e) {
+        threw = true;
+        EXPECT_EQ(CL_ERR_FileNotFound, e.number());
+    }
+    EXPECT_TRUE(threw);
+    input->close();
 }
 
 TEST(SniiBlobDirectory, WriteOperationsThrowUnsupportedAndCloseNeverThrows) {

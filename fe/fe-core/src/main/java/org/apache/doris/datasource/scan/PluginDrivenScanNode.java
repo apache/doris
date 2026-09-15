@@ -782,8 +782,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * Everything else falls through to {@code super} (partition key / regular).
      */
     @Override
-    protected TColumnCategory classifyColumn(SlotDescriptor slot, List<String> partitionKeys) {
-        String name = slot.getColumn().getName();
+    protected TColumnCategory classifyColumn(String name, List<String> partitionKeys) {
         if (name.startsWith(Column.GLOBAL_ROWID_COL)) {
             return TColumnCategory.SYNTHESIZED;
         }
@@ -794,7 +793,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (category == ConnectorColumnCategory.GENERATED) {
             return TColumnCategory.GENERATED;
         }
-        return super.classifyColumn(slot, partitionKeys);
+        return super.classifyColumn(name, partitionKeys);
     }
 
     /**

@@ -135,3 +135,24 @@ Suite.metaClass.explainIvmPlan = { String tag, String sql ->
             )
 }
 
+// __DORIS_SEQUENCE_COL__ of an IVM dry-run delta encodes the refresh version, whose base value
+// differs between cloud and shared-nothing deployments. Mask that column so that both modes can
+// share one suite and one .out file.
+def maskIvmDryRunSequence = { row, meta ->
+    for (int i = 1; i <= meta.getColumnCount(); i++) {
+        if ("__DORIS_SEQUENCE_COL__".equalsIgnoreCase(meta.getColumnLabel(i))) {
+            def masked = new ArrayList(row)
+            masked.set(i - 1, "[regression-fake-sequence]")
+            return masked
+        }
+    }
+    return row
+}
+
+// Named ivm_dry_run_qt instead of order_qt_*: Suite.invokeMethod intercepts every method whose
+// name starts with qt_ / order_qt_ and derives the tag from the method name, so a metaClass
+// method could never be reached under those prefixes.
+Suite.metaClass.ivm_dry_run_qt = { String tag, String sql ->
+    delegate.quickRunTest(tag, sql, true, maskIvmDryRunSequence)
+}
+

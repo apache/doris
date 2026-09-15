@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.MysqlCapability;
-import org.apache.doris.service.arrowflight.sessions.FlightSqlConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -59,7 +58,7 @@ public class FEOpExecutorFlightForwardTest {
     @Test
     public void testFlightSessionForwardsWithoutMysqlChannel() throws Exception {
         try (MockedStatic<Env> mockedEnv = mockSelfNode()) {
-            FlightSqlConnectContext context = new FlightSqlConnectContext("test-peer-identity");
+            ConnectContext context = ConnectContext.forFlight("test-peer-identity");
             prepare(context);
 
             TMasterOpRequest request = new TestFEOpExecutor(context).build();

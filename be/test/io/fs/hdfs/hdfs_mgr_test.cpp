@@ -23,10 +23,12 @@
 #include <chrono>
 #include <thread>
 
+#include "common/config.h"
 #include "common/kerberos/kerberos_ticket_cache.h"
 #include "common/kerberos/kerberos_ticket_mgr.h"
 #include "common/status.h"
 #include "io/fs/hdfs.h"
+#include "util/defer_op.h"
 
 namespace doris::io {
 
@@ -155,6 +157,25 @@ TEST_F(HdfsMgrTest, GetOrCreateFsFailure) {
     ASSERT_FALSE(_hdfs_mgr->get_or_create_fs(params, "test_fs", &handler).ok());
     ASSERT_EQ(_hdfs_mgr->get_fs_handlers_size(), 0);
     ASSERT_TRUE(handler == nullptr);
+}
+
+// The java-support gate sits in the real _create_hdfs_fs_impl, right before hdfsBuilderConnect():
+// with the config off, get_or_create_fs must refuse there, naming the config to flip, and reach
+// neither a connection nor a JVM. A plain HdfsMgr rather than the fixture's, because the mock
+// replaces exactly the method that carries the gate.
+TEST_F(HdfsMgrTest, GetOrCreateFsRefusesWhenJavaSupportIsDisabled) {
+    const bool old_enable_java_support = config::enable_java_support;
+    config::enable_java_support = false;
+    Defer defer {[&]() { config::enable_java_support = old_enable_java_support; }};
+
+    HdfsMgr hdfs_mgr;
+    THdfsParams params;
+    std::shared_ptr<HdfsHandler> handler;
+    Status st = hdfs_mgr.get_or_create_fs(params, "hdfs://namenode:8020", &handler);
+    ASSERT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("enable_java_support"), std::string::npos) << st;
+    EXPECT_TRUE(handler == nullptr);
+    EXPECT_EQ(hdfs_mgr.get_fs_handlers_size(), 0);
 }
 
 // Test _hdfs_hash_code with different inputs

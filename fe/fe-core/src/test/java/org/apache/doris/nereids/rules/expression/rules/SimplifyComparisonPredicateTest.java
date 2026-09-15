@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -1069,6 +1070,35 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
         FALSE, // eval to false
         EQUALS, // eval to equals
         NO_CHANGE_CP // no change cmp type
+    }
+
+    @Test
+    void testTypeRangeLimitPreservesCastNullability() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(SimplifyComparisonPredicate.INSTANCE)
+        ));
+
+        SlotReference nonNullableBigInt = new SlotReference("bigint_slot", BigIntType.INSTANCE, false);
+        List<Cast> nullableCasts = ImmutableList.of(
+                new Cast(nonNullableBigInt, TinyIntType.INSTANCE),
+                new TryCast(nonNullableBigInt, TinyIntType.INSTANCE));
+        for (Cast nullableCast : nullableCasts) {
+            assertRewrite(new GreaterThan(nullableCast, new TinyIntLiteral((byte) 127)),
+                    ExpressionUtils.falseOrNull(nullableCast));
+            assertRewrite(new LessThan(nullableCast, new TinyIntLiteral((byte) -128)),
+                    ExpressionUtils.falseOrNull(nullableCast));
+            assertRewrite(new LessThanEqual(nullableCast, new TinyIntLiteral((byte) 127)),
+                    ExpressionUtils.trueOrNull(nullableCast));
+        }
+
+        SlotReference nonNullableTinyInt = new SlotReference("tinyint_slot", TinyIntType.INSTANCE, false);
+        List<Cast> safeCasts = ImmutableList.of(
+                new Cast(nonNullableTinyInt, SmallIntType.INSTANCE),
+                new TryCast(nonNullableTinyInt, SmallIntType.INSTANCE));
+        for (Cast safeCast : safeCasts) {
+            assertRewrite(new GreaterThan(safeCast, new SmallIntLiteral((short) 127)),
+                    BooleanLiteral.FALSE);
+        }
     }
 
     @Test

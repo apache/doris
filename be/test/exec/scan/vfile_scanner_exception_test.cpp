@@ -23,6 +23,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "common/object_pool.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
@@ -31,13 +32,17 @@
 #include "exec/scan/file_scanner.h"
 #include "exec/scan/split_source_connector.h"
 #include "format_v2/table/hive_reader.h"
+#include "io/fs/hdfs/hdfs_mgr.h"
 #include "io/fs/local_file_system.h"
+#include "io/hdfs_util.h"
 #include "load/group_commit/wal/wal_manager.h"
 #include "runtime/cluster_info.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/user_function_cache.h"
+#include "util/defer_op.h"
 
 namespace doris {
 class TestSplitSourceConnectorStub : public SplitSourceConnector {
@@ -65,6 +70,47 @@ public:
     TFileScanRangeParams* get_params() override { return &_scan_range.params; }
 };
 
+// Returns a fake HDFS handler so reader construction never touches the network.
+class FakeHdfsMgr final : public io::HdfsMgr {
+public:
+    Status _create_hdfs_fs_impl(const THdfsParams& hdfs_params, const std::string& fs_name,
+                                std::shared_ptr<io::HdfsHandler>* fs_handler) override {
+        *fs_handler = std::make_shared<io::HdfsHandler>(
+                reinterpret_cast<hdfsFS>(static_cast<uintptr_t>(0x1)), false, "", "", fs_name);
+        return Status::OK();
+    }
+};
+
+// Registers a SyncPoint callback that returns a fixed value.
+template <typename T>
+static void set_mock_return(const std::string& point, T value, SyncPoint::CallbackGuard* guard) {
+    SyncPoint::get_instance()->set_call_back(
+            point,
+            [value = std::move(value)](auto&& args) {
+                auto* ret = try_any_cast_ret<T>(args);
+                ret->first = std::move(value);
+                ret->second = true;
+            },
+            guard);
+}
+
+// Injects a read-stage NOT_FOUND through the HDFS lazy-open sync points.
+struct HdfsNotFoundGuard {
+    SyncPoint::CallbackGuard open_guard;
+    SyncPoint::CallbackGuard err_guard;
+    SyncPoint::CallbackGuard close_guard;
+    HdfsNotFoundGuard() {
+        auto* sp = SyncPoint::get_instance();
+        sp->enable_processing();
+        set_mock_return<hdfsFile>("HdfsFileHandle::ensure_open::hdfsOpenFile", nullptr,
+                                  &open_guard);
+        set_mock_return<std::string>("HdfsFileHandle::ensure_open::hdfs_error",
+                                     "No such file or directory", &err_guard);
+        set_mock_return<int>("HdfsFileHandle::close::hdfsCloseFile", 0, &close_guard);
+    }
+    ~HdfsNotFoundGuard() { SyncPoint::get_instance()->disable_processing(); }
+};
+
 class VfileScannerExceptionTest : public testing::Test {
 public:
     VfileScannerExceptionTest()
@@ -78,17 +124,26 @@ public:
     }
     void init();
     void generate_scanner(std::shared_ptr<FileScanner>& scanner);
+    // Fake HDFS CSV range with known size, so open is deferred to the first read.
+    void prepare_hdfs_csv_range();
 
     void TearDown() override {
         WARN_IF_ERROR(_scan_node->close(&_runtime_state), "fail to close scan_node")
+        // Avoid leaving a dangling _hdfs_mgr after _fake_hdfs_mgr is destroyed.
+        ExecEnv::GetInstance()->_hdfs_mgr = _old_hdfs_mgr;
     }
 
 protected:
-    virtual void SetUp() override {}
+    void SetUp() override {
+        _old_hdfs_mgr = ExecEnv::GetInstance()->_hdfs_mgr;
+        ExecEnv::GetInstance()->_hdfs_mgr = &_fake_hdfs_mgr;
+    }
 
 private:
     void _init_desc_table();
 
+    FakeHdfsMgr _fake_hdfs_mgr;
+    io::HdfsMgr* _old_hdfs_mgr = nullptr;
     ExecEnv* _env = nullptr;
     int64_t _backend_id = 1001;
     std::string _label_1 = "test1";
@@ -286,6 +341,34 @@ void VfileScannerExceptionTest::generate_scanner(std::shared_ptr<FileScanner>& s
     WARN_IF_ERROR(scanner->init(&_runtime_state, _conjuncts), "fail to prepare scanner");
 }
 
+void VfileScannerExceptionTest::prepare_hdfs_csv_range() {
+    _range_desc.path = "hdfs://fake-nn:8020/not_found/data.csv";
+    _range_desc.start_offset = 0;
+    _range_desc.size = 100;
+    _range_desc.__set_file_size(100);
+    _ranges[0] = _range_desc;
+    _scan_range.ranges = _ranges;
+    auto& params = _scan_range.params;
+    params.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
+    params.file_type = TFileType::FILE_HDFS;
+    params.hdfs_params.__set_fs_name("hdfs://fake-nn:8020");
+    params.__isset.file_attributes = true;
+    params.file_attributes.__isset.text_params = true;
+    params.file_attributes.text_params.column_separator = ",";
+    params.file_attributes.text_params.line_delimiter = "\n";
+    params.__isset.column_idxs = true;
+    params.column_idxs = {0, 1, 2};
+    params.__set_num_of_columns_from_file(3);
+    params.__isset.required_slots = true;
+    params.required_slots.clear();
+    for (int32_t slot_id = 1; slot_id <= 3; ++slot_id) {
+        TFileScanSlotInfo slot_info;
+        slot_info.__set_slot_id(slot_id);
+        slot_info.__set_is_file_slot(true);
+        params.required_slots.push_back(slot_info);
+    }
+}
+
 TEST_F(VfileScannerExceptionTest, failure_case) {
     std::shared_ptr<FileScanner> scanner = nullptr;
     generate_scanner(scanner);
@@ -337,6 +420,52 @@ TEST_F(VfileScannerExceptionTest, process_late_arrival_conjuncts_retain) {
     ASSERT_EQ(scanner->_conjuncts.size(), 1);
     // And push_down_conjuncts should be cloned/assigned successfully
     ASSERT_EQ(scanner->_push_down_conjuncts.size(), 1);
+
+    WARN_IF_ERROR(scanner->close(&_runtime_state), "fail to close scanner");
+}
+
+// A lazy-open NOT_FOUND on the first HDFS read must be skipped and counted, not fail the scan.
+TEST_F(VfileScannerExceptionTest, read_stage_not_found_skipped_when_enabled) {
+    HdfsNotFoundGuard guard;
+    const bool old_ignore = config::ignore_not_found_file_in_external_table;
+    config::ignore_not_found_file_in_external_table = true;
+    Defer restore_ignore {[&]() { config::ignore_not_found_file_in_external_table = old_ignore; }};
+
+    prepare_hdfs_csv_range();
+    std::shared_ptr<FileScanner> scanner = nullptr;
+    generate_scanner(scanner);
+
+    std::unique_ptr<Block> block(new Block());
+    bool eof = false;
+    auto st = scanner->get_block(&_runtime_state, block.get(), &eof);
+    EXPECT_TRUE(st.ok()) << st;
+    EXPECT_TRUE(eof);
+    EXPECT_EQ(block->rows(), 0);
+
+    auto* local_state = &(_runtime_state.get_local_state(0)->cast<FileScanLocalState>());
+    auto* counter = local_state->scanner_profile()->get_counter("NotFoundFileNum");
+    ASSERT_NE(counter, nullptr);
+    EXPECT_EQ(counter->value(), 1);
+
+    WARN_IF_ERROR(scanner->close(&_runtime_state), "fail to close scanner");
+}
+
+// With the skip config off, a lazy-open NOT_FOUND must surface as an error, not be wrapped.
+TEST_F(VfileScannerExceptionTest, read_stage_not_found_errors_when_disabled) {
+    HdfsNotFoundGuard guard;
+    const bool old_ignore = config::ignore_not_found_file_in_external_table;
+    config::ignore_not_found_file_in_external_table = false;
+    Defer restore_ignore {[&]() { config::ignore_not_found_file_in_external_table = old_ignore; }};
+
+    prepare_hdfs_csv_range();
+    std::shared_ptr<FileScanner> scanner = nullptr;
+    generate_scanner(scanner);
+
+    std::unique_ptr<Block> block(new Block());
+    bool eof = false;
+    auto st = scanner->get_block(&_runtime_state, block.get(), &eof);
+    EXPECT_FALSE(st.ok());
+    EXPECT_TRUE(st.is<ErrorCode::NOT_FOUND>()) << st;
 
     WARN_IF_ERROR(scanner->close(&_runtime_state), "fail to close scanner");
 }

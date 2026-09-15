@@ -164,8 +164,8 @@ struct WindowFunnelState {
         }
     }
 
-    bool _within_window(const DateValueType& base_timestamp, const DateValueType& current_timestamp,
-                        const DateValueType& end_timestamp) const {
+    bool _within_window(const DateValueType& base_timestamp,
+                        const DateValueType& current_timestamp) const {
         if constexpr (T == TYPE_TIMESTAMP_NS) {
             const auto elapsed_nanos = static_cast<__int128>(current_timestamp.epoch_nanos()) -
                                        base_timestamp.epoch_nanos();
@@ -173,14 +173,13 @@ struct WindowFunnelState {
                     static_cast<__int128>(window) * TimeStampNsValue::NANOS_PER_SECOND;
             return elapsed_nanos <= window_nanos;
         }
-        return current_timestamp <= end_timestamp;
+        return static_cast<__int128>(current_timestamp.datetime_diff_in_microseconds(
+                       base_timestamp)) <= static_cast<__int128>(window) * 1000000;
     }
 
     template <WindowFunnelMode WINDOW_FUNNEL_MODE>
     int _match_event_list(size_t& start_row, size_t row_count) const {
         int matched_count = 0;
-        DateValueType end_timestamp;
-
         if (window < 0) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "the sliding time window must be a positive integer, but got: {}",
@@ -194,12 +193,6 @@ struct WindowFunnelState {
         if (match_row < row_count) {
             auto prev_timestamp = timestamp_data[match_row];
             const auto first_timestamp = prev_timestamp;
-            if constexpr (T != TYPE_TIMESTAMP_NS) {
-                TimeInterval interval(SECOND, window, false);
-                end_timestamp = first_timestamp;
-                end_timestamp.template date_add_interval<SECOND>(interval);
-            }
-
             matched_count++;
             column_idx++;
             auto last_match_row = match_row;
@@ -209,7 +202,7 @@ struct WindowFunnelState {
                 if constexpr (WINDOW_FUNNEL_MODE == WindowFunnelMode::FIXED) {
                     if (event_data[match_row] == 1) {
                         auto current_timestamp = timestamp_data[match_row];
-                        if (_within_window(first_timestamp, current_timestamp, end_timestamp)) {
+                        if (_within_window(first_timestamp, current_timestamp)) {
                             matched_count++;
                             continue;
                         }
@@ -219,8 +212,7 @@ struct WindowFunnelState {
                 match_row = simd::find_one(event_data.data(), match_row, row_count);
                 if (match_row < row_count) {
                     auto current_timestamp = timestamp_data[match_row];
-                    bool is_matched =
-                            _within_window(first_timestamp, current_timestamp, end_timestamp);
+                    bool is_matched = _within_window(first_timestamp, current_timestamp);
                     if (is_matched) {
                         if constexpr (WINDOW_FUNNEL_MODE == WindowFunnelMode::INCREASE) {
                             is_matched = current_timestamp > prev_timestamp;

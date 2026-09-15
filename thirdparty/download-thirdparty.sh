@@ -526,10 +526,10 @@ fi
 # patch libunwind so Doris can force GNU libunwind to use the BE PHDR cache
 # without changing ordinary dl_iterate_phdr callers.
 if [[ " ${TP_ARCHIVES[*]} " =~ " LIBUNWIND " ]]; then
-    if [[ "${LIBUNWIND_SOURCE}" = "libunwind-1.6.2" ]]; then
+    if [[ "${LIBUNWIND_SOURCE}" = "libunwind-1.8.3" ]]; then
         cd "${TP_SOURCE_DIR}/${LIBUNWIND_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
-            patch -p1 <"${TP_PATCH_DIR}/libunwind-1.6.2-doris-phdr-cache.patch"
+            patch -p1 <"${TP_PATCH_DIR}/libunwind-1.8.3-doris-phdr-cache.patch"
             touch "${PATCHED_MARK}"
         fi
         cd -

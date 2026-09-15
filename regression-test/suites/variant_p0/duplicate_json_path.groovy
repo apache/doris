@@ -16,7 +16,7 @@
 // under the License.
 
 suite("duplicate_json_path", "p0") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def customBeConfig = [
         variant_enable_duplicate_json_path_check: true
     ]
@@ -107,7 +107,7 @@ suite("duplicate_json_path", "p0") {
                 [13, "[13]", null, null],
                 [14, "14", null, null]
         ]
-        def expectedResult = getFeConfig("enable_variant_v2").toBoolean()
+        def expectedResult = true
                 ? expectedResultV2 : expectedResultV1
 
         def queryResult = {

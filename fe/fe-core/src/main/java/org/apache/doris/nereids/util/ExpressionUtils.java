@@ -29,11 +29,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
-import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
-import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
-import org.apache.doris.nereids.rules.expression.rules.ReplaceVariableByLiteral;
 import org.apache.doris.nereids.rules.expression.rules.TrySimplifyPredicateWithMarkJoinSlot;
 import org.apache.doris.nereids.trees.SuperClassId;
 import org.apache.doris.nereids.trees.TreeNode;
@@ -59,8 +56,10 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Explode;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeBitmap;
@@ -1213,6 +1212,24 @@ public class ExpressionUtils {
         return agg instanceof Sum || agg instanceof Avg || agg instanceof Max || agg instanceof Min;
     }
 
+    /**
+     * Whether a single-row group always produces the same aggregate result.
+     *
+     * <p>COUNT(*) always consumes its only row. Argument-based COUNT and NDV consume the row only
+     * when every argument is non-null, so nullable arguments may produce either zero or one across
+     * otherwise single-row groups. Keep the proof conservative and inspect the complete argument
+     * expressions rather than only their input slots.</p>
+     */
+    public static boolean isUniformAgg(Expression agg) {
+        if (agg instanceof Count && ((Count) agg).isCountStar()) {
+            return true;
+        }
+        if (!(agg instanceof Count || agg instanceof Ndv)) {
+            return false;
+        }
+        return agg.getArguments().stream().allMatch(Expression::notNullable);
+    }
+
     public static <E> Set<E> mutableCollect(List<? extends Expression> expressions,
             Predicate<TreeNode<Expression>> predicate) {
         Set<E> set = new HashSet<>();
@@ -1504,10 +1521,7 @@ public class ExpressionUtils {
             throw new UserException(expression + " must be constant value");
         }
         ExpressionRewriteContext context = new ExpressionRewriteContext(cascadesContext);
-        ExpressionRuleExecutor executor = new ExpressionRuleExecutor(ImmutableList.of(
-                ExpressionRewrite.bottomUp(ReplaceVariableByLiteral.INSTANCE)));
-        Expression rewrittenExpression = executor.rewrite(analyzedExpr, context);
-        Expression foldExpression = FoldConstantRule.evaluate(rewrittenExpression, context);
+        Expression foldExpression = FoldConstantRule.evaluate(analyzedExpr, context);
         if (foldExpression instanceof Literal) {
             return (Literal) foldExpression;
         } else {
