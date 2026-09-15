@@ -1392,6 +1392,11 @@ Status ParquetReader::_process_expr_zonemap_page_filter(
         if (!cached_page_index->get_stat_func(&stat, cid) || stat == nullptr || !stat->available) {
             continue;
         }
+        // Same domain requirement as the row-group path above.
+        if (stat->col_schema == nullptr ||
+            !expr_zonemap::data_types_compatible(stat->col_schema->data_type, slot->type())) {
+            continue;
+        }
         RowRanges expr_ranges;
         ZoneMapEvalStats page_stats;
         for (int64_t page_id = 0; page_id < stat->num_of_pages; ++page_id) {
@@ -1403,7 +1408,7 @@ Status ParquetReader::_process_expr_zonemap_page_filter(
 
             ZoneMapEvalContext ctx;
             ZoneMapEvalContext::SlotZoneMap slot_zone_map;
-            slot_zone_map.data_type = slot->type();
+            slot_zone_map.set_data_type_from_parquet(slot->type());
             segment_v2::ZoneMap zone_map;
             zone_map.has_null = stat->has_null[page_id];
             zone_map.has_not_null = !stat->is_all_null[page_id];
@@ -1665,7 +1670,7 @@ Status ParquetReader::_process_expr_zonemap_filter(const tparquet::RowGroup& row
         }
         auto* slot = _tuple_descriptor->slots()[cid];
         ZoneMapEvalContext::SlotZoneMap slot_zone_map;
-        slot_zone_map.data_type = slot->type();
+        slot_zone_map.set_data_type_from_parquet(slot->type());
         if (!_exists_in_file(slot->col_name()) || !_type_matches(cid)) {
             ctx.slots.emplace(cid, std::move(slot_zone_map));
             continue;
@@ -1673,6 +1678,14 @@ Status ParquetReader::_process_expr_zonemap_filter(const tparquet::RowGroup& row
         const auto& file_col_name =
                 _table_info_node_ptr->children_file_column_name(slot->col_name());
         const FieldSchema* col_schema = _file_metadata->schema().get_column(file_col_name);
+        // parse_min_max_value decodes the bounds in the file's own logical type, while _type_matches
+        // only compares primitive types. A DECIMAL bound decoded at the file's scale would then be
+        // compared against the table's scale as if the payloads shared a domain, so leave the zone
+        // map out unless the two types agree exactly.
+        if (!expr_zonemap::data_types_compatible(col_schema->data_type, slot->type())) {
+            ctx.slots.emplace(cid, std::move(slot_zone_map));
+            continue;
+        }
         int parquet_col_id = col_schema->physical_column_index;
         if (parquet_col_id < 0) {
             // Complex parent fields do not map to a physical Parquet column.
