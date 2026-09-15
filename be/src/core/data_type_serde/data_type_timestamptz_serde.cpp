@@ -398,7 +398,7 @@ Status DataTypeTimeStampTzSerDe::write_column_to_arrow(const IColumn& column,
     return Status::OK();
 }
 
-Status DataTypeTimeStampTzSerDe::write_column_to_paimon(
+Status DataTypeTimeStampTzSerDe::write_column_to_paimon_arrow(
         const std::shared_ptr<const IDataType>& type, const IColumn& column,
         const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
         arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,

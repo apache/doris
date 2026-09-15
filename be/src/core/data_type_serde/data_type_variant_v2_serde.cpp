@@ -748,14 +748,14 @@ Status DataTypeVariantV2SerDe::write_column_to_arrow(const IColumn& column, cons
     return Status::OK();
 }
 
-Status DataTypeVariantV2SerDe::write_column_to_paimon(
+Status DataTypeVariantV2SerDe::write_column_to_paimon_arrow(
         const std::shared_ptr<const IDataType>&, const IColumn& column, const NullMap* null_map,
         const std::shared_ptr<arrow::Field>&, arrow::ArrayBuilder* array_builder, int64_t start,
         int64_t end, const cctz::time_zone&) const {
     return write_paimon_variant(column, null_map, array_builder, start, end);
 }
 
-Status DataTypeVariantV2SerDe::write_column_to_iceberg(
+Status DataTypeVariantV2SerDe::write_column_to_iceberg_arrow(
         const std::shared_ptr<const IDataType>&, const IColumn& column, const NullMap* null_map,
         const std::shared_ptr<arrow::Field>&, arrow::ArrayBuilder* array_builder, int64_t start,
         int64_t end, const cctz::time_zone&) const {

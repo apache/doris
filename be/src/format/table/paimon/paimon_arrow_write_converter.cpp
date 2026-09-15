@@ -31,9 +31,9 @@ Status PaimonArrowWriteConverter::write_column(const std::shared_ptr<const IData
                                                int64_t end, const cctz::time_zone& ctz) const {
     // This adapter dereferences Arrow declarations that are intentionally forward-declared by
     // its public header, so keep the complete definitions local to this implementation file.
-    return serde.write_column_to_paimon(type, column, null_map,
-                                        field->WithType(array_builder->type()), array_builder,
-                                        start, end, ctz);
+    return serde.write_column_to_paimon_arrow(type, column, null_map,
+                                              field->WithType(array_builder->type()), array_builder,
+                                              start, end, ctz);
 }
 
 const PaimonArrowWriteConverter& paimon_arrow_write_converter() {

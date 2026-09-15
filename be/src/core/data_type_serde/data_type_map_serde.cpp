@@ -479,11 +479,13 @@ Status write_map_column_to_target(const IColumn& column, const NullMap* null_map
 
 } // namespace
 
-Status DataTypeMapSerDe::write_column_to_paimon(const std::shared_ptr<const IDataType>& type,
-                                                const IColumn& column, const NullMap* null_map,
-                                                const std::shared_ptr<arrow::Field>& field,
-                                                arrow::ArrayBuilder* array_builder, int64_t start,
-                                                int64_t end, const cctz::time_zone& ctz) const {
+Status DataTypeMapSerDe::write_column_to_paimon_arrow(const std::shared_ptr<const IDataType>& type,
+                                                      const IColumn& column,
+                                                      const NullMap* null_map,
+                                                      const std::shared_ptr<arrow::Field>& field,
+                                                      arrow::ArrayBuilder* array_builder,
+                                                      int64_t start, int64_t end,
+                                                      const cctz::time_zone& ctz) const {
     const auto& map_type = assert_cast<const DataTypeMap&>(*type);
     const auto& arrow_map_type = assert_cast<const arrow::MapType&>(*field->type());
     const auto& key_field = arrow_map_type.key_field();
@@ -492,23 +494,25 @@ Status DataTypeMapSerDe::write_column_to_paimon(const std::shared_ptr<const IDat
             column, null_map, array_builder, start, end,
             [&](const IColumn& nested_keys, arrow::ArrayBuilder* key_builder, int64_t nested_start,
                 int64_t nested_end) {
-                return key_serde->write_column_to_paimon(map_type.get_key_type(), nested_keys,
-                                                         nullptr, key_field, key_builder,
-                                                         nested_start, nested_end, ctz);
+                return key_serde->write_column_to_paimon_arrow(map_type.get_key_type(), nested_keys,
+                                                               nullptr, key_field, key_builder,
+                                                               nested_start, nested_end, ctz);
             },
             [&](const IColumn& nested_values, arrow::ArrayBuilder* value_builder,
                 int64_t nested_start, int64_t nested_end) {
-                return value_serde->write_column_to_paimon(map_type.get_value_type(), nested_values,
-                                                           nullptr, value_field, value_builder,
-                                                           nested_start, nested_end, ctz);
+                return value_serde->write_column_to_paimon_arrow(
+                        map_type.get_value_type(), nested_values, nullptr, value_field,
+                        value_builder, nested_start, nested_end, ctz);
             });
 }
 
-Status DataTypeMapSerDe::write_column_to_iceberg(const std::shared_ptr<const IDataType>& type,
-                                                 const IColumn& column, const NullMap* null_map,
-                                                 const std::shared_ptr<arrow::Field>& field,
-                                                 arrow::ArrayBuilder* array_builder, int64_t start,
-                                                 int64_t end, const cctz::time_zone& ctz) const {
+Status DataTypeMapSerDe::write_column_to_iceberg_arrow(const std::shared_ptr<const IDataType>& type,
+                                                       const IColumn& column,
+                                                       const NullMap* null_map,
+                                                       const std::shared_ptr<arrow::Field>& field,
+                                                       arrow::ArrayBuilder* array_builder,
+                                                       int64_t start, int64_t end,
+                                                       const cctz::time_zone& ctz) const {
     const auto& map_type = assert_cast<const DataTypeMap&>(*type);
     const auto& arrow_map_type = assert_cast<const arrow::MapType&>(*field->type());
     const auto& key_field = arrow_map_type.key_field();
@@ -517,13 +521,13 @@ Status DataTypeMapSerDe::write_column_to_iceberg(const std::shared_ptr<const IDa
             column, null_map, array_builder, start, end,
             [&](const IColumn& nested_keys, arrow::ArrayBuilder* key_builder, int64_t nested_start,
                 int64_t nested_end) {
-                return key_serde->write_column_to_iceberg(map_type.get_key_type(), nested_keys,
-                                                          nullptr, key_field, key_builder,
-                                                          nested_start, nested_end, ctz);
+                return key_serde->write_column_to_iceberg_arrow(
+                        map_type.get_key_type(), nested_keys, nullptr, key_field, key_builder,
+                        nested_start, nested_end, ctz);
             },
             [&](const IColumn& nested_values, arrow::ArrayBuilder* value_builder,
                 int64_t nested_start, int64_t nested_end) {
-                return value_serde->write_column_to_iceberg(
+                return value_serde->write_column_to_iceberg_arrow(
                         map_type.get_value_type(), nested_values, nullptr, value_field,
                         value_builder, nested_start, nested_end, ctz);
             });
