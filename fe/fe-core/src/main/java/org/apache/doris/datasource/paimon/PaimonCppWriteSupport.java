@@ -17,14 +17,13 @@
 
 package org.apache.doris.datasource.paimon;
 
-import org.apache.doris.common.util.JsonUtil;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPaimonStorageDescriptor;
 import org.apache.doris.thrift.TPaimonWriteMode;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -38,7 +37,6 @@ import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TimestampType;
-import org.apache.paimon.utils.JsonSerdeUtil;
 
 import java.net.URI;
 import java.util.Collections;
@@ -68,23 +66,31 @@ public final class PaimonCppWriteSupport {
             }
             return storage;
         }
+
+        private static Decision supported(TPaimonStorageDescriptor storage) {
+            return new Decision(storage, null);
+        }
+
+        private static Decision unsupported(String reason) {
+            return new Decision(null, reason);
+        }
     }
 
     public static Decision decide(FileStoreTable table, List<String> columns,
             TPaimonWriteMode mode, Map<StorageProperties.Type, StorageProperties> storageProperties) {
         String reason = fallbackReason(table, columns, mode);
         if (reason != null) {
-            return new Decision(null, reason);
+            return Decision.unsupported(reason);
         }
         TPaimonStorageDescriptor storage;
         try {
             storage = describeStorage(table, storageProperties);
-        } catch (RuntimeException e) {
+        } catch (IllegalArgumentException | StoragePropertiesException e) {
             // Provider exception text can contain credentials/configuration.
-            return new Decision(null,
+            return Decision.unsupported(
                     "storage is not supported by the Doris native Paimon filesystem adapter");
         }
-        return new Decision(storage, null);
+        return Decision.supported(storage);
     }
 
     private static String fallbackReason(FileStoreTable table, List<String> columns,
@@ -92,8 +98,8 @@ public final class PaimonCppWriteSupport {
         if (table.fileIO() instanceof RESTTokenFileIO) {
             return "REST data tokens require JNI";
         }
-        if (mode == TPaimonWriteMode.CHANGELOG) {
-            return "changelog writes require JNI";
+        if (mode != TPaimonWriteMode.APPEND && mode != TPaimonWriteMode.OVERWRITE) {
+            return "write mode requires JNI";
         }
         if (!table.schema().partitionKeys().isEmpty()) {
             return "native partition routing is not implemented yet";
@@ -103,8 +109,7 @@ public final class PaimonCppWriteSupport {
         }
         Map<String, String> options = table.options();
         CoreOptions coreOptions = new CoreOptions(options);
-        int bucket = coreOptions.bucket();
-        if (bucket != -1) {
+        if (coreOptions.bucket() != CoreOptions.BUCKET.defaultValue()) {
             return "bucketed tables require JNI";
         }
         if (coreOptions.changelogProducer() != CoreOptions.ChangelogProducer.NONE) {
@@ -122,27 +127,18 @@ public final class PaimonCppWriteSupport {
         Set<String> fieldNames = new HashSet<>();
         for (DataField field : fields) {
             fieldNames.add(field.name());
-            if (!supportedCppType(field.type())) {
-                return "paimon-cpp does not support field '" + field.name()
-                        + "' with type " + field.type().asSQLString();
+            if (requiresJniForType(field.type())) {
+                return "field '" + field.name() + "' contains a timestamp precision unsupported by paimon-cpp";
             }
         }
         Set<String> writeColumns = new HashSet<>();
         for (String column : columns) {
-            if (!fieldNames.contains(column) || !writeColumns.add(column)) {
-                return "native write schema contains an unknown or duplicate column: " + column;
+            if (!writeColumns.add(column)) {
+                throw new IllegalArgumentException("Duplicate Paimon write column: " + column);
             }
-        }
-        String configuredShreddingSchema = options.containsKey("variant.shreddingSchema")
-                ? options.get("variant.shreddingSchema")
-                : options.get("parquet.variant.shreddingSchema");
-        boolean hasVariant = false;
-        for (DataField field : fields) {
-            hasVariant |= containsVariant(field.type());
-        }
-        if (hasVariant && configuredShreddingSchema != null
-                && isValidShreddingSchemaWithoutIds(configuredShreddingSchema)) {
-            return "native VARIANT shredding schema requires explicit field IDs";
+            if (!fieldNames.contains(column)) {
+                throw new IllegalArgumentException("Unknown Paimon write column: " + column);
+            }
         }
         return null;
     }
@@ -152,103 +148,26 @@ public final class PaimonCppWriteSupport {
                 || "avro".equalsIgnoreCase(format) || "blob".equalsIgnoreCase(format);
     }
 
-    private static boolean isValidShreddingSchemaWithoutIds(String schema) {
-        try {
-            DataType type = JsonSerdeUtil.fromJson(schema, DataType.class);
-            if (!(type instanceof RowType)) {
-                return false;
-            }
-            FieldIdStats stats = new FieldIdStats();
-            collectFieldIds(JsonUtil.readTree(schema), stats);
-            return stats.total > 0 && stats.present == 0;
-        } catch (RuntimeException e) {
-            // Let the selected SDK parse invalid schemas so callers receive its diagnostic.
-            return false;
-        }
-    }
-
-    private static void collectFieldIds(JsonNode type, FieldIdStats stats) {
-        if (type == null || !type.isObject() || !type.path("type").isTextual()) {
-            return;
-        }
-        String typeName = type.path("type").asText();
-        if (typeName.startsWith("ROW")) {
-            JsonNode fields = type.get("fields");
-            for (JsonNode field : fields) {
-                stats.total++;
-                JsonNode id = field.get("id");
-                if (id != null) {
-                    stats.present++;
-                }
-                collectFieldIds(field.get("type"), stats);
-            }
-        } else if (typeName.startsWith("ARRAY") || typeName.startsWith("MULTISET")) {
-            collectFieldIds(type.get("element"), stats);
-        } else if (typeName.startsWith("MAP")) {
-            collectFieldIds(type.get("key"), stats);
-            collectFieldIds(type.get("value"), stats);
-        }
-    }
-
-    private static final class FieldIdStats {
-        private int total;
-        private int present;
-    }
-
-    private static boolean containsVariant(DataType type) {
-        if ("VARIANT".equals(type.getTypeRoot().name())) {
-            return true;
-        }
-        if (type instanceof ArrayType) {
-            return containsVariant(((ArrayType) type).getElementType());
-        }
-        if (type instanceof MapType) {
-            return containsVariant(((MapType) type).getKeyType())
-                    || containsVariant(((MapType) type).getValueType());
-        }
-        return type instanceof RowType && ((RowType) type).getFields().stream()
-                .anyMatch(field -> containsVariant(field.type()));
-    }
-
-    private static boolean supportedCppType(DataType type) {
+    private static boolean requiresJniForType(DataType type) {
         switch (type.getTypeRoot()) {
-            case CHAR:
-            case VARCHAR:
-            case BOOLEAN:
-            case BINARY:
-            case VARBINARY:
-            case DECIMAL:
-            case TINYINT:
-            case SMALLINT:
-            case INTEGER:
-            case BIGINT:
-            case FLOAT:
-            case DOUBLE:
-            case DATE:
-            case VARIANT:
-                return true;
             case TIMESTAMP_WITHOUT_TIME_ZONE:
-                return supportedTimestampPrecision(((TimestampType) type).getPrecision());
+                return !supportedCppTimestampPrecision(((TimestampType) type).getPrecision());
             case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
-                return supportedTimestampPrecision(((LocalZonedTimestampType) type).getPrecision());
+                return !supportedCppTimestampPrecision(((LocalZonedTimestampType) type).getPrecision());
             case ARRAY:
-                return supportedCppType(((ArrayType) type).getElementType());
+                return requiresJniForType(((ArrayType) type).getElementType());
             case MAP:
                 MapType map = (MapType) type;
-                return supportedCppType(map.getKeyType()) && supportedCppType(map.getValueType());
+                return requiresJniForType(map.getKeyType()) || requiresJniForType(map.getValueType());
             case ROW:
                 return ((RowType) type).getFields().stream()
-                        .allMatch(field -> supportedCppType(field.type()));
-            case TIME_WITHOUT_TIME_ZONE:
-            case BLOB:
-            case VECTOR:
-            case MULTISET:
+                        .anyMatch(field -> requiresJniForType(field.type()));
             default:
                 return false;
         }
     }
 
-    private static boolean supportedTimestampPrecision(int precision) {
+    private static boolean supportedCppTimestampPrecision(int precision) {
         return precision == 0 || precision == 3 || precision == 6 || precision == 9;
     }
 

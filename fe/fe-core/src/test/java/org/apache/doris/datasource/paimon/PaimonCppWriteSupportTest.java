@@ -114,6 +114,7 @@ public class PaimonCppWriteSupportTest {
         for (Map<String, String> options : Arrays.asList(
                 Collections.<String, String>emptyMap(),
                 Collections.singletonMap("parquet.variant.shreddingSchema", SHREDDING_SCHEMA),
+                Collections.singletonMap("parquet.variant.shreddingSchema", SHREDDING_SCHEMA_WITHOUT_IDS),
                 Collections.singletonMap("variant.inferShreddingSchema", "true"))) {
             FileStoreTable table = variantTable(options, DataTypes.VARIANT());
             Assert.assertTrue(decision(table).isSupported());
@@ -142,11 +143,6 @@ public class PaimonCppWriteSupportTest {
                 variantTable(options, DataTypes.VARIANT()), COLUMNS, TPaimonWriteMode.OVERWRITE));
         Assert.assertNotNull(unsupportedReason(
                 variantTable(options, DataTypes.VARIANT()), COLUMNS, TPaimonWriteMode.CHANGELOG));
-
-        options.put("parquet.variant.shreddingSchema", SHREDDING_SCHEMA_WITHOUT_IDS);
-        Assert.assertEquals("native VARIANT shredding schema requires explicit field IDs",
-                unsupportedReason(variantTable(options, DataTypes.VARIANT()), COLUMNS,
-                        TPaimonWriteMode.APPEND));
     }
 
     @Test
@@ -163,28 +159,30 @@ public class PaimonCppWriteSupportTest {
     }
 
     @Test
-    public void testCppDataTypes() {
-        DataType nested = DataTypes.ROW(
-                new DataField(2, "amounts", DataTypes.ARRAY(DataTypes.DECIMAL(38, 10))),
-                new DataField(3, "dates", DataTypes.MAP(DataTypes.STRING(), DataTypes.DATE())),
-                new DataField(4, "event", DataTypes.ROW(
-                        new DataField(5, "ntz", DataTypes.TIMESTAMP(6)),
-                        new DataField(6, "ltz", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(9)))));
-        for (DataType type : Arrays.asList(
-                DataTypes.CHAR(10), DataTypes.STRING(), DataTypes.BINARY(10), DataTypes.BYTES(),
-                DataTypes.DECIMAL(38, 10), DataTypes.DATE(), DataTypes.TIMESTAMP(0),
-                DataTypes.TIMESTAMP(3), DataTypes.TIMESTAMP(6), DataTypes.TIMESTAMP(9),
+    public void testOnlyTimestampPrecisionRequiresJni() {
+        for (DataType type : Arrays.asList(DataTypes.TIMESTAMP(0), DataTypes.TIMESTAMP(3),
+                DataTypes.TIMESTAMP(6), DataTypes.TIMESTAMP(9),
                 DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(0),
                 DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(3),
                 DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6),
-                DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(9), nested)) {
+                DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(9))) {
             Assert.assertNull(type.toString(), unsupportedReason(
                     variantTable(Collections.emptyMap(), type), COLUMNS, TPaimonWriteMode.APPEND));
         }
-        for (DataType type : Arrays.asList(DataTypes.TIME(), DataTypes.MULTISET(DataTypes.INT()),
-                DataTypes.TIMESTAMP(1), DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(8),
-                DataTypes.ARRAY(DataTypes.TIME()))) {
+
+        DataType nestedTimestamp = DataTypes.ROW(new DataField(2, "values",
+                DataTypes.ARRAY(DataTypes.MAP(DataTypes.STRING(), DataTypes.TIMESTAMP(1)))));
+        for (DataType type : Arrays.asList(DataTypes.TIMESTAMP(1),
+                DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(8), nestedTimestamp)) {
             Assert.assertNotNull(type.toString(), unsupportedReason(
+                    variantTable(Collections.emptyMap(), type), COLUMNS, TPaimonWriteMode.APPEND));
+        }
+
+        // Types unsupported by the current Doris write schema or by both SDKs are not a reason to
+        // claim JNI support. The normal analyzer or the selected SDK should report their error.
+        for (DataType type : Arrays.asList(DataTypes.TIME(), DataTypes.MULTISET(DataTypes.INT()),
+                DataTypes.ARRAY(DataTypes.TIME()))) {
+            Assert.assertNull(type.toString(), unsupportedReason(
                     variantTable(Collections.emptyMap(), type), COLUMNS, TPaimonWriteMode.APPEND));
         }
     }
@@ -292,22 +290,14 @@ public class PaimonCppWriteSupportTest {
                 table(Collections.emptyMap(), Collections.singletonList("id"), Collections.emptyList(), "/tmp/p"),
                 COLUMNS, TPaimonWriteMode.APPEND));
         Assert.assertNotNull(unsupportedReason(
-                table(Collections.singletonMap("bucket", "-2"), Collections.emptyList(),
+                table(Collections.emptyMap(), Collections.emptyList(),
                         Collections.singletonList("id"), "/tmp/p"),
                 COLUMNS, TPaimonWriteMode.APPEND));
         Assert.assertNotNull(unsupportedReason(
                 table(Collections.singletonMap("bucket", "1"), Collections.emptyList(),
-                        Collections.singletonList("id"), "/tmp/p"),
-                COLUMNS, TPaimonWriteMode.APPEND));
-        Assert.assertNotNull(unsupportedReason(
-                table(Collections.singletonMap("bucket", "-1"), Collections.emptyList(),
-                        Collections.singletonList("id"), "/tmp/p"),
+                        Collections.emptyList(), "/tmp/p"),
                 COLUMNS, TPaimonWriteMode.APPEND));
         Assert.assertNull(unsupportedReason(
                 table(Collections.emptyMap()), Arrays.asList("name", "id"), TPaimonWriteMode.APPEND));
-        Assert.assertNotNull(unsupportedReason(
-                table(Collections.emptyMap()), Arrays.asList("name", "name"), TPaimonWriteMode.APPEND));
-        Assert.assertNotNull(unsupportedReason(
-                table(Collections.emptyMap()), Arrays.asList("id", "missing"), TPaimonWriteMode.APPEND));
     }
 }

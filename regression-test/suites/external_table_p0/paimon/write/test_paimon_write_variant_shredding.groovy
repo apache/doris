@@ -28,13 +28,13 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
     String catalogName = "test_pw_variant_shredding_catalog"
     String dbName = "test_pw_variant_shredding_db"
     String shreddingSchema =
-            '{"type":"ROW","fields":[{"id":0,"name":"payload","type":{"type":"ROW","fields":[' +
-            '{"id":1,"name":"age","type":"INT"},' +
-            '{"id":2,"name":"city","type":"STRING"},' +
-            '{"id":3,"name":"active","type":"BOOLEAN"},' +
-            '{"id":4,"name":"profile","type":{"type":"ROW","fields":[' +
-            '{"id":5,"name":"name","type":"STRING"},' +
-            '{"id":6,"name":"scores","type":{"type":"ARRAY","element":"INT"}}' +
+            '{"type":"ROW","fields":[{"name":"payload","type":{"type":"ROW","fields":[' +
+            '{"name":"age","type":"INT"},' +
+            '{"name":"city","type":"STRING"},' +
+            '{"name":"active","type":"BOOLEAN"},' +
+            '{"name":"profile","type":{"type":"ROW","fields":[' +
+            '{"name":"name","type":"STRING"},' +
+            '{"name":"scores","type":{"type":"ARRAY","element":"INT"}}' +
             ']}}]}}]}'
 
     // TODO: Use variant.shreddingSchema after Paimon passes the global option to its Parquet
@@ -54,8 +54,8 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
             'variant.inferShreddingSchema' = 'true'
         );
 
-        DROP TABLE IF EXISTS paimon.${dbName}.t_variant_fallback;
-        CREATE TABLE paimon.${dbName}.t_variant_fallback (
+        DROP TABLE IF EXISTS paimon.${dbName}.t_variant_explicit;
+        CREATE TABLE paimon.${dbName}.t_variant_explicit (
             id INT,
             payload VARIANT
         ) USING paimon
@@ -171,20 +171,20 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
         // Explicit shredding with inference disabled must also use the native writer. Keep logical
         // and physical readback checks to verify interoperability with the Java reader.
         explain {
-            sql "INSERT INTO t_variant_fallback SELECT id, payload FROM t_variant_shredded"
+            sql "INSERT INTO t_variant_explicit SELECT id, payload FROM t_variant_shredded"
             contains "backend: CPP"
         }
-        sql "INSERT INTO t_variant_fallback SELECT id, payload FROM t_variant_shredded"
+        sql "INSERT INTO t_variant_explicit SELECT id, payload FROM t_variant_shredded"
         assertEquals(sql("SELECT id, CAST(payload AS STRING), payload IS NULL FROM t_variant_shredded ORDER BY id"),
-                sql("SELECT id, CAST(payload AS STRING), payload IS NULL FROM t_variant_fallback ORDER BY id"))
+                sql("SELECT id, CAST(payload AS STRING), payload IS NULL FROM t_variant_explicit ORDER BY id"))
         def logicalProjection = """id,
             CAST(payload['age'] AS STRING), CAST(payload['city'] AS STRING),
             CAST(payload['profile']['name'] AS STRING),
             CAST(payload['profile']['extra'] AS STRING), CAST(payload['other'] AS STRING),
             CAST(payload IS NULL AS INT)"""
         assertEquals(sql("SELECT ${logicalProjection} FROM t_variant_shredded ORDER BY id"),
-                sql("SELECT ${logicalProjection} FROM t_variant_fallback ORDER BY id"))
-        assertEquals(sparkValues(sql("SELECT ${logicalProjection} FROM t_variant_fallback ORDER BY id")),
+                sql("SELECT ${logicalProjection} FROM t_variant_explicit ORDER BY id"))
+        assertEquals(sparkValues(sql("SELECT ${logicalProjection} FROM t_variant_explicit ORDER BY id")),
                 sparkValues(spark_paimon("""SELECT id,
                     try_variant_get(payload, '\$.age', 'string'),
                     try_variant_get(payload, '\$.city', 'string'),
@@ -192,7 +192,7 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
                     try_variant_get(payload, '\$.profile.extra', 'string'),
                     try_variant_get(payload, '\$.other', 'string'),
                     CAST(payload IS NULL AS INT)
-                    FROM paimon.${dbName}.t_variant_fallback ORDER BY id""")))
+                    FROM paimon.${dbName}.t_variant_explicit ORDER BY id""")))
 
         // Doris's Paimon reader must unshred typed and residual components back into one logical
         // Variant value.
@@ -210,7 +210,7 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
             ORDER BY id
         """
 
-        ["t_variant_shredded", "t_variant_fallback"].each { tableName ->
+        ["t_variant_shredded", "t_variant_explicit"].each { tableName ->
             def shreddedFiles = dataFiles(tableName)
             assertTrue(!shreddedFiles.isEmpty())
             def physicalRows = []
