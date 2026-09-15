@@ -158,7 +158,9 @@ suite("test_gram_pattern_recall", "p0") {
                          '[[.a.]]timeout++', '[[=a=]]timeout++', 'x[[.space.]]timeout++',
                          '\\<timeout++', '\\`timeout++', 'abcd \\<wxyz(?:q)?+',
                          'abcdwxyz\\>(?:q)?+', "abcdwxyz\\'(?:q)?+",
-                         'xa{1,4294967297}ytimeout++', 'xa{0,4294967296}ytimeout++']
+                         'xa{1,4294967297}ytimeout++', 'xa{0,4294967296}ytimeout++',
+                         'a{+3}timeout++', 'a{ +3 }timeout++', 'a{+1,}timeout++',
+                         'a{1,+4}timeout++', 'a{1,-3}timeout++', 'xa{-0}ytimeout++']
     // On the default session RE2 runs the patterns Hyperscan rejects or skips.
     def re2Patterns = ['xa{1,4294967297}ytimeout', 'xa{1000000000}ytimeout',
                        'xa{01}ytimeout.{0,51}', 'xa{1,02}ytimeout.{0,51}', 'xa{00}ytimeout.{0,51}']

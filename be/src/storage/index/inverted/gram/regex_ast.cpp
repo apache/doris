@@ -270,10 +270,18 @@ struct Parser {
         return i != start;
     }
 
-    // Reads one repeat count at i. Hyperscan, RE2 and Boost all read one to nine digits without a
-    // leading zero as the same number, while RE2 reads a longer count or a leading zero as literal
-    // text; those forms return false. The digits are consumed either way and *value cannot
-    // overflow.
+    // Consumes a sign directly in front of a digit, which Boost reads as part of a repeat count.
+    bool skip_repeat_sign() {
+        if ((peek() == '+' || peek() == '-') && i + 1 < p.size() &&
+            std::isdigit(static_cast<unsigned char>(p[i + 1]))) {
+            i++;
+            return true;
+        }
+        return false;
+    }
+
+    // Reads one repeat count at i and returns false unless it is one to nine digits without a
+    // leading zero, the only form every engine reads as the same number.
     bool parse_repeat_count(int* value) {
         const size_t start = i;
         int v = 0;
@@ -288,13 +296,14 @@ struct Parser {
         return digits <= 9 && !(digits > 1 && p[start] == '0');
     }
 
-    // Reads `{m}`, `{m,}` or `{m,n}` at i; LITERAL restores i to the brace. Boost skips whitespace
-    // around the bounds and the comma where Hyperscan and RE2 read literal text, so a spaced form
-    // is AMBIGUOUS, and so is a count only some engines read as a number.
+    // Reads `{m}`, `{m,}` or `{m,n}` at i; LITERAL restores i to the brace. Boost accepts whitespace
+    // and a sign around the counts where Hyperscan and RE2 read literal text, so those forms are
+    // AMBIGUOUS, as is a count only some engines read as a number.
     BraceReading parse_repeat_bounds(int* mn, int* mx) {
         const size_t save = i;
         i++; // '{'
         bool spaced = skip_repeat_space();
+        bool signed_count = skip_repeat_sign();
         if (eof() || !std::isdigit(static_cast<unsigned char>(peek()))) {
             i = save;
             return BraceReading::LITERAL;
@@ -310,6 +319,9 @@ struct Parser {
                 spaced = true;
             }
             *mx = -1;
+            if (skip_repeat_sign()) {
+                signed_count = true;
+            }
             if (std::isdigit(static_cast<unsigned char>(peek()))) {
                 const bool upper_plain = parse_repeat_count(mx);
                 plain = plain && upper_plain;
@@ -323,7 +335,7 @@ struct Parser {
             return BraceReading::LITERAL;
         }
         i++;
-        return plain && !spaced ? BraceReading::REPEAT : BraceReading::AMBIGUOUS;
+        return plain && !spaced && !signed_count ? BraceReading::REPEAT : BraceReading::AMBIGUOUS;
     }
 
     NP parse_quant(NP a) {

@@ -222,4 +222,17 @@ TEST(RegexAstTest, BoostAnchorEscapesAreRejected) {
     EXPECT_EQ(parse_dump("[\\<\\>]x"), "cat([<>],'x',)");
 }
 
+// Boost reads a sign directly in front of a repeat count, while Hyperscan and RE2 read the braces
+// as literal text, so a signed count has no reading the gram query can rely on.
+TEST(RegexAstTest, SignedRepeatCountsAreRejected) {
+    for (const char* re : {"a{+3}", "a{ +3 }", "a{+3 }", "a{+03}", "a{-0}", "a{-3}", "a{+1,}",
+                           "a{+1,4}", "a{-1,4}", "a{1,+4}", "a{1,-4}", "a{1, -4}"}) {
+        EXPECT_EQ(parse_dump(re), "ERR") << re;
+    }
+    // A sign that no digit follows makes no count for any engine, so the braces stay literal.
+    EXPECT_EQ(parse_dump("a{+ 3}"), "cat('a',plus('{'),' ','3','}',)");
+    EXPECT_EQ(parse_dump("a{3,+}"), "cat('a','{','3',plus(','),'}',)");
+    EXPECT_EQ(parse_dump("a{++3}"), "cat('a',plus(plus('{')),'3','}',)");
+}
+
 } // namespace doris::segment_v2::gram

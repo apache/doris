@@ -1155,4 +1155,64 @@ TEST(RegexGramRecallTest, BoostAnchorEscapesFilterNothing) {
                  /*enable_extended_regex=*/false, ScalarPath::HYPERSCAN);
 }
 
+TEST(RegexGramRecallTest, SignedRepeatCountsFilterNothing) {
+    // Boost reads a sign directly in front of a repeat count: a{+3} repeats three times, a{1,-3}
+    // has no upper bound and a{-0} repeats zero times. A possessive quantifier sends each pattern to
+    // Boost once extended regex is on.
+    const std::vector<RecallCase> cases = {
+            {"a{+3}timeout++",
+             {"aaatimeout", "a{+3}timeout", "unrelated"},
+             {true, false, false},
+             ScalarPath::BOOST,
+             false,
+             true},
+            {"a{ +3 }timeout++",
+             {"aaatimeout", "a{ +3 }timeout", "unrelated"},
+             {true, false, false},
+             ScalarPath::BOOST,
+             false,
+             true},
+            {"a{+1,}timeout++",
+             {"atimeout", "aaaaaatimeout", "a{+1,}timeout", "unrelated"},
+             {true, true, false, false},
+             ScalarPath::BOOST,
+             false,
+             true},
+            {"a{1,+4}timeout++",
+             {"aaaatimeout", "atimeout", "a{1,+4}timeout", "unrelated"},
+             {true, true, false, false},
+             ScalarPath::BOOST,
+             false,
+             true},
+            {"a{1,-3}timeout++",
+             {"atimeout", "aaaaaatimeout", "a{1,-3}timeout", "unrelated"},
+             {true, true, false, false},
+             ScalarPath::BOOST,
+             false,
+             true},
+            {"xa{-0}ytimeout++",
+             {"xytimeout", "xaytimeout", "xa{-0}ytimeout", "unrelated"},
+             {true, false, false, false},
+             ScalarPath::BOOST,
+             false,
+             true}};
+    check_cases(cases, /*fallback=*/true, /*extended=*/true);
+
+    // Hyperscan and RE2 read a signed count as literal text, and a sign that no digit follows is
+    // literal text to Boost as well, so those braces keep pruning.
+    check_recall("a{+3}timeout",
+                 {"a{3}timeout", "a{{3}timeout", "aaatimeout", "a{+3}timeout", "unrelated"},
+                 {true, true, false, false, false}, /*require_pruning=*/false,
+                 /*enable_hyperscan_fallback=*/true, /*enable_extended_regex=*/false,
+                 ScalarPath::HYPERSCAN);
+    check_recall("a{1,-3}timeout.{0,51}", {"a{1,-3}timeout", "aaatimeout", "unrelated"},
+                 {true, false, false}, /*require_pruning=*/false,
+                 /*enable_hyperscan_fallback=*/true, /*enable_extended_regex=*/false,
+                 ScalarPath::RE2);
+    check_recall("a{+ 3}timeout++", {"a{ 3}timeout", "aaatimeout", "unrelated"},
+                 {true, false, false}, /*require_pruning=*/true,
+                 /*enable_hyperscan_fallback=*/true, /*enable_extended_regex=*/true,
+                 ScalarPath::BOOST);
+}
+
 } // namespace doris::segment_v2::gram
