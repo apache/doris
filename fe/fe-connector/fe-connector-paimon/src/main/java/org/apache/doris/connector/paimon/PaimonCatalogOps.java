@@ -205,15 +205,42 @@ public interface PaimonCatalogOps {
      * offline without faking a concrete paimon {@code TableSchema}.
      */
     final class PaimonSchemaSnapshot {
+        private final long schemaId;
+        private final String fileDigest;
         private final List<DataField> fields;
         private final List<String> partitionKeys;
         private final List<String> primaryKeys;
 
         public PaimonSchemaSnapshot(List<DataField> fields, List<String> partitionKeys,
                 List<String> primaryKeys) {
+            this(-1L, fields, partitionKeys, primaryKeys);
+        }
+
+        public PaimonSchemaSnapshot(long schemaId, List<DataField> fields, List<String> partitionKeys,
+                List<String> primaryKeys) {
+            this(schemaId, fields, partitionKeys, primaryKeys, null);
+        }
+
+        private PaimonSchemaSnapshot(TableSchema schema) {
+            this(schema.id(), schema.fields(), schema.partitionKeys(), schema.primaryKeys(),
+                    PaimonSchemaPin.schemaDigest(schema));
+        }
+
+        private PaimonSchemaSnapshot(long schemaId, List<DataField> fields, List<String> partitionKeys,
+                List<String> primaryKeys, String fileDigest) {
+            this.schemaId = schemaId;
+            this.fileDigest = fileDigest;
             this.fields = fields;
             this.partitionKeys = partitionKeys;
             this.primaryKeys = primaryKeys;
+        }
+
+        String fileDigest() {
+            return fileDigest;
+        }
+
+        public long schemaId() {
+            return schemaId;
         }
 
         /** The schema's fields ({@code tableSchema.fields()}). */
@@ -367,8 +394,7 @@ public interface PaimonCatalogOps {
             // schemaManager() is only on DataTable. schema(schemaId) is the historical TableSchema
             // (legacy PaimonExternalTable.initSchema(schemaId) reads the same accessors).
             TableSchema tableSchema = ((DataTable) table).schemaManager().schema(schemaId);
-            return new PaimonSchemaSnapshot(
-                    tableSchema.fields(), tableSchema.partitionKeys(), tableSchema.primaryKeys());
+            return new PaimonSchemaSnapshot(tableSchema);
         }
 
         @Override
@@ -381,7 +407,7 @@ public interface PaimonCatalogOps {
                 return Optional.empty();
             }
             return ((DataTable) table).schemaManager().latest()
-                    .map(s -> new PaimonSchemaSnapshot(s.fields(), s.partitionKeys(), s.primaryKeys()));
+                    .map(PaimonSchemaSnapshot::new);
         }
 
         @Override
