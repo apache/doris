@@ -218,16 +218,17 @@ public class IndexDiskUsageTableValuedFunctionTest {
     }
 
     @Test
-    public void testVisibleVersionIsReadOutsideTableLock() throws Exception {
+    public void testLocalVisibleVersionIsReadUnderTableLock() throws Exception {
         OlapTable table = mockOlapTable();
         Mockito.when(db.getTableOrAnalysisException("locked")).thenReturn(table);
         new IndexDiskUsageTableValuedFunction(params("table", "locked"));
-        // Cloud partitions may fetch the visible version from meta-service, so it must not be read
-        // while the table lock blocks DDL.
+        // Local replica choice filters replicas by this version, so it is read together with the
+        // tablets under the table lock.
         Partition p1 = table.getPartition("p1", false);
         InOrder inOrder = Mockito.inOrder(table, p1);
-        inOrder.verify(table).readUnlock();
+        inOrder.verify(table).readLock();
         inOrder.verify(p1).getVisibleVersion();
+        inOrder.verify(table).readUnlock();
     }
 
     @Test
