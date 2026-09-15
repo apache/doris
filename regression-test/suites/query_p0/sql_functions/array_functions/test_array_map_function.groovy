@@ -162,4 +162,31 @@ suite("test_array_map_function") {
 
         qt_select_27 """ select QC_result_list, array_map(                 x -> concat(                     '|',                     x + "1"                 ),                 QC_result_list             ) FROM db; """
         qt_select_28 """ select array_map((x,y)->x,[],[]); """
+
+        sql "DROP TABLE IF EXISTS array_map_null_container"
+        sql """
+            CREATE TABLE array_map_null_container (
+                id INT,
+                string_values ARRAY<STRING>,
+                int_values ARRAY<INT>
+            ) ENGINE=OLAP
+            DUPLICATE KEY(id)
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES ("replication_num" = "1")
+        """
+        sql """
+            INSERT INTO array_map_null_container VALUES
+                (1, ['bad-number'], [100, 101]),
+                (2, ['10'], [20])
+        """
+        sql "SET enable_strict_cast = true"
+        sql "SET short_circuit_evaluation = false"
+        order_qt_array_map_null_container """
+            SELECT id,
+                   array_map((x, y) -> cast(x AS INT) + y + id,
+                             if(id = 1, cast(NULL AS ARRAY<STRING>), string_values),
+                             int_values)
+            FROM array_map_null_container
+            ORDER BY id
+        """
 }

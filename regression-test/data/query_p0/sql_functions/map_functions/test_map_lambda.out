@@ -120,3 +120,7 @@ x:a	y:b
 
 -- !map_from_arrays_nested_empty_array --
 {1:[]}
+
+-- !transform_values_null_container --
+1	\N
+2	{1:12}
