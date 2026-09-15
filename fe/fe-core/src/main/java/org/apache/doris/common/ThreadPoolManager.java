@@ -36,6 +36,7 @@ import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.PriorityBlockingQueue;
@@ -390,6 +391,7 @@ public class ThreadPoolManager {
     public static class BlockedPolicy implements RejectedExecutionHandler {
 
         private static final Logger LOG = LogManager.getLogger(BlockedPolicy.class);
+        private static final long CANCEL_CHECK_INTERVAL_NANOS = TimeUnit.MILLISECONDS.toNanos(100);
 
         private String threadPoolName;
 
@@ -403,17 +405,33 @@ public class ThreadPoolManager {
         @Override
         public void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
             try {
-                boolean ret = executor.getQueue().offer(r, timeoutSeconds, TimeUnit.SECONDS);
-                if (!ret) {
-                    throw new RejectedExecutionException("submit task failed, queue size is full: "
-                            + this.threadPoolName);
+                if (isCancelled(r) || executor.getQueue().offer(r)) {
+                    return;
+                }
+                long remainingNanos = TimeUnit.SECONDS.toNanos(timeoutSeconds);
+                while (!isCancelled(r)) {
+                    if (remainingNanos <= 0) {
+                        throw new RejectedExecutionException("submit task failed, queue size is full: "
+                                + this.threadPoolName);
+                    }
+                    long waitNanos = Math.min(remainingNanos, CANCEL_CHECK_INTERVAL_NANOS);
+                    long startNanos = System.nanoTime();
+                    if (executor.getQueue().offer(r, waitNanos, TimeUnit.NANOSECONDS)) {
+                        return;
+                    }
+                    remainingNanos -= System.nanoTime() - startNanos;
                 }
             } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
                 String errMsg = String.format("Task %s wait to enqueue in %s %s failed",
                         r.toString(), threadPoolName, executor.toString());
                 LOG.warn(errMsg);
                 throw new RejectedExecutionException(errMsg);
             }
+        }
+
+        private boolean isCancelled(Runnable task) {
+            return task instanceof Future<?> && ((Future<?>) task).isCancelled();
         }
     }
 

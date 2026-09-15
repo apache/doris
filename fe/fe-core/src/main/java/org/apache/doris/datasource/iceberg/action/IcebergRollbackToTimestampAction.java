@@ -95,9 +95,7 @@ public class IcebergRollbackToTimestampAction extends BaseIcebergAction {
     }
 
     @Override
-    protected List<String> executeAction(TableIf table) throws UserException {
-        Table icebergTable = getWritableIcebergTable(table);
-
+    protected List<String> executeIcebergAction(TableIf table, Table icebergTable) throws UserException {
         String timestampStr = namedArguments.getString(TIMESTAMP);
 
         Snapshot previousSnapshot = icebergTable.currentSnapshot();
