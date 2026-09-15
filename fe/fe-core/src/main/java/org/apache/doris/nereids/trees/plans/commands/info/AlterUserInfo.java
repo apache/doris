@@ -115,11 +115,18 @@ public class AlterUserInfo {
             ops.add(AlterUserOpType.MODIFY_COMMENT);
         }
         passwordOptions.analyze();
+        // ACCOUNT_LOCK / ACCOUNT_UNLOCK and the password-policy options are independent operations, so a
+        // statement carrying both hits the one-operation rule below instead of silently dropping one side.
         if (passwordOptions.getAccountUnlocked() == PasswordPolicy.FailedLoginPolicy.LOCK_ACCOUNT) {
+            if (userDesc.getUserIdent().getQualifiedUser().equals(Auth.ROOT_USER)) {
+                // like CREATE USER root / DROP USER root: a locked root has no way back
+                throw new AnalysisException("Can not lock root user");
+            }
             ops.add(AlterUserOpType.LOCK_ACCOUNT);
         } else if (passwordOptions.getAccountUnlocked() == PasswordPolicy.FailedLoginPolicy.UNLOCK_ACCOUNT) {
             ops.add(AlterUserOpType.UNLOCK_ACCOUNT);
-        } else if (passwordOptions.getExpirePolicySecond() != PasswordOptions.UNSET
+        }
+        if (passwordOptions.getExpirePolicySecond() != PasswordOptions.UNSET
                 || passwordOptions.getHistoryPolicy() != PasswordOptions.UNSET
                 || passwordOptions.getPasswordLockSecond() != PasswordOptions.UNSET
                 || passwordOptions.getLoginAttempts() != PasswordOptions.UNSET) {

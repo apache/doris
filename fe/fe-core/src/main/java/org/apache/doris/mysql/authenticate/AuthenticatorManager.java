@@ -23,6 +23,8 @@ import org.apache.doris.auth.certificate.CertificateRuntimeAuthFactory;
 import org.apache.doris.auth.certificate.CertificateRuntimeAuthService;
 import org.apache.doris.authentication.AuthenticationFailureType;
 import org.apache.doris.authentication.CredentialType;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.util.ClassLoaderUtils;
@@ -41,6 +43,7 @@ import org.apache.doris.plugin.PropertiesUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -304,8 +307,21 @@ public class AuthenticatorManager {
         return null;
     }
 
-    private boolean finishSuccessfulAuthentication(ConnectContext context, String remoteIp,
-            AuthenticateResponse response, boolean setOkState) {
+    @VisibleForTesting
+    boolean finishSuccessfulAuthentication(ConnectContext context, String remoteIp,
+            AuthenticateResponse response, boolean setOkState) throws IOException {
+        // ACCOUNT_LOCK is enforced here, after ANY authenticator accepted the credential, so an
+        // LDAP / integration / plugin login cannot bypass a lock on the Doris account it maps to
+        // (the local-password path also checks it inside the password policy).
+        try {
+            Env.getCurrentEnv().getAuth().checkAccountLocked(response.getUserIdentity());
+        } catch (AuthenticationException e) {
+            UserIdentity locked = response.getUserIdentity();
+            context.getState().setError(ErrorCode.ERR_ACCOUNT_HAS_BEEN_LOCKED,
+                    ErrorCode.ERR_ACCOUNT_HAS_BEEN_LOCKED.formatErrorMsg(locked.getQualifiedUser(), locked.getHost()));
+            MysqlProto.sendResponsePacket(context);
+            return false;
+        }
         if (setOkState) {
             context.getState().setOk();
         }

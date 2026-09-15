@@ -20,6 +20,7 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AuthenticationException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.PasswordPolicy.ExpirePolicy;
@@ -68,6 +69,21 @@ public class PasswordPolicyManager implements Writable {
         }
         PasswordPolicy policy = getOrCreatePolicy(curUser);
         policy.checkAccountLockedAndPasswordExpiration(curUser);
+    }
+
+    /**
+     * The administrative lock alone (no failed-login or expiration check): the check every
+     * authentication path runs for a Doris-managed account, whichever authenticator accepted the
+     * credential (local password, LDAP, an authentication integration or plugin).
+     */
+    public void checkAccountLocked(UserIdentity curUser) throws AuthenticationException {
+        if (curUser == null || !hasUser(curUser)) {
+            return;
+        }
+        if (getOrCreatePolicy(curUser).isAccountLocked()) {
+            throw new AuthenticationException(ErrorCode.ERR_ACCOUNT_HAS_BEEN_LOCKED,
+                    curUser.getQualifiedUser(), curUser.getHost());
+        }
     }
 
     public boolean onFailedLogin(UserIdentity curUser) {

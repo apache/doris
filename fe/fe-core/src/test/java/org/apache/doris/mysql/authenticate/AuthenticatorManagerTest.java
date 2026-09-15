@@ -17,10 +17,12 @@
 
 package org.apache.doris.mysql.authenticate;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authentication.AuthenticationFailureType;
 import org.apache.doris.authentication.BasicPrincipal;
 import org.apache.doris.authentication.CredentialType;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.datasource.DelegatedCredential;
@@ -975,5 +977,33 @@ class AuthenticatorManagerTest {
         Field field = AuthenticatorManager.class.getDeclaredField(fieldName);
         field.setAccessible(true);
         field.set(null, value);
+    }
+
+    @Test
+    void testLockedAccountIsRefusedAfterAnyAuthenticatorAccepted() throws Exception {
+        // ACCOUNT_LOCK is enforced at the common finish, so an LDAP / integration / plugin authenticator
+        // that accepted the credential still cannot open a locked Doris account
+        UserIdentity locked = UserIdentity.createAnalyzedUserIdentWithIp("alice", "%");
+        Mockito.doThrow(new AuthenticationException(ErrorCode.ERR_ACCOUNT_HAS_BEEN_LOCKED, "alice", "%"))
+                .when(auth).checkAccountLocked(locked);
+        AuthenticatorManager manager = new AuthenticatorManager("password");
+        ConnectContext context = new ConnectContext();
+        try (MockedStatic<MysqlProto> mysqlProto = Mockito.mockStatic(MysqlProto.class)) {
+            Assertions.assertFalse(manager.finishSuccessfulAuthentication(context, REMOTE_IP,
+                    new AuthenticateResponse(true, locked), true));
+            mysqlProto.verify(() -> MysqlProto.sendResponsePacket(context));
+        }
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, context.getState().getStateType());
+        Assertions.assertTrue(context.getState().getErrorMessage().contains("Account is locked"),
+                context.getState().getErrorMessage());
+        Assertions.assertNull(context.getCurrentUserIdentity());
+
+        // an account that is not locked finishes as before
+        UserIdentity open = UserIdentity.createAnalyzedUserIdentWithIp("bob", "%");
+        ConnectContext openContext = new ConnectContext();
+        Assertions.assertTrue(manager.finishSuccessfulAuthentication(openContext, REMOTE_IP,
+                new AuthenticateResponse(true, open), false));
+        Assertions.assertEquals(open, openContext.getCurrentUserIdentity());
+        Mockito.verify(auth).checkAccountLocked(open);
     }
 }

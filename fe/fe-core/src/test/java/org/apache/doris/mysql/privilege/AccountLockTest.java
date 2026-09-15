@@ -164,4 +164,44 @@ public class AccountLockTest extends TestWithFeService {
         PasswordPolicy legacy = GsonUtils.GSON.fromJson(legacyJson, PasswordPolicy.class);
         Assertions.assertFalse(legacy.isAccountLocked());
     }
+
+    @Test
+    public void testLockCombinedWithPolicyOptionsIsRejectedNotHalfApplied() throws Exception {
+        run("CREATE USER 'lk6'@'%' IDENTIFIED BY 'p6'");
+        Exception e = Assertions.assertThrows(Exception.class, () ->
+                run("ALTER USER 'lk6'@'%' FAILED_LOGIN_ATTEMPTS 3 PASSWORD_LOCK_TIME 60 SECOND ACCOUNT_LOCK"));
+        Assertions.assertTrue(e.getMessage().contains("one type of operation"), e.getMessage());
+        // nothing was applied: not locked, and the policy options stayed untouched
+        Assertions.assertFalse(policySaysLocked("lk6"));
+        Assertions.assertTrue(canLogin("lk6", "p6"));
+        List<List<String>> info = auth().getPasswdPolicyManager().getPolicyInfo(ident("lk6"));
+        Assertions.assertEquals("DISABLED", info.get(4).get(1)); // NUM_FAILED_LOGIN
+        Assertions.assertEquals("DISABLED", info.get(5).get(1)); // PASSWORD_LOCK_SECONDS
+        // the same combination on ACCOUNT_UNLOCK is rejected the same way
+        e = Assertions.assertThrows(Exception.class, () ->
+                run("ALTER USER 'lk6'@'%' FAILED_LOGIN_ATTEMPTS 3 ACCOUNT_UNLOCK"));
+        Assertions.assertTrue(e.getMessage().contains("one type of operation"), e.getMessage());
+    }
+
+    @Test
+    public void testRootCannotBeLocked() throws Exception {
+        Exception e = Assertions.assertThrows(Exception.class, () -> run("ALTER USER 'root'@'%' ACCOUNT_LOCK"));
+        Assertions.assertTrue(e.getMessage().contains("Can not lock root user"), e.getMessage());
+        Assertions.assertTrue(canLogin("root", ""));
+    }
+
+    @Test
+    public void testCheckAccountLockedIsTheSharedPredicateForEveryAuthenticator() throws Exception {
+        // the check every authentication path runs after its authenticator accepted the credential
+        run("CREATE USER 'lk7'@'%' IDENTIFIED BY 'p7'");
+        Assertions.assertDoesNotThrow(() -> auth().checkAccountLocked(ident("lk7")));
+        Assertions.assertDoesNotThrow(() -> auth().checkAccountLocked(ident("nobody_without_a_policy")));
+        Assertions.assertDoesNotThrow(() -> auth().checkAccountLocked(null));
+        run("ALTER USER 'lk7'@'%' ACCOUNT_LOCK");
+        AuthenticationException refused = Assertions.assertThrows(AuthenticationException.class,
+                () -> auth().checkAccountLocked(ident("lk7")));
+        Assertions.assertTrue(refused.getMessage().contains("Account is locked"), refused.getMessage());
+        run("ALTER USER 'lk7'@'%' ACCOUNT_UNLOCK");
+        Assertions.assertDoesNotThrow(() -> auth().checkAccountLocked(ident("lk7")));
+    }
 }

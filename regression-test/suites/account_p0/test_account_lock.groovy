@@ -72,6 +72,18 @@ suite("test_account_lock", "account,nonConcurrent") {
     created = sql "SHOW CREATE USER '${user}'@'%'"
     assertFalse(created[0].toString().contains("ACCOUNT_LOCK"), created[0].toString())
 
+    // 3b. ACCOUNT_LOCK / ACCOUNT_UNLOCK are single operations: combining them with password-policy
+    //     options is rejected outright instead of half-applied, and root cannot be locked
+    test {
+        sql "ALTER USER '${user}'@'%' FAILED_LOGIN_ATTEMPTS 3 PASSWORD_LOCK_TIME 60 SECOND ACCOUNT_LOCK"
+        exception "one type of operation"
+    }
+    assertTrue(canLogin(user, "p1"))
+    test {
+        sql "ALTER USER 'root'@'%' ACCOUNT_LOCK"
+        exception "Can not lock root user"
+    }
+
     // 4. CREATE USER ... ACCOUNT_LOCK is honored
     sql "CREATE USER '${locked}'@'%' IDENTIFIED BY 'p2' ACCOUNT_LOCK"
     grantClusterUsage(locked)
