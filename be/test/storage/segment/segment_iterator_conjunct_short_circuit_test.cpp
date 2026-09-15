@@ -60,7 +60,16 @@ namespace {
 // result bitmap, mimicking how real match exprs publish results.
 class BitmapEvalExpr : public VExpr {
 public:
-    explicit BitmapEvalExpr(std::vector<uint32_t> rows) : _rows(std::move(rows)) {
+    // kExact is a regular inverted-index result, which the iterator consumes: the expression is
+    // erased from the push-down list. kApproximate is a gram push-down -- a superset of
+    // candidate rows that only prunes _row_bitmap while the expression stays pushed down.
+    // kApproximateNoBitmap is the default-constructed "no result" shape, which the approximate
+    // map is not supposed to hold but which must not crash the reader either. kNone publishes
+    // nothing, as an index that could not be used does.
+    enum class ResultKind { kNone, kExact, kApproximate, kApproximateNoBitmap };
+
+    explicit BitmapEvalExpr(std::vector<uint32_t> rows, ResultKind kind = ResultKind::kExact)
+            : _rows(std::move(rows)), _kind(kind) {
         _data_type = std::make_shared<DataTypeUInt8>();
     }
 
@@ -78,12 +87,27 @@ public:
 
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override {
         ++_eval_count;
+        auto index_context = context->get_index_context();
+        if (_kind == ResultKind::kNone) {
+            return Status::OK();
+        }
+        if (_kind == ResultKind::kApproximateNoBitmap) {
+            InvertedIndexResultBitmap empty;
+            empty.set_approximate(true);
+            index_context->set_approx_index_result_for_expr(this, std::move(empty));
+            return Status::OK();
+        }
         auto data = std::make_shared<roaring::Roaring>();
         for (uint32_t row : _rows) {
             data->add(row);
         }
         InvertedIndexResultBitmap result(std::move(data), std::make_shared<roaring::Roaring>());
-        context->get_index_context()->set_index_result_for_expr(this, std::move(result));
+        if (_kind == ResultKind::kApproximate) {
+            result.set_approximate(true);
+            index_context->set_approx_index_result_for_expr(this, std::move(result));
+        } else {
+            index_context->set_index_result_for_expr(this, std::move(result));
+        }
         return Status::OK();
     }
 
@@ -103,6 +127,7 @@ public:
 
 private:
     std::vector<uint32_t> _rows;
+    ResultKind _kind;
     int _eval_count = 0;
     int _ann_eval_count = 0;
 };
@@ -322,6 +347,125 @@ TEST_F(SegmentIteratorConjunctShortCircuitTest, progressive_intersection_keeps_g
     // Both conjuncts were fully consumed by the index; nothing was skipped.
     EXPECT_TRUE(_iter->_common_expr_ctxs_push_down.empty());
     EXPECT_EQ(_stats.inverted_index_conjuncts_short_circuited, 0);
+}
+
+// ---------------------------------------------------------------------------------------------
+// _apply_approx_index_result: the single door through which an approximate (superset) index
+// result reaches _row_bitmap.
+// ---------------------------------------------------------------------------------------------
+
+// An approximate result narrows the candidate rows and does nothing else: the expression stays
+// in _common_expr_ctxs_push_down, because rows inside the bitmap have not been proved to match
+// and _execute_common_expr still has to re-verify every one of them. The two gram profile
+// counters account for what survived and what was pruned.
+TEST_F(SegmentIteratorConjunctShortCircuitTest, approx_result_narrows_bitmap_but_keeps_the_expr) {
+    _iter->_row_bitmap.addRange(0, 10);
+
+    auto approx_expr = std::make_shared<BitmapEvalExpr>(std::vector<uint32_t> {1, 3, 5, 42},
+                                                        BitmapEvalExpr::ResultKind::kApproximate);
+    _iter->_common_expr_ctxs_push_down = {make_bitmap_ctx(approx_expr)};
+
+    ASSERT_TRUE(_iter->_apply_index_expr().ok());
+
+    EXPECT_EQ(_iter->_row_bitmap.cardinality(), 3);
+    EXPECT_TRUE(_iter->_row_bitmap.contains(1));
+    EXPECT_TRUE(_iter->_row_bitmap.contains(3));
+    EXPECT_TRUE(_iter->_row_bitmap.contains(5));
+    EXPECT_EQ(_iter->_common_expr_ctxs_push_down.size(), 1)
+            << "an approximate result must never consume the expression";
+    EXPECT_EQ(_stats.gram_index_candidate_rows, 3);
+    EXPECT_EQ(_stats.rows_gram_index_filtered, 7);
+}
+
+// An approximate result that prunes nothing still counts its candidates and reports zero rows
+// filtered, rather than a negative number from the unsigned difference.
+TEST_F(SegmentIteratorConjunctShortCircuitTest, approx_result_that_prunes_nothing_filters_none) {
+    _iter->_row_bitmap.addRange(0, 3);
+
+    auto approx_expr = std::make_shared<BitmapEvalExpr>(std::vector<uint32_t> {0, 1, 2, 3},
+                                                        BitmapEvalExpr::ResultKind::kApproximate);
+    _iter->_common_expr_ctxs_push_down = {make_bitmap_ctx(approx_expr)};
+
+    ASSERT_TRUE(_iter->_apply_index_expr().ok());
+
+    EXPECT_EQ(_iter->_row_bitmap.cardinality(), 3);
+    EXPECT_EQ(_stats.gram_index_candidate_rows, 3);
+    EXPECT_EQ(_stats.rows_gram_index_filtered, 0);
+}
+
+// Nothing was published for this expression: the index could not be used, which may only cost
+// the acceleration. Every row survives and neither counter moves.
+TEST_F(SegmentIteratorConjunctShortCircuitTest, no_published_result_leaves_the_bitmap_untouched) {
+    _iter->_row_bitmap.addRange(0, 4);
+
+    auto silent_expr = std::make_shared<BitmapEvalExpr>(std::vector<uint32_t> {1},
+                                                        BitmapEvalExpr::ResultKind::kNone);
+    _iter->_common_expr_ctxs_push_down = {make_bitmap_ctx(silent_expr)};
+
+    ASSERT_TRUE(_iter->_apply_index_expr().ok());
+
+    EXPECT_EQ(_iter->_row_bitmap.cardinality(), 4);
+    EXPECT_EQ(_iter->_common_expr_ctxs_push_down.size(), 1);
+    EXPECT_EQ(_stats.gram_index_candidate_rows, 0);
+    EXPECT_EQ(_stats.rows_gram_index_filtered, 0);
+}
+
+// A default-constructed InvertedIndexResultBitmap carries a null data bitmap. It is not a shape
+// the approximate map is meant to hold, but dereferencing it would be a segfault, so the null
+// check has to turn it into "no pruning" instead.
+TEST_F(SegmentIteratorConjunctShortCircuitTest, approx_result_without_a_bitmap_prunes_nothing) {
+    _iter->_row_bitmap.addRange(0, 4);
+
+    auto approx_expr = std::make_shared<BitmapEvalExpr>(
+            std::vector<uint32_t> {1}, BitmapEvalExpr::ResultKind::kApproximateNoBitmap);
+    _iter->_common_expr_ctxs_push_down = {make_bitmap_ctx(approx_expr)};
+
+    ASSERT_TRUE(_iter->_apply_index_expr().ok());
+
+    EXPECT_EQ(_iter->_row_bitmap.cardinality(), 4);
+    EXPECT_EQ(_iter->_common_expr_ctxs_push_down.size(), 1);
+    EXPECT_EQ(_stats.gram_index_candidate_rows, 0);
+    EXPECT_EQ(_stats.rows_gram_index_filtered, 0);
+}
+
+// The contrast that pins the two paths apart: an exact result is consumed -- the expression
+// leaves the push-down list because the index decided every row -- and it must not show up on
+// the gram counters, which describe approximate pruning only.
+TEST_F(SegmentIteratorConjunctShortCircuitTest, exact_result_consumes_and_skips_gram_counters) {
+    _iter->_row_bitmap.addRange(0, 5);
+
+    auto exact_expr = std::make_shared<BitmapEvalExpr>(std::vector<uint32_t> {1, 3});
+    _iter->_common_expr_ctxs_push_down = {make_bitmap_ctx(exact_expr)};
+
+    ASSERT_TRUE(_iter->_apply_index_expr().ok());
+
+    EXPECT_EQ(_iter->_row_bitmap.cardinality(), 2);
+    EXPECT_TRUE(_iter->_common_expr_ctxs_push_down.empty())
+            << "an exact result must consume the expression";
+    EXPECT_EQ(_stats.gram_index_candidate_rows, 0);
+    EXPECT_EQ(_stats.rows_gram_index_filtered, 0);
+}
+
+// An approximate conjunct that empties the candidate set short-circuits exactly like an exact
+// one: zero rows satisfy the whole conjunction, so the remaining conjuncts are never evaluated
+// and the list is cleared, while the counters still describe what the approximate result did.
+TEST_F(SegmentIteratorConjunctShortCircuitTest, approx_result_emptying_the_bitmap_short_circuits) {
+    _iter->_row_bitmap.addRange(0, 3);
+
+    auto approx_expr = std::make_shared<BitmapEvalExpr>(std::vector<uint32_t> {7, 8},
+                                                        BitmapEvalExpr::ResultKind::kApproximate);
+    auto expensive_expr = std::make_shared<BitmapEvalExpr>(std::vector<uint32_t> {0, 1});
+    _iter->_common_expr_ctxs_push_down = {make_bitmap_ctx(approx_expr),
+                                          make_bitmap_ctx(expensive_expr)};
+
+    ASSERT_TRUE(_iter->_apply_index_expr().ok());
+
+    EXPECT_TRUE(_iter->_row_bitmap.isEmpty());
+    EXPECT_EQ(expensive_expr->eval_count(), 0);
+    EXPECT_TRUE(_iter->_common_expr_ctxs_push_down.empty());
+    EXPECT_TRUE(_iter->_index_conjuncts_proved_empty);
+    EXPECT_EQ(_stats.gram_index_candidate_rows, 0);
+    EXPECT_EQ(_stats.rows_gram_index_filtered, 3);
 }
 
 } // namespace doris::segment_v2

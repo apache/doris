@@ -387,6 +387,12 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
                                   InvertedIndexQueryType query_type,
                                   std::shared_ptr<roaring::Roaring>& bit_map,
                                   const InvertedIndexAnalyzerCtx* analyzer_ctx) {
+    // CLucene indexes do not persist the gram tokenizer contract needed to compile a pattern.
+    if (is_gram_query(query_type)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "{} requires SNII storage format for column {}", query_type_to_string(query_type),
+                column_name);
+    }
     SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
 
     std::string search_str = query_value.get<PrimitiveType::TYPE_STRING>();
@@ -507,6 +513,11 @@ Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
                                             InvertedIndexQueryType query_type,
                                             std::shared_ptr<roaring::Roaring>& bit_map,
                                             const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/) {
+    if (is_gram_query(query_type)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "{} requires SNII storage format for column {}", query_type_to_string(query_type),
+                column_name);
+    }
     SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
 
     std::string search_str = query_value.get<PrimitiveType::TYPE_STRING>();

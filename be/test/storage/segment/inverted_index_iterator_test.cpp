@@ -72,6 +72,9 @@ public:
 
     Status new_iterator(std::unique_ptr<IndexIterator>* iterator) override { return Status::OK(); }
 
+    bool is_gram_family() const override { return _gram_family; }
+    void set_gram_family(bool gram_family) { _gram_family = gram_family; }
+
 private:
     MockInvertedIndexReader(std::shared_ptr<TabletIndex> index,
                             const std::map<std::string, std::string>& properties)
@@ -82,6 +85,7 @@ private:
     std::shared_ptr<TabletIndex> _mock_index; // Keep index alive
     std::map<std::string, std::string> _properties;
     InvertedIndexReaderType _type = InvertedIndexReaderType::FULLTEXT;
+    bool _gram_family = false;
 };
 
 class InvertedIndexIteratorTest : public testing::Test {
@@ -426,6 +430,65 @@ TEST_F(InvertedIndexIteratorTest, SelectBestReader_DeterministicByIndexId) {
                 iter.select_best_reader(col_type, InvertedIndexQueryType::MATCH_REGEXP_QUERY, "");
         ASSERT_TRUE(result.has_value());
         EXPECT_EQ(result.value()->get_index_id(), 50);
+    }
+}
+
+// A gram query carries no analyzer, so it cannot name the index it is meant for. An ordinary
+// tokenized index declared before the gram index holds the lower id; handing it the query gets
+// back "not a gram-family index" and silently drops the acceleration the gram index exists for.
+TEST_F(InvertedIndexIteratorTest, SelectBestReader_GramQueryPrefersGramFamilyOverOlderIndex) {
+    auto english = create_mock_reader("english", InvertedIndexReaderType::FULLTEXT, 10);
+    auto gram = create_mock_reader("my_gram_analyzer", InvertedIndexReaderType::FULLTEXT, 20);
+    gram->set_gram_family(true);
+    InvertedIndexIterator iter;
+    iter.add_reader(InvertedIndexReaderType::FULLTEXT, english);
+    iter.add_reader(InvertedIndexReaderType::FULLTEXT, gram);
+
+    auto col_type = std::make_shared<DataTypeString>();
+    for (auto query_type :
+         {InvertedIndexQueryType::LIKE_GRAM_QUERY, InvertedIndexQueryType::REGEXP_GRAM_QUERY}) {
+        SCOPED_TRACE(query_type_to_string(query_type));
+        auto result = iter.select_best_reader(col_type, query_type, "");
+        ASSERT_TRUE(result.has_value());
+        EXPECT_EQ(result.value(), gram);
+    }
+    // Analyzed queries keep choosing by id: the preference only serves queries that cannot name
+    // their index.
+    auto match = iter.select_best_reader(col_type, InvertedIndexQueryType::MATCH_ANY_QUERY, "");
+    ASSERT_TRUE(match.has_value());
+    EXPECT_EQ(match.value(), english);
+}
+
+// Several gram-family indexes still resolve by index id, and a column without any keeps the
+// ordinary choice: that reader declines the gram query and the predicate runs without the index,
+// exactly as before.
+TEST_F(InvertedIndexIteratorTest, SelectBestReader_GramQueryKeepsIdOrderAndFallsBack) {
+    auto col_type = std::make_shared<DataTypeString>();
+    {
+        auto english = create_mock_reader("english", InvertedIndexReaderType::FULLTEXT, 5);
+        auto newer_gram = create_mock_reader("gram_b", InvertedIndexReaderType::FULLTEXT, 30);
+        auto older_gram = create_mock_reader("gram_a", InvertedIndexReaderType::FULLTEXT, 20);
+        newer_gram->set_gram_family(true);
+        older_gram->set_gram_family(true);
+        InvertedIndexIterator iter;
+        iter.add_reader(InvertedIndexReaderType::FULLTEXT, english);
+        iter.add_reader(InvertedIndexReaderType::FULLTEXT, newer_gram);
+        iter.add_reader(InvertedIndexReaderType::FULLTEXT, older_gram);
+        auto result =
+                iter.select_best_reader(col_type, InvertedIndexQueryType::LIKE_GRAM_QUERY, "");
+        ASSERT_TRUE(result.has_value());
+        EXPECT_EQ(result.value(), older_gram);
+    }
+    {
+        auto standard = create_mock_reader("standard", InvertedIndexReaderType::FULLTEXT, 7);
+        auto english = create_mock_reader("english", InvertedIndexReaderType::FULLTEXT, 5);
+        InvertedIndexIterator iter;
+        iter.add_reader(InvertedIndexReaderType::FULLTEXT, standard);
+        iter.add_reader(InvertedIndexReaderType::FULLTEXT, english);
+        auto result =
+                iter.select_best_reader(col_type, InvertedIndexQueryType::REGEXP_GRAM_QUERY, "");
+        ASSERT_TRUE(result.has_value());
+        EXPECT_EQ(result.value(), english);
     }
 }
 

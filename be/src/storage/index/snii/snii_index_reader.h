@@ -27,6 +27,10 @@
 #include "storage/index/inverted/inverted_index_query_type.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 
+namespace doris::segment_v2::gram {
+struct GramScheme;
+} // namespace doris::segment_v2::gram
+
 namespace doris::snii::reader {
 class LogicalIndexReader;
 } // namespace doris::snii::reader
@@ -90,6 +94,12 @@ public:
                             InvertedIndexQueryCacheHandle* cache_handle,
                             lucene::store::Directory* dir = nullptr) override;
     InvertedIndexReaderType type() override { return _reader_type; }
+    // A policy that cannot be resolved names no index a gram query could use; an analyzed query
+    // reports that failure where it matters.
+    bool is_gram_family() const override {
+        std::optional<segment_v2::gram::GramScheme> scheme;
+        return _current_gram_scheme(nullptr, &scheme).ok() && scheme.has_value();
+    }
 
 #ifdef BE_TEST
     void set_single_flight_follower_joined_observer_for_test(
@@ -114,6 +124,8 @@ private:
                   std::shared_ptr<roaring::Roaring>& bit_map,
                   InvertedIndexQueryCacheHandle* null_bitmap_cache_handle,
                   const InvertedIndexAnalyzerCtx* analyzer_ctx);
+    Status _current_gram_scheme(const InvertedIndexAnalyzerCtx* analyzer_ctx,
+                                std::optional<segment_v2::gram::GramScheme>* out) const;
     Status _parse_query_terms(const IndexQueryContextPtr& context, std::string search_str,
                               InvertedIndexQueryType query_type,
                               const InvertedIndexAnalyzerCtx* analyzer_ctx,

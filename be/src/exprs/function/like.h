@@ -373,6 +373,18 @@ protected:
     // hyperscan compile expression to database and allocate scratch space
     static Status hs_prepare(FunctionContext* context, const char* expression,
                              hs_database_t** database, hs_scratch_t** scratch);
+
+    // Send the original LIKE/REGEXP pattern to the selected reader. The reader compiles it
+    // against its persisted gram scheme and returns an approximate candidate bitmap.
+    //
+    // Returns OK without a result when the switch is off, the call is not one column and one
+    // constant pattern, the pattern is NULL, or the index declines it. Any other index error is
+    // returned so the scan applies its usual fallback policy.
+    enum class GramCompileKind { LIKE, REGEXP };
+    Status evaluate_gram_index(GramCompileKind kind, const ColumnsWithTypeAndName& arguments,
+                               const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,
+                               std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+                               segment_v2::InvertedIndexResultBitmap& bitmap_result) const;
 };
 
 class FunctionLike : public FunctionLikeBase {
@@ -395,6 +407,20 @@ public:
     friend struct VectorSubStringSearchState;
     friend struct VectorStartsWithSearchState;
     friend struct VectorEndsWithSearchState;
+
+    // The only push-down implemented for LIKE is the gram index, which answers with a superset
+    // of the matching rows.
+    bool index_result_is_approximate() const override { return true; }
+
+    Status evaluate_inverted_index(
+            const ColumnsWithTypeAndName& arguments,
+            const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+            const InvertedIndexAnalyzerCtx* analyzer_ctx,
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
+        return evaluate_gram_index(GramCompileKind::LIKE, arguments, data_type_with_names,
+                                   iterators, num_rows, bitmap_result);
+    }
 
 private:
     static Status like_fn(const LikeSearchState* state, const ColumnString& val,
@@ -419,6 +445,20 @@ public:
     String get_name() const override { return name; }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
+
+    // The only push-down implemented for REGEXP is the gram index, which answers with a superset
+    // of the matching rows.
+    bool index_result_is_approximate() const override { return true; }
+
+    Status evaluate_inverted_index(
+            const ColumnsWithTypeAndName& arguments,
+            const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+            const InvertedIndexAnalyzerCtx* analyzer_ctx,
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
+        return evaluate_gram_index(GramCompileKind::REGEXP, arguments, data_type_with_names,
+                                   iterators, num_rows, bitmap_result);
+    }
 };
 
 } // namespace doris

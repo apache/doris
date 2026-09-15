@@ -155,6 +155,10 @@ private:
             bool* continue_apply);
     [[nodiscard]] Status _apply_ann_topn_predicate();
     [[nodiscard]] Status _apply_index_expr();
+    // An approximate (superset) index result is only used to prune _row_bitmap: intersect it and
+    // account for the two profile counters, while the expression itself must stay in
+    // _common_expr_ctxs_push_down to be re-verified by _execute_common_expr.
+    void _apply_approx_index_result(VExprContext* expr_ctx);
     // G02: true iff answering the single pushed-down MATCH predicate by its
     // match COUNT alone is indistinguishable from the row-accurate bitmap for
     // this COUNT_ON_INDEX scan (no deletes, no other filters, full row bitmap,
