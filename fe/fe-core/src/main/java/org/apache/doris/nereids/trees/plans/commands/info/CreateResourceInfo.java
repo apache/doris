@@ -101,15 +101,14 @@ public class CreateResourceInfo {
                 return;
             }
         } catch (StoragePropertiesException azureAbsent) {
-            // The Azure plugin is not loaded, so its guess cannot be asked - but the endpoint
-            // predicate it shares with the routing layer still can. An Azure-shaped map must be
-            // refused here rather than fall through to type=s3: the resource type is persisted and
-            // ALTER RESOURCE cannot change it, so an S3Resource created while the plugin was absent
-            // would stay one after the plugin is repaired.
-            if (AzureBlobEndpointSignals.guessIsAzureBlobEndpoint(
-                    FileSystemPluginManager.withProbeContext(properties))) {
+            // The Azure plugin is not loaded, so its guess cannot be asked - but the predicate it is
+            // made of (provider=azure, or an Azure Blob endpoint) lives in the SPI and still can. An
+            // Azure-shaped map must be refused here rather than fall through to type=s3: the resource
+            // type is persisted and ALTER RESOURCE cannot change it, so an S3Resource created while
+            // the plugin was absent would stay one after the plugin is repaired.
+            if (AzureBlobEndpointSignals.guessIsAzure(FileSystemPluginManager.withProbeContext(properties))) {
                 throw new AnalysisException("Cannot create resource '" + resourceName
-                        + "': its endpoint is an Azure Blob endpoint, but " + azureAbsent.getMessage());
+                        + "': its properties select Azure Blob storage, but " + azureAbsent.getMessage());
             }
         }
 

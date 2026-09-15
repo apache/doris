@@ -52,8 +52,18 @@ public class CreateResourceInfoTest {
         try {
             CreateResourceInfo info = new CreateResourceInfo(false, false, "azure_res", AZURE_SHAPED);
             AnalysisException refused = Assertions.assertThrows(AnalysisException.class, info::analyzeResourceType);
-            Assertions.assertTrue(refused.getMessage().contains("Azure Blob endpoint"), refused.getMessage());
+            Assertions.assertTrue(refused.getMessage().contains("select Azure Blob storage"), refused.getMessage());
             Assertions.assertTrue(refused.getMessage().contains("'AZURE' is not available"), refused.getMessage());
+
+            // The other leg of the provider's guess: provider=azure with an endpoint whose host carries
+            // no recognised suffix (a private link, a proxy, the Azurite emulator).
+            CreateResourceInfo byProvider = new CreateResourceInfo(false, false, "azure_res", ImmutableMap.of(
+                    "type", "s3", "provider", "azure", "s3.endpoint", "https://storage.internal.example:10000",
+                    "s3.access_key", "ak", "s3.secret_key", "sk"));
+            AnalysisException refusedByProvider =
+                    Assertions.assertThrows(AnalysisException.class, byProvider::analyzeResourceType);
+            Assertions.assertTrue(refusedByProvider.getMessage().contains("'AZURE' is not available"),
+                    refusedByProvider.getMessage());
 
             CreateResourceInfo s3 = new CreateResourceInfo(false, false, "s3_res", ImmutableMap.of(
                     "type", "s3", "s3.endpoint", "s3.us-east-1.amazonaws.com"));
