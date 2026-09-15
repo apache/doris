@@ -1971,7 +1971,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     @VarAttrDef.VarAttr(name = MAX_JOIN_NUMBER_BUSHY_TREE)
-    private int maxJoinNumBushyTree = 8;
+    private int maxJoinNumBushyTree = 9;
 
     @VarAttrDef.VarAttr(name = ENABLE_PARTITION_TOPN)
     private boolean enablePartitionTopN = true;
@@ -3066,6 +3066,9 @@ public class SessionVariable implements Serializable, Writable {
                     + "CLucene (V1/V2/V3) index reads. "
                     + "Intended for one-shot / ad-hoc cold queries.")
     public boolean invertedIndexSniiReadNoWriteFileCache = false;
+
+    @VarAttrDef.VarAttr(name = "enable_join_reorder_before_eager_agg", needForward = true)
+    public boolean enableJoinReorderBeforeEagerAgg = true;
 
     public void setAggPhase(int phase) {
         aggPhase = phase;
