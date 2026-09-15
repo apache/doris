@@ -97,13 +97,14 @@ public class MTMVCache {
      * @param needCost the plan from def sql should calc cost or not
      * @param needLock should lock when create mtmv cache
      * @param currentContext current context, after create cache,should setThreadLocalInfo
-     * @param addSessionVarGuard whether to add SessionVarGuardExpr to expressions
+     * @param guardMask which session-variable dependency families must be guarded (see
+     *         {@link SessionVarGuardRewriter#GUARD_TIME_ZONE} and {@link SessionVarGuardRewriter#GUARD_OTHER})
      */
     public static MTMVCache from(String defSql,
             ConnectContext createCacheContext,
             boolean needCost, boolean needLock,
             ConnectContext currentContext,
-            boolean addSessionVarGuard) throws AnalysisException {
+            int guardMask) throws AnalysisException {
         StatementContext mvSqlStatementContext = new StatementContext(createCacheContext,
                 new OriginStatement(defSql, 0));
         if (!needLock) {
@@ -131,12 +132,15 @@ public class MTMVCache {
             CascadesContext cascadesContext = planner.getCascadesContext();
             Plan rewritePlan = cascadesContext.getRewritePlan();
 
-            // Only add SessionVarGuardExpr if requested
-            Optional<SessionVarGuardRewriter> exprRewriter = addSessionVarGuard
-                    ? Optional.of(new SessionVarGuardRewriter(
+            // Only add SessionVarGuardExpr for the families selected by guardMask. The mask comes from the
+            // query session that first needs this cache; the guard content is independent of the session the
+            // cache is generated in, so a cache built in the creation zone (background refresh) still carries
+            // the guards and stays effective for a cross-zone query.
+            Optional<SessionVarGuardRewriter> exprRewriter = guardMask == SessionVarGuardRewriter.GUARD_NONE
+                    ? Optional.empty()
+                    : Optional.of(new SessionVarGuardRewriter(
                     ConnectContextUtil.getAffectQueryResultInPlanVariables(createCacheContext),
-                    cascadesContext))
-                    : Optional.empty();
+                    guardMask, cascadesContext));
             Plan addGuardRewritePlan = exprRewriter
                     .map(rewriter -> SessionVarGuardRewriter.rewritePlanTree(rewriter, rewritePlan))
                     .orElse(rewritePlan);
