@@ -114,7 +114,10 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         if (type->get_primitive_type() == TYPE_DATETIMEV2 && datetime_naive) {
             *result = std::make_shared<arrow::TimestampType>(time_unit);
         } else {
-            *result = std::make_shared<arrow::TimestampType>(time_unit, timezone);
+            // Arrow clients resolve timezone metadata as an IANA name; use the canonical UTC
+            // name instead of the ISO-8601 "Z" alias without changing the encoded instant.
+            *result = std::make_shared<arrow::TimestampType>(time_unit,
+                                                             timezone == "Z" ? "UTC" : timezone);
         }
         break;
     }

@@ -261,6 +261,10 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_STRING, PLAIN_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_STRING, PLAIN_ENCODING_V2>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_STRING, PREFIX_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_VARBINARY, DICT_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_VARBINARY, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_VARBINARY, PLAIN_ENCODING_V2>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_VARBINARY, PREFIX_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_JSONB, DICT_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_JSONB, PLAIN_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_JSONB, PLAIN_ENCODING_V2>();
@@ -333,6 +337,7 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>();
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>();
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_STRING, DICT_ENCODING>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_VARBINARY, DICT_ENCODING>();
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_JSONB, DICT_ENCODING>();
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_VARIANT, DICT_ENCODING>();
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_BOOL, RLE>();
@@ -366,6 +371,7 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_STRING, DICT_ENCODING>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_VARBINARY, DICT_ENCODING>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_JSONB, DICT_ENCODING>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_VARIANT, DICT_ENCODING>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_BOOL, RLE>();

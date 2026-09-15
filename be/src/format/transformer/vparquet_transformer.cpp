@@ -48,6 +48,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
+#include "util/timezone_utils.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -186,12 +187,14 @@ VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWri
                                          bool output_object_data,
                                          const ParquetFileOptions& parquet_options,
                                          const std::string* iceberg_schema_json,
-                                         const iceberg::Schema* iceberg_schema)
+                                         const iceberg::Schema* iceberg_schema,
+                                         const ArrowWriteConverter& arrow_write_converter)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _column_names(std::move(column_names)),
           _parquet_options(parquet_options),
           _iceberg_schema_json(iceberg_schema_json),
-          _iceberg_schema(iceberg_schema) {
+          _iceberg_schema(iceberg_schema),
+          _arrow_write_converter(arrow_write_converter) {
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
 }
 
@@ -200,12 +203,14 @@ VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWri
                                          std::vector<TParquetSchema> parquet_schemas,
                                          bool output_object_data,
                                          const ParquetFileOptions& parquet_options,
-                                         const std::string* iceberg_schema_json)
+                                         const std::string* iceberg_schema_json,
+                                         const ArrowWriteConverter& arrow_write_converter)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _parquet_schemas(std::move(parquet_schemas)),
           _parquet_options(parquet_options),
-          _iceberg_schema_json(iceberg_schema_json) {
-    _iceberg_schema = nullptr;
+          _iceberg_schema_json(iceberg_schema_json),
+          _iceberg_schema(nullptr),
+          _arrow_write_converter(arrow_write_converter) {
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
 }
 
@@ -244,13 +249,15 @@ Status VParquetTransformer::_parse_properties() {
 Status VParquetTransformer::_parse_schema() {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     if (_iceberg_schema != nullptr) {
-        RETURN_IF_ERROR(
-                iceberg::ArrowSchemaUtil::convert(_iceberg_schema, _state->timezone(), fields));
+        RETURN_IF_ERROR(iceberg::ArrowSchemaUtil::convert(_iceberg_schema, _timezone, fields));
     } else {
+        // INT96 has no logical timezone. Its Arrow schema and DATETIMEV2 conversion must
+        // use the same writer-local timezone, including UTC for a wall-clock carrier.
+        const bool datetime_naive = !_parquet_options.enable_int96_timestamps;
         for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
             std::shared_ptr<arrow::DataType> type;
             RETURN_IF_ERROR(convert_to_arrow_type(_output_vexpr_ctxs[i]->root()->data_type(), &type,
-                                                  _state->timezone()));
+                                                  _timezone, datetime_naive));
             if (!_parquet_schemas.empty()) {
                 std::shared_ptr<arrow::Field> field =
                         arrow::field(_parquet_schemas[i].schema_column_name, type,
@@ -282,7 +289,7 @@ Status VParquetTransformer::write(const Block& block) {
     // serialize
     std::shared_ptr<arrow::RecordBatch> result;
     RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema, get_arrow_memory_pool(), &result,
-                                           _state->timezone_obj()));
+                                           _timezone_obj, 0, block.rows(), _arrow_write_converter));
     if (_write_size == 0) {
         RETURN_DORIS_STATUS_IF_ERROR(_writer->NewBufferedRowGroup());
     }
@@ -302,6 +309,15 @@ arrow::Status VParquetTransformer::_open_file_writer() {
 }
 
 Status VParquetTransformer::open() {
+    _timezone = _state->timezone();
+    _timezone_obj = _state->timezone_obj();
+    if (_parquet_options.enable_int96_timestamps && _parquet_options.int96_timezone.has_value()) {
+        _timezone = *_parquet_options.int96_timezone;
+        // Cache the override on this writer, never mutate the shared query RuntimeState.
+        if (!TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj)) {
+            return Status::InvalidArgument("Invalid Parquet INT96 writer timezone: {}", _timezone);
+        }
+    }
     RETURN_IF_ERROR(_parse_properties());
     RETURN_IF_ERROR(_parse_schema());
     try {

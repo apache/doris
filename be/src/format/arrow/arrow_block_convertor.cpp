@@ -41,18 +41,18 @@
 #include <utility>
 #include <vector>
 
-#include "common/cast_set.h"
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
-#include "core/column/column_nullable.h"
-#include "core/column/column_string.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/value/vdatetime_value.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "format/arrow/arrow_utils.h"
+#include "util/timezone_utils.h"
 
 namespace arrow {
 class Array;
@@ -63,15 +63,17 @@ namespace doris {
 
 namespace {
 
-constexpr const char* ICEBERG_ORIGINAL_TYPE_KEY = "originalType";
-constexpr const char* ICEBERG_UUID_TYPE_VALUE = "uuid";
-
-bool is_iceberg_uuid_field(const std::shared_ptr<arrow::Field>& field) {
-    if (field == nullptr || !field->HasMetadata()) {
-        return false;
+int hex_value(char c) {
+    if (c >= '0' && c <= '9') {
+        return c - '0';
     }
-    const auto result = field->metadata()->Get(ICEBERG_ORIGINAL_TYPE_KEY);
-    return result.ok() && result.ValueUnsafe() == ICEBERG_UUID_TYPE_VALUE;
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    if (c >= 'A' && c <= 'F') {
+        return c - 'A' + 10;
+    }
+    return -1;
 }
 
 bool contains_extension_type(const std::shared_ptr<arrow::DataType>& type) {
@@ -116,6 +118,94 @@ std::shared_ptr<arrow::DataType> extension_storage_type(
     default:
         return type;
     }
+}
+
+bool is_declared_plain_arrow_binding(const DataTypePtr& type,
+                                     const std::shared_ptr<arrow::DataType>& plain_arrow_type,
+                                     const std::shared_ptr<arrow::DataType>& target_type) {
+    if (plain_arrow_type->Equals(target_type)) {
+        return true;
+    }
+    if (plain_arrow_type->id() == arrow::Type::TIMESTAMP &&
+        target_type->id() == arrow::Type::TIMESTAMP) {
+        const auto& plain_timestamp = assert_cast<const arrow::TimestampType&>(*plain_arrow_type);
+        const auto& target_timestamp = assert_cast<const arrow::TimestampType&>(*target_type);
+        if (plain_timestamp.unit() != target_timestamp.unit()) {
+            return false;
+        }
+        const PrimitiveType primitive = remove_nullable(type)->get_primitive_type();
+        // A timezone-free Arrow timestamp is a wall-clock value and is therefore only compatible
+        // with DATETIMEV2; TIMESTAMPTZ must always retain its instant semantics.
+        if (target_timestamp.timezone().empty()) {
+            return primitive == TYPE_DATETIMEV2;
+        }
+        cctz::time_zone target_timezone;
+        return TimezoneUtils::find_cctz_time_zone(target_timestamp.timezone(), target_timezone) &&
+               target_timezone.name() == plain_timestamp.timezone();
+    }
+    const PrimitiveType primitive = remove_nullable(type)->get_primitive_type();
+    if (primitive == TYPE_ARRAY && plain_arrow_type->id() == arrow::Type::LIST &&
+        target_type->id() == arrow::Type::LIST) {
+        const auto& array = assert_cast<const DataTypeArray&>(*remove_nullable(type));
+        const auto& plain_list = assert_cast<const arrow::ListType&>(*plain_arrow_type);
+        const auto& target_list = assert_cast<const arrow::ListType&>(*target_type);
+        return plain_list.value_field()
+                       ->WithType(target_list.value_type())
+                       ->Equals(target_list.value_field()) &&
+               is_declared_plain_arrow_binding(array.get_nested_type(), plain_list.value_type(),
+                                               target_list.value_type());
+    }
+    if (primitive == TYPE_MAP && plain_arrow_type->id() == arrow::Type::MAP &&
+        target_type->id() == arrow::Type::MAP) {
+        const auto& map = assert_cast<const DataTypeMap&>(*remove_nullable(type));
+        const auto& plain_map = assert_cast<const arrow::MapType&>(*plain_arrow_type);
+        const auto& target_map = assert_cast<const arrow::MapType&>(*target_type);
+        return plain_map.keys_sorted() == target_map.keys_sorted() &&
+               plain_map.key_field()
+                       ->WithType(target_map.key_type())
+                       ->Equals(target_map.key_field()) &&
+               plain_map.item_field()
+                       ->WithType(target_map.item_type())
+                       ->Equals(target_map.item_field()) &&
+               is_declared_plain_arrow_binding(map.get_key_type(), plain_map.key_type(),
+                                               target_map.key_type()) &&
+               is_declared_plain_arrow_binding(map.get_value_type(), plain_map.item_type(),
+                                               target_map.item_type());
+    }
+    if (primitive == TYPE_STRUCT && plain_arrow_type->id() == arrow::Type::STRUCT &&
+        target_type->id() == arrow::Type::STRUCT) {
+        const auto& structure = assert_cast<const DataTypeStruct&>(*remove_nullable(type));
+        if (plain_arrow_type->num_fields() != target_type->num_fields() ||
+            structure.get_elements().size() != static_cast<size_t>(target_type->num_fields())) {
+            return false;
+        }
+        for (int i = 0; i < target_type->num_fields(); ++i) {
+            const auto& plain_field = plain_arrow_type->field(i);
+            const auto& target_field = target_type->field(i);
+            if (!plain_field->WithType(target_field->type())->Equals(target_field) ||
+                !is_declared_plain_arrow_binding(structure.get_element(i), plain_field->type(),
+                                                 target_field->type())) {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (is_string_type(primitive)) {
+        return target_type->id() == arrow::Type::STRING ||
+               target_type->id() == arrow::Type::LARGE_STRING ||
+               target_type->id() == arrow::Type::BINARY ||
+               target_type->id() == arrow::Type::LARGE_BINARY;
+    }
+    if (primitive == TYPE_VARBINARY) {
+        return target_type->id() == arrow::Type::STRING ||
+               target_type->id() == arrow::Type::BINARY ||
+               target_type->id() == arrow::Type::LARGE_BINARY;
+    }
+    if (primitive == TYPE_VARIANT) {
+        return target_type->id() == arrow::Type::STRING ||
+               target_type->id() == arrow::Type::LARGE_STRING;
+    }
+    return false;
 }
 
 Status wrap_extension_arrays(const std::shared_ptr<arrow::DataType>& target_type,
@@ -166,19 +256,6 @@ Status wrap_extension_arrays(const std::shared_ptr<arrow::DataType>& target_type
     return Status::OK();
 }
 
-int hex_value(char c) {
-    if (c >= '0' && c <= '9') {
-        return c - '0';
-    }
-    if (c >= 'a' && c <= 'f') {
-        return c - 'a' + 10;
-    }
-    if (c >= 'A' && c <= 'F') {
-        return c - 'A' + 10;
-    }
-    return -1;
-}
-
 } // namespace
 
 Status parse_iceberg_uuid_to_bytes(StringRef uuid, std::array<uint8_t, 16>* bytes) {
@@ -223,50 +300,46 @@ Status parse_iceberg_uuid_to_bytes(StringRef uuid, std::array<uint8_t, 16>* byte
     return Status::OK();
 }
 
-namespace {
-
-Status write_iceberg_uuid_string_column_to_arrow(const IColumn& column, const DataTypePtr& type,
-                                                 arrow::ArrayBuilder* array_builder, int64_t start,
-                                                 int64_t end) {
-    if (array_builder->type()->id() != arrow::Type::FIXED_SIZE_BINARY) {
-        return Status::InvalidArgument("Iceberg UUID must be written to fixed size binary");
-    }
-    const int byte_width =
-            static_cast<const arrow::FixedSizeBinaryType&>(*array_builder->type()).byte_width();
-    if (byte_width != 16) {
-        return Status::InvalidArgument("Iceberg UUID expects 16 bytes, got {}", byte_width);
-    }
-
-    auto& builder = assert_cast<arrow::FixedSizeBinaryBuilder&>(*array_builder);
-    const IColumn* data_column = &column;
-    const NullMap* null_map = nullptr;
-    if (type->is_nullable()) {
-        const auto& nullable_column = assert_cast<const ColumnNullable&>(column);
-        data_column = &nullable_column.get_nested_column();
-        null_map = &nullable_column.get_null_map_data();
-    }
-    if (!data_column->is_column_string()) {
+Status ArrowWriteConverter::write_plain_arrow_column(const std::shared_ptr<const IDataType>& type,
+                                                     const DataTypeSerDe& serde,
+                                                     const IColumn& column, const NullMap* null_map,
+                                                     const std::shared_ptr<arrow::Field>& field,
+                                                     arrow::ArrayBuilder* array_builder,
+                                                     int64_t start, int64_t end,
+                                                     const cctz::time_zone& ctz) const {
+    std::shared_ptr<arrow::DataType> plain_arrow_type;
+    RETURN_IF_ERROR(convert_to_arrow_type(type, &plain_arrow_type, ctz.name()));
+    const auto storage_type = extension_storage_type(field->type());
+    // This is an exact binding check selected by the target converter, not a recovery path. A
+    // mismatch returns without invoking SerDe, and a SerDe error is never retried elsewhere.
+    if (!is_declared_plain_arrow_binding(type, plain_arrow_type, storage_type)) {
         return Status::InvalidArgument(
-                "Iceberg UUID string conversion expects string column, got {}",
-                data_column->get_name());
+                "Plain Arrow writer is not bound for Doris type {} and Arrow field {}",
+                type->get_name(), field->ToString());
     }
-
-    const auto& string_column = assert_cast<const ColumnString&>(*data_column);
-    const auto begin_row = cast_set<size_t>(start);
-    const auto end_row = cast_set<size_t>(end);
-    for (size_t row = begin_row; row < end_row; ++row) {
-        if (null_map != nullptr && (*null_map)[row]) {
-            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
-            continue;
-        }
-        std::array<uint8_t, 16> bytes;
-        RETURN_IF_ERROR(parse_iceberg_uuid_to_bytes(string_column.get_data_at(row), &bytes));
-        RETURN_IF_ERROR(checkArrowStatus(builder.Append(bytes.data()), column, builder));
-    }
-    return Status::OK();
+    return serde.write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
 }
 
+namespace {
+
+class PlainArrowWriteConverter final : public ArrowWriteConverter {
+public:
+    Status write_column(const std::shared_ptr<const IDataType>& type, const DataTypeSerDe& serde,
+                        const IColumn& column, const NullMap* null_map,
+                        const std::shared_ptr<arrow::Field>& field,
+                        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                        const cctz::time_zone& ctz) const override {
+        return write_plain_arrow_column(type, serde, column, null_map, field, array_builder, start,
+                                        end, ctz);
+    }
+};
+
 } // namespace
+
+const ArrowWriteConverter& plain_arrow_write_converter() {
+    static const PlainArrowWriteConverter converter;
+    return converter;
+}
 
 Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBatch>* out) {
     int num_fields = _schema->num_fields();
@@ -313,15 +386,10 @@ Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBat
         }
         _cur_builder = builder.get();
         try {
-            if (is_iceberg_uuid_field(_schema->field(idx)) &&
-                is_string_type(remove_nullable(_cur_type)->get_primitive_type())) {
-                RETURN_IF_ERROR(write_iceberg_uuid_string_column_to_arrow(
-                        *column, _cur_type, _cur_builder, _cur_start, _cur_start + _cur_rows));
-            } else {
-                RETURN_IF_ERROR(_cur_type->get_serde()->write_column_to_arrow(
-                        *column, nullptr, _cur_builder, _cur_start, _cur_start + _cur_rows,
-                        _timezone_obj));
-            }
+            const auto serde = _cur_type->get_serde();
+            RETURN_IF_ERROR(_write_converter.write_column(
+                    _cur_type, *serde, *column, nullptr, _schema->field(idx), _cur_builder,
+                    _cur_start, _cur_start + _cur_rows, _timezone_obj));
         } catch (std::exception& e) {
             return Status::InternalError(
                     "Fail to convert block data to arrow data, type: {}, name: {}, error: {}",
@@ -371,6 +439,15 @@ Status convert_to_arrow_batch(const Block& block, const std::shared_ptr<arrow::S
                               arrow::MemoryPool* pool, std::shared_ptr<arrow::RecordBatch>* result,
                               const cctz::time_zone& timezone_obj) {
     FromBlockToRecordBatchConverter converter(block, schema, pool, timezone_obj);
+    return converter.convert(result);
+}
+
+Status convert_to_arrow_batch(const Block& block, const std::shared_ptr<arrow::Schema>& schema,
+                              arrow::MemoryPool* pool, std::shared_ptr<arrow::RecordBatch>* result,
+                              const cctz::time_zone& timezone_obj, size_t start_row, size_t end_row,
+                              const ArrowWriteConverter& write_converter) {
+    FromBlockToRecordBatchConverter converter(block, schema, pool, timezone_obj, start_row, end_row,
+                                              write_converter);
     return converter.convert(result);
 }
 

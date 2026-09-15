@@ -56,8 +56,11 @@ public class PhysicalLazyMaterializeFileScan extends PhysicalFileScan {
     @Override
     public List<Slot> computeOutput() {
         if (output == null) {
+            // Passive columns rejected by the lazy probe still need phase-one decoding.
+            // Operative slots alone omit versioned timestamps and nested VARIANT values.
             output = ImmutableList.<Slot>builder()
-                    .addAll(scan.getOperativeSlots())
+                    .addAll(scan.getOutput().stream().filter(slot -> !lazySlots.contains(slot))
+                            .collect(ImmutableList.toImmutableList()))
                     .add(rowId).build();
         }
         return output;

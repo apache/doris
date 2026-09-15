@@ -285,6 +285,14 @@ public class JdbcScanNode extends ExternalScanNode {
     }
 
     private static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
+        // These dialects do not accept Doris X'...' as binary literals (PostgreSQL reads bit
+        // strings, DB2 uses BX, and Oracle modes require HEXTORAW). Keep these predicates local.
+        if ((tableType == TOdbcTableType.POSTGRESQL || tableType == TOdbcTableType.ORACLE
+                || tableType == TOdbcTableType.SQLSERVER || tableType == TOdbcTableType.DB2
+                || tableType == TOdbcTableType.OCEANBASE_ORACLE)
+                && expr.contains(org.apache.doris.analysis.VarBinaryLiteral.class)) {
+            return false;
+        }
         // Prevent pushing down expressions with NullLiteral to Oracle
         if (ConnectContext.get() != null
                 && !ConnectContext.get().getSessionVariable().enableJdbcOracleNullPredicatePushDown

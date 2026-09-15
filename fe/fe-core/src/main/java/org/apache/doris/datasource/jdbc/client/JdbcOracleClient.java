@@ -228,8 +228,7 @@ public class JdbcOracleClient extends JdbcClient {
             case "CLOB":
                 return ScalarType.createStringType();
             case "BLOB":
-                return enableMappingVarbinary ? ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize())
-                        : ScalarType.createStringType();
+                return ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize());
             case "NCLOB":
             case "BFILE":
             case "BINARY_FLOAT":

@@ -369,17 +369,20 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             sql """drop materialized view if exists ${mvName}"""
         }
 
-        // FileScannerV2 is required by both the native and JNI scan paths for external VARIANT.
+        // Versioned native ranges force V2 so their timestamp and VARIANT contracts stay intact.
         sql """set enable_file_scanner_v2 = false"""
         sql """set force_jni_scanner = false"""
-        test {
-            sql """select * from ${catalogName}.test_paimon_spark.variant_smoke"""
-            exception "External VARIANT columns require FileScannerV2"
-        }
+        def nativeWithV2Disabled = sql """select * from ${catalogName}.test_paimon_spark.variant_smoke order by id"""
+        sql """set enable_file_scanner_v2 = true"""
+        assertEquals(sql("""select * from ${catalogName}.test_paimon_spark.variant_smoke order by id"""),
+                nativeWithV2Disabled)
 
+        sql """set enable_file_scanner_v2 = false"""
         sql """set force_jni_scanner = true"""
         test {
-            sql """select * from ${catalogName}.test_paimon_spark.variant_smoke"""
+            // TestAction uses JDBC even when sql() uses Arrow Flight, so bind both options to this query.
+            sql """select /*+ SET_VAR(enable_file_scanner_v2=false, force_jni_scanner=true) */
+                   * from ${catalogName}.test_paimon_spark.variant_smoke"""
             exception "External VARIANT columns require FileScannerV2"
         }
         }
@@ -390,13 +393,15 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             sql """set enable_file_scanner_v2 = true"""
             sql """set force_jni_scanner = true"""
             test {
-                sql """select * from ${catalogName}.test_paimon_spark.variant_smoke"""
+                sql """select /*+ SET_VAR(enable_file_scanner_v2=true, force_jni_scanner=true) */
+                       * from ${catalogName}.test_paimon_spark.variant_smoke"""
                 exception "Paimon VARIANT columns require FE config enable_variant_v2=true"
             }
 
             sql """set force_jni_scanner = false"""
             test {
-                sql """select * from ${catalogName}.test_paimon_spark.variant_smoke"""
+                sql """select /*+ SET_VAR(enable_file_scanner_v2=true, force_jni_scanner=false) */
+                       * from ${catalogName}.test_paimon_spark.variant_smoke"""
                 exception "Paimon VARIANT columns require FE config enable_variant_v2=true"
             }
         }

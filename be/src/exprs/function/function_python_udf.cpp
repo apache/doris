@@ -140,12 +140,17 @@ Status PythonFunctionCall::execute_impl(FunctionContext* context, Block& block,
             get_arrow_schema_from_block(input_block, &schema, TimezoneUtils::default_time_zone));
     std::shared_ptr<arrow::RecordBatch> input_batch;
     std::shared_ptr<arrow::RecordBatch> output_batch;
-    cctz::time_zone _timezone_obj; // default UTC
+    cctz::time_zone timezone_obj;
+    // Python schemas use the Doris default zone, so the writer must use the same zone; otherwise
+    // DATETIMEV2 metadata and encoded values describe different instants.
+    if (!TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj)) {
+        return Status::InternalError("Failed to resolve the default Python UDF timezone");
+    }
     if (arguments.empty()) {
         RETURN_IF_ERROR(make_zero_column_arrow_batch(schema, input_rows, &input_batch));
     } else {
         RETURN_IF_ERROR(convert_to_arrow_batch(input_block, schema, arrow::default_memory_pool(),
-                                               &input_batch, _timezone_obj));
+                                               &input_batch, timezone_obj));
     }
     RETURN_IF_ERROR(client->evaluate(*input_batch, &output_batch));
     int64_t output_rows = output_batch->num_rows();
@@ -161,7 +166,7 @@ Status PythonFunctionCall::execute_impl(FunctionContext* context, Block& block,
     }
 
     RETURN_IF_ERROR(
-            convert_from_arrow_batch(output_batch, {_return_type}, &output_block, _timezone_obj));
+            convert_from_arrow_batch(output_batch, {_return_type}, &output_block, timezone_obj));
     DCHECK_EQ(output_block.columns(), 1);
     block.replace_by_position(result, std::move(output_block.get_by_position(0).column));
     return Status::OK();

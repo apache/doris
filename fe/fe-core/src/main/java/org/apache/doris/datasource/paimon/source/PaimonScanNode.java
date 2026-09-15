@@ -188,6 +188,12 @@ public class PaimonScanNode extends FileQueryScanNode {
     // The schema information involved in the current query process (including historical schema).
     protected ConcurrentHashMap<Long, Boolean> currentQuerySchema = new ConcurrentHashMap<>();
 
+    @Override
+    protected String getHiveParquetTimeZone() {
+        // Paimon schema history owns TIMESTAMP/LOCAL_ZONED_TIMESTAMP semantics, including HMS tables.
+        return "";
+    }
+
     public PaimonScanNode(PlanNodeId id,
                           TupleDescriptor desc,
                           boolean needCheckColumnPriv,
@@ -423,6 +429,9 @@ public class PaimonScanNode extends FileQueryScanNode {
                 rangeDesc.setFormatType(TFileFormatType.FORMAT_ORC);
             } else if (fileFormat.equals("parquet")) {
                 rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
+                // History schemas also exist for ORC; only actual native Parquet requires its timestamp contract.
+                // Keep this scan-level flag set if a later range uses a different format.
+                params.setContainsNativeParquet(true);
             } else {
                 throw new RuntimeException("Unsupported file format: " + fileFormat);
             }

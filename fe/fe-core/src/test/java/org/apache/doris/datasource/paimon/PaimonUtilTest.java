@@ -22,13 +22,16 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
+import org.apache.doris.datasource.DorisTypeVisitor;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
 import org.apache.doris.datasource.metacache.paimon.PaimonPartitionInfoLoader;
 import org.apache.doris.thrift.TPrimitiveType;
+import org.apache.doris.thrift.schema.external.TField;
 import org.apache.doris.thrift.schema.external.TFieldPtr;
 import org.apache.doris.thrift.schema.external.TSchema;
 
@@ -45,7 +48,9 @@ import org.apache.paimon.table.source.TableScan;
 import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
+import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.types.VarCharType;
 import org.junit.Assert;
 import org.junit.Test;
@@ -114,12 +119,47 @@ public class PaimonUtilTest {
     }
 
     @Test
+    public void testPaimonBinaryAlwaysMapsToVarbinary() {
+        Type binary = PaimonUtil.paimonTypeToDorisType(DataTypes.BINARY(16), false, false);
+        Assert.assertTrue(binary.isVarbinaryType());
+        Assert.assertEquals(16, binary.getLength());
+
+        Type varbinary = PaimonUtil.paimonTypeToDorisType(DataTypes.VARBINARY(32), false, false);
+        Assert.assertTrue(varbinary.isVarbinaryType());
+        Assert.assertEquals(32, varbinary.getLength());
+    }
+
+    @Test
     public void testVariantMapsToComputeV2() {
         Type type = PaimonUtil.paimonTypeToDorisType(
                 new org.apache.paimon.types.VariantType(), true, true);
 
         Assert.assertTrue(type.isVariantType());
         Assert.assertTrue(((VariantType) type).isComputeV2());
+    }
+
+    @Test
+    public void testDorisTimestampTypesPreservePaimonSemanticsAndPrecision() {
+        org.apache.paimon.types.DataType timestamp = DorisTypeVisitor.visit(
+                ScalarType.createDatetimeV2Type(3), new DorisToPaimonTypeVisitor());
+        Assert.assertTrue(timestamp instanceof TimestampType);
+        Assert.assertEquals(3, ((TimestampType) timestamp).getPrecision());
+
+        org.apache.paimon.types.DataType timestampLtz = DorisTypeVisitor.visit(
+                ScalarType.createTimeStampTzType(6), new DorisToPaimonTypeVisitor());
+        Assert.assertTrue(timestampLtz instanceof LocalZonedTimestampType);
+        Assert.assertEquals(6, ((LocalZonedTimestampType) timestampLtz).getPrecision());
+    }
+
+    @Test
+    public void testPaimonTimestampSchemaHistoryPreservesLogicalSemantics() {
+        TField timestamp = PaimonUtil.getSchemaInfo(new TimestampType(3), false, false);
+        Assert.assertTrue(timestamp.isSetTimestampIsAdjustedToUtc());
+        Assert.assertFalse(timestamp.isTimestampIsAdjustedToUtc());
+
+        TField timestampLtz = PaimonUtil.getSchemaInfo(new LocalZonedTimestampType(6), false, false);
+        Assert.assertTrue(timestampLtz.isSetTimestampIsAdjustedToUtc());
+        Assert.assertTrue(timestampLtz.isTimestampIsAdjustedToUtc());
     }
 
     @Test

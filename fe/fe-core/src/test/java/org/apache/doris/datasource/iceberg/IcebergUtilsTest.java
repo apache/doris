@@ -20,16 +20,22 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 import org.apache.doris.datasource.property.storage.OSSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
+import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 
@@ -87,6 +93,49 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class IcebergUtilsTest {
     @Test
+    public void testStaticBinaryPartitionContextUsesTypedHex() {
+        UnboundIcebergTableSink<?> sink = Mockito.mock(UnboundIcebergTableSink.class);
+        Mockito.when(sink.hasStaticPartition()).thenReturn(true);
+        Mockito.when(sink.getStaticPartitionKeyValues()).thenReturn(Collections.singletonMap("key",
+                new VarBinaryLiteral("DEAD")));
+        InsertOverwriteTableCommand command = new InsertOverwriteTableCommand(
+                sink, Optional.empty(), Optional.empty(), Optional.empty());
+        IcebergInsertCommandContext context = new IcebergInsertCommandContext();
+        Deencapsulation.invoke(command, "setStaticPartitionToContext", sink, context);
+        Assert.assertEquals("0xDEAD", context.getStaticPartitionValues().get("key"));
+    }
+
+    @Test
+    public void testBinaryPartitionCommitRoundTrip() {
+        byte[] bytes = new byte[] {0, (byte) 0xde, (byte) 0xad, (byte) 0xff};
+        for (org.apache.iceberg.types.Type type : Arrays.asList(
+                Types.BinaryType.get(), Types.FixedType.ofLength(bytes.length))) {
+            Assert.assertEquals(ByteBuffer.wrap(bytes),
+                    IcebergUtils.parsePartitionValueFromString("0x00deadff", type));
+            Assert.assertEquals("0x00deadff", IcebergUtils.serializePartitionValue(type,
+                    ByteBuffer.wrap(bytes), "UTC"));
+            Assert.assertEquals(ByteBuffer.allocate(0),
+                    IcebergUtils.parsePartitionValueFromString("0x", Types.BinaryType.get()));
+        }
+        UUID uuid = UUID.fromString("00112233-4455-6677-8899-aabbccddeeff");
+        Assert.assertEquals(uuid, IcebergUtils.parsePartitionValueFromString(
+                "0x00112233445566778899aabbccddeeff", Types.UUIDType.get()));
+        Assert.assertEquals(uuid, IcebergUtils.parsePartitionValueFromString(uuid.toString(), Types.UUIDType.get()));
+        Assert.assertThrows(IllegalArgumentException.class, () -> IcebergUtils.parsePartitionValueFromString(
+                "0xdead", Types.FixedType.ofLength(4)));
+        Assert.assertThrows(IllegalArgumentException.class, () -> IcebergUtils.parsePartitionValueFromString(
+                "0xdead", Types.UUIDType.get()));
+        for (String malformed : Arrays.asList("DEAD", "0xD", "0xGG")) {
+            Assert.assertThrows(IllegalArgumentException.class, () -> IcebergUtils.parsePartitionValueFromString(
+                    malformed, Types.BinaryType.get()));
+        }
+        ByteBuffer slice = ByteBuffer.wrap(bytes).asReadOnlyBuffer();
+        slice.position(1);
+        Assert.assertEquals("0xdeadff", IcebergUtils.serializePartitionValue(Types.BinaryType.get(), slice, "UTC"));
+        Assert.assertEquals(1, slice.position());
+    }
+
+    @Test
     public void testSelectEffectiveStoragePropertiesPrefersOssOverGenericS3() throws UserException {
         Map<String, String> properties = new HashMap<>();
         properties.put("iceberg.rest.signing-name", "osstables");
@@ -110,6 +159,32 @@ public class IcebergUtilsTest {
         Assert.assertTrue(selected.get(StorageProperties.Type.OSS) instanceof OSSProperties);
         Assert.assertSame(selected.get(StorageProperties.Type.OSS),
                 LocationPath.of("s3://bucket/data.parquet", selected).getStorageProperties());
+    }
+
+    @Test
+    public void testIcebergFixedAlwaysMapsToLengthPreservingVarbinary() {
+        for (boolean enableMappingVarbinary : Arrays.asList(false, true)) {
+            Type shortFixed = IcebergUtils.icebergTypeToDorisType(
+                    Types.FixedType.ofLength(4), enableMappingVarbinary, false);
+            Assert.assertTrue(shortFixed.isVarbinaryType());
+            Assert.assertEquals(4, ((ScalarType) shortFixed).getLength());
+
+            Type longFixed = IcebergUtils.icebergTypeToDorisType(
+                    Types.FixedType.ofLength(256), enableMappingVarbinary, false);
+            Assert.assertTrue(longFixed.isVarbinaryType());
+            Assert.assertEquals(256, ((ScalarType) longFixed).getLength());
+        }
+    }
+
+    @Test
+    public void testIcebergBinaryAlwaysMapsToVarbinary() {
+        Type binary = IcebergUtils.icebergTypeToDorisType(Types.BinaryType.get(), false, false);
+        Assert.assertTrue(binary.isVarbinaryType());
+        Assert.assertEquals(ScalarType.MAX_VARBINARY_LENGTH, ((ScalarType) binary).getLength());
+
+        Type uuid = IcebergUtils.icebergTypeToDorisType(Types.UUIDType.get(), false, false);
+        Assert.assertTrue(uuid.isVarbinaryType());
+        Assert.assertEquals(16, ((ScalarType) uuid).getLength());
     }
 
     @Test

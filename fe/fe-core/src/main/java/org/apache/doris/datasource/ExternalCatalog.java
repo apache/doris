@@ -274,8 +274,10 @@ public abstract class ExternalCatalog
         // set default value to true, no matter is replaying or not.
         // After 4.0, all external catalogs will use meta cache by default.
         catalogProperty.addProperty(USE_META_CACHE, String.valueOf(DEFAULT_USE_META_CACHE));
-        if (catalogProperty.getOrDefault(CatalogProperty.ENABLE_MAPPING_VARBINARY, "").isEmpty()) {
-            catalogProperty.setEnableMappingVarbinary(false);
+        // New CREATE logs include the marker. Preserve old replayed values so master promotion
+        // can migrate them through a replicated ALTER log rather than a process-local rewrite.
+        if (!isReplay) {
+            catalogProperty.setEnableMappingVarbinary(true);
         }
         if (catalogProperty.getOrDefault(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ, "").isEmpty()) {
             catalogProperty.setEnableMappingTimestampTz(false);

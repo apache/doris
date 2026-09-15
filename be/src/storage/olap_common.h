@@ -170,6 +170,8 @@ enum class FieldType {
     OLAP_FIELD_TYPE_IPV4 = 38,
     OLAP_FIELD_TYPE_IPV6 = 39,
     OLAP_FIELD_TYPE_TIMESTAMPTZ = 40,
+    // A distinct persisted type keeps binary payloads out of character conversion paths.
+    OLAP_FIELD_TYPE_VARBINARY = 41,
 };
 
 // Define all aggregation methods supported by TabletColumn

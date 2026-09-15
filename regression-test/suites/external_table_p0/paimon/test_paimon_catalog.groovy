@@ -92,6 +92,7 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
         def c24 = """select * from complex_tab where c1=1;"""
         def c25 = """select c3['a_test'], c3['b_test'], c3['bbb'], c3['ccc'] from complex_tab order by c3['a_test'], c3['b_test']"""
         def c26 = """select array_max(c2) c from complex_tab order by c"""
+        // Paimon BINARY leaves, including map keys, must retain their byte-exact hexadecimal output.
         def c27 = """select * from complex_all order by c1"""
         def c28 = """select array_min(c2) c from complex_all order by c"""
         def c29 = """select array_min(c3) c from complex_all order by c"""
@@ -281,6 +282,7 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             qt_c98 c98
             qt_c99 c99
             qt_c100 c100
+            // Nested BINARY fields are VARBINARY too, so row output must preserve hex bytes.
             qt_c102 c102
             qt_c103 c103
             qt_c104 c104
@@ -318,6 +320,7 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
         sql """ drop database if exists ${view_db}"""
         sql """ create database if not exists ${view_db}"""
         sql """use ${view_db}"""
+        // Include binary columns so view expansion exercises the catalog's native VARBINARY mapping.
         sql """ create view test_tst_1 as select * from ${catalog_name}.`db1`.all_table; """
         sql """ create view test_tst_2 as select * from ${catalog_name}.`db1`.all_table_with_parquet; """
         sql """ create view test_tst_5 as select * from ${catalog_name}.`db1`.array_nested; """
@@ -331,4 +334,3 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
         // qt_view1 view1
     }
 }
-

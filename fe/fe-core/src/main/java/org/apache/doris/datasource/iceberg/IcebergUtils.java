@@ -79,6 +79,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
+import com.google.common.io.BaseEncoding;
 import com.google.gson.reflect.TypeToken;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -157,6 +158,7 @@ import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -716,14 +718,16 @@ public class IcebergUtils {
             case STRING:
                 return Type.STRING;
             case UUID:
-                return enableMappingVarbinary ? ScalarType.createVarbinaryType(16) : Type.STRING;
+                return ScalarType.createVarbinaryType(16);
             case BINARY:
-                return enableMappingVarbinary ? ScalarType.createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH)
-                        : Type.STRING;
+                // Arbitrary binary payloads are not valid UTF-8 in general, so exposing them as
+                // STRING makes Arrow clients reject otherwise valid Iceberg values.
+                return ScalarType.createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH);
             case FIXED:
                 Types.FixedType fixed = (Types.FixedType) primitive;
-                return enableMappingVarbinary ? ScalarType.createVarbinaryType(fixed.length())
-                        : ScalarType.createCharType(fixed.length());
+                // Iceberg fixed(N) is an arbitrary N-byte value, not text, so retain both its
+                // binary semantics and declared width.
+                return ScalarType.createVarbinaryType(fixed.length());
             case DECIMAL:
                 Types.DecimalType decimal = (Types.DecimalType) primitive;
                 return ScalarType.createDecimalV3Type(decimal.precision(), decimal.scale());
@@ -1045,7 +1049,7 @@ public class IcebergUtils {
         if (typeId == TypeID.BINARY || typeId == TypeID.FIXED) {
             return false;
         }
-        if (enableMappingVarbinary && typeId == TypeID.UUID) {
+        if (typeId == TypeID.UUID) {
             return false;
         }
         return !enableMappingTimestampTz || typeId != TypeID.TIMESTAMP
@@ -1092,7 +1096,7 @@ public class IcebergUtils {
         }
     }
 
-    private static String serializePartitionValue(org.apache.iceberg.types.Type type, Object value, String timeZone) {
+    public static String serializePartitionValue(org.apache.iceberg.types.Type type, Object value, String timeZone) {
         switch (type.typeId()) {
             case BOOLEAN:
             case INTEGER:
@@ -1106,8 +1110,16 @@ public class IcebergUtils {
                     return null;
                 }
                 return value.toString();
-            // case binary, fixed should not supported, because if return string with utf8,
-            // the data maybe be corrupted
+            case BINARY:
+            case FIXED:
+                if (value == null) {
+                    return null;
+                }
+                // Read only the buffer's remaining bytes and never mutate a metadata buffer.
+                ByteBuffer buffer = ((ByteBuffer) value).duplicate();
+                byte[] bytes = new byte[buffer.remaining()];
+                buffer.get(bytes);
+                return "0x" + BaseEncoding.base16().lowerCase().encode(bytes);
             case DATE:
                 if (value == null) {
                     return null;
@@ -1263,6 +1275,20 @@ public class IcebergUtils {
             switch (icebergType.typeId()) {
                 case STRING:
                     return valueStr;
+                case UUID:
+                    if (!valueStr.startsWith("0x")) {
+                        return UUID.fromString(valueStr);
+                    }
+                    ByteBuffer uuidBytes = decodeBinaryPartitionValue(valueStr);
+                    Preconditions.checkArgument(uuidBytes.remaining() == 16, "UUID requires 16 bytes");
+                    return new UUID(uuidBytes.getLong(), uuidBytes.getLong());
+                case BINARY:
+                case FIXED:
+                    ByteBuffer binary = decodeBinaryPartitionValue(valueStr);
+                    Preconditions.checkArgument(icebergType.typeId() != TypeID.FIXED
+                                    || binary.remaining() == ((Types.FixedType) icebergType).length(),
+                            "Invalid fixed partition length");
+                    return binary;
                 case INTEGER:
                     return Integer.parseInt(valueStr);
                 case LONG:
@@ -1287,6 +1313,12 @@ public class IcebergUtils {
             throw new IllegalArgumentException(String.format("Failed to convert partition value '%s' to type %s",
                     valueStr, icebergType), e);
         }
+    }
+
+    private static ByteBuffer decodeBinaryPartitionValue(String value) {
+        // The explicit prefix distinguishes bytes from text across static input and BE commits.
+        Preconditions.checkArgument(value.startsWith("0x"), "Binary partition values require a 0x prefix");
+        return ByteBuffer.wrap(BaseEncoding.base16().decode(value.substring(2).toUpperCase(Locale.ROOT)));
     }
 
     private static String normalizeFloatingPointPartitionValue(String valueStr) {

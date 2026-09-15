@@ -691,11 +691,19 @@ struct TFileScanRangeParams {
     34: optional i32 iceberg_scan_semantics_version
     // FE-generated identity for sharing a deserialized table across JNI scanners in one scan node.
     35: optional string serialized_table_cache_key
-    // 31-33 and 36 are used in master; do not allocate them in branch-4.1.
+    // HMS catalog property hive.parquet.time-zone. Interpretation is versioned by
+    // parquet_timestamp_semantics_version.
+    36: optional string hive_parquet_time_zone
+    // 31-33 are used in master; do not allocate them in branch-4.1.
     37: optional TLanceScanParams lance_scan_params
     // Non-regular columns in the pinned full schema, including columns pruned from phase one.
     // When present, omitted names are REGULAR. Used to rebuild row-id fetch projections.
     38: optional map<string, TColumnCategory> column_name_to_category
+    // If both this marker and the timezone are absent, preserve legacy session-timezone decoding.
+    // Version 1 makes an absent/empty hive_parquet_time_zone explicitly disable INT96 conversion.
+    39: optional i32 parquet_timestamp_semantics_version
+    // Paimon uses FORMAT_JNI at scan level for both native ORC and native Parquet ranges.
+    40: optional bool contains_native_parquet
 }
 
 struct TFileRangeDesc {

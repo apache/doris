@@ -466,7 +466,8 @@ private:
     ObjectPool _pool;
 };
 
-template <typename _ContainerType = DynamicContainer<std::string>>
+template <typename _ContainerType = DynamicContainer<std::string>,
+          typename ColumnType = ColumnString>
 class StringSet : public HybridSetBase {
 public:
     using ContainerType = _ContainerType;
@@ -527,7 +528,7 @@ public:
                         nullmap.data(), start, end);
             } else {
                 _insert_fixed_len_string(
-                        assert_cast<const ColumnString&>(nullable->get_nested_column()),
+                        assert_cast<const ColumnType&>(nullable->get_nested_column()),
                         nullmap.data(), start, end);
             }
         } else {
@@ -535,7 +536,7 @@ public:
                 _insert_fixed_len_string(assert_cast<const ColumnString64&>(*column), nullptr,
                                          start, end);
             } else {
-                _insert_fixed_len_string(assert_cast<const ColumnString&>(*column), nullptr, start,
+                _insert_fixed_len_string(assert_cast<const ColumnType&>(*column), nullptr, start,
                                          end);
             }
         }
@@ -582,7 +583,7 @@ public:
     template <bool is_nullable, bool is_negative>
     void _find_batch(const doris::IColumn& column, size_t rows, const doris::NullMap* null_map,
                      doris::ColumnUInt8::Container& results, const uint8_t* __restrict filter) {
-        const auto& col = assert_cast<const doris::ColumnString&>(column);
+        const auto& col = assert_cast<const ColumnType&>(column);
         const uint8_t* __restrict null_map_data;
         if constexpr (is_nullable) {
             null_map_data = null_map->data();

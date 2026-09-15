@@ -74,6 +74,7 @@ private:
         add_mapping<FieldType::OLAP_FIELD_TYPE_CHAR>();
         add_mapping<FieldType::OLAP_FIELD_TYPE_VARCHAR>();
         add_mapping<FieldType::OLAP_FIELD_TYPE_STRING>();
+        add_mapping<FieldType::OLAP_FIELD_TYPE_VARBINARY>();
         add_mapping<FieldType::OLAP_FIELD_TYPE_BOOL>();
         add_mapping<FieldType::OLAP_FIELD_TYPE_DATEV2>();
         add_mapping<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>();

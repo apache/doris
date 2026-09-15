@@ -145,6 +145,7 @@ private:
             int file_name_index = 0);
 
     IcebergPartitionData _get_partition_data(Block* block, int position);
+    std::string _partition_value_to_human_string(size_t index, const std::any& value);
 
     std::any _get_iceberg_partition_value(const PrimitiveType& type_desc,
                                           const ColumnWithTypeAndName& partition_column,
@@ -180,6 +181,7 @@ private:
     // Static partition values for each partition column (indexed by column index)
     // If _partition_column_is_static[i] is true, this stores the static value.
     std::vector<std::string> _partition_column_static_values;
+    std::vector<std::string> _partition_column_static_path_values;
     // Flags to indicate if the partition column at index i is static
     std::vector<uint8_t> _partition_column_is_static;
 

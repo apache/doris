@@ -47,8 +47,8 @@ public abstract class FileFormatProperties {
     protected TFileFormatType fileFormatType;
 
     protected TFileCompressType compressionType;
-    // Default: false, mapping BINARY types to STRING for compatibility
-    // When enabled, BINARY types map to VARBINARY
+    // TVFs are schema-on-read entry points, so callers must opt in before their result contract
+    // changes from STRING to VARBINARY. Catalog binary mappings do not use this setting.
     public boolean enableMappingVarbinary = false;
     public boolean enableMappingTimestampTz = false;
 

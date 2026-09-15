@@ -56,6 +56,22 @@ public class StreamingJobUtilsTest {
     }
 
     @Test
+    public void testBinarySourceColumnsUseSupportedOlapTypes() {
+        List<Column> columns = new ArrayList<>();
+        columns.add(new Column("payload", ScalarType.createType(PrimitiveType.VARBINARY)));
+        columns.add(new Column("id", ScalarType.createType(PrimitiveType.VARBINARY)));
+        Mockito.when(jdbcClient.getColumnsFromJdbc("source_db", "source_table")).thenReturn(columns);
+
+        List<Column> result = StreamingJobUtils.getColumns(
+                jdbcClient, "source_db", "source_table", Arrays.asList("id"));
+
+        Assert.assertEquals("id", result.get(0).getName());
+        Assert.assertEquals(PrimitiveType.VARCHAR, result.get(0).getDataType());
+        Assert.assertEquals(ScalarType.MAX_VARCHAR_LENGTH, result.get(0).getType().getLength());
+        Assert.assertEquals(PrimitiveType.STRING, result.get(1).getDataType());
+    }
+
+    @Test
     public void testGetColumnsWithPrimaryKeySorting() throws Exception {
         // Prepare test data
         String database = "test_db";
