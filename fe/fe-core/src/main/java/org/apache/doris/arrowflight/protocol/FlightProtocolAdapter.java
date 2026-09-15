@@ -83,8 +83,8 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     // GetFlightInfo would release the SplitSource too early and make the BE's fetchSplitBatch fail
     // with "Split source X is released". These executors are finalized when the next query starts
     // on this connection, when the connection is torn down, or by the idle reaper in
-    // ConnectContext.checkTimeout once the connection has been sleeping for
-    // arrow_flight_deferred_query_idle_timeout_second. See #62259 and #67503.
+    // ConnectContext.checkTimeout once arrow_flight_deferred_query_idle_timeout_second has passed
+    // since the query started. See #62259 and #67503.
     private final List<StmtExecutor> deferredExecutors = new ArrayList<>();
     // Serializes the commands of this session, see runCommand.
     private final ReentrantLock commandLock = new ReentrantLock();
@@ -375,9 +375,28 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     }
 
     /**
+     * When the oldest deferred query started, in epoch milliseconds; -1 when nothing is deferred.
+     * The bound of {@link #getDeferredExecutorsIdleTimeoutS} counts from here, not from the
+     * session's last command: a session option or a metadata request that comes while the client
+     * is still pulling the query's results neither says it is done nor may keep the coordinator
+     * alive for another bound.
+     */
+    public long getDeferredExecutorsStartTimeMs() {
+        long startTimeMs = -1;
+        synchronized (deferredExecutors) {
+            for (StmtExecutor deferredExecutor : deferredExecutors) {
+                long deferredStartTimeMs = deferredExecutor.getDeferredStartTimeMs();
+                startTimeMs = startTimeMs < 0 ? deferredStartTimeMs : Math.min(startTimeMs, deferredStartTimeMs);
+            }
+        }
+        return startTimeMs;
+    }
+
+    /**
      * How long, in seconds, a sleeping connection may keep its deferred executors before the
      * timeout checker finalizes them without killing the connection
-     * (Config.arrow_flight_deferred_query_idle_timeout_second). A Flight client that opens a
+     * (Config.arrow_flight_deferred_query_idle_timeout_second), counted from when the deferred
+     * query started ({@link #getDeferredExecutorsStartTimeMs}). A Flight client that opens a
      * session per query and never closes it would otherwise pin each deferred query's query queue
      * slot and query registration until wait_timeout (8h by default). The bound is never shorter
      * than the execution timeout the deferred query was run with: the client may still be pulling
@@ -415,10 +434,12 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
 
     /**
      * Runs one command of the session, and no other one at the same time: a statement, a prepared
-     * statement action, a DoGet of a frontend-side result, a metadata request. The session's
-     * {@link ConnectContext} is the thread's current context while the command runs. A command
-     * that finds another one still running waits for it up to the session's execution timeout and
-     * then fails with {@code UNAVAILABLE} instead of running concurrently on the same context.
+     * statement action, a DoGet of a frontend-side result, a metadata request, a session option
+     * action. The session's {@link ConnectContext} is the thread's current context while the
+     * command runs, and the command counts as activity of the session's client: wait_timeout starts
+     * over, for a command that runs no statement as much as for one that does. A command that
+     * finds another one still running waits for it up to the session's execution timeout and then
+     * fails with {@code UNAVAILABLE} instead of running concurrently on the same context.
      *
      * <p>Session teardown (bearer token expiry, CloseSession, KILL) does not go through here.
      */
@@ -432,6 +453,7 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     /** {@link #runCommand} for a command that returns a value. */
     public <T, E extends Exception> T callCommand(ConnectContext ctx, SessionCommand<T, E> command) throws E {
         acquireCommandLock(ctx);
+        ctx.refreshStartTime();
         ConnectContext previous = ConnectContext.get();
         ctx.setThreadLocalInfo();
         try {

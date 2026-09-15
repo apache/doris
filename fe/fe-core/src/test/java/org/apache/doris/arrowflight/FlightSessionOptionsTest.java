@@ -19,19 +19,29 @@ package org.apache.doris.arrowflight;
 
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import org.apache.arrow.flight.SessionOptionValue;
 import org.apache.arrow.flight.SessionOptionValueFactory;
 import org.apache.arrow.flight.SetSessionOptionsResult;
 import org.apache.arrow.flight.SetSessionOptionsResult.ErrorValue;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Map;
@@ -125,6 +135,9 @@ public class FlightSessionOptionsTest extends TestWithFeService {
         ConnectContext ctx = rootSession();
         Assertions.assertEquals(ErrorValue.INVALID_VALUE, set(ctx, FlightSessionOptions.CATALOG, str("no_such_catalog")));
         Assertions.assertEquals("internal", ctx.getDefaultCatalog());
+        // A name no catalog can have is the value's fault as much as a name no catalog has.
+        Assertions.assertEquals(ErrorValue.INVALID_VALUE, set(ctx, FlightSessionOptions.CATALOG, str("not.a.catalog.name")));
+        Assertions.assertEquals("internal", ctx.getDefaultCatalog());
         Assertions.assertEquals(ErrorValue.INVALID_VALUE, set(ctx, FlightSessionOptions.SCHEMA, str("no_such_db")));
         Assertions.assertEquals("", ctx.getDatabase());
         // A catalog or a database is named by a string, and by nothing else.
@@ -143,8 +156,10 @@ public class FlightSessionOptionsTest extends TestWithFeService {
         Assertions.assertEquals(ErrorValue.ERROR, set(ctx, FlightSessionOptions.SCHEMA, str(DB)));
         Assertions.assertEquals("", ctx.getDatabase());
         // The statement checks the privilege before it looks the name up, and so does the option:
-        // a user is not told whether a catalog they may not see exists.
+        // a user is not told whether a catalog they may not see exists. The name's format, which
+        // says nothing about what exists, is checked before either.
         Assertions.assertEquals(ErrorValue.ERROR, set(ctx, FlightSessionOptions.CATALOG, str("no_such_catalog")));
+        Assertions.assertEquals(ErrorValue.INVALID_VALUE, set(ctx, FlightSessionOptions.CATALOG, str("not.a.catalog.name")));
     }
 
     @Test
@@ -167,10 +182,6 @@ public class FlightSessionOptionsTest extends TestWithFeService {
         Assertions.assertNull(set(ctx, "insert_max_filter_ratio", SessionOptionValueFactory.makeSessionOptionValue(0.25)));
         Assertions.assertEquals(0.25, ctx.getSessionVariable().getInsertMaxFilterRatio());
         Assertions.assertEquals("0.25", get(ctx, "insert_max_filter_ratio"));
-
-        // A name is looked up the way SET looks it up: case-insensitively.
-        Assertions.assertNull(set(ctx, "Query_Timeout", SessionOptionValueFactory.makeSessionOptionValue(99L)));
-        Assertions.assertEquals(99, ctx.getSessionVariable().getQueryTimeoutS());
     }
 
     @Test
@@ -217,6 +228,51 @@ public class FlightSessionOptionsTest extends TestWithFeService {
         Assertions.assertEquals(ErrorValue.INVALID_NAME, set(ctx, "use_v2_rollup", str("true")));
     }
 
+    // The names that can be set are the names that are read back, spelled the same: a client looks
+    // an option up in what GetSessionOptions answers by the name it set it under. SET takes more
+    // spellings and more names; those are no options.
+    @Test
+    public void testAVariableIsNamedAsItIsReadBackAndOnlySo() {
+        ConnectContext ctx = rootSession();
+        Map<String, SessionOptionValue> options = FlightSessionOptions.get(ctx);
+
+        // Not in another case, although SET takes any.
+        Assertions.assertTrue(options.containsKey("query_timeout"));
+        Assertions.assertNotNull(VariableMgr.getVarContext("Query_Timeout"));
+        Assertions.assertEquals(ErrorValue.INVALID_NAME, set(ctx, "Query_Timeout", str("1")));
+
+        // An experimental variable is read back with its prefix, so it is set with it; SET takes the
+        // name without.
+        Assertions.assertFalse(options.containsKey("enable_shared_scan"));
+        Assertions.assertTrue(options.containsKey("experimental_enable_shared_scan"));
+        Assertions.assertNotNull(VariableMgr.getVarContext("enable_shared_scan"));
+        Assertions.assertEquals(ErrorValue.INVALID_NAME, set(ctx, "enable_shared_scan", str("true")));
+        Assertions.assertNull(set(ctx, "experimental_enable_shared_scan", str("true")));
+        Assertions.assertEquals("true", get(ctx, "experimental_enable_shared_scan"));
+        // One that went GA is read back without the prefix; SET still takes it with, for old scripts.
+        Assertions.assertTrue(options.containsKey("enable_bucket_shuffle_join"));
+        Assertions.assertNotNull(VariableMgr.getVarContext("experimental_enable_bucket_shuffle_join"));
+        Assertions.assertEquals(ErrorValue.INVALID_NAME, set(ctx, "experimental_enable_bucket_shuffle_join", str("true")));
+        Assertions.assertNull(set(ctx, "enable_bucket_shuffle_join", str("true")));
+
+        // A variable SET keeps for old clients although it does nothing any more, and one SHOW
+        // VARIABLES hides, are not read back, so they are no options.
+        Assertions.assertFalse(options.containsKey("enable_nereids_dml"));
+        Assertions.assertNotNull(VariableMgr.getVarContext("enable_nereids_dml"));
+        Assertions.assertEquals(ErrorValue.INVALID_NAME, set(ctx, "enable_nereids_dml", str("true")));
+        Assertions.assertFalse(options.containsKey("deprecated_enable_local_exchange"));
+        Assertions.assertNotNull(VariableMgr.getVarContext("deprecated_enable_local_exchange"));
+        Assertions.assertEquals(ErrorValue.INVALID_NAME, set(ctx, "deprecated_enable_local_exchange", str("true")));
+        Assertions.assertEquals(ErrorValue.INVALID_NAME, set(ctx, "enable_local_exchange", str("true")));
+
+        // And every name read back is one the session knows as an option.
+        for (String name : options.keySet()) {
+            if (!name.equals(FlightSessionOptions.CATALOG) && !name.equals(FlightSessionOptions.SCHEMA)) {
+                Assertions.assertNotNull(VariableMgr.getShownVarContext(name), name);
+            }
+        }
+    }
+
     @Test
     public void testAVariableThatCannotBeSetForTheSessionIsAnError() {
         ConnectContext ctx = rootSession();
@@ -257,6 +313,35 @@ public class FlightSessionOptionsTest extends TestWithFeService {
         Assertions.assertEquals(66, ctx.getSessionVariable().getQueryTimeoutS());
         Assertions.assertEquals(OTHER_DB, ctx.getDatabase());
         Assertions.assertTrue(setAll(ctx, ImmutableMap.of()).isEmpty());
+    }
+
+    // Setting or reading options is no request of the session: what the last request left -- the
+    // result it cached on this frontend, the query whose coordinator it keeps alive for the client's
+    // DoGet -- stays where it is, whatever statements the options run.
+    @Test
+    public void testTheOptionsLeaveTheLastRequestAlone() throws Exception {
+        ConnectContext ctx = rootSession();
+        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
+        ctx.setQueryId(new TUniqueId(1, 1));
+        ctx.getResultSender().sendResultSet(new ShowResultSet(
+                ShowResultSetMetaData.builder().addColumn(new Column("c", ScalarType.createVarchar(20))).build(),
+                Lists.<List<String>>newArrayList(Lists.newArrayList("v"))), null, false);
+        StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
+        ctx.addFlightSqlDeferredExecutor(deferred);
+        Assertions.assertEquals(1, adapter.getChannel().resultNum());
+
+        Assertions.assertNull(set(ctx, "query_timeout", SessionOptionValueFactory.makeSessionOptionValue(77L)));
+        Assertions.assertNull(set(ctx, FlightSessionOptions.SCHEMA, str(DB)));
+        Assertions.assertEquals(ErrorValue.INVALID_VALUE, set(ctx, "query_timeout", str("not a number")));
+        Assertions.assertEquals("77", get(ctx, "query_timeout"));
+        // The statements ran under query ids of their own ...
+        Assertions.assertNotEquals(new TUniqueId(1, 1), ctx.queryId());
+        // ... and left the last request's result and query as they were.
+        Assertions.assertEquals(1, adapter.getChannel().resultNum());
+        Assertions.assertNotNull(adapter.getChannel().getResult(DebugUtil.printId(new TUniqueId(1, 1))));
+        Mockito.verify(deferred, Mockito.never()).finalizeArrowFlightQuery();
+        ctx.closeFlightSqlDeferredExecutors();
+        Mockito.verify(deferred).finalizeArrowFlightQuery();
     }
 
     @Test

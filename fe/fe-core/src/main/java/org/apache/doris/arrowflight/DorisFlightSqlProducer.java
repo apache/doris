@@ -32,14 +32,17 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Message;
+import org.apache.arrow.flight.ActionType;
 import org.apache.arrow.flight.CallStatus;
 import org.apache.arrow.flight.CloseSessionRequest;
 import org.apache.arrow.flight.CloseSessionResult;
 import org.apache.arrow.flight.Criteria;
+import org.apache.arrow.flight.FlightConstants;
 import org.apache.arrow.flight.FlightDescriptor;
 import org.apache.arrow.flight.FlightEndpoint;
 import org.apache.arrow.flight.FlightInfo;
@@ -56,6 +59,7 @@ import org.apache.arrow.flight.SetSessionOptionsRequest;
 import org.apache.arrow.flight.SetSessionOptionsResult;
 import org.apache.arrow.flight.Ticket;
 import org.apache.arrow.flight.sql.FlightSqlProducer;
+import org.apache.arrow.flight.sql.FlightSqlUtils;
 import org.apache.arrow.flight.sql.SqlInfoBuilder;
 import org.apache.arrow.flight.sql.impl.FlightSql.ActionClosePreparedStatementRequest;
 import org.apache.arrow.flight.sql.impl.FlightSql.ActionCreatePreparedStatementRequest;
@@ -111,6 +115,13 @@ import java.util.concurrent.Executors;
  */
 public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable {
     private static final Logger LOG = LogManager.getLogger(DorisFlightSqlProducer.class);
+    /** What ListActions answers: the actions this producer implements, see {@link #listActions}. */
+    public static final List<ActionType> SUPPORTED_ACTIONS = ImmutableList.of(
+            FlightSqlUtils.FLIGHT_SQL_CREATE_PREPARED_STATEMENT,
+            FlightSqlUtils.FLIGHT_SQL_CLOSE_PREPARED_STATEMENT,
+            FlightConstants.SET_SESSION_OPTIONS,
+            FlightConstants.GET_SESSION_OPTIONS,
+            FlightConstants.CLOSE_SESSION);
     private final Location location;
     private final BufferAllocator rootAllocator = new RootAllocator();
     private final SqlInfoBuilder sqlInfoBuilder;
@@ -636,6 +647,19 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     public void getStreamCrossReference(CommandGetCrossReference command, CallContext context,
             ServerStreamListener listener) {
         throw CallStatus.UNIMPLEMENTED.withDescription("getStreamCrossReference unimplemented").toRuntimeException();
+    }
+
+    /**
+     * The actions this producer implements, and only those. Arrow's default lists every Flight SQL
+     * action, the transactions and savepoints among them, which this one answers UNIMPLEMENTED, and
+     * leaves out the session actions of Flight itself, which it does answer.
+     */
+    @Override
+    public void listActions(CallContext context, StreamListener<ActionType> listener) {
+        for (ActionType action : SUPPORTED_ACTIONS) {
+            listener.onNext(action);
+        }
+        listener.onCompleted();
     }
 
     /**

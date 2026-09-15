@@ -411,6 +411,25 @@ public class VariableMgr {
         return ctx;
     }
 
+    /**
+     * The variable SHOW VARIABLES lists under exactly this name, or null when it lists none: the
+     * name is unknown, spelled otherwise (SET takes a name in any case and an experimental
+     * variable's name with or without its prefix; SHOW VARIABLES shows one spelling), or the
+     * variable is removed or invisible.
+     */
+    @Nullable
+    public static VarContext getShownVarContext(String displayName) {
+        VarContext ctx = ctxByDisplayVarName.get(displayName);
+        return ctx != null && isShown(ctx) ? ctx : null;
+    }
+
+    // Whether SHOW VARIABLES lists the variable: a removed or an invisible one it does not.
+    private static boolean isShown(VarContext ctx) {
+        VarAttrDef.VarAttr varAttr = ctx.getField().getAnnotation(VarAttrDef.VarAttr.class);
+        return !VariableAnnotation.REMOVED.equals(varAttr.varType())
+                && (VarAttrDef.INVISIBLE & varAttr.flag()) == 0;
+    }
+
     private static void setVarInternal(SessionVariable sessionVariable, SetVar setVar, VarContext ctx)
             throws DdlException {
         // To modify to default value.
@@ -811,13 +830,7 @@ public class VariableMgr {
         rlock.lock();
         try {
             for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
-                VarAttrDef.VarAttr varAttr = entry.getValue().getField().getAnnotation(VarAttrDef.VarAttr.class);
-                // not show removed variables
-                if (VariableAnnotation.REMOVED.equals(varAttr.varType())) {
-                    continue;
-                }
-                // not show invisible variables
-                if ((VarAttrDef.INVISIBLE & varAttr.flag()) != 0) {
+                if (!isShown(entry.getValue())) {
                     continue;
                 }
                 // Filter variable not match to the regex.
@@ -894,13 +907,7 @@ public class VariableMgr {
         try {
             for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
                 VarContext ctx = entry.getValue();
-                VarAttrDef.VarAttr varAttr = ctx.getField().getAnnotation(VarAttrDef.VarAttr.class);
-                // not show removed variables
-                if (VariableAnnotation.REMOVED.equals(varAttr.varType())) {
-                    continue;
-                }
-                // not show invisible variables
-                if ((VarAttrDef.INVISIBLE & varAttr.flag()) != 0) {
+                if (!isShown(ctx)) {
                     continue;
                 }
                 List<String> row = Lists.newArrayList();
@@ -945,11 +952,7 @@ public class VariableMgr {
         try {
             for (Map.Entry<String, VarContext> entry : ctxByVarName.entrySet()) {
                 VarContext ctx = entry.getValue();
-                VarAttrDef.VarAttr varAttr = ctx.getField().getAnnotation(VarAttrDef.VarAttr.class);
-                if (VariableAnnotation.REMOVED.equals(varAttr.varType())) {
-                    continue;
-                }
-                if ((VarAttrDef.INVISIBLE & varAttr.flag()) != 0) {
+                if (!isShown(ctx)) {
                     continue;
                 }
                 result.put(entry.getKey(), getValue(sessionVar, ctx.getField()));

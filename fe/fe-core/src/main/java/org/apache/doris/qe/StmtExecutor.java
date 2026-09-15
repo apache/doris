@@ -204,6 +204,13 @@ public class StmtExecutor {
     // because per-statement SET_VAR values are reverted at the end of execute(), so reading
     // ConnectContext.getExecTimeoutS() later would report the session value instead.
     private volatile int deferredExecTimeoutS = -1;
+    // The query id and the start time of the deferred query, captured for the same reason: a
+    // statement the session runs before the query is finalized (a SET of the SetSessionOptions
+    // action) gives the context a new query id and start time, while the query is unregistered
+    // and its profile reported under its own id, the idle reaper's bound and the profile's times
+    // counted from its own start.
+    private volatile TUniqueId deferredQueryId;
+    private volatile long deferredStartTimeMs = -1;
     private MasterOpExecutor masterOpExecutor = null;
     // Optional forward target for cancellations issued on this executor: statements that
     // spawn a nested internal executor with its own query id (e.g. IVM dry-run delta
@@ -312,21 +319,24 @@ public class StmtExecutor {
     private Map<String, String> getSummaryInfo(boolean isFinished) {
         long currentTimestamp = System.currentTimeMillis();
         SummaryBuilder builder = new SummaryBuilder();
-        builder.profileId(DebugUtil.printId(context.queryId()));
+        // A deferred Arrow Flight query is finished long after it started, by which time the session
+        // may have run another statement and moved its query id and start time on.
+        builder.profileId(DebugUtil.printId(queryId()));
         if (Version.DORIS_BUILD_VERSION_MAJOR == 0) {
             builder.dorisVersion(Version.DORIS_BUILD_SHORT_HASH);
         } else {
             builder.dorisVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
         }
         builder.taskType(profileType.name());
-        builder.startTime(TimeUtils.longToTimeString(context.getStartTime()));
+        long startTime = deferredForArrowFlight ? deferredStartTimeMs : context.getStartTime();
+        builder.startTime(TimeUtils.longToTimeString(startTime));
         // TODO: Never use custom data format when deliverying information between two systems.
         // UI can not order profile by TOTAL_TIME since its not a sortable string (2h1m3s > 2h1s?)
         // to get decoded info, UI need to decode it first, it means others need to
         // reference the implementation of DebugUtil.getPrettyStringMs to figure out the format
         if (isFinished) {
             builder.endTime(TimeUtils.longToTimeString(currentTimestamp));
-            long executionCosts = currentTimestamp - context.getStartTime();
+            long executionCosts = currentTimestamp - startTime;
             // Execution of parser could happen before StmtExecutor is involved.
             if (getSummaryProfile().parsedByConnectionProcess) {
                 builder.totalTime(DebugUtil.getPrettyStringMs(
@@ -1076,7 +1086,13 @@ public class StmtExecutor {
         // received after unregisterQuery(), causing the instance profile to be lost, so we should wait
         // for the profile before unregisterQuery().
         updateProfile(true);
-        QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
+        QeProcessorImpl.INSTANCE.unregisterQuery(queryId());
+    }
+
+    // The id this query runs under: the context's, until the query is deferred for Arrow Flight and
+    // the context may move on to another statement before the query is finalized.
+    private TUniqueId queryId() {
+        return deferredForArrowFlight ? deferredQueryId : context.queryId();
     }
 
     public boolean isDeferredForArrowFlight() {
@@ -1088,13 +1104,27 @@ public class StmtExecutor {
         return deferredExecTimeoutS;
     }
 
+    // The query id the deferred query runs under; null when the query is not deferred.
+    public TUniqueId getDeferredQueryId() {
+        return deferredQueryId;
+    }
+
+    // When the deferred query started, in epoch milliseconds; -1 when the query is not deferred.
+    public long getDeferredStartTimeMs() {
+        return deferredStartTimeMs;
+    }
+
     // Keep this query's coordinator alive past GetFlightInfo (see the gate in executeAndSendResult)
     // and hand it to the ConnectContext, which finalizes it later. Records the execution timeout in
     // effect right now: it floors the idle reaper's bound and must be the value the query actually
-    // ran with, not the session value left behind after SET_VAR hints are reverted.
+    // ran with, not the session value left behind after SET_VAR hints are reverted. Records the
+    // query id and the start time for the same reason: a statement the session runs in the meantime
+    // replaces both on the context, and the query is finalized under its own.
     void deferForArrowFlight() {
         deferredForArrowFlight = true;
         deferredExecTimeoutS = context.getExecTimeoutS();
+        deferredQueryId = context.queryId();
+        deferredStartTimeMs = context.getStartTime();
         context.addFlightSqlDeferredExecutor(this);
     }
 

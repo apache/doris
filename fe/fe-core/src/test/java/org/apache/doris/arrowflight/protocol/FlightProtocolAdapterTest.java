@@ -31,6 +31,7 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TResultSinkType;
@@ -200,6 +201,35 @@ public class FlightProtocolAdapterTest {
         Assertions.assertSame(previous, ConnectContext.get());
     }
 
+    // A command of the session is activity of its client, whether or not it runs a statement:
+    // wait_timeout starts over. What the last statement recorded is kept, though: a deferred query
+    // of the session is finished later from that record.
+    @Test
+    public void testACommandIsActivityOfTheSession() throws Exception {
+        ConnectContext ctx = flightSession();
+        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
+        ctx.setStartTime();
+        ctx.updateReturnRows(7);
+        ctx.getBackendSelectionProfile().recordQuerySelection(
+                new BackendSelection.SelectionHint("group_a", BackendSelection.Mode.PREFER, "test"),
+                BackendSelection.QuerySelectionResult.PREFERRED_HIT);
+        long before = ctx.getStartTime();
+        while (System.currentTimeMillis() <= before) {
+            Thread.sleep(1);
+        }
+
+        adapter.runCommand(ctx, () -> { });
+
+        Assertions.assertTrue(ctx.getStartTime() > before);
+        Assertions.assertEquals(ctx.getStartTime(), ctx.getStartTimeInstant().toEpochMilli());
+        Assertions.assertEquals(7, ctx.getReturnRows());
+        Assertions.assertNotNull(ctx.getBackendSelectionProfile().getQuerySummary());
+        // Starting a statement does drop the record, as it always did.
+        ctx.setStartTime();
+        Assertions.assertEquals(0, ctx.getReturnRows());
+        Assertions.assertNull(ctx.getBackendSelectionProfile().getQuerySummary());
+    }
+
     @Test
     public void testFailedCommandReleasesTheSession() throws Exception {
         ConnectContext ctx = flightSession();
@@ -277,8 +307,11 @@ public class FlightProtocolAdapterTest {
         // result nobody pulled, the endpoints, and the result is on this frontend again.
         adapter.beforeQuery(ctx);
         StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
+        Mockito.when(deferred.getDeferredStartTimeMs()).thenReturn(1_000L);
         ctx.addFlightSqlDeferredExecutor(deferred);
+        Assertions.assertEquals(1_000L, ctx.getFlightSqlDeferredExecutorsStartTimeMs());
         adapter.beginRequest();
+        Assertions.assertEquals(-1L, ctx.getFlightSqlDeferredExecutorsStartTimeMs());
         Mockito.verify(deferred).finalizeArrowFlightQuery();
         Assertions.assertEquals(0, adapter.getChannel().resultNum());
         Assertions.assertTrue(ctx.getFlightSqlEndpointsLocations().isEmpty());

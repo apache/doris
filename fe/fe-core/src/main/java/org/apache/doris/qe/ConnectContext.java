@@ -808,6 +808,18 @@ public class ConnectContext {
         backendSelectionProfile.reset();
     }
 
+    /**
+     * The client was active just now: wait_timeout counts from here. Unlike {@link #setStartTime},
+     * which starts a statement, this leaves what the last statement recorded (its rows, its backend
+     * selection) as it is, for a command that runs no statement of its own -- an Arrow Flight SQL
+     * session option or metadata request -- while a deferred query of the session may still be
+     * finished later from that record.
+     */
+    public void refreshStartTime() {
+        startTimeInstant = Instant.now();
+        startTime = startTimeInstant.toEpochMilli();
+    }
+
     public BackendSelection.SelectionHint getQueryBackendSelectionDecision() {
         if (queryBackendSelectionDecision == null) {
             queryBackendSelectionDecision = BackendSelectionManager.getQuerySelectionHint(this);
@@ -1034,15 +1046,28 @@ public class ConnectContext {
                 ? ((FlightProtocolAdapter) protocolAdapter).getDeferredExecutorsIdleTimeoutS() : -1;
     }
 
+    // When the oldest deferred query started; -1 when the connection has nothing deferred.
+    public long getFlightSqlDeferredExecutorsStartTimeMs() {
+        return protocolAdapter instanceof FlightProtocolAdapter
+                ? ((FlightProtocolAdapter) protocolAdapter).getDeferredExecutorsStartTimeMs() : -1;
+    }
+
     // Called by the timeout checker for a sleeping connection that is not past wait_timeout yet.
-    private void reapIdleFlightSqlDeferredExecutors(long idleMs) {
+    // The bound counts from when the deferred query started, not from startTime: the session's
+    // later commands (a session option, a metadata request) move startTime on without finishing
+    // that query, and must not keep its coordinator alive either.
+    private void reapIdleFlightSqlDeferredExecutors(long now) {
         long timeoutS = getFlightSqlDeferredExecutorsIdleTimeoutS();
-        if (timeoutS < 0 || idleMs <= timeoutS * 1000L) {
+        if (timeoutS < 0) {
+            return;
+        }
+        long deferredMs = now - getFlightSqlDeferredExecutorsStartTimeMs();
+        if (deferredMs <= timeoutS * 1000L) {
             return;
         }
         LOG.warn("release deferred arrow flight query of idle connection, connectionId: {}, remote: {}, "
-                        + "idle: {}ms, idle timeout: {}s",
-                connectionId, getRemoteHostPortString(), idleMs, timeoutS);
+                        + "deferred for: {}ms, idle timeout: {}s",
+                connectionId, getRemoteHostPortString(), deferredMs, timeoutS);
         closeFlightSqlDeferredExecutors();
     }
 
@@ -1311,7 +1336,7 @@ public class ConnectContext {
                 killFlag = true;
                 killConnection = true;
             } else {
-                reapIdleFlightSqlDeferredExecutors(delta);
+                reapIdleFlightSqlDeferredExecutors(now);
             }
         } else {
             String timeoutTag = "query";

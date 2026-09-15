@@ -103,6 +103,51 @@ public class StmtExecutorTest extends TestWithFeService {
         }
     }
 
+    // A deferred query is finalized after the session may have run another statement -- a SET of the
+    // SetSessionOptions action -- which gives the context a new query id and start time. The query is
+    // unregistered under its own id (its registration, and the user's instance count, would leak
+    // otherwise) and the reaper counts from its own start.
+    @Test
+    public void testDeferForArrowFlightFreezesTheQueryIdAndStartTime() throws Exception {
+        ConnectContext flightContext = ConnectContext.forFlight("test-peer-identity");
+        flightContext.setCurrentUserIdentity(connectContext.getCurrentUserIdentity());
+        flightContext.setEnv(connectContext.getEnv());
+        TUniqueId deferredId = new TUniqueId(0x67966L, 0x1L);
+        TUniqueId laterId = new TUniqueId(0x67966L, 0x2L);
+        flightContext.setQueryId(deferredId);
+        flightContext.setStartTime();
+        long deferredStart = flightContext.getStartTime();
+        Coordinator coord = Mockito.mock(Coordinator.class);
+        Mockito.when(coord.getQueryOptions()).thenReturn(new TQueryOptions());
+        QeProcessorImpl.INSTANCE.registerQuery(deferredId, new QeProcessorImpl.QueryInfo(flightContext, "select 1", coord));
+        try {
+            StmtExecutor stmtExecutor = new StmtExecutor(flightContext,
+                    analyzeAndGetStmtByNereids("select 1", flightContext));
+            Assertions.assertNull(stmtExecutor.getDeferredQueryId());
+            Assertions.assertEquals(-1L, stmtExecutor.getDeferredStartTimeMs());
+
+            stmtExecutor.deferForArrowFlight();
+            Assertions.assertEquals(deferredId, stmtExecutor.getDeferredQueryId());
+            Assertions.assertEquals(deferredStart, stmtExecutor.getDeferredStartTimeMs());
+            Assertions.assertEquals(deferredStart, flightContext.getFlightSqlDeferredExecutorsStartTimeMs());
+
+            // Another statement of the session, before the deferred query is finalized.
+            flightContext.setQueryId(laterId);
+            flightContext.setStartTime();
+            Assertions.assertEquals(deferredId, stmtExecutor.getDeferredQueryId());
+            Assertions.assertEquals(deferredStart, stmtExecutor.getDeferredStartTimeMs());
+            Assertions.assertEquals(deferredStart, flightContext.getFlightSqlDeferredExecutorsStartTimeMs());
+
+            Assertions.assertSame(coord, QeProcessorImpl.INSTANCE.getCoordinator(deferredId));
+            flightContext.closeFlightSqlDeferredExecutors();
+            Assertions.assertNull(QeProcessorImpl.INSTANCE.getCoordinator(deferredId));
+            Assertions.assertEquals(-1L, flightContext.getFlightSqlDeferredExecutorsStartTimeMs());
+        } finally {
+            QeProcessorImpl.INSTANCE.unregisterQuery(deferredId);
+            flightContext.closeFlightSqlDeferredExecutors();
+        }
+    }
+
     // Arrow Flight SQL keeps a query's coordinator alive across GetFlightInfo -> DoGet (see #62259);
     // it is released later by finalizeArrowFlightQuery(), which closes the coordinator and then
     // unregisters the query. The close and the unregister must be independent: if coord.close()

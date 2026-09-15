@@ -46,10 +46,9 @@ suite("test_session_options") {
     int port = context.config.otherConfigs.get("extArrowFlightSqlPort") as int
     String user = context.config.otherConfigs.get("extArrowFlightSqlUser")
     String password = context.config.otherConfigs.get("extArrowFlightSqlPassword")
-    String tableName = "session_options_tbl"
 
-    sql "DROP TABLE IF EXISTS ${tableName}"
-    sql "CREATE TABLE ${tableName} (k INT) DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num' = '1')"
+    sql "DROP TABLE IF EXISTS session_options_tbl"
+    sql "CREATE TABLE session_options_tbl (k INT) DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num' = '1')"
 
     def allocator = new RootAllocator()
     def client = FlightClient.builder(allocator, Location.forGrpcInsecure(host, port)).build()
@@ -114,10 +113,10 @@ suite("test_session_options") {
         assertTrue(initial.size() > 100, "expected the session variables, got ${initial.size()} options")
 
         // 2. `schema` is the current database: the statements of the session run in it afterwards.
-        statementFails("SHOW TABLES LIKE '${tableName}'", "No database selected")
+        statementFails("SHOW TABLES LIKE 'session_options_tbl'", "No database selected")
         assertEquals([:], set([schema: str(context.dbName)]))
         assertEquals(context.dbName, options()["schema"])
-        assertEquals(1, rows("SHOW TABLES LIKE '${tableName}'").size())
+        assertEquals(1, rows("SHOW TABLES LIKE 'session_options_tbl'").size())
 
         // 3. `catalog` is the current catalog; switching to the one the session is in keeps its database.
         assertEquals([:], set([catalog: str("internal")]))
@@ -136,11 +135,21 @@ suite("test_session_options") {
         assertEquals([:], set([query_timeout: SessionOptionValueFactory.makeEmptySessionOptionValue()]))
         assertEquals(defaultTimeout, options()["query_timeout"])
 
-        // 5. Each option of a request is set on its own and answered on its own.
+        // 5. Each option of a request is set on its own and answered on its own. A variable is named
+        //    as GetSessionOptions names it, and only so: not in another case, not without the prefix
+        //    an experimental one is shown with, and a hidden or a retired one is no option at all.
         assertEquals([no_such_variable: "INVALID_NAME"], set([no_such_variable: str("1")]))
+        assertEquals([Query_Timeout: "INVALID_NAME"], set([Query_Timeout: str("1")]))
+        assertEquals([enable_shared_scan: "INVALID_NAME"], set([enable_shared_scan: str("true")]))
+        assertEquals([:], set([experimental_enable_shared_scan: str("true")]))
+        assertEquals("true", options()["experimental_enable_shared_scan"])
+        assertEquals([enable_local_exchange: "INVALID_NAME", enable_nereids_dml: "INVALID_NAME"],
+                set([enable_local_exchange: str("true"), enable_nereids_dml: str("true")]))
         assertEquals([schema: "INVALID_VALUE"], set([schema: str("no_such_db_for_session_options")]))
         assertEquals(context.dbName, options()["schema"])
         assertEquals([catalog: "INVALID_VALUE"], set([catalog: str("no_such_catalog_for_session_options")]))
+        assertEquals([catalog: "INVALID_VALUE"], set([catalog: str("not.a.catalog.name")]))
+        assertEquals("internal", options()["catalog"])
         assertEquals([query_timeout: "INVALID_VALUE"], set([query_timeout: str("not a number")]))
         assertEquals([net_buffer_length: "ERROR"], set([net_buffer_length: str("1")]))
         assertEquals([no_such_variable: "INVALID_NAME", time_zone: "INVALID_VALUE"],
@@ -189,6 +198,4 @@ suite("test_session_options") {
         assertTrue(messages.any { it != null && it.contains("Cannot set session option for catalog") },
                 "expected the driver to report the refused catalog option, got: ${messages}")
     }
-
-    sql "DROP TABLE IF EXISTS ${tableName}"
 }

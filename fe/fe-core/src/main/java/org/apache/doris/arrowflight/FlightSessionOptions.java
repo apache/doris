@@ -18,7 +18,9 @@
 package org.apache.doris.arrowflight;
 
 import org.apache.doris.analysis.SetType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -41,7 +43,6 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Pattern;
 
 /**
  * The session options of an Arrow Flight SQL session, as the SetSessionOptions and GetSessionOptions
@@ -49,14 +50,16 @@ import java.util.regex.Pattern;
  *
  * <p>An option stands for the statement of the session that sets it: {@code catalog} is the current
  * catalog ({@code SWITCH}), {@code schema} the current database ({@code USE}), and any other name is
- * the session variable of that name ({@code SET SESSION}). Those two names are what the ADBC Flight
- * SQL driver puts on the wire for {@code adbc.connection.catalog} and
+ * the session variable {@code SHOW VARIABLES} lists under that name ({@code SET SESSION}). Those two
+ * names are what the ADBC Flight SQL driver puts on the wire for {@code adbc.connection.catalog} and
  * {@code adbc.connection.db_schema}, and what the Flight SQL JDBC driver sends for its
  * {@code catalog} property; every other option name the drivers pass through as given. Setting an
  * option runs its statement as a command of the session, so it is checked, audited and takes effect
  * exactly as if the client had sent the statement. Reading the options back gives what
  * {@code SHOW VARIABLES} shows, every value as a string: the one representation {@code SET} accepts
- * back, whatever the Java type of the variable behind it.
+ * back, whatever the Java type of the variable behind it. The names an option goes by are exactly
+ * the names that are read back, spelled the same: a client looks an option up in the result of
+ * GetSessionOptions by the name it set it under.
  *
  * <p>The result of setting an option is one of the three {@link ErrorValue}s per name and nothing
  * else, so the reason a value was refused only reaches the frontend log.
@@ -68,10 +71,6 @@ public final class FlightSessionOptions {
     public static final String CATALOG = "catalog";
     /** The current database; set with {@code USE}. */
     public static final String SCHEMA = "schema";
-
-    // What a session variable is called in SET: VariableMgr looks the name up case-insensitively,
-    // and only a name made of these characters is one the parser reads as the variable's identifier.
-    private static final Pattern VARIABLE_NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
 
     private FlightSessionOptions() {
     }
@@ -138,6 +137,15 @@ public final class FlightSessionOptions {
         if (catalog == null || catalog.isEmpty()) {
             return ErrorValue.INVALID_VALUE;
         }
+        // SWITCH checks the name's format before anything else and its error code would not reach
+        // here (see runStatement); the check is one of the value alone, so it is made here first.
+        try {
+            Util.checkCatalogAllRules(catalog);
+        } catch (AnalysisException e) {
+            LOG.warn("session option {} of Arrow Flight SQL connection {} could not be set, catalog name {} "
+                    + "is malformed: {}", CATALOG, ctx.getConnectionId(), catalog, e.getMessage());
+            return ErrorValue.INVALID_VALUE;
+        }
         return runStatement(ctx, CATALOG, "SWITCH " + quoteIdentifier(catalog), ErrorCode.ERR_UNKNOWN_CATALOG);
     }
 
@@ -150,14 +158,13 @@ public final class FlightSessionOptions {
     }
 
     private static ErrorValue setVariable(ConnectContext ctx, String name, SessionOptionValue value) {
-        // Only a session variable is a session option. A name SET quietly ignores for the sake of
-        // MySQL clients (a removed variable, the MySQL compatibility whitelist) is no variable of
-        // this session either: setting it would set nothing, and reading the options back would not
-        // list it.
-        if (!VARIABLE_NAME.matcher(name).matches()) {
-            return ErrorValue.INVALID_NAME;
-        }
-        VarContext varCtx = VariableMgr.getVarContext(name);
+        // A session option is a variable SHOW VARIABLES lists, under the name it lists it by: the
+        // name it was set under is the name it is read back under. SET takes more -- a name in any
+        // case, an experimental variable's name without its prefix, a variable it quietly ignores or
+        // keeps for old clients, a hidden one -- and none of those spellings would be read back.
+        // (The name is declared in SessionVariable, so it is an identifier the statement below can
+        // carry as it is.)
+        VarContext varCtx = VariableMgr.getShownVarContext(name);
         if (varCtx == null) {
             return ErrorValue.INVALID_NAME;
         }
@@ -172,8 +179,11 @@ public final class FlightSessionOptions {
         if (literal == null) {
             return ErrorValue.INVALID_VALUE;
         }
-        // The name and the scope were checked above, so what is left for SET to refuse is the value:
-        // its type, its range, or what a variable's own checker makes of it.
+        // The name and the scope were checked above, so what is normally left for SET to refuse is
+        // the value: its type, its range, or what a variable's own checker makes of it. A refusal
+        // that is not the value's -- the session may not run statements right now, say -- is
+        // reported the same way, as the executor leaves one generic error code for every failure of
+        // the statement (see runStatement); the reason is in the log either way.
         return runStatement(ctx, name, "SET SESSION " + name + " = " + literal, null);
     }
 
@@ -182,8 +192,11 @@ public final class FlightSessionOptions {
      * {@code INVALID_VALUE} when the value was refused and {@code ERROR} otherwise. For SWITCH and
      * USE the two are told apart by the error code the statement left on the session: an unknown
      * catalog or database is written there by the command itself, while a statement that fails in
-     * validation, e.g. for lack of privilege, leaves the executor's generic code. For SET every
-     * failure is the value's (see {@link #setVariable}), so {@code refusedValueCode} is null there.
+     * validation, e.g. for lack of privilege, leaves the executor's generic code -- the executor
+     * reports every exception a command throws under {@code ERR_UNKNOWN_ERROR}, whatever code the
+     * exception carried. For SET that is every failure, so nothing but the value's own checks (made
+     * before the statement runs, see {@link #setVariable}) can be told apart, and
+     * {@code refusedValueCode} is null there.
      */
     private static ErrorValue runStatement(ConnectContext ctx, String option, String statement,
             ErrorCode refusedValueCode) {
