@@ -650,9 +650,8 @@ TEST_F(BlockFileCacheTtlMgrTest, ExpiredTabletDemotesTtlBlocksRestoredFromDisk) 
                                    std::chrono::seconds(5)));
 }
 
-// The read path types a block from ttl_seconds alone, without regard to whether the TTL has
-// passed, so an expired tablet that is still being queried keeps producing TTL blocks after its
-// existing ones were demoted. Those have to be collected too.
+// Blocks can still land in the TTL queue after a tablet's existing ones were demoted, and the
+// recorded state is per tablet, so it cannot tell that they have. They have to be collected too.
 TEST_F(BlockFileCacheTtlMgrTest, ExpiredTabletDemotesTtlBlocksCachedAfterDemotion) {
     constexpr int64_t kTabletId = 11011;
     auto tablet = std::make_shared<FakeTablet>(UnixSeconds(), 120);
@@ -673,7 +672,7 @@ TEST_F(BlockFileCacheTtlMgrTest, ExpiredTabletDemotesTtlBlocksCachedAfterDemotio
     ASSERT_TRUE(wait_for_condition([&]() { return block->cache_type() == FileCacheType::NORMAL; },
                                    std::chrono::seconds(5)));
 
-    // A query landing after the demotion caches a fresh block, still as TTL.
+    // A fresh block lands in the TTL queue after the demotion.
     const uint64_t expiration_time = UnixSeconds() + 3600;
     UInt128Wrapper late_hash;
     auto late_block = create_block(kTabletId, "ttl-expire-then-cache-late", 0, 1024, &late_hash,

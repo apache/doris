@@ -215,11 +215,9 @@ void BlockFileCacheTtlMgr::reconcile_tablet_blocks(int64_t tablet_id) {
     // also what makes a TTL rewritten to another still-valid value free, which matters where
     // the property is rewritten on a schedule.
     //
-    // Demotion is level triggered, and has to be. The read path derives a block's cache type
-    // from ttl_seconds alone, without regard to whether the TTL has passed: beta_rowset_reader
-    // assigns that duration to io_ctx.expiration_time, and CacheContext turns any non-zero
-    // value into a TTL block. So a tablet past its TTL keeps producing TTL blocks for as long
-    // as it is read, and nothing but this scan collects them.
+    // Demotion is level triggered: blocks can still land in the TTL queue after a tablet was
+    // demoted, and what is recorded here is per tablet, so it cannot tell whether any have.
+    // Rescanning is the only way to collect them.
     if (want_ttl && blocks_promoted) {
         return;
     }
