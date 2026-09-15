@@ -356,6 +356,92 @@ size_t get_number_of_dimensions(const IColumn& column) {
     return 0;
 }
 
+bool is_variant_boolean_numeric_mix(PrimitiveType left, PrimitiveType right) {
+    const auto is_number = [](PrimitiveType type) {
+        switch (type) {
+        case TYPE_TINYINT:
+        case TYPE_SMALLINT:
+        case TYPE_INT:
+        case TYPE_BIGINT:
+        case TYPE_LARGEINT:
+        case TYPE_FLOAT:
+        case TYPE_DOUBLE:
+            return true;
+        default:
+            return false;
+        }
+    };
+    return (left == TYPE_BOOLEAN && is_number(right)) || (right == TYPE_BOOLEAN && is_number(left));
+}
+
+namespace {
+// Types of one Variant path without Nothing and without the outer Nullable.
+DataTypes non_nothing_base_types(const DataTypes& types, bool* have_nullable) {
+    DataTypes base_types;
+    base_types.reserve(types.size());
+    for (const auto& type : types) {
+        if (type->get_primitive_type() == INVALID_TYPE) {
+            continue;
+        }
+        *have_nullable = *have_nullable || type->is_nullable();
+        base_types.push_back(remove_nullable(type));
+    }
+    return base_types;
+}
+
+bool all_arrays(const DataTypes& types) {
+    return std::ranges::all_of(types, [](const DataTypePtr& type) {
+        return typeid_cast<const DataTypeArray*>(type.get()) != nullptr;
+    });
+}
+
+DataTypes array_element_types(const DataTypes& types) {
+    DataTypes element_types;
+    element_types.reserve(types.size());
+    for (const auto& type : types) {
+        element_types.push_back(assert_cast<const DataTypeArray&>(*type).get_nested_type());
+    }
+    return element_types;
+}
+
+bool has_variant_boolean_numeric_mix(const DataTypes& types) {
+    bool have_nullable = false;
+    const DataTypes base_types = non_nothing_base_types(types, &have_nullable);
+    if (base_types.empty()) {
+        return false;
+    }
+    if (all_arrays(base_types)) {
+        return has_variant_boolean_numeric_mix(array_element_types(base_types));
+    }
+    for (size_t left = 0; left < base_types.size(); ++left) {
+        for (size_t right = left + 1; right < base_types.size(); ++right) {
+            if (is_variant_boolean_numeric_mix(base_types[left]->get_primitive_type(),
+                                               base_types[right]->get_primitive_type())) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+} // namespace
+
+void get_least_common_variant_path_type(const DataTypes& types, DataTypePtr* type) {
+    if (!has_variant_boolean_numeric_mix(types)) {
+        get_least_supertype_jsonb(types, type);
+        return;
+    }
+    bool have_nullable = false;
+    const DataTypes base_types = non_nothing_base_types(types, &have_nullable);
+    DataTypePtr result = std::make_shared<DataTypeJsonb>();
+    if (all_arrays(base_types)) {
+        // Keep the array shape; only the conflicting element type becomes JSONB.
+        DataTypePtr element_type;
+        get_least_common_variant_path_type(array_element_types(base_types), &element_type);
+        result = std::make_shared<DataTypeArray>(element_type);
+    }
+    *type = have_nullable ? make_nullable(result) : result;
+}
+
 DataTypePtr get_base_type_of_array(const DataTypePtr& type) {
     /// Get raw pointers to avoid extra copying of type pointers.
     const DataTypeArray* last_array = nullptr;
@@ -596,7 +682,7 @@ Status update_least_schema_internal(const std::map<PathInData, DataTypes>& subco
             continue;
         }
         DataTypePtr common_type;
-        get_least_supertype_jsonb(subtypes, &common_type);
+        get_least_common_variant_path_type(subtypes, &common_type);
         if (!common_type->is_nullable()) {
             common_type = make_nullable(common_type);
         }
@@ -1177,7 +1263,7 @@ Status VariantCompactionUtil::get_compaction_nested_columns(
             return Status::InternalError("Nested path {} has no data type", path.get_path());
         }
         DataTypePtr data_type;
-        get_least_supertype_jsonb(find_data_types->second, &data_type);
+        get_least_common_variant_path_type(find_data_types->second, &data_type);
 
         const std::string& column_name = parent_column->name_lower_case() + "." + path.get_path();
         PathInDataBuilder full_path_builder;
@@ -1248,7 +1334,7 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
         // normal case: the subcolumn type can be calculated from the data types in segments
         else {
             DataTypePtr data_type;
-            get_least_supertype_jsonb(find_data_types->second, &data_type);
+            get_least_common_variant_path_type(find_data_types->second, &data_type);
             TabletColumn sub_column =
                     get_column_by_type(data_type, column_name,
                                        ExtraInfo {.unique_id = -1,
@@ -1276,7 +1362,7 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
             continue;
         }
         DataTypePtr data_type;
-        get_least_supertype_jsonb(data_types, &data_type);
+        get_least_common_variant_path_type(data_types, &data_type);
         auto column_name = parent_column->name_lower_case() + "." + path.get_path();
         auto column_path = make_full_subcolumn_path(parent_column, path.get_path());
         TabletColumn sub_column =

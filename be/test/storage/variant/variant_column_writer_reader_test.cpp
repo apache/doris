@@ -579,6 +579,104 @@ TEST(VariantPathBuilderTest, StableScalarFastPathPreservesInferenceBoundaries) {
     });
 }
 
+// The `conflict` path above (int, then two bools) already falls back to JSONB and keeps the
+// booleans lossless, because append_integer() throws when a BOOL value hits an already-INT
+// typed_path builder, and the catch block in VariantPathBuilder::append() promotes to JSONB.
+// The opposite order -- BOOL first, then a numeric value -- must behave the same way. Without the
+// path_least_common_type() fix, get_numeric_type() (core/data_type/get_least_supertype.cpp) counts
+// TYPE_BOOLEAN as an 8-bit unsigned integer, so BOOL merged with TINYINT/INT/BIGINT/FLOAT/DOUBLE
+// silently produced a numeric common type. promote() then cast the existing BOOL column to that
+// numeric type, turning the stored `true` into `1` -- an observable Variant/JSON semantics bug
+// (true must never equal 1).
+TEST(VariantPathBuilderTest, BoolFirstThenNumericFallsBackToJsonbPreservingBooleanValue) {
+    const auto verify = [](auto append_second, const std::string& expected_second) {
+        VariantBatchBuilder value_builder;
+        auto bool_row = value_builder.begin_row();
+        bool_row.add_bool(true);
+        bool_row.finish();
+        auto second_row = value_builder.begin_row();
+        append_second(second_row);
+        second_row.finish();
+        VariantBatchBuilder values = value_builder.finish_batch();
+
+        segment_v2::VariantPathBuilder builder(PathInData("metric"));
+        ASSERT_TRUE(builder.append(values.value_at(0), 0).ok());
+        ASSERT_TRUE(builder.append(values.value_at(1), 1).ok());
+        EXPECT_EQ(remove_nullable(builder.type())->get_primitive_type(), TYPE_JSONB);
+        EXPECT_EQ(builder.type()->to_string(*builder.column(), 0), "true");
+        EXPECT_EQ(builder.type()->to_string(*builder.column(), 1), expected_second);
+    };
+
+    verify([](auto& row) { row.add_int(0); }, "0");
+    verify([](auto& row) { row.add_double(1.5); }, "1.5");
+}
+
+// Extends the scenario to a longer sequence (bool, int, double, bool) so a later value cannot
+// re-widen the path in a way that loses the earlier boolean or turns a later `false` into `0`.
+TEST(VariantPathBuilderTest, BoolIntDoubleFalseSequenceKeepsBooleansAndNumbersDistinct) {
+    VariantBatchBuilder value_builder;
+    auto row0 = value_builder.begin_row();
+    row0.add_bool(true);
+    row0.finish();
+    auto row1 = value_builder.begin_row();
+    row1.add_int(0);
+    row1.finish();
+    auto row2 = value_builder.begin_row();
+    row2.add_double(1.5);
+    row2.finish();
+    auto row3 = value_builder.begin_row();
+    row3.add_bool(false);
+    row3.finish();
+    VariantBatchBuilder values = value_builder.finish_batch();
+
+    segment_v2::VariantPathBuilder builder(PathInData("metric"));
+    for (size_t row = 0; row < values.num_rows(); ++row) {
+        ASSERT_TRUE(builder.append(values.value_at(row), row).ok());
+    }
+    EXPECT_EQ(remove_nullable(builder.type())->get_primitive_type(), TYPE_JSONB);
+    EXPECT_EQ(builder.type()->to_string(*builder.column(), 0), "true");
+    EXPECT_EQ(builder.type()->to_string(*builder.column(), 1), "0");
+    EXPECT_EQ(builder.type()->to_string(*builder.column(), 2), "1.5");
+    EXPECT_EQ(builder.type()->to_string(*builder.column(), 3), "false");
+}
+
+// path_least_common_type() recurses into the array element type for ARRAY-vs-ARRAY merges, so an
+// ARRAY[BOOL] path followed by an ARRAY[INT] row must also keep the boolean lossless instead of
+// letting the shared numeric-tower rule fold BOOLEAN into the element's common integer type.
+TEST(VariantPathBuilderTest, BoolAndIntArraysFallBackToJsonbElementPreservingBooleanValue) {
+    VariantBatchBuilder value_builder;
+    auto row0 = value_builder.begin_row();
+    {
+        auto array = row0.start_array();
+        row0.add_bool(true);
+        array.finish();
+    }
+    row0.finish();
+    auto row1 = value_builder.begin_row();
+    {
+        auto array = row1.start_array();
+        row1.add_int(0);
+        array.finish();
+    }
+    row1.finish();
+    VariantBatchBuilder values = value_builder.finish_batch();
+
+    segment_v2::VariantPathBuilder builder(PathInData("metric"));
+    ASSERT_TRUE(builder.append(values.value_at(0), 0).ok());
+    ASSERT_TRUE(builder.append(values.value_at(1), 1).ok());
+    const DataTypePtr base = remove_nullable(builder.type());
+    ASSERT_EQ(base->get_primitive_type(), TYPE_ARRAY);
+    const DataTypePtr element =
+            remove_nullable(assert_cast<const DataTypeArray&>(*base).get_nested_type());
+    EXPECT_EQ(element->get_primitive_type(), TYPE_JSONB);
+    // DataTypeJsonbSerDe::to_string() quotes its JSON text whenever _nesting_level > 1 (the same
+    // convention DATE/IPV4/IPV6/HLL/... serdes use for their own nested elements), so a JSONB array
+    // element renders quoted here. What matters for this bug is that "true" and "0" stay distinct
+    // strings instead of both collapsing to the same 0/1 text.
+    EXPECT_EQ(builder.type()->to_string(*builder.column(), 0), R"(["true"])");
+    EXPECT_EQ(builder.type()->to_string(*builder.column(), 1), R"(["0"])");
+}
+
 TEST(VariantPathBuilderTest, StableScalarGuardRetainsDecimalAndAppendFailureFallbacks) {
     VariantBatchBuilder value_builder;
     auto valid_row = value_builder.begin_row();

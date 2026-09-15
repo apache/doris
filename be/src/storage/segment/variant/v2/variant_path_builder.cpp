@@ -376,6 +376,9 @@ DataTypePtr path_least_common_type(const DataTypePtr& left, const DataTypePtr& r
         }
         return jsonb_type();
     }
+    if (variant_util::is_variant_boolean_numeric_mix(left_primitive, right_primitive)) {
+        return jsonb_type();
+    }
     DataTypePtr result;
     get_least_supertype_jsonb(DataTypes {left, right}, &result);
     return result ? result : jsonb_type();
