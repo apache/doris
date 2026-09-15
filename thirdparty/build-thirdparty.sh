@@ -1102,6 +1102,11 @@ build_paimon_cpp() {
         patch -p1 < "${TP_DIR}/patches/paimon-cpp-0.3.0-table-schema.patch"
         touch doris-table-schema.patched
     fi
+    # Keep shredded Variant Parquet schemas readable by Java Paimon.
+    if [[ ! -f doris-variant-field-ids.patched ]]; then
+        patch -p1 < "${TP_DIR}/patches/paimon-cpp-0.3.0-variant-field-ids.patch"
+        touch doris-variant-field-ids.patched
+    fi
     local paimon_runtime_flags="" paimon_install_rpath='$ORIGIN'
     local -a paimon_runtime_libraries=()
     if [[ "${KERNEL}" == "Linux" ]]; then

@@ -28,13 +28,13 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
     String catalogName = "test_pw_variant_shredding_catalog"
     String dbName = "test_pw_variant_shredding_db"
     String shreddingSchema =
-            '{"type":"ROW","fields":[{"name":"payload","type":{"type":"ROW","fields":[' +
-            '{"name":"age","type":"INT"},' +
-            '{"name":"city","type":"STRING"},' +
-            '{"name":"active","type":"BOOLEAN"},' +
-            '{"name":"profile","type":{"type":"ROW","fields":[' +
-            '{"name":"name","type":"STRING"},' +
-            '{"name":"scores","type":{"type":"ARRAY","element":"INT"}}' +
+            '{"type":"ROW","fields":[{"id":0,"name":"payload","type":{"type":"ROW","fields":[' +
+            '{"id":1,"name":"age","type":"INT"},' +
+            '{"id":2,"name":"city","type":"STRING"},' +
+            '{"id":3,"name":"active","type":"BOOLEAN"},' +
+            '{"id":4,"name":"profile","type":{"type":"ROW","fields":[' +
+            '{"id":5,"name":"name","type":"STRING"},' +
+            '{"id":6,"name":"scores","type":{"type":"ARRAY","element":"INT"}}' +
             ']}}]}}]}'
 
     // TODO: Use variant.shreddingSchema after Paimon passes the global option to its Parquet
@@ -75,7 +75,8 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
         TBLPROPERTIES (
             'file.format' = 'parquet',
             'write-only' = 'true',
-            'variant.inferShreddingSchema' = 'true'
+            'variant.inferShreddingSchema' = 'true',
+            'variant.shredding.inferenceMode' = 'adaptive'
         );
 
         DROP TABLE IF EXISTS paimon.${dbName}.t_variant_mixed;
@@ -153,8 +154,7 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
         // root scalars, empty objects, Variant null, and SQL null.
         explain {
             sql "INSERT INTO t_variant_shredded VALUES (0, parse_to_variant('{}'))"
-            contains "backend: JNI"
-            contains "native VARIANT shredding requires SDK Parquet field ID interoperability fixes"
+            contains "backend: CPP"
         }
         sql """
             INSERT INTO t_variant_shredded VALUES
@@ -168,12 +168,11 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
                 (8, parse_to_variant('{"profile":{"name":"bob","scores":[30],"extra":"nested-kept"},"other":"root-kept"}'))
         """
 
-        // Even an explicit schema with inference disabled must fall back before opening a CPP
-        // writer. Keep logical and physical readback checks: fallback must still produce shredding.
+        // Explicit shredding with inference disabled must also use the native writer. Keep logical
+        // and physical readback checks to verify interoperability with the Java reader.
         explain {
             sql "INSERT INTO t_variant_fallback SELECT id, payload FROM t_variant_shredded"
-            contains "backend: JNI"
-            contains "native VARIANT shredding requires SDK Parquet field ID interoperability fixes"
+            contains "backend: CPP"
         }
         sql "INSERT INTO t_variant_fallback SELECT id, payload FROM t_variant_shredded"
         assertEquals(sql("SELECT id, CAST(payload AS STRING), payload IS NULL FROM t_variant_shredded ORDER BY id"),
@@ -272,13 +271,12 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
             ALTER TABLE paimon.${dbName}.t_variant_mixed
             SET TBLPROPERTIES ('parquet.variant.shreddingSchema' = '${shreddingSchema}')
         """
-        // Reload the table so planning switches from CPP to JNI for newly shredded files.
-        // The reader must combine old native ordinary files and new JNI shredded files.
+        // Reload the table so the new shredding option is visible to the native writer. The reader
+        // must combine old ordinary files and new shredded files.
         createDorisCatalog()
         explain {
             sql "INSERT INTO t_variant_mixed VALUES (200, parse_to_variant('{\"age\":200}'))"
-            contains "backend: JNI"
-            contains "native VARIANT shredding requires SDK Parquet field ID interoperability fixes"
+            contains "backend: CPP"
         }
         sql """
             INSERT INTO t_variant_mixed VALUES
@@ -303,13 +301,12 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
             ORDER BY id
         """
 
-        // Paimon 1.4 can infer one shredding schema per file writer. Doris still sends the same
-        // logical value/metadata pair; the SDK buffers the rows, chooses typed fields, and writes
-        // typed_value without a caller-provided schema.
+        // Paimon 1.4 can infer and adapt the shredding schema inside a writer. Doris still sends
+        // the same logical value/metadata pair; the SDK buffers the rows, chooses typed fields,
+        // and writes typed_value without a caller-provided schema.
         explain {
             sql "INSERT INTO t_variant_inferred VALUES (0, parse_to_variant('{}'))"
-            contains "backend: JNI"
-            contains "native VARIANT shredding requires SDK Parquet field ID interoperability fixes"
+            contains "backend: CPP"
         }
         sql """
             INSERT INTO t_variant_inferred VALUES

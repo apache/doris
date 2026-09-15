@@ -17,12 +17,14 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.common.util.JsonUtil;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPaimonStorageDescriptor;
 import org.apache.doris.thrift.TPaimonWriteMode;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableSet;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -34,6 +36,7 @@ import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.utils.JsonSerdeUtil;
 
 import java.net.URI;
 import java.util.Collections;
@@ -46,7 +49,12 @@ public final class PaimonCppWriteSupport {
     private static final Set<String> OPTIONS = ImmutableSet.of(
             "bucket", "file.format", "manifest.format", "write-only", "path", "owner",
             "file.compression", "target-file-size", "write-buffer-size",
-            "page-size", "commit.force-create-snapshot", "variant.inferShreddingSchema", "read.batch-size");
+            "page-size", "commit.force-create-snapshot", "variant.shreddingSchema",
+            "parquet.variant.shreddingSchema", "variant.inferShreddingSchema",
+            "variant.shredding.inferenceMode", "variant.shredding.maxSchemaWidth",
+            "variant.shredding.maxSchemaDepth", "variant.shredding.minFieldCardinalityRatio",
+            "variant.shredding.maxInferBufferRow", "variant.shredding.adaptive.maxInferBufferRow",
+            "variant.shredding.adaptive.retentionRatio", "read.batch-size");
     private static final Set<String> TYPES = ImmutableSet.of(
             "BOOLEAN", "TINYINT", "SMALLINT", "INTEGER", "BIGINT", "FLOAT", "DOUBLE", "VARCHAR", "VARBINARY");
 
@@ -119,20 +127,15 @@ public final class PaimonCppWriteSupport {
         if (columns.size() != fields.size()) {
             return "v1 requires all columns in table order";
         }
+        String configuredShreddingSchema = options.containsKey("variant.shreddingSchema")
+                ? options.get("variant.shreddingSchema")
+                : options.get("parquet.variant.shreddingSchema");
+        boolean hasVariant = false;
         for (int i = 0; i < fields.size(); i++) {
             DataField field = fields.get(i);
             boolean variant = containsVariant(field.type());
             if (variant) {
-                if (!"parquet".equalsIgnoreCase(fileFormat)) {
-                    return "native VARIANT writes require Parquet data files";
-                }
-                // Ordinary VARIANT fields retain IDs. Only the SDK-generated shredded physical
-                // fields lack the IDs required by Java readers. Decide before opening a writer.
-                if (options.containsKey("variant.shreddingSchema")
-                        || options.containsKey("parquet.variant.shreddingSchema")
-                        || "true".equalsIgnoreCase(options.get("variant.inferShreddingSchema"))) {
-                    return "native VARIANT shredding requires SDK Parquet field ID interoperability fixes";
-                }
+                hasVariant = true;
             }
             if (!columns.get(i).equals(field.name())
                     || !(TYPES.contains(field.type().getTypeRoot().name())
@@ -140,28 +143,62 @@ public final class PaimonCppWriteSupport {
                 return "v1 requires ordered primitive or supported VARIANT columns";
             }
         }
-        if (options.containsKey("variant.inferShreddingSchema")
-                && !"false".equalsIgnoreCase(options.get("variant.inferShreddingSchema"))) {
-            return "native writes require variant.inferShreddingSchema=false";
+        if (hasVariant && configuredShreddingSchema != null
+                && isValidShreddingSchemaWithoutIds(configuredShreddingSchema)) {
+            return "native VARIANT shredding schema requires explicit field IDs";
         }
-        // Reader capacity is independent of the native writer's input batch size. Preserve an
-        // explicitly configured value, using the same bounds as the Doris Paimon JNI reader.
-        if (options.containsKey("read.batch-size")) {
-            try {
-                int readBatchSize = Integer.parseInt(options.get("read.batch-size"));
-                if (readBatchSize < 1 || readBatchSize > 65536) {
-                    return "read.batch-size must be between 1 and 65536";
-                }
-            } catch (NumberFormatException e) {
-                return "read.batch-size must be an integer between 1 and 65536";
-            }
-        }
+        // Do not duplicate Paimon SDK option validation here. Invalid values must reach the
+        // selected SDK and retain its authoritative diagnostic instead of being disguised as a
+        // JNI compatibility fallback.
         for (String option : options.keySet()) {
             if (!OPTIONS.contains(option)) {
                 return "unvalidated table option: " + option;
             }
         }
         return null;
+    }
+
+    private static boolean isValidShreddingSchemaWithoutIds(String schema) {
+        try {
+            DataType type = JsonSerdeUtil.fromJson(schema, DataType.class);
+            if (!(type instanceof RowType)) {
+                return false;
+            }
+            FieldIdStats stats = new FieldIdStats();
+            collectFieldIds(JsonUtil.readTree(schema), stats);
+            return stats.total > 0 && stats.present == 0;
+        } catch (RuntimeException e) {
+            // Let the selected SDK parse invalid schemas so callers receive its diagnostic.
+            return false;
+        }
+    }
+
+    private static void collectFieldIds(JsonNode type, FieldIdStats stats) {
+        if (type == null || !type.isObject() || !type.path("type").isTextual()) {
+            return;
+        }
+        String typeName = type.path("type").asText();
+        if (typeName.startsWith("ROW")) {
+            JsonNode fields = type.get("fields");
+            for (JsonNode field : fields) {
+                stats.total++;
+                JsonNode id = field.get("id");
+                if (id != null) {
+                    stats.present++;
+                }
+                collectFieldIds(field.get("type"), stats);
+            }
+        } else if (typeName.startsWith("ARRAY") || typeName.startsWith("MULTISET")) {
+            collectFieldIds(type.get("element"), stats);
+        } else if (typeName.startsWith("MAP")) {
+            collectFieldIds(type.get("key"), stats);
+            collectFieldIds(type.get("value"), stats);
+        }
+    }
+
+    private static final class FieldIdStats {
+        private int total;
+        private int present;
     }
 
     private static boolean containsVariant(DataType type) {

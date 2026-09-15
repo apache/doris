@@ -1,0 +1,237 @@
+Based on official paimon-cpp v0.3.0. Add deterministic Paimon field IDs to the
+physical schema generated for shredded Variant columns so Java Paimon can
+convert and read the Parquet schema.
+
+Upstream issue: https://github.com/apache/paimon-cpp/issues/344
+
+diff --git a/src/paimon/common/data/variant/variant_shredding_utils.cpp b/src/paimon/common/data/variant/variant_shredding_utils.cpp
+--- a/src/paimon/common/data/variant/variant_shredding_utils.cpp
++++ b/src/paimon/common/data/variant/variant_shredding_utils.cpp
+@@ -23,6 +23,9 @@
+ 
+ #include "paimon/common/data/variant/variant_shredding_utils.h"
+ 
++#include <cstdint>
++#include <limits>
++#include <optional>
+ #include <string>
+ #include <utility>
+ #include <vector>
+@@ -32,6 +35,7 @@
+ #include "fmt/format.h"
+ #include "paimon/common/data/variant/variant_defs.h"
+ #include "paimon/common/data/variant/variant_type_utils.h"
++#include "paimon/common/types/data_field.h"
+ 
+ namespace paimon {
+ 
+@@ -42,14 +46,61 @@ Status InvalidVariantShreddingSchema(const std::shared_ptr<arrow::DataType>& typ
+         fmt::format("Invalid variant shredding schema: {}", type ? type->ToString() : "null"));
+ }
+ 
++constexpr int32_t kStructuredTypeFieldIdBase = std::numeric_limits<int32_t>::max() / 4;
++constexpr int32_t kStructuredTypeFieldDepthLimit = 1 << 10;
++
++Result<std::shared_ptr<arrow::Field>> WithPaimonFieldIds(
++    const std::shared_ptr<arrow::Field>& field, int32_t fallback_field_id,
++    const std::optional<int32_t>& structured_root_id = std::nullopt, int32_t structured_depth = 0) {
++    std::shared_ptr<arrow::Field> field_with_id = field;
++    if (!field->HasMetadata() || !field->metadata()->Contains(DataField::FIELD_ID)) {
++        auto metadata = arrow::KeyValueMetadata::Make({DataField::FIELD_ID},
++                                                      {std::to_string(fallback_field_id)});
++        field_with_id = field->WithMergedMetadata(metadata);
++    }
++    PAIMON_ASSIGN_OR_RAISE(DataField data_field,
++                           DataField::ConvertArrowFieldToDataField(field_with_id));
++
++    if (field_with_id->type()->id() == arrow::Type::STRUCT) {
++        const auto& struct_type = static_cast<const arrow::StructType&>(*field_with_id->type());
++        arrow::FieldVector children;
++        children.reserve(struct_type.num_fields());
++        for (int32_t i = 0; i < struct_type.num_fields(); ++i) {
++            PAIMON_ASSIGN_OR_RAISE(auto child, WithPaimonFieldIds(struct_type.field(i), i));
++            children.push_back(std::move(child));
++        }
++        return field_with_id->WithType(arrow::struct_(std::move(children)));
++    }
++    if (field_with_id->type()->id() == arrow::Type::LIST) {
++        const auto& list_type = static_cast<const arrow::ListType&>(*field_with_id->type());
++        int32_t root_id = structured_root_id.value_or(data_field.Id());
++        int32_t child_depth = structured_depth + 1;
++        int32_t child_id =
++            kStructuredTypeFieldIdBase + root_id * kStructuredTypeFieldDepthLimit + child_depth;
++        PAIMON_ASSIGN_OR_RAISE(auto child, WithPaimonFieldIds(list_type.value_field(), child_id,
++                                                              root_id, child_depth));
++        return field_with_id->WithType(arrow::list(std::move(child)));
++    }
++    return field_with_id;
++}
++
+ // Mirrors the Java `PaimonShreddingUtils.variantShreddingSchema(dataType, isTopLevel,
+ // isObjectField)`.
+ Result<std::shared_ptr<arrow::DataType>> VariantShreddingSchemaImpl(
+     const std::shared_ptr<arrow::DataType>& data_type, bool is_top_level, bool is_object_field) {
+     arrow::FieldVector fields;
++    int32_t next_field_id = 0;
++    auto add_generated_field = [&](const std::string& name,
++                                   const std::shared_ptr<arrow::DataType>& type,
++                                   bool nullable) -> Status {
++        PAIMON_ASSIGN_OR_RAISE(
++            auto field, WithPaimonFieldIds(arrow::field(name, type, nullable), next_field_id++));
++        fields.push_back(std::move(field));
++        return Status::OK();
++    };
+     if (is_top_level) {
+-        fields.push_back(arrow::field(VariantDefs::kMetadataFieldName, arrow::binary(),
+-                                      /*nullable=*/false));
++        PAIMON_RETURN_NOT_OK(add_generated_field(VariantDefs::kMetadataFieldName, arrow::binary(),
++                                                 /*nullable=*/false));
+     }
+     switch (data_type->id()) {
+         case arrow::Type::LIST: {
+@@ -58,10 +109,10 @@ Result<std::shared_ptr<arrow::DataType>> VariantShreddingSchemaImpl(
+                                    VariantShreddingSchemaImpl(list_type->value_type(),
+                                                               /*is_top_level=*/false,
+                                                               /*is_object_field=*/false));
+-            fields.push_back(
+-                arrow::field(VariantDefs::kValueFieldName, arrow::binary(), /*nullable=*/true));
+-            fields.push_back(arrow::field(VariantDefs::kTypedValueFieldName,
+-                                          arrow::list(element_type), /*nullable=*/true));
++            PAIMON_RETURN_NOT_OK(add_generated_field(VariantDefs::kValueFieldName, arrow::binary(),
++                                                     /*nullable=*/true));
++            PAIMON_RETURN_NOT_OK(add_generated_field(VariantDefs::kTypedValueFieldName,
++                                                     arrow::list(element_type), /*nullable=*/true));
+             break;
+         }
+         case arrow::Type::STRUCT: {
+@@ -70,18 +121,23 @@ Result<std::shared_ptr<arrow::DataType>> VariantShreddingSchemaImpl(
+             // "value" and "typed_value" to null.
+             const auto& struct_type = std::static_pointer_cast<arrow::StructType>(data_type);
+             arrow::FieldVector shredded_fields;
++            int32_t object_field_id = 0;
+             for (const auto& field : struct_type->fields()) {
+                 PAIMON_ASSIGN_OR_RAISE(std::shared_ptr<arrow::DataType> field_type,
+                                        VariantShreddingSchemaImpl(field->type(),
+                                                                   /*is_top_level=*/false,
+                                                                   /*is_object_field=*/true));
+-                shredded_fields.push_back(
+-                    arrow::field(field->name(), field_type, /*nullable=*/false));
++                PAIMON_ASSIGN_OR_RAISE(
++                    auto shredded_field,
++                    WithPaimonFieldIds(field->WithType(field_type)->WithNullable(false),
++                                       object_field_id++));
++                shredded_fields.push_back(std::move(shredded_field));
+             }
+-            fields.push_back(
+-                arrow::field(VariantDefs::kValueFieldName, arrow::binary(), /*nullable=*/true));
+-            fields.push_back(arrow::field(VariantDefs::kTypedValueFieldName,
+-                                          arrow::struct_(shredded_fields), /*nullable=*/true));
++            PAIMON_RETURN_NOT_OK(add_generated_field(VariantDefs::kValueFieldName, arrow::binary(),
++                                                     /*nullable=*/true));
++            PAIMON_RETURN_NOT_OK(add_generated_field(VariantDefs::kTypedValueFieldName,
++                                                     arrow::struct_(shredded_fields),
++                                                     /*nullable=*/true));
+             break;
+         }
+         case arrow::Type::NA: {
+@@ -89,8 +145,8 @@ Result<std::shared_ptr<arrow::DataType>> VariantShreddingSchemaImpl(
+             // need a typed column. If there is no typed column, value is required for array
+             // elements or top-level fields, but optional for objects (where a null represents a
+             // missing field).
+-            fields.push_back(arrow::field(VariantDefs::kValueFieldName, arrow::binary(),
+-                                          /*nullable=*/is_object_field));
++            PAIMON_RETURN_NOT_OK(add_generated_field(VariantDefs::kValueFieldName, arrow::binary(),
++                                                     /*nullable=*/is_object_field));
+             break;
+         }
+         case arrow::Type::STRING:
+@@ -103,10 +159,10 @@ Result<std::shared_ptr<arrow::DataType>> VariantShreddingSchemaImpl(
+         case arrow::Type::INT64:
+         case arrow::Type::FLOAT:
+         case arrow::Type::DOUBLE: {
+-            fields.push_back(
+-                arrow::field(VariantDefs::kValueFieldName, arrow::binary(), /*nullable=*/true));
+-            fields.push_back(arrow::field(VariantDefs::kTypedValueFieldName, data_type,
+-                                          /*nullable=*/true));
++            PAIMON_RETURN_NOT_OK(add_generated_field(VariantDefs::kValueFieldName, arrow::binary(),
++                                                     /*nullable=*/true));
++            PAIMON_RETURN_NOT_OK(add_generated_field(VariantDefs::kTypedValueFieldName, data_type,
++                                                     /*nullable=*/true));
+             break;
+         }
+         default:
+diff --git a/src/paimon/common/data/variant/variant_shredding_test.cpp b/src/paimon/common/data/variant/variant_shredding_test.cpp
+--- a/src/paimon/common/data/variant/variant_shredding_test.cpp
++++ b/src/paimon/common/data/variant/variant_shredding_test.cpp
+@@ -216,6 +216,35 @@ TEST_F(VariantShreddingTest, ShreddingSchemaShape) {
+         VariantShreddingUtils::VariantShreddingSchema(arrow::map(arrow::utf8(), arrow::int32())));
+ }
+ 
++TEST_F(VariantShreddingTest, ShreddingSchemaFieldIdsMatchJava) {
++    auto explicit_id = arrow::KeyValueMetadata::Make({"paimon.id"}, {"7"});
++    auto shredding_type = arrow::struct_({
++        arrow::field("a", arrow::int32(), /*nullable=*/true, explicit_id),
++        arrow::field("b", arrow::utf8()),
++        arrow::field("c", arrow::list(arrow::int32())),
++    });
++    ASSERT_OK_AND_ASSIGN(std::shared_ptr<arrow::DataType> physical,
++                         VariantShreddingUtils::VariantShreddingSchema(shredding_type));
++    const auto& top_level = static_cast<const arrow::StructType&>(*physical);
++    ASSERT_EQ(top_level.field(0)->metadata()->Get("paimon.id").ValueOr(""), "0");
++    ASSERT_EQ(top_level.field(1)->metadata()->Get("paimon.id").ValueOr(""), "1");
++    ASSERT_EQ(top_level.field(2)->metadata()->Get("paimon.id").ValueOr(""), "2");
++
++    const auto& typed_value = static_cast<const arrow::StructType&>(*top_level.field(2)->type());
++    ASSERT_EQ(typed_value.field(0)->metadata()->Get("paimon.id").ValueOr(""), "7");
++    ASSERT_EQ(typed_value.field(1)->metadata()->Get("paimon.id").ValueOr(""), "1");
++    ASSERT_EQ(typed_value.field(2)->metadata()->Get("paimon.id").ValueOr(""), "2");
++    for (const auto& object_field : typed_value.fields()) {
++        const auto& object_value = static_cast<const arrow::StructType&>(*object_field->type());
++        ASSERT_EQ(object_value.field(0)->metadata()->Get("paimon.id").ValueOr(""), "0");
++        ASSERT_EQ(object_value.field(1)->metadata()->Get("paimon.id").ValueOr(""), "1");
++    }
++    const auto& array_wrapper =
++        static_cast<const arrow::StructType&>(*typed_value.field(2)->type());
++    const auto& array_type = static_cast<const arrow::ListType&>(*array_wrapper.field(1)->type());
++    ASSERT_EQ(array_type.value_field()->metadata()->Get("paimon.id").ValueOr(""), "536871936");
++}
++
+ TEST_F(VariantShreddingTest, ShredObject) {
+     // Mirrors the Java GenericVariantTest#testShredding scenarios.
+     auto variant_json = R"({"a": 1, "b": "hello"})";
+diff --git a/src/paimon/format/parquet/variant_parquet_test.cpp b/src/paimon/format/parquet/variant_parquet_test.cpp
+--- a/src/paimon/format/parquet/variant_parquet_test.cpp
++++ b/src/paimon/format/parquet/variant_parquet_test.cpp
+@@ -620,6 +620,32 @@ TEST_F(VariantParquetTest, ShreddedWriteAndReadRoundTrip) {
+     WriteShreddedFile(jsons, kAgeCityShreddingSchema);
+ 
+     {
++        auto file = arrow::io::ReadableFile::Open(file_path_, arrow_pool_.get());
++        ASSERT_TRUE(file.ok());
++        std::unique_ptr<::parquet::arrow::FileReader> raw_reader;
++        ASSERT_TRUE(
++            ::parquet::arrow::OpenFile(file.ValueOrDie(), arrow_pool_.get(), &raw_reader).ok());
++        const ::parquet::SchemaDescriptor* schema =
++            raw_reader->parquet_reader()->metadata()->schema();
++        const auto* root = schema->group_node();
++        const auto* variant =
++            static_cast<const ::parquet::schema::GroupNode*>(root->field(1).get());
++        ASSERT_EQ(variant->field(0)->field_id(), 0);
++        ASSERT_EQ(variant->field(1)->field_id(), 1);
++        ASSERT_EQ(variant->field(2)->field_id(), 2);
++        const auto* typed_value =
++            static_cast<const ::parquet::schema::GroupNode*>(variant->field(2).get());
++        ASSERT_EQ(typed_value->field(0)->field_id(), 1);
++        ASSERT_EQ(typed_value->field(1)->field_id(), 2);
++        for (int32_t i = 0; i < typed_value->field_count(); ++i) {
++            const auto* object_field =
++                static_cast<const ::parquet::schema::GroupNode*>(typed_value->field(i).get());
++            ASSERT_EQ(object_field->field(0)->field_id(), 0);
++            ASSERT_EQ(object_field->field(1)->field_id(), 1);
++        }
++    }
++
++    {
+         std::unique_ptr<FileBatchReader> file_reader;
+         std::shared_ptr<arrow::Schema> file_schema;
+         OpenFile(&file_reader, &file_schema);

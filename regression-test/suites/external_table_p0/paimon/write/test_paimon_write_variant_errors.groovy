@@ -51,6 +51,17 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon,nonConcurrent") {
             payload VARIANT
         ) USING paimon
         TBLPROPERTIES ('file.format' = 'parquet', 'write-only' = 'true');
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_variant_invalid_sdk_config;
+        CREATE TABLE paimon.${dbName}.t_variant_invalid_sdk_config (
+            id INT,
+            payload VARIANT
+        ) USING paimon
+        TBLPROPERTIES (
+            'file.format' = 'parquet',
+            'write-only' = 'true',
+            'variant.inferShreddingSchema' = 'invalid'
+        );
     """
 
     sql """DROP CATALOG IF EXISTS ${catalogName}"""
@@ -98,6 +109,17 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon,nonConcurrent") {
             explain {
                 sql "INSERT INTO t_variant_error VALUES (0, parse_to_variant('{}'))"
                 contains "backend: CPP"
+            }
+
+            // FE selects the capable SDK instead of duplicating its option validation. Invalid
+            // configuration must remain on the CPP path and expose the paimon-cpp diagnostic.
+            explain {
+                sql "INSERT INTO t_variant_invalid_sdk_config VALUES (1, parse_to_variant('{}'))"
+                contains "backend: CPP"
+            }
+            test {
+                sql "INSERT INTO t_variant_invalid_sdk_config VALUES (1, parse_to_variant('{}'))"
+                exception "Paimon native: Invalid: Invalid Config [variant.inferShreddingSchema: invalid]"
             }
 
             sql """

@@ -44,7 +44,14 @@ import java.util.stream.Collectors;
 
 public class PaimonCppWriteSupportTest {
     private static final List<String> COLUMNS = Arrays.asList("id", "name");
-    private static final String SHREDDING_SCHEMA = "{\"type\":\"ROW\",\"fields\":[{\"name\":\"name\","
+    private static final String SHREDDING_SCHEMA = "{\"type\":\"ROW\",\"fields\":[{\"id\":0,\"name\":\"name\","
+            + "\"type\":{\"type\":\"ROW\",\"fields\":[{\"id\":1,\"name\":\"age\","
+            + "\"type\":\"INT\"}]}}]}";
+    private static final String SHREDDING_SCHEMA_WITHOUT_IDS =
+            "{\"type\":\"ROW\",\"fields\":[{\"name\":\"name\","
+            + "\"type\":{\"type\":\"ROW\",\"fields\":[{\"name\":\"age\",\"type\":\"INT\"}]}}]}";
+    private static final String SHREDDING_SCHEMA_WITH_PARTIAL_IDS =
+            "{\"type\":\"ROW\",\"fields\":[{\"id\":0,\"name\":\"name\","
             + "\"type\":{\"type\":\"ROW\",\"fields\":[{\"name\":\"age\",\"type\":\"INT\"}]}}]}";
 
     private String unsupportedReason(FileStoreTable table, List<String> columns, TPaimonWriteMode mode) {
@@ -54,6 +61,11 @@ public class PaimonCppWriteSupportTest {
     private String unsupportedReason(FileStoreTable table, List<String> columns, TPaimonWriteMode mode,
             Map<StorageProperties.Type, StorageProperties> storage) {
         return PaimonCppWriteSupport.decide(table, columns, mode, storage).getFallbackReason();
+    }
+
+    private PaimonCppWriteSupport.Decision decision(FileStoreTable table) {
+        return PaimonCppWriteSupport.decide(
+                table, COLUMNS, TPaimonWriteMode.APPEND, Collections.emptyMap());
     }
 
     private TPaimonTableDescriptor describe(FileStoreTable table) {
@@ -116,12 +128,7 @@ public class PaimonCppWriteSupportTest {
                     FileStoreTable table = variantTable(options, type);
                     PaimonCppWriteSupport.Decision decision = PaimonCppWriteSupport.decide(
                             table, COLUMNS, TPaimonWriteMode.APPEND, Collections.emptyMap());
-                    boolean ordinary = key.isEmpty() && !"true".equals(infer);
-                    Assert.assertEquals(ordinary, decision.isSupported());
-                    if (!ordinary) {
-                        Assert.assertEquals("native VARIANT shredding requires SDK Parquet field ID "
-                                + "interoperability fixes", decision.getFallbackReason());
-                    }
+                    Assert.assertTrue(decision.getFallbackReason(), decision.isSupported());
                     TPaimonTableDescriptor descriptor = PaimonWriteBinding.describeTable(
                             table, Collections.emptyMap(), Collections.emptyMap());
                     TableSchema restored = TableSchema.fromJson(descriptor.getSchemaJson());
@@ -140,19 +147,46 @@ public class PaimonCppWriteSupportTest {
         options.put("parquet.variant.shreddingSchema", SHREDDING_SCHEMA);
         for (String format : Arrays.asList("orc", "avro")) {
             options.put("file.format", format);
-            Assert.assertNotNull(unsupportedReason(variantTable(options, DataTypes.VARIANT()),
-                    COLUMNS, TPaimonWriteMode.APPEND));
+            // This is not a Java-compatible fallback. Let the selected SDK report that VARIANT
+            // is unsupported by this file format.
+            Assert.assertTrue(decision(variantTable(options, DataTypes.VARIANT())).isSupported());
         }
         options.put("file.format", "parquet");
-        Assert.assertNotNull(unsupportedReason(variantTable(options, DataTypes.ARRAY(DataTypes.VARIANT())),
-                COLUMNS, TPaimonWriteMode.APPEND));
+        Assert.assertTrue(decision(variantTable(
+                options, DataTypes.ARRAY(DataTypes.VARIANT()))).isSupported());
         for (TPaimonWriteMode mode : Arrays.asList(TPaimonWriteMode.OVERWRITE, TPaimonWriteMode.CHANGELOG)) {
             Assert.assertNotNull(unsupportedReason(variantTable(options, DataTypes.VARIANT()), COLUMNS, mode));
+        }
+
+        options.put("parquet.variant.shreddingSchema", SHREDDING_SCHEMA_WITHOUT_IDS);
+        Assert.assertEquals("native VARIANT shredding schema requires explicit field IDs",
+                unsupportedReason(variantTable(options, DataTypes.VARIANT()), COLUMNS,
+                        TPaimonWriteMode.APPEND));
+        for (String schema : Arrays.asList(SHREDDING_SCHEMA_WITH_PARTIAL_IDS, "{invalid", "\"INT\"")) {
+            options.put("parquet.variant.shreddingSchema", schema);
+            // Invalid SDK input is not a JNI compatibility condition. The C++ writer owns the
+            // parse error when it is selected.
+            Assert.assertTrue(schema, decision(variantTable(options, DataTypes.VARIANT())).isSupported());
         }
     }
 
     @Test
-    public void testOrdinaryNestedVariant() {
+    public void testVariantAdaptiveShreddingOptions() {
+        Map<String, String> options = new HashMap<>();
+        options.put("variant.inferShreddingSchema", "true");
+        options.put("variant.shredding.inferenceMode", "adaptive");
+        options.put("variant.shredding.maxSchemaWidth", "20");
+        options.put("variant.shredding.maxSchemaDepth", "5");
+        options.put("variant.shredding.minFieldCardinalityRatio", "0.25");
+        options.put("variant.shredding.maxInferBufferRow", "128");
+        options.put("variant.shredding.adaptive.maxInferBufferRow", "64");
+        options.put("variant.shredding.adaptive.retentionRatio", "0.2");
+        Assert.assertNull(unsupportedReason(variantTable(options, DataTypes.VARIANT()),
+                COLUMNS, TPaimonWriteMode.APPEND));
+    }
+
+    @Test
+    public void testNestedVariantWithShreddingOptions() {
         DataType row = DataTypes.ROW(new DataField(2, "label", DataTypes.STRING()),
                 new DataField(3, "payload", DataTypes.VARIANT()));
         for (DataType type : Arrays.asList(DataTypes.ARRAY(DataTypes.VARIANT()),
@@ -162,8 +196,11 @@ public class PaimonCppWriteSupportTest {
             FileStoreTable table = variantTable(Collections.emptyMap(), type);
             Assert.assertNull(type.toString(), unsupportedReason(table, COLUMNS, TPaimonWriteMode.APPEND));
             Assert.assertEquals(table.schema().fields(), TableSchema.fromJson(describe(table).getSchemaJson()).fields());
-            Assert.assertNotNull(unsupportedReason(variantTable(
+            Assert.assertNull(type.toString(), unsupportedReason(variantTable(
                     Collections.singletonMap("variant.inferShreddingSchema", "true"), type),
+                    COLUMNS, TPaimonWriteMode.APPEND));
+            Assert.assertNull(type.toString(), unsupportedReason(variantTable(
+                    Collections.singletonMap("parquet.variant.shreddingSchema", SHREDDING_SCHEMA), type),
                     COLUMNS, TPaimonWriteMode.APPEND));
         }
         // Do not broaden unrelated complex types or unsupported scalar children along with VARIANT.
@@ -174,9 +211,9 @@ public class PaimonCppWriteSupportTest {
             Assert.assertNotNull(unsupportedReason(variantTable(Collections.emptyMap(), type),
                     COLUMNS, TPaimonWriteMode.APPEND));
         }
-        Assert.assertNotNull(unsupportedReason(variantTable(
-                Collections.singletonMap("variant.inferShreddingSchema", "invalid"), DataTypes.VARIANT()),
-                COLUMNS, TPaimonWriteMode.APPEND));
+        Assert.assertTrue(decision(variantTable(
+                Collections.singletonMap("variant.inferShreddingSchema", "invalid"),
+                DataTypes.VARIANT())).isSupported());
     }
 
     @Test
@@ -189,9 +226,10 @@ public class PaimonCppWriteSupportTest {
                     .options().get("read.batch-size"));
         }
         for (String value : Arrays.asList("0", "65537", "invalid", "2147483648")) {
-            Assert.assertNotNull(unsupportedReason(variantTable(
-                    Collections.singletonMap("read.batch-size", value), DataTypes.VARIANT()),
-                    COLUMNS, TPaimonWriteMode.APPEND));
+            // The selected SDK or reader owns invalid option diagnostics; routing must not turn
+            // them into an unrelated JNI compatibility fallback.
+            Assert.assertTrue(value, decision(variantTable(
+                    Collections.singletonMap("read.batch-size", value), DataTypes.VARIANT())).isSupported());
         }
     }
 
@@ -230,12 +268,15 @@ public class PaimonCppWriteSupportTest {
         }
         Assert.assertNull(unsupportedReason(
                 table(Collections.singletonMap("owner", "hadoop")), COLUMNS, TPaimonWriteMode.APPEND));
+        Assert.assertTrue(decision(table(
+                Collections.singletonMap("variant.inferShreddingSchema", "true"))).isSupported());
+        Assert.assertTrue(decision(table(
+                Collections.singletonMap("variant.shreddingSchema", SHREDDING_SCHEMA_WITHOUT_IDS))).isSupported());
         for (Map<String, String> options : Arrays.asList(
                 Collections.singletonMap("unknown-option", "true"),
                 Collections.singletonMap("bucket", "4"),
                 Collections.singletonMap("write-only", "false"),
                 Collections.singletonMap("file.format", "csv"),
-                Collections.singletonMap("variant.inferShreddingSchema", "true"),
                 Collections.singletonMap("changelog-producer", "input"))) {
             Assert.assertNotNull(unsupportedReason(
                     table(options), COLUMNS, TPaimonWriteMode.APPEND));
