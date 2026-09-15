@@ -378,7 +378,7 @@ public class TSOServiceTest {
             TSOService.TSOStatusSnapshot statusSnapshot = tsoService.getStatusSnapshot();
             Assertions.assertFalse(statusSnapshot.isInitialized());
             Assertions.assertEquals(0L, statusSnapshot.getCurrentTso());
-            Assertions.assertEquals(0L, statusSnapshot.getWindowEndPhysicalTime());
+            Assertions.assertEquals(0L, statusSnapshot.getWindowEndPhysicalTimeMs());
 
             try {
                 tsoService.getTSO();
@@ -525,7 +525,7 @@ public class TSOServiceTest {
                 () -> tsoService.getCommitTSOAfterFence(1, 10, Set.of(100L),
                         TSOTimestamp.composePhysicalTimestamp(100), fenceTso));
 
-        Assertions.assertTrue(failure.getMessage().contains("TXN_COMMIT_TSO_FENCED"));
+        Assertions.assertTrue(failure.getMessage().contains("TXN_COMMIT_TSO_EXPIRED"));
         Field trackerField = TSOService.class.getDeclaredField("transactionTracker");
         trackerField.setAccessible(true);
         Assertions.assertEquals(0,
@@ -672,7 +672,7 @@ public class TSOServiceTest {
             Assertions.assertEquals(tsoService.getCurrentTSO(), error.getCurrentTso());
             Assertions.assertEquals(unrelated.getCommittedTso(), error.getCommittedTso());
         }
-        tsoService.transactionFinished(1, 10);
+        tsoService.markTxnFinished(1, 10);
         TSOService.TSOStatusSnapshot finished = tsoService.waitForReadableWindow(
                 Map.of(1L, Collections.singletonList(100L)), 120, 0);
         // A table-specific successful read does not advance the global durable prefix.
@@ -720,16 +720,16 @@ public class TSOServiceTest {
             config.when(Config::isCloudMode).thenReturn(true);
             Mockito.doAnswer(invocation -> {
                 Assertions.assertEquals(80, tsoService.getStatusSnapshot().getCommittedTso());
-                Assertions.assertEquals(200, tsoService.getStatusSnapshot().getWindowEndPhysicalTime());
+                Assertions.assertEquals(200, tsoService.getStatusSnapshot().getWindowEndPhysicalTimeMs());
                 throw new RuntimeException("injected journal failure");
             }).when(editLog).logTSOTimestampWindowEnd(Mockito.any());
             Assertions.assertThrows(RuntimeException.class, () -> invokeWriteTimestampToBdbJe(tsoService, 300));
             Assertions.assertEquals(80, tsoService.getStatusSnapshot().getCommittedTso());
-            Assertions.assertEquals(200, tsoService.getStatusSnapshot().getWindowEndPhysicalTime());
+            Assertions.assertEquals(200, tsoService.getStatusSnapshot().getWindowEndPhysicalTimeMs());
             Mockito.doNothing().when(editLog).logTSOTimestampWindowEnd(Mockito.any());
             invokeWriteTimestampToBdbJe(tsoService, 300);
             Assertions.assertEquals(tsoService.getCurrentTSO(), tsoService.getStatusSnapshot().getCommittedTso());
-            Assertions.assertEquals(300, tsoService.getStatusSnapshot().getWindowEndPhysicalTime());
+            Assertions.assertEquals(300, tsoService.getStatusSnapshot().getWindowEndPhysicalTimeMs());
         }
     }
 
@@ -754,7 +754,7 @@ public class TSOServiceTest {
             invokeUpdateTimestamp(tsoService);
             Assertions.assertEquals(reservedWindow, tsoService.getWindowEndTSO());
             Assertions.assertEquals(pendingTso - 1, tsoService.getStatusSnapshot().getCommittedTso());
-            tsoService.transactionFinished(1, 10);
+            tsoService.markTxnFinished(1, 10);
             lastPersist.setLong(tsoService, System.nanoTime()
                     - TimeUnit.MILLISECONDS.toNanos(Config.tso_service_window_duration_ms + 1L));
             invokeUpdateTimestamp(tsoService);
@@ -764,7 +764,7 @@ public class TSOServiceTest {
     }
 
     @Test
-    public void testStateImageJournalAndOldTimestampCompatibility() throws Exception {
+    public void testStateImageAndJournal() throws Exception {
         long committed = TSOTimestamp.composeTimestamp(100, 17);
         tsoService.replayWindowEndTSO(new TSOServiceState(200, committed));
         TSOService restored = new TSOService();
@@ -772,25 +772,15 @@ public class TSOServiceTest {
                 new DataInputStream(new ByteArrayInputStream(saveTSOBytes(tsoService))), 0));
         Assertions.assertEquals(committed, restored.getStatusSnapshot().getCommittedTso());
         Assertions.assertFalse(restored.getStatusSnapshot().isInitialized());
-        for (boolean legacy : new boolean[] {true, false}) {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-            DataOutputStream out = new DataOutputStream(bytes);
-            out.writeShort(OperationType.OP_TSO_TIMESTAMP_WINDOW_END);
-            if (legacy) {
-                new TSOTimestamp(200, 0).write(out);
-            } else {
-                new TSOServiceState(200, committed).write(out);
-            }
-            JournalEntity entity = new JournalEntity();
-            entity.readFields(new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
-            TSOServiceState state = (TSOServiceState) entity.getData();
-            Assertions.assertEquals(200, state.getPhysicalTimestamp());
-            Assertions.assertEquals(legacy ? 0 : committed, state.getCommittedTso());
-        }
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-        new TSOServiceState(200, committed).write(new DataOutputStream(bytes));
-        Assertions.assertEquals(200, TSOTimestamp.read(
-                new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))).getPhysicalTimestamp());
+        DataOutputStream out = new DataOutputStream(bytes);
+        out.writeShort(OperationType.OP_TSO_TIMESTAMP_WINDOW_END);
+        new TSOServiceState(200, committed).write(out);
+        JournalEntity entity = new JournalEntity();
+        entity.readFields(new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
+        TSOServiceState state = (TSOServiceState) entity.getData();
+        Assertions.assertEquals(200, state.getWindowEndPhysicalTimeMs());
+        Assertions.assertEquals(committed, state.getCommittedTso());
     }
 
     @Test

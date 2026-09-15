@@ -127,6 +127,8 @@ static void append_table_stream_commit_size_error(TxnErrorCode err, std::string&
     }
 }
 
+// Reads the fence through the commit transaction so a concurrent fence update causes a conflict.
+// Allows commits without a TSO or a persisted fence, and rejects a commit at or below the fence.
 static bool check_txn_commit_tso_fence(Transaction* txn, const std::string& instance_id,
                                        int64_t commit_tso, CommitTxnResponse* response,
                                        MetaServiceCode& code, std::string& msg) {
@@ -153,7 +155,7 @@ static bool check_txn_commit_tso_fence(Transaction* txn, const std::string& inst
     }
     if (commit_tso <= fence.fence_tso()) {
         response->set_tso_fence(fence.fence_tso());
-        code = MetaServiceCode::TXN_COMMIT_TSO_FENCED;
+        code = MetaServiceCode::TXN_COMMIT_TSO_EXPIRED;
         msg = fmt::format("commit TSO {} is fenced by {}", commit_tso, fence.fence_tso());
         return false;
     }
@@ -1944,7 +1946,8 @@ void MetaServiceImpl::commit_txn_immediately(
             return;
         }
 
-        if (txn_info.status() != TxnStatusPB::TXN_STATUS_COMMITTED &&
+        if (request->enable_check_commit_tso_fence() && config::enable_check_commit_tso_fence &&
+            txn_info.status() != TxnStatusPB::TXN_STATUS_COMMITTED &&
             !check_txn_commit_tso_fence(txn.get(), instance_id, commit_tso, response, code, msg)) {
             return;
         }
@@ -2781,7 +2784,8 @@ void MetaServiceImpl::commit_txn_eventually(
             return;
         }
 
-        if (txn_info.status() != TxnStatusPB::TXN_STATUS_COMMITTED &&
+        if (request->enable_check_commit_tso_fence() && config::enable_check_commit_tso_fence &&
+            txn_info.status() != TxnStatusPB::TXN_STATUS_COMMITTED &&
             !check_txn_commit_tso_fence(txn.get(), instance_id, commit_tso, response, code, msg)) {
             return;
         }
@@ -3186,7 +3190,8 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             return;
         }
 
-        if (txn_info.status() != TxnStatusPB::TXN_STATUS_COMMITTED &&
+        if (request->enable_check_commit_tso_fence() && config::enable_check_commit_tso_fence &&
+            txn_info.status() != TxnStatusPB::TXN_STATUS_COMMITTED &&
             !check_txn_commit_tso_fence(txn.get(), instance_id, commit_tso, response, code, msg)) {
             return;
         }

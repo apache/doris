@@ -1090,6 +1090,8 @@ message CommitTxnRequest {
     optional string request_ip = 12;
     optional int64 commit_tso = 13;
     repeated TableStreamUpdatePB table_stream_updates = 14;
+    // Whether Meta Service should reject commit_tso values at or below its current fence.
+    optional bool enable_check_commit_tso_fence = 15;
 }
 
 message SubTxnInfo {
@@ -1969,7 +1971,7 @@ enum MetaServiceCode {
     STALE_PREPARE_ROWSET = 2013;
     TXN_ALREADY_COMMITED = 2014;
     // The transaction commit TSO is no longer valid.
-    TXN_COMMIT_TSO_FENCED = 2015;
+    TXN_COMMIT_TSO_EXPIRED = 2015;
 
     CLUSTER_NOT_FOUND = 3001;
     ALREADY_EXISTED = 3002;

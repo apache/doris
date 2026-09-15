@@ -71,17 +71,18 @@ public class TSOService extends MasterDaemon {
     public static final class TSOStatusSnapshot {
         private final boolean initialized;
         private final long currentTso;
-        private final long windowEndPhysicalTime;
+        private final long windowEndPhysicalTimeMs;
         private final long committedTso;
 
-        public TSOStatusSnapshot(boolean initialized, long currentTso, long windowEndPhysicalTime) {
-            this(initialized, currentTso, windowEndPhysicalTime, 0);
+        public TSOStatusSnapshot(boolean initialized, long currentTso, long windowEndPhysicalTimeMs) {
+            this(initialized, currentTso, windowEndPhysicalTimeMs, 0);
         }
 
-        public TSOStatusSnapshot(boolean initialized, long currentTso, long windowEndPhysicalTime, long committedTso) {
+        public TSOStatusSnapshot(boolean initialized, long currentTso, long windowEndPhysicalTimeMs,
+                long committedTso) {
             this.initialized = initialized;
             this.currentTso = currentTso;
-            this.windowEndPhysicalTime = windowEndPhysicalTime;
+            this.windowEndPhysicalTimeMs = windowEndPhysicalTimeMs;
             this.committedTso = committedTso;
         }
 
@@ -97,8 +98,8 @@ public class TSOService extends MasterDaemon {
             return currentTso;
         }
 
-        public long getWindowEndPhysicalTime() {
-            return windowEndPhysicalTime;
+        public long getWindowEndPhysicalTimeMs() {
+            return windowEndPhysicalTimeMs;
         }
     }
 
@@ -118,7 +119,7 @@ public class TSOService extends MasterDaemon {
     public void registerMetrics() {
         Map<String, LongSupplier> gauges = new LinkedHashMap<>();
         gauges.put("tso_committed", () -> durableState.getCommittedTso());
-        gauges.put("tso_window_end_physical_time", () -> durableState.getPhysicalTimestamp());
+        gauges.put("tso_window_end_physical_time", () -> durableState.getWindowEndPhysicalTimeMs());
         gauges.put("tso_pending_transactions", transactionTracker::getPendingCount);
         gauges.put("tso_oldest_pending_tso", transactionTracker::getOldestPendingTso);
         gauges.put("tso_oldest_pending_txn_id", transactionTracker::getOldestPendingTxnId);
@@ -230,8 +231,8 @@ public class TSOService extends MasterDaemon {
         return getTSO(Pair.of(dbId, txnId), tableIds, rejectedTso, fenceTso);
     }
 
-    public void transactionFinished(long dbId, long txnId) {
-        transactionTracker.transactionFinished(dbId, txnId);
+    public void markTxnFinished(long dbId, long txnId) {
+        transactionTracker.markTxnFinished(dbId, txnId);
     }
 
     public void abandonCommitTso(long dbId, long txnId, long tso) {
@@ -280,7 +281,7 @@ public class TSOService extends MasterDaemon {
                 LOG.warn("TSO service only run on master FE");
                 if (fenceTso > 0) {
                     throw new RuntimeException(
-                            "TXN_COMMIT_TSO_FENCED: retry the commit through the current master FE");
+                            "TXN_COMMIT_TSO_EXPIRED: retry the commit through the current master FE");
                 }
                 lastFailure = new RuntimeException("Current FE is not master");
                 try {
@@ -344,7 +345,7 @@ public class TSOService extends MasterDaemon {
         try {
             TSOServiceState state = durableState;
             return new TSOStatusSnapshot(isInitialized.get(), globalTimestamp.composeTimestamp(),
-                    state.getPhysicalTimestamp(), state.getCommittedTso());
+                    state.getWindowEndPhysicalTimeMs(), state.getCommittedTso());
         } finally {
             lock.unlock();
         }
@@ -419,7 +420,7 @@ public class TSOService extends MasterDaemon {
             return;
         }
 
-        long timeLast = durableState.getPhysicalTimestamp(); // Last timestamp from image/editlog replay
+        long timeLast = durableState.getWindowEndPhysicalTimeMs(); // Last timestamp from image/editlog replay
         long timeNow = System.currentTimeMillis() + Config.tso_time_offset_debug_mode;
         long nextPhysicalTime;
         long timeWindowEnd;
@@ -570,10 +571,10 @@ public class TSOService extends MasterDaemon {
         }
 
         // 4. Check if time window right boundary needs renewal
-        if ((durableState.getPhysicalTimestamp() - nextPhysicalTime) <= UPDATE_TIME_WINDOW_GUARD
+        if ((durableState.getWindowEndPhysicalTimeMs() - nextPhysicalTime) <= UPDATE_TIME_WINDOW_GUARD
                 || System.nanoTime() - lastPersistNanos
                         >= TimeUnit.MILLISECONDS.toNanos(Config.tso_service_window_duration_ms)) {
-            long nextWindowEnd = Math.max(durableState.getPhysicalTimestamp(),
+            long nextWindowEnd = Math.max(durableState.getWindowEndPhysicalTimeMs(),
                     nextPhysicalTime + Config.tso_service_window_duration_ms);
             writeTimestampToBDBJE(nextWindowEnd);
         }
@@ -694,7 +695,7 @@ public class TSOService extends MasterDaemon {
                 return Pair.of(0L, 0L);
             }
             if (fenceTso > 0 && globalTimestamp.composeTimestamp() < fenceTso) {
-                throw new RuntimeException("TXN_COMMIT_TSO_FENCED: local TSO "
+                throw new RuntimeException("TXN_COMMIT_TSO_EXPIRED: local TSO "
                         + globalTimestamp.composeTimestamp() + " is behind MetaService fence " + fenceTso);
             }
             long logicalCounter = globalTimestamp.getLogicalCounter();
@@ -763,7 +764,7 @@ public class TSOService extends MasterDaemon {
     }
 
     public long getWindowEndTSO() {
-        return durableState.getPhysicalTimestamp();
+        return durableState.getWindowEndPhysicalTimeMs();
     }
 
     public long saveTSO(CountingDataOutputStream dos, long checksum) throws IOException {
@@ -771,7 +772,7 @@ public class TSOService extends MasterDaemon {
             return checksum;
         }
         TSOServiceState state = durableState;
-        long currentWindowEnd = state.getPhysicalTimestamp();
+        long currentWindowEnd = state.getWindowEndPhysicalTimeMs();
         if (currentWindowEnd <= 0) {
             return checksum;
         }
@@ -784,8 +785,8 @@ public class TSOService extends MasterDaemon {
     public long loadTSO(DataInputStream dis, long checksum) throws IOException {
         TSOServiceState state = TSOServiceState.read(dis);
         durableState = state;
-        long newChecksum = checksum ^ state.getPhysicalTimestamp();
-        LOG.info("Finished replay TSO windowEndTSO {} from image", durableState.getPhysicalTimestamp());
+        long newChecksum = checksum ^ state.getWindowEndPhysicalTimeMs();
+        LOG.info("Finished replay TSO windowEndTSO {} from image", durableState.getWindowEndPhysicalTimeMs());
         return newChecksum;
     }
 

@@ -862,7 +862,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         Set<Long> commitTsoTableIds = tableList.stream().map(Table::getId).collect(Collectors.toSet());
         long commitTso = TransactionUtil.getCommitTSO(transactionId, database, commitTsoTableIds);
         if (commitTso > 0) {
-            builder.setCommitTso(commitTso);
+            builder.setCommitTso(commitTso).setEnableCheckCommitTsoFence(true);
         }
         CommitTxnRequest commitTxnRequest = builder.build();
         try {
@@ -891,7 +891,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("retryTime:{}, commitTxnResponse:{}", retryTime, commitTxnResponse);
                 }
-                if (commitTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_COMMIT_TSO_FENCED) {
+                if (commitTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_COMMIT_TSO_EXPIRED) {
                     if (!commitTxnResponse.hasTsoFence() || commitTxnRequest.getCommitTso() <= 0) {
                         throw new UserException("MetaService returned an invalid TSO fence response");
                     }
@@ -937,7 +937,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         commitTxnRequest.getDbId(), transactionId, commitTxnRequest.getCommitTso());
             } else if (code == MetaServiceCode.OK || code == MetaServiceCode.TXN_ALREADY_VISIBLE
                     || code == MetaServiceCode.TXN_ALREADY_ABORTED) {
-                Env.getCurrentEnv().getTSOService().transactionFinished(commitTxnRequest.getDbId(), transactionId);
+                Env.getCurrentEnv().getTSOService().markTxnFinished(commitTxnRequest.getDbId(), transactionId);
             } else {
                 Env.getCurrentEnv().getTSOService().abandonCommitTso(
                         commitTxnRequest.getDbId(), transactionId, commitTxnRequest.getCommitTso());
@@ -2110,7 +2110,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         if (abortTxnResponse.hasTxnInfo()
                 && (abortTxnResponse.getTxnInfo().getStatus() == TxnStatusPB.TXN_STATUS_ABORTED
                 || abortTxnResponse.getTxnInfo().getStatus() == TxnStatusPB.TXN_STATUS_VISIBLE)) {
-            Env.getCurrentEnv().getTSOService().transactionFinished(
+            Env.getCurrentEnv().getTSOService().markTxnFinished(
                     abortTxnResponse.getTxnInfo().getDbId(), abortTxnResponse.getTxnInfo().getTxnId());
         }
         if (abortTxnResponse.getStatus().getCode() != MetaServiceCode.OK) {

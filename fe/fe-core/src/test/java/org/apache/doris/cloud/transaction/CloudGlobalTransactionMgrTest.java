@@ -264,7 +264,7 @@ public class CloudGlobalTransactionMgrTest {
             Mockito.when(proxy.commitTxn(Mockito.any()))
                     .thenReturn(CommitTxnResponse.newBuilder()
                                     .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
-                                            .setCode(MetaServiceCode.TXN_COMMIT_TSO_FENCED))
+                                            .setCode(MetaServiceCode.TXN_COMMIT_TSO_EXPIRED))
                                     .setTsoFence(200L)
                                     .build(),
                             CommitTxnResponse.newBuilder()
@@ -282,8 +282,10 @@ public class CloudGlobalTransactionMgrTest {
                     ArgumentCaptor.forClass(Cloud.CommitTxnRequest.class);
             Mockito.verify(proxy, Mockito.times(2)).commitTxn(requests.capture());
             Assertions.assertEquals(100L, requests.getAllValues().get(0).getCommitTso());
+            Assertions.assertTrue(requests.getAllValues().get(0).getEnableCheckCommitTsoFence());
             Assertions.assertEquals(201L, requests.getAllValues().get(1).getCommitTso());
-            Mockito.verify(tsoService).transactionFinished(CatalogTestUtil.testDbId1, 123533L);
+            Assertions.assertTrue(requests.getAllValues().get(1).getEnableCheckCommitTsoFence());
+            Mockito.verify(tsoService).markTxnFinished(CatalogTestUtil.testDbId1, 123533L);
         } finally {
             table.setBinlogConfig(originalBinlogConfig);
             Config.enable_feature_binlog = originalEnableFeatureBinlog;

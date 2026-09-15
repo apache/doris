@@ -146,7 +146,7 @@ final class TSOTransactionTracker {
         return candidate;
     }
 
-    void transactionFinished(long dbId, long txnId) {
+    void markTxnFinished(long dbId, long txnId) {
         lock.lock();
         try {
             remove(Pair.of(dbId, txnId));

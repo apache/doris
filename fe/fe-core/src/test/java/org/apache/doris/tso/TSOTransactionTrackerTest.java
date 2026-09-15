@@ -101,10 +101,10 @@ public class TSOTransactionTrackerTest {
         Assertions.assertEquals(TSOTransactionTracker.WaitResult.TIMED_OUT, await(1, 1000, 100, 0));
         Assertions.assertEquals(99, candidate(150, 90));
 
-        tracker.transactionFinished(1, 10);
+        tracker.markTxnFinished(1, 10);
         Assertions.assertEquals(119, candidate(150, 90));
-        tracker.transactionFinished(1, 20);
-        tracker.transactionFinished(2, 30);
+        tracker.markTxnFinished(1, 20);
+        tracker.markTxnFinished(2, 30);
         Assertions.assertEquals(150, candidate(150, 90));
     }
 
@@ -114,7 +114,7 @@ public class TSOTransactionTrackerTest {
         Future<TSOTransactionTracker.WaitResult> waiting = executor.submit(() -> await(1, 1000, 150, 5000));
         Thread.sleep(100);
         register(1, 20, 120, 1000);
-        tracker.transactionFinished(1, 10);
+        tracker.markTxnFinished(1, 10);
 
         Assertions.assertEquals(TSOTransactionTracker.WaitResult.FINISHED, waiting.get(5, TimeUnit.SECONDS));
         Assertions.assertEquals(119, candidate(150, 90));
@@ -164,7 +164,7 @@ public class TSOTransactionTrackerTest {
         Assertions.assertTrue(tracker.getOldestPendingAgeMs() >= 0);
         tracker.abandonCommitTso(1, 10, 120);
         Assertions.assertEquals(1, tracker.getPendingCount());
-        tracker.transactionFinished(1, 10);
+        tracker.markTxnFinished(1, 10);
         Assertions.assertEquals(0, tracker.getPendingCount());
     }
 }
