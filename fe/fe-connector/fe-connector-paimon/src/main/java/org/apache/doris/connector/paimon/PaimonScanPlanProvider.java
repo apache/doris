@@ -21,6 +21,7 @@ import org.apache.doris.connector.metastore.paimon.jdbc.PaimonJdbcMetaStorePrope
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
@@ -513,19 +514,68 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             return planScanInternal(session, request.getTableHandle(), request.getColumns(),
                     request.getFilter(), request.getLimit(), request.isCountPushdown());
         }
+        // Resolve the table ONCE at the statement scope so both the scan-planning path (here) and
+        // the properties path (getScanNodeProperties) observe the SAME table generation. Without
+        // this, a no-cache catalog or a schema change between two aliases can give alias A's ranges
+        // to alias B's generation-B serialized table. The resolved table is cached at the scope;
+        // its latestSnapshotId fences the reuse key so different generations never share ranges.
+        long generation = resolvePaimonGeneration(session, paimonHandle);
         // Statement-scoped reuse: within one statement the identical scan (same table, same
-        // branch/options pin, same projection, same filter, same limit, same COUNT pushdown) plans once and
-        // every duplicated relation shares the result. The scope is NONE for offline planning and
-        // tests, in which case the loader runs on every call. Session variables are constant within
-        // a statement and deliberately absent from the key.
+        // branch/options pin, same generation, same projection, same filter, same limit, same COUNT
+        // pushdown) plans once and every duplicated relation shares the result. Session variables
+        // are constant within a statement and deliberately absent from the key.
         String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
         Map<PaimonScanReuseKey, List<ConnectorScanRange>> scanReuse = session.getStatementScope().computeIfAbsent(
                 memoKey, () -> new ConcurrentHashMap<>());
-        PaimonScanReuseKey reuseKey = new PaimonScanReuseKey(paimonHandle, request);
+        PaimonScanReuseKey reuseKey = new PaimonScanReuseKey(paimonHandle, request, generation);
         return scanReuse.computeIfAbsent(reuseKey,
                 key -> Collections.unmodifiableList(planScanInternal(session,
                         request.getTableHandle(), request.getColumns(), request.getFilter(),
                         request.getLimit(), request.isCountPushdown())));
+    }
+
+    /**
+     * Resolve the Paimon table at the statement scope and return its generation token
+     * (latestSnapshotId, or -1 when unresolvable). The resolved table is cached at the scope so
+     * {@link #getScanNodeProperties} observes the same generation as the scan-planning path.
+     */
+    private long resolvePaimonGeneration(ConnectorSession session, PaimonTableHandle paimonHandle) {
+        if (session == null || session.getStatementScope() == null
+                || session.getStatementScope() == ConnectorStatementScope.NONE) {
+            return -1L;
+        }
+        String tableKey = SCAN_REUSE_NAMESPACE + ":table:" + session.getCatalogId() + ":"
+                + paimonHandle.getDatabaseName() + "." + paimonHandle.getTableName();
+        try {
+            Table table = session.getStatementScope().computeIfAbsent(tableKey,
+                    () -> resolveScanTable(paimonHandle));
+            if (catalogOps != null) {
+                return catalogOps.latestSnapshotId(table).orElse(-1L);
+            }
+            return -1L;
+        } catch (Exception e) {
+            return -1L;
+        }
+    }
+
+    /**
+     * Resolve the scan table consistently with {@link #resolvePaimonGeneration}: when the statement
+     * scope already holds a cached table (set by the reuse path in planScan), return that SAME
+     * instance so getScanNodeProperties observes the same generation. Otherwise resolve fresh.
+     */
+    private Table resolveScanTableConsistent(ConnectorSession session, PaimonTableHandle paimonHandle) {
+        if (session != null && session.isExternalScanTaskReuseEnabled()
+                && session.getStatementScope() != null
+                && session.getStatementScope() != ConnectorStatementScope.NONE) {
+            String tableKey = SCAN_REUSE_NAMESPACE + ":table:" + session.getCatalogId() + ":"
+                    + paimonHandle.getDatabaseName() + "." + paimonHandle.getTableName();
+            Object cached = session.getStatementScope().computeIfAbsent(tableKey,
+                    () -> resolveScanTable(paimonHandle));
+            if (cached instanceof Table) {
+                return (Table) cached;
+            }
+        }
+        return resolveScanTable(paimonHandle);
     }
 
     /**
@@ -1026,7 +1076,13 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter) {
 
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
-        Table table = resolveScanTable(paimonHandle);
+        // When statement-scoped reuse is active, planScan may have already resolved this table
+        // and cached it at the scope. Use the SAME cached instance so the serialized table,
+        // schema dictionary, and partition keys all reflect the same generation the scan plan
+        // was built against. Without this, a no-cache catalog can give getScanNodeProperties a
+        // different generation than planScan used, pairing generation-A ranges with generation-B
+        // serialized table / projection schema / schema dictionary.
+        Table table = resolveScanTableConsistent(session, paimonHandle);
 
         Map<String, String> props = new LinkedHashMap<>();
 
@@ -2504,8 +2560,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * Statement-scoped cache key for one Paimon scan.
      *
      * <p>Includes every input that changes the planned split list: table identity, the branch pin,
-     * the whole scan-options map (snapshot / tag / incremental / options pins), the projected
-     * columns in order, the pushed filter, the limit and the COUNT pushdown flag. System tables are excluded
+     * the whole scan-options map (snapshot / tag / incremental / options pins), the resolved table
+     * generation (latestSnapshotId), the projected columns in order, the pushed filter, the limit
+     * and the COUNT pushdown flag. The generation fences the key against same-path table recreation
+     * or schema change between two aliases: without it, alias A's ranges (from generation A) could
+     * be paired with alias B's serialized table (from generation B). System tables are excluded
      * upstream, and session variables are statement-constant, so both stay out of the key.
      */
     private static final class PaimonScanReuseKey {
@@ -2513,12 +2572,14 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         private final String tableName;
         private final String branchName;
         private final Map<String, String> scanOptions;
+        private final long generation;
         private final List<String> columnNames;
         private final Optional<ConnectorExpression> filter;
         private final long limit;
         private final boolean countPushdown;
 
-        private PaimonScanReuseKey(PaimonTableHandle handle, ConnectorScanRequest request) {
+        private PaimonScanReuseKey(PaimonTableHandle handle, ConnectorScanRequest request,
+                long generation) {
             // Catalog and query isolation are provided by the statement-scope memo key. System
             // tables are bypassed in planScan before this key is built, so sysTableName is always
             // null here; if the system-table bypass is ever relaxed, add it back.
@@ -2528,6 +2589,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             this.scanOptions = handle.getScanOptions() == null
                     ? Collections.emptyMap()
                     : Collections.unmodifiableMap(new HashMap<>(handle.getScanOptions()));
+            this.generation = generation;
             this.columnNames = request.getColumns().stream()
                     .map(PaimonScanReuseKey::toPaimonColumnName)
                     .collect(Collectors.toList());
@@ -2553,7 +2615,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 return false;
             }
             PaimonScanReuseKey that = (PaimonScanReuseKey) object;
-            return limit == that.limit
+            return generation == that.generation
+                    && limit == that.limit
                     && countPushdown == that.countPushdown
                     && Objects.equals(databaseName, that.databaseName)
                     && Objects.equals(tableName, that.tableName)
@@ -2566,12 +2629,13 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         @Override
         public int hashCode() {
             return Objects.hash(databaseName, tableName, branchName,
-                    scanOptions, columnNames, filter, limit, countPushdown);
+                    scanOptions, generation, columnNames, filter, limit, countPushdown);
         }
 
         @Override
         public String toString() {
-            return "PaimonScanReuseKey{table=" + databaseName + "." + tableName + "}";
+            return "PaimonScanReuseKey{table=" + databaseName + "." + tableName
+                    + ", generation=" + generation + "}";
         }
     }
 }
