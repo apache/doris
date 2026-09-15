@@ -178,13 +178,9 @@ public:
     const format::StatsBlock& stats() const { return core_.stats; }
     format::IndexTier tier() const { return tier_; }
     bool has_positions() const { return has_positions_; }
+    // Whether BM25 norms exist: current writers emit them for analyzed indexes with positions.
+    bool has_norms() const { return core_.section_refs.norms.length != 0; }
     LogicalIndexOpenMode open_mode() const { return open_mode_; }
-    const segment_v2::inverted_index::CommonGramsSegmentMetadata* common_grams_metadata() const {
-        return core_.common_grams_metadata ? &*core_.common_grams_metadata : nullptr;
-    }
-    format::CommonGramsPostingPolicy common_grams_posting_policy() const {
-        return core_.common_grams_posting_policy;
-    }
     io::FileReader* reader() const { return reader_; }
 
     // Returns a reader over the validated norms section. The first call reads

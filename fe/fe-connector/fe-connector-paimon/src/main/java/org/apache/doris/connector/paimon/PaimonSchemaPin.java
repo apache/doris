@@ -20,6 +20,7 @@ package org.apache.doris.connector.paimon;
 import org.apache.doris.connector.spi.DorisConnectorException;
 
 import com.google.common.hash.Hashing;
+import org.apache.paimon.Snapshot;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.DelegatedFileStoreTable;
@@ -54,7 +55,21 @@ final class PaimonSchemaPin {
             FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
             capture(pair.wrapped(), schemaId, snapshotId, path, pin);
             TableSchema fallback = pair.fallback().schemaManager().latest().orElseThrow(IllegalStateException::new);
-            capture(pair.fallback(), fallback.id(), -1, path + "fallback.", pin);
+            String fallbackPath = path + "fallback.";
+            long fallbackSnapshotId = -1L;
+            if (snapshotId >= 0) {
+                SnapshotManager manager = pair.fallback().snapshotManager();
+                long time = snapshot(pair.wrapped(), snapshotId).timeMillis();
+                Snapshot eligible = manager.earlierOrEqualTimeMills(time);
+                // Match the SDK's FIRST_SNAPSHOT_ID fallback once, while pinning, rather than
+                // allowing a later handle reload to select replacement branch data.
+                fallbackSnapshotId = eligible == null ? Snapshot.FIRST_SNAPSHOT_ID : eligible.id();
+                if (!manager.snapshotExists(fallbackSnapshotId)) {
+                    fallbackSnapshotId = -1L;
+                    pin.put(PREFIX + fallbackPath + "snapshot-absent", "true");
+                }
+            }
+            capture(pair.fallback(), fallback.id(), fallbackSnapshotId, fallbackPath, pin);
         } else if (table instanceof DelegatedFileStoreTable) {
             capture(((DelegatedFileStoreTable) table).wrapped(), schemaId, snapshotId, path, pin);
         } else if (table instanceof DataTable) {
@@ -94,10 +109,17 @@ final class PaimonSchemaPin {
             if (!pin.get(PREFIX + path + "schema").equals(schemaDigest(data.schemaManager().schema(schemaId)))) {
                 throw changed();
             }
-            String snapshotId = pin.get(PREFIX + path + "snapshot-id");
-            if (snapshotId != null && !pin.get(PREFIX + path + "snapshot").equals(
-                    snapshotDigest(data, Long.parseLong(snapshotId)))) {
+            if (pin.containsKey(PREFIX + path + "snapshot-absent")
+                    && data.snapshotManager().latestSnapshotId() != null) {
                 throw changed();
+            }
+            String snapshotId = pin.get(PREFIX + path + "snapshot-id");
+            if (snapshotId != null) {
+                long id = Long.parseLong(snapshotId);
+                if (!data.snapshotManager().snapshotExists(id)
+                        || !pin.get(PREFIX + path + "snapshot").equals(snapshotDigest(data, id))) {
+                    throw changed();
+                }
             }
         }
     }
@@ -114,9 +136,13 @@ final class PaimonSchemaPin {
     }
 
     private static String snapshotDigest(DataTable table, long snapshotId) {
+        return digest(snapshot(table, snapshotId).toJson());
+    }
+
+    private static Snapshot snapshot(DataTable table, long snapshotId) {
         SnapshotManager manager = table.snapshotManager();
         // SDK snapshot caches are keyed by reusable paths, so generation checks must bypass them.
-        return digest(SnapshotManager.fromPath(manager.fileIO(), manager.snapshotPath(snapshotId)).toJson());
+        return SnapshotManager.fromPath(manager.fileIO(), manager.snapshotPath(snapshotId));
     }
 
     private static String shape(Table table) {
@@ -128,6 +154,20 @@ final class PaimonSchemaPin {
             return shape(((DelegatedFileStoreTable) table).wrapped());
         }
         return table instanceof DataTable ? "data" : "other";
+    }
+
+    static Map<String, String> coordinates(Map<String, String> options) {
+        Map<String, String> result = new HashMap<>();
+        options.forEach((key, value) -> {
+            if (key.startsWith(PREFIX)) {
+                result.put(key, value);
+            }
+        });
+        return result;
+    }
+
+    static String fallbackSnapshotId(Map<String, String> options, String path) {
+        return options.get(PREFIX + path + "snapshot-id");
     }
 
     static long fallbackSchemaId(Map<String, String> options, String path, LongSupplier defaultId) {

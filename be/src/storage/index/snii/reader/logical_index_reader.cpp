@@ -478,12 +478,6 @@ Status LogicalIndexReader::open(io::FileReader* file_reader, Slice core_frame, S
 
 size_t LogicalIndexReader::memory_usage() const {
     size_t bytes = sizeof(*this) + bsbf_resident_bitset_.capacity();
-    if (core_.common_grams_metadata) {
-        const auto& common_grams = *core_.common_grams_metadata;
-        bytes += format::std_string_heap_bytes(common_grams.common_grams_dictionary_identity);
-        bytes += format::std_string_heap_bytes(common_grams.base_analyzer_fingerprint);
-        bytes += format::std_string_heap_bytes(common_grams.common_grams_fingerprint);
-    }
     bytes += sti_.heap_bytes();
     bytes += dbd_.heap_bytes();
     for (const auto& block : resident_dict_blocks_) {

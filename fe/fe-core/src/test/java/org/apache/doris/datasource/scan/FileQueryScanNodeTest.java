@@ -265,6 +265,46 @@ public class FileQueryScanNodeTest {
     }
 
     @Test
+    public void testRowIdFetchRetainsCategoriesOfPrunedColumns() throws Exception {
+        TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable()) {
+            @Override
+            protected TColumnCategory classifyColumn(String name, List<String> partitionKeys) {
+                if (name.equals("_file") || name.equals("_pos")) {
+                    return TColumnCategory.SYNTHESIZED;
+                }
+                if (name.equals("generated_col")) {
+                    return TColumnCategory.GENERATED;
+                }
+                return super.classifyColumn(name, partitionKeys);
+            }
+        };
+        node.setTargetTable(table);
+        TupleDescriptor desc = node.getTupleDescriptor();
+        desc.setTable(table);
+        SlotDescriptor sortSlot = new SlotDescriptor(new SlotId(1), desc.getId());
+        sortSlot.setColumn(new Column("id", Type.INT));
+        desc.addSlot(sortSlot);
+        SlotDescriptor rowIdSlot = new SlotDescriptor(new SlotId(2), desc.getId());
+        rowIdSlot.setColumn(new Column(Column.GLOBAL_ROWID_COL, Type.STRING));
+        desc.addSlot(rowIdSlot);
+        List<Column> fullSchema = Arrays.asList(sortSlot.getColumn(), new Column("_file", Type.STRING),
+                new Column("_pos", Type.BIGINT), new Column("generated_col", Type.BIGINT));
+        Mockito.when(table.getBaseSchema(false)).thenReturn(fullSchema);
+        Mockito.when(table.getFullSchema()).thenReturn(fullSchema);
+
+        node.initSchemaParamsForTest();
+        UPDATE_REQUIRED_SLOTS_METHOD.invoke(node);
+
+        TFileScanRangeParams params = node.getFileScanRangeParams();
+        Assertions.assertEquals(2, params.getRequiredSlotsSize());
+        Assertions.assertEquals(Arrays.asList(0), params.getColumnIdxs());
+        Assertions.assertEquals(TColumnCategory.SYNTHESIZED, params.getColumnNameToCategory().get("_file"));
+        Assertions.assertEquals(TColumnCategory.SYNTHESIZED, params.getColumnNameToCategory().get("_pos"));
+        Assertions.assertEquals(TColumnCategory.GENERATED, params.getColumnNameToCategory().get("generated_col"));
+        Assertions.assertFalse(params.getColumnNameToCategory().containsKey("id"));
+    }
+
+    @Test
     public void testUpdateRequiredSlotsPreservesInlineDefaultValueExpr() throws Exception {
         SessionVariable sv = new SessionVariable();
         TestFileQueryScanNode node = new TestFileQueryScanNode(sv);

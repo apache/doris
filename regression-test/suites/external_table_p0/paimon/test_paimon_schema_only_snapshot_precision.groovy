@@ -129,17 +129,20 @@ suite("test_paimon_schema_only_snapshot_precision", "p0,external,paimon") {
                 tblproperties ('file.format'='parquet', 'read.batch-size'='64');
             insert into paimon.${dbName}.${readerTable} values (1);
         """
-        assertEquals([[1]], sql("select id from ${readerTable}"))
+        order_qt_reader_options_warm "select id from ${readerTable}"
         spark_paimon """
             alter table paimon.${dbName}.${readerTable} set tblproperties ('read.batch-size'='0')
         """
-        [false, true].each { forceJni ->
-            sql "set force_jni_scanner=${forceJni}"
-            assertEquals([[1]], sql("select id from ${readerTable}"))
-            assertEquals([[1]], sql("""
-                select id from ${readerTable}@options('read.batch-size'='32')
-            """))
-        }
+        sql "set force_jni_scanner=false"
+        order_qt_native_catalog_option "select id from ${readerTable}"
+        order_qt_native_relation_option """
+            select id from ${readerTable}@options('read.batch-size'='32')
+        """
+        sql "set force_jni_scanner=true"
+        order_qt_jni_catalog_option "select id from ${readerTable}"
+        order_qt_jni_relation_option """
+            select id from ${readerTable}@options('read.batch-size'='32')
+        """
     } finally {
         sql """set force_jni_scanner=false"""
         sql """drop catalog if exists ${catalogName}"""

@@ -101,11 +101,25 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     // existing direct-construction tests compile unchanged; production goes through the 5-arg ctor.
     private final PaimonLatestSnapshotCache latestSnapshotCache;
 
-    // Metadata is statement-scoped: aliases sharing a data fence must also share one schema generation.
-    private final Map<PaimonTableHandle, Optional<PaimonCatalogOps.PaimonSchemaSnapshot>> statementSchemas =
-            new java.util.concurrent.ConcurrentHashMap<>();
-    private final Map<PaimonTableHandle, Map<String, String>> statementSchemaPins =
-            new java.util.concurrent.ConcurrentHashMap<>();
+    // Schema and physical coordinates are one immutable statement value, including for aliases.
+    private final Map<PaimonTableHandle, StatementPin> statementPins = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static final class StatementPin {
+        private final long snapshotId;
+        private final Optional<PaimonCatalogOps.PaimonSchemaSnapshot> schema;
+        private final Map<String, String> coordinates;
+
+        private StatementPin(long snapshotId, Optional<PaimonCatalogOps.PaimonSchemaSnapshot> schema,
+                Map<String, String> coordinates) {
+            this.snapshotId = snapshotId;
+            this.schema = schema;
+            this.coordinates = Collections.unmodifiableMap(new HashMap<>(coordinates));
+        }
+
+        private long schemaId() {
+            return schema.map(PaimonCatalogOps.PaimonSchemaSnapshot::schemaId).orElse(-1L);
+        }
+    }
 
     // PERF-06: cross-query DERIVED partition-view cache A (generic ConnectorMetadataCache), injected by the
     // owning PaimonConnector; null = no cross-query derived layer (the convenience/test ctors used by ~15
@@ -583,14 +597,13 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         Identifier identifier = Identifier.create(paimonHandle.getDatabaseName(), paimonHandle.getTableName());
         long id = latestSnapshotCache.getOrLoad(identifier,
                 () -> catalogOps.latestSnapshotId(resolveTable(paimonHandle)).orElse(-1L));
-        Table table = resolveTable(paimonHandle);
-        long schemaId = statementSchemaId(paimonHandle, table);
-        Map<String, String> coordinates = new HashMap<>(captureSchemaPin(paimonHandle, table, schemaId, id));
+        StatementPin pin = statementPin(paimonHandle, resolveTable(paimonHandle), id);
+        Map<String, String> coordinates = new HashMap<>(pin.coordinates);
         if (!coordinates.isEmpty()) {
-            coordinates.putAll(PaimonScanParams.pinOptionsToSnapshot(Collections.emptyMap(), id));
+            coordinates.putAll(PaimonScanParams.pinOptionsToSnapshot(Collections.emptyMap(), pin.snapshotId));
         }
-        return Optional.of(ConnectorMvccSnapshot.builder().snapshotId(id).schemaId(schemaId)
-                .properties(coordinates).build());
+        return Optional.of(ConnectorMvccSnapshot.builder().snapshotId(pin.snapshotId).schemaId(pin.schemaId())
+                .retainSchema(pin.schemaId() >= 0).properties(coordinates).build());
     }
 
     private <T> T readSchemaAuthenticated(Supplier<T> read) {
@@ -604,50 +617,37 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         }
     }
 
-    private Map<String, String> captureSchemaPin(
-            PaimonTableHandle handle, Table table, long schemaId, long snapshotId) {
-        // Aliases and planning-only selectors share the first physical pin, not a later reload of the same name.
-        Map<String, String> pin = statementSchemaPins.computeIfAbsent(handle,
-                ignored -> readSchemaAuthenticated(() -> PaimonSchemaPin.capture(table, schemaId, snapshotId)));
-        // The schema read and file capture are separate I/O operations; reject recreation between them.
-        statementSchemas.getOrDefault(handle, Optional.empty()).ifPresent(schema ->
-                PaimonSchemaPin.validateSchema(schema, pin));
-        return pin;
-    }
-
-    private long statementSchemaId(PaimonTableHandle handle, Table table) {
-        return statementSchemas.computeIfAbsent(handle,
-                ignored -> readSchemaAuthenticated(() -> catalogOps.latestSchema(table)))
-                .map(PaimonCatalogOps.PaimonSchemaSnapshot::schemaId)
-                .orElse(-1L);
+    private StatementPin statementPin(PaimonTableHandle handle, Table table, long snapshotId) {
+        return statementPins.computeIfAbsent(handle, ignored -> readSchemaAuthenticated(() -> {
+            Optional<PaimonCatalogOps.PaimonSchemaSnapshot> schema = catalogOps.latestSchema(table);
+            long schemaId = schema.map(PaimonCatalogOps.PaimonSchemaSnapshot::schemaId).orElse(-1L);
+            Map<String, String> coordinates = PaimonSchemaPin.capture(table, schemaId, snapshotId);
+            // Detect recreation between reading the schema and capturing its physical file coordinates.
+            schema.ifPresent(value -> PaimonSchemaPin.validateSchema(value, coordinates));
+            return new StatementPin(snapshotId, schema, coordinates);
+        }));
     }
 
     private PaimonCatalogOps.PaimonSchemaSnapshot schemaForPin(PaimonTableHandle handle, Table table, long schemaId) {
-        // External recreation can reuse a schema ID. Latest pins must retain the actual statement
-        // schema instead of consulting the name/ID-keyed historical memo from an earlier table.
-        readSchemaAuthenticated(() -> {
+        if (!PaimonScanParams.preservesBoundSchema(handle.getScanOptions())) {
+            return schemaAtMemo.getOrLoad(handle, schemaId,
+                    () -> readSchemaAuthenticated(() -> catalogOps.schemaAt(table, schemaId)));
+        }
+        return readSchemaAuthenticated(() -> {
             PaimonSchemaPin.validate(table, handle.getScanOptions());
-            return null;
+            // INSERT replanning can replace this scope while retaining the source pin. Rehydrate
+            // the exact schema in the new scope without using the catalog's historical memo.
+            StatementPin pin = statementPins.computeIfAbsent(handle, ignored -> new StatementPin(
+                    Long.parseLong(handle.getScanOptions().getOrDefault(CoreOptions.SCAN_SNAPSHOT_ID.key(), "-1")),
+                    Optional.of(catalogOps.schemaAt(table, schemaId)),
+                    PaimonSchemaPin.coordinates(handle.getScanOptions())));
+            PaimonCatalogOps.PaimonSchemaSnapshot schema = pin.schema.orElseThrow(IllegalStateException::new);
+            if (schema.schemaId() >= 0 && schema.schemaId() != schemaId) {
+                throw new DorisConnectorException("Paimon statement schema changed; retry the statement");
+            }
+            PaimonSchemaPin.validateSchema(schema, handle.getScanOptions());
+            return schema;
         });
-        Optional<PaimonCatalogOps.PaimonSchemaSnapshot> captured =
-                statementSchemas.getOrDefault(handle, Optional.empty());
-        if (captured.isPresent() && captured.get().schemaId() == schemaId) {
-            PaimonSchemaPin.validateSchema(captured.get(), handle.getScanOptions());
-            return captured.get();
-        }
-        if (PaimonScanParams.preservesBoundSchema(handle.getScanOptions())) {
-            // INSERT retries retain the source MVCC pin while replacing this metadata scope.
-            // Rehydrate its exact schema once in the new scope, never through the historical memo.
-            PaimonCatalogOps.PaimonSchemaSnapshot restored = statementSchemas.compute(handle, (key, previous) ->
-                    previous != null && previous.isPresent() && previous.get().schemaId() == schemaId
-                            ? previous
-                            : Optional.of(readSchemaAuthenticated(() -> catalogOps.schemaAt(table, schemaId))))
-                    .get();
-            PaimonSchemaPin.validateSchema(restored, handle.getScanOptions());
-            return restored;
-        }
-        return schemaAtMemo.getOrLoad(handle, schemaId,
-                () -> readSchemaAuthenticated(() -> catalogOps.schemaAt(table, schemaId)));
     }
 
     @Override
@@ -805,15 +805,15 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 long snapshotId = catalogOps.latestSnapshotId(branchTable).orElse(-1L);
                 // A schema-only ALTER advances the branch schema without creating a data snapshot.
                 // Bind the branch's exact current schema independently of its latest data snapshot.
-                long schemaId = statementSchemaId(paimonHandle.withBranch(branchName), branchTable);
+                StatementPin pin = statementPin(paimonHandle.withBranch(branchName), branchTable, snapshotId);
+                long schemaId = pin.schemaId();
                 // Carry the branch identity to applySnapshot via an internal sentinel
                 // (CoreOptions.BRANCH key). Branch is a handle-IDENTITY change, not a scan-copy
                 // option: applySnapshot reads this sentinel and routes it to handle.withBranch (it is
                 // never threaded into Table.copy). The data fence is applied after changing identity.
-                Map<String, String> coordinates = captureSchemaPin(
-                        paimonHandle.withBranch(branchName), branchTable, schemaId, snapshotId);
+                Map<String, String> coordinates = pin.coordinates;
                 return Optional.of(ConnectorMvccSnapshot.builder()
-                        .snapshotId(snapshotId).schemaId(schemaId).properties(coordinates)
+                        .snapshotId(pin.snapshotId).schemaId(schemaId).properties(coordinates)
                         .property(CoreOptions.BRANCH.key(), branchName).build());
             }
             case OPTIONS: {
@@ -855,11 +855,14 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                         : pinnedSnapshotId(table, resolved);
                 // The statement fence pins data visibility, not schema time travel. Planning-only
                 // aliases must retain the latest-schema projection used by the plain relation.
-                long schemaId = usesStatementFence
-                        ? statementSchemaId(paimonHandle, table)
+                StatementPin pin = usesStatementFence ? statementPin(paimonHandle, table, pinnedId) : null;
+                long schemaId = pin != null ? pin.schemaId()
                         : pinnedId < 0 ? -1L : catalogOps.snapshotSchemaId(table, pinnedId).orElse(-1L);
-                if (usesStatementFence) {
-                    resolved.putAll(captureSchemaPin(paimonHandle, table, schemaId, pinnedId));
+                if (pin != null) {
+                    if (pin.snapshotId != pinnedId) {
+                        throw new DorisConnectorException("Paimon statement snapshot changed; retry the statement");
+                    }
+                    resolved.putAll(pin.coordinates);
                 }
                 // resolved is never empty for a startup selector; for a selector-free @options (e.g. only
                 // scan.manifest-parallelism) it is the user map verbatim, which applySnapshot still
@@ -1406,7 +1409,12 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             return collectPartitions(paimonHandle);
         }
         ConnectorTableKey key = partitionViewCacheKey(paimonHandle);
-        return partitionViewCache.get(key, () -> collectPartitions(paimonHandle));
+        return partitionViewCache.get(key, () -> {
+            List<ConnectorPartitionInfo> partitions = collectPartitions(paimonHandle);
+            return partitionViewCache.isEnabled() && partitionViewCache.isWeightBounded()
+                    ? new PaimonPartitionView(key, partitions)
+                    : partitions;
+        });
     }
 
     /**

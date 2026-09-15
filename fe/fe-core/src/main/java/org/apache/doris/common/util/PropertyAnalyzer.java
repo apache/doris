@@ -1295,14 +1295,21 @@ public class PropertyAnalyzer {
             return null;
         }
 
-        Map<String, String> formatProperties = new HashMap<>();
-        formatProperties.put(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT,
-                properties.remove(PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT));
-        TInvertedIndexFileStorageFormat format = analyzeInvertedIndexFileStorageFormat(formatProperties);
-        if (format == TInvertedIndexFileStorageFormat.V1) {
+        String formatValue = properties.remove(PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT);
+        // "default" resolves to the FE config inverted_index_storage_format, which is neither the format the
+        // table was created with nor stable across versions, so a rollout target has to be spelled out.
+        if ("default".equalsIgnoreCase(formatValue)) {
+            throw new AnalysisException("partition inverted index storage format does not support 'default', "
+                    + "please specify V2, V3 or SNII explicitly");
+        }
+        // V1 has to be caught before the table-level analyzer, which rejects it with a create-index wording.
+        if ("V1".equalsIgnoreCase(formatValue)) {
             throw new AnalysisException("partition inverted index storage format only supports V2, V3 and SNII");
         }
-        return format;
+
+        Map<String, String> formatProperties = new HashMap<>();
+        formatProperties.put(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, formatValue);
+        return analyzeInvertedIndexFileStorageFormat(formatProperties);
     }
 
     // analyze common boolean properties, such as "in_memory" = "false"

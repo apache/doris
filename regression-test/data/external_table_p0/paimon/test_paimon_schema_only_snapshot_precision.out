@@ -14,3 +14,18 @@
 -- !jni_precision --
 1
 
+-- !reader_options_warm --
+1
+
+-- !native_catalog_option --
+1
+
+-- !native_relation_option --
+1
+
+-- !jni_catalog_option --
+1
+
+-- !jni_relation_option --
+1
+

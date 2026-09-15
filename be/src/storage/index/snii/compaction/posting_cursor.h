@@ -246,8 +246,6 @@ private:
     bool flat_loaded_ = false;
 
     uint64_t decoded_docs_ = 0;
-    uint64_t decoded_total_freq_ = 0;
-    uint32_t decoded_max_freq_ = 0;
     size_t next_destination_run_ = 0;
 
     bool initialized_ = false;

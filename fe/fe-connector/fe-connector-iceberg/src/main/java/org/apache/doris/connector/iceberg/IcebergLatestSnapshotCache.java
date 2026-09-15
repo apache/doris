@@ -21,6 +21,7 @@ import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimators;
 import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 
@@ -37,7 +38,7 @@ import java.util.function.Supplier;
  * query-begin pin ({@link IcebergConnectorMetadata#beginQuerySnapshot}) reads the SAME snapshot until the
  * entry expires or is invalidated by {@code REFRESH TABLE}/{@code REFRESH CATALOG}.
  *
- * <p><b>Value carries snapshotId, schemaId, specId, table identity and the resolved-empty partition style.</b>
+ * <p><b>Value carries snapshotId, schemaId and the resolved-empty partition style.</b>
  * {@code beginQuerySnapshot} pins the snapshot id <i>and</i> the LATEST schema id
  * ({@code table.schema().schemaId()} — not {@code currentSnapshot().schemaId()}, mirroring legacy
  * {@code IcebergUtils.getLatestIcebergSnapshot}). A schema-only {@code ALTER} bumps the latest schema id
@@ -55,12 +56,10 @@ import java.util.function.Supplier;
  */
 final class IcebergLatestSnapshotCache {
 
-    /** Immutable atomic pin for the latest snapshot/schema/spec, table identity and empty partition style. */
+    /** Immutable atomic pin for the latest snapshot/schema and its resolved-empty partition style. */
     static final class CachedSnapshot {
         final long snapshotId;
         final long schemaId;
-        final int specId;
-        final String tableIdentity;
         final ConnectorMvccPartitionView.Style emptyPartitionStyle;
 
         CachedSnapshot(long snapshotId, long schemaId) {
@@ -69,20 +68,8 @@ final class IcebergLatestSnapshotCache {
 
         CachedSnapshot(long snapshotId, long schemaId,
                 ConnectorMvccPartitionView.Style emptyPartitionStyle) {
-            this(snapshotId, schemaId, -1, emptyPartitionStyle);
-        }
-
-        CachedSnapshot(long snapshotId, long schemaId, int specId,
-                ConnectorMvccPartitionView.Style emptyPartitionStyle) {
-            this(snapshotId, schemaId, specId, emptyPartitionStyle, null);
-        }
-
-        CachedSnapshot(long snapshotId, long schemaId, int specId,
-                ConnectorMvccPartitionView.Style emptyPartitionStyle, String tableIdentity) {
             this.snapshotId = snapshotId;
             this.schemaId = schemaId;
-            this.tableIdentity = tableIdentity;
-            this.specId = specId;
             this.emptyPartitionStyle = emptyPartitionStyle;
         }
     }
@@ -91,7 +78,7 @@ final class IcebergLatestSnapshotCache {
     private final MetaCache<TableIdentifier, CachedSnapshot> entry;
 
     IcebergLatestSnapshotCache(long ttlSeconds, int maxSize) {
-        this(new CatalogMetaCache(), ttlSeconds, maxSize);
+        this(CatalogMetaCache.unmanaged(), ttlSeconds, maxSize);
     }
 
     IcebergLatestSnapshotCache(CatalogMetaCache owner, long ttlSeconds, int maxSize) {
@@ -101,6 +88,7 @@ final class IcebergLatestSnapshotCache {
         this.entry = owner.create(MetaCacheDefinition
                 .<TableIdentifier, CachedSnapshot>builder(
                         "iceberg-latest-snapshot", spec, IcebergLatestSnapshotCache::scope)
+                .sizeEstimator(MetaCacheSizeEstimators.reflective())
                 .build());
     }
 

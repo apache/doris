@@ -207,9 +207,33 @@ public final class PaimonScanParams {
             table = restoreBoundSchema(table, Long.parseLong(schemaId), options, "");
         }
         FileStoreTable effectiveTable = (FileStoreTable) PaimonReaderOptions.runtimeSafeTable(
-                table.copyWithoutTimeTravel(isolatedOptions));
+                copyWithPinnedFallback(table, isolatedOptions, options, ""));
         PaimonReaderOptions.validateEffectiveTable(effectiveTable);
         return effectiveTable;
+    }
+
+    private static FileStoreTable copyWithPinnedFallback(FileStoreTable table, Map<String, String> dynamicOptions,
+            Map<String, String> coordinates, String path) {
+        if (table instanceof FallbackReadFileStoreTable) {
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
+            String fallbackPath = path + "fallback.";
+            String snapshotId = PaimonSchemaPin.fallbackSnapshotId(coordinates, fallbackPath);
+            if (snapshotId != null) {
+                Map<String, String> fallbackOptions = new HashMap<>(dynamicOptions);
+                // Keep branch policy, but never retranslate the main fence against a later fallback history.
+                fallbackOptions.remove(CoreOptions.BUCKET.key());
+                fallbackOptions.put(CoreOptions.BRANCH.key(), pair.fallback().coreOptions().branch());
+                fallbackOptions.put(CoreOptions.SCAN_SNAPSHOT_ID.key(), snapshotId);
+                return new FallbackReadFileStoreTable(
+                        copyWithPinnedFallback(pair.wrapped(), dynamicOptions, coordinates, path),
+                        copyWithPinnedFallback(pair.fallback(), fallbackOptions, coordinates, fallbackPath));
+            }
+        }
+        if (table instanceof DelegatedFileStoreTable && !(table instanceof FallbackReadFileStoreTable)) {
+            return PaimonTableDecorators.replaceWrapped(table, copyWithPinnedFallback(
+                    ((DelegatedFileStoreTable) table).wrapped(), dynamicOptions, coordinates, path));
+        }
+        return table.copyWithoutTimeTravel(dynamicOptions);
     }
 
     private static FileStoreTable restoreBoundSchema(

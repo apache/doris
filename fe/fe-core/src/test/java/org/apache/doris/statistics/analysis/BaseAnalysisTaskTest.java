@@ -39,7 +39,7 @@ public class BaseAnalysisTaskTest {
         String dataSizeFunction = olapAnalysisTask.getDataSizeFunction(column, true);
         Assertions.assertEquals("SUM(`column_length`)", dataSizeFunction);
         dataSizeFunction = olapAnalysisTask.getDataSizeFunction(column, false);
-        Assertions.assertEquals("SUM(LENGTH(`${colName}`))", dataSizeFunction);
+        Assertions.assertEquals("SUM(LENGTH(${colName}))", dataSizeFunction);
 
         column = new Column("int_column", PrimitiveType.INT);
         dataSizeFunction = olapAnalysisTask.getDataSizeFunction(column, false);
@@ -48,14 +48,14 @@ public class BaseAnalysisTaskTest {
         Assertions.assertEquals("SUM(t1.count) * 4", dataSizeFunction);
 
         String minFunction = olapAnalysisTask.getMinFunction();
-        Assertions.assertEquals("CAST(MIN(`${colName}`) as ${type}) ", minFunction);
+        Assertions.assertEquals("CAST(MIN(${colName}) as ${type}) ", minFunction);
         olapAnalysisTask.tableSample = new TableSample(true, 20L);
         minFunction = olapAnalysisTask.getMinFunction();
         Assertions.assertEquals("NULL", minFunction);
 
         olapAnalysisTask.tableSample = null;
         String maxFunction = olapAnalysisTask.getMaxFunction();
-        Assertions.assertEquals("CAST(MAX(`${colName}`) as ${type}) ", maxFunction);
+        Assertions.assertEquals("CAST(MAX(${colName}) as ${type}) ", maxFunction);
         olapAnalysisTask.tableSample = new TableSample(true, 20L);
         maxFunction = olapAnalysisTask.getMaxFunction();
         Assertions.assertEquals("NULL", maxFunction);

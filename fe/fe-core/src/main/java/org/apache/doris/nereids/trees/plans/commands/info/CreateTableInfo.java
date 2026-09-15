@@ -56,6 +56,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
@@ -66,7 +67,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
-import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
@@ -1209,6 +1209,8 @@ public class CreateTableInfo {
                 throw new AnalysisException("Generated column does not support subquery.");
             } else if (e instanceof Lambda) {
                 throw new AnalysisException("Generated column does not support lambda.");
+            } else if (e instanceof UnboundVariable) {
+                throw new AnalysisException("Generated column expression cannot contain variable.");
             }
         });
     }
@@ -1216,9 +1218,7 @@ public class CreateTableInfo {
     void checkExpressionInGeneratedColumn(Expression expr, ColumnDefinition column,
             Map<String, ColumnDefinition> nameToColumnDefinition) {
         expr.foreach(e -> {
-            if (e instanceof Variable) {
-                throw new AnalysisException("Generated column expression cannot contain variable.");
-            } else if (e instanceof Slot && nameToColumnDefinition.containsKey(((Slot) e).getName())) {
+            if (e instanceof Slot && nameToColumnDefinition.containsKey(((Slot) e).getName())) {
                 ColumnDefinition columnDefinition = nameToColumnDefinition.get(((Slot) e).getName());
                 if (columnDefinition.getAutoIncInitValue() != -1) {
                     throw new AnalysisException(
@@ -1646,14 +1646,34 @@ public class CreateTableInfo {
      * Add hidden columns required by row binlog.
      */
     public void createRowBinlogHiddenColumnsIfNecessary(BinlogConfig binlogConfig) {
-        if (!binlogConfig.isRowFormat()) {
+        addRowBinlogHiddenColumns(columns, keysType, isEnableMergeOnWrite, binlogConfig);
+    }
+
+    /**
+     * Append the hidden columns a row-binlog table carries. Callers that build the column list
+     * outside the create-table flow (an analyzed MTMV schema) go through here as well, so both
+     * sides of {@code MTMVPlanUtil#checkColumnIfChange} agree on the physical layout.
+     *
+     * <p>Idempotent: a column that is already present is kept once.
+     */
+    public static void addRowBinlogHiddenColumns(List<ColumnDefinition> columns, KeysType keysType,
+            boolean isEnableMergeOnWrite, BinlogConfig binlogConfig) {
+        if (binlogConfig == null || !binlogConfig.isRowFormat()) {
             return;
         }
         if (keysType.equals(KeysType.DUP_KEYS)) {
-            columns.add(ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
-            columns.add(ColumnDefinition.newRowLsnColumnDefinition(AggregateType.NONE));
+            addIfAbsent(columns, ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
+            addIfAbsent(columns, ColumnDefinition.newRowLsnColumnDefinition(AggregateType.NONE));
         } else if (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite) {
-            columns.add(ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
+            addIfAbsent(columns, ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
+        }
+    }
+
+    private static void addIfAbsent(List<ColumnDefinition> columns, ColumnDefinition columnDefinition) {
+        boolean present = columns.stream()
+                .anyMatch(column -> column.getName().equalsIgnoreCase(columnDefinition.getName()));
+        if (!present) {
+            columns.add(columnDefinition);
         }
     }
 }

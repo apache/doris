@@ -126,7 +126,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
 
     /**
      * Lists the partition set at LATEST and pins the connector snapshot. The per-partition build is
-     * delegated to {@link #listLatestPartitions} (shared with the @incr path, which legacy also reads
+     * delegated to {@link #listPartitions} (shared with the @incr path, which legacy also reads
      * at LATEST).
      */
     private PluginDrivenMvccSnapshot materializeLatest() {
@@ -173,9 +173,9 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         // latest pin is side-effect-free for both paimon and iceberg).
         ConnectorTableHandle pinnedHandle = metadata.applySnapshot(session, handle, connectorSnapshot);
         PluginDrivenSchemaCacheValue pinnedSchema = null;
-        if (connectorSnapshot.getSchemaId() >= 0) {
-            // Latest data and schema can advance independently. Keep the connector's exact schema
-            // on the statement pin so analysis cannot fall back to a different cached generation.
+        if (connectorSnapshot.isSchemaRetained() && connectorSnapshot.getSchemaId() >= 0) {
+            // A schema coordinate alone is not permission to replace the ordinary schema. Only
+            // connectors that own the complete statement schema opt into this publication path.
             ConnectorTableSchema atSchema = metadata.getTableSchema(session, pinnedHandle, connectorSnapshot);
             pinnedSchema = toSchemaCacheValue(metadata, session,
                     db != null ? db.getRemoteName() : "", getRemoteName(), atSchema);
@@ -210,7 +210,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             if (view.getStyle() != ConnectorMvccPartitionView.Style.RANGE && !partitionColumns.isEmpty()) {
                 Map<String, PartitionItem> listItems = Maps.newHashMap();
                 Map<String, Long> listLastModifiedMillis = Maps.newHashMap();
-                listLatestPartitions(metadata, session, partitionHandle, partitionColumns,
+                listPartitions(metadata, session, partitionHandle, partitionColumns,
                         listItems, listLastModifiedMillis);
                 return new PluginDrivenMvccSnapshot(connectorSnapshot, listItems, listLastModifiedMillis,
                         pinnedSchema, PartitionType.UNPARTITIONED, false, 0L);
@@ -220,7 +220,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
 
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
         Map<String, Long> nameToLastModifiedMillis = Maps.newHashMap();
-        listLatestPartitions(metadata, session, partitionHandle, partitionColumns,
+        listPartitions(metadata, session, partitionHandle, partitionColumns,
                 nameToPartitionItem, nameToLastModifiedMillis);
         return new PluginDrivenMvccSnapshot(connectorSnapshot, nameToPartitionItem,
                 nameToLastModifiedMillis, pinnedSchema);
@@ -289,14 +289,11 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     }
 
     /**
-     * Lists the partition set at LATEST into the two supplied maps (rendered name -&gt; built
-     * {@link PartitionItem} / -&gt; last-modified epoch millis). Mirrors legacy
-     * {@code PaimonUtil.generatePartitionInfo}: per-partition build is wrapped in try/catch so a single
-     * un-parseable name is logged and skipped (leaving the listed-name set larger than the built-item
-     * set, which {@link PluginDrivenMvccSnapshot#isPartitionInvalid} then treats as UNPARTITIONED)
-     * rather than failing the whole query.
+     * Lists partitions from the supplied handle, using the same column types that the caller publishes.
+     * Both an opted-in latest pin and explicit time travel must use their retained schema here.
+     * Unparseable partitions remain logged and skipped so the snapshot can fall back to scan-all.
      */
-    private void listLatestPartitions(ConnectorMetadata metadata, ConnectorSession session,
+    private void listPartitions(ConnectorMetadata metadata, ConnectorSession session,
             ConnectorTableHandle handle, List<Column> partitionColumns,
             Map<String, PartitionItem> nameToPartitionItem, Map<String, Long> nameToLastModifiedMillis) {
         List<Type> types = partitionColumns.stream().map(Column::getType).collect(Collectors.toList());
@@ -325,6 +322,22 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
                 LOG.warn("toListPartitionItem failed, partitionColumns: {}, partitionName: {}",
                         partitionColumns, partitionName, e);
             }
+        }
+        // One line for the listing, next to the per-partition ones above.
+        //
+        // A per-partition WARN is the right shape for the case this catch was written for - iceberg
+        // spec evolution, where SOME rows carry fewer values than the current spec has columns - but
+        // it is the wrong shape for the case where the two lists never agreed at all: every
+        // partition then fails for the same reason, and what the reader needs is the two counts and
+        // the fact that the whole table just went UNPARTITIONED, not N copies of one stack trace.
+        // That shape is what a pinned read produces when the at-snapshot schema declares partition
+        // columns the pinned listing does not match (see ConnectorMetadata.listsPartitionsAtSnapshot).
+        if (!parts.isEmpty() && nameToPartitionItem.isEmpty()) {
+            LOG.warn("every partition of {}.{} was skipped while building partition items, so the "
+                            + "table is reported UNPARTITIONED for this read: {} listed, 0 built, "
+                            + "typed by {} partition column(s) {}. The connector's partition columns "
+                            + "and the values it lists do not agree.",
+                    getDbName(), getName(), parts.size(), types.size(), partitionColumns);
         }
     }
 
@@ -474,7 +487,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             // normal-read materializeLatest path — NOT a snapshot-pinned handle.
             Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
             Map<String, Long> nameToLastModifiedMillis = Maps.newHashMap();
-            listLatestPartitions(metadata, session, handle, getPartitionColumns(),
+            listPartitions(metadata, session, handle, getPartitionColumns(),
                     nameToPartitionItem, nameToLastModifiedMillis);
             return new PluginDrivenMvccSnapshot(connectorSnapshot, nameToPartitionItem,
                     nameToLastModifiedMillis, null);
@@ -491,12 +504,28 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         PluginDrivenSchemaCacheValue pinnedSchema =
                 toSchemaCacheValue(metadata, session, dbName, tableName, atSchema);
 
-        // Explicit point-in-time time-travel (snapshot id / tag / timestamp / branch) does NOT list
-        // partitions (EMPTY partition maps) — parity with legacy PaimonPartitionInfo.EMPTY. The empty
-        // maps make isPartitionInvalid() == (0!=0) == false, so getPartitionColumns(snapshot) flows
-        // through super -> the schema-aware getSchemaCacheValue() below -> the pinned schema's partition
-        // columns. Partition pruning is deferred to the connector's predicate pushdown (the generic scan
-        // node's resolveRequiredPartitions treats this empty-universe pin as scan-all).
+        // Explicit point-in-time time-travel (snapshot id / tag / timestamp / branch) lists partitions only
+        // from a connector that can list them AT the pin. A listing at LATEST is the wrong universe in both
+        // directions — it hides a partition dropped since the pin (pruning it away would lose rows) and
+        // invents ones created after it — so a snapshot-blind connector keeps EMPTY maps, parity with legacy
+        // PaimonPartitionInfo.EMPTY: isPartitionInvalid() == (0!=0) == false, getPartitionColumns(snapshot)
+        // flows through super -> the schema-aware getSchemaCacheValue() -> the pinned schema's partition
+        // columns, and pruning is deferred to the connector's predicate pushdown (the generic scan node's
+        // resolveRequiredPartitions treats an empty universe as scan-all).
+        //
+        // The cost of that safe answer is a query that reads every partition and an EXPLAIN that reports
+        // `partition=0/0` for it — indistinguishable from "pruned to nothing". So a connector that DOES
+        // read the pin when listing (listsPartitionsAtSnapshot) gets the real set instead, listed on the
+        // snapshot-applied handle, and pruning and partition=N/M both become truthful.
+        if (metadata.listsPartitionsAtSnapshot(session, pinnedHandle)) {
+            Map<String, PartitionItem> pinnedPartitionItems = Maps.newHashMap();
+            Map<String, Long> pinnedLastModifiedMillis = Maps.newHashMap();
+            // Typed by the PINNED schema, which is the one this snapshot publishes: see listPartitions.
+            listPartitions(metadata, session, pinnedHandle, pinnedSchema.getPartitionColumns(),
+                    pinnedPartitionItems, pinnedLastModifiedMillis);
+            return new PluginDrivenMvccSnapshot(connectorSnapshot, pinnedPartitionItems,
+                    pinnedLastModifiedMillis, pinnedSchema);
+        }
         return new PluginDrivenMvccSnapshot(connectorSnapshot,
                 Collections.emptyMap(), Collections.emptyMap(), pinnedSchema);
     }

@@ -164,6 +164,85 @@ public class PaimonStatementSchemaTest {
     }
 
     @Test
+    public void fallbackPinRejectsSameSchemaBranchRecreation(@TempDir Path warehouse) throws Exception {
+        checkFallbackRecreation(warehouse, false);
+    }
+
+    @Test
+    public void fallbackPinRejectsRecreationWithoutEligibleSnapshot(@TempDir Path warehouse) throws Exception {
+        checkFallbackRecreation(warehouse, true);
+    }
+
+    private void checkFallbackRecreation(Path warehouse, boolean noEligibleSnapshot) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.INT())
+                    .primaryKey("id").option("bucket", "1").build(), false);
+            FileStoreTable main = (FileStoreTable) catalog.getTable(id);
+            append(main, GenericRow.of(1));
+            main.createBranch("backup");
+            FileStoreTable fallback = main.switchToBranch("backup");
+            append(fallback, GenericRow.of(2));
+            append(main, GenericRow.of(3));
+            if (noEligibleSnapshot) {
+                // A fixed earlier timestamp exercises the SDK's FIRST_SNAPSHOT_ID selection.
+                org.apache.paimon.fs.Path snapshotPath = main.snapshotManager().snapshotPath(2);
+                String json = main.fileIO().readFileUtf8(snapshotPath);
+                main.fileIO().overwriteFileUtf8(snapshotPath, json.replaceAll("\"timeMillis\"\\s*:\\s*\\d+",
+                        "\"timeMillis\":0"));
+                Assertions.assertNull(fallback.snapshotManager().earlierOrEqualTimeMills(0));
+            }
+            List<Integer> originalRows = readIds(fallback);
+            PaimonTableHandle handle = new PaimonTableHandle("db", "t", Collections.emptyList(), Collections.emptyList());
+            handle.setPaimonTable(new FallbackReadFileStoreTable(main, fallback));
+            PaimonCatalogOps ops = new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(catalog);
+            PaimonCatalogProperties props = PaimonCatalogProperties.of(Collections.emptyMap());
+            PaimonConnectorMetadata md = new PaimonConnectorMetadata(ops, props, new RecordingConnectorContext());
+            ConnectorMvccSnapshot pin = md.beginQuerySnapshot(null, handle).get();
+            String oldSchema = fallback.schema().toString();
+            main.branchManager().dropBranch("backup");
+            main.createBranch("backup");
+            FileStoreTable replacement = main.switchToBranch("backup");
+            Assertions.assertEquals(oldSchema, replacement.schema().toString());
+            Assertions.assertNotEquals(originalRows, readIds(replacement));
+            handle.setPaimonTable(new FallbackReadFileStoreTable(main, replacement));
+            PaimonTableHandle pinned = (PaimonTableHandle) md.applySnapshot(null, handle, pin);
+            Assertions.assertTrue(Assertions.assertThrows(RuntimeException.class,
+                    () -> new PaimonScanPlanProvider(props, ops).resolveScanTable(pinned))
+                    .getMessage().contains("changed"));
+        }
+    }
+
+    @Test
+    public void fallbackPinRejectsFirstAppendAfterAbsentSnapshot(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.INT())
+                    .primaryKey("id").option("bucket", "1").build(), false);
+            FileStoreTable main = (FileStoreTable) catalog.getTable(id);
+            main.createBranch("backup");
+            FileStoreTable fallback = main.switchToBranch("backup");
+            append(main, GenericRow.of(1));
+            Assertions.assertNull(fallback.snapshotManager().latestSnapshotId());
+            PaimonTableHandle handle = new PaimonTableHandle("db", "t", Collections.emptyList(), Collections.emptyList());
+            handle.setPaimonTable(new FallbackReadFileStoreTable(main, fallback));
+            PaimonCatalogOps ops = new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(catalog);
+            PaimonCatalogProperties props = PaimonCatalogProperties.of(Collections.emptyMap());
+            PaimonConnectorMetadata md = new PaimonConnectorMetadata(ops, props, new RecordingConnectorContext());
+            ConnectorMvccSnapshot pin = md.beginQuerySnapshot(null, handle).get();
+            append(fallback, GenericRow.of(2));
+            PaimonTableHandle pinned = (PaimonTableHandle) md.applySnapshot(null, handle, pin);
+            Assertions.assertTrue(Assertions.assertThrows(RuntimeException.class,
+                    () -> new PaimonScanPlanProvider(props, ops).resolveScanTable(pinned))
+                    .getMessage().contains("changed"));
+        }
+    }
+
+    @Test
     public void fallbackCapturesBothLatestSchemas(@TempDir Path warehouse) throws Exception {
         try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
                 new org.apache.paimon.fs.Path(warehouse.toUri()))) {
