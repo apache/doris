@@ -27,6 +27,7 @@ import org.mockito.Mockito;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalLong;
 
 /**
@@ -105,6 +106,36 @@ public class PluginDrivenScanNodePartitionCountTest {
                 SelectedPartitions.UNKNOWN_TOTAL_PARTITION_NUM, items(2), true, true);
         Assertions.assertArrayEquals(new long[] {2, SelectedPartitions.UNKNOWN_TOTAL_PARTITION_NUM},
                 PluginDrivenScanNode.displayPartitionCounts(pruned));
+    }
+
+    // A connector-filtered selection deliberately never enumerates the table's full partition view (that
+    // enumeration is what pushing the predicate into the connector avoids), so its total is unknown and
+    // EXPLAIN would render `N/?`. The renderer completes it from the connector's UNFILTERED view - the same
+    // view a no-filter full scan materializes - so `partition=N/M` stays faithful, and only the statement that
+    // renders the explain string pays for the round-trip.
+
+    @Test
+    public void testUnknownTotalIsResolvedFromTheUnfilteredView() {
+        // Pruned to 1 of 4 partitions -> 1/4, not 1/?.
+        Assertions.assertEquals(4L, PluginDrivenScanNode.totalPartitionNumFromUnfilteredView(
+                SelectedPartitions.UNKNOWN_TOTAL_PARTITION_NUM, Optional.of(items(4))));
+    }
+
+    @Test
+    public void testUnavailableUnfilteredViewKeepsTheTotalUnknown() {
+        // A degrade-to-scan-all connector view must NOT become an invented 0 (0 would read as "this table has
+        // no partitions"); the unknown sentinel is what the renderer writes as ?.
+        Assertions.assertEquals(SelectedPartitions.UNKNOWN_TOTAL_PARTITION_NUM,
+                PluginDrivenScanNode.totalPartitionNumFromUnfilteredView(
+                        SelectedPartitions.UNKNOWN_TOTAL_PARTITION_NUM, Optional.empty()));
+    }
+
+    @Test
+    public void testKnownTotalIsNeverReDerived() {
+        // The unfiltered view is only a fallback: a selection that already knows its total (the local
+        // full-list prune, and the finalized deferred full scan) keeps it even if another view is supplied.
+        Assertions.assertEquals(5L, PluginDrivenScanNode.totalPartitionNumFromUnfilteredView(5L, Optional.of(items(4))));
+        Assertions.assertEquals(0L, PluginDrivenScanNode.totalPartitionNumFromUnfilteredView(0L, Optional.of(items(4))));
     }
 
     // FIX-L12 — guards resolveSelectedPartitionNum, which prefers the connector's real scanned-partition
