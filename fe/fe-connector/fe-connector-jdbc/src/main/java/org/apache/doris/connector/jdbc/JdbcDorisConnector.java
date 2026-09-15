@@ -26,6 +26,7 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorTestResult;
 import org.apache.doris.connector.spi.ConnectorValidationContext;
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.DriverUrlPolicy;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.thrift.TJdbcTable;
@@ -37,7 +38,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TSerializer;
 
-import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -184,10 +184,10 @@ public class JdbcDorisConnector implements Connector {
         if (driverUrl != null && !driverUrl.isEmpty()) {
             // Mandatory, non-configurable security rule, enforced on catalog creation only.
             checkDriverUrlSecurityRule(driverUrl);
-            context.validateAndResolveDriverPath(driverUrl);
+            String fullDriverUrl = DriverUrlPolicy.resolve(driverUrl, driverUrlSettings());
 
             // 2. Compute and verify checksum.
-            String computedChecksum = context.computeDriverChecksum(driverUrl);
+            String computedChecksum = computeDriverChecksum(driverUrl, fullDriverUrl);
             String providedChecksum = context.getProperty(JdbcCatalogProperties.DRIVER_CHECKSUM);
             if (providedChecksum != null && !providedChecksum.isEmpty()) {
                 if (!providedChecksum.equals(computedChecksum)) {
@@ -252,7 +252,7 @@ public class JdbcDorisConnector implements Connector {
         JdbcDbType dbType = JdbcDbType.parseFromUrl(jdbcUrl);
         String user = props.getUser();
         String password = props.getPassword();
-        String driverUrl = resolveDriverUrl(props.getDriverUrl());
+        String driverUrl = resolveDriverUrlForLoad(props.getDriverUrl());
         String driverClass = props.getDriverClass();
         int poolMinSize = props.getConnectionPoolMinSize();
         int poolMaxSize = props.getConnectionPoolMaxSize();
@@ -286,46 +286,40 @@ public class JdbcDorisConnector implements Connector {
     }
 
     /**
-     * Resolves driver URL against the configured drivers directory.
-     * If the URL is a plain filename (e.g., "mysql-connector-j-8.4.0.jar"),
-     * resolves it under {@code drivers_dir} from this plugin's jdbc.conf, or fe.conf's
-     * {@code jdbc_drivers_dir}.
+     * The FE's driver-jar policy, fed from this plugin's own {@code jdbc.conf} (the drivers directory) and
+     * the engine environment (install root, allow-lists, the external plugin store).
      */
-    private String resolveDriverUrl(String driverUrl) {
+    private DriverUrlPolicy.Settings driverUrlSettings() {
+        return DriverUrlPolicy.Settings.fromContext(context, JdbcConf.driversDir(context));
+    }
+
+    /**
+     * Resolves the driver_url the client loads its driver from, applying the FE's driver-jar policy
+     * ({@link DriverUrlPolicy}) at load time as well as at CREATE: the {@code jdbc_driver_secure_path} /
+     * {@code jdbc_driver_url_white_list} allow-lists, the bare-name lookup under the drivers directory
+     * (current and pre-2.1 default locations), and the external plugin store of a cloud deployment.
+     * A catalog whose driver sits outside a since-tightened allow-list therefore fails to connect rather
+     * than loading a jar the deployment no longer permits.
+     */
+    private String resolveDriverUrlForLoad(String driverUrl) {
         if (driverUrl == null || driverUrl.isEmpty()) {
             return driverUrl;
         }
-        if (driverUrl.startsWith("file://") || driverUrl.startsWith("http://")
-                || driverUrl.startsWith("https://") || driverUrl.startsWith("/")) {
-            return driverUrl;
+        String resolved = DriverUrlPolicy.resolve(driverUrl, driverUrlSettings());
+        if (!resolved.equals(driverUrl)) {
+            LOG.info("Resolved driver_url '{}' to '{}'", driverUrl, resolved);
         }
-        // Plain filename — resolve under the configured drivers directory. doris_home is engine-wide
-        // rather than this connector's setting, so it keeps coming from the engine environment.
-        String driversDir = JdbcConf.driversDir(context);
-        String dorisHome = JdbcConf.dorisHome(context);
-        if (driversDir != null && !driversDir.isEmpty()) {
-            String newPath = driversDir + "/" + driverUrl;
-            if (new File(newPath).exists()) {
-                return "file://" + newPath;
-            }
-            // Backward compatibility: check the old default directory
-            // (DORIS_HOME/jdbc_drivers) when the user hasn't customized jdbc_drivers_dir
-            if (dorisHome != null) {
-                String defaultNewDir = dorisHome + "/plugins/jdbc_drivers";
-                if (driversDir.equals(defaultNewDir)) {
-                    String oldPath = dorisHome + "/jdbc_drivers/" + driverUrl;
-                    if (new File(oldPath).exists()) {
-                        LOG.info("Resolved driver_url '{}' from old default directory: {}",
-                                driverUrl, oldPath);
-                        return "file://" + oldPath;
-                    }
-                }
-            }
-            String resolved = "file://" + newPath;
-            LOG.info("Resolved driver_url '{}' to '{}' using jdbc_drivers_dir", driverUrl, resolved);
-            return resolved;
+        return resolved;
+    }
+
+    /** The MD5 of the driver jar, remote fetches going through the engine's outbound-request hook. */
+    private String computeDriverChecksum(String driverUrl, String fullDriverUrl) {
+        try {
+            return DriverUrlPolicy.checksum(fullDriverUrl, context.getHttpSecurityHook());
+        } catch (IOException e) {
+            throw new DorisConnectorException("compute driver checksum from url: " + driverUrl
+                    + " meet an IOException: " + e.getMessage(), e);
         }
-        return "file://" + driverUrl;
     }
 
     private TTableDescriptor buildTestTableDescriptor(ConnectorValidationContext context) {
