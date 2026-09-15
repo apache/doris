@@ -258,6 +258,7 @@ Status IndexDiskUsageCollector::_collect_v1(const IndexDiskUsageOptions& options
         if (!is_wanted(options, index.index_id())) {
             continue;
         }
+        RETURN_IF_ERROR(check_cancelled(options));
         int64_t file_size = file.persisted_size;
         if (file_size < 0) {
             const std::string path = InvertedIndexDescriptor::get_index_file_path_v1(
@@ -335,6 +336,7 @@ Status IndexDiskUsageCollector::_collect_snii(const IndexDiskUsageOptions& optio
         if (!is_wanted(options, index_id)) {
             continue;
         }
+        RETURN_IF_ERROR(check_cancelled(options));
         IndexDiskUsageRecord record;
         record.index_id = index_id;
         record.index_suffix = entry.index_suffix;
