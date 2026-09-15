@@ -161,6 +161,17 @@ hive3PgPort=5732
 enableKafkaTest=false
 kafka_port=19193
 
+// fluss catalog test config
+// to enable fluss test, you need firstly to start fluss containers
+// See `docker/thirdparties/run-thirdparties-docker.sh -c fluss`
+enableFlussTest=false
+fluss_coordinator_port=19123
+// The object store the fluss lake lives in. Fluss removes every lake option whose
+// name holds key, secret or password before it hands a table's properties to a
+// client, so a suite that reads the lake has to tell its own catalog how to reach
+// that store; the credentials are the minio defaults and are spelled out there.
+fluss_minio_port=19125
+
 // elasticsearch catalog test config
 // See `docker/thirdparties/run-thirdparties-docker.sh`
 enableEsTest=false

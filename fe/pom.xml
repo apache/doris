@@ -443,6 +443,27 @@ under the License.
              deserialization at runtime. These two MUST stay equal — do NOT override
              paimon.version per-module. -->
         <paimon.version>1.3.1</paimon.version>
+        <!-- fluss -->
+        <!-- INVARIANT: this single property pins org.apache.fluss:* for BOTH fluss consumers — the FE
+             connector (fe-connector-fluss) and the BE-java-extension fluss-scanner. The FE plans
+             splits against the same client the BE scanner reads with, and the scanner links fluss classes
+             marked @Internal (KvSnapshotAndLogBatchScanner / LakeSnapshotAndLogSplitScanner) whose
+             signatures carry no compatibility promise; a version skew therefore breaks the read path at
+             runtime, not at build time. These MUST stay equal — do NOT override fluss.version per-module.
+             Fluss 1.0 is not released yet (0.9.1-incubating lacks the APIs this connector is built on:
+             getReadableLakeSnapshot, the batch scanners above), so this is a 1.0-SNAPSHOT build from
+             the apache snapshots repository declared at the bottom of this pom. It is spelled as the
+             timestamped build rather than the floating "1.0-SNAPSHOT" on purpose: build.sh packages the
+             FE (fe option) and the BE extensions (be option) in separate maven invocations, and a
+             floating snapshot would hand them different builds whenever fluss redeploys in between —
+             exactly the skew above. Moving to a newer snapshot is therefore a deliberate edit of BOTH
+             properties here, with the values read off <artifact>/1.0-SNAPSHOT/maven-metadata.xml in
+             that repository. -->
+        <fluss.version>1.0-20260901.094454-3</fluss.version>
+        <!-- The test-only helpers (retry/await utilities the embedded-cluster tests call into), from
+             the same 2026-09-01 deploy as fluss.version. The build number differs only because this
+             artifact had been deployed once more before that day; bump the two together. -->
+        <fluss-test-utils.version>1.0-20260901.094454-4</fluss-test-utils.version>
         <disruptor.version>3.4.4</disruptor.version>
         <jetbrains-annotations.version>17.0.0</jetbrains-annotations.version>
         <!-- arrow flight sql -->
