@@ -339,7 +339,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         checkVariantBackendCompatibility(projectsVariant, backends);
     }
 
-    private Optional<Map<Integer, List<String>>> extractNameMapping() {
+    private Optional<Map<Integer, List<String>>> extractNameMapping() throws UserException {
         Optional<MvccSnapshot> snapshot = getPinnedRelationSnapshot();
         if (snapshot.isPresent() && snapshot.get() instanceof IcebergMvccSnapshot) {
             // The mapping must come from the same metadata generation as the pinned schema; a
@@ -625,7 +625,11 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     public void createScanRangeLocations() throws UserException {
         Schema scanSchema = getQuerySchema();
-        Optional<Map<Integer, List<String>>> nameMapping = extractNameMapping();
+        // Metadata (system) table scans never resolve physical data columns by name, so a malformed
+        // name-mapping property must not fail them. Data scans are validated here instead: a
+        // malformed schema.name-mapping.default is a metadata fault that Iceberg would reject too.
+        Optional<Map<Integer, List<String>>> nameMapping =
+                isSystemTable ? Optional.empty() : extractNameMapping();
         Set<Integer> equalityDeleteFieldIds = Collections.emptySet();
         if (!isSystemTable) {
             ConnectContext context = Preconditions.checkNotNull(ConnectContext.get(),
