@@ -23,6 +23,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authorization.DataMaskSpec;
 import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -75,6 +76,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class CheckRowPolicyTest extends TestWithFeService {
 
@@ -143,10 +145,17 @@ public class CheckRowPolicyTest extends TestWithFeService {
             Map<String, DataMaskSpec> masks = new LinkedHashMap<>();
             for (String col : cols) {
                 String column = col.toLowerCase(Locale.ROOT);
-                if (maskRandomDistribution || column.equalsIgnoreCase("k2")) {
+                if (maskRandomDistribution) {
                     masks.put(column, new DataMaskSpec(
                             String.format("custom policy: concat(%s, '_****_', %s)", column, column),
                             String.format("concat(%s, '_****_', %s)", column, column)));
+                } else if (column.equalsIgnoreCase("k2")) {
+                    String mask = "if(assert_true(k2 >= 0, 'post-snapshot row reached mask'), k2, NULL)";
+                    masks.put(column, new DataMaskSpec("custom non-movable policy: " + mask, mask));
+                } else {
+                    // Mask hidden reconstruction columns too. Their aliases deliberately get new ExprIds,
+                    // so a reconstruction filter left above the mask would fail CheckAfterRewrite.
+                    masks.put(column, new DataMaskSpec("custom identity policy: " + column, column));
                 }
             }
             return masks;
@@ -367,7 +376,7 @@ public class CheckRowPolicyTest extends TestWithFeService {
     }
 
     @Test
-    public void mowTimeTravelBranchProjectionsPreserveDataMask() throws Exception {
+    public void mowTimeTravelReconstructionFiltersRunBeforeNonMovableMask() throws Exception {
         useUser(userName);
         connectContext.getState().setIsQuery(true);
 
@@ -380,9 +389,10 @@ public class CheckRowPolicyTest extends TestWithFeService {
 
         LogicalUnion union = unions.iterator().next();
         Assertions.assertEquals(2, union.children().size());
+        Set<String> reconstructionFilterSlots = new java.util.HashSet<>();
         for (Plan branch : union.children()) {
-            int maskedK2ProjectCount = 0;
             Set<LogicalProject<?>> branchProjects = branch.collect(node -> node instanceof LogicalProject);
+            int maskedK2ProjectCount = 0;
             for (LogicalProject<?> project : branchProjects) {
                 for (NamedExpression namedExpression : project.getProjects()) {
                     if (namedExpression.getName().equalsIgnoreCase("k2")
@@ -392,9 +402,27 @@ public class CheckRowPolicyTest extends TestWithFeService {
                     }
                 }
             }
-            Assertions.assertEquals(1, maskedK2ProjectCount,
+            Assertions.assertTrue(maskedK2ProjectCount >= 1,
                     "each MOW time-travel branch must retain its k2 data mask");
+
+            Set<LogicalProject<?>> maskProjects = branch.collect(node -> node instanceof LogicalProject
+                    && ((LogicalProject<?>) node).containsNoneMovableFunction());
+            Assertions.assertFalse(maskProjects.isEmpty(),
+                    "each branch must contain the non-movable data mask");
+            for (LogicalProject<?> maskProject : maskProjects) {
+                Set<LogicalFilter<?>> filtersBelowMask = maskProject.collect(node -> node instanceof LogicalFilter);
+                Assertions.assertFalse(filtersBelowMask.isEmpty(),
+                        "reconstruction filters must run before every non-movable data mask");
+                reconstructionFilterSlots.addAll(filtersBelowMask.stream()
+                        .flatMap(filter -> filter.getConjuncts().stream())
+                        .flatMap(conjunct -> conjunct.getInputSlots().stream())
+                        .map(Slot::getName)
+                        .collect(Collectors.toSet()));
+            }
         }
+        Assertions.assertTrue(reconstructionFilterSlots.contains(Column.DELETE_SIGN));
+        Assertions.assertTrue(reconstructionFilterSlots.contains(Column.COMMIT_TSO_COL));
+        Assertions.assertTrue(reconstructionFilterSlots.contains(Column.BINLOG_OPERATION_COL));
     }
 
     private static class RenamedOlapTableWrapper extends OlapTableWrapper {

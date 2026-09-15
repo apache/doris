@@ -472,11 +472,11 @@ public class BindRelation extends OneAnalysisRuleFactory {
      */
     public static LogicalPlan checkAndAddDeleteSignFilter(LogicalOlapScan scan, ConnectContext connectContext,
             OlapTable olapTable) {
-        return checkAndAddDeleteSignFilter(scan, connectContext, olapTable, false, false);
+        return checkAndAddDeleteSignFilter(scan, connectContext, olapTable, false);
     }
 
     private static LogicalPlan checkAndAddDeleteSignFilter(LogicalOlapScan scan, ConnectContext connectContext,
-            OlapTable olapTable, boolean force, boolean addCheckPolicy) {
+            OlapTable olapTable, boolean force) {
         if (scan.getTable().hasDeleteSign()
                 && (force || (!Util.showHiddenColumns()
                 && !connectContext.getSessionVariable().skipDeleteSign()
@@ -497,10 +497,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 scan = scan.withPreAggStatus(PreAggStatus.off(
                         Column.DELETE_SIGN + " is used as conjuncts."));
             }
-            LogicalPlan child = addCheckPolicy ? new LogicalCheckPolicy<>(scan) : scan;
-            return new LogicalFilter<>(ImmutableSet.of(conjunct), child);
+            return new LogicalFilter<>(ImmutableSet.of(conjunct), scan);
         }
-        return addCheckPolicy ? new LogicalCheckPolicy<>(scan) : scan;
+        return scan;
     }
 
     /**
@@ -606,9 +605,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 .collect(Collectors.toList());
 
         // left: base survived rows at t1 = delete_sign=0 AND commit_tso < targetTso, projected to visible.
-        LogicalPlan left = checkAndAddDeleteSignFilter(
-                baseScan, ConnectContext.get(), olapTable, true, true);
-        left = projectFromUnboundSlots(addCommitTsoFilter(left, targetTso, olapTable), visibleOutput);
+        LogicalPlan left = checkAndAddDeleteSignFilter(baseScan, ConnectContext.get(), olapTable, true);
+        left = addCommitTsoFilter(left, targetTso, olapTable);
+        left = projectFromUnboundSlots(new LogicalCheckPolicy<>(left), visibleOutput);
 
         // right: binlog MIN_DELTA over tso >= targetTso, keep UPDATE_BEFORE/DELETE rows (before image),
         // projected to the same visible schema. BE splits each change so UPDATE_BEFORE/DELETE rows
@@ -630,8 +629,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         binlogScan = binlogScan.withTableScanParams(
                 new TableScanParams(TableScanParams.INCREMENTAL_READ, incrParams, Lists.newArrayList()));
 
-        LogicalPlan right = checkAndAddChangeScanFilter(binlogScan, StreamScanType.MIN_DELTA, true, true);
-        right = projectFromUnboundSlots(right, visibleOutput);
+        LogicalPlan right = checkAndAddChangeScanFilter(binlogScan, StreamScanType.MIN_DELTA, true);
+        right = projectFromUnboundSlots(new LogicalCheckPolicy<>(right), visibleOutput);
 
         // BindExpression binds both branch projections, aligns them by position, and fills the union output.
         // buildNewOutputs() rebuilds the union output slots with empty qualifiers, so wrap the union
@@ -1063,12 +1062,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
      */
     public static LogicalPlan checkAndAddChangeScanFilter(LogicalOlapScan scan,
                                                           StreamScanType scanType, boolean beforeImageOnly) {
-        return checkAndAddChangeScanFilter(scan, scanType, beforeImageOnly, false);
-    }
-
-    private static LogicalPlan checkAndAddChangeScanFilter(LogicalOlapScan scan,
-            StreamScanType scanType, boolean beforeImageOnly, boolean addCheckPolicy) {
-        LogicalPlan plan = addCheckPolicy ? new LogicalCheckPolicy<>(scan) : scan;
         Slot opSlot = null;
         for (Slot slot : scan.getOutput()) {
             if (slot.getName().equals(Column.BINLOG_OPERATION_COL)) {
@@ -1079,13 +1072,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (scanType.equals(StreamScanType.APPEND_ONLY)) {
             Preconditions.checkArgument(opSlot != null, "opSlot is null");
             return new LogicalFilter<>(ImmutableSet.of(new EqualTo(opSlot,
-                    new BigIntLiteral(BinlogUtils.ROW_BINLOG_APPEND))), plan);
+                    new BigIntLiteral(BinlogUtils.ROW_BINLOG_APPEND))), scan);
         } else if (beforeImageOnly) {
             return new LogicalFilter<>(ImmutableSet.of(new InPredicate(opSlot, ImmutableList.of(
                     new BigIntLiteral(BinlogUtils.ROW_BINLOG_DELETE),
-                    new BigIntLiteral(BinlogUtils.ROW_BINLOG_UPDATE_BEFORE)))), plan);
+                    new BigIntLiteral(BinlogUtils.ROW_BINLOG_UPDATE_BEFORE)))), scan);
         }
-        return plan;
+        return scan;
     }
 
     private LogicalPlan projectFromUnboundSlots(LogicalPlan plan, List<UnboundSlot> wantedSlots) {
