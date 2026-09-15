@@ -295,6 +295,7 @@ import org.apache.doris.thrift.TRestoreSnapshotResult;
 import org.apache.doris.thrift.TRollbackTxnRequest;
 import org.apache.doris.thrift.TRollbackTxnResult;
 import org.apache.doris.thrift.TRoutineLoadJob;
+import org.apache.doris.thrift.TRowBinlogWriteColumnMappings;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TShowProcessListRequest;
@@ -2424,16 +2425,34 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // Cloud retains the writer snapshot in the BE transaction cache. Local publish needs it
         // journaled by the owning FE, even if its current catalog differs from the writer's schema.
         if (!Config.isCloudMode()) {
-            if (!request.isSetRowBinlogColumnMappings()) {
+            if (!request.isSetRowBinlogColumnMappings() || !request.isSetRowBinlogSourceIndexIds()
+                    || !request.isSetRowBinlogNeedHistoricalValues()) {
                 throw new AnalysisException("Missing row-binlog column mapping for remote transaction "
                         + request.getTxnId());
+            }
+            int mappingCount = request.getRowBinlogSourceIndexIdsSize();
+            if (request.getRowBinlogColumnMappingsSize() != mappingCount
+                    || request.getRowBinlogNeedHistoricalValuesSize() != mappingCount) {
+                throw new AnalysisException("Misaligned row-binlog column mapping lists for remote transaction "
+                        + request.getTxnId());
+            }
+            Map<Long, TRowBinlogWriteColumnMappings> mappings = new HashMap<>();
+            for (int i = 0; i < mappingCount; i++) {
+                long indexId = request.getRowBinlogSourceIndexIds().get(i);
+                TRowBinlogWriteColumnMappings mapping = new TRowBinlogWriteColumnMappings()
+                        .setEntries(request.getRowBinlogColumnMappings().get(i))
+                        .setNeedHistoricalValue(request.getRowBinlogNeedHistoricalValues().get(i));
+                if (mappings.putIfAbsent(indexId, mapping) != null) {
+                    throw new AnalysisException("Duplicate row-binlog source index " + indexId
+                            + " for remote transaction " + request.getTxnId());
+                }
             }
             TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(),
                     request.getTxnId());
             if (state == null) {
                 throw new AnalysisException("txn does not exist: " + request.getTxnId());
             }
-            state.captureRemoteRowBinlogColumnMappings(request.getRowBinlogColumnMappings());
+            state.captureRemoteRowBinlogColumnMappings(mappings);
         }
         return Env.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                 db, Lists.newArrayList(table),

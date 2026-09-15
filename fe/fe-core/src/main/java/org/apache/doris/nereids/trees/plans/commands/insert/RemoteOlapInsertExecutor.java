@@ -58,6 +58,7 @@ import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Map;
 
@@ -209,7 +210,14 @@ public class RemoteOlapInsertExecutor extends OlapInsertExecutor {
         request.setTbl(table.getName());
         request.setCommitInfos(coordinator.getCommitInfos());
         request.setInsertVisibleTimeoutMs(ctx.getSessionVariable().getInsertVisibleTimeoutMs());
-        request.setRowBinlogColumnMappings(rowBinlogColumnMappings);
+        request.setRowBinlogSourceIndexIds(new ArrayList<>(rowBinlogColumnMappings.size()));
+        request.setRowBinlogColumnMappings(new ArrayList<>(rowBinlogColumnMappings.size()));
+        request.setRowBinlogNeedHistoricalValues(new ArrayList<>(rowBinlogColumnMappings.size()));
+        for (Map.Entry<Long, TRowBinlogWriteColumnMappings> entry : rowBinlogColumnMappings.entrySet()) {
+            request.addToRowBinlogSourceIndexIds(entry.getKey());
+            request.addToRowBinlogColumnMappings(entry.getValue().getEntries());
+            request.addToRowBinlogNeedHistoricalValues(entry.getValue().isNeedHistoricalValue());
+        }
         try {
             TCommitRemoteTxnResult result = client.commitRemoteTxn(request);
             if (result.getStatus().getStatusCode() == TStatusCode.OK) {

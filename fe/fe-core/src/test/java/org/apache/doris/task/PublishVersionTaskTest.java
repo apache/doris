@@ -26,6 +26,7 @@ import org.apache.doris.master.ReportHandler;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TPublishVersionRequest;
+import org.apache.doris.thrift.TRowBinlogWriteColumnMapping;
 import org.apache.doris.thrift.TRowBinlogWriteColumnMappings;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTaskType;
@@ -46,6 +47,7 @@ import org.mockito.Mockito;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -56,6 +58,35 @@ import java.util.Set;
  * non-OK BE callback (MasterImpl.finishPublishVersion path).
  */
 public class PublishVersionTaskTest {
+
+    @Test
+    public void testPublishKeepsParallelIndexMappingsAndHistoricalModesAligned() throws Exception {
+        TRowBinlogWriteColumnMapping first = new TRowBinlogWriteColumnMapping(0, 31);
+        TRowBinlogWriteColumnMapping second = new TRowBinlogWriteColumnMapping(1, 11);
+        Map<Long, TRowBinlogWriteColumnMappings> mappings = new LinkedHashMap<>();
+        mappings.put(30L, new TRowBinlogWriteColumnMappings().setNeedHistoricalValue(false)
+                .setEntries(Collections.singletonList(first)));
+        mappings.put(10L, new TRowBinlogWriteColumnMappings().setNeedHistoricalValue(true)
+                .setEntries(Collections.singletonList(second)));
+        PublishVersionTask task = new PublishVersionTask(1L, 100L, 1L, Collections.emptyList(), 0);
+        task.setRowBinlogColumnMappings(mappings);
+        TPublishVersionRequest request = new TPublishVersionRequest();
+        new TDeserializer().deserialize(request, new TSerializer().serialize(task.toThrift()));
+        Assertions.assertEquals(Arrays.asList(Collections.singletonList(first), Collections.singletonList(second)),
+                request.getRowBinlogColumnMappings());
+        Assertions.assertEquals(Arrays.asList(30L, 10L), request.getRowBinlogSourceIndexIds());
+        Assertions.assertEquals(Arrays.asList(false, true), request.getRowBinlogNeedHistoricalValues());
+    }
+
+    @Test
+    public void testPublishWithoutRowBinlogOmitsAllMappingLists() throws Exception {
+        PublishVersionTask task = new PublishVersionTask(1L, 100L, 1L, Collections.emptyList(), 0);
+        TPublishVersionRequest request = new TPublishVersionRequest();
+        new TDeserializer().deserialize(request, new TSerializer().serialize(task.toThrift()));
+        Assertions.assertFalse(request.isSetRowBinlogColumnMappings());
+        Assertions.assertFalse(request.isSetRowBinlogSourceIndexIds());
+        Assertions.assertFalse(request.isSetRowBinlogNeedHistoricalValues());
+    }
 
     @Test
     public void testReportRetainsSnapshotAfterSubtransactionAliasRemoved() throws Exception {
@@ -128,13 +159,13 @@ public class PublishVersionTaskTest {
         new TDeserializer().deserialize(request, new TSerializer().serialize(task.toThrift()));
         Assertions.assertEquals(txnId, request.getTransactionId());
         Assertions.assertEquals(1, request.getRowBinlogColumnMappingsSize());
-        TRowBinlogWriteColumnMappings mapping = request.getRowBinlogColumnMappings().get(10L);
-        Assertions.assertTrue(mapping.isSetNeedHistoricalValue());
-        Assertions.assertEquals(historical, mapping.isNeedHistoricalValue());
-        Assertions.assertEquals(1, mapping.getEntriesSize());
-        Assertions.assertEquals(1, mapping.getEntries().get(0).getSourceColumnUniqueId());
-        Assertions.assertEquals(current, mapping.getEntries().get(0).getCurrentColumnUniqueId());
-        Assertions.assertFalse(mapping.getEntries().get(0).isSetBeforeColumnUniqueId());
+        Assertions.assertEquals(Collections.singletonList(10L), request.getRowBinlogSourceIndexIds());
+        Assertions.assertEquals(Collections.singletonList(historical), request.getRowBinlogNeedHistoricalValues());
+        Assertions.assertEquals(1, request.getRowBinlogColumnMappings().get(0).size());
+        TRowBinlogWriteColumnMapping mapping = request.getRowBinlogColumnMappings().get(0).get(0);
+        Assertions.assertEquals(1, mapping.getSourceColumnUniqueId());
+        Assertions.assertEquals(current, mapping.getCurrentColumnUniqueId());
+        Assertions.assertFalse(mapping.isSetBeforeColumnUniqueId());
     }
 
     private PublishVersionTask newTask() {

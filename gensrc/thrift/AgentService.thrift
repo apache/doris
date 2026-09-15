@@ -504,8 +504,12 @@ struct TPublishVersionRequest {
     3: optional bool strict_mode = false
     // for delta rows statistics to exclude rollup tablets
     4: optional set<Types.TTabletId> base_tablet_ids
-    // Write-time snapshots keyed by source index, scoped to transaction_id (including subtransactions).
-    5: optional map<i64, Descriptors.TRowBinlogWriteColumnMappings> row_binlog_column_mappings
+    // Parallel write-time snapshots scoped to transaction_id (including subtransactions).
+    // Set all three lists together with equal lengths and unique source index IDs.
+    // Ordinary publishes without row binlog may omit all three lists.
+    5: optional list<list<Descriptors.TRowBinlogWriteColumnMapping>> row_binlog_column_mappings
+    6: optional list<i64> row_binlog_source_index_ids
+    7: optional list<bool> row_binlog_need_historical_values
 }
 
 struct TVisibleVersionReq {

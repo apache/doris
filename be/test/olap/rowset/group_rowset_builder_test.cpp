@@ -353,23 +353,46 @@ static void recover_multiple_row_binlog_pairs(bool historical, bool key_only,
     };
     EXPECT_FALSE(publish().ok());
     assert_committed();
-    publish_request.__set_row_binlog_column_mappings({{row_binlog_index_id, thrift_snapshot}});
+    publish_request.__set_row_binlog_source_index_ids({row_binlog_index_id});
+    publish_request.__set_row_binlog_column_mappings({thrift_snapshot.entries});
+    publish_request.__set_row_binlog_need_historical_values({historical});
     EXPECT_FALSE(publish().ok());
     assert_committed();
-    auto malformed_snapshot = thrift_snapshot;
-    malformed_snapshot.__isset.need_historical_value = false;
-    publish_request.__set_row_binlog_column_mappings({{index_id, malformed_snapshot}});
+    publish_request.__set_row_binlog_source_index_ids({index_id});
+    for (int missing = 0; missing < 3; ++missing) {
+        publish_request.__isset.row_binlog_source_index_ids = missing != 0;
+        publish_request.__isset.row_binlog_column_mappings = missing != 1;
+        publish_request.__isset.row_binlog_need_historical_values = missing != 2;
+        EXPECT_FALSE(publish().ok());
+        assert_committed();
+    }
+    publish_request.__isset.row_binlog_need_historical_values = true;
+    publish_request.__set_row_binlog_need_historical_values({});
     EXPECT_FALSE(publish().ok());
     assert_committed();
+    publish_request.__set_row_binlog_need_historical_values({historical});
+    publish_request.__set_row_binlog_column_mappings({});
+    EXPECT_FALSE(publish().ok());
+    assert_committed();
+    publish_request.__set_row_binlog_source_index_ids({index_id, index_id});
+    publish_request.__set_row_binlog_column_mappings(
+            {thrift_snapshot.entries, thrift_snapshot.entries});
+    publish_request.__set_row_binlog_need_historical_values({historical, historical});
+    EXPECT_FALSE(publish().ok());
+    assert_committed();
+    publish_request.__set_row_binlog_source_index_ids({index_id});
+    publish_request.__set_row_binlog_need_historical_values({historical});
     auto invalid_snapshot = thrift_snapshot;
     invalid_snapshot.entries[0].source_column_unique_id = 9999;
-    publish_request.__set_row_binlog_column_mappings({{index_id, invalid_snapshot}});
+    publish_request.__set_row_binlog_column_mappings({invalid_snapshot.entries});
     EXPECT_FALSE(publish().ok());
     assert_committed();
     // Local tablet metadata does not carry an index ID. Select the committed writer's source
     // index, not the default tablet index or the attached binlog index.
+    publish_request.__set_row_binlog_source_index_ids({0, index_id});
     publish_request.__set_row_binlog_column_mappings(
-            {{index_id, thrift_snapshot}, {0, invalid_snapshot}});
+            {invalid_snapshot.entries, thrift_snapshot.entries});
+    publish_request.__set_row_binlog_need_historical_values({!historical, historical});
 
     if (max_gap.has_value()) {
         const auto old_gap = config::mow_publish_max_discontinuous_version_num;
@@ -401,6 +424,8 @@ static void recover_multiple_row_binlog_pairs(bool historical, bool key_only,
         auto st = publish();
         ASSERT_TRUE(st.ok()) << st;
         publish_request.row_binlog_column_mappings.clear();
+        publish_request.row_binlog_source_index_ids.clear();
+        publish_request.row_binlog_need_historical_values.clear();
     }
 
     std::map<TabletInfo, RowsetSharedPtr> rowsets;
