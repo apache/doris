@@ -991,6 +991,80 @@ public class PluginDrivenExternalTableTest {
     }
 
     @Test
+    public void initSchemaFailsLoudWhenTableHandleMissing() {
+        // WHY: when the connector cannot resolve the table handle (remote table removed, or the driver just
+        // returns no handle), initSchema must fail loud with an actionable catalog + remote db/table error
+        // instead of returning an empty Optional. An empty Optional surfaces downstream either as a null
+        // getFullSchema()/getBaseSchema() (NullPointerException in LogicalCatalogRelation) or as a context-free
+        // cache failure, and it is never cached, so a stale table-name entry re-hits the remote every query.
+        // MUTATION: reverting to `return Optional.empty()` -> this test throws NoSuchElement (no exception).
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.eq("db1"), Mockito.eq("t1")))
+                .thenReturn(Optional.empty());
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
+        ExternalDatabase db = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(db.getRemoteName()).thenReturn("db1");
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
+        Mockito.when(catalog.getName()).thenReturn("jdbc_ctl");
+        PluginDrivenExternalTable table =
+                Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(table, "catalog", catalog);
+        Deencapsulation.setField(table, "db", db);
+        Deencapsulation.setField(table, "remoteName", "t1");
+        Mockito.doReturn(false).when(table).isView();
+
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class, table::initSchema);
+        Assertions.assertTrue(e.getMessage().contains("jdbc_ctl"),
+                "the error must carry the catalog name for actionable diagnosis");
+        Assertions.assertTrue(e.getMessage().contains("db1.t1"),
+                "the error must carry the remote database.table for actionable diagnosis");
+    }
+
+    @Test
+    public void initSchemaFailsLoudWhenTableSchemaHasNoColumns() {
+        // WHY: a regular (non-view) table that resolves to zero columns is almost always a metadata resolution
+        // problem (e.g. DatabaseMetaData.getColumns() permission / empty result), not a legitimate schema.
+        // Representing it as a normal empty schema would let callers that assume a non-null column list compute
+        // a schema with no columns; fail loud instead so the user gets the real cause. MUTATION: dropping the
+        // zero-column check -> initSchema returns a present empty schema -> no exception -> this test is red.
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.eq("db1"), Mockito.eq("t1")))
+                .thenReturn(Optional.of(handle));
+        Mockito.when(metadata.getTableSchema(Mockito.any(), Mockito.eq(handle)))
+                .thenReturn(new ConnectorTableSchema("t1", Collections.emptyList(), "JDBC", Collections.emptyMap()));
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
+        ExternalDatabase db = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(db.getRemoteName()).thenReturn("db1");
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
+        Mockito.when(catalog.getName()).thenReturn("jdbc_ctl");
+        PluginDrivenExternalTable table =
+                Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(table, "catalog", catalog);
+        Deencapsulation.setField(table, "db", db);
+        Deencapsulation.setField(table, "remoteName", "t1");
+        Mockito.doReturn(false).when(table).isView();
+
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class, table::initSchema);
+        Assertions.assertTrue(e.getMessage().contains("empty column list"),
+                "the error must describe the empty-column-list cause");
+        Assertions.assertTrue(e.getMessage().contains("jdbc_ctl"),
+                "the error must carry the catalog name for actionable diagnosis");
+    }
+
+    @Test
     public void systemTableOverridesResolveIsViewToFalse() {
         // A system/metadata table ($snapshots etc.) overrides resolveIsView to a constant false so the base
         // never issues a viewExists round-trip on its synthetic "$"-suffixed name. Here the catalog declares
