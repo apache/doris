@@ -523,6 +523,81 @@ TEST_F(SniiGramCacheTest, AnalyzedQueriesDeclineWhenTheAnalyzerNoLongerCutsGrams
     }
 }
 
+// An index under a built-in analyzer can never have been written as a gram index. It declines LIKE
+// and REGEXP before the result cache and before its file is opened, so a file that cannot be read
+// never fails a query this index could not answer.
+TEST_F(SniiGramCacheTest, NonGramIndexDeclinesGramQueriesWithoutOpeningItsFile) {
+    TabletIndexPB pb;
+    pb.set_index_type(IndexType::INVERTED);
+    pb.set_index_id(6753920);
+    pb.set_index_name("gram_cache_english");
+    pb.add_col_unique_id(0);
+    pb.mutable_properties()->insert({"parser", "english"});
+    TabletIndex english;
+    english.init_from_pb(pb);
+    const auto missing_file = std::make_shared<IndexFileReader>(
+            io::global_local_filesystem(), std::string(kTestDir) + "/missing_segment",
+            InvertedIndexStorageFormatPB::SNII);
+    const auto english_reader = SniiIndexReader::create_shared(
+            &english, missing_file, InvertedIndexReaderType::FULLTEXT, _values.size(),
+            /*column_is_array=*/false);
+    const auto gram_reader = SniiIndexReader::create_shared(
+            &_indexes[0], missing_file, InvertedIndexReaderType::FULLTEXT, _values.size(),
+            /*column_is_array=*/false);
+    for (const auto type :
+         {InvertedIndexQueryType::LIKE_GRAM_QUERY, InvertedIndexQueryType::REGEXP_GRAM_QUERY}) {
+        SCOPED_TRACE(query_type_to_string(type));
+        const std::vector<GramCacheRequest> declined_request {{english_reader, "abcdef", type}};
+        const auto declined = run_queries(declined_request);
+        EXPECT_TRUE(declined.front().status.is<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>())
+                << declined.front().status;
+        EXPECT_EQ(declined.front().bitmap, nullptr);
+        EXPECT_EQ(declined.front().stats.inverted_index_query_cache_lookup, 0);
+        EXPECT_EQ(declined.front().stats.inverted_index_searcher_cache_miss, 0);
+
+        // A gram index over the same missing file still opens it and reports the missing file.
+        const std::vector<GramCacheRequest> gram_request {{gram_reader, "abcdef", type}};
+        const auto missing = run_queries(gram_request);
+        EXPECT_TRUE(missing.front().status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>())
+                << missing.front().status;
+    }
+}
+
+// The container holds no logical index for this index id, so the index was never built into this
+// segment. A gram query reports that as a missing index file, which lets
+// enable_fallback_on_missing_inverted_index decide the scan; MATCH keeps the container's status.
+TEST_F(SniiGramCacheTest, GramQueryReportsALogicalIndexMissingFromItsContainerAsAMissingFile) {
+    TabletIndexPB pb;
+    pb.set_index_type(IndexType::INVERTED);
+    pb.set_index_id(6753930);
+    pb.set_index_name("gram_cache_unbuilt");
+    pb.add_col_unique_id(0);
+    pb.mutable_properties()->insert({"analyzer", "gram_cache_dense3_analyzer"});
+    TabletIndex unbuilt;
+    unbuilt.init_from_pb(pb);
+    const auto reader = SniiIndexReader::create_shared(&unbuilt, _file_reader,
+                                                       InvertedIndexReaderType::FULLTEXT,
+                                                       _values.size(), /*column_is_array=*/false);
+    for (const auto& [pattern, type] : std::vector<std::pair<std::string, InvertedIndexQueryType>> {
+                 {"%abcdef%", InvertedIndexQueryType::LIKE_GRAM_QUERY},
+                 {"abcdef", InvertedIndexQueryType::REGEXP_GRAM_QUERY}}) {
+        SCOPED_TRACE(query_type_to_string(type));
+        const std::vector<GramCacheRequest> requests {{reader, pattern, type}};
+        const auto results = run_queries(requests);
+        const auto& result = results.front();
+        EXPECT_TRUE(result.status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) << result.status;
+        EXPECT_NE(result.status.to_string().find("logical index not found"), std::string::npos)
+                << result.status;
+        EXPECT_EQ(result.bitmap, nullptr);
+    }
+
+    const std::vector<GramCacheRequest> match_request {
+            {reader, "abcdef", InvertedIndexQueryType::MATCH_ANY_QUERY}};
+    const auto match = run_queries(match_request);
+    EXPECT_TRUE(match.front().status.is<ErrorCode::INVERTED_INDEX_SNII_NOT_FOUND>())
+            << match.front().status;
+}
+
 class SniiGramCacheOptionsTest : public SniiGramCacheTest,
                                  public testing::WithParamInterface<std::pair<bool, bool>> {};
 
