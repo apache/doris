@@ -82,7 +82,9 @@ public class IndexDiskUsageScanNode extends MetadataScanNode {
         ConnectContext context = ConnectContext.get();
         BackendSelector selector;
         if (Config.isCloudMode()) {
-            selector = cloudSelector(systemInfo);
+            String clusterId = ((CloudSystemInfoService) systemInfo).getCurrentClusterId();
+            selector = cloudSelector(replica -> ((CloudReplica) replica).getBackendIdWithClusterId(clusterId),
+                    systemInfo::getBackend);
         } else {
             selector = localSelector(systemInfo::getBackend,
                     queryableIn(context == null ? null : context.getComputeGroupSafely()));
@@ -221,15 +223,26 @@ public class IndexDiskUsageScanNode extends MetadataScanNode {
         };
     }
 
-    private static BackendSelector cloudSelector(SystemInfoService systemInfo) throws UserException {
-        String clusterId = ((CloudSystemInfoService) systemInfo).getCurrentClusterId();
+    // Resolves the backend that a cloud replica routes queries to in the current compute group.
+    interface ReplicaBackendResolver {
+        long backendId(Replica replica) throws UserException;
+    }
+
+    static BackendSelector cloudSelector(ReplicaBackendResolver resolver, LongFunction<Backend> backendLookup) {
         return target -> {
             for (Replica replica : target.getTablet().getReplicas()) {
-                long backendId = ((CloudReplica) replica).getBackendIdWithClusterId(clusterId);
-                Backend backend = systemInfo.getBackend(backendId);
-                if (backend != null && backend.isQueryAvailable()) {
-                    return backendId;
+                long backendId = resolver.backendId(replica);
+                Backend backend = backendLookup.apply(backendId);
+                if (backend == null || !backend.isQueryAvailable()) {
+                    continue;
                 }
+                // A smooth upgrade keeps the old backend as a query fallback, and that version
+                // returns no rows for this metadata scan.
+                if (backend.isSmoothUpgradeSrc()) {
+                    throw new UserException("index_disk_usage is unavailable while backend " + backendId
+                            + " is a smooth upgrade source");
+                }
+                return backendId;
             }
             throw new UserException("No queryable replica for tablet " + target.getTabletId());
         };
