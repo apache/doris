@@ -404,7 +404,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private SourceOffsetProvider createOffsetProvider(Map<String, String> jdbcSourceProps) {
         SourceOffsetProvider provider;
         if (tvfType != null) {
-            provider = SourceOffsetProviderFactory.createSourceOffsetProvider(tvfType);
+            provider = SourceOffsetProviderFactory.createSourceOffsetProvider(tvfType, jobProperties);
         } else {
             provider = new JdbcSourceOffsetProvider(getJobId(), dataSourceType, jdbcSourceProps);
         }
@@ -917,7 +917,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             }
 
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
-            if (offsetProvider.hasReachedEnd()) {
+            if (offsetProvider.hasReachedEnd(task.getRunningOffset())) {
                 // offset provider has reached a natural end, mark job as finished
                 log.info("Streaming insert job {} source data fully consumed, marking job as FINISHED", getJobId());
                 updateJobStatus(JobStatus.FINISHED);
@@ -1482,6 +1482,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void gsonPostProcess() throws IOException {
+        if (jobProperties == null && properties != null) {
+            jobProperties = new StreamingJobProperties(properties);
+        }
         if (offsetProvider == null) {
             offsetProvider = createOffsetProvider(sourceProperties);
             if (tvfType != null) {
@@ -1489,9 +1492,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             }
         }
 
-        if (jobProperties == null && properties != null) {
-            jobProperties = new StreamingJobProperties(properties);
-        }
         recomputeDerivedFields();
 
         if (null == getSucceedTaskCount()) {

@@ -49,8 +49,18 @@ import java.util.stream.Collectors;
 
 @Log4j2
 public class S3SourceOffsetProvider implements SourceOffsetProvider {
-    S3Offset currentOffset;
-    String maxEndFile;
+    private final boolean onceMode;
+    private volatile boolean reachedEnd;
+    volatile S3Offset currentOffset;
+    volatile String maxEndFile;
+
+    public S3SourceOffsetProvider() {
+        this.onceMode = false;
+    }
+
+    public S3SourceOffsetProvider(StreamingJobProperties jobProperties) {
+        this.onceMode = jobProperties.isS3OnceMode();
+    }
 
     @Override
     public String getSourceType() {
@@ -95,6 +105,7 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
                 offset.setEndFile(lastFile);
                 offset.setFileNum(rfiles.size());
                 maxEndFile = globListing.getMaxFile();
+                offset.setLastBatch(onceMode && lastFile.equals(globListing.getMaxFile()));
             } else {
                 throw new RuntimeException("No new files found in path: " + filePath);
             }
@@ -168,7 +179,12 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
                 throw new java.io.IOException("debug point: simulated S3 auth error");
             }
             GlobListing globListing = fileSystem.globListWithLimit(Location.of(filePath), startFile, 1, 1);
-            if (!globListing.getFiles().isEmpty() && StringUtils.isNotEmpty(globListing.getMaxFile())) {
+            boolean hasFiles = !globListing.getFiles().isEmpty();
+            if (onceMode && startFile != null && !hasFiles) {
+                // After recovery, no files after the committed offset means the ONCE source is exhausted.
+                reachedEnd = true;
+            }
+            if (hasFiles && StringUtils.isNotEmpty(globListing.getMaxFile())) {
                 maxEndFile = globListing.getMaxFile();
             }
         }
@@ -176,6 +192,9 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public boolean hasMoreDataToConsume() {
+        if (onceMode && reachedEnd) {
+            return false;
+        }
         if (currentOffset == null || currentOffset.endFile == null) {
             return true;
         }
@@ -184,6 +203,16 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
             return true;
         }
         return false;
+    }
+
+    @Override
+    public boolean hasReachedEnd() {
+        return onceMode && reachedEnd;
+    }
+
+    @Override
+    public boolean hasReachedEnd(Offset taskOffset) {
+        return ((S3Offset) taskOffset).isLastBatch();
     }
 
     @Override

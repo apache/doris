@@ -27,7 +27,10 @@ import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.job.manager.StreamingTaskManager;
+import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
+import org.apache.doris.job.offset.s3.S3Offset;
+import org.apache.doris.job.offset.s3.S3SourceOffsetProvider;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TxnStateCallbackFactory;
 
@@ -38,6 +41,7 @@ import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class StreamingInsertJobOffsetPersistenceTest {
@@ -164,6 +168,48 @@ public class StreamingInsertJobOffsetPersistenceTest {
     }
 
     @Test
+    public void testS3OnceLastBatchFinishesOnlyAfterSuccess() throws Exception {
+        StreamingJobProperties properties = new StreamingJobProperties(Map.of("s3.ingestion_mode", "ONCE"));
+        TestStreamingInsertJob failedJob = newJob(new S3SourceOffsetProvider(properties), 1017L);
+        NoopStreamingMultiTblTask failedTask =
+                (NoopStreamingMultiTblTask) Deencapsulation.getField(failedJob, "runningStreamTask");
+        S3Offset failedOffset = new S3Offset();
+        failedOffset.setLastBatch(true);
+        Deencapsulation.setField(failedTask, "runningOffset", failedOffset);
+        failedTask.setErrMsg("failed");
+
+        TestStreamingInsertJob succeededJob = newJob(new S3SourceOffsetProvider(properties), 1018L);
+        NoopStreamingMultiTblTask succeededTask =
+                (NoopStreamingMultiTblTask) Deencapsulation.getField(succeededJob, "runningStreamTask");
+        S3Offset succeededOffset = new S3Offset();
+        succeededOffset.setLastBatch(true);
+        Deencapsulation.setField(succeededTask, "runningOffset", succeededOffset);
+
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            JobManager<?, ?> jobManager = Mockito.mock(JobManager.class);
+            StreamingTaskManager streamingTaskManager = Mockito.mock(StreamingTaskManager.class);
+            GlobalTransactionMgrIface transactionMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+            TxnStateCallbackFactory callbackFactory = Mockito.mock(TxnStateCallbackFactory.class);
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envMockedStatic.when(Env::getCurrentGlobalTransactionMgr).thenReturn(transactionMgr);
+            Mockito.when(env.getJobManager()).thenReturn(jobManager);
+            Mockito.when(jobManager.getStreamingTaskManager()).thenReturn(streamingTaskManager);
+            Mockito.when(transactionMgr.getCallbackFactory()).thenReturn(callbackFactory);
+
+            Assertions.assertEquals(JobStatus.RUNNING, failedJob.getJobStatus());
+            failedJob.onStreamTaskFail(failedTask);
+            Assertions.assertEquals(JobStatus.PAUSED, failedJob.getJobStatus());
+            Assertions.assertEquals(0, failedJob.journalCount);
+
+            Assertions.assertEquals(JobStatus.RUNNING, succeededJob.getJobStatus());
+            succeededJob.onStreamTaskSuccess(succeededTask);
+            Assertions.assertEquals(JobStatus.FINISHED, succeededJob.getJobStatus());
+            Assertions.assertEquals(1, succeededJob.journalCount);
+        }
+    }
+
+    @Test
     public void testReplayUpdatedRestoresFinalStateAndRemovesCallback() {
         TestStreamingInsertJob job = newJob(new JdbcSourceOffsetProvider(), 1013L);
         TestStreamingInsertJob replayJob = newJob(new JdbcSourceOffsetProvider(), 1014L);
@@ -195,7 +241,7 @@ public class StreamingInsertJobOffsetPersistenceTest {
         Assertions.assertEquals(1234L, job.getStartTimeMs());
     }
 
-    private static TestStreamingInsertJob newJob(JdbcSourceOffsetProvider provider, long taskId) {
+    private static TestStreamingInsertJob newJob(SourceOffsetProvider provider, long taskId) {
         TestStreamingInsertJob job = new TestStreamingInsertJob();
         Deencapsulation.setField(job, "lock", new ReentrantReadWriteLock(true));
         Deencapsulation.setField(job, "jobId", 9001L);
