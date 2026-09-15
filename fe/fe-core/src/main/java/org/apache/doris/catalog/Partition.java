@@ -301,6 +301,10 @@ public class Partition extends MetaObject {
             updateMetaChecksum(digest, (byte) 17, distType == null ? -1L : distType.ordinal());
             updateMetaChecksum(digest, (byte) 18, distributionInfo.getBucketNum());
             updateMetaChecksum(digest, (byte) 19, distributionInfo.getAutoBucket() ? 1L : 0L);
+            if (distributionInfo instanceof HashDistributionInfo) {
+                updateMetaChecksum(digest, (byte) 20,
+                        ((HashDistributionInfo) distributionInfo).getHashType().ordinal());
+            }
         } else {
             updateMetaChecksum(digest, (byte) 17, -1L);
         }

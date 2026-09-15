@@ -21,6 +21,7 @@ import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.HashDistributionInfo.HashType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.Tablet;
@@ -64,12 +65,20 @@ public class HashDistributionPruner implements DistributionPruner {
     private final Map<String, PartitionColumnFilter> distributionColumnFilters;
     private final int hashMod;
 
+    private final HashType hashType;
+
     public HashDistributionPruner(List<Column> schema, MaterializedIndex materializedIndex, List<Column> columns,
             Map<String, PartitionColumnFilter> filters, int hashMod, boolean isBaseIndexSelected) {
+        this(schema, materializedIndex, columns, filters, hashMod, isBaseIndexSelected, HashType.CRC32);
+    }
+
+    public HashDistributionPruner(List<Column> schema, MaterializedIndex materializedIndex, List<Column> columns,
+            Map<String, PartitionColumnFilter> filters, int hashMod, boolean isBaseIndexSelected, HashType hashType) {
         this.tablets = materializedIndex.getTablets();
         this.bucketNum = tablets.size();
         this.distributionColumns = columns;
         this.hashMod = hashMod;
+        this.hashType = hashType;
         if (isBaseIndexSelected) {
             this.distributionColumnFilters = filters;
         } else {
@@ -92,8 +101,14 @@ public class HashDistributionPruner implements DistributionPruner {
     public Collection<Long> prune(int columnId, PartitionKey hashKey, int complex) {
         if (columnId == distributionColumns.size()) {
             // compute Hash Key
-            long hashValue = hashKey.getHashValue();
-            return Lists.newArrayList(getTabletId((int) ((hashValue & 0xffffffff) % hashMod)));
+            int bucket;
+            if (hashType == HashType.IDENTITY) {
+                bucket = hashKey.getIdentityHashValue(hashMod);
+            } else {
+                long hashValue = hashKey.getHashValue();
+                bucket = (int) ((hashValue & 0xffffffff) % hashMod);
+            }
+            return Lists.newArrayList(getTabletId(bucket));
         }
         Column keyColumn = distributionColumns.get(columnId);
         PartitionColumnFilter filter = distributionColumnFilters.get(keyColumn.getName());
