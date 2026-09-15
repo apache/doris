@@ -162,6 +162,16 @@ public class DictionaryManager extends MasterDaemon implements Writable {
      * @throws Exception
      */
     public Dictionary createDictionary(ConnectContext ctx, CreateDictionaryInfo info) throws Exception {
+        // A dictionary is authorized with the table privilege key, so a table and a dictionary must
+        // never share a name in the same database. The table existence check runs before acquiring
+        // the dictionary write lock to keep the lock order (database first, then dictionary)
+        // consistent with the drop-table path, which holds the database lock and then calls
+        // dropTableDictionaries().
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(info.getDbName());
+        if (db != null && db.isTableExist(info.getDictName())) {
+            throw new DdlException("Dictionary " + info.getDictName() + " cannot be created in database "
+                    + info.getDbName() + " because a table with the same name already exists");
+        }
         lockWrite();
         try {
             // 1. Check if dictionary already exists
@@ -283,6 +293,15 @@ public class DictionaryManager extends MasterDaemon implements Writable {
     private boolean hasDictionaryWithoutLock(String dbName, String dictName) {
         Map<String, Long> dbDictIds = dictionaryIds.get(dbName);
         return dbDictIds != null && dbDictIds.containsKey(dictName);
+    }
+
+    public boolean hasDictionary(String dbName, String dictName) {
+        lockRead();
+        try {
+            return hasDictionaryWithoutLock(dbName, dictName);
+        } finally {
+            unlockRead();
+        }
     }
 
     public boolean isCurrentDictionary(Database database, Dictionary dictionary) {
