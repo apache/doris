@@ -563,6 +563,46 @@ TEST_F(SniiGramCacheTest, NonGramIndexDeclinesGramQueriesWithoutOpeningItsFile) 
     }
 }
 
+// A built-in normalizer or a built-in analyzer never cuts grams, so an index under either declines
+// LIKE and REGEXP without opening its file, just like an index under a parser.
+TEST_F(SniiGramCacheTest,
+       BuiltinNormalizerOrAnalyzerIndexDeclinesGramQueriesWithoutOpeningItsFile) {
+    const auto missing_file = std::make_shared<IndexFileReader>(
+            io::global_local_filesystem(), std::string(kTestDir) + "/missing_segment",
+            InvertedIndexStorageFormatPB::SNII);
+    struct BuiltinIndex {
+        std::string key;
+        std::string name;
+        InvertedIndexReaderType reader_type;
+    };
+    for (const auto& builtin : std::vector<BuiltinIndex> {
+                 {"normalizer", "lowercase", InvertedIndexReaderType::STRING_TYPE},
+                 {"analyzer", "english", InvertedIndexReaderType::FULLTEXT}}) {
+        SCOPED_TRACE(builtin.key + "=" + builtin.name);
+        TabletIndexPB pb;
+        pb.set_index_type(IndexType::INVERTED);
+        pb.set_index_id(6753940);
+        pb.set_index_name("gram_cache_builtin");
+        pb.add_col_unique_id(0);
+        pb.mutable_properties()->insert({builtin.key, builtin.name});
+        TabletIndex meta;
+        meta.init_from_pb(pb);
+        const auto reader = SniiIndexReader::create_shared(&meta, missing_file, builtin.reader_type,
+                                                           _values.size(),
+                                                           /*column_is_array=*/false);
+        for (const auto type :
+             {InvertedIndexQueryType::LIKE_GRAM_QUERY, InvertedIndexQueryType::REGEXP_GRAM_QUERY}) {
+            SCOPED_TRACE(query_type_to_string(type));
+            const std::vector<GramCacheRequest> requests {{reader, "abcdef", type}};
+            const auto results = run_queries(requests);
+            EXPECT_TRUE(results.front().status.is<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>())
+                    << results.front().status;
+            EXPECT_EQ(results.front().stats.inverted_index_query_cache_lookup, 0);
+            EXPECT_EQ(results.front().stats.inverted_index_searcher_cache_miss, 0);
+        }
+    }
+}
+
 // The container holds no logical index for this index id, so the index was never built into this
 // segment. A gram query reports that as a missing index file, which lets
 // enable_fallback_on_missing_inverted_index decide the scan; MATCH keeps the container's status.
