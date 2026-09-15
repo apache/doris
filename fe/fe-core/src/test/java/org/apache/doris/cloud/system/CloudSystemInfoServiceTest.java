@@ -1062,6 +1062,49 @@ public class CloudSystemInfoServiceTest {
         Assertions.assertFalse(infoService.containsCloudCluster("cluster_2"));
     }
 
+    @Test
+    public void testRemovingRecreatedComputeGroupKeepsCurrentNameMapping() {
+        infoService = new CloudSystemInfoService();
+        String clusterName = "recreated_cluster";
+        String oldClusterId = "old_cluster_id";
+        String newClusterId = "new_cluster_id";
+
+        Backend oldBackend = new Backend(1L, "127.0.0.1", 9050);
+        Map<String, String> oldTagMap = Tag.DEFAULT_BACKEND_TAG.toMap();
+        oldTagMap.put(Tag.CLOUD_CLUSTER_NAME, clusterName);
+        oldTagMap.put(Tag.CLOUD_CLUSTER_ID, oldClusterId);
+        oldBackend.setTagMap(oldTagMap);
+        infoService.updateCloudClusterMapNoLock(List.of(oldBackend), new ArrayList<>());
+
+        Backend newBackend = new Backend(2L, "127.0.0.2", 9050);
+        Map<String, String> newTagMap = Tag.DEFAULT_BACKEND_TAG.toMap();
+        newTagMap.put(Tag.CLOUD_CLUSTER_NAME, clusterName);
+        newTagMap.put(Tag.CLOUD_CLUSTER_ID, newClusterId);
+        newBackend.setTagMap(newTagMap);
+        infoService.updateCloudClusterMapNoLock(List.of(newBackend), new ArrayList<>());
+
+        infoService.updateCloudClusterMapNoLock(new ArrayList<>(), List.of(oldBackend));
+
+        Assertions.assertEquals(newClusterId, infoService.getCloudClusterIdByName(clusterName));
+        Assertions.assertNull(infoService.getComputeGroupById(oldClusterId));
+        Assertions.assertNotNull(infoService.getComputeGroupById(newClusterId));
+    }
+
+    @Test
+    public void testRemovingCurrentComputeGroupRemovesNameMapping() {
+        infoService = new CloudSystemInfoService();
+        String clusterName = "removed_cluster";
+        String clusterId = "removed_cluster_id";
+        CloudComputeGroupMeta computeGroup = new CloudComputeGroupMeta(
+                clusterId, clusterName, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
+        infoService.addComputeGroup(clusterId, computeGroup);
+
+        infoService.removeComputeGroup(clusterId, clusterName);
+
+        Assertions.assertNull(infoService.getCloudClusterIdByName(clusterName));
+        Assertions.assertNull(infoService.getComputeGroupById(clusterId));
+    }
+
     /**
      * Helper method to create a test ConnectContext with specific cluster name
      */
