@@ -23,14 +23,17 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.loadv2.JobState;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TxnStateCallbackFactory;
 
 import com.google.common.collect.Sets;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
+
+import java.util.Map;
 
 public class CloudBrokerLoadJobTest {
 
@@ -55,12 +58,12 @@ public class CloudBrokerLoadJobTest {
                     Mockito.anyLong(), Mockito.anyLong())).thenReturn(5001L);
 
             job.unprotectedExecuteRetry(new FailMsg(FailMsg.CancelType.ETL_RUN_FAIL, "rpc failed"));
-            Assert.assertEquals(0L, job.getTransactionId());
+            Assertions.assertEquals(0L, job.getTransactionId());
             job.beginTxn();
         }
 
-        Assert.assertEquals(5001L, job.getTransactionId());
-        Assert.assertEquals(JobState.RETRY, job.getState());
+        Assertions.assertEquals(5001L, job.getTransactionId());
+        Assertions.assertEquals(JobState.RETRY, job.getState());
         Mockito.verify(transactionMgr).abortTransaction(2001L, "cloud_broker_load_retry", "rpc failed");
     }
 
@@ -83,7 +86,39 @@ public class CloudBrokerLoadJobTest {
             job.unprotectedExecuteRetry(new FailMsg(FailMsg.CancelType.ETL_RUN_FAIL, "rpc failed"));
         }
 
-        Assert.assertEquals(0L, job.getTransactionId());
-        Assert.assertEquals(JobState.RETRY, job.getState());
+        Assertions.assertEquals(0L, job.getTransactionId());
+        Assertions.assertEquals(JobState.RETRY, job.getState());
+    }
+
+    @Test
+    public void testStaleRetryDoesNotReviveFinishedJob() throws Exception {
+        GlobalTransactionMgrIface transactionMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        TxnStateCallbackFactory callbackFactory = Mockito.mock(TxnStateCallbackFactory.class);
+        CloudBrokerLoadJob job = new CloudBrokerLoadJob();
+        LoadTask failedTask = Mockito.mock(LoadTask.class);
+        LoadTask otherTask = Mockito.mock(LoadTask.class);
+        Deencapsulation.setField(job, "id", 1003L);
+        Deencapsulation.setField(job, "dbId", 2003L);
+        Deencapsulation.setField(job, "label", "cloud_broker_load_finished_during_retry");
+        Deencapsulation.setField(job, "transactionId", 3003L);
+        Deencapsulation.setField(job, "cloudClusterId", "cluster_id");
+        Map<Long, LoadTask> idToTasks = Deencapsulation.getField(job, "idToTasks");
+        idToTasks.put(4003L, failedTask);
+        idToTasks.put(4004L, otherTask);
+        Mockito.when(otherTask.isDone()).thenAnswer(invocation -> {
+            Deencapsulation.setField(job, "state", JobState.FINISHED);
+            return true;
+        });
+
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentGlobalTransactionMgr).thenReturn(transactionMgr);
+            Mockito.when(transactionMgr.getCallbackFactory()).thenReturn(callbackFactory);
+
+            job.onTaskFailed(4003L, new FailMsg(FailMsg.CancelType.ETL_RUN_FAIL, "rpc failed"));
+        }
+
+        Assertions.assertEquals(JobState.FINISHED, job.getState());
+        Mockito.verify(callbackFactory).removeCallback(1003L);
+        Mockito.verify(callbackFactory, Mockito.never()).addCallback(job);
     }
 }

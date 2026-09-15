@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "storage/rowset/rowset_fwd.h"
 #include "storage/transform/block_transform.h"
 
 namespace doris {
@@ -30,8 +31,8 @@ namespace segment_v2 {
 // it like any DUP_KEYS block. build_transform_chain picks Plain (no historical
 // probe) or Mow (with probe) via binlog_needs_historical_lookup().
 
-// Whether the flush needs the historical key probe: a direct partial update
-// (flexible is rejected later) or a requested BEFORE image. Decided per flush.
+// Whether the flush needs the historical key probe: a direct partial update or
+// a requested BEFORE image. Decided per flush.
 bool binlog_needs_historical_lookup(const RowsetWriterContext& context);
 
 // Context for each flush that the base stage works out once and passes to
@@ -40,7 +41,7 @@ bool binlog_needs_historical_lookup(const RowsetWriterContext& context);
 struct BinlogDeriveContext {
     TabletSchemaSPtr binlog_schema;
     TabletSchemaSPtr source_schema;
-    std::shared_ptr<const std::vector<int64_t>> lsn_ids;
+    ConstAllocatedLsnVectorSharedPtr lsn_ids;
     size_t num_rows = 0;
     uint32_t binlog_tso_cid = 0;
     uint32_t binlog_lsn_cid = 0;
@@ -74,9 +75,9 @@ protected:
                   const BinlogDeriveContext& c) const override;
 };
 
-// With a probe: fixed partial update (rebuild AFTER from history) and/or the
-// BEFORE image. It repeats the data chain's key probe on the same source block,
-// but never marks the delete bitmap.
+// With a probe: fixed/flexible partial update (rebuild AFTER from history)
+// and/or the BEFORE image. It repeats the data chain's key probe on the same
+// source block, but never marks the delete bitmap.
 class MowRowBinlogDeriveStage : public RowBinlogDeriveStage {
 public:
     std::string_view name() const override { return "MowRowBinlogDerive"; }

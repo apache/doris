@@ -29,16 +29,20 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.util.PredicateInferUtils;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -170,6 +174,32 @@ public class InferPredicateByReplaceTest {
     }
 
     @Test
+    public void testInferWithDateTimeV2CastPrecision() {
+        for (int sourceScale : new int[] {0, 3, 6}) {
+            SlotReference a = new SlotReference("a", DateTimeV2Type.of(sourceScale));
+            SlotReference b = new SlotReference("b", DateTimeV2Type.of(sourceScale));
+            InPredicate predicate = new InPredicate(a, ImmutableList.of(
+                    new DateTimeV2Literal(DateTimeV2Type.of(sourceScale), "2025-01-01 00:00:00"),
+                    new DateTimeV2Literal(DateTimeV2Type.of(sourceScale), "2025-01-01 00:00:01")));
+            InPredicate expected = new InPredicate(b, predicate.getOptions());
+            for (int targetScale : new int[] {0, 3, 6}) {
+                EqualTo equality = new EqualTo(new Cast(a, DateTimeV2Type.of(targetScale)),
+                        new Cast(b, DateTimeV2Type.of(targetScale)));
+                Set<Expression> inputs = new HashSet<>(ImmutableList.of(equality, predicate));
+                Assertions.assertEquals(sourceScale <= targetScale,
+                        InferPredicateByReplace.infer(inputs).contains(expected),
+                        "Unexpected inference for scale " + sourceScale + " -> " + targetScale);
+            }
+            EqualTo nestedEquality = new EqualTo(
+                    new Cast(new Cast(a, DateTimeV2Type.of(0)), DateTimeV2Type.of(6)),
+                    new Cast(new Cast(b, DateTimeV2Type.of(0)), DateTimeV2Type.of(6)));
+            Set<Expression> inputs = new HashSet<>(ImmutableList.of(nestedEquality, predicate));
+            Assertions.assertEquals(sourceScale == 0, InferPredicateByReplace.infer(inputs).contains(expected),
+                    "Nested casts must not hide precision loss");
+        }
+    }
+
+    @Test
     public void testValidForInfer() {
         SlotReference a = new SlotReference("a", TinyIntType.INSTANCE);
         Cast castExprA = new Cast(a, IntegerType.INSTANCE);
@@ -184,6 +214,21 @@ public class InferPredicateByReplaceTest {
         inputs.add(equalTo1);
         inputs.add(equalTo2);
         Assertions.assertEquals(2, InferPredicateByReplace.infer(inputs).size());
+    }
+
+    @Test
+    public void testTimestampNsCastIsNotRemovedForPredicateInference() {
+        SlotReference timestampNs = new SlotReference("timestamp_ns", TimeStampNsType.INSTANCE);
+        Cast roundedToMicroseconds = new Cast(timestampNs, DateTimeV2Type.of(6));
+        EqualTo equalTo = new EqualTo(
+                roundedToMicroseconds, new DateTimeV2Literal("2024-01-01 00:00:00.123457"));
+
+        Assertions.assertFalse(PredicateInferUtils.getPairFromCast(equalTo).isPresent());
+
+        Cast roundedToSeconds = new Cast(timestampNs, DateTimeType.INSTANCE);
+        EqualTo legacyEqualTo = new EqualTo(
+                roundedToSeconds, new DateTimeLiteral("2024-01-01 00:00:00"));
+        Assertions.assertFalse(PredicateInferUtils.getPairFromCast(legacyEqualTo).isPresent());
     }
 
     @Test

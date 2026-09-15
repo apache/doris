@@ -31,9 +31,9 @@ import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.statistics.AnalysisInfo;
-import org.apache.doris.statistics.BaseAnalysisTask;
-import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.analysis.AnalysisInfo;
+import org.apache.doris.statistics.analysis.BaseAnalysisTask;
+import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
@@ -161,8 +161,8 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
                 nameToColumn.put(col.getDefineName(), col);
             }
         } else {
-            // Only view in with-clause have null base
-            Preconditions.checkArgument(type == TableType.VIEW, "Table has no columns");
+            // Only view & table stream in with-clause have null base
+            Preconditions.checkArgument(type == TableType.VIEW || type == TableType.STREAM, "Table has no columns");
         }
         this.rwLock = new MonitoredReentrantReadWriteLock(true);
         this.createTime = Instant.now().getEpochSecond();

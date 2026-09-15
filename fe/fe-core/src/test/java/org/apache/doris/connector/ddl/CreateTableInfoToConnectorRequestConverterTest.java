@@ -37,6 +37,8 @@ import org.apache.doris.nereids.trees.plans.commands.info.PartitionTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.SortFieldInfo;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -96,6 +98,20 @@ public class CreateTableInfoToConnectorRequestConverterTest {
         // No partition / distribution in this fixture.
         Assertions.assertNull(req.getPartitionSpec());
         Assertions.assertNull(req.getBucketSpec());
+    }
+
+    @Test
+    public void nestedFieldSpellingIsPreservedForConnectorSchemas() {
+        StructType payloadType = new StructType(ImmutableList.of(
+                new StructField("CaseSensitive", IntegerType.INSTANCE, true, "")));
+        ColumnDefinition payload = new ColumnDefinition("payload", payloadType, true);
+        CreateTableInfo info = stubInfo("t", Collections.singletonList(payload),
+                null, null, "", Collections.emptyMap(), false);
+
+        ConnectorCreateTableRequest request = CreateTableInfoToConnectorRequestConverter.convert(info, "db");
+
+        Assertions.assertEquals(Collections.singletonList("CaseSensitive"),
+                request.getColumns().get(0).getType().getFieldNames());
     }
 
     @Test

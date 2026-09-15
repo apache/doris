@@ -30,8 +30,8 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.Map;
@@ -42,20 +42,20 @@ public class CloudEnvFactoryTest {
     public void testCreate() throws Exception {
         Config.cloud_unique_id = "test_cloud";
         EnvFactory envFactory = EnvFactory.getInstance();
-        Assert.assertTrue(envFactory instanceof CloudEnvFactory);
-        Assert.assertTrue(Env.getCurrentEnv() instanceof CloudEnv);
-        Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
-        Assert.assertTrue(envFactory.createEnv(false) instanceof CloudEnv);
-        Assert.assertTrue(envFactory.createInternalCatalog() instanceof CloudInternalCatalog);
-        Assert.assertTrue(envFactory.createPartition() instanceof CloudPartition);
-        Assert.assertTrue(envFactory.createTablet() instanceof CloudTablet);
-        Assert.assertTrue(envFactory.createReplica() instanceof CloudReplica);
+        Assertions.assertTrue(envFactory instanceof CloudEnvFactory);
+        Assertions.assertTrue(Env.getCurrentEnv() instanceof CloudEnv);
+        Assertions.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
+        Assertions.assertTrue(envFactory.createEnv(false) instanceof CloudEnv);
+        Assertions.assertTrue(envFactory.createInternalCatalog() instanceof CloudInternalCatalog);
+        Assertions.assertTrue(envFactory.createPartition() instanceof CloudPartition);
+        Assertions.assertTrue(envFactory.createTablet() instanceof CloudTablet);
+        Assertions.assertTrue(envFactory.createReplica() instanceof CloudReplica);
 
         Map<String, String> properties = Maps.newHashMap();
         properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, "100");
         PropertyAnalyzer.getInstance().rewriteOlapProperties(
                 "catalog_not_exist", "db_not_exist", properties);
-        Assert.assertEquals("1", properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
+        Assertions.assertEquals("1", properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
     }
 
     @Test
@@ -70,13 +70,13 @@ public class CloudEnvFactoryTest {
                     1L, new TUniqueId(1L, 1L), new DescriptorTable(),
                     Collections.emptyList(), Collections.emptyList(), "UTC", false, false);
 
-            Assert.assertTrue(coordinator instanceof CloudCoordinator);
-            Assert.assertTrue(coordinator.getQueryOptions().isSetNewVersionUnixTimestamp());
-            Assert.assertTrue(coordinator.getQueryOptions().isNewVersionUnixTimestamp());
-            Assert.assertTrue(coordinator.getQueryOptions().isSetNewVersionPercentile());
-            Assert.assertTrue(coordinator.getQueryOptions().isNewVersionPercentile());
-            Assert.assertTrue(coordinator.getQueryOptions().isSetNewVersionBitmapOpCount());
-            Assert.assertTrue(coordinator.getQueryOptions().isNewVersionBitmapOpCount());
+            Assertions.assertTrue(coordinator instanceof CloudCoordinator);
+            Assertions.assertTrue(coordinator.getQueryOptions().isSetNewVersionUnixTimestamp());
+            Assertions.assertTrue(coordinator.getQueryOptions().isNewVersionUnixTimestamp());
+            Assertions.assertTrue(coordinator.getQueryOptions().isSetNewVersionPercentile());
+            Assertions.assertTrue(coordinator.getQueryOptions().isNewVersionPercentile());
+            Assertions.assertTrue(coordinator.getQueryOptions().isSetNewVersionBitmapOpCount());
+            Assertions.assertTrue(coordinator.getQueryOptions().isNewVersionBitmapOpCount());
         } finally {
             ConnectContext.remove();
             FeConstants.runningUnitTest = runningUnitTest;

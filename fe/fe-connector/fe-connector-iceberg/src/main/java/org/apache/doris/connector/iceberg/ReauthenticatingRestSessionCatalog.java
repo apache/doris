@@ -19,14 +19,18 @@ package org.apache.doris.connector.iceberg;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.BaseViewSessionCatalog;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SessionCatalog.SessionContext;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NotAuthorizedException;
+import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.view.View;
 import org.apache.iceberg.view.ViewBuilder;
@@ -38,6 +42,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -77,17 +82,31 @@ public class ReauthenticatingRestSessionCatalog extends BaseViewSessionCatalog i
     private static final Logger LOG = LogManager.getLogger(ReauthenticatingRestSessionCatalog.class);
 
     private final Supplier<RESTSessionCatalog> delegateBuilder;
+    private final IcebergCatalogResourceTracker resourceTracker;
+    private final Runnable invalidateTables;
     private volatile RESTSessionCatalog delegate;
 
     public ReauthenticatingRestSessionCatalog(RESTSessionCatalog initialDelegate,
             Supplier<RESTSessionCatalog> delegateBuilder) {
+        this(initialDelegate, delegateBuilder, null, () -> { });
+    }
+
+    ReauthenticatingRestSessionCatalog(RESTSessionCatalog initialDelegate,
+            Supplier<RESTSessionCatalog> delegateBuilder, IcebergCatalogResourceTracker resourceTracker,
+            Runnable invalidateTables) {
         this.delegate = initialDelegate;
         this.delegateBuilder = delegateBuilder;
+        this.resourceTracker = resourceTracker;
+        this.invalidateTables = invalidateTables;
     }
 
     @VisibleForTesting
     RESTSessionCatalog currentDelegate() {
         return delegate;
+    }
+
+    FileIO takeCatalogFileIo(Table table) {
+        return IcebergConnector.takeRestTableCatalogFileIo(table);
     }
 
     private <T> T withAuthRecovery(SessionContext context, Supplier<T> op) {
@@ -100,6 +119,20 @@ public class ReauthenticatingRestSessionCatalog extends BaseViewSessionCatalog i
             }
             reauthenticate(attemptedOn, e);
             return op.get();
+        }
+    }
+
+    private <T> T withDelegateAuthRecovery(
+            SessionContext context, Function<RESTSessionCatalog, T> operation) {
+        RESTSessionCatalog attemptedOn = delegate;
+        try {
+            return operation.apply(attemptedOn);
+        } catch (RuntimeException e) {
+            if (!isAuthExpired(e) || !usesCatalogIdentity(context)) {
+                throw e;
+            }
+            reauthenticate(attemptedOn, e);
+            return operation.apply(delegate);
         }
     }
 
@@ -124,9 +157,36 @@ public class ReauthenticatingRestSessionCatalog extends BaseViewSessionCatalog i
                 + "then retrying the request once.", name(), cause);
         RESTSessionCatalog replacement = delegateBuilder.get();
         RESTSessionCatalog wedged = delegate;
-        delegate = replacement;
+        if (resourceTracker == null) {
+            delegate = replacement;
+            closeReplacedDelegate(wedged);
+            return;
+        }
         try {
-            wedged.close();
+            resourceTracker.rotate(() -> closeReplacedDelegate(wedged), () -> delegate = replacement);
+        } catch (RuntimeException replacementFailure) {
+            // Connector teardown may close the tracker after the replacement has been fully built but before
+            // rotate accepts it. It was never published, so this method is its only owner and must close it.
+            // Preserve the catalog's original 401 as the primary failure seen by the caller; the teardown race
+            // remains available as a suppressed diagnostic instead of replacing the useful remote error.
+            closeReplacedDelegate(replacement);
+            cause.addSuppressed(replacementFailure);
+            throw cause;
+        }
+        try {
+            // Publish the new resource generation before fencing table-cache loads. A miss admitted while the
+            // wedged delegate was current then loses the cache-generation check and cannot publish an owner of
+            // the retired REST client; a miss after rotation either loads the replacement or is conservatively
+            // retried after this invalidation.
+            invalidateTables.run();
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to retire Iceberg table cache after replacing REST client of catalog {}", name(), e);
+        }
+    }
+
+    private void closeReplacedDelegate(RESTSessionCatalog replaced) {
+        try {
+            replaced.close();
         } catch (IOException | RuntimeException e) {
             LOG.warn("Failed to close the replaced Iceberg REST client of catalog {}", name(), e);
         }
@@ -169,12 +229,17 @@ public class ReauthenticatingRestSessionCatalog extends BaseViewSessionCatalog i
 
     @Override
     public Catalog.TableBuilder buildTable(SessionContext context, TableIdentifier ident, Schema schema) {
-        return withAuthRecovery(context, () -> delegate.buildTable(context, ident, schema));
+        return withDelegateAuthRecovery(context, producingCatalog -> {
+            FileIO producingFileIo = catalogFileIo(producingCatalog);
+            return recordingTableBuilder(
+                    producingCatalog.buildTable(context, ident, schema), producingFileIo);
+        });
     }
 
     @Override
     public Table registerTable(SessionContext context, TableIdentifier ident, String metadataFileLocation) {
-        return withAuthRecovery(context, () -> delegate.registerTable(context, ident, metadataFileLocation));
+        return withDelegateAuthRecovery(context, producingCatalog -> recordProducingFileIo(
+                producingCatalog.registerTable(context, ident, metadataFileLocation), producingCatalog));
     }
 
     @Override
@@ -184,7 +249,75 @@ public class ReauthenticatingRestSessionCatalog extends BaseViewSessionCatalog i
 
     @Override
     public Table loadTable(SessionContext context, TableIdentifier ident) {
-        return withAuthRecovery(context, () -> delegate.loadTable(context, ident));
+        return withDelegateAuthRecovery(context,
+                producingCatalog -> recordProducingFileIo(
+                        producingCatalog.loadTable(context, ident), producingCatalog));
+    }
+
+    private Table recordProducingFileIo(Table table, RESTSessionCatalog producingCatalog) {
+        IcebergConnector.recordRestTableCatalogFileIo(table, catalogFileIo(producingCatalog));
+        return table;
+    }
+
+    private Catalog.TableBuilder recordingTableBuilder(Catalog.TableBuilder builder, FileIO producingFileIo) {
+        return new Catalog.TableBuilder() {
+            @Override
+            public Catalog.TableBuilder withPartitionSpec(PartitionSpec spec) {
+                builder.withPartitionSpec(spec);
+                return this;
+            }
+
+            @Override
+            public Catalog.TableBuilder withSortOrder(SortOrder sortOrder) {
+                builder.withSortOrder(sortOrder);
+                return this;
+            }
+
+            @Override
+            public Catalog.TableBuilder withLocation(String location) {
+                builder.withLocation(location);
+                return this;
+            }
+
+            @Override
+            public Catalog.TableBuilder withProperties(Map<String, String> properties) {
+                builder.withProperties(properties);
+                return this;
+            }
+
+            @Override
+            public Catalog.TableBuilder withProperty(String key, String value) {
+                builder.withProperty(key, value);
+                return this;
+            }
+
+            @Override
+            public Table create() {
+                Table table = builder.create();
+                IcebergConnector.recordRestTableCatalogFileIo(table, producingFileIo);
+                return table;
+            }
+
+            @Override
+            public Transaction createTransaction() {
+                return builder.createTransaction();
+            }
+
+            @Override
+            public Transaction replaceTransaction() {
+                return builder.replaceTransaction();
+            }
+
+            @Override
+            public Transaction createOrReplaceTransaction() {
+                return builder.createOrReplaceTransaction();
+            }
+        };
+    }
+
+    @VisibleForTesting
+    FileIO catalogFileIo(RESTSessionCatalog catalog) {
+        return IcebergConnector.restCatalogFileIO(catalog);
     }
 
     @Override

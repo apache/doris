@@ -20,8 +20,8 @@ package org.apache.doris.persist;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.meta.MetaContext;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -54,21 +54,21 @@ public class DropAndRecoverInfoTest {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
 
         DropInfo rInfo1 = DropInfo.read(dis);
-        Assert.assertEquals(rInfo1, info1);
+        Assertions.assertEquals(rInfo1, info1);
 
         DropInfo rInfo2 = DropInfo.read(dis);
-        Assert.assertEquals(rInfo2, info2);
+        Assertions.assertEquals(rInfo2, info2);
 
-        Assert.assertEquals(1, rInfo2.getDbId());
-        Assert.assertEquals(2, rInfo2.getTableId());
-        Assert.assertTrue(rInfo2.isForceDrop());
+        Assertions.assertEquals(1, rInfo2.getDbId());
+        Assertions.assertEquals(2, rInfo2.getTableId());
+        Assertions.assertTrue(rInfo2.isForceDrop());
 
-        Assert.assertEquals(rInfo2, rInfo2);
-        Assert.assertNotEquals(rInfo2, this);
-        Assert.assertNotEquals(info2, new DropInfo(0, 2, "t2", -1L, "", false, true, 0));
-        Assert.assertNotEquals(info2, new DropInfo(1, 0, "t0", -1L, "", false, true, 0));
-        Assert.assertNotEquals(info2, new DropInfo(1, 2, "t2", -1L, "", false, false, 0));
-        Assert.assertEquals(info2, new DropInfo(1, 2, "t2", -1L, "", false, true, 0));
+        Assertions.assertEquals(rInfo2, rInfo2);
+        Assertions.assertNotEquals(rInfo2, this);
+        Assertions.assertNotEquals(info2, new DropInfo(0, 2, "t2", -1L, "", false, true, 0));
+        Assertions.assertNotEquals(info2, new DropInfo(1, 0, "t0", -1L, "", false, true, 0));
+        Assertions.assertNotEquals(info2, new DropInfo(1, 2, "t2", -1L, "", false, false, 0));
+        Assertions.assertEquals(info2, new DropInfo(1, 2, "t2", -1L, "", false, true, 0));
 
         // 3. delete files
         dis.close();
@@ -95,12 +95,12 @@ public class DropAndRecoverInfoTest {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         RecoverInfo rInfo1 = RecoverInfo.read(dis);
 
-        Assert.assertEquals(1, rInfo1.getDbId());
-        Assert.assertEquals(2, rInfo1.getTableId());
-        Assert.assertEquals(3, rInfo1.getPartitionId());
-        Assert.assertEquals("a", rInfo1.getNewDbName());
-        Assert.assertEquals("b", rInfo1.getNewTableName());
-        Assert.assertEquals("c", rInfo1.getNewPartitionName());
+        Assertions.assertEquals(1, rInfo1.getDbId());
+        Assertions.assertEquals(2, rInfo1.getTableId());
+        Assertions.assertEquals(3, rInfo1.getPartitionId());
+        Assertions.assertEquals("a", rInfo1.getNewDbName());
+        Assertions.assertEquals("b", rInfo1.getNewTableName());
+        Assertions.assertEquals("c", rInfo1.getNewPartitionName());
 
         // 3. delete files
         dis.close();

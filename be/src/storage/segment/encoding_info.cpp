@@ -306,6 +306,9 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, BIT_SHUFFLE>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, PLAIN_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, FOR_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS, BIT_SHUFFLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS, FOR_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATETIME, BIT_SHUFFLE>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATETIME, PLAIN_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATETIME, FOR_ENCODING>();
@@ -364,6 +367,7 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_DATE, BIT_SHUFFLE>();
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_DATEV2, BIT_SHUFFLE>();
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, BIT_SHUFFLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS, BIT_SHUFFLE>();
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_DATETIME, BIT_SHUFFLE>();
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, BIT_SHUFFLE>();
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE>();
@@ -386,8 +390,8 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_LARGEINT, PLAIN_ENCODING>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT, BIT_SHUFFLE>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT, BIT_SHUFFLE>();
-    _set_v3_default<FieldType::OLAP_FIELD_TYPE_FLOAT, BIT_SHUFFLE>();
-    _set_v3_default<FieldType::OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_FLOAT, PLAIN_ENCODING>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_DOUBLE, PLAIN_ENCODING>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_STRING, DICT_ENCODING>();
@@ -397,6 +401,7 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_DATE, BIT_SHUFFLE>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_DATEV2, BIT_SHUFFLE>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, BIT_SHUFFLE>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS, BIT_SHUFFLE>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_DATETIME, BIT_SHUFFLE>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, BIT_SHUFFLE>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE>();

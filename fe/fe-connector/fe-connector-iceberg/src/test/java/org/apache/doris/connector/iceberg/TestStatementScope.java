@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
 /**
@@ -32,10 +33,28 @@ import java.util.function.Supplier;
 final class TestStatementScope implements ConnectorStatementScope {
 
     private final ConcurrentHashMap<String, Object> cache = new ConcurrentHashMap<>();
+    private final AtomicBoolean closed = new AtomicBoolean();
 
     @Override
     @SuppressWarnings("unchecked")
     public <T> T computeIfAbsent(String key, Supplier<T> loader) {
         return (T) cache.computeIfAbsent(key, k -> loader.get());
+    }
+
+    @Override
+    public void closeAll() {
+        if (!closed.compareAndSet(false, true)) {
+            return;
+        }
+        cache.values().forEach(value -> {
+            if (value instanceof AutoCloseable) {
+                try {
+                    ((AutoCloseable) value).close();
+                } catch (Exception e) {
+                    throw new IllegalStateException(e);
+                }
+            }
+        });
+        cache.clear();
     }
 }

@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
 import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -33,6 +34,9 @@ import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
@@ -52,6 +56,9 @@ class PipelineExecutionTaskTest {
         Mockito.when(coordinatorContext.twoPhaseExecution()).thenReturn(false);
 
         MultiFragmentsPipelineTask fragmentsTask = Mockito.mock(MultiFragmentsPipelineTask.class);
+        Backend backend = Mockito.mock(Backend.class);
+        Mockito.when(backend.getId()).thenReturn(10001L);
+        Mockito.when(fragmentsTask.getBackend()).thenReturn(backend);
         Mockito.when(fragmentsTask.getChildrenTasks()).thenReturn(Collections.emptyMap());
         Mockito.when(fragmentsTask.sendPhaseOneRpc(false))
                 .thenReturn(CompletableFuture.completedFuture(PExecPlanFragmentResult.getDefaultInstance()));
@@ -68,6 +75,43 @@ class PipelineExecutionTaskTest {
                 status -> hasDeadlineTimeoutMessage(status)));
         Mockito.verify(coordinatorContext).cancelSchedule(ArgumentMatchers.argThat(
                 status -> hasDeadlineTimeoutMessage(status)));
+    }
+
+    @Test
+    void auditParticipantsIncludeOnlyAttemptedDispatches() throws Exception {
+        CoordinatorContext coordinatorContext = Mockito.mock(CoordinatorContext.class);
+        Deencapsulation.setField(coordinatorContext, "timeoutDeadline", (Supplier<Long>) () -> Long.MAX_VALUE);
+        Mockito.when(coordinatorContext.withLock(ArgumentMatchers.<Callable<Object>>any()))
+                .thenAnswer(invocation -> invocation.<Callable<Object>>getArgument(0).call());
+        Mockito.when(coordinatorContext.twoPhaseExecution()).thenReturn(false);
+
+        MultiFragmentsPipelineTask first = mockFragmentTask(10001L);
+        MultiFragmentsPipelineTask uncertain = mockFragmentTask(10002L);
+        MultiFragmentsPipelineTask neverAttempted = mockFragmentTask(10003L);
+        Mockito.when(first.sendPhaseOneRpc(false))
+                .thenReturn(CompletableFuture.completedFuture(PExecPlanFragmentResult.getDefaultInstance()));
+        Mockito.when(uncertain.sendPhaseOneRpc(false)).thenThrow(new IllegalStateException("dispatch failed"));
+        Map<BackendWorker, MultiFragmentsPipelineTask> tasks = new LinkedHashMap<>();
+        tasks.put(Mockito.mock(BackendWorker.class), first);
+        tasks.put(Mockito.mock(BackendWorker.class), uncertain);
+        tasks.put(Mockito.mock(BackendWorker.class), neverAttempted);
+        PipelineExecutionTask executionTask = new PipelineExecutionTask(
+                coordinatorContext, Mockito.mock(BackendServiceProxy.class), tasks);
+
+        Assertions.assertThrows(IllegalStateException.class, executionTask::execute);
+
+        Assertions.assertEquals(Set.of(10001L, 10002L),
+                executionTask.getDispatchedBackendIdsForAudit());
+        Mockito.verify(neverAttempted, Mockito.never()).sendPhaseOneRpc(false);
+    }
+
+    private static MultiFragmentsPipelineTask mockFragmentTask(long backendId) {
+        MultiFragmentsPipelineTask task = Mockito.mock(MultiFragmentsPipelineTask.class);
+        Backend backend = Mockito.mock(Backend.class);
+        Mockito.when(backend.getId()).thenReturn(backendId);
+        Mockito.when(task.getBackend()).thenReturn(backend);
+        Mockito.when(task.getChildrenTasks()).thenReturn(Collections.emptyMap());
+        return task;
     }
 
     private static boolean hasDeadlineTimeoutMessage(Status status) {

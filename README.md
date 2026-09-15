@@ -27,7 +27,7 @@ under the License.
 
 [![License](https://img.shields.io/badge/license-Apache%202-4EB1BA.svg)](https://www.apache.org/licenses/LICENSE-2.0.html)
 [![GitHub release](https://img.shields.io/github/release/apache/doris.svg)](https://github.com/apache/doris/releases)
-[![Slack](https://img.shields.io/badge/Join%20Our%20Community-Slack-blue)](https://doris.apache.org/slack)
+[![Slack](https://img.shields.io/badge/Join%20Our%20Community-Slack-blue)](https://doris.apache.org/slack?utm_source=github&utm_medium=community&utm_content=github_readme)
 [![EN doc](https://img.shields.io/badge/Docs-English-blue.svg)](https://doris.apache.org/docs/dev/getting-started/what-is-apache-doris)
 [![CN doc](https://img.shields.io/badge/文档-中文版-blue.svg)](https://doris.apache.org/zh-CN/docs/dev/getting-started/what-is-apache-doris)
 
@@ -45,7 +45,7 @@ under the License.
     &nbsp;
     <a href="https://github.com/apache/doris/discussions"><img src="https://img.shields.io/badge/- Discussion -red?style=social&logo=discourse" height=25></a>
     &nbsp;
-    <a href="https://doris.apache.org/slack" height=25></a>
+    <a href="https://doris.apache.org/slack?utm_source=github&amp;utm_medium=community&amp;utm_content=github_readme" height=25></a>
     &nbsp;
     <a href="https://medium.com/@ApacheDoris"><img src="https://img.shields.io/badge/-Medium-red?style=social&logo=medium" height=25></a>
 
@@ -150,7 +150,7 @@ Apache Doris graduated from the Apache Incubator and became an Apache Top-Level 
 
 ## 💬 Contact Us
 
-- [Join Slack](https://doris.apache.org/slack)
+- [Join Slack](https://doris.apache.org/slack?utm_source=github&utm_medium=community&utm_content=github_readme)
 - [Subscribe to the dev mailing list](https://doris.apache.org/community/subscribe-mail-list)
 
 ## 🧰 Links

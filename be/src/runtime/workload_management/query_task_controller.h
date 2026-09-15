@@ -34,8 +34,7 @@ public:
     ~QueryTaskController() override = default;
 
     bool is_cancelled() const override;
-    bool cancel_impl(const Status& reason, int fragment_id);
-    bool cancel_impl(const Status& reason) override { return cancel_impl(reason, -1); }
+    bool cancel_impl(const Status& reason) override;
     bool is_pure_load_task() const override;
     int32_t get_slot_count() const override;
     void disable_reserve_memory() override;

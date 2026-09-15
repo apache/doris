@@ -62,10 +62,7 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
-        <!-- fe-connector-cache: the shared external meta-cache framework (CacheSpec property validation +
-             MetaCacheEntry/CacheFactory), backing AdbcMetadataCache. fe-core does NOT depend on it, so under
-             the parent-first org.apache.doris.connector.* prefix these classes resolve parent→miss→CHILD,
-             i.e. they load from this plugin's own bundled jar and link against THIS plugin's Caffeine. -->
+        <!-- Shared declarative metadata-cache framework backing AdbcMetadataCache. -->
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-connector-cache</artifactId>

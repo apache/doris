@@ -34,6 +34,7 @@ import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
+import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -41,6 +42,7 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
+import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,8 +52,11 @@ import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Offline planning-half tests for {@link RewriteDataFilePlanner} (P6.4-T05). Uses a real
@@ -257,6 +262,46 @@ public class RewriteDataFilePlannerTest {
         List<RewriteDataGroup> groups = plan(t, rewriteAll(1_000_000L, null));
 
         Assertions.assertTrue(groups.isEmpty());
+    }
+
+    @Test
+    public void closesPlannedFilesAfterSuccessfulConsumption() {
+        AtomicBoolean closed = new AtomicBoolean();
+        RewriteDataFilePlanner planner = plannerWithTasks(
+                CloseableIterable.combine(Collections.emptyList(), () -> closed.set(true)));
+
+        Assertions.assertTrue(planner.planAndOrganizeTasks(null).isEmpty());
+        Assertions.assertTrue(closed.get(), "the Iceberg planning iterable must be closed after success");
+    }
+
+    @Test
+    public void closesPlannedFilesWhenConsumptionFails() {
+        AtomicBoolean closed = new AtomicBoolean();
+        Iterable<FileScanTask> failingTasks = () -> new Iterator<FileScanTask>() {
+            @Override
+            public boolean hasNext() {
+                return true;
+            }
+
+            @Override
+            public FileScanTask next() {
+                throw new NoSuchElementException("injected planning failure");
+            }
+        };
+        RewriteDataFilePlanner planner = plannerWithTasks(
+                CloseableIterable.combine(failingTasks, () -> closed.set(true)));
+
+        Assertions.assertThrows(DorisConnectorException.class, () -> planner.planAndOrganizeTasks(null));
+        Assertions.assertTrue(closed.get(), "the Iceberg planning iterable must be closed after failure");
+    }
+
+    private static RewriteDataFilePlanner plannerWithTasks(CloseableIterable<FileScanTask> tasks) {
+        return new RewriteDataFilePlanner(rewriteAll(1_000_000L, null), ZoneOffset.UTC) {
+            @Override
+            CloseableIterable<FileScanTask> planFileScanTasks(Table ignored) {
+                return tasks;
+            }
+        };
     }
 
     // ---- file-level and group-level filters (rewriteAll = false) --------------------------------------------

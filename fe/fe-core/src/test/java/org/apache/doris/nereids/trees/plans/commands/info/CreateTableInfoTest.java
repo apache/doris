@@ -294,4 +294,27 @@ public class CreateTableInfoTest {
         Assertions.assertThrows(AnalysisException.class, () -> createTableInfo2.checkPartitionNullity(columnDefs2, partitionTableInfo2),
                 "Can't have null partition is for NOT NULL partition column in partition expr's index 0");
     }
+
+    /**
+     * MAXVALUE can only be used in RANGE partition's VALUES LESS THAN, it is not a
+     * concrete LIST partition value, so InPartition.validate() must reject it.
+     */
+    @Test
+    public void testInPartitionRejectMaxValue() {
+        List<List<Expression>> values = new ArrayList<>();
+        List<Expression> innerValues = new ArrayList<>();
+        innerValues.add(PartitionDefinition.MaxValue.INSTANCE);
+        values.add(innerValues);
+        InPartition inPartition = new InPartition(false, "p1", values);
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> inPartition.validate(new HashMap<>()));
+        Assertions.assertTrue(ex.getMessage().contains("MAXVALUE is not allowed in LIST partition 'p1'"));
+        Assertions.assertTrue(ex.getMessage().contains("VALUES IN (MAXVALUE)"));
+
+        // NULL is still a valid LIST partition value.
+        List<List<Expression>> nullValues = new ArrayList<>();
+        nullValues.add(Lists.newArrayList((Expression) NullLiteral.INSTANCE));
+        InPartition nullPartition = new InPartition(false, "p2", nullValues);
+        Assertions.assertDoesNotThrow(() -> nullPartition.validate(new HashMap<>()));
+    }
 }

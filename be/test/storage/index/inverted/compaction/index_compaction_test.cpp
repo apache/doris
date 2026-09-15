@@ -706,8 +706,9 @@ protected:
                 // check index file terms for multiple segments
                 std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> dirs_idx(
                         num_segments_idx);
-                for (int i = 0; i < num_segments_idx; i++) {
-                    const auto& seg_path = output_rowset_index->segment_path(i);
+                size_t idx_pos = 0;
+                for (auto seg : output_rowset_index->segments()) {
+                    const auto& seg_path = seg.path();
                     EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
                     auto inverted_index_file_reader_index =
                             IndexCompactionUtils::init_index_file_reader(
@@ -715,12 +716,13 @@ protected:
                                     _tablet_schema->get_inverted_index_storage_format());
                     auto dir_idx = inverted_index_file_reader_index->_open(idx, "");
                     EXPECT_TRUE(dir_idx.has_value()) << dir_idx.error();
-                    dirs_idx[i] = std::move(dir_idx.value());
+                    dirs_idx[idx_pos++] = std::move(dir_idx.value());
                 }
                 std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> dirs_normal(
                         num_segments_normal);
-                for (int i = 0; i < num_segments_normal; i++) {
-                    const auto& seg_path = output_rowset_normal->segment_path(i);
+                size_t normal_pos = 0;
+                for (auto seg : output_rowset_normal->segments()) {
+                    const auto& seg_path = seg.path();
                     EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
                     auto inverted_index_file_reader_normal =
                             IndexCompactionUtils::init_index_file_reader(
@@ -728,7 +730,7 @@ protected:
                                     _tablet_schema->get_inverted_index_storage_format());
                     auto dir_normal = inverted_index_file_reader_normal->_open(idx, "");
                     EXPECT_TRUE(dir_normal.has_value()) << dir_normal.error();
-                    dirs_normal[i] = std::move(dir_normal.value());
+                    dirs_normal[normal_pos++] = std::move(dir_normal.value());
                 }
                 st = IndexCompactionUtils::check_idx_file_correctness(dirs_idx, dirs_normal);
                 EXPECT_TRUE(st.ok()) << st.to_string();
@@ -818,20 +820,26 @@ TEST_F(IndexCompactionTest, tes_write_index_normally) {
             _data_dir, _tablet_schema, _tablet, _engine_ref, rowsets, data_files, _inc_id,
             custom_check_build_rowsets);
 
-    auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
+    constexpr int32_t output_segment_start_id = 10;
+    auto custom_check_index = [output_segment_start_id](const BaseCompaction& compaction,
+                                                        const RowsetWriterContext& ctx) {
         EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == 2);
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(1));
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(2));
         EXPECT_TRUE(compaction._output_rowset->num_segments() == 1);
+        ASSERT_TRUE(compaction._output_rowset->rowset_meta()->has_segment_ids());
+        ASSERT_EQ(compaction._output_rowset->rowset_meta()->segment_ids().size(), 1);
+        EXPECT_EQ(compaction._output_rowset->rowset_meta()->segment_id(0), output_segment_start_id);
     };
 
     RowsetSharedPtr output_rowset_index;
     auto st = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, true,
-                                                  output_rowset_index, custom_check_index);
+                                                  output_rowset_index, custom_check_index, 100000,
+                                                  output_segment_start_id);
     EXPECT_TRUE(st.ok()) << st.to_string();
 
-    const auto& seg_path = output_rowset_index->segment_path(0);
+    const auto& seg_path = output_rowset_index->segment(0).path();
     EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
     auto inverted_index_file_reader_index = IndexCompactionUtils::init_index_file_reader(
             output_rowset_index, seg_path.value(),
@@ -1750,21 +1758,15 @@ TEST_F(IndexCompactionTest, test_inverted_index_ram_dir_disable_with_debug_point
 }
 
 TEST_F(IndexCompactionTest, snii_native_merge_validates_rowids_once_and_matches_raw_rebuild) {
-    const bool old_common_grams = config::enable_common_grams_index_build;
     const bool old_debug_points = config::enable_debug_points;
-    const bool old_write_freq = config::snii_positions_index_write_freq;
-    config::enable_common_grams_index_build = false;
     config::enable_debug_points = true;
-    config::snii_positions_index_write_freq = false;
     constexpr std::string_view kValidationPoint =
             "Compaction::snii_validated_rowid_conversion_created";
     constexpr std::string_view kReaderInitPoint = "Compaction::snii_eligibility_reader_initialized";
     DEFER({
         DebugPoints::instance()->remove(std::string(kValidationPoint));
         DebugPoints::instance()->remove(std::string(kReaderInitPoint));
-        config::enable_common_grams_index_build = old_common_grams;
         config::enable_debug_points = old_debug_points;
-        config::snii_positions_index_write_freq = old_write_freq;
     });
 
     _build_snii_multi_index_tablet();
@@ -1816,14 +1818,7 @@ TEST_F(IndexCompactionTest, snii_native_merge_validates_rowids_once_and_matches_
 // raw-builds from the column -- in the SAME compaction pass. The old behavior
 // AND-folded eligibility per column and fell back to raw for both.
 TEST_F(IndexCompactionTest, snii_native_merge_compacts_eligible_index_and_raw_builds_sibling) {
-    const bool old_common_grams = config::enable_common_grams_index_build;
-    const bool old_write_freq = config::snii_positions_index_write_freq;
-    config::enable_common_grams_index_build = false;
-    config::snii_positions_index_write_freq = false;
-    DEFER({
-        config::enable_common_grams_index_build = old_common_grams;
-        config::snii_positions_index_write_freq = old_write_freq;
-    });
+    DEFER({});
 
     _build_snii_multi_index_tablet(/*second_supports_phrase=*/false);
     const std::vector<RowsetSharedPtr> rowsets = _build_snii_source_rowsets();
@@ -1859,20 +1854,14 @@ TEST_F(IndexCompactionTest, snii_native_merge_compacts_eligible_index_and_raw_bu
 }
 
 TEST_F(IndexCompactionTest, snii_native_merge_aborts_after_partial_destination_creation) {
-    const bool old_common_grams = config::enable_common_grams_index_build;
     const bool old_debug_points = config::enable_debug_points;
-    const bool old_write_freq = config::snii_positions_index_write_freq;
-    config::enable_common_grams_index_build = false;
     config::enable_debug_points = true;
-    config::snii_positions_index_write_freq = false;
     constexpr std::string_view kFailurePoint = "Compaction::before_add_snii_destination_session";
     constexpr std::string_view kAbortPoint = "Compaction::snii_destination_session_aborted";
     DEFER({
         DebugPoints::instance()->remove(std::string(kFailurePoint));
         DebugPoints::instance()->remove(std::string(kAbortPoint));
-        config::enable_common_grams_index_build = old_common_grams;
         config::enable_debug_points = old_debug_points;
-        config::snii_positions_index_write_freq = old_write_freq;
     });
 
     _build_snii_multi_index_tablet();
@@ -1904,18 +1893,12 @@ TEST_F(IndexCompactionTest, snii_native_merge_aborts_after_partial_destination_c
 }
 
 TEST_F(IndexCompactionTest, snii_native_merge_mem_limit_arms_raw_rebuild_without_wrapping) {
-    const bool old_common_grams = config::enable_common_grams_index_build;
     const bool old_debug_points = config::enable_debug_points;
-    const bool old_write_freq = config::snii_positions_index_write_freq;
-    config::enable_common_grams_index_build = false;
     config::enable_debug_points = true;
-    config::snii_positions_index_write_freq = false;
     constexpr std::string_view kFailurePoint = "Compaction::before_execute_snii_merge";
     DEFER({
         DebugPoints::instance()->remove(std::string(kFailurePoint));
-        config::enable_common_grams_index_build = old_common_grams;
         config::enable_debug_points = old_debug_points;
-        config::snii_positions_index_write_freq = old_write_freq;
     });
 
     _build_snii_multi_index_tablet();
@@ -1938,18 +1921,12 @@ TEST_F(IndexCompactionTest, snii_native_merge_mem_limit_arms_raw_rebuild_without
 }
 
 TEST_F(IndexCompactionTest, snii_native_merge_corruption_arms_raw_rebuild_fallback) {
-    const bool old_common_grams = config::enable_common_grams_index_build;
     const bool old_debug_points = config::enable_debug_points;
-    const bool old_write_freq = config::snii_positions_index_write_freq;
-    config::enable_common_grams_index_build = false;
     config::enable_debug_points = true;
-    config::snii_positions_index_write_freq = false;
     constexpr std::string_view kFailurePoint = "Compaction::before_execute_snii_merge";
     DEFER({
         DebugPoints::instance()->remove(std::string(kFailurePoint));
-        config::enable_common_grams_index_build = old_common_grams;
         config::enable_debug_points = old_debug_points;
-        config::snii_positions_index_write_freq = old_write_freq;
     });
 
     _build_snii_multi_index_tablet();

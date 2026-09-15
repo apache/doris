@@ -18,7 +18,6 @@
 package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
@@ -103,6 +102,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
@@ -301,18 +301,15 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private List<String> createTableIfNotExists() throws Exception {
         List<String> syncTbls = new ArrayList<>();
         Map<String, String> effectiveSourceProperties = buildConvertedSourceProperties(sourceProperties);
-        // Key: source table name; Value: CreateTableCommand for the Doris target table.
-        // The two names differ when "table.<src>.target_table" is configured.
-        LinkedHashMap<String, CreateTableCommand> createTblCmds =
+        // Key: source table name; Value: CREATE TABLE command, or empty if the target already exists.
+        // The source and target table names differ when "table.<src>.target_table" is configured.
+        LinkedHashMap<String, Optional<CreateTableCommand>> createTblCmds =
                 StreamingJobUtils.generateCreateTableCmds(targetDb,
                         dataSourceType, effectiveSourceProperties, targetProperties);
-        Database db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(targetDb);
-        Preconditions.checkNotNull(db, "target database %s does not exist", targetDb);
-        for (Map.Entry<String, CreateTableCommand> entry : createTblCmds.entrySet()) {
+        for (Map.Entry<String, Optional<CreateTableCommand>> entry : createTblCmds.entrySet()) {
             String srcTable = entry.getKey();
-            CreateTableCommand createTblCmd = entry.getValue();
-            if (!db.isTableExist(createTblCmd.getCreateTableInfo().getTableName())) {
-                createTblCmd.run(ConnectContext.get(), null);
+            if (entry.getValue().isPresent()) {
+                entry.getValue().get().run(ConnectContext.get(), null);
             }
             // Use the upstream table name so CDC monitors the correct source table.
             syncTbls.add(srcTable);
@@ -566,6 +563,30 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getJobId());
             }
             log.info("Streaming insert job {} update status to {}", getJobId(), getJobStatus());
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Move the job to {@code newStatus} only if it is still in {@code expectedStatus}.
+     *
+     * <p>{@link #createStreamingTask()} hands the task to {@code StreamingTaskScheduler} before the
+     * caller has marked the job RUNNING, so that scheduler thread may already have failed the task
+     * and paused the job. Writing RUNNING unconditionally would drop that PAUSED, and the job would
+     * then sit in RUNNING with a canceled task forever: handleRunningState() never creates a task
+     * for a TVF source, and the auto resume handler only runs while PAUSED.
+     *
+     * @return true when the status was updated, false when another thread already moved the job
+     */
+    public boolean updateJobStatusIfCurrent(JobStatus expectedStatus, JobStatus newStatus) throws JobException {
+        lock.writeLock().lock();
+        try {
+            if (!expectedStatus.equals(getJobStatus())) {
+                return false;
+            }
+            updateJobStatus(newStatus);
+            return true;
         } finally {
             lock.writeLock().unlock();
         }
@@ -1000,21 +1021,19 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     public String getLag() {
-        return offsetProvider != null ? offsetProvider.getLag() : "";
+        return offsetProvider != null ? offsetProvider.getLag() : "-1";
     }
 
-    // Numeric lag for metrics. Returns -1 when lag is not applicable (S3, snapshot phase)
-    // or unparseable, so dashboards can filter N/A jobs via lag >= 0.
-    public long getLagSeconds() {
-        String lagStr = getLag();
-        if (lagStr == null || lagStr.isEmpty()) {
-            return -1L;
-        }
-        try {
-            return Long.parseLong(lagStr);
-        } catch (NumberFormatException e) {
-            return -1L;
-        }
+    public long getLagBytes() {
+        return offsetProvider != null ? offsetProvider.getLagBytes() : -1;
+    }
+
+    public long getLastSourceEventTimestampSeconds() {
+        return offsetProvider != null ? offsetProvider.getLastSourceEventTimestampSeconds() : 0;
+    }
+
+    public long getLastTaskSuccessTimeSeconds() {
+        return lastTaskSuccessTime / 1000L;
     }
 
     /**
@@ -1077,6 +1096,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty())) {
             Offset offset = validateOffset(inputStreamProps.getOffsetProperty());
             this.offsetProvider.updateOffset(offset);
+            this.offsetProvider.resetLag();
             this.offsetProviderPersist = offsetProvider.getPersistInfo();
             log.info("modifyPropertiesInternal: offset updated to {}, job {}",
                     inputStreamProps.getOffsetProperty(), getJobId());
@@ -1174,8 +1194,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 ? "" : GsonUtils.GSON.toJson(failureReason)));
         trow.addToColumnValue(new TCell().setStringVal(jobRuntimeMsg == null
                 ? "" : jobRuntimeMsg));
-        trow.addToColumnValue(new TCell().setStringVal(
-                offsetProvider != null ? offsetProvider.getLag() : ""));
+        trow.addToColumnValue(new TCell().setStringVal(getLag()));
+        long lastSourceEventTimestampSeconds = getLastSourceEventTimestampSeconds();
+        trow.addToColumnValue(new TCell().setStringVal(lastSourceEventTimestampSeconds > 0
+                ? String.valueOf(lastSourceEventTimestampSeconds) : ""));
         trow.addToColumnValue(new TCell().setStringVal(lastTaskSuccessTime > 0
                 ? TimeUtils.longToTimeString(lastTaskSuccessTime) : ""));
         return trow;

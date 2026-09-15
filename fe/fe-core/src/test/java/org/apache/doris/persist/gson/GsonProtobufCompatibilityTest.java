@@ -19,8 +19,8 @@ package org.apache.doris.persist.gson;
 
 import com.google.gson.annotations.SerializedName;
 import doris.segment_v2.SegmentV2;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class GsonProtobufCompatibilityTest {
     private static class ProtobufBuilderHolder {
@@ -34,7 +34,7 @@ public class GsonProtobufCompatibilityTest {
     @Test
     public void testSerializeGeneratedProtobufBuilder() {
         String json = GsonUtils.GSON.toJson(new ProtobufBuilderHolder());
-        Assert.assertTrue(json, json.contains("\"name\":\"holder\""));
-        Assert.assertFalse(json, json.contains("\"builder\""));
+        Assertions.assertTrue(json.contains("\"name\":\"holder\""), json);
+        Assertions.assertFalse(json.contains("\"builder\""), json);
     }
 }

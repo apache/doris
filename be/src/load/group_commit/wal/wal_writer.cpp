@@ -31,6 +31,7 @@
 #include "load/group_commit/wal/wal_manager.h"
 #include "runtime/cluster_info.h"
 #include "storage/storage_engine.h"
+#include "util/debug_points.h"
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
@@ -135,6 +136,18 @@ Status WalWriter::append_blocks(const PBlockArray& blocks) {
                 "failed to write block to wal expected= " + std::to_string(total_size) +
                 ",actually=" + std::to_string(offset));
     }
+    DBUG_EXECUTE_IF("WalWriter.append_blocks.write_incomplete_tail", {
+        if (!blocks.empty()) {
+            uint8_t len_buf[sizeof(uint64_t)];
+            uint64_t block_length = blocks.back()->ByteSizeLong();
+            encode_fixed64_le(len_buf, block_length);
+            RETURN_IF_ERROR(_file_writer->append({len_buf, sizeof(uint64_t)}));
+
+            std::string content = blocks.back()->SerializeAsString();
+            content.resize(content.size() / 2);
+            RETURN_IF_ERROR(_file_writer->append(content));
+        }
+    });
     return Status::OK();
 }
 

@@ -42,9 +42,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VarAttrDef;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.ColumnStatisticBuilder;
-import org.apache.doris.statistics.Histogram;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.ColumnStatisticBuilder;
+import org.apache.doris.statistics.model.Histogram;
 
 import com.google.common.collect.Maps;
 import com.google.gson.reflect.TypeToken;
@@ -223,10 +223,12 @@ public class MinidumpUtils {
      */
     public static void setConnectContext(Minidump minidump) {
         ConnectContext connectContext = new ConnectContext();
+        Env env = Env.getCurrentEnv();
+        connectContext.setEnv(env);
         connectContext.getTotalColumnStatisticMap().putAll(minidump.getTotalColumnStatisticMap());
         connectContext.getTotalHistogramMap().putAll(minidump.getTotalHistogramMap());
         connectContext.setThreadLocalInfo();
-        Env.getCurrentEnv().setColocateTableIndex(minidump.getColocateTableIndex());
+        env.setColocateTableIndex(minidump.getColocateTableIndex());
         connectContext.setSessionVariable(minidump.getSessionVariable());
         connectContext.setDatabase(minidump.getDbName());
         connectContext.getSessionVariable().setPlanNereidsDump(true);
@@ -244,8 +246,10 @@ public class MinidumpUtils {
         if (parsed instanceof ExplainCommand) {
             parsed = ((ExplainCommand) parsed).getLogicalPlan();
         }
-        NereidsPlanner nereidsPlanner = new NereidsPlanner(
-                new StatementContext(ConnectContext.get(), new OriginStatement(sql, 0)));
+        ConnectContext connectContext = ConnectContext.get();
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
+        connectContext.setStatementContext(statementContext);
+        NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
         nereidsPlanner.plan(LogicalPlanAdapter.of(parsed));
         return ((AbstractPlan) nereidsPlanner.getOptimizedPlan()).toJson();
     }

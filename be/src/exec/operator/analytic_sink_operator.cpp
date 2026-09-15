@@ -64,8 +64,10 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     } else {
         if (!p._has_window_start) {
             _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_unbounded_rows;
+            _rows_window_type = RowsWindowType::UNBOUNDED_START;
         } else {
             _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_sliding_rows;
+            _rows_window_type = RowsWindowType::SLIDING;
         }
         _streaming_mode = true;
         _support_incremental_calculate = (p._has_window_start && p._has_window_end);
@@ -843,6 +845,18 @@ void AnalyticSinkLocalState::_remove_unused_rows() {
         auto idx = _output_block_index - 1;
         if (idx < 0 || _input_block_first_row_positions[idx] <= unused_rows_pos) {
             return;
+        }
+        if (_rows_window_type != RowsWindowType::NONE) {
+            // Sliding frames need the outgoing row; unbounded-start frames need the next unread row.
+            const int64_t earliest_required_row =
+                    _rows_window_type == RowsWindowType::SLIDING
+                            ? std::max(_partition_by_pose.start,
+                                       _current_row_position + _rows_start_offset - 1)
+                            : std::max(_partition_by_pose.start,
+                                       _current_row_position + _rows_end_offset);
+            if (_have_removed_rows + earliest_required_row < unused_rows_pos) {
+                return;
+            }
         }
     } else {
         if (_have_removed_rows + _partition_by_pose.start <= unused_rows_pos) {

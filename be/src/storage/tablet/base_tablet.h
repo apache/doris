@@ -269,7 +269,7 @@ public:
     virtual CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() = 0;
 
     void calc_compaction_output_rowset_delete_bitmap(
-            const std::vector<RowsetSharedPtr>& input_rowsets,
+            const std::vector<RowsetSharedPtr>& input_rowsets, const RowsetSharedPtr& output_rowset,
             const RowIdConversion& rowid_conversion, uint64_t start_version, uint64_t end_version,
             std::set<RowLocation>* missed_rows,
             std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,

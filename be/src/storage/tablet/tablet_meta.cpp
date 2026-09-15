@@ -269,6 +269,7 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _delete_bitmap(b._delete_bitmap),
           _binlog_config(b._binlog_config),
           _tablet_role(b._tablet_role),
+          _binlog_tablet_id(b._binlog_tablet_id),
           _compaction_policy(b._compaction_policy),
           _time_series_compaction_goal_size_mbytes(b._time_series_compaction_goal_size_mbytes),
           _time_series_compaction_file_count_threshold(
@@ -278,8 +279,8 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _time_series_compaction_empty_rowsets_threshold(
                   b._time_series_compaction_empty_rowsets_threshold),
           _time_series_compaction_level_threshold(b._time_series_compaction_level_threshold),
-          _vertical_compaction_num_columns_per_group(
-                  b._vertical_compaction_num_columns_per_group) {};
+          _vertical_compaction_num_columns_per_group(b._vertical_compaction_num_columns_per_group),
+          _inverted_index_storage_format(b._inverted_index_storage_format) {};
 
 void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                           ColumnPB* column) {
@@ -332,6 +333,9 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     column->set_is_nullable(tcolumn.is_allow_null);
     if (tcolumn.__isset.default_value) {
         column->set_default_value(tcolumn.default_value);
+    }
+    if (tcolumn.__isset.default_value_expr) {
+        column->set_default_value_expr(tcolumn.default_value_expr);
     }
     if (tcolumn.__isset.is_bloom_filter_column) {
         column->set_is_bf_column(tcolumn.is_bloom_filter_column);
@@ -395,6 +399,9 @@ void TabletMeta::init_schema_from_thrift(const TTabletSchema& tablet_schema,
     tablet_schema_pb->set_num_short_key_columns(tablet_schema.short_key_column_count);
     tablet_schema_pb->set_num_rows_per_row_block(config::default_num_rows_per_column_file_block);
     tablet_schema_pb->set_sequence_col_idx(tablet_schema.sequence_col_idx);
+    if (tablet_schema.__isset.row_lsn_col_idx) {
+        tablet_schema_pb->set_row_lsn_col_idx(tablet_schema.row_lsn_col_idx);
+    }
     if (tablet_schema.__isset.binlog_tso_idx) {
         tablet_schema_pb->set_binlog_tso_col_idx(tablet_schema.binlog_tso_idx);
     }
@@ -586,6 +593,9 @@ void TabletMeta::init_schema_from_thrift(const TTabletSchema& tablet_schema,
     }
     if (tablet_schema.__isset.commit_tso_col_idx) {
         tablet_schema_pb->set_commit_tso_col_idx(tablet_schema.commit_tso_col_idx);
+    }
+    if (tablet_schema.__isset.row_lsn_col_idx) {
+        tablet_schema_pb->set_row_lsn_col_idx(tablet_schema.row_lsn_col_idx);
     }
     if (tablet_schema.__isset.store_row_column) {
         tablet_schema_pb->set_store_row_column(tablet_schema.store_row_column);
@@ -793,6 +803,10 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     _cumulative_layer_point = tablet_meta_pb.cumulative_layer_point();
     _tablet_uid = TabletUid(tablet_meta_pb.tablet_uid());
     _ttl_seconds = tablet_meta_pb.ttl_seconds();
+    _inverted_index_storage_format.reset();
+    if (tablet_meta_pb.has_inverted_index_storage_format()) {
+        _inverted_index_storage_format = tablet_meta_pb.inverted_index_storage_format();
+    }
     if (tablet_meta_pb.has_tablet_type()) {
         _tablet_type = tablet_meta_pb.tablet_type();
     } else {
@@ -823,7 +837,11 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
 
     // init _schema
     TabletSchemaSPtr schema = std::make_shared<TabletSchema>();
-    schema->init_from_pb(tablet_meta_pb.schema());
+    TabletSchemaPB schema_pb = tablet_meta_pb.schema();
+    if (_inverted_index_storage_format.has_value()) {
+        schema_pb.set_inverted_index_storage_format(*_inverted_index_storage_format);
+    }
+    schema->init_from_pb(schema_pb);
     if (_handle) {
         TabletSchemaCache::instance()->release(_handle);
     }
@@ -888,6 +906,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         _binlog_config = tablet_meta_pb.binlog_config();
     }
     _tablet_role = tablet_meta_pb.tablet_role();
+    _binlog_tablet_id = tablet_meta_pb.binlog_tablet_id();
     _compaction_policy = tablet_meta_pb.compaction_policy();
     _time_series_compaction_goal_size_mbytes =
             tablet_meta_pb.time_series_compaction_goal_size_mbytes();
@@ -949,6 +968,11 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_
     }
 
     _schema->to_schema_pb(tablet_meta_pb->mutable_schema());
+    if (_inverted_index_storage_format.has_value()) {
+        tablet_meta_pb->set_inverted_index_storage_format(*_inverted_index_storage_format);
+        tablet_meta_pb->mutable_schema()->set_inverted_index_storage_format(
+                *_inverted_index_storage_format);
+    }
 
     tablet_meta_pb->set_in_restore_mode(in_restore_mode());
 
@@ -986,6 +1010,9 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_
     }
     _binlog_config.to_pb(tablet_meta_pb->mutable_binlog_config());
     tablet_meta_pb->set_tablet_role(_tablet_role);
+    if (_binlog_tablet_id > 0) {
+        tablet_meta_pb->set_binlog_tablet_id(_binlog_tablet_id);
+    }
     tablet_meta_pb->set_compaction_policy(compaction_policy());
     tablet_meta_pb->set_time_series_compaction_goal_size_mbytes(
             time_series_compaction_goal_size_mbytes());
@@ -1165,10 +1192,14 @@ Status TabletMeta::set_partition_id(int64_t partition_id) {
 }
 
 void TabletMeta::clear_stale_rowset() {
-    _stale_rs_metas.clear();
+    clear_stale_rs_metas();
     if (_enable_unique_key_merge_on_write) {
         _delete_bitmap->clear_rowset_cache_version();
     }
+}
+
+void TabletMeta::clear_stale_rs_metas() {
+    _stale_rs_metas.clear();
 }
 
 void TabletMeta::clear_rowsets() {
@@ -1226,6 +1257,7 @@ bool operator==(const TabletMeta& a, const TabletMeta& b) {
     if (a._in_restore_mode != b._in_restore_mode) return false;
     if (a._preferred_rowset_type != b._preferred_rowset_type) return false;
     if (a._storage_policy_id != b._storage_policy_id) return false;
+    if (a._binlog_tablet_id != b._binlog_tablet_id) return false;
     if (a._compaction_policy != b._compaction_policy) return false;
     if (a._time_series_compaction_goal_size_mbytes != b._time_series_compaction_goal_size_mbytes)
         return false;
@@ -1585,11 +1617,10 @@ void DeleteBitmap::subset(const BitmapKey& start, const BitmapKey& end,
     }
 }
 
-void DeleteBitmap::subset(std::vector<std::pair<RowsetId, int64_t>>& rowset_ids,
-                          int64_t start_version, int64_t end_version,
-                          DeleteBitmap* subset_delete_map) const {
+void DeleteBitmap::subset(const std::vector<RowsetIdWithSegmentIds>& rowsets, int64_t start_version,
+                          int64_t end_version, DeleteBitmap* subset_delete_map) const {
     DCHECK(start_version <= end_version);
-    for (auto& [rowset_id, _] : rowset_ids) {
+    for (const auto& [rowset_id, _] : rowsets) {
         BitmapKey start {rowset_id, 0, 0};
         BitmapKey end {rowset_id, UINT32_MAX, end_version + 1};
         std::shared_lock l(lock);
@@ -1611,16 +1642,16 @@ void DeleteBitmap::subset(std::vector<std::pair<RowsetId, int64_t>>& rowset_ids,
     }
 }
 
-void DeleteBitmap::subset_and_agg(std::vector<std::pair<RowsetId, int64_t>>& rowset_ids,
+void DeleteBitmap::subset_and_agg(const std::vector<RowsetIdWithSegmentIds>& rowsets,
                                   int64_t start_version, int64_t end_version,
                                   DeleteBitmap* subset_delete_map) const {
     DCHECK(start_version <= end_version);
-    for (auto& [rowset_id, segment_num] : rowset_ids) {
-        for (int64_t seg_id = 0; seg_id < segment_num; ++seg_id) {
-            BitmapKey end {rowset_id, seg_id, end_version};
+    for (const auto& [rowset_id, segment_ids] : rowsets) {
+        for (auto segment_id : segment_ids) {
+            BitmapKey end {rowset_id, segment_id, end_version};
             auto bm = get_agg_without_cache(end, start_version);
             VLOG_DEBUG << "subset delete bitmap, tablet=" << _tablet_id << ", rowset=" << rowset_id
-                       << ", segment=" << seg_id << ", version=[" << start_version << "-"
+                       << ", segment=" << segment_id << ", version=[" << start_version << "-"
                        << end_version << "], cardinality=" << bm->cardinality();
             if (bm->isEmpty()) {
                 continue;

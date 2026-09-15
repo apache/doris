@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
@@ -41,7 +42,6 @@ import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.planner.ResultSink;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SchemaScanNode;
-import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QueryStatisticsItem.FragmentInstanceInfo;
 import org.apache.doris.qe.runtime.LoadProcessor;
 import org.apache.doris.qe.runtime.MultiFragmentsPipelineTask;
@@ -55,7 +55,6 @@ import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.workloadgroup.QueryQueue;
 import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
-import org.apache.doris.service.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TErrorTabletInfo;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -68,6 +67,7 @@ import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -76,6 +76,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /** NereidsCoordinator */
@@ -374,6 +375,12 @@ public class NereidsCoordinator extends Coordinator {
     }
 
     @Override
+    public Set<Long> getDispatchedBackendIdsForAudit() {
+        return executionTask == null
+                ? ImmutableSet.of() : executionTask.getDispatchedBackendIdsForAudit();
+    }
+
+    @Override
     public List<FragmentInstanceInfo> getFragmentInstanceInfos() {
         List<QueryStatisticsItem.FragmentInstanceInfo> infos = Lists.newArrayList();
         if (executionTask != null) {
@@ -499,8 +506,8 @@ public class NereidsCoordinator extends Coordinator {
         ConnectContext connectContext = coordinatorContext.connectContext;
         DataSink dataSink = coordinatorContext.dataSink;
         if (dataSink instanceof ResultSink || dataSink instanceof ResultFileSink) {
+            // The client pulls the result from the backend (Arrow Flight SQL); register where.
             if (connectContext != null && !connectContext.isReturnResultFromLocal()) {
-                Preconditions.checkState(connectContext.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL));
                 for (AssignedJob instance : topPlan.getInstanceJobs()) {
                     BackendWorker worker = (BackendWorker) instance.getAssignedWorker();
                     Backend backend = worker.getBackend();

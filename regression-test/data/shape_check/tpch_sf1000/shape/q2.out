@@ -7,27 +7,40 @@ PhysicalResultSink
 --------PhysicalDistribute[DistributionSpecGather]
 ----------PhysicalTopN[LOCAL_SORT]
 ------------PhysicalProject
---------------filter((partsupp.ps_supplycost = min(ps_supplycost) OVER(PARTITION BY p_partkey)))
-----------------PhysicalWindow
-------------------PhysicalQuickSort[LOCAL_SORT]
---------------------PhysicalDistribute[DistributionSpecHash]
+--------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((part.p_partkey = partsupp.ps_partkey) and (partsupp.ps_supplycost = min(ps_supplycost))) otherCondition=() build RFs:RF7 p_partkey->ps_partkey
+----------------hashAgg[GLOBAL]
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_suppkey = partsupp.ps_suppkey)) otherCondition=() build RFs:RF6 s_suppkey->ps_suppkey
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((supplier.s_suppkey = partsupp.ps_suppkey)) otherCondition=() build RFs:RF3 ps_suppkey->s_suppkey
+------------------------PhysicalOlapScan[partsupp] apply RFs: RF6 RF7
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF5 n_nationkey->s_nationkey
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF2 n_nationkey->s_nationkey
-------------------------------PhysicalLazyMaterializeOlapScan[supplier lazySlots:(supplier.s_address,supplier.s_phone,supplier.s_comment)] apply RFs: RF2 RF3
-------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((nation.n_regionkey = region.r_regionkey)) otherCondition=() build RFs:RF1 r_regionkey->n_regionkey
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[nation] apply RFs: RF1
-----------------------------------PhysicalProject
-------------------------------------filter((region.r_name = 'EUROPE'))
---------------------------------------PhysicalOlapScan[region]
+----------------------------PhysicalOlapScan[supplier] apply RFs: RF5
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN colocated] hashCondition=((part.p_partkey = partsupp.ps_partkey)) otherCondition=() build RFs:RF0 p_partkey->ps_partkey
+----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((nation.n_regionkey = region.r_regionkey)) otherCondition=() build RFs:RF4 r_regionkey->n_regionkey
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[partsupp] apply RFs: RF0
+--------------------------------PhysicalOlapScan[nation] apply RFs: RF4
 ------------------------------PhysicalProject
---------------------------------filter((part.p_size = 15) and (part.p_type like '%BRASS'))
-----------------------------------PhysicalLazyMaterializeOlapScan[part lazySlots:(part.p_mfgr)]
+--------------------------------filter((region.r_name = 'EUROPE'))
+----------------------------------PhysicalOlapScan[region]
+----------------PhysicalProject
+------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((supplier.s_suppkey = partsupp.ps_suppkey)) otherCondition=() build RFs:RF3 ps_suppkey->s_suppkey
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF2 n_nationkey->s_nationkey
+------------------------PhysicalLazyMaterializeOlapScan[supplier lazySlots:(supplier.s_address,supplier.s_phone,supplier.s_comment)] apply RFs: RF2 RF3
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((nation.n_regionkey = region.r_regionkey)) otherCondition=() build RFs:RF1 r_regionkey->n_regionkey
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[nation] apply RFs: RF1
+----------------------------PhysicalProject
+------------------------------filter((region.r_name = 'EUROPE'))
+--------------------------------PhysicalOlapScan[region]
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN colocated] hashCondition=((part.p_partkey = partsupp.ps_partkey)) otherCondition=() build RFs:RF0 p_partkey->ps_partkey
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[partsupp] apply RFs: RF0
+------------------------PhysicalProject
+--------------------------filter((part.p_size = 15) and (part.p_type like '%BRASS'))
+----------------------------PhysicalLazyMaterializeOlapScan[part lazySlots:(part.p_mfgr)]
 

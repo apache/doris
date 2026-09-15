@@ -17,6 +17,7 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.connector.ConnectorStatementScopeImpl;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
@@ -62,7 +63,8 @@ public class MetadataGeneratorPluginDrivenTest {
     @Test
     public void testRoutesToSpiWithRemoteNamesAndBuildsRows() throws Exception {
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
-        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
+        ConnectorStatementScope scope = new ConnectorStatementScopeImpl();
+        Mockito.when(session.getStatementScope()).thenReturn(scope);
         Connector connector = Mockito.mock(Connector.class);
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
@@ -91,12 +93,14 @@ public class MetadataGeneratorPluginDrivenTest {
         Assertions.assertEquals("pt=1", rows.get(0).getColumnValue().get(0).getStringVal());
         Assertions.assertEquals("pt=2", rows.get(1).getColumnValue().get(0).getStringVal());
         Mockito.verify(metadata).getTableHandle(session, "remote_db", "remote_tbl");
+        Mockito.verify(metadata).close();
     }
 
     @Test
     public void testAbsentHandleYieldsEmptyOkResult() throws Exception {
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
-        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
+        ConnectorStatementScope scope = new ConnectorStatementScopeImpl();
+        Mockito.when(session.getStatementScope()).thenReturn(scope);
         Connector connector = Mockito.mock(Connector.class);
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
 
@@ -117,5 +121,6 @@ public class MetadataGeneratorPluginDrivenTest {
         Assertions.assertEquals(TStatusCode.OK, result.getStatus().getStatusCode());
         Assertions.assertEquals(Collections.emptyList(), result.getDataBatch());
         Mockito.verify(metadata, Mockito.never()).listPartitionNames(Mockito.any(), Mockito.any());
+        Mockito.verify(metadata).close();
     }
 }

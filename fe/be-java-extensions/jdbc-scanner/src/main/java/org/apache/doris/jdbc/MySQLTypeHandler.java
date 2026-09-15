@@ -17,8 +17,8 @@
 
 package org.apache.doris.jdbc;
 
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ColumnValueConverter;
+import org.apache.doris.jni.spi.vec.ColumnType;
+import org.apache.doris.jni.spi.vec.ColumnValueConverter;
 
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.gson.Gson;
@@ -113,7 +113,7 @@ public class MySQLTypeHandler extends DefaultTypeHandler {
                 int jdbcType = metadata.getColumnType(columnIndex);
                 // MySQL TIME type needs getString() to handle >24h values.
                 // But for OceanBase, getString() loses fractional second precision,
-                // so we use getObject() instead (matching old MySQLJdbcExecutor behavior).
+                // so we use getObject() instead.
                 if (jdbcType == Types.TIME && "MYSQL".equals(tableType)) {
                     return rs.getString(columnIndex);
                 }

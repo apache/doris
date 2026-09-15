@@ -87,6 +87,87 @@ TEST(NGramTokenizerTest, InvalidMinMaxDifference) {
     ASSERT_TRUE(exception_thrown);
 }
 
+TEST(NGramTokenizerTest, ConfiguredMinMaxDifference) {
+    NGramTokenizerFactory factory;
+    std::unordered_map<std::string, std::string> args;
+    args["min_gram"] = "1";
+    args["max_gram"] = "8";
+    args["max_ngram_diff"] = "7";
+    Settings settings(args);
+    factory.initialize(settings);
+    auto tokens = tokenize(factory, "abcdefgh");
+
+    std::vector<std::string> expected {
+            "a",    "ab",    "abc",    "abcd",  "abcde",  "abcdef",  "abcdefg", "abcdefgh", "b",
+            "bc",   "bcd",   "bcde",   "bcdef", "bcdefg", "bcdefgh", "c",       "cd",       "cde",
+            "cdef", "cdefg", "cdefgh", "d",     "de",     "def",     "defg",    "defgh",    "e",
+            "ef",   "efg",   "efgh",   "f",     "fg",     "fgh",     "g",       "gh",       "h"};
+    ASSERT_EQ(tokens, expected);
+}
+
+TEST(NGramTokenizerTest, InvalidConfiguredDifferenceLimit) {
+    NGramTokenizerFactory factory;
+    std::unordered_map<std::string, std::string> args;
+    args["max_ngram_diff"] = "-1";
+    Settings settings(args);
+
+    EXPECT_THROW(factory.initialize(settings), Exception);
+}
+
+TEST(NGramTokenizerTest, ExcessiveConfiguredDifferenceLimit) {
+    NGramTokenizerFactory factory;
+    std::unordered_map<std::string, std::string> args;
+    args["max_ngram_diff"] = std::to_string(NGramTokenizerFactory::MAX_NGRAM_DIFF + 1);
+    Settings settings(args);
+
+    EXPECT_THROW(factory.initialize(settings), Exception);
+}
+
+TEST(NGramTokenizerTest, ConfiguredDifferenceLimitBoundary) {
+    NGramTokenizerFactory factory;
+    std::unordered_map<std::string, std::string> args;
+    args["min_gram"] = "1";
+    args["max_gram"] = std::to_string(NGramTokenizerFactory::MAX_NGRAM_DIFF + 1);
+    args["max_ngram_diff"] = std::to_string(NGramTokenizerFactory::MAX_NGRAM_DIFF);
+    Settings settings(args);
+
+    EXPECT_NO_THROW(factory.initialize(settings));
+}
+
+TEST(NGramTokenizerTest, AbsoluteSizeBoundary) {
+    NGramTokenizerFactory factory;
+    std::unordered_map<std::string, std::string> args;
+    args["min_gram"] = std::to_string(NGramTokenizerFactory::MAX_NGRAM_SIZE);
+    args["max_gram"] = std::to_string(NGramTokenizerFactory::MAX_NGRAM_SIZE);
+    args["max_ngram_diff"] = "1";
+    Settings settings(args);
+
+    EXPECT_NO_THROW(factory.initialize(settings));
+    EXPECT_NO_THROW(factory.create());
+}
+
+TEST(NGramTokenizerTest, ExcessiveAbsoluteSize) {
+    NGramTokenizerFactory factory;
+    std::unordered_map<std::string, std::string> args;
+    args["min_gram"] = std::to_string(NGramTokenizerFactory::MAX_NGRAM_SIZE);
+    args["max_gram"] = std::to_string(NGramTokenizerFactory::MAX_NGRAM_SIZE + 1);
+    args["max_ngram_diff"] = "1";
+    Settings settings(args);
+
+    EXPECT_THROW(factory.initialize(settings), Exception);
+}
+
+TEST(NGramTokenizerTest, LegacyFixedSizeAboveCurrentLimit) {
+    NGramTokenizerFactory factory;
+    std::unordered_map<std::string, std::string> args;
+    args["min_gram"] = "2048";
+    args["max_gram"] = "2048";
+    Settings settings(args);
+
+    EXPECT_NO_THROW(factory.initialize(settings));
+    EXPECT_NO_THROW(factory.create());
+}
+
 TEST(NGramTokenizerTest, SymbolCharactersHandling) {
     NGramTokenizerFactory factory;
     std::unordered_map<std::string, std::string> args;

@@ -17,7 +17,7 @@
 
 
 suite("test_variant_is_null_expr", "p0, nonConcurrent") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     // define a sql table
     def testTable = "test_variant_is_null_expr"
     sql "set default_variant_max_subcolumns_count = 10"

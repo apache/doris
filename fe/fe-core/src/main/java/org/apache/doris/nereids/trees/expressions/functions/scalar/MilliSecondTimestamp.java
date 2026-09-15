@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -38,7 +39,8 @@ public class MilliSecondTimestamp extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BigIntType.INSTANCE).args(DateTimeV2Type.WILDCARD));
+            FunctionSignature.ret(BigIntType.INSTANCE).args(DateTimeV2Type.WILDCARD),
+            FunctionSignature.ret(BigIntType.INSTANCE).args(TimeStampNsType.INSTANCE));
 
     public MilliSecondTimestamp(Expression arg0) {
         super("millisecond_timestamp", arg0);

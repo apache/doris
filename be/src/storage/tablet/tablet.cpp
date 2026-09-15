@@ -2058,6 +2058,7 @@ void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
     context.tablet_id = tablet_id();
     context.partition_id = partition_id();
     context.tablet_schema_hash = schema_hash();
+    context.inverted_index_storage_format = tablet_meta()->inverted_index_storage_format();
     context.rowset_type = tablet_meta()->preferred_rowset_type();
     // Alpha Rowset will be removed in the future, so that if the tablet's default rowset type is
     // alpha rowset, then set the newly created rowset to storage engine's default rowset.
@@ -2159,7 +2160,7 @@ Status Tablet::_cooldown_data(RowsetSharedPtr rowset) {
     Status st;
     Defer defer {[&] {
         if (!st.ok()) {
-            // reclaim the incomplete rowset data in remote storage
+            // Local-mode only remote rowset GC; segment files are named by contiguous indexes.
             record_unused_remote_rowset(new_rowset_id, storage_resource.fs->id(),
                                         old_rowset->num_segments());
         }
@@ -2737,6 +2738,8 @@ Status Tablet::get_rowset_binlog_metas(Version binlog_versions, RowsetBinlogMeta
                                                       binlog_versions, metas_pb);
 }
 
+// Binlog is local-mode only. The segment index is the real binlog file id because segment-list
+// rowsets are cloud-only.
 std::string Tablet::get_segment_filepath(std::string_view rowset_id,
                                          std::string_view segment_index) const {
     return fmt::format("{}/_binlog/{}_{}.dat", _tablet_path, rowset_id, segment_index);
@@ -2929,8 +2932,8 @@ int64_t Tablet::get_segment_file_size(const RowsetMetaSharedPtr& rs_meta) {
         LOG(WARNING) << "get fs failed, resource_id={}" << rs_meta->resource_id();
     }
     int64_t total_segment_size = 0;
-    for (int64_t seg_id = 0; seg_id < rs_meta->num_segments(); seg_id++) {
-        std::string segment_path = get_segment_path(rs_meta, seg_id);
+    for (auto seg : rs_meta->segments()) {
+        std::string segment_path = get_segment_path(rs_meta, seg.id());
         int64_t segment_file_size = 0;
         auto st = fs->file_size(segment_path, &segment_file_size);
         if (!st.ok()) {
@@ -2954,8 +2957,8 @@ int64_t Tablet::get_inverted_index_file_size(const RowsetMetaSharedPtr& rs_meta)
         InvertedIndexStorageFormatPB::V1) {
         const auto& indices = rs_meta->tablet_schema()->inverted_indexes();
         for (auto& index : indices) {
-            for (int seg_id = 0; seg_id < rs_meta->num_segments(); ++seg_id) {
-                std::string segment_path = get_segment_path(rs_meta, seg_id);
+            for (auto seg : rs_meta->segments()) {
+                std::string segment_path = get_segment_path(rs_meta, seg.id());
                 int64_t file_size = 0;
 
                 std::string inverted_index_file_path =
@@ -2976,9 +2979,9 @@ int64_t Tablet::get_inverted_index_file_size(const RowsetMetaSharedPtr& rs_meta)
             }
         }
     } else {
-        for (int seg_id = 0; seg_id < rs_meta->num_segments(); ++seg_id) {
+        for (auto seg : rs_meta->segments()) {
             int64_t file_size = 0;
-            std::string segment_path = get_segment_path(rs_meta, seg_id);
+            std::string segment_path = get_segment_path(rs_meta, seg.id());
             std::string inverted_index_file_path = InvertedIndexDescriptor::get_index_file_path_v2(
                     InvertedIndexDescriptor::get_index_file_path_prefix(segment_path));
             auto st = fs->file_size(inverted_index_file_path, &file_size);

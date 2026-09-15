@@ -25,7 +25,6 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.indexpolicy.IndexPolicyMgr;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
@@ -54,6 +53,7 @@ public class InvertedIndexUtil {
     public static String INVERTED_INDEX_PARSER_ICU = InvertedIndexProperties.INVERTED_INDEX_PARSER_ICU;
     public static String INVERTED_INDEX_PARSER_BASIC = InvertedIndexProperties.INVERTED_INDEX_PARSER_BASIC;
     public static String INVERTED_INDEX_PARSER_IK = InvertedIndexProperties.INVERTED_INDEX_PARSER_IK;
+    public static String INVERTED_INDEX_PARSER_KUROMOJI = InvertedIndexProperties.INVERTED_INDEX_PARSER_KUROMOJI;
 
     public static String INVERTED_INDEX_PARSER_MODE_KEY = InvertedIndexProperties.INVERTED_INDEX_PARSER_MODE_KEY;
 
@@ -147,7 +147,8 @@ public class InvertedIndexUtil {
                                 || parser.equals(INVERTED_INDEX_PARSER_CHINESE)
                                     || parser.equals(INVERTED_INDEX_PARSER_ICU)
                                         || parser.equals(INVERTED_INDEX_PARSER_BASIC)
-                                            || parser.equals(INVERTED_INDEX_PARSER_IK))) {
+                                            || parser.equals(INVERTED_INDEX_PARSER_IK)
+                                                || parser.equals(INVERTED_INDEX_PARSER_KUROMOJI))) {
                 throw new AnalysisException("INVERTED index parser: " + parser
                     + " is invalid for column: " + indexColName + " of type " + colType);
             }
@@ -252,12 +253,13 @@ public class InvertedIndexUtil {
                             + "or 'normalizer' for text normalization without tokenization.");
         }
 
-        checkAnalyzerName(analyzerName, colType, invertedIndexFileStorageFormat, supportPhrase);
+        checkAnalyzerName(analyzerName, colType);
         checkNormalizerName(normalizerName, colType);
 
-        if (parser != null && !parser.matches("none|english|unicode|chinese|standard|icu|basic|ik")) {
+        if (parser != null
+                && !parser.matches("none|english|unicode|chinese|standard|icu|basic|ik|kuromoji")) {
             throw new AnalysisException("Invalid inverted index 'parser' value: " + parser
-                    + ", parser must be none, english, unicode, chinese, icu, basic or ik");
+                    + ", parser must be none, english, unicode, chinese, icu, basic, ik or kuromoji");
         }
 
         if (parserMode != null) {
@@ -271,8 +273,13 @@ public class InvertedIndexUtil {
                     throw new AnalysisException("Invalid inverted index 'parser_mode' value: " + parserMode
                         + ", parser_mode must be ik_max_word or ik_smart for ik parser");
                 }
-            } else if (parserMode != null) {
-                throw new AnalysisException("parser_mode is only available for chinese and ik parser");
+            } else if (INVERTED_INDEX_PARSER_KUROMOJI.equals(parser)) {
+                if (!parserMode.matches("search|normal|extended")) {
+                    throw new AnalysisException("Invalid inverted index 'parser_mode' value: " + parserMode
+                        + ", parser_mode must be search, normal or extended for kuromoji parser");
+                }
+            } else {
+                throw new AnalysisException("parser_mode is only available for chinese, ik and kuromoji parser");
             }
         }
 
@@ -317,11 +324,7 @@ public class InvertedIndexUtil {
                         "Invalid inverted index 'dict_compression' value: "
                                 + dictCompression + ", dict_compression must be true or false");
             }
-
-            if (invertedIndexFileStorageFormat != TInvertedIndexFileStorageFormat.V3) {
-                throw new AnalysisException(
-                        "dict_compression can only be set when storage format is V3");
-            }
+            // dict_compression now silently ignores by V2/V3 inverted index
         }
 
         // Normalize analyzer and normalizer names to lowercase for case-insensitive matching
@@ -341,36 +344,16 @@ public class InvertedIndexUtil {
                 INVERTED_INDEX_PARSER_KEY_ALIAS);
     }
 
-    private static void checkAnalyzerName(String analyzerName, PrimitiveType colType,
-            TInvertedIndexFileStorageFormat storageFormat, String supportPhrase) throws AnalysisException {
+    private static void checkAnalyzerName(String analyzerName, PrimitiveType colType) throws AnalysisException {
         if (analyzerName == null || analyzerName.isEmpty()) {
             return;
         }
+        if (!colType.isStringType() && !colType.isVariantType()) {
+            throw new AnalysisException("INVERTED index with analyzer: " + analyzerName
+                    + " is not supported for column of type " + colType);
+        }
         try {
-            IndexPolicyMgr indexPolicyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
-            if (indexPolicyMgr.validateAnalyzerUsesCommonGrams(analyzerName)) {
-                if (colType.isArrayType()) {
-                    throw new AnalysisException("CommonGrams analyzer '" + analyzerName
-                            + "' does not support ARRAY columns");
-                }
-                if (!colType.isCharFamily()) {
-                    throw new AnalysisException("CommonGrams analyzer '" + analyzerName
-                            + "' is supported only on scalar CHAR, VARCHAR, or STRING columns");
-                }
-                if (storageFormat != TInvertedIndexFileStorageFormat.SNII) {
-                    throw new AnalysisException("CommonGrams analyzer '" + analyzerName
-                            + "' is supported only by SNII inverted indexes");
-                }
-                if (!"true".equals(supportPhrase)) {
-                    throw new AnalysisException("CommonGrams analyzer '" + analyzerName
-                            + "' requires support_phrase=true");
-                }
-                return;
-            }
-            if (!colType.isStringType() && !colType.isVariantType()) {
-                throw new AnalysisException("INVERTED index with analyzer: " + analyzerName
-                        + " is not supported for column of type " + colType);
-            }
+            Env.getCurrentEnv().getIndexPolicyMgr().validateAnalyzerExists(analyzerName);
         } catch (DdlException e) {
             throw new AnalysisException("Invalid custom analyzer: " + e.getMessage());
         }

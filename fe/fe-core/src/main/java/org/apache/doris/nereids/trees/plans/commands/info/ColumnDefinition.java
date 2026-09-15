@@ -335,8 +335,24 @@ public class ColumnDefinition {
         }
     }
 
+    /**
+     * Returns whether the given type may be used as an OLAP key column.
+     */
+    public static boolean isEligibleKeyType(DataType type) {
+        return !type.isFloatLikeType()
+                && !type.isStringType()
+                && !type.isArrayType()
+                && !type.isBitmapType()
+                && !type.isHllType()
+                && !type.isQuantileStateType()
+                && !type.isJsonType()
+                && !type.isVariantType()
+                && !type.isMapType()
+                && !type.isStructType();
+    }
+
     private void checkKeyColumnType(boolean isOlap) {
-        if (isOlap) {
+        if (isOlap && !isEligibleKeyType(type)) {
             if (type.isFloatLikeType()) {
                 throw new AnalysisException("Float or double can not used as a key, use decimal instead.");
             } else if (type.isStringType()) {
@@ -356,6 +372,9 @@ public class ColumnDefinition {
             } else if (type.isStructType()) {
                 throw new AnalysisException("Struct can only be used in the non-key column of"
                         + " the duplicate table at present.");
+            } else {
+                throw new AnalysisException("Type " + type.toSql() + " can not be used in key column["
+                        + getName() + "].");
             }
         }
     }
@@ -627,7 +646,7 @@ public class ColumnDefinition {
         Column column = new Column(name, type.toCatalogDataType(), isKey, aggType, isNullable,
                 autoIncInitValue, defaultValue.map(DefaultValue::getValue).orElse(null), comment, isVisible,
                 defaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), Column.COLUMN_UNIQUE_ID_INIT_VALUE,
-                defaultValue.map(DefaultValue::getRawValue).orElse(null), onUpdateDefaultValue.isPresent(),
+                defaultValue.map(value -> value.getRawValue(type)).orElse(null), onUpdateDefaultValue.isPresent(),
                 onUpdateDefaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), clusterKeyId,
                 generatedColumnDesc.map(GeneratedColumnDesc::translateToInfo).orElse(null),
                 generatedColumnsThatReferToThis,
@@ -719,6 +738,18 @@ public class ColumnDefinition {
         ColumnDefinition columnDefinition = new ColumnDefinition(Column.COMMIT_TSO_COL, BigIntType.INSTANCE, false,
                     aggregateType, false, Optional.of(new DefaultValue(DefaultValue.ZERO_NUMBER)),
                 "doris commit tso hidden column", false);
+        columnDefinition.setEnableAddHiddenColumn(true);
+
+        return columnDefinition;
+    }
+
+    /**
+     * add hidden column __DORIS_ROW_LSN_COL__ for stable row identity on row-binlog tables.
+     */
+    public static ColumnDefinition newRowLsnColumnDefinition(AggregateType aggregateType) {
+        ColumnDefinition columnDefinition = new ColumnDefinition(Column.ROW_LSN_COL, BigIntType.INSTANCE, false,
+                    aggregateType, false, Optional.of(new DefaultValue(DefaultValue.ZERO_NUMBER)),
+                "doris row lsn hidden column", false);
         columnDefinition.setEnableAddHiddenColumn(true);
 
         return columnDefinition;

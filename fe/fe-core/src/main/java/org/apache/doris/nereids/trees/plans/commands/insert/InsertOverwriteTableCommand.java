@@ -62,7 +62,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
@@ -92,7 +91,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * InsertIntoTableCommand(Query())
  * ExplainCommand(Query())
  */
-public class InsertOverwriteTableCommand extends Command implements NeedAuditEncryption, ForwardWithSync, Explainable {
+public class InsertOverwriteTableCommand extends Command
+        implements NeedAuditEncryption, ForwardWithSync, Explainable, CancelableCommand {
 
     private static final Logger LOG = LogManager.getLogger(InsertOverwriteTableCommand.class);
 
@@ -179,9 +179,6 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         Plan analyzedPlan = planner.getAnalyzedPlan();
         lineagePlan = Optional.ofNullable(analyzedPlan);
         executor.checkBlockRules();
-        if (ctx.getConnectType() == ConnectType.MYSQL && ctx.getMysqlChannel() != null) {
-            ctx.getMysqlChannel().reset();
-        }
 
         Optional<TreeNode<?>> plan = (planner.getPhysicalPlan()
                 .<TreeNode<?>>collect(node -> node instanceof PhysicalTableSink)).stream().findAny();

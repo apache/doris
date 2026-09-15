@@ -39,8 +39,8 @@
 #include "storage/index/inverted/analyzer/basic/basic_analyzer.h"
 #include "storage/index/inverted/analyzer/icu/icu_analyzer.h"
 #include "storage/index/inverted/analyzer/ik/IKAnalyzer.h"
+#include "storage/index/inverted/analyzer/kuromoji/KuromojiAnalyzer.h"
 #include "storage/index/inverted/char_filter/char_replace_char_filter_factory.h"
-#include "storage/index/inverted/token_filter/common_grams_filter.h"
 
 namespace doris::segment_v2::inverted_index {
 namespace {
@@ -54,7 +54,7 @@ public:
                               : get_inverted_index_parser_type_from_string(config.analyzer_name),
                       config.parser_mode, config.lower_case, config.stop_words)) {}
 
-    AnalyzerPtr get_analyzer(AnalysisPurpose) const override { return _analyzer; }
+    AnalyzerPtr get_analyzer() const override { return _analyzer; }
 
 private:
     const AnalyzerPtr _analyzer;
@@ -88,7 +88,8 @@ bool InvertedIndexAnalyzer::is_builtin_analyzer(const std::string& analyzer_name
            analyzer_name == INVERTED_INDEX_PARSER_CHINESE ||
            analyzer_name == INVERTED_INDEX_PARSER_ICU ||
            analyzer_name == INVERTED_INDEX_PARSER_BASIC ||
-           analyzer_name == INVERTED_INDEX_PARSER_IK;
+           analyzer_name == INVERTED_INDEX_PARSER_IK ||
+           analyzer_name == INVERTED_INDEX_PARSER_KUROMOJI;
 }
 
 AnalyzerPtr InvertedIndexAnalyzer::create_builtin_analyzer(InvertedIndexParserType parser_type,
@@ -126,6 +127,22 @@ AnalyzerPtr InvertedIndexAnalyzer::create_builtin_analyzer(InvertedIndexParserTy
             ik_analyzer->setMode(false);
         }
         analyzer = std::move(ik_analyzer);
+    } else if (parser_type == InvertedIndexParserType::PARSER_KUROMOJI) {
+        if (!config::enable_kuromoji_analyzer) {
+            throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                            "kuromoji analyzer is disabled by default. Set "
+                            "enable_kuromoji_analyzer=true in "
+                            "be.conf (or via the BE config HTTP API) to enable it.");
+        }
+
+        std::string kuromoji_mode = parser_mode;
+        if (kuromoji_mode.empty() || kuromoji_mode == INVERTED_INDEX_PARSER_COARSE_GRANULARITY) {
+            kuromoji_mode = INVERTED_INDEX_PARSER_KUROMOJI_SEARCH;
+        }
+        auto kuromoji_analyzer = std::make_shared<KuromojiAnalyzer>();
+        kuromoji_analyzer->setMode(kuromoji_mode_from_string(kuromoji_mode));
+        kuromoji_analyzer->initDict(config::inverted_index_dict_path + "/kuromoji");
+        analyzer = std::move(kuromoji_analyzer);
     } else {
         // default
         analyzer = std::make_shared<lucene::analysis::SimpleAnalyzer<char>>();
@@ -149,11 +166,6 @@ AnalyzerPtr InvertedIndexAnalyzer::create_builtin_analyzer(InvertedIndexParserTy
 }
 
 AnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerConfig* config) {
-    return create_analyzer(config, AnalysisPurpose::kPlainQuery);
-}
-
-AnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerConfig* config,
-                                                   AnalysisPurpose purpose) {
     DCHECK(config != nullptr);
     if (config->analyzer_name.empty() || is_builtin_analyzer(config->analyzer_name)) {
         const InvertedIndexParserType parser_type =
@@ -169,7 +181,7 @@ AnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerCo
         throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
                         "Index policy manager is not initialized");
     }
-    return index_policy_mgr->get_analyzer_by_name(config->analyzer_name, purpose);
+    return index_policy_mgr->get_analyzer_by_name(config->analyzer_name);
 }
 
 AnalyzerProviderPtr InvertedIndexAnalyzer::create_analyzer_provider(
@@ -202,8 +214,6 @@ std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
             t.term = std::string(token.termBuffer<char>(), token.termLength<char>());
             position += token.getPositionIncrement();
             t.position = position;
-            t.key_kind = is_common_gram_token_type(token.type()) ? TermKeyKind::kCommonGram
-                                                                 : TermKeyKind::kPlain;
             analyse_result.emplace_back(std::move(t));
         }
     }
@@ -217,12 +227,6 @@ std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
 
 std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
         const std::string& search_str, const std::map<std::string, std::string>& properties) {
-    return get_analyse_result(search_str, properties, AnalysisPurpose::kPlainQuery);
-}
-
-std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
-        const std::string& search_str, const std::map<std::string, std::string>& properties,
-        AnalysisPurpose purpose) {
     if (!should_analyzer(properties)) {
         // Keyword index: all strings (including empty) are valid tokens for exact match.
         // Empty string is a valid value in keyword index and should be matchable.
@@ -238,24 +242,10 @@ std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
     config.lower_case = get_parser_lowercase_from_properties(properties);
     config.stop_words = get_parser_stopwords_from_properties(properties);
     config.char_filter_map = get_parser_char_filter_map_from_properties(properties);
-    auto analyzer = create_analyzer(&config, purpose);
+    auto analyzer = create_analyzer(&config);
     auto reader = create_reader(config.char_filter_map);
     reader->init(search_str.data(), static_cast<int32_t>(search_str.size()), true);
     return get_analyse_result(reader, analyzer.get());
-}
-
-AnalysisPurpose select_analysis_purpose(InvertedIndexQueryType query_type, int32_t slop,
-                                        bool is_similarity) {
-    if (is_similarity) {
-        return AnalysisPurpose::kPlainQuery;
-    }
-    if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY && slop == 0) {
-        return AnalysisPurpose::kExactPhraseQuery;
-    }
-    if (query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY) {
-        return AnalysisPurpose::kPhrasePrefixQuery;
-    }
-    return AnalysisPurpose::kPlainQuery;
 }
 
 bool InvertedIndexAnalyzer::should_analyzer(const std::map<std::string, std::string>& properties) {

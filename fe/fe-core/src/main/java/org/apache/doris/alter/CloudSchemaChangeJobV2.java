@@ -40,6 +40,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
@@ -227,7 +228,6 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
             for (Map.Entry<Long, MaterializedIndex> entry : shadowIndexMap.entrySet()) {
                 long shadowIdxId = entry.getKey();
                 MaterializedIndex shadowIdx = entry.getValue();
-
                 short shadowShortKeyColumnCount = indexShortKeyMap.get(shadowIdxId);
                 List<Column> shadowSchema = indexSchemaMap.get(shadowIdxId);
                 List<Integer> clusterKeyUids = null;
@@ -237,6 +237,9 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                 int shadowSchemaHash = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash;
                 int shadowSchemaVersion = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaVersion;
                 long originIndexId = indexIdMap.get(shadowIdxId);
+                TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat =
+                        originIndexId == tbl.getBaseIndexId()
+                                ? tbl.getInvertedIndexFileStorageFormatForPartition(partitionId) : null;
                 KeysType originKeysType = tbl.getKeysTypeByIndexId(originIndexId);
                 List<Index> tabletIndexes = originIndexId == tbl.getBaseIndexId() ? indexes : null;
 
@@ -263,7 +266,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                             tbl.getTimeSeriesCompactionLevelThreshold(),
                                             tbl.disableAutoCompaction(),
                                             tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                                            tbl.getInvertedIndexFileStorageFormat(),
+                                            invertedIndexFileStorageFormat,
                                             tbl.rowStorePageSize(),
                                             tbl.variantEnableFlattenNested(), clusterKeyUids,
                                             tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),

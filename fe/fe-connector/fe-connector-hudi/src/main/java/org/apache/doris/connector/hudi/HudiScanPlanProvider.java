@@ -24,6 +24,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
@@ -114,10 +115,36 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
 
     private final Map<String, String> properties;
     private final ConnectorContext context;
+    // Every metaClient this provider builds is built inside this; see planScan.
+    private final HudiMetaClientExecutor executor;
 
-    public HudiScanPlanProvider(Map<String, String> properties, ConnectorContext context) {
+    /**
+     * A provider whose planning runs on the calling thread as it is: for tests of the pure helpers, and
+     * for nothing that opens a filesystem.
+     */
+    HudiScanPlanProvider(Map<String, String> properties, ConnectorContext context) {
+        this(properties, context, HudiMetaClientExecutor.inline());
+    }
+
+    /**
+     * @param executor what every metaClient-touching call runs inside. {@link HudiConnector} hands over
+     *                 its own, which pins the plugin classloader and runs the call under the connector's
+     *                 filesystem scope - the UGI whose cached filesystems {@code HudiConnector.close()}
+     *                 releases. That is what ties the planning path's filesystems to the connector's
+     *                 lifetime: built outside it, they would be cached under the FE login user, where
+     *                 nothing ever closes them, and every catalog configuration that came and went
+     *                 would leave its S3 client and executor threads behind for the life of the FE.
+     */
+    HudiScanPlanProvider(Map<String, String> properties, ConnectorContext context,
+            HudiMetaClientExecutor executor) {
         this.properties = properties;
         this.context = context;
+        this.executor = executor;
+    }
+
+    /** What the planning runs inside; see the constructor. For tests. */
+    HudiMetaClientExecutor planningExecutor() {
+        return executor;
     }
 
     @Override
@@ -157,8 +184,19 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         return true;
     }
 
+    /**
+     * Plans inside {@link #executor}: the metaClient, the timeline, the file-system view and the
+     * partition listing all open filesystems, and where those are cached is decided by the UGI current
+     * at that moment. The engine only pins the plugin classloader around this call
+     * ({@code PluginDrivenScanNode.onPluginClassLoader}); the executor adds the connector's filesystem
+     * scope, so that what this opens is closed with the connector rather than kept until FE restart.
+     */
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
+        return executor.execute(() -> planScanInScope(session, request));
+    }
+
+    private List<ConnectorScanRange> planScanInScope(ConnectorSession session, ConnectorScanRequest request) {
         HudiTableHandle hudiHandle = (HudiTableHandle) request.getTableHandle();
         String basePath = hudiHandle.getBasePath();
 
@@ -292,32 +330,32 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                 .enable(HoodieTableMetadataUtil.isFilesPartitionAvailable(metaClient))
                 .build();
         HoodieLocalEngineContext engineCtx = new HoodieLocalEngineContext(metaClient.getStorageConf());
-        HoodieTableFileSystemView fsView = FileSystemViewManager.createInMemoryFileSystemView(
-                engineCtx, metaClient, metadataConfig);
+        try (HoodieTableFileSystemView fsView = FileSystemViewManager.createInMemoryFileSystemView(
+                engineCtx, metaClient, metadataConfig)) {
+            // Resolve partitions
+            List<String> partitionPaths = resolvePartitions(hudiHandle, metaClient);
 
-        // Resolve partitions
-        List<String> partitionPaths = resolvePartitions(hudiHandle, metaClient);
+            List<ConnectorScanRange> ranges = new ArrayList<>();
+            for (String partitionPath : partitionPaths) {
+                Map<String, String> partValues = parsePartitionValues(
+                        partitionPath, hudiHandle.getPartitionKeyNames());
 
-        List<ConnectorScanRange> ranges = new ArrayList<>();
-        for (String partitionPath : partitionPaths) {
-            Map<String, String> partValues = parsePartitionValues(
-                    partitionPath, hudiHandle.getPartitionKeyNames());
-
-            if (useNativeCowPath) {
-                collectCowSplits(fsView, partitionPath, queryInstant,
-                        basePath, partValues, ranges, schemaIdResolver);
-            } else {
-                collectMorSplits(fsView, partitionPath, queryInstant,
-                        basePath, inputFormat, serdeLib,
-                        columnNames, columnTypes, partValues, forceJni, ranges, schemaIdResolver);
+                if (useNativeCowPath) {
+                    collectCowSplits(fsView, partitionPath, queryInstant,
+                            basePath, partValues, ranges, schemaIdResolver);
+                } else {
+                    collectMorSplits(fsView, partitionPath, queryInstant,
+                            basePath, inputFormat, serdeLib,
+                            columnNames, columnTypes, partValues, forceJni, ranges, schemaIdResolver);
+                }
             }
+
+            LOG.info("Hudi scan planning: {}.{} type={} partitions={} splits={}",
+                    hudiHandle.getDbName(), hudiHandle.getTableName(),
+                    hudiHandle.getHudiTableType(), partitionPaths.size(), ranges.size());
+
+            return ranges;
         }
-
-        LOG.info("Hudi scan planning: {}.{} type={} partitions={} splits={}",
-                hudiHandle.getDbName(), hudiHandle.getTableName(),
-                hudiHandle.getHudiTableType(), partitionPaths.size(), ranges.size());
-
-        return ranges;
     }
 
     @Override
@@ -379,29 +417,8 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         // hard scan failure. populateScanLevelParams copies it onto the real params.
         if (!isForceJniScannerEnabled(session)) {
             try {
-                HoodieTableMetaClient metaClient = buildMetaClient(buildHadoopConf(), hudiHandle.getBasePath());
-                TableSchemaResolver schemaResolver = new TableSchemaResolver(metaClient);
-                // HD-C5b: FOR TIME AS OF over a schema-on-read table -> re-resolve the native -1 overlay from the
-                // FULL schema AT the pinned instant. The requested column HANDLES are latest-keyed
-                // (getColumnHandles runs before the MVCC pin), so a column renamed after the pin is absent from
-                // them under its pinned name; building the overlay from them would drop that BE scan slot (BE's
-                // field-id reader SIGABRTs on a scan slot missing from the overlay). A plain read (no pin) or a
-                // non-evolution FOR TIME AS OF (latest == at-instant, D3) uses the steady-state dict keyed off the
-                // requested columns. NOTE: no meta column can reach the pinned path — the at-instant bound schema
-                // (HD-C5a, from the InternalSchema) has no `_hoodie_*` columns, so the query cannot project one.
-                String pin = hudiHandle.getQueryInstant();
-                Optional<InternalSchema> pinnedSchema = pin == null
-                        ? Optional.empty()
-                        : HudiSchemaUtils.resolveInternalSchemaAtInstant(schemaResolver, metaClient, pin);
-                Optional<String> dict;
-                if (pinnedSchema.isPresent()) {
-                    dict = Optional.of(
-                            HudiSchemaUtils.buildSchemaEvolutionDictAtInstant(metaClient, pinnedSchema.get()));
-                } else {
-                    Schema latestAvro = schemaResolver.getTableAvroSchema(true);
-                    dict = HudiSchemaUtils.buildSchemaEvolutionProp(metaClient, schemaResolver, latestAvro,
-                            castHudiColumns(columns));
-                }
+                // Inside the executor for the same reason planScan is: the metaClient opens filesystems.
+                Optional<String> dict = executor.execute(() -> schemaEvolutionDict(hudiHandle, columns));
                 dict.ifPresent(v -> props.put(SCHEMA_EVOLUTION_PROP, v));
             } catch (Exception e) {
                 LOG.warn("Failed to build Hudi schema-evolution dict for {}.{}; native reads fall back to BY_NAME: {}",
@@ -410,6 +427,31 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         return props;
+    }
+
+    /** The native-reader schema-evolution dictionary of {@code getScanNodeProperties}, or empty. */
+    private Optional<String> schemaEvolutionDict(HudiTableHandle hudiHandle, List<ConnectorColumnHandle> columns)
+            throws Exception {
+        HoodieTableMetaClient metaClient = buildMetaClient(buildHadoopConf(), hudiHandle.getBasePath());
+        TableSchemaResolver schemaResolver = new TableSchemaResolver(metaClient);
+        // HD-C5b: FOR TIME AS OF over a schema-on-read table -> re-resolve the native -1 overlay from the
+        // FULL schema AT the pinned instant. The requested column HANDLES are latest-keyed
+        // (getColumnHandles runs before the MVCC pin), so a column renamed after the pin is absent from
+        // them under its pinned name; building the overlay from them would drop that BE scan slot (BE's
+        // field-id reader SIGABRTs on a scan slot missing from the overlay). A plain read (no pin) or a
+        // non-evolution FOR TIME AS OF (latest == at-instant, D3) uses the steady-state dict keyed off the
+        // requested columns. NOTE: no meta column can reach the pinned path — the at-instant bound schema
+        // (HD-C5a, from the InternalSchema) has no `_hoodie_*` columns, so the query cannot project one.
+        String pin = hudiHandle.getQueryInstant();
+        Optional<InternalSchema> pinnedSchema = pin == null
+                ? Optional.empty()
+                : HudiSchemaUtils.resolveInternalSchemaAtInstant(schemaResolver, metaClient, pin);
+        if (pinnedSchema.isPresent()) {
+            return Optional.of(HudiSchemaUtils.buildSchemaEvolutionDictAtInstant(metaClient, pinnedSchema.get()));
+        }
+        Schema latestAvro = schemaResolver.getTableAvroSchema(true);
+        return HudiSchemaUtils.buildSchemaEvolutionProp(metaClient, schemaResolver, latestAvro,
+                castHudiColumns(columns));
     }
 
     /** The requested column handles as {@link HudiColumnHandle}s (this connector's own handle type). */
@@ -802,7 +844,90 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         HoodieTableMetadata tableMetadata = HoodieTableMetadata.create(
                 engineCtx, metaClient.getStorage(), metadataConfig,
                 metaClient.getBasePath().toString(), true);
-        return tableMetadata.getAllPartitionPaths();
+        return listAllPartitionPaths(tableMetadata::getAllPartitionPaths, tableMetadata);
+    }
+
+    static List<String> listAllPartitionPaths(
+            java.util.concurrent.Callable<List<String>> loader, AutoCloseable resource) throws Exception {
+        try (AutoCloseable owned = resource) {
+            return loader.call();
+        }
+    }
+
+    /**
+     * The partitions holding data AS OF {@code queryInstant} — {@link #listAllPartitionPaths} minus every
+     * partition whose file slices all start after the pin.
+     *
+     * <p>A partition path, once written, stays in the metadata table forever: {@code listAllPartitionPaths}
+     * answers "ever existed", not "existed then". Reading a table at its FIRST commit would otherwise report
+     * every partition the table has today.
+     *
+     * <p>The membership test and the scan are not literally the same view call - this one asks
+     * {@code getLatestFileSlicesBeforeOrOn}, while {@link #collectCowSplits} and {@link #collectMorSplits}
+     * ask their own per-type views, each with its own per-slice filtering. What they DO share is the file
+     * group set and the {@code <= queryInstant} cut, and the only extra narrowing on this side
+     * ({@code filterUncommittedFiles}, which accepts an instant that is in the timeline OR archived) covers
+     * everything the scan's own {@code isFileSliceCommitted} accepts. So every difference between them falls
+     * on the safe side: this listing can only be a SUPERSET of the partitions the scan finds files in, never
+     * short of it, and a pruned-away partition that the scan would have read cannot happen.
+     *
+     * <p>{@code getLatestFileSlicesBeforeOrOn} rather than the base-file view because it covers both table
+     * types — a COW slice is its base file, and a MOR partition whose only data at the pin is log files still
+     * holds rows.
+     *
+     * <p>{@code allPaths} is supplied by the caller rather than listed here: the only caller has just listed
+     * them off the same metaClient, and listing them twice is a second full metadata-table read per
+     * {@code FOR TIME AS OF} query.
+     */
+    static List<String> listPartitionPathsAsOf(HoodieTableMetaClient metaClient, List<String> allPaths,
+            String queryInstant) throws Exception {
+        HoodieMetadataConfig metadataConfig = HoodieMetadataConfig.newBuilder()
+                .enable(HoodieTableMetadataUtil.isFilesPartitionAvailable(metaClient))
+                .build();
+        HoodieLocalEngineContext engineCtx = new HoodieLocalEngineContext(metaClient.getStorageConf());
+        try (HoodieTableFileSystemView fsView = FileSystemViewManager.createInMemoryFileSystemView(
+                engineCtx, metaClient, metadataConfig)) {
+            List<String> asOf = new ArrayList<>(allPaths.size());
+            int unresolved = 0;
+            for (String partitionPath : allPaths) {
+                // Per partition, and non-fatal per partition: this walks EVERY partition of the table,
+                // including ones the query's predicates would have pruned away, so one unreadable partition
+                // must not fail a query that would never have touched it. Keeping it is the safe direction -
+                // the pin only ever removes partitions, so an unresolved one stays in and is scanned.
+                try {
+                    if (fsView.getLatestFileSlicesBeforeOrOn(partitionPath, queryInstant, true)
+                            .findAny().isPresent()) {
+                        asOf.add(partitionPath);
+                    }
+                } catch (Exception e) {
+                    // The stack once. A systemic failure - the metadata table unreachable, say - hits every
+                    // partition of the table, and a table with thousands of them would otherwise write
+                    // thousands of stacks into fe.log for one query.
+                    if (unresolved == 0) {
+                        LOG.warn("Cannot tell whether hudi partition '{}' of {} held data at instant {}; "
+                                + "keeping it in the listing. Further partitions failing the same way in "
+                                + "this listing are counted, not logged.", partitionPath,
+                                metaClient.getBasePath(), queryInstant, e);
+                    } else if (LOG.isDebugEnabled()) {
+                        LOG.debug("Cannot tell whether hudi partition '{}' of {} held data at instant {}",
+                                partitionPath, metaClient.getBasePath(), queryInstant, e);
+                    }
+                    unresolved++;
+                    asOf.add(partitionPath);
+                }
+            }
+            if (unresolved > 0) {
+                // Said separately from the per-partition warning, because "some partitions could not be
+                // resolved" and "the pin decided nothing at all" read very differently to whoever is looking
+                // at a query that scanned the whole table.
+                LOG.warn("Hudi partition listing at instant {} for {}: {} of {} partitions could not be "
+                        + "resolved and were kept{}", queryInstant, metaClient.getBasePath(), unresolved,
+                        allPaths.size(), unresolved == allPaths.size()
+                                ? " - the listing is NOT snapshot-exact for this query and prunes nothing"
+                                : "");
+            }
+            return asOf;
+        }
     }
 
     /**
@@ -858,6 +983,35 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             values.put(partKeyNames.get(i), unescapePathName(raw));
         }
         return values;
+    }
+
+    /**
+     * How hudi spells a NULL partition value in a directory name. Byte-frozen: it is what this connector has
+     * always SENT in columns_from_path, and it is also accepted as an INPUT spelling.
+     */
+    static final String HUDI_NULL_PARTITION_VALUE = "\\N";
+
+    /**
+     * Whether a hudi partition value means a genuine SQL NULL. Three spellings do: the hive-canonical
+     * {@code __HIVE_DEFAULT_PARTITION__} sentinel, the older text-table {@code \N}, and - defensively - a Java
+     * null.
+     *
+     * <p>Shared by the scan path ({@link HudiScanRange#applyPartitionValues}) and the listing path
+     * ({@code HudiConnectorMetadata.buildPartitionInfos}) because the two must not disagree: the listing decides
+     * whether the engine prunes a partition with {@code col IS NULL} or with {@code col = '<literal>'}, and the
+     * scan decides which files that partition contributes. A partition written as {@code \N} used to be listed
+     * as the literal string and scanned as NULL, so {@code col IS NULL} pruned it away and the query came back
+     * with zero rows from a partition the scan would have matched.
+     *
+     * <p>The 3-way rule holds only for directory-name partitioning: hive narrows it (a hive column may hold
+     * {@code \N} as DATA) and paimon rejects it outright (its partition values are typed). Hudi's other
+     * default-partition constant, the literal string {@code "default"}, is deliberately NOT included - a table
+     * with a real partition value of "default" is far more likely than one relying on that deprecated encoding.
+     */
+    static boolean isNullPartitionValue(String value) {
+        return value == null
+                || ConnectorPartitionValues.NULL_PARTITION_NAME.equals(value)
+                || HUDI_NULL_PARTITION_VALUE.equals(value);
     }
 
     /**
@@ -986,6 +1140,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                 conf.set(key, entry.getValue());
             }
         }
+        HudiConnector.enableFileSystemCache(conf);
         return conf;
     }
 

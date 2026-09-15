@@ -88,6 +88,7 @@ import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.TimeBasedChangeVisibleWaiter;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.statistics.query.QueryStatsRecorder;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TQueryCacheParam;
@@ -536,64 +537,66 @@ public class NereidsPlanner extends Planner {
         if (!cascadesContext.getStatementContext().isNeedPreMvRewrite()) {
             return;
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Start pre rewrite plan by mv");
-        }
-        List<Plan> tmpPlansForMvRewrite = cascadesContext.getStatementContext().getTmpPlanForMvRewrite();
-        Plan originalPlan = cascadesContext.getRewritePlan();
-        List<Plan> plansWhichContainMv = new ArrayList<>();
-        // because tmpPlansForMvRewrite only one, so timeout is cumulative which is ok
-        for (Plan planForRewrite : tmpPlansForMvRewrite) {
-            SessionVariable sessionVariable = cascadesContext.getConnectContext()
-                    .getSessionVariable();
-            int timeoutSecond = sessionVariable.nereidsTimeoutSecond;
-            boolean enableTimeout = sessionVariable.enableNereidsTimeout;
-            try {
-                // set mv rewrite timeout
-                sessionVariable.nereidsTimeoutSecond = PreMaterializedViewRewriter.convertMillisToCeilingSeconds(
-                                sessionVariable.materializedViewRewriteDurationThresholdMs);
-                sessionVariable.enableNereidsTimeout = true;
-                // pre rewrite
-                Plan rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
-                        PreMaterializedViewRewriter::rewrite, planForRewrite, planForRewrite, true);
-                Plan ruleOptimizedPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
-                        childOptContext -> {
-                            Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(childOptContext).execute();
-                            return childOptContext.getRewritePlan();
-                        }, rewrittenPlan, planForRewrite, false);
-                if (ruleOptimizedPlan == null) {
-                    continue;
-                }
-                // after rbo, maybe the plan changed a lot, so we need to normalize it with original plan
-                Plan normalizedPlan = MaterializedViewUtils.normalizeSinkExpressions(
-                        ruleOptimizedPlan, originalPlan);
-                if (normalizedPlan != null) {
-                    plansWhichContainMv.add(normalizedPlan);
-                }
-            } catch (Exception e) {
-                LOG.error("pre mv rewrite in rbo rewrite fail, query id is {}",
-                        cascadesContext.getConnectContext().getQueryIdentifier(), e);
-
-            } finally {
-                sessionVariable.nereidsTimeoutSecond = timeoutSecond;
-                sessionVariable.enableNereidsTimeout = enableTimeout;
+        try {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Start pre rewrite plan by mv");
             }
-        }
-        // clear the rewritten plans which are tmp optimized, should be filled by full optimize later
-        statementContext.getRewrittenPlansByMv().clear();
-        // if rule-based optimized, would not be rewritten by cbo, so clear materialized hooks
-        this.cascadesContext.getStatementContext().setPreMvRewritten(true);
-        if (plansWhichContainMv.isEmpty()) {
-            return;
-        }
-        plansWhichContainMv.forEach(statementContext::addRewrittenPlanByMv);
-        NereidsTracer.logImportantTime("EndPreRewritePlanByMv");
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("End pre rewrite plan by mv");
-        }
-        if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile()
-                    .setNereidsPreRewriteByMvFinishTime(TimeUtils.getStartTimeMs());
+            List<Plan> tmpPlansForMvRewrite = cascadesContext.getStatementContext().getTmpPlanForMvRewrite();
+            Plan originalPlan = cascadesContext.getRewritePlan();
+            List<Plan> plansWhichContainMv = new ArrayList<>();
+            // because tmpPlansForMvRewrite only one, so timeout is cumulative which is ok
+            for (Plan planForRewrite : tmpPlansForMvRewrite) {
+                SessionVariable sessionVariable = cascadesContext.getConnectContext()
+                        .getSessionVariable();
+                int timeoutSecond = sessionVariable.nereidsTimeoutSecond;
+                boolean enableTimeout = sessionVariable.enableNereidsTimeout;
+                try {
+                    // set mv rewrite timeout
+                    sessionVariable.nereidsTimeoutSecond = PreMaterializedViewRewriter.convertMillisToCeilingSeconds(
+                                    sessionVariable.materializedViewRewriteDurationThresholdMs);
+                    sessionVariable.enableNereidsTimeout = true;
+                    // pre rewrite
+                    Plan rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
+                            PreMaterializedViewRewriter::rewrite, planForRewrite, planForRewrite, true);
+                    Plan ruleOptimizedPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
+                            childOptContext -> {
+                                Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(childOptContext).execute();
+                                return childOptContext.getRewritePlan();
+                            }, rewrittenPlan, planForRewrite, false);
+                    if (ruleOptimizedPlan == null) {
+                        continue;
+                    }
+                    // after rbo, maybe the plan changed a lot, so we need to normalize it with original plan
+                    Plan normalizedPlan = MaterializedViewUtils.normalizeSinkExpressions(
+                            ruleOptimizedPlan, originalPlan);
+                    if (normalizedPlan != null) {
+                        plansWhichContainMv.add(normalizedPlan);
+                    }
+                } catch (Exception e) {
+                    LOG.error("pre mv rewrite in rbo rewrite fail, query id is {}",
+                            cascadesContext.getConnectContext().getQueryIdentifier(), e);
+
+                } finally {
+                    sessionVariable.nereidsTimeoutSecond = timeoutSecond;
+                    sessionVariable.enableNereidsTimeout = enableTimeout;
+                }
+            }
+            // clear the rewritten plans which are tmp optimized, should be filled by full optimize later
+            statementContext.getRewrittenPlansByMv().clear();
+            // if rule-based optimized, would not be rewritten by cbo, so clear materialized hooks
+            this.cascadesContext.getStatementContext().setPreMvRewritten(true);
+            if (!plansWhichContainMv.isEmpty()) {
+                plansWhichContainMv.forEach(statementContext::addRewrittenPlanByMv);
+            }
+            NereidsTracer.logImportantTime("EndPreRewritePlanByMv");
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("End pre rewrite plan by mv");
+            }
+        } finally {
+            if (statementContext.getConnectContext().getExecutor() != null) {
+                statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                        .setNereidsPreRewriteByMvFinishTime(TimeUtils.getStartTimeMs());
+            }
         }
     }
 
@@ -806,7 +809,7 @@ public class NereidsPlanner extends Planner {
                 && cascadesContext.getConnectContext().supportHandleByFe()
                 && physicalPlan instanceof ComputeResultSet) {
             Optional<ResultSet> resultSet = ((ComputeResultSet) physicalPlan).computeResultInFe(
-                    cascadesContext, Optional.empty(), physicalPlan.getOutput());
+                    cascadesContext, physicalPlan.getOutput());
             if (resultSet.isPresent()) {
                 notNeedBackend = true;
             }
@@ -1197,15 +1200,30 @@ public class NereidsPlanner extends Planner {
 
         setFormatOptions();
         if (physicalPlan instanceof ComputeResultSet) {
-            Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
             Optional<ResultSet> resultSet = ((ComputeResultSet) physicalPlan)
-                    .computeResultInFe(cascadesContext, sqlCacheContext, physicalPlan.getOutput());
+                    .computeResultInFe(cascadesContext, physicalPlan.getOutput());
             if (resultSet.isPresent()) {
+                tryAddResultSetToSqlCache(resultSet.get());
                 return resultSet;
             }
         }
 
         return Optional.empty();
+    }
+
+    private void tryAddResultSetToSqlCache(ResultSet resultSet) {
+        if (physicalPlan instanceof PhysicalSqlCache) {
+            return;
+        }
+        Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
+        if (!sqlCacheContext.isPresent()
+                || !CacheAnalyzer.canUseSqlCache(statementContext.getConnectContext().getSessionVariable())) {
+            return;
+        }
+        sqlCacheContext.get().setResultSetInFe(resultSet);
+        Env.getCurrentEnv().getSqlCacheManager().tryAddFeSqlCache(
+                statementContext.getConnectContext(),
+                statementContext.getOriginStatement().originStmt);
     }
 
     private void setFormatOptions() {

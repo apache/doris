@@ -199,8 +199,6 @@ message(STATUS "build task executor simulator: ${BUILD_TASK_EXECUTOR_SIMULATOR}"
 option(BUILD_FILE_CACHE_LRU_TOOL "ON for building file cache lru tool or OFF for not" OFF)
 message(STATUS "build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}")
 
-option(ENABLE_PAIMON_CPP "Enable Paimon C++ integration" ON)
-set(PAIMON_HOME "" CACHE PATH "Paimon install prefix")
 option(ENABLE_TDE "Enable TDE feature module" OFF)
 set(TDE_MODULE_DIR "" CACHE STRING "TDE feature module directory under be/src")
 option(ENABLE_TLS "Enable TLS feature module" OFF)
@@ -216,14 +214,6 @@ if (ENABLE_TLS AND "${TLS_MODULE_DIR}" STREQUAL "")
 endif()
 if (ENABLE_VARIANT_NESTED_GROUP AND "${VARIANT_NESTED_GROUP_MODULE_DIR}" STREQUAL "")
     message(FATAL_ERROR "ENABLE_VARIANT_NESTED_GROUP requires VARIANT_NESTED_GROUP_MODULE_DIR")
-endif()
-
-# Allow env to override when reconfiguring (avoid picking /usr/local).
-if (DEFINED ENV{ENABLE_PAIMON_CPP})
-    set(ENABLE_PAIMON_CPP "$ENV{ENABLE_PAIMON_CPP}" CACHE BOOL "" FORCE)
-endif()
-if (DEFINED ENV{PAIMON_HOME} AND NOT PAIMON_HOME)
-    set(PAIMON_HOME "$ENV{PAIMON_HOME}" CACHE PATH "" FORCE)
 endif()
 
 set(CMAKE_SKIP_RPATH TRUE)
@@ -351,6 +341,26 @@ install(DIRECTORY
 install(DIRECTORY
     ${BASE_DIR}/dict/pinyin
     DESTINATION ${OUTPUT_DIR}/dict)
+
+# Japanese kuromoji dictionary. A real build always requires it the
+# binary files. However, Unit-test builds (MAKE_TEST=ON) skip it entirely as they don't
+# package for real use.
+if (NOT MAKE_TEST)
+    install(CODE "
+        foreach(_kmj_f
+                \"${BASE_DIR}/dict/kuromoji/system.bin\"
+                \"${BASE_DIR}/dict/kuromoji/matrix.bin\"
+                \"${BASE_DIR}/dict/kuromoji/chardef.bin\"
+                \"${BASE_DIR}/dict/kuromoji/unkdict.bin\")
+            if(NOT EXISTS \"\${_kmj_f}\")
+                message(FATAL_ERROR \"kuromoji dictionary file \${_kmj_f} is missing; build the 'kuromoji_dict' target (stage mecab-ipadic via thirdparty) before packaging.\")
+            endif()
+        endforeach()
+    ")
+    install(DIRECTORY
+        ${BASE_DIR}/dict/kuromoji
+        DESTINATION ${OUTPUT_DIR}/dict)
+endif()
 
 # Check if functions are supported in this platform. All flags will generated
 # in gensrc/build/common/env_config.h.
@@ -626,7 +636,6 @@ else()
     else()
         include_directories(${DORIS_JAVA_HOME}/include/darwin)
     endif()
-    add_definitions("-DLIBJVM")
 endif()
 
 if (NOT OS_MACOSX)
@@ -676,33 +685,21 @@ set(COMMON_THIRDPARTY
     ${COMMON_THIRDPARTY}
 )
 
-if (ENABLE_PAIMON_CPP)
-    message(STATUS "Paimon C++ enabled: legacy thirdparty static linkage mode")
-endif()
+add_library(hadoop_hdfs STATIC IMPORTED)
+set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/hadoop_hdfs_3_4/native/libhdfs.a)
 
-if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
-    add_library(hadoop_hdfs STATIC IMPORTED)
-    set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/hadoop_hdfs_3_4/native/libhdfs.a)
-
-    set(COMMON_THIRDPARTY
-        ${COMMON_THIRDPARTY}
-        hadoop_hdfs
-    )
-    add_definitions(-DUSE_HADOOP_HDFS)
-    # USE_DORIS_HADOOP_HDFS means use hadoop deps from doris-thirdparty.
-    # the hadoop deps from doris-thirdparty contains some modification diff from the standard hadoop, such as log interface
-    add_definitions(-DUSE_DORIS_HADOOP_HDFS)
-else()
-    add_library(hdfs3 STATIC IMPORTED)
-    set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libhdfs3.a)
-
-    # TODO: use arm hadoop hdfs to replace this
-    set(COMMON_THIRDPARTY
-        ${COMMON_THIRDPARTY}
-        hdfs3
-    )
-    add_definitions(-DUSE_LIBHDFS3)
-endif()
+set(COMMON_THIRDPARTY
+    ${COMMON_THIRDPARTY}
+    hadoop_hdfs
+)
+# USE_DORIS_HADOOP_HDFS means use hadoop deps from doris-thirdparty.
+# the hadoop deps from doris-thirdparty contains some modification diff from the standard hadoop, such as log interface.
+# Unconditional since the libhdfs3 alternative was removed: there is only one libhdfs left, and
+# every #ifdef on it went with the alternative - nothing in be/ tests it any more. Kept as a
+# definition rather than deleted because it is part of how this build identifies itself: a
+# doris-thirdparty libhdfs, whose hdfsSetLogger extension io/hdfs_builder.cpp uses unconditionally
+# for that reason.
+add_definitions(-DUSE_DORIS_HADOOP_HDFS)
 
 if (absl_FOUND)
     set(COMMON_THIRDPARTY
@@ -739,19 +736,6 @@ if (BUILD_BENCHMARK)
     )
 endif()
 
-set(PAIMON_FACTORY_REGISTRY_LIBS)
-if (ENABLE_PAIMON_CPP)
-    # Plan B: Doris Arrow is now built with COMPUTE/DATASET/ACERO/FILESYSTEM,
-    # so arrow, arrow_compute, arrow_dataset, arrow_acero are all in COMMON_THIRDPARTY via
-    # thirdparty.cmake.  paimon-cpp reuses the same Arrow (no paimon_deps).
-    # No dual-stack selection needed — single Arrow for everything.
-
-    # paimon_parquet_file_format depends on Arrow Dataset symbols.
-    # Force-link it with --whole-archive so its factory registration runs.
-    set(PAIMON_FACTORY_REGISTRY_LIBS paimon_parquet_file_format)
-    list(REMOVE_ITEM COMMON_THIRDPARTY ${PAIMON_FACTORY_REGISTRY_LIBS})
-endif()
-
 set(DORIS_DEPENDENCIES
     ${DORIS_DEPENDENCIES}
     ${WL_START_GROUP}
@@ -768,29 +752,6 @@ set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ic)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-core-static)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-shared-static)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-contribs-lib)
-
-if (ENABLE_PAIMON_CPP)
-    if (PAIMON_FACTORY_REGISTRY_LIBS)
-        if (APPLE)
-            foreach(lib ${PAIMON_FACTORY_REGISTRY_LIBS})
-                set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
-                    -Wl,-force_load,$<TARGET_FILE:${lib}>)
-            endforeach()
-        else()
-            set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
-                -Wl,--whole-archive
-                ${PAIMON_FACTORY_REGISTRY_LIBS}
-                -Wl,--no-whole-archive)
-        endif()
-    endif()
-
-    # paimon-cpp internal dependencies (renamed with _paimon suffix)
-    # These must come after paimon libraries to resolve symbols.
-    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} roaring_bitmap_paimon)
-    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} xxhash_paimon)
-    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} fmt_paimon)
-    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} tbb_paimon)
-endif()
 
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
 
@@ -847,7 +808,8 @@ if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG" OR "${CMAKE_BUILD_TYPE}" STREQUAL "RE
         # need a custom allocator; fall back to system malloc here. ASAN
         # builds never linked ${MALLOCLIB} anyway, which is why they never
         # hit this. gperftools_stubs.cpp supplies the few symbols still
-        # referenced unconditionally.
+        # referenced unconditionally. kuromoji_build_dict is a normal-build
+        # target this branch cannot cover; it opts out per target below.
     else()
         set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${MALLOCLIB})
     endif()
@@ -881,7 +843,24 @@ endif()
 # NOTE(amos): This should come before -lc -lm to interpose symbols correctly.
 if (GLIBC_COMPATIBILITY)
     add_subdirectory(${SRC_DIR}/glibc-compatibility)
-    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} glibc-compatibility-explicit glibc-compatibility)
+    # Keep lance_c here instead of COMMON_THIRDPARTY: placing its required libm there
+    # would resolve -lm symbol before Doris compatibility is scanned, preventing
+    # the linker from selecting Doris' optimized implementations.
+    # lance_c can also introduce single-precision math references after the
+    # compatibility archive has already been scanned. As ClickHouse does for its
+    # compatibility archive, force the GLIBC_2.27 math symbols to be undefined up
+    # front so the linker extracts Doris' musl implementations instead of binding
+    # late references to the toolchain's libm.
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
+        -Wl,-u,logf
+        -Wl,-u,powf
+        -Wl,-u,expf
+        -Wl,-u,exp2f
+        -Wl,-u,log2f
+        glibc-compatibility-explicit
+        glibc-compatibility
+        -lm
+        lance_c)
 endif()
 
 if (NOT OS_MACOSX)
@@ -1071,6 +1050,67 @@ if (BUILD_META_TOOL OR BUILD_INDEX_TOOL)
     add_subdirectory(${SRC_DIR}/tools)
 endif()
 
+if (NOT MAKE_TEST)
+    # Offline generator: compiles the UTF-8 mecab-ipadic source into binary files.
+    set(KUROMOJI_BUILD_DICT_SRCS ${SRC_DIR}/tools/kuromoji_build_dict.cpp)
+    set(KUROMOJI_BUILD_DICT_LINK_LIBS ${DORIS_LINK_LIBS})
+    if (OS_MACOSX AND ARCH_ARM AND MALLOCLIB STREQUAL "tcmalloc")
+        # The tool only calls the dictionary builder/parser, but they return
+        # Status, and Status reaches config.cpp (-> ExecEnv), status.cpp
+        # (-> thrift/protobuf/BackendOptions) and stack_util.cpp, so the link
+        # closure is effectively the whole BE and __TEXT exceeds arm64's
+        # +/-128MB direct-branch reach. Apple's linker lays tcmalloc's custom
+        # google_malloc/malloc_hook sections out after __text and cannot
+        # insert branch islands there ("fixup error (kind=arm64_b26) ... B/BL
+        # out of range") -- the failure doris_be_test and benchmark_test hit
+        # (see the MALLOCLIB branch above). An offline converter does not need
+        # a custom allocator: link it against the system malloc and let
+        # gperftools_stubs.cpp supply the few gperftools symbols that are still
+        # referenced unconditionally. doris_be keeps tcmalloc.
+        list(REMOVE_ITEM KUROMOJI_BUILD_DICT_LINK_LIBS ${MALLOCLIB})
+        list(APPEND KUROMOJI_BUILD_DICT_SRCS ${BASE_DIR}/test/testutil/gperftools_stubs.cpp)
+    endif()
+    add_executable(kuromoji_build_dict EXCLUDE_FROM_ALL ${KUROMOJI_BUILD_DICT_SRCS})
+    target_include_directories(kuromoji_build_dict PRIVATE ${PROJECT_SOURCE_DIR}/..)
+    pch_reuse(kuromoji_build_dict)
+    set_target_properties(kuromoji_build_dict PROPERTIES ENABLE_EXPORTS 1)
+    if (COMPILER_CLANG)
+        target_compile_options(kuromoji_build_dict PRIVATE
+            -Wno-implicit-int-conversion
+            -Wno-shorten-64-to-32)
+    endif()
+    target_link_libraries(kuromoji_build_dict ${KUROMOJI_BUILD_DICT_LINK_LIBS})
+
+    set(KUROMOJI_IPADIC_SRC "${THIRDPARTY_DIR}/share/mecab-ipadic-2.7.0-20250920"
+        CACHE PATH "UTF-8 mecab-ipadic source directory used to generate the kuromoji dictionary")
+    set(KUROMOJI_DICT_OUT "${BASE_DIR}/dict/kuromoji")
+    file(GLOB KUROMOJI_IPADIC_SRC_FILES CONFIGURE_DEPENDS
+         "${KUROMOJI_IPADIC_SRC}/*.csv"
+         "${KUROMOJI_IPADIC_SRC}/*.def")
+    get_filename_component(KUROMOJI_LIBJVM_DIR "${LIB_JVM}" DIRECTORY)
+    set(KUROMOJI_DYLD_PATH "${KUROMOJI_LIBJVM_DIR}")
+    set(KUROMOJI_LD_PATH "${KUROMOJI_LIBJVM_DIR}")
+    if (NOT "$ENV{DYLD_LIBRARY_PATH}" STREQUAL "")
+        set(KUROMOJI_DYLD_PATH "${KUROMOJI_LIBJVM_DIR}:$ENV{DYLD_LIBRARY_PATH}")
+    endif()
+    if (NOT "$ENV{LD_LIBRARY_PATH}" STREQUAL "")
+        set(KUROMOJI_LD_PATH "${KUROMOJI_LIBJVM_DIR}:$ENV{LD_LIBRARY_PATH}")
+    endif()
+    add_custom_command(
+        OUTPUT "${KUROMOJI_DICT_OUT}/system.bin" "${KUROMOJI_DICT_OUT}/matrix.bin"
+               "${KUROMOJI_DICT_OUT}/chardef.bin" "${KUROMOJI_DICT_OUT}/unkdict.bin"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${KUROMOJI_DICT_OUT}"
+        COMMAND ${CMAKE_COMMAND} -E env
+                "DYLD_LIBRARY_PATH=${KUROMOJI_DYLD_PATH}"
+                "LD_LIBRARY_PATH=${KUROMOJI_LD_PATH}"
+                $<TARGET_FILE:kuromoji_build_dict> "${KUROMOJI_IPADIC_SRC}" "${KUROMOJI_DICT_OUT}"
+        DEPENDS kuromoji_build_dict ${KUROMOJI_IPADIC_SRC_FILES}
+        COMMENT "Generating kuromoji IPADIC dictionary from ${KUROMOJI_IPADIC_SRC}"
+        VERBATIM)
+    # ALL so a real build generates the dictionary before the install step runs.
+    add_custom_target(kuromoji_dict ALL DEPENDS "${KUROMOJI_DICT_OUT}/system.bin")
+endif()
+
 option(BUILD_FILE_CACHE_MICROBENCH_TOOL "Build file cache mirobench Tool" OFF)
 if (BUILD_FILE_CACHE_MICROBENCH_TOOL)
     add_subdirectory(${SRC_DIR}/io/tools)
@@ -1115,6 +1155,10 @@ if(NOT BUILD_BENCHMARK)
         ${BASE_DIR}/../conf/asan_suppr.conf
         ${BASE_DIR}/../conf/lsan_suppr.conf
         ${BASE_DIR}/../conf/ubsan_suppr.conf
+        # Configures the hadoop on BE's system class path, which is what C++ libhdfs uses; the
+        # Java plugins log through JniLogging instead. bin/start_be.sh names it with
+        # -Dlog4j2.configurationFile, and only when it is present.
+        ${BASE_DIR}/../conf/hadoop_log4j2.properties
         DESTINATION ${OUTPUT_DIR}/conf)
 endif()
 

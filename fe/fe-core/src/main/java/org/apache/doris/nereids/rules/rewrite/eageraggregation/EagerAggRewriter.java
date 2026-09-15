@@ -57,8 +57,8 @@ import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -675,7 +675,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         if (context.aggFuncAndGroupKeyAllEmpty() || context.hasVolatileFunctions()) {
             return project;
         }
-        if (containsVolatileGroupKeyAfterProject(project, context)) {
+        if (containsVolatileGroupKeyAfterProject(project, context) || project.containsNoneMovableFunction()) {
             return genAggregate(project, context);
         }
         if (project.child() instanceof LogicalCatalogRelation

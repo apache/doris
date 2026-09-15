@@ -492,7 +492,7 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithExtendedSchema) {
 }
 
 TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithFooterOffset) {
-    // Vertical compaction calls SegmentWriter::init() multiple times against
+    // Vertical compaction calls VerticalSegmentWriter::init() multiple times against
     // the same writer (key columns first, then each value-column group). The
     // footer accumulates entries across calls, so the calculator built for the
     // second init() must only index its own slice — not the leftover entries

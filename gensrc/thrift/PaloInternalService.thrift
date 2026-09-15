@@ -439,7 +439,7 @@ struct TQueryOptions {
   195: optional bool enable_left_semi_direct_return_opt;
 
   200: optional bool enable_adjust_conjunct_order_by_cost;
-  // Use paimon-cpp to read Paimon splits on BE
+  // Deprecated: the paimon-cpp reader has been removed. Retained for wire compatibility.
   201: optional bool enable_paimon_cpp_reader = false;
 
   // Whether all fragments of this query are assigned to a single backend.
@@ -518,6 +518,7 @@ struct TQueryOptions {
   230: optional bool supports_external_file_report_ack = false;
   // Fall back to RE2 when Hyperscan cannot compile a regular expression.
   231: optional bool enable_hyperscan_fallback = true;
+  232: optional bool enable_runtime_filter_bucket_prune = true;
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

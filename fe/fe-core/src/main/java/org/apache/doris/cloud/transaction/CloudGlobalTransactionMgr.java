@@ -2590,6 +2590,12 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
+    public long getTransactionIdWatermark() throws UserException {
+        // MetaService's conflict check treats end_txn_id as an exclusive upper bound.
+        return getNextTransactionId() + 1;
+    }
+
+    @Override
     public int getRunningTxnNums(Long dbId) throws AnalysisException {
         return 0;
     }
@@ -2777,7 +2783,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         LOG.info("try to abort sub transaction, txnId: {}, subTxnId: {}, dbId: {}, tableIds: {}, subTxnNum: {}", txnId,
                 subTxnId, dbId, tableIds, subTxnNum);
         AbortSubTxnRequest request = AbortSubTxnRequest.newBuilder().setCloudUniqueId(Config.cloud_unique_id)
-                .setTxnId(txnId).setSubTxnId(subTxnId).setDbId(dbId).addAllTableIds(tableIds).setSubTxnNum(subTxnId)
+                .setTxnId(txnId).setSubTxnId(subTxnId).setDbId(dbId).addAllTableIds(tableIds).setSubTxnNum(subTxnNum)
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached()).build();
         AbortSubTxnResponse response = null;
         int retryTime = 0;

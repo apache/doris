@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <tuple>
 
 #include "storage/partial_update_info.h"
 #include "storage/rowset/rowset.h"
@@ -71,11 +72,17 @@ struct SyncOptions {
 struct RecycledRowsets {
     RowsetId rowset_id;
     int64_t num_segments;
+    std::vector<int64_t> segment_ids;
     std::vector<std::string> index_file_names;
 };
 
 class CloudTablet final : public BaseTablet {
 public:
+    // rowset id -> [(segment id, version, serialized delete bitmap size)]
+    using PreRowsetDeleteBitmapStats = std::map<
+            std::string,
+            std::vector<std::tuple<DeleteBitmap::SegmentId, DeleteBitmap::Version, size_t>>>;
+
     CloudTablet(CloudStorageEngine& engine, TabletMetaSharedPtr tablet_meta);
 
     ~CloudTablet() override;
@@ -357,10 +364,11 @@ public:
     // check that if the delete bitmap in delete bitmap cache has the same cardinality with the expected_delete_bitmap's
     Status check_delete_bitmap_cache(int64_t txn_id, DeleteBitmap* expected_delete_bitmap) override;
 
-    void agg_delete_bitmap_for_compaction(int64_t start_version, int64_t end_version,
-                                          const std::vector<RowsetSharedPtr>& pre_rowsets,
-                                          DeleteBitmapPtr& new_delete_bitmap,
-                                          std::map<std::string, int64_t>& pre_rowset_to_versions);
+    void agg_delete_bitmap_for_compaction(
+            int64_t start_version, int64_t end_version,
+            const std::vector<RowsetSharedPtr>& pre_rowsets, DeleteBitmapPtr& new_delete_bitmap,
+            std::map<std::string, int64_t>& pre_rowset_to_versions,
+            PreRowsetDeleteBitmapStats* pre_rowset_delete_bitmap_stats);
 
     bool need_remove_unused_rowsets();
 
@@ -442,9 +450,8 @@ private:
             std::chrono::system_clock::time_point freshness_limit_tp) const;
 
     // Submit a segment download task for warming up
-    void _submit_segment_download_task(const RowsetSharedPtr& rs,
-                                       const StorageResource* storage_resource, int seg_id,
-                                       int64_t expiration_time);
+    void _submit_segment_download_task(const RowsetSharedPtr& rs, io::Path segment_path,
+                                       int64_t segment_file_size, int64_t expiration_time);
 
     // Submit an inverted index download task for warming up
     void _submit_inverted_index_download_task(const RowsetSharedPtr& rs,

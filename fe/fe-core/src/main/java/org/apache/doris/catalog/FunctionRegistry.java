@@ -109,21 +109,37 @@ public class FunctionRegistry {
 
     public boolean isAggregateFunction(String dbName, String name) {
         name = name.toLowerCase();
-        Class<?> aggClass = org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction.class;
         if (StringUtils.isEmpty(dbName)) {
             List<FunctionBuilder> functionBuilders = name2BuiltinBuilders.get(name);
-            if (functionBuilders != null) {
-                for (FunctionBuilder functionBuilder : functionBuilders) {
-                    if (aggClass.isAssignableFrom(functionBuilder.functionClass())) {
-                        return true;
-                    }
-                }
+            if (!CollectionUtils.isEmpty(functionBuilders)) {
+                return containsAggregateFunction(functionBuilders);
+            }
+            if (isBuiltinAggStateCombinator(name)) {
+                return !name.endsWith(AggCombinerFunctionBuilder.STATE_SUFFIX);
             }
         }
 
-        List<FunctionBuilder> udfBuilders = findUdfBuilder(dbName, name);
-        for (FunctionBuilder udfBuilder : udfBuilders) {
-            if (aggClass.isAssignableFrom(udfBuilder.functionClass())) {
+        return containsAggregateFunction(findUdfBuilder(dbName, name));
+    }
+
+    /**
+     * Whether the name is reserved for a dynamically synthesized built-in AggState combinator.
+     */
+    public boolean isBuiltinAggStateCombinator(String name) {
+        name = name.toLowerCase();
+        if (!AggCombinerFunctionBuilder.isAggStateCombinator(name)
+                || !CollectionUtils.isEmpty(name2BuiltinBuilders.get(name))) {
+            return false;
+        }
+        List<FunctionBuilder> nestedBuilders = name2BuiltinBuilders.get(
+                AggCombinerFunctionBuilder.getNestedName(name).toLowerCase());
+        return !CollectionUtils.isEmpty(nestedBuilders) && containsAggregateFunction(nestedBuilders);
+    }
+
+    private boolean containsAggregateFunction(List<FunctionBuilder> functionBuilders) {
+        Class<?> aggClass = org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction.class;
+        for (FunctionBuilder functionBuilder : functionBuilders) {
+            if (aggClass.isAssignableFrom(functionBuilder.functionClass())) {
                 return true;
             }
         }
@@ -139,7 +155,9 @@ public class FunctionRegistry {
         boolean preferUdfOverBuiltin = ConnectContext.get() == null ? false
                 : ConnectContext.get().getSessionVariable().preferUdfOverBuiltin;
 
-        if (preferUdfOverBuiltin) {
+        if (StringUtils.isEmpty(dbName) && isBuiltinAggStateCombinator(name)) {
+            functionBuilders = findBuiltinFunctionBuilder(name, arguments);
+        } else if (preferUdfOverBuiltin) {
             // find udf first, then find builtin function
             functionBuilders = findUdfBuilder(dbName, name);
             if (CollectionUtils.isEmpty(functionBuilders) && StringUtils.isEmpty(dbName)) {

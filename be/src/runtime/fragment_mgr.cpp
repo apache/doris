@@ -30,6 +30,7 @@
 #include <gen_cpp/Planner_types.h>
 #include <gen_cpp/QueryPlanExtra_types.h>
 #include <gen_cpp/RuntimeProfile_types.h>
+#include <gen_cpp/Status_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <pthread.h>
@@ -665,7 +666,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             prepare_st = Status::Aborted("FragmentMgr.exec_plan_fragment.prepare_failed");
         });
         if (!prepare_st.ok()) {
-            query_ctx->cancel(prepare_st, params.fragment_id);
+            query_ctx->cancel(prepare_st);
             return prepare_st;
         }
     }
@@ -1350,7 +1351,7 @@ Status FragmentMgr::rerun_fragment(const std::shared_ptr<brpc::ClosureGuard>& gu
         ASSIGN_STATUS_IF_CATCH_EXCEPTION(prepare_st = context->prepare(_thread_pool.get()),
                                          prepare_st);
         if (!prepare_st.ok()) {
-            q_ctx->cancel(prepare_st, info.params.fragment_id);
+            q_ctx->cancel(prepare_st);
             return prepare_st;
         }
 

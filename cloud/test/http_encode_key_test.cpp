@@ -476,6 +476,18 @@ merged_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"100
     Input {
         "JobRecycleKey",
         "instance_id=gavin-instance",
+        {"01106a6f62000110676176696e2d696e7374616e636500011072656379636c650001"},
+        []() -> std::vector<std::string> {
+            JobRecyclePB pb;
+            pb.set_instance_id("gavin-instance");
+            pb.set_ip_port("host_1");
+            return {pb.SerializeAsString()};
+        },
+        R"({"instance_id":"gavin-instance","ip_port":"host_1"})",
+    },
+    Input {
+        "JobCheckKey",
+        "instance_id=gavin-instance",
         {"01106a6f62000110676176696e2d696e7374616e6365000110636865636b0001"},
         []() -> std::vector<std::string> {
             JobRecyclePB pb;

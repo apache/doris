@@ -23,6 +23,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <atomic>
+#include <cstdlib>
+#include <optional>
 #include <string>
 
 #include "common/status.h"
@@ -30,10 +33,8 @@
 #include "util/defer_op.h"
 #include "util/thrift_util.h"
 
-#ifdef USE_HADOOP_HDFS
 // defined in hadoop/hadoop-hdfs-project/hadoop-hdfs/src/main/native/libhdfs/jni_helper.c
 extern "C" JNIEnv* getJNIEnv(void);
-#endif
 
 namespace doris {
 
@@ -48,6 +49,8 @@ namespace doris {
 // to confirm whether the jni method will throw an exception.
 
 namespace Jni {
+class JvmLauncher;
+
 class Env {
 public:
     static Status Get(JNIEnv** env) {
@@ -72,17 +75,34 @@ public:
 
 private:
     static Status GetJNIEnvSlowPath(JNIEnv** env);
+    // What the JVM of this process was created from, for the one error message that has to
+    // report a deployment problem rather than a programming one. Says so explicitly when the
+    // variable is unset, which is what a BE not started by bin/start_be.sh looks like.
+    static std::string class_path_of_this_process() {
+        const char* class_path = getenv("CLASSPATH");
+        return class_path == nullptr ? std::string("<CLASSPATH unset>") : std::string(class_path);
+    }
     static Status init_throw_exception() {
         JNIEnv* env = nullptr;
         RETURN_IF_ERROR(Jni::Env::Get(&env));
 
         // Find JniUtil class and create a global ref.
-        jclass local_jni_util_cl = env->FindClass("org/apache/doris/common/jni/utils/JniUtil");
+        jclass local_jni_util_cl = env->FindClass("org/apache/doris/jni/spi/utils/JniUtil");
         if (local_jni_util_cl == nullptr) {
             if (env->ExceptionOccurred()) {
                 env->ExceptionDescribe();
             }
-            return Status::JniError("Failed to find JniUtil class.");
+            // Named rather than left as a bare FindClass failure: this is the first class BE
+            // resolves out of the shared layer, so a deployment whose lib/jni/spi is missing or
+            // was not put on the class path fails exactly here, and the answer is a directory
+            // name and a jar name. The failure is then cached for the life of the process, so
+            // this is also the only chance to say it.
+            return Status::JniError(
+                    "Failed to find the JniUtil class of the Java plugin SPI. It ships in "
+                    "doris-jni-spi.jar under DORIS_HOME/lib/jni/spi, which bin/start_be.sh puts "
+                    "on the class path; check that the directory exists and holds "
+                    "doris-jni-spi.jar and doris-jni-bootstrap.jar. Class path: {}",
+                    class_path_of_this_process());
         }
         jni_util_cl_ = reinterpret_cast<jclass>(env->NewGlobalRef(local_jni_util_cl));
         env->DeleteLocalRef(local_jni_util_cl);
@@ -117,6 +137,20 @@ private:
         }
         return Status::OK();
     }
+
+    // Drops the cached JNIEnv of the calling thread. Only the thread exit hook and the JVM
+    // bootstrap may call this: the env it caches is gone the moment the thread is detached,
+    // and anything reading it afterwards - another thread exit hook, say - would read freed
+    // memory.
+    static void reset_tls_env() { tls_env_ = nullptr; }
+    // Caches an env the bootstrap attached by itself, so that resolving the JNI base right
+    // after the JVM comes up stays on Get()'s fast path instead of re-entering ensure_jvm().
+    static void set_tls_env(JNIEnv* env) { tls_env_ = env; }
+    // What Get() would hand out on this thread without asking anyone, nullptr when nothing is
+    // cached. For JvmLauncher::ScopedVmEnv, which primes the cache for one scope and has to put
+    // back what it found rather than assume there was nothing: on the bootstrap thread there is.
+    static JNIEnv* tls_env() { return tls_env_; }
+    friend class JvmLauncher;
 
 private:
     // Thread-local cache of the JNIEnv for this thread.
@@ -870,6 +904,45 @@ public:
         }
     }
 
+    /**
+     * The class of an object that is already in hand.
+     *
+     * Needed where a class cannot be named: an object produced by a plugin is an instance of a
+     * class inside that plugin's classloader, which FindClass - searching BE's own loader -
+     * cannot see. Asking the object is the only way to reach it.
+     */
+    template <RefType R>
+    static Status get_object_class(JNIEnv* env, const Object<R>& object, Class<Ref>* result) {
+        DCHECK(!object.uninitialized());
+        DCHECK(result->uninitialized());
+        if constexpr (Ref == Local) {
+            result->_obj = env->GetObjectClass(object._obj);
+            RETURN_ERROR_IF_EXC(env);
+            return Status::OK();
+        } else if constexpr (Ref == Global) {
+            Class<Local> local_class;
+            local_class._obj = env->GetObjectClass(object._obj);
+            RETURN_ERROR_IF_EXC(env);
+            return local_to_global_ref(env, local_class, result);
+        } else {
+            static_assert(false);
+        }
+    }
+
+    /**
+     * Whether an object is an instance of this class.
+     *
+     * The one way to check the kind of something a plugin handed back: the object's own class is
+     * private to the plugin's classloader, so the only comparable identity is a shared base class
+     * BE resolved itself. IsInstanceOf raises no exception, hence the plain bool.
+     */
+    template <RefType R>
+    bool is_instance(JNIEnv* env, const Object<R>& object) const {
+        DCHECK(!this->uninitialized());
+        DCHECK(!object.uninitialized());
+        return env->IsInstanceOf(object._obj, (jclass)this->_obj) == JNI_TRUE;
+    }
+
     Status get_static_method(JNIEnv* env, const char* method_str, const char* method_signature,
                              MethodId* method_id) const {
         DCHECK(!this->uninitialized());
@@ -1052,6 +1125,11 @@ public:
         return Class<Ref>::find_class(env, class_str, result);
     }
 
+    template <RefType Ref, RefType R>
+    static Status get_object_class(JNIEnv* env, const Object<R>& object, Class<Ref>* result) {
+        return Class<Ref>::get_object_class(env, object, result);
+    }
+
     template <RefType Ref>
     static Status WriteBufferToByteArray(JNIEnv* env, const jbyte* buffer, jint size,
                                          Array<Ref>* serialized_msg) {
@@ -1077,17 +1155,6 @@ public:
         } else {
             static_assert(false);
         }
-    }
-
-    template <RefType Ref>
-    static Status get_jni_scanner_class(JNIEnv* env, const char* classname,
-                                        Object<Ref>* jni_scanner_class) {
-        // Get JNI scanner class by class name;
-        LocalString class_name_str;
-        RETURN_IF_ERROR(LocalString::new_string(env, classname, &class_name_str));
-        return jni_scanner_loader_obj_.call_object_method(env, jni_scanner_loader_method_)
-                .with_arg(class_name_str)
-                .call(jni_scanner_class);
     }
 
     template <RefType Ref>
@@ -1152,28 +1219,55 @@ public:
         return Status::OK();
     }
 
-    static Status clean_udf_class_load_cache(const std::string& function_signature);
-
-    static Status Init();
+    // The outcome of the one attempt to resolve the JNI base, or nullopt when nothing has
+    // attempted it yet. Public, unlike ensure_jni_base() below, precisely because it never
+    // triggers the attempt: this is what a reader that must not create a JVM asks - the
+    // /api/jni_plugin_status endpoint, which exists to answer "why is Java not working here"
+    // and would otherwise have to start a JVM to find out.
+    static std::optional<Status> jni_base_outcome();
 
 private:
+    // Resolves everything the BE needs from the JVM before it can call any Java code: the
+    // exception helpers, the native methods the Java side links against, and the
+    // collection classes cached below. Runs once, right after the JVM appears; every
+    // caller that follows gets the outcome of that one attempt.
+    //
+    // Deliberately NOT part of "does this process have a JVM": all of it comes out of
+    // doris-jni-spi.jar, and a BE whose Java deployment is incomplete still serves HDFS through
+    // libhdfs. JvmLauncher runs it once at the end of its bootstrap and logs a failure; Env, the
+    // door every Java caller comes through, refuses to hand out a JNIEnv while it is failing.
+    //
+    // Only those two may call it. JvmLauncher calls it from inside its bootstrap, with the
+    // calling thread already attached and its env cached, because the resolution asks Env::Get()
+    // for a JNIEnv and an unattached thread there would go back through ensure_jvm() and deadlock
+    // on the once flag the bootstrap is already holding.
+    //
+    // Env::GetJNIEnvSlowPath() calls it from an unattached thread on purpose, and the invariant
+    // that makes THAT safe is a different one, worth stating because nothing enforces it: by the
+    // time the slow path gets here, ensure_jvm()'s call_once has already run to completion on
+    // some thread, so the resolution below is never the one that runs - it is always the cached
+    // answer of the attempt the bootstrap made. Every early exit of _bootstrap() leaves
+    // jvm_status non-OK, and the slow path returns on that before reaching this line.
+    //
+    // Making the base lazy (that is, resolving it here for real rather than reading a cached
+    // answer) would put the deadlock straight back, so GetJNIEnvSlowPath() holds it down with a
+    // DCHECK: on that path an outcome must already exist before this is called.
+    static Status ensure_jni_base();
+    friend class JvmLauncher;
+    friend class Env;
+
     static void _parse_max_heap_memory_size_from_jvm();
 
+    // Bytes named by the last -Xmx in `options`, or 0 when none of them says. Split out from the
+    // above so that the parsing can be tested without a JVM; see jni_util_test.cpp.
+    static jlong _parse_xmx(const std::string& options);
+
+    static Status _init_jni_base() WARN_UNUSED_RESULT;
     static Status _init_collect_class() WARN_UNUSED_RESULT;
     static Status _init_register_natives() WARN_UNUSED_RESULT;
-    static Status _init_jni_scanner_loader() WARN_UNUSED_RESULT;
-
-    static bool jvm_inited_;
 
     // for jvm heap
     static jlong max_jvm_heap_memory_size_;
-
-    // for JNI scanner loader
-    static GlobalObject jni_scanner_loader_obj_;
-    static MethodId jni_scanner_loader_method_;
-
-    // for clean udf cache
-    static MethodId _clean_udf_cache_method_id;
 
     //for hashmap
     static GlobalClass hashmap_class;

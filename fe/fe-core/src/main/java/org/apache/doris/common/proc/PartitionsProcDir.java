@@ -114,7 +114,7 @@ public class PartitionsProcDir implements ProcDirInterface {
             .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime").add("RemoteStoragePolicy")
             .add("LastConsistencyCheckTime").add("DataSize").add("IsInMemory").add("ReplicaAllocation")
             .add("IsMutable").add("SyncWithBaseTables").add("UnsyncTables").add("CommittedVersion")
-            .add("RowCount").add("BinlogSize")
+            .add("RowCount").add("BinlogSize").add("InvertedIndexStorageFormat")
             .build();
 
     private Database db;
@@ -314,17 +314,7 @@ public class PartitionsProcDir implements ProcDirInterface {
 
         //limit
         if (limitElement != null && limitElement.hasLimit()) {
-            int beginIndex = (int) limitElement.getOffset();
-            int endIndex = (int) (beginIndex + limitElement.getLimit());
-            if (endIndex > filterPartitionInfos.size()) {
-                endIndex = filterPartitionInfos.size();
-            }
-
-            // means that beginIndex is bigger than filterPartitionInfos.size(), just return empty
-            if (beginIndex > endIndex) {
-                beginIndex = endIndex;
-            }
-            filterPartitionInfos = filterPartitionInfos.subList(beginIndex, endIndex);
+            filterPartitionInfos = limitElement.applyTo(filterPartitionInfos);
         }
 
         return getBasicProcResult(filterPartitionInfos);
@@ -369,17 +359,7 @@ public class PartitionsProcDir implements ProcDirInterface {
 
         //limit
         if (limitElement != null && limitElement.hasLimit()) {
-            int beginIndex = (int) limitElement.getOffset();
-            int endIndex = (int) (beginIndex + limitElement.getLimit());
-            if (endIndex > filterPartitionInfos.size()) {
-                endIndex = filterPartitionInfos.size();
-            }
-
-            // means that beginIndex is bigger than filterPartitionInfos.size(), just return empty
-            if (beginIndex > endIndex) {
-                beginIndex = endIndex;
-            }
-            filterPartitionInfos = filterPartitionInfos.subList(beginIndex, endIndex);
+            filterPartitionInfos = limitElement.applyTo(filterPartitionInfos);
         }
 
         return getBasicProcResult(filterPartitionInfos);
@@ -657,6 +637,11 @@ public class PartitionsProcDir implements ProcDirInterface {
                         + binlogSizePair.second;
                 partitionInfo.add(readableBinlogSize);
                 trow.addToColumnValue(new TCell().setStringVal(readableBinlogSize));
+
+                String invertedIndexStorageFormat =
+                        olapTable.getInvertedIndexFileStorageFormatForPartition(partitionId).name();
+                partitionInfo.add(invertedIndexStorageFormat);
+                trow.addToColumnValue(new TCell().setStringVal(invertedIndexStorageFormat));
 
                 partitionInfos.add(Pair.of(partitionInfo, trow));
             }

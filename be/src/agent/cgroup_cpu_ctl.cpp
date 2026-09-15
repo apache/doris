@@ -22,6 +22,7 @@
 #include <unistd.h>
 
 #include <filesystem>
+#include <set>
 
 #include "util/cgroup_util.h"
 #include "util/defer_op.h"

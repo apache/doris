@@ -104,7 +104,7 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<RuntimeFilterExprPtr>&
         in_pred->add_child(probe_ctx->root());
         auto wrapper = RuntimeFilterExpr::create_shared(
                 node, in_pred, get_in_list_ignore_thredhold(_wrapper->hybrid_set()->size()),
-                null_aware, _wrapper->filter_id(), sampling_frequency);
+                null_aware, _wrapper->filter_id(), sampling_frequency, _wrapper);
         container.push_back(wrapper);
         break;
     }

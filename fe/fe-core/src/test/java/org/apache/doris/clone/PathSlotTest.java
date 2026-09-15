@@ -24,8 +24,8 @@ import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.List;
@@ -61,7 +61,7 @@ class PathSlotTest {
             gotPathHashs.add(ps.takeAnAvailBalanceSlotFrom(availPathHashs,
                     Tag.create(Tag.TYPE_LOCATION, "zone1"), medium));
         }
-        Assert.assertEquals(expectPathHashs, gotPathHashs);
+        Assertions.assertEquals(expectPathHashs, gotPathHashs);
     }
 
 }

@@ -189,10 +189,18 @@ ParquetReaderCompat parquet_reader_compat(const std::string& created_by) {
         return {};
     }
     const ::parquet::ApplicationVersion version(created_by);
+    const ::parquet::ApplicationVersion arrow_fixed_null_count_version("parquet-cpp-arrow", 6, 0,
+                                                                       0);
     return {.parquet_816_padding =
                     version.VersionLt(::parquet::ApplicationVersion::PARQUET_816_FIXED_VERSION()),
             .data_page_v2_always_compressed = version.VersionLt(
-                    ::parquet::ApplicationVersion::PARQUET_CPP_10353_FIXED_VERSION())};
+                    ::parquet::ApplicationVersion::PARQUET_CPP_10353_FIXED_VERSION()),
+            // Arrow <= 3 used parquet-cpp, then Arrow 4/5 used parquet-cpp-arrow before the fix.
+            .null_count_trusted =
+                    version.application_ != "parquet-cpp" &&
+                    !version.VersionLt(arrow_fixed_null_count_version) &&
+                    !version.VersionLt(
+                            ::parquet::ApplicationVersion::PARQUET_MR_FIXED_STATS_VERSION())};
 }
 
 Status compute_column_chunk_range(const tparquet::ColumnMetaData& metadata, size_t file_size,

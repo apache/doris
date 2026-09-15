@@ -34,6 +34,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.mapping.MappedField;
 import org.apache.iceberg.mapping.MappedFields;
+import org.apache.iceberg.mapping.MappingUtil;
 import org.apache.iceberg.mapping.NameMapping;
 import org.apache.iceberg.mapping.NameMappingParser;
 import org.apache.iceberg.transforms.Transforms;
@@ -213,8 +214,8 @@ public final class IcebergSchemaUtils {
      * name-mapping property, and a present (possibly empty) map when it does — the distinction #65784 relies on
      * to make a table-level mapping AUTHORITATIVE (an unmapped field then materializes its default/NULL instead
      * of silently matching a physical column by its current name; see {@link #buildField}). Port of legacy
-     * {@code IcebergScanNode.extractNameMapping} + {@code IcebergUtils.getNameMapping} (#65784); fail-soft (a
-     * parse error logs + yields {@code Optional.empty()}, so a malformed property never breaks the scan).
+     * {@code IcebergScanNode.extractNameMapping} + {@code IcebergUtils.getNameMapping} (#65784). A malformed
+     * property fails soft to a current-name mapping instead of becoming indistinguishable from no property.
      */
     static Optional<Map<Integer, List<String>>> extractNameMapping(Table table) {
         String nameMappingJson = table.properties().get(TableProperties.DEFAULT_NAME_MAPPING);
@@ -230,9 +231,12 @@ public final class IcebergSchemaUtils {
             collectNameMappings(mapping.asMappedFields(), result);
             return Optional.of(result);
         } catch (Exception e) {
-            // If name mapping parsing fails, continue without it (legacy parity).
+            // Preserve legacy current-name readability for ID-less files when a malformed table property
+            // cannot provide authoritative aliases; Optional.empty() now means the property is truly absent.
             LOG.warn("Failed to parse name mapping from Iceberg table properties", e);
-            return Optional.empty();
+            Map<Integer, List<String>> fallback = new HashMap<>();
+            collectNameMappings(MappingUtil.create(table.schema()).asMappedFields(), fallback);
+            return Optional.of(fallback);
         }
     }
 

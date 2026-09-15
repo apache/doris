@@ -143,6 +143,40 @@ Status build_segment_zonemap_context(Segment* segment, const ReadSchema& schema,
     return Status::OK();
 }
 
+// The statistics iterator answers pushed-down aggregates from the segment zone maps alone. An
+// invalid zone map has no min/max to answer with, so the caller has to read the data instead.
+Status segment_zone_maps_can_answer_agg(Segment* segment, const ReadSchema& schema,
+                                        const StorageReadOptions& read_options, bool* usable) {
+    *usable = true;
+    for (size_t ordinal = 0; ordinal < schema.num_block_columns(); ++ordinal) {
+        // The commit-tso column is only served correctly once its reader is created with the
+        // rowset's commit_tso as a const value. Creating it here without one would cache a reader
+        // that hands every later read the on-disk placeholder instead.
+        if (static_cast<int32_t>(ordinal) == schema.commit_tso_ordinal()) {
+            continue;
+        }
+        std::shared_ptr<ColumnReader> reader;
+        Status st = segment->get_column_reader(*schema.column(ordinal), &reader, read_options.stats,
+                                               &read_options.io_ctx);
+        if (st.is<ErrorCode::NOT_FOUND>()) {
+            continue;
+        }
+        RETURN_IF_ERROR(st);
+        // Columns without a zone map keep the existing behaviour: the statistics iterator reports
+        // the missing zone map itself.
+        if (reader == nullptr || !reader->has_zone_map()) {
+            continue;
+        }
+        ZoneMap zone_map;
+        RETURN_IF_ERROR(reader->get_segment_zone_map(&zone_map));
+        if (zone_map.pass_all) {
+            *usable = false;
+            return Status::OK();
+        }
+    }
+    return Status::OK();
+}
+
 void fill_missing_decimal_precision(const TabletColumn& column, ColumnMetaPB* meta) {
     auto meta_type = static_cast<FieldType>(meta->type());
     if (meta_type != column.type()) {
@@ -345,7 +379,7 @@ Status Segment::_open(OlapReaderStatistics* stats, const io::IOContext* source_i
                                 config::max_segment_partial_column_cache_size) *
                        config::estimated_mem_per_column_reader;
 
-    // 1024 comes from SegmentWriterOptions
+    // 1024 comes from VerticalSegmentWriterOptions
     _meta_mem_usage += (_num_rows + 1023) / 1024 * (36 + 4);
     // 0.01 comes from PrimaryKeyIndexBuilder::init
     _meta_mem_usage += BloomFilter::optimal_bit_num(_num_rows, 0.01) / 8;
@@ -469,9 +503,18 @@ Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& re
         RETURN_IF_ERROR(load_index(read_options.stats, &read_options.io_ctx));
     }
 
-    if (read_options.delete_condition_predicates->num_of_column_predicate() == 0 &&
-        read_options.push_down_agg_type_opt != TPushAggOp::NONE &&
-        read_options.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX) {
+    bool use_statistics_iterator =
+            read_options.delete_condition_predicates->num_of_column_predicate() == 0 &&
+            read_options.push_down_agg_type_opt != TPushAggOp::NONE &&
+            read_options.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX;
+    // COUNT only fills defaults, every other pushed-down aggregate reads min/max out of the
+    // segment zone maps.
+    if (use_statistics_iterator && read_options.push_down_agg_type_opt != TPushAggOp::COUNT) {
+        bool usable = false;
+        RETURN_IF_ERROR(segment_zone_maps_can_answer_agg(this, *schema, read_options, &usable));
+        use_statistics_iterator = usable;
+    }
+    if (use_statistics_iterator) {
         iter->reset(new_vstatistics_iterator(this->shared_from_this(), *schema));
     } else {
         *iter = std::make_unique<SegmentIterator>(this->shared_from_this(), schema);
@@ -1238,11 +1281,10 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
     };
 
     const auto runtime_type = remove_nullable(slot->type());
-    const auto* variant_type = typeid_cast<const DataTypeVariant*>(runtime_type.get());
     const auto* variant_v2_type = typeid_cast<const DataTypeVariantV2*>(runtime_type.get());
 
     if (!slot->column_paths().empty()) {
-        DORIS_CHECK(variant_type != nullptr || variant_v2_type != nullptr);
+        DORIS_CHECK(variant_v2_type != nullptr);
         // here need create column readers to make sure column reader is created before seek_and_read_by_rowid
         // if segment cache miss, column reader will be created to make sure the variant column result not coredump
         RETURN_IF_ERROR(
@@ -1288,8 +1330,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
         }
         TabletColumn column = schema.column(index);
         if (column.type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
-            DORIS_CHECK(variant_type != nullptr || variant_v2_type != nullptr);
-            column.set_variant_is_v2(variant_v2_type != nullptr);
+            DORIS_CHECK(variant_v2_type != nullptr);
         }
         if (iterator_hint == nullptr) {
             RETURN_IF_ERROR(new_column_iterator(column, &iterator_hint, &storage_read_options));

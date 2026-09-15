@@ -20,6 +20,10 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.nereids.util.Utils;
+
+import java.util.List;
+
 /**
  * Combination of limit and offset expressions.
  */
@@ -60,6 +64,27 @@ public class LimitElement {
      */
     public long getOffset() {
         return offset;
+    }
+
+    /**
+     * Returns the window of {@code rows} selected by this offset and limit.
+     *
+     * <p>Both values reach here as user supplied 64-bit integers, so the range is computed in
+     * long and saturated at {@code rows.size()} before it is narrowed to int. Narrowing first
+     * wraps: an offset or limit above {@link Integer#MAX_VALUE} can truncate to zero and
+     * silently return an empty window, or truncate to a negative index and make
+     * {@link List#subList} throw {@link IndexOutOfBoundsException}.
+     *
+     * <p>When no limit is set, the window runs from the offset to the end of {@code rows}.
+     */
+    public <T> List<T> applyTo(List<T> rows) {
+        int size = rows.size();
+        long begin = Math.min(Math.max(offset, 0L), size);
+        long end = size;
+        if (hasLimit() && !Utils.addOverflows(begin, limit)) {
+            end = Math.min(begin + limit, size);
+        }
+        return rows.subList((int) begin, (int) end);
     }
 
 

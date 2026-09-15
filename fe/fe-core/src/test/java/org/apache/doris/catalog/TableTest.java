@@ -27,10 +27,10 @@ import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -67,7 +67,7 @@ public class TableTest {
 
     private Table table;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         table = newOlapTable(10000, "test", 0);
         fakeEnv = new FakeEnv();
@@ -76,7 +76,7 @@ public class TableTest {
         FakeEnv.setMetaVersion(FeConstants.meta_version);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (fakeEnv != null) {
             fakeEnv.close();
@@ -87,30 +87,30 @@ public class TableTest {
     public void lockTest() {
         table.readLock();
         try {
-            Assert.assertFalse(table.tryWriteLock(0, TimeUnit.SECONDS));
+            Assertions.assertFalse(table.tryWriteLock(0, TimeUnit.SECONDS));
         } finally {
             table.readUnlock();
         }
 
-        Assert.assertFalse(table.isWriteLockHeldByCurrentThread());
+        Assertions.assertFalse(table.isWriteLockHeldByCurrentThread());
         table.writeLock();
         try {
-            Assert.assertTrue(table.tryWriteLock(1000, TimeUnit.SECONDS));
-            Assert.assertTrue(table.isWriteLockHeldByCurrentThread());
+            Assertions.assertTrue(table.tryWriteLock(1000, TimeUnit.SECONDS));
+            Assertions.assertTrue(table.isWriteLockHeldByCurrentThread());
             table.writeUnlock();
         } finally {
             table.writeUnlock();
-            Assert.assertFalse(table.isWriteLockHeldByCurrentThread());
+            Assertions.assertFalse(table.isWriteLockHeldByCurrentThread());
         }
 
-        Assert.assertFalse(table.isWriteLockHeldByCurrentThread());
+        Assertions.assertFalse(table.isWriteLockHeldByCurrentThread());
         table.markDropped();
-        Assert.assertFalse(table.writeLockIfExist());
-        Assert.assertFalse(table.isWriteLockHeldByCurrentThread());
+        Assertions.assertFalse(table.writeLockIfExist());
+        Assertions.assertFalse(table.isWriteLockHeldByCurrentThread());
         table.unmarkDropped();
-        Assert.assertTrue(table.writeLockIfExist());
-        Assert.assertTrue(table.writeLockIfExist());
-        Assert.assertTrue(table.isWriteLockHeldByCurrentThread());
+        Assertions.assertTrue(table.writeLockIfExist());
+        Assertions.assertTrue(table.writeLockIfExist());
+        Assertions.assertTrue(table.isWriteLockHeldByCurrentThread());
         table.writeUnlock();
     }
 
@@ -171,9 +171,9 @@ public class TableTest {
         DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
         Table rFamily1 = Table.read(dis);
-        Assert.assertEquals(table1, rFamily1);
-        Assert.assertEquals(table1.getCreateTime(), rFamily1.getCreateTime());
-        Assert.assertEquals(table1.getIndexMetaByIndexId(2).getKeysType(), KeysType.AGG_KEYS);
+        Assertions.assertEquals(table1, rFamily1);
+        Assertions.assertEquals(table1.getCreateTime(), rFamily1.getCreateTime());
+        Assertions.assertEquals(table1.getIndexMetaByIndexId(2).getKeysType(), KeysType.AGG_KEYS);
 
         // 3. delete files
         dis.close();

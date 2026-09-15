@@ -447,7 +447,7 @@ Status VFileResultWriter::_delete_dir() {
     case TStorageBackendType::HDFS: {
         THdfsParams hdfs_params = parse_properties(_file_opts->broker_properties);
         auto fs = DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name,
-                                                       io::FileSystem::TMP_FS_ID, nullptr));
+                                                       io::FileSystem::TMP_FS_ID));
         return fs->delete_directory(dir);
     }
     case TStorageBackendType::S3: {

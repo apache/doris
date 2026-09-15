@@ -336,6 +336,20 @@ public abstract class Replica {
         return 0;
     }
 
+    public boolean isBinlogMissing() {
+        return false;
+    }
+
+    public void setBinlogMissing(boolean binlogMissing) {
+        if (binlogMissing) {
+            throw new UnsupportedOperationException("setBinlogMissing is not supported in Replica");
+        }
+    }
+
+    public void consumeBinlogMissingRetry() {
+        throw new UnsupportedOperationException("consumeBinlogMissingRetry is not supported in Replica");
+    }
+
     public long getFurtherRepairWatermarkTxnTd() {
         return -1;
     }

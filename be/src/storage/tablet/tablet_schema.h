@@ -128,11 +128,17 @@ public:
     }
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
+    bool has_default_value_expr() const { return _has_default_value_expr; }
+    const std::string& default_value_expr() const { return _default_value_expr; }
     int32_t length() const { return _length; }
     void set_length(int32_t length) { _length = length; }
     void set_default_value(const std::string& default_value) {
         _default_value = default_value;
         _has_default_value = true;
+    }
+    void set_default_value_expr(const std::string& default_value_expr) {
+        _default_value_expr = default_value_expr;
+        _has_default_value_expr = true;
     }
     int32_t index_length() const { return _index_length; }
     void set_index_length(int32_t index_length) { _index_length = index_length; }
@@ -227,9 +233,6 @@ public:
         _variant.max_subcolumns_count = variant_max_subcolumns_count;
     }
 
-    bool variant_is_v2() const { return _variant_is_v2; }
-    void set_variant_is_v2(bool is_v2) { _variant_is_v2 = is_v2; }
-
     PatternTypePB pattern_type() const { return _pattern_type; }
 
     bool variant_enable_typed_paths_to_sparse() const {
@@ -299,6 +302,8 @@ private:
 
     bool _has_default_value = false;
     std::string _default_value;
+    bool _has_default_value_expr = false;
+    std::string _default_value_expr;
 
     bool _is_decimal = false;
     int32_t _precision = -1;
@@ -323,10 +328,6 @@ private:
     PatternTypePB _pattern_type = PatternTypePB::MATCH_NAME_GLOB;
 
     VariantParams _variant;
-    // TODO: Remove this transient read-schema marker after legacy ColumnVariant destinations are
-    // deleted and Variant readers always produce ColumnVariantV2. It only selects the in-memory
-    // compute destination and must never be serialized into tablet or segment metadata.
-    bool _variant_is_v2 = false;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);
@@ -522,6 +523,7 @@ public:
     int32_t skip_bitmap_col_idx() const { return _skip_bitmap_col_idx; }
     bool is_tso_enabled() const { return _commit_tso_col_idx != -1 || _binlog_tso_col_idx != -1; }
     int32_t commit_tso_col_idx() const { return _commit_tso_col_idx; }
+    int32_t row_lsn_col_idx() const { return _row_lsn_col_idx; }
     int32_t binlog_tso_col_idx() const { return _binlog_tso_col_idx; }
     int32_t binlog_lsn_col_idx() const { return _binlog_lsn_col_idx; }
     int32_t binlog_op_col_idx() const { return _binlog_op_col_idx; }
@@ -823,6 +825,7 @@ private:
     int32_t _version_col_idx = -1;
     int32_t _skip_bitmap_col_idx = -1;
     int32_t _commit_tso_col_idx = -1;
+    int32_t _row_lsn_col_idx = -1;
     int32_t _binlog_tso_col_idx = -1;
     int32_t _binlog_lsn_col_idx = -1;
     int32_t _binlog_op_col_idx = -1;

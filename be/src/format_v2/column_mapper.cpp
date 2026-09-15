@@ -197,6 +197,14 @@ std::string virtual_column_type_to_string(TableVirtualColumnType type) {
         return "LAST_UPDATED_SEQUENCE_NUMBER";
     case TableVirtualColumnType::ICEBERG_ROWID:
         return "ICEBERG_ROWID";
+    case TableVirtualColumnType::ICEBERG_FILE_PATH:
+        return "ICEBERG_FILE_PATH";
+    case TableVirtualColumnType::ICEBERG_ROW_POSITION:
+        return "ICEBERG_ROW_POSITION";
+    case TableVirtualColumnType::PAIMON_FILE_PATH:
+        return "PAIMON_FILE_PATH";
+    case TableVirtualColumnType::PAIMON_ROW_POSITION:
+        return "PAIMON_ROW_POSITION";
     }
     return "UNKNOWN";
 }
@@ -427,7 +435,10 @@ std::string TableColumnMapperOptions::debug_string() const {
     out << "TableColumnMapperOptions{mode=" << mapping_mode_to_string(mode)
         << ", reject_missing_required_field=" << reject_missing_required_field
         << ", allow_idless_complex_wrapper_projection=" << allow_idless_complex_wrapper_projection
-        << ", enable_row_lineage_virtual_columns=" << enable_row_lineage_virtual_columns << "}";
+        << ", enable_row_lineage_virtual_columns=" << enable_row_lineage_virtual_columns
+        << ", enable_iceberg_metadata_virtual_columns=" << enable_iceberg_metadata_virtual_columns
+        << ", enable_paimon_metadata_virtual_columns=" << enable_paimon_metadata_virtual_columns
+        << "}";
     return out.str();
 }
 
@@ -454,7 +465,8 @@ std::string ColumnDefinition::debug_string() const {
     } else {
         out << "unknown";
     }
-    out << ", is_partition_key=" << is_partition_key << "}";
+    out << ", is_partition_key=" << is_partition_key << ", is_synthesized=" << is_synthesized
+        << "}";
     return out.str();
 }
 
@@ -2122,6 +2134,20 @@ static const LocalColumnIndex* find_scan_projection(
     return projection_it == scan_columns.end() ? nullptr : &*projection_it;
 }
 
+static bool same_projected_file_shape(const std::vector<ColumnDefinition>& lhs,
+                                      const std::vector<ColumnDefinition>& rhs) {
+    if (lhs.size() != rhs.size()) {
+        return false;
+    }
+    for (size_t index = 0; index < lhs.size(); ++index) {
+        if (lhs[index].local_id != rhs[index].local_id ||
+            !same_projected_file_shape(lhs[index].children, rhs[index].children)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 // Apply the final scan projection of one root file column back to its ColumnMapping. This updates
 // mapping.file_type/projected_file_children from the original file schema to the exact shape that
 // FileReader will return.
@@ -2259,14 +2285,47 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
     mapping->table_column_name = table_column.name;
     mapping->table_type = table_column.type;
     mapping->variant_access_paths = table_column.variant_access_paths;
+    const auto iceberg_metadata_type = [&] {
+        if (!_options.enable_iceberg_metadata_virtual_columns || !table_column.is_synthesized) {
+            return TableVirtualColumnType::INVALID;
+        }
+        if (iequal(table_column.name, BeConsts::ICEBERG_FILE_PATH_COL)) {
+            return TableVirtualColumnType::ICEBERG_FILE_PATH;
+        }
+        if (iequal(table_column.name, BeConsts::ICEBERG_ROW_POSITION_COL)) {
+            return TableVirtualColumnType::ICEBERG_ROW_POSITION;
+        }
+        return TableVirtualColumnType::INVALID;
+    }();
+    const auto paimon_metadata_type = [&] {
+        if (!_options.enable_paimon_metadata_virtual_columns || !table_column.is_synthesized) {
+            return TableVirtualColumnType::INVALID;
+        }
+        if (iequal(table_column.name, BeConsts::PAIMON_FILE_PATH_COL)) {
+            return TableVirtualColumnType::PAIMON_FILE_PATH;
+        }
+        if (iequal(table_column.name, BeConsts::PAIMON_ROW_POSITION_COL)) {
+            return TableVirtualColumnType::PAIMON_ROW_POSITION;
+        }
+        return TableVirtualColumnType::INVALID;
+    }();
     // Row-lineage names are Iceberg metadata contracts, not reserved names in generic Hive,
     // Hudi, or Paimon schemas. Only the Iceberg reader may opt into virtual synthesis.
     const auto row_lineage_type =
             _options.enable_row_lineage_virtual_columns
                     ? row_lineage_virtual_column_type(table_column, _options.mode)
                     : TableVirtualColumnType::INVALID;
-    if (const auto* partition_value = find_partition_value(table_column, _partition_values);
-        table_column.is_partition_key && partition_value != nullptr) {
+    if (iceberg_metadata_type != TableVirtualColumnType::INVALID) {
+        // Iceberg `_file` and `_pos` are metadata contracts only when the current FE explicitly
+        // classifies the slot as synthesized. Old FE plans can still read physical fields with the
+        // same spelling during a rolling upgrade.
+        mapping->virtual_column_type = iceberg_metadata_type;
+    } else if (paimon_metadata_type != TableVirtualColumnType::INVALID) {
+        // Paimon metadata is carried by RawFile. The explicit synthesized marker prevents a
+        // physical same-name field from being reinterpreted during a rolling upgrade.
+        mapping->virtual_column_type = paimon_metadata_type;
+    } else if (const auto* partition_value = find_partition_value(table_column, _partition_values);
+               table_column.is_partition_key && partition_value != nullptr) {
         // Partition values are split constants and must take precedence over defaults.
         _set_constant_mapping(mapping, VExprContext::create_shared(VLiteral::create_shared(
                                                mapping->table_type, *partition_value)));
@@ -2532,6 +2591,36 @@ Status TableColumnMapper::create_scan_request(
     return Status::OK();
 }
 
+Status TableColumnMapper::reconcile_scan_request_after_customization(
+        FileScanRequest* file_request) {
+    DORIS_CHECK(file_request != nullptr);
+    bool output_shape_changed = false;
+    for (auto& mapping : _mappings) {
+        if (!mapping.file_local_id.has_value() ||
+            !file_request->local_positions.contains(LocalColumnId(*mapping.file_local_id))) {
+            continue;
+        }
+        const auto previous_file_type = mapping.file_type;
+        const auto previous_file_children = mapping.projected_file_children;
+        RETURN_IF_ERROR(apply_scan_projection_to_mapping_file_type(*file_request, &mapping));
+        output_shape_changed |=
+                previous_file_type == nullptr || mapping.file_type == nullptr ||
+                !previous_file_type->equals(*mapping.file_type) ||
+                !same_projected_file_shape(previous_file_children, mapping.projected_file_children);
+        rebuild_projection(&mapping, file_request->non_predicate_position(
+                                             LocalColumnId(*mapping.file_local_id)));
+    }
+    if (output_shape_changed) {
+        // Localized conjuncts embed nested child ordinals from the pre-hook projection. Scanner
+        // still evaluates the original table conjuncts, so discard stale file-local copies rather
+        // than allowing a late equality-delete dependency to reinterpret another child.
+        file_request->conjuncts.clear();
+        file_request->metadata_pruning_safe_conjunct_count = 0;
+    }
+    RETURN_IF_ERROR(_build_filter_entries(*file_request));
+    return Status::OK();
+}
+
 ColumnMapping* TableColumnMapper::_find_mapping(GlobalIndex global_index) {
     for (auto& mapping : _mappings) {
         if (mapping.global_index == global_index) {
@@ -2765,6 +2854,14 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
         }
         FileScanRequestBuilder builder(file_request);
         RETURN_IF_ERROR(builder.add_non_predicate_column(std::move(demoted_projection)));
+    }
+    // Predicate demotion can widen a nested projection after mappings were localized. Reapply the
+    // final shape so TableReader interprets the same child ordinals that FileReader returns.
+    for (auto& mapping : _mappings) {
+        if (mapping.file_local_id.has_value() &&
+            file_request->local_positions.contains(LocalColumnId(*mapping.file_local_id))) {
+            RETURN_IF_ERROR(apply_scan_projection_to_mapping_file_type(*file_request, &mapping));
+        }
     }
     // Final readers allocate a dense file block, so every retained slot must follow the same compaction.
     compact_file_block_positions(file_request);

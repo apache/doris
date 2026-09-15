@@ -99,7 +99,7 @@ public class IcebergCatalogFactoryTest {
 
     @Test
     public void resolveCatalogImplMapsHmsToHiveCatalog() {
-        Assertions.assertEquals("org.apache.iceberg.hive.HiveCatalog",
+        Assertions.assertEquals(DorisHiveCatalog.class.getName(),
                 IcebergCatalogFactory.resolveCatalogImpl("hms"));
     }
 
@@ -128,19 +128,9 @@ public class IcebergCatalogFactoryTest {
     }
 
     @Test
-    public void resolveCatalogImplRejectsRemovedDlfFlavor() {
-        // WHY: iceberg.catalog.type=dlf (DLF 1.0 over the vendored thrift ProxyMetaStoreClient) was removed, so
-        // it must now hit the default arm and fail loud like any unknown flavor — never resolve to a class that
-        // no longer ships. MUTATION: re-adding a dlf arm -> red.
-        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
-                () -> IcebergCatalogFactory.resolveCatalogImpl("dlf"));
-        // Assert on the supported-types LIST only: the message also echoes the rejected input, so a naive
-        // contains("dlf") over the whole message would match the echo and never fail.
-        String supported = ex.getMessage().substring(ex.getMessage().indexOf("Supported types:"));
-        Assertions.assertFalse(supported.contains("dlf"),
-                "the supported-types list must no longer advertise dlf: " + supported);
-        Assertions.assertTrue(supported.contains("glue"),
-                "glue is the iceberg-native backend and must stay supported: " + supported);
+    public void resolveCatalogImplMapsDlfToDlfCatalog() {
+        Assertions.assertEquals("org.apache.doris.connector.iceberg.dlf.DLFCatalog",
+                IcebergCatalogFactory.resolveCatalogImpl("dlf"));
     }
 
     @Test
@@ -150,7 +140,7 @@ public class IcebergCatalogFactoryTest {
         // the default branch throws on "REST" -> red.
         Assertions.assertEquals("org.apache.iceberg.rest.RESTCatalog",
                 IcebergCatalogFactory.resolveCatalogImpl("REST"));
-        Assertions.assertEquals("org.apache.iceberg.hive.HiveCatalog",
+        Assertions.assertEquals(DorisHiveCatalog.class.getName(),
                 IcebergCatalogFactory.resolveCatalogImpl("Hms"));
     }
 
@@ -798,7 +788,7 @@ public class IcebergCatalogFactoryTest {
         Map<String, String> opts = IcebergCatalogFactory.buildCatalogProperties(
                 IcebergCatalogProperties.of(props("iceberg.catalog.type", "hms")),
                 Optional.of(new FakeS3CompatibleStorageProperties("S3").endpoint("https://s3").accessKey("AK")));
-        Assertions.assertEquals("org.apache.iceberg.hive.HiveCatalog", opts.get("catalog-impl"));
+        Assertions.assertEquals(DorisHiveCatalog.class.getName(), opts.get("catalog-impl"));
         Assertions.assertNull(opts.get("s3.endpoint"), "HMS must not emit S3FileIO options");
         Assertions.assertNull(opts.get("s3.access-key-id"));
     }

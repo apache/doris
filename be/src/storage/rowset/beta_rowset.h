@@ -75,10 +75,11 @@ public:
 
     Status load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments);
 
-    Status load_segments(int64_t seg_id_begin, int64_t seg_id_end,
-                         std::vector<segment_v2::SegmentSharedPtr>* segments);
-
     Status load_segment(int64_t seg_id, OlapReaderStatistics* read_stats,
+                        segment_v2::SegmentSharedPtr* segment,
+                        const io::IOContext* io_ctx = nullptr);
+
+    Status load_segment(RowsetSegmentRef seg, OlapReaderStatistics* read_stats,
                         segment_v2::SegmentSharedPtr* segment,
                         const io::IOContext* io_ctx = nullptr);
 

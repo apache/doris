@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.jobs.executor;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.jobs.rewrite.CostBasedRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
@@ -131,7 +129,6 @@ import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
 import org.apache.doris.nereids.rules.rewrite.PushCountIntoUnionAll;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOnPkFk;
-import org.apache.doris.nereids.rules.rewrite.PushDownAggWithDistinctThroughJoinOneSide;
 import org.apache.doris.nereids.rules.rewrite.PushDownEncodeSlot;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterIntoSchemaScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
@@ -686,7 +683,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(
                                 LogicalAggregate.class, LogicalJoin.class
                         ),
-                        costBased(topDown(new PushDownAggWithDistinctThroughJoinOneSide())),
                         custom(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN, PushDownAggregation::new),
                         topDown(new PushCountIntoUnionAll())
                 ),
@@ -975,20 +971,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
     @Override
     public List<RewriteJob> getJobs() {
         return rewriteJobs;
-    }
-
-    @Override
-    protected boolean shouldRun(RewriteJob rewriteJob, JobContext jobContext, List<RewriteJob> jobs, int jobIndex) {
-        if (rewriteJob instanceof CostBasedRewriteJob) {
-            if (runCboRules) {
-                jobContext.setRemainJobs(jobs.subList(jobIndex + 1, jobs.size()));
-                return true;
-            } else {
-                return false;
-            }
-        } else {
-            return true;
-        }
     }
 
     @Override

@@ -29,9 +29,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -42,7 +42,7 @@ import java.util.Map;
 public class CloudSystemInfoServiceTest {
     private CloudSystemInfoService infoService;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         // Enable cloud mode for testing
         Config.cloud_unique_id = "test_cloud_unique_id";
@@ -55,7 +55,7 @@ public class CloudSystemInfoServiceTest {
         // not exist cluster
         String c1 = "not_exist_cluster_1";
         String res = infoService.getPhysicalCluster(c1);
-        Assert.assertEquals(c1, res);
+        Assertions.assertEquals(c1, res);
     }
 
     @Test
@@ -63,7 +63,7 @@ public class CloudSystemInfoServiceTest {
         infoService = new CloudSystemInfoService();
         String c1 = "physical_cluster_1";
         String res = infoService.getPhysicalCluster(c1);
-        Assert.assertEquals(c1, res);
+        Assertions.assertEquals(c1, res);
     }
 
     // virtual cluster does not contain physical cluster
@@ -99,7 +99,7 @@ public class CloudSystemInfoServiceTest {
         infoService.addComputeGroup(pcgName2, pcg2);
 
         String res = infoService.getPhysicalCluster(vcgName);
-        Assert.assertEquals(pcgName1, res);
+        Assertions.assertEquals(pcgName1, res);
     }
 
     // active is empty cluster and standby has 3 alive be
@@ -136,7 +136,7 @@ public class CloudSystemInfoServiceTest {
         infoService.updateCloudClusterMapNoLock(toAdd, new ArrayList<>());
 
         String res = infoService.getPhysicalCluster(vcgName);
-        Assert.assertEquals(pcgName2, res);
+        Assertions.assertEquals(pcgName2, res);
     }
 
     // active has 3 alive be and standby is empty cluster
@@ -173,7 +173,7 @@ public class CloudSystemInfoServiceTest {
         infoService.updateCloudClusterMapNoLock(toAdd, new ArrayList<>());
 
         String res = infoService.getPhysicalCluster(vcgName);
-        Assert.assertEquals(pcgName1, res);
+        Assertions.assertEquals(pcgName1, res);
     }
 
     // active has 3 alive be and standby has 3 dead be
@@ -222,15 +222,15 @@ public class CloudSystemInfoServiceTest {
         infoService.updateCloudClusterMapNoLock(toAdd2, new ArrayList<>());
 
         String res = infoService.getPhysicalCluster(vcgName);
-        Assert.assertEquals(pcgName1, res);
+        Assertions.assertEquals(pcgName1, res);
 
         Backend activeBackend = toAdd1.get(1);
-        Assert.assertSame(activeBackend,
+        Assertions.assertSame(activeBackend,
                 infoService.getBackendInCurrentCluster(pcgName1, activeBackend.getId()));
-        Assert.assertSame(activeBackend,
+        Assertions.assertSame(activeBackend,
                 infoService.getBackendInCurrentCluster(vcgName, activeBackend.getId()));
-        Assert.assertNull(infoService.getBackendInCurrentCluster(vcgName, toAdd2.get(1).getId()));
-        Assert.assertNull(infoService.getBackendInCurrentCluster(vcgName, Long.MAX_VALUE));
+        Assertions.assertNull(infoService.getBackendInCurrentCluster(vcgName, toAdd2.get(1).getId()));
+        Assertions.assertNull(infoService.getBackendInCurrentCluster(vcgName, Long.MAX_VALUE));
     }
 
     // active has 3 dead be and standby has 3 alive be
@@ -279,7 +279,7 @@ public class CloudSystemInfoServiceTest {
         infoService.updateCloudClusterMapNoLock(toAdd2, new ArrayList<>());
 
         String res = infoService.getPhysicalCluster(vcgName);
-        Assert.assertEquals(pcgName2, res);
+        Assertions.assertEquals(pcgName2, res);
     }
 
     @Test
@@ -314,8 +314,8 @@ public class CloudSystemInfoServiceTest {
             toAdd2.add(b);
         }
         infoService.updateCloudClusterMapNoLock(toAdd2, new ArrayList<>());
-        Assert.assertNull(infoService.getComputeGroupByName(pcgName1));
-        Assert.assertTrue(infoService.isComputeGroupAvailable(pcgName2, policy.getUnhealthyNodeThresholdPercent()));
+        Assertions.assertNull(infoService.getComputeGroupByName(pcgName1));
+        Assertions.assertTrue(infoService.isComputeGroupAvailable(pcgName2, policy.getUnhealthyNodeThresholdPercent()));
 
         CloudEnv cloudEnv = Mockito.mock(CloudEnv.class);
         Mockito.when(cloudEnv.getCloudInstanceId()).thenReturn("instance_id");
@@ -335,7 +335,7 @@ public class CloudSystemInfoServiceTest {
 
             String res = infoService.getPhysicalCluster(vcgName);
 
-            Assert.assertEquals(pcgName2, res);
+            Assertions.assertEquals(pcgName2, res);
             mockedMetricRepo.verify(() ->
                     MetricRepo.increaseVirtualComputeGroupSwitch(vcgId, vcgName, "id2", pcgName1, "id3", pcgName2));
         }
@@ -391,7 +391,7 @@ public class CloudSystemInfoServiceTest {
         infoService.updateCloudClusterMapNoLock(toAdd2, new ArrayList<>());
 
         String res = infoService.getPhysicalCluster(vcgName);
-        Assert.assertEquals(pcgName1, res);
+        Assertions.assertEquals(pcgName1, res);
     }
 
     @Test
@@ -418,13 +418,13 @@ public class CloudSystemInfoServiceTest {
         infoService.addComputeGroup(pcgName3, pcg3);
 
         boolean res = infoService.isStandByComputeGroup(vcgName);
-        Assert.assertFalse(res);
+        Assertions.assertFalse(res);
         res = infoService.isStandByComputeGroup(pcgName1);
-        Assert.assertFalse(res);
+        Assertions.assertFalse(res);
         res = infoService.isStandByComputeGroup(pcgName2);
-        Assert.assertTrue(res);
+        Assertions.assertTrue(res);
         res = infoService.isStandByComputeGroup(pcgName3);
-        Assert.assertFalse(res);
+        Assertions.assertFalse(res);
     }
 
     // Test for getMinPipelineExecutorSize method
@@ -444,7 +444,7 @@ public class CloudSystemInfoServiceTest {
         try {
             // Since there are no backends in the cluster, should return 1
             int result = infoService.getMinPipelineExecutorSize(clusterName);
-            Assert.assertEquals(1, result);
+            Assertions.assertEquals(1, result);
         } finally {
             ConnectContext.remove();
         }
@@ -478,7 +478,7 @@ public class CloudSystemInfoServiceTest {
         try {
             // Should return the pipeline executor size of the single backend
             int result = infoService.getMinPipelineExecutorSize(clusterName);
-            Assert.assertEquals(8, result);
+            Assertions.assertEquals(8, result);
         } finally {
             ConnectContext.remove();
         }
@@ -529,7 +529,7 @@ public class CloudSystemInfoServiceTest {
         try {
             // Should return the minimum pipeline executor size (6)
             int result = infoService.getMinPipelineExecutorSize(clusterName);
-            Assert.assertEquals(6, result);
+            Assertions.assertEquals(6, result);
         } finally {
             ConnectContext.remove();
         }
@@ -580,7 +580,7 @@ public class CloudSystemInfoServiceTest {
         try {
             // Should return the minimum positive pipeline executor size (4)
             int result = infoService.getMinPipelineExecutorSize(clusterName);
-            Assert.assertEquals(4, result);
+            Assertions.assertEquals(4, result);
         } finally {
             ConnectContext.remove();
         }
@@ -624,7 +624,7 @@ public class CloudSystemInfoServiceTest {
             // Should return 1 when no valid pipeline executor sizes are
             // found
             int result = infoService.getMinPipelineExecutorSize(clusterName);
-            Assert.assertEquals(1, result);
+            Assertions.assertEquals(1, result);
         } finally {
             ConnectContext.remove();
         }
@@ -640,7 +640,7 @@ public class CloudSystemInfoServiceTest {
         try {
             // Should return 1 when no cluster is set in ConnectContext
             int result = infoService.getMinPipelineExecutorSize("");
-            Assert.assertEquals(1, result);
+            Assertions.assertEquals(1, result);
         } finally {
             ConnectContext.remove();
         }
@@ -703,7 +703,7 @@ public class CloudSystemInfoServiceTest {
         try {
             // Should return 8 (minimum valid size)
             int result = infoService.getMinPipelineExecutorSize(clusterName);
-            Assert.assertEquals(8, result);
+            Assertions.assertEquals(8, result);
         } finally {
             ConnectContext.remove();
         }
@@ -754,7 +754,7 @@ public class CloudSystemInfoServiceTest {
         try {
             // Should return 512 (minimum among large values)
             int result = infoService.getMinPipelineExecutorSize(clusterName);
-            Assert.assertEquals(512, result);
+            Assertions.assertEquals(512, result);
         } finally {
             ConnectContext.remove();
         }
@@ -790,7 +790,7 @@ public class CloudSystemInfoServiceTest {
         try {
             // Should return 32 (consistent across all backends)
             int result = infoService.getMinPipelineExecutorSize(clusterName);
-            Assert.assertEquals(32, result);
+            Assertions.assertEquals(32, result);
         } finally {
             ConnectContext.remove();
         }
@@ -861,7 +861,7 @@ public class CloudSystemInfoServiceTest {
         try {
             // Should return 8 (minimum from current cluster2), not 2 (global minimum from cluster1)
             int result = infoService.getMinPipelineExecutorSize(cluster2Name);
-            Assert.assertEquals(8, result);
+            Assertions.assertEquals(8, result);
         } finally {
             ConnectContext.remove();
         }
@@ -935,14 +935,14 @@ public class CloudSystemInfoServiceTest {
             // Should return 32 (minimum from virtual cluster's physical cluster), not 8
             // (from other cluster)
             int result = infoService.getMinPipelineExecutorSize(virtualClusterName);
-            Assert.assertEquals(32, result);
+            Assertions.assertEquals(32, result);
 
             // Switch to other cluster
             ctx.setCloudCluster(otherClusterName);
 
             // Should return 8 (from other cluster)
             result = infoService.getMinPipelineExecutorSize(otherClusterName);
-            Assert.assertEquals(8, result);
+            Assertions.assertEquals(8, result);
 
         } finally {
             // Clean up ConnectContext
@@ -960,7 +960,7 @@ public class CloudSystemInfoServiceTest {
         try {
             // Should return 1 because no cluster is set (will catch AnalysisException)
             int result = infoService.getMinPipelineExecutorSize("");
-            Assert.assertEquals(1, result);
+            Assertions.assertEquals(1, result);
 
         } finally {
             // Clean up ConnectContext
@@ -1033,14 +1033,14 @@ public class CloudSystemInfoServiceTest {
         try {
             // Should return 2 (minimum from cluster1), not 16 (minimum from cluster2)
             int result = infoService.getMinPipelineExecutorSize(cluster1Name);
-            Assert.assertEquals(2, result);
+            Assertions.assertEquals(2, result);
 
             // Now switch to cluster2
             ctx.setCloudCluster(cluster2Name);
 
             // Should return 16 (minimum from cluster2), not 2 (minimum from cluster1)
             result = infoService.getMinPipelineExecutorSize(cluster2Name);
-            Assert.assertEquals(16, result);
+            Assertions.assertEquals(16, result);
         } finally {
             // Clean up ConnectContext
             ConnectContext.remove();
@@ -1051,15 +1051,15 @@ public class CloudSystemInfoServiceTest {
     public void testContainsCloudCluster() {
         infoService = new CloudSystemInfoService();
         // Empty / null inputs short-circuit without touching the map.
-        Assert.assertFalse(infoService.containsCloudCluster(null));
-        Assert.assertFalse(infoService.containsCloudCluster(""));
+        Assertions.assertFalse(infoService.containsCloudCluster(null));
+        Assertions.assertFalse(infoService.containsCloudCluster(""));
         // Unknown cluster name -> false.
-        Assert.assertFalse(infoService.containsCloudCluster("absent_cluster"));
+        Assertions.assertFalse(infoService.containsCloudCluster("absent_cluster"));
         // Register a cluster; lookup must hit.
         infoService.addVirtualClusterInfoToMapsNoLock("cid_1", "cluster_1");
-        Assert.assertTrue(infoService.containsCloudCluster("cluster_1"));
+        Assertions.assertTrue(infoService.containsCloudCluster("cluster_1"));
         // Different name in same map -> still false.
-        Assert.assertFalse(infoService.containsCloudCluster("cluster_2"));
+        Assertions.assertFalse(infoService.containsCloudCluster("cluster_2"));
     }
 
     /**

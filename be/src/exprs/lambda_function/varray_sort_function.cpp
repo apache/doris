@@ -44,7 +44,7 @@
 
 namespace doris {
 
-using ConstColumnVariant =
+using ConstSortableColumn =
         std::variant<const ColumnUInt8*, const ColumnInt8*, const ColumnInt16*, const ColumnInt32*,
                      const ColumnInt64*, const ColumnInt128*, const ColumnFloat32*,
                      const ColumnFloat64*, const ColumnString*, const ColumnVarbinary*,
@@ -52,7 +52,7 @@ using ConstColumnVariant =
                      const ColumnDecimal32*, const ColumnDecimal64*, const ColumnDecimal128V2*,
                      const ColumnDecimal128V3*, const ColumnDecimal256*, const ColumnDate*,
                      const ColumnDateTime*, const ColumnDateV2*, const ColumnDateTimeV2*,
-                     const ColumnTimeV2*>;
+                     const ColumnTimeStampNs*, const ColumnTimeV2*>;
 
 template <typename T>
 struct is_column_vector : std::false_type {};
@@ -125,7 +125,7 @@ public:
                              ->get_primitive_type();
 
         // Get the actual type data based on PrimitiveType.
-        ConstColumnVariant src_data;
+        ConstSortableColumn src_data;
         RETURN_IF_ERROR(
                 get_data_from_type(pType, nested_nullable_column.get_nested_column(), src_data));
 
@@ -396,7 +396,7 @@ private:
         break;
 
     Status get_data_from_type(PrimitiveType pType, const IColumn& column,
-                              ConstColumnVariant& column_variant) const {
+                              ConstSortableColumn& column_variant) const {
         switch (pType) {
             DISPATCH_PRIMITIVE_TYPE(TYPE_BOOLEAN, ColumnUInt8)
             DISPATCH_PRIMITIVE_TYPE(TYPE_TINYINT, ColumnInt8)
@@ -422,6 +422,7 @@ private:
             DISPATCH_PRIMITIVE_TYPE(TYPE_DATETIME, ColumnDateTime)
             DISPATCH_PRIMITIVE_TYPE(TYPE_DATEV2, ColumnDateV2)
             DISPATCH_PRIMITIVE_TYPE(TYPE_DATETIMEV2, ColumnDateTimeV2)
+            DISPATCH_PRIMITIVE_TYPE(TYPE_TIMESTAMP_NS, ColumnTimeStampNs)
             DISPATCH_PRIMITIVE_TYPE(TYPE_TIMEV2, ColumnTimeV2)
         default:
             return Status::InternalError("Unsupported type in array_sort");

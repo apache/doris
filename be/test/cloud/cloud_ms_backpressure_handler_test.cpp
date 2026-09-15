@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "cloud/config.h"
+#include "util/time.h"
 
 namespace doris::cloud {
 
@@ -56,6 +57,28 @@ TEST_F(StrictQpsLimiterTest, UpdateQps) {
 
     limiter.update_qps(100.0);
     EXPECT_DOUBLE_EQ(limiter.get_qps(), 100.0);
+}
+
+TEST_F(StrictQpsLimiterTest, UpdateQpsCanResetReservations) {
+    StrictQpsLimiter limiter(1.0);
+
+    limiter.reserve();
+    auto queued = limiter.reserve();
+    EXPECT_GT(queued, std::chrono::steady_clock::now());
+
+    limiter.update_qps(2.0, true);
+    auto now = std::chrono::steady_clock::now();
+    auto first_after_reset = limiter.reserve();
+    auto reset_delay_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(first_after_reset - now).count();
+    EXPECT_LE(reset_delay_ms, 10);
+
+    auto second_after_reset = limiter.reserve();
+    auto interval_ms = std::chrono::duration_cast<std::chrono::milliseconds>(second_after_reset -
+                                                                             first_after_reset)
+                               .count();
+    EXPECT_GE(interval_ms, 490);
+    EXPECT_LE(interval_ms, 510);
 }
 
 TEST_F(StrictQpsLimiterTest, ZeroQpsDefaultsToOne) {
@@ -266,6 +289,56 @@ TEST_F(TableRpcQpsRegistryTest, GetTopKTablesInvalidRpcType) {
     EXPECT_TRUE(top_tables.empty());
 }
 
+TEST_F(TableRpcQpsRegistryTest, CleanupKeepsActiveCounters) {
+    TableRpcQpsRegistry registry(std::chrono::hours(1), std::chrono::minutes(1));
+    registry.record(LoadRelatedRpc::PREPARE_ROWSET, 100);
+
+    EXPECT_EQ(registry.cleanup_inactive_tables(), 0);
+    EXPECT_EQ(registry.get_tracked_table_count(LoadRelatedRpc::PREPARE_ROWSET), 1);
+}
+
+TEST_F(TableRpcQpsRegistryTest, CleanupRemovesInactiveCounters) {
+    TableRpcQpsRegistry registry(std::chrono::hours(1), std::chrono::milliseconds(0));
+    registry.record(LoadRelatedRpc::PREPARE_ROWSET, 100);
+    registry.record(LoadRelatedRpc::COMMIT_ROWSET, 200);
+
+    EXPECT_EQ(registry.cleanup_inactive_tables(), 2);
+    EXPECT_EQ(registry.get_tracked_table_count(LoadRelatedRpc::PREPARE_ROWSET), 0);
+    EXPECT_EQ(registry.get_tracked_table_count(LoadRelatedRpc::COMMIT_ROWSET), 0);
+}
+
+TEST_F(TableRpcQpsRegistryTest, CleanupThreadRunsIndependently) {
+    TableRpcQpsRegistry registry(std::chrono::milliseconds(10), std::chrono::milliseconds(50));
+    registry.record(LoadRelatedRpc::PREPARE_ROWSET, 100);
+    EXPECT_EQ(registry.get_tracked_table_count(LoadRelatedRpc::PREPARE_ROWSET), 1);
+
+    for (int i = 0;
+         i < 100 && registry.get_tracked_table_count(LoadRelatedRpc::PREPARE_ROWSET) != 0; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    EXPECT_EQ(registry.get_tracked_table_count(LoadRelatedRpc::PREPARE_ROWSET), 0);
+}
+
+TEST_F(TableRpcQpsRegistryTest, ConcurrentRecordAndCleanup) {
+    TableRpcQpsRegistry registry(std::chrono::hours(1), std::chrono::milliseconds(0));
+
+    std::thread recorder([&registry]() {
+        for (int i = 0; i < 10000; ++i) {
+            registry.record(LoadRelatedRpc::PREPARE_ROWSET, i % 100);
+        }
+    });
+    std::thread cleaner([&registry]() {
+        for (int i = 0; i < 1000; ++i) {
+            registry.cleanup_inactive_tables();
+        }
+    });
+    recorder.join();
+    cleaner.join();
+
+    registry.record(LoadRelatedRpc::PREPARE_ROWSET, 100);
+    EXPECT_GE(registry.get_tracked_table_count(LoadRelatedRpc::PREPARE_ROWSET), 1);
+}
+
 // ============== TableRpcThrottler Tests ==============
 
 class TableRpcThrottlerTest : public testing::Test {
@@ -324,6 +397,56 @@ TEST_F(TableRpcThrottlerTest, ThrottleWithLimit) {
     EXPECT_LE(diff_ms, 1100);
 }
 
+TEST_F(TableRpcThrottlerTest, DryRunReservationIsSharedWithActualLimiter) {
+    TableRpcThrottler throttler;
+    throttler.set_qps_limit(LoadRelatedRpc::UPDATE_DELETE_BITMAP, 300, 1.0);
+
+    auto dry_run_t1 = throttler.throttle(LoadRelatedRpc::UPDATE_DELETE_BITMAP, 300, true);
+    auto dry_run_t2 = throttler.throttle(LoadRelatedRpc::UPDATE_DELETE_BITMAP, 300, true);
+    auto dry_run_diff_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   dry_run_t2.wait_until - dry_run_t1.wait_until)
+                                   .count();
+    EXPECT_GE(dry_run_diff_ms, 900);
+    EXPECT_LE(dry_run_diff_ms, 1100);
+
+    auto actual_t1 = throttler.throttle(LoadRelatedRpc::UPDATE_DELETE_BITMAP, 300, false);
+    auto shared_diff_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                  actual_t1.wait_until - dry_run_t2.wait_until)
+                                  .count();
+    EXPECT_GE(shared_diff_ms, 900);
+    EXPECT_LE(shared_diff_ms, 1100);
+}
+
+TEST_F(TableRpcThrottlerTest, DowngradeResetsReservations) {
+    TableRpcThrottler throttler;
+    throttler.set_qps_limit(LoadRelatedRpc::UPDATE_DELETE_BITMAP, 300, 1.0);
+
+    throttler.throttle(LoadRelatedRpc::UPDATE_DELETE_BITMAP, 300, true);
+    auto queued = throttler.throttle(LoadRelatedRpc::UPDATE_DELETE_BITMAP, 300, true);
+    EXPECT_GT(queued.wait_until, std::chrono::steady_clock::now());
+
+    throttler.set_qps_limit(LoadRelatedRpc::UPDATE_DELETE_BITMAP, 300, 2.0, true);
+    auto now = std::chrono::steady_clock::now();
+    auto after_downgrade = throttler.throttle(LoadRelatedRpc::UPDATE_DELETE_BITMAP, 300, false);
+    auto reset_delay_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(after_downgrade.wait_until - now)
+                    .count();
+    EXPECT_LE(reset_delay_ms, 10);
+}
+
+TEST_F(TableRpcThrottlerTest, ThrottleLogIsRateLimitedPerRpc) {
+    TableRpcThrottler throttler;
+    constexpr int64_t first_log_time_us = 100;
+
+    EXPECT_TRUE(throttler.should_log(LoadRelatedRpc::PREPARE_ROWSET, first_log_time_us));
+    EXPECT_FALSE(throttler.should_log(LoadRelatedRpc::PREPARE_ROWSET,
+                                      first_log_time_us + MICROS_PER_SEC - 1));
+    EXPECT_TRUE(throttler.should_log(LoadRelatedRpc::COMMIT_ROWSET,
+                                     first_log_time_us + MICROS_PER_SEC - 1));
+    EXPECT_TRUE(throttler.should_log(LoadRelatedRpc::PREPARE_ROWSET,
+                                     first_log_time_us + MICROS_PER_SEC));
+}
+
 TEST_F(TableRpcThrottlerTest, ThrottledTableCount) {
     TableRpcThrottler throttler;
 
@@ -355,6 +478,8 @@ class MSBackpressureHandlerTest : public testing::Test {
 protected:
     void SetUp() override {
         _saved_enable = config::enable_ms_backpressure_handling;
+        _saved_dry_run = config::enable_ms_backpressure_handling_dry_run;
+        config::enable_ms_backpressure_handling_dry_run = false;
         _saved_upgrade_interval = config::ms_backpressure_upgrade_interval_ms;
         _saved_downgrade_interval = config::ms_backpressure_downgrade_interval_ms;
         _saved_top_k = config::ms_backpressure_upgrade_top_k;
@@ -364,6 +489,7 @@ protected:
 
     void TearDown() override {
         config::enable_ms_backpressure_handling = _saved_enable;
+        config::enable_ms_backpressure_handling_dry_run = _saved_dry_run;
         config::ms_backpressure_upgrade_interval_ms = _saved_upgrade_interval;
         config::ms_backpressure_downgrade_interval_ms = _saved_downgrade_interval;
         config::ms_backpressure_upgrade_top_k = _saved_top_k;
@@ -373,6 +499,7 @@ protected:
 
 private:
     bool _saved_enable;
+    bool _saved_dry_run;
     int32_t _saved_upgrade_interval;
     int32_t _saved_downgrade_interval;
     int32_t _saved_top_k;
@@ -380,8 +507,9 @@ private:
     double _saved_floor;
 };
 
-TEST_F(MSBackpressureHandlerTest, DisabledByDefault) {
+TEST_F(MSBackpressureHandlerTest, DisabledWhenActualAndDryRunAreOff) {
     config::enable_ms_backpressure_handling = false;
+    config::enable_ms_backpressure_handling_dry_run = false;
 
     TableRpcQpsRegistry registry;
     TableRpcThrottler throttler;
@@ -438,10 +566,12 @@ TEST_F(MSBackpressureHandlerTest, BeforeAndAfterRpc) {
 
     // before_rpc with no limit should return approximately now
     auto now = std::chrono::steady_clock::now();
-    auto wait_until = handler.before_rpc(LoadRelatedRpc::COMMIT_ROWSET, 12345);
+    auto decision = handler.before_rpc(LoadRelatedRpc::COMMIT_ROWSET, 12345);
 
-    auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(wait_until - now).count();
+    auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(decision.wait_until - now)
+                        .count();
     EXPECT_LE(diff, 10);
+    EXPECT_FALSE(decision.dry_run);
 
     // after_rpc should record the call (just verify it doesn't crash)
     handler.after_rpc(LoadRelatedRpc::COMMIT_ROWSET, 12345);
@@ -463,9 +593,39 @@ TEST_F(MSBackpressureHandlerTest, BeforeRpcWithThrottle) {
     // Second call should return a time ~1 second later
     auto t2 = handler.before_rpc(LoadRelatedRpc::UPDATE_DELETE_BITMAP, 500);
 
-    auto diff_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+    auto diff_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(t2.wait_until - t1.wait_until)
+                    .count();
     EXPECT_GE(diff_ms, 900);
     EXPECT_LE(diff_ms, 1100);
+    EXPECT_FALSE(t2.dry_run);
+    EXPECT_DOUBLE_EQ(t2.qps_limit, 1.0);
+}
+
+TEST_F(MSBackpressureHandlerTest, DryRunWorksWithoutActualEnforcement) {
+    config::enable_ms_backpressure_handling = false;
+    config::enable_ms_backpressure_handling_dry_run = true;
+    config::ms_backpressure_upgrade_interval_ms = 0;
+
+    TableRpcQpsRegistry registry;
+    TableRpcThrottler throttler;
+    MSBackpressureHandler handler(&registry, &throttler);
+
+    EXPECT_TRUE(handler.on_ms_busy());
+
+    throttler.set_qps_limit(LoadRelatedRpc::UPDATE_DELETE_BITMAP, 500, 1.0);
+    auto t1 = handler.before_rpc(LoadRelatedRpc::UPDATE_DELETE_BITMAP, 500);
+    auto t2 = handler.before_rpc(LoadRelatedRpc::UPDATE_DELETE_BITMAP, 500);
+
+    auto diff_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(t2.wait_until - t1.wait_until)
+                    .count();
+    EXPECT_GE(diff_ms, 900);
+    EXPECT_LE(diff_ms, 1100);
+    EXPECT_TRUE(t2.dry_run);
+    EXPECT_DOUBLE_EQ(t2.qps_limit, 1.0);
+
+    handler.after_rpc(LoadRelatedRpc::UPDATE_DELETE_BITMAP, 500);
 }
 
 TEST_F(MSBackpressureHandlerTest, SecondsSinceLastMsBusy) {

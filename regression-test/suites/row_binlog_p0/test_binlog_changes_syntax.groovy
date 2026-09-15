@@ -161,14 +161,30 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
             ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
 
-        //  - far-past start + far-future end: equivalent to full binlog.
+        //  - CURRENT_TSO_PHYSICAL_TIME converted to an INCR timestamp is accepted.
+        sleep(1200)
+        def currentTsoPhysicalTime = Long.parseLong(sql("""
+            SELECT CURRENT_TSO_PHYSICAL_TIME FROM information_schema.tso_status
+        """)[0][0].toString())
+        def currentTsoEnd = incrTimeFormat.format(new Date(currentTsoPhysicalTime))
         order_qt_dup_full_cover """
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${dupTable}@incr('startTimestamp' = '1971-01-01 00:00:00',
-                "endTimestamp" = "2999-01-01 00:00:00",
+                "endTimestamp" = "${currentTsoEnd}",
                 "incrementType" = "DETAIL")
             ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
+
+        //  - a future end cannot be closed safely and must be rejected.
+        test {
+            sql """
+                SELECT id, v1, __DORIS_BINLOG_OP__
+                FROM ${dupTable}@incr('startTimestamp' = '1971-01-01 00:00:00',
+                    "endTimestamp" = "2999-01-01 00:00:00",
+                    "incrementType" = "DETAIL")
+            """
+            exception "CURRENT_TSO_PHYSICAL_TIME="
+        }
 
         // 1.8 Cross-check against binlog() TVF — DETAIL with full window must
         //     return the same rowset as the underlying binlog TVF for a dup
@@ -394,14 +410,31 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
                 "incrementType" = "MIN_DELTA")
         """
 
-        // 2.9 Far-past + far-future window covers everything.
+        // 2.9 CURRENT_TSO_PHYSICAL_TIME converted to an INCR timestamp covers
+        //     all changes that were visible before it was captured.
+        sleep(1200)
+        def mowCurrentTsoPhysicalTime = Long.parseLong(sql("""
+            SELECT CURRENT_TSO_PHYSICAL_TIME FROM information_schema.tso_status
+        """)[0][0].toString())
+        def mowCurrentTsoEnd = incrTimeFormat.format(new Date(mowCurrentTsoPhysicalTime))
         order_qt_mow_full_cover """
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${mowTable}@incr('startTimestamp' = '1971-01-01 00:00:00',
-                "endTimestamp" = "2999-01-01 00:00:00",
+                "endTimestamp" = "${mowCurrentTsoEnd}",
                 "incrementType" = "DETAIL")
             ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
+
+        // A future end cannot be closed safely and must be rejected.
+        test {
+            sql """
+                SELECT id, v1, __DORIS_BINLOG_OP__
+                FROM ${mowTable}@incr('startTimestamp' = '1971-01-01 00:00:00',
+                    "endTimestamp" = "2999-01-01 00:00:00",
+                    "incrementType" = "DETAIL")
+            """
+            exception "endTimestamp exceeds the maximum supported time for an INCR read"
+        }
 
         // ============================================================
         // 3. MoW table with sequence column.

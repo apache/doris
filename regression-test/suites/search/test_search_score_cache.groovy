@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_search_score_cache", "p0") {
+    def variantV2Function = "parse_to_variant"
     def tableName = "search_score_cache_test"
 
     def assertPositiveScores = { result ->
@@ -42,6 +43,11 @@ suite("test_search_score_cache", "p0") {
             ORDER BY s DESC
         """)
     }
+
+    // Keep v.host materialized as an indexed scalar subcolumn so score() can collect BM25.
+    sql """ set default_variant_enable_doc_mode = false """
+    sql """ set default_variant_max_subcolumns_count = 0 """
+    sql """ set default_variant_doc_materialization_min_rows = 0 """
 
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
@@ -70,14 +76,14 @@ suite("test_search_score_cache", "p0") {
     """
 
     sql """INSERT INTO ${tableName} VALUES
-        (1, 1, 'apple apple apple banana cherry', 'red fruit sweet apple', '{"host":"apple banana server"}'),
-        (2, 1, 'apple apple banana date', 'fresh apple banana salad', '{"host":"apple server cluster"}'),
-        (3, 0, 'banana banana banana grape mango', 'yellow fruit tropical', '{"host":"banana server"}'),
-        (4, 1, 'apple grape kiwi', 'green fruit fresh apple', '{"host":"green green apple server"}'),
-        (5, 0, 'mango pineapple coconut', 'tropical fruit exotic', '{"host":"mango server"}'),
-        (6, 1, 'apple cherry plum apricot fig', 'mixed fruit apple salad', '{"host":"apple cherry node"}'),
-        (7, 0, 'banana banana coconut papaya', 'smoothie blend tropical', '{"host":"banana coconut node"}'),
-        (8, 1, 'grape cherry apple apple apple apple', 'wine fruit tart apple', '{"host":"grape apple node"}')
+        (1, 1, 'apple apple apple banana cherry', 'red fruit sweet apple', ${variantV2Function}('{"host":"apple banana server"}')),
+        (2, 1, 'apple apple banana date', 'fresh apple banana salad', ${variantV2Function}('{"host":"apple server cluster"}')),
+        (3, 0, 'banana banana banana grape mango', 'yellow fruit tropical', ${variantV2Function}('{"host":"banana server"}')),
+        (4, 1, 'apple grape kiwi', 'green fruit fresh apple', ${variantV2Function}('{"host":"green green apple server"}')),
+        (5, 0, 'mango pineapple coconut', 'tropical fruit exotic', ${variantV2Function}('{"host":"mango server"}')),
+        (6, 1, 'apple cherry plum apricot fig', 'mixed fruit apple salad', ${variantV2Function}('{"host":"apple cherry node"}')),
+        (7, 0, 'banana banana coconut papaya', 'smoothie blend tropical', ${variantV2Function}('{"host":"banana coconut node"}')),
+        (8, 1, 'grape cherry apple apple apple apple', 'wine fruit tart apple', ${variantV2Function}('{"host":"grape apple node"}'))
     """
     sql "sync"
 

@@ -73,9 +73,8 @@
  * appears on non-provider interfaces ({@code ConnectorPushdownOps}, {@code ConnectorSchemaOps},
  * {@code ConnectorTableOps}); those are per-operation switches on the interface that owns the operation,
  * which is consistent with layer 2, but there is no provider object to attach them to. (c) Per-table
- * refinement of {@link ConnectorCapability} is honored for only five of the thirteen constants today, and
- * each constant's own javadoc states its scope (catalog-only, or catalog &cup; per-table) and why; do not
- * assume a newly added constant can be refined per table.</p>
+ * refinement of {@link ConnectorCapability} is honored only for constants whose own javadoc explicitly
+ * declares catalog &cup; per-table scope; do not assume a newly added constant can be refined per table.</p>
  *
  * <h2>Rule 2 — which exception to throw, and when to fail loud</h2>
  *

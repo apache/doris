@@ -27,8 +27,10 @@ under the License.
         <relativePath>../pom.xml</relativePath>
     </parent>
     <properties>
-        <doris.thrift.executable>${project.parent.basedir}/../thirdparty/installed/bin/thrift</doris.thrift.executable>
-        <doris.thrift.source>${project.parent.basedir}/../gensrc/thrift</doris.thrift.source>
+        <!-- project.basedir (not project.parent.basedir): the latter is not interpolated
+             at model-build time, so its raw value would leak into the antrun check below. -->
+        <doris.thrift.executable>${project.basedir}/../../thirdparty/installed/bin/thrift</doris.thrift.executable>
+        <doris.thrift.source>${project.basedir}/../../gensrc/thrift</doris.thrift.source>
     </properties>
     <profiles>
         <profile>
@@ -83,11 +85,41 @@ under the License.
         <directory>${project.basedir}/target/</directory>
         <plugins>
             <plugin>
+                <!-- Generated code only compiles against the matching libthrift; fail fast
+                     with a clear message instead of hundreds of generic-arity errors. -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>check-thrift-compiler-version</id>
+                        <phase>initialize</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <exec executable="${doris.thrift.executable}" outputproperty="thrift.compiler.version" failonerror="true">
+                                    <arg value="--version"/>
+                                </exec>
+                                <fail message="thrift compiler '${doris.thrift.executable}' reports '${thrift.compiler.version}' but libthrift is ${thrift.version}. Rebuild thirdparty, or point doris.thrift.executable / DORIS_THIRDPARTY at a thrift ${thrift.version} binary.">
+                                    <condition>
+                                        <not>
+                                            <contains string="${thrift.compiler.version}" substring="${thrift.version}"/>
+                                        </not>
+                                    </condition>
+                                </fail>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
                 <groupId>org.apache.thrift</groupId>
                 <artifactId>thrift-maven-plugin</artifactId>
                 <version>0.10.0</version>
                 <configuration>
-                    <generator>java:fullcamel</generator>
+                    <generator>java:fullcamel,generated_annotations=suppress</generator>
                     <thriftExecutable>${doris.thrift.executable}</thriftExecutable>
                     <thriftSourceRoot>${doris.thrift.source}</thriftSourceRoot>
                 </configuration>

@@ -123,4 +123,23 @@ suite("test_nereids_row_policy") {
     dropPolciy "policy1"
     dropPolciy "policy2"
     dropPolciy "policy3"
+
+    // A payload that is not a predicate is refused where it is written, not on every query it would have
+    // governed. Stored, USING (1) reaches the filter as cast(1 as boolean) - a filter that admits every row
+    // for a RESTRICTIVE policy, or fails the statement outright - and the account that could fix it is the
+    // one typing this.
+    test {
+        sql """
+            CREATE ROW POLICY policy_not_a_predicate ON ${dbName}.${tableName}
+            AS RESTRICTIVE TO ${user} USING (1)
+        """
+        exception "has to be a boolean expression"
+    }
+    assertTrue(sql("SHOW ROW POLICY FOR ${user}").every { it[0] != 'policy_not_a_predicate' },
+            "a row policy whose predicate is not a predicate was stored anyway")
+
+    // The branches of a CASE are read one by one rather than the first one standing for all of them, so this
+    // and the same expression with its branches swapped are both accepted.
+    createPolicy "policy_case", "CASE WHEN v = 1 THEN NULL ELSE k = 1 END", "PERMISSIVE"
+    dropPolciy "policy_case"
 }

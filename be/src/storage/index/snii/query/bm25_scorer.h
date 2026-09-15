@@ -70,13 +70,6 @@ public:
     // the doc's 1-byte length norm, avgdl the collection average length.
     double score(double tf, uint8_t encoded_norm, double avgdl, const Bm25Params& params) const;
 
-    // Upper bound on score() over any document, given a window's maximum tf and the
-    // shortest doc length in the window (smallest dl maximizes the score). Used by
-    // the WAND-style block-max pruner. max_freq is the window's max tf; min_norm is
-    // the smallest encoded norm (=> smallest dl => largest score).
-    double max_score(uint32_t max_freq, uint8_t min_norm, double avgdl,
-                     const Bm25Params& params) const;
-
 private:
     double idf_ = 0.0;
     uint64_t df_ = 0;
