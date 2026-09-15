@@ -19,6 +19,7 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
@@ -96,6 +97,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 /**
  * Tests for {@link PaimonScanPlanProvider#resolveTable}, pinning the transient-Table reload
@@ -113,6 +116,12 @@ public class PaimonScanPlanProviderTest {
 
     private static final String PAIMON_FILE_PATH_COL = "__paimon_file_path";
     private static final String PAIMON_ROW_POSITION_COL = "__paimon_row_index";
+
+    @Test
+    public void scanReuseNamespaceUsesConnectorType() {
+        String prefix = new PaimonConnectorProvider().getType() + ".";
+        Assertions.assertTrue(PaimonScanPlanProvider.SCAN_REUSE_NAMESPACE.startsWith(prefix));
+    }
 
     private static RowType rowType(String... columnNames) {
         RowType.Builder builder = RowType.builder();
@@ -289,11 +298,22 @@ public class PaimonScanPlanProviderTest {
             PaimonTableHandle handle = new PaimonTableHandle(
                     "db", "t", Collections.emptyList(), Collections.emptyList());
 
-            List<ConnectorScanRange> ranges = provider.planScan(sessionWithProps(Collections.emptyMap()),
-                    ConnectorScanRequest.builder(handle, Collections.emptyList())
-                    .build());
+            ConnectorSession session = sessionWithProps(
+                    Collections.singletonMap("enable_external_scan_task_reuse", "true"),
+                    new TestStatementScope());
+            ConnectorScanRequest firstRequest = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                    .filter(Optional.of(equalIdFilter(1)))
+                    .build();
+            ConnectorScanRequest secondRequest = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                    .filter(Optional.of(equalIdFilter(1)))
+                    .build();
+            Assertions.assertNotSame(firstRequest.getFilter().get(), secondRequest.getFilter().get());
+            List<ConnectorScanRange> ranges = provider.planScan(session, firstRequest);
+            List<ConnectorScanRange> reused = provider.planScan(session, secondRequest);
 
             Assertions.assertFalse(ranges.isEmpty(), "one committed row must plan at least one split");
+            Assertions.assertSame(ranges, reused,
+                    "independently built but structurally equal filters must share one statement plan");
             Assertions.assertEquals(2, ctx.authCount,
                     "planScan must run BOTH the table load (resolveTable) AND the split enumeration "
                             + "(scan.plan(), the remote manifest read) inside executeAuthenticated");
@@ -330,7 +350,7 @@ public class PaimonScanPlanProviderTest {
                     PaimonCatalogProperties.of(Collections.emptyMap()), ops);
             PaimonTableHandle handle = new PaimonTableHandle(
                     "db", "limited", Collections.emptyList(), Collections.emptyList());
-            ConnectorSession session = sessionWithProps(Collections.emptyMap());
+            ConnectorSession session = sessionWithProps(Collections.emptyMap(), new TestStatementScope());
 
             List<ConnectorScanRange> unlimited = provider.planScan(session,
                     ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
@@ -668,6 +688,12 @@ public class PaimonScanPlanProviderTest {
             Assertions.assertEquals(unlimited.size(), limited.size(),
                     "the SnapshotReader path has no safe limit API and must retain its full plan");
         }
+    }
+
+    private static ConnectorExpression equalIdFilter(long value) {
+        return new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("id", ConnectorType.of("INT")),
+                new ConnectorLiteral(ConnectorType.of("INT"), value));
     }
 
     /** Builds a native-eligible RawFile (parquet suffix). The numeric fields are irrelevant to the
@@ -2389,7 +2415,17 @@ public class PaimonScanPlanProviderTest {
     }
 
     private static ConnectorSession sessionWithProps(Map<String, String> sessionProps) {
+        return sessionWithProps(sessionProps, ConnectorStatementScope.NONE);
+    }
+
+    private static ConnectorSession sessionWithProps(
+            Map<String, String> sessionProps, ConnectorStatementScope statementScope) {
         return new ConnectorSession() {
+            @Override
+            public ConnectorStatementScope getStatementScope() {
+                return statementScope;
+            }
+
             @Override
             public String getQueryId() {
                 return "q";
@@ -2437,6 +2473,16 @@ public class PaimonScanPlanProviderTest {
         };
     }
 
+    private static final class TestStatementScope implements ConnectorStatementScope {
+        private final ConcurrentHashMap<String, Object> cache = new ConcurrentHashMap<>();
+
+        @Override
+        @SuppressWarnings("unchecked")
+        public <T> T computeIfAbsent(String key, Supplier<T> loader) {
+            return (T) cache.computeIfAbsent(key, ignored -> loader.get());
+        }
+    }
+
     @Test
     public void isForceJniScannerEnabledReadsSessionProperty() {
         // FIX-FORCE-JNI-SCANNER (M-1): pins the EXACT session key ("force_jni_scanner", byte-identical to
@@ -2462,6 +2508,16 @@ public class PaimonScanPlanProviderTest {
         Assertions.assertTrue(PaimonScanPlanProvider.isFileScannerV2Enabled(
                 sessionWithProps(Collections.emptyMap())));
         Assertions.assertTrue(PaimonScanPlanProvider.isFileScannerV2Enabled(null));
+    }
+
+    @Test
+    public void disabledScanReuseDoesNotDisableSplitTypeFiltering() {
+        Map<String, String> sessionProperties = new HashMap<>();
+        sessionProperties.put("enable_external_scan_task_reuse", "false");
+        sessionProperties.put("ignore_split_type", "IGNORE_NATIVE");
+
+        Assertions.assertEquals("IGNORE_NATIVE", PaimonScanPlanProvider.resolveIgnoreSplitType(
+                sessionWithProps(sessionProperties)));
     }
 
     // ---------------------------------------------------------------------
