@@ -1513,7 +1513,8 @@ start_fluss() {
         return 0
     fi
 
-    # Fluss 1.0 is unreleased: both images are built from a local checkout.
+    # Fluss 1.0 is unreleased: both images are built from the snapshot artifacts
+    # the fluss project deploys to the apache maven snapshots repository.
     FLUSS_DOCKER_REUSE_IMAGES="${FLUSS_DOCKER_REUSE_IMAGES:-1}" \
         bash "${fluss_dir}/build-images.sh"
 
