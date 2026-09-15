@@ -369,6 +369,16 @@ struct SqrtName {
 using FunctionSqrt =
         FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<SqrtName, std::sqrt>>;
 
+struct GammaName {
+    static constexpr auto name = "gamma";
+    // https://dev.mysql.com/doc/refman/8.4/en/mathematical-functions.html#function_gamma
+    static constexpr bool is_invalid_input(Float64 x) {
+        return x == 0.0 || (x < 0.0 && x == std::floor(x));
+    }
+};
+using FunctionGamma =
+        FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<GammaName, std::tgamma>>;
+
 struct CbrtName {
     static constexpr auto name = "cbrt";
 };
@@ -962,6 +972,7 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSqrt>();
     factory.register_alias("sqrt", "dsqrt");
     factory.register_function<FunctionCbrt>();
+    factory.register_function<FunctionGamma>();
     factory.register_function<FunctionTan>();
     factory.register_function<FunctionTanh>();
     factory.register_function<FunctionCot>();
