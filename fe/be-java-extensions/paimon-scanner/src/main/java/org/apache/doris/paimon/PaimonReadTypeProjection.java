@@ -17,8 +17,8 @@
 
 package org.apache.doris.paimon;
 
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.NestedProjection;
+import org.apache.doris.jni.spi.vec.ColumnType;
+import org.apache.doris.jni.toolkit.vec.NestedProjection;
 
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;

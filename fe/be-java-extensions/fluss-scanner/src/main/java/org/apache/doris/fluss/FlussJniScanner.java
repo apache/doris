@@ -17,10 +17,10 @@
 
 package org.apache.doris.fluss;
 
-import org.apache.doris.common.jni.JniScanner;
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.JniSchemaParams;
-import org.apache.doris.common.jni.vec.NestedProjection;
+import org.apache.doris.jni.spi.JniScanner;
+import org.apache.doris.jni.spi.vec.ColumnType;
+import org.apache.doris.jni.toolkit.vec.JniSchemaParams;
+import org.apache.doris.jni.toolkit.vec.NestedProjection;
 
 import org.apache.fluss.client.Connection;
 import org.apache.fluss.client.ConnectionFactory;
@@ -101,7 +101,6 @@ public class FlussJniScanner extends JniScanner {
     private static final Duration POLL_TIMEOUT = Duration.ofSeconds(1);
 
     private final Map<String, String> params;
-    private final ClassLoader classLoader;
     private final FlussColumnValue columnValue;
 
     private final String rangeType;
@@ -137,7 +136,6 @@ public class FlussJniScanner extends JniScanner {
 
     public FlussJniScanner(int batchSize, Map<String, String> params) {
         this.params = params;
-        this.classLoader = this.getClass().getClassLoader();
 
         this.rangeType = required(RANGE_TYPE);
         if (!RANGE_TYPE_LOG.equals(rangeType) && !RANGE_TYPE_PK_FULL.equals(rangeType)
@@ -190,12 +188,11 @@ public class FlussJniScanner extends JniScanner {
     }
 
     @Override
-    public void open() throws IOException {
-        ClassLoader callerLoader = Thread.currentThread().getContextClassLoader();
+    protected void openInternal() throws IOException {
         // The fluss client spawns its own threads (netty IO, metadata updater) while connecting, and a
         // thread inherits the context classloader of whoever created it. Started under BE's loader they
-        // would not see fluss at all.
-        Thread.currentThread().setContextClassLoader(classLoader);
+        // would not see fluss at all - which is why JniScanner.open() installs this plugin's loader as
+        // the context classloader around this call and restores the caller's on the way out.
         try {
             connection = ConnectionFactory.createConnection(clientConfig());
             table = connection.getTable(TablePath.of(required(DB_NAME), required(TABLE_NAME)));
@@ -220,15 +217,13 @@ public class FlussJniScanner extends JniScanner {
             scanner = createScanner(tableBucket, projection);
         } catch (Throwable e) {
             try {
-                close();
+                closeInternal();
             } catch (IOException closeFailure) {
                 e.addSuppressed(closeFailure);
             }
             throw new IOException("Failed to open the fluss scanner for "
                     + params.get(DB_NAME) + "." + params.get(TABLE_NAME)
                     + " bucket " + params.get(BUCKET_ID), e);
-        } finally {
-            Thread.currentThread().setContextClassLoader(callerLoader);
         }
     }
 
@@ -341,7 +336,7 @@ public class FlussJniScanner extends JniScanner {
     }
 
     @Override
-    public void close() throws IOException {
+    protected void closeInternal() throws IOException {
         IOException failure = null;
         // Close everything even if an earlier close throws: a leaked fluss connection keeps its netty
         // and metadata-updater threads alive for the life of the BE process.
@@ -376,7 +371,7 @@ public class FlussJniScanner extends JniScanner {
     }
 
     @Override
-    public Map<String, String> getStatistics() {
+    protected Map<String, String> collectStatistics() {
         Map<String, String> statistics = new HashMap<>();
         statistics.put("counter:FlussJniRowsRead", String.valueOf(rowsRead));
         statistics.put("gauge:FlussJniRequiredFieldCount", String.valueOf(fields.length));
