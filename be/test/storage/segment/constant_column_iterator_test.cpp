@@ -97,6 +97,16 @@ TEST_F(ConstantColumnIteratorTest, MatchConditionUsesConstantZoneMap) {
     EXPECT_FALSE(matched);
 }
 
+// A constant reader has no physical index to open, so index-iterator creation is a no-op rather
+// than an attempt to load one from state this reader never initializes.
+TEST_F(ConstantColumnIteratorTest, NewIndexIteratorIsANoOp) {
+    ConstantColumnReader reader(Field::create_field<TYPE_BIGINT>(int64_t {7}));
+    std::unique_ptr<IndexIterator> iter;
+    auto st = reader.new_index_iterator(nullptr, nullptr, "", 0, 0, &iter);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(iter, nullptr);
+}
+
 // next_batch fills every row with the constant value, advances the ordinal,
 // and reports has_null = false for a non-null value.
 TEST_F(ConstantColumnIteratorTest, NextBatchFillsConstant) {

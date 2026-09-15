@@ -175,10 +175,10 @@ public:
     Status new_map_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
     Status new_agg_state_iterator(ColumnIteratorUPtr* iterator);
 
-    Status new_index_iterator(const std::shared_ptr<IndexFileReader>& index_file_reader,
-                              const TabletIndex* index_meta, const std::string& rowset_id,
-                              uint32_t segment_id, size_t rows_of_segment,
-                              std::unique_ptr<IndexIterator>* iterator);
+    virtual Status new_index_iterator(const std::shared_ptr<IndexFileReader>& index_file_reader,
+                                      const TabletIndex* index_meta, const std::string& rowset_id,
+                                      uint32_t segment_id, size_t rows_of_segment,
+                                      std::unique_ptr<IndexIterator>* iterator);
 
     Status seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter,
                              const ColumnIteratorOptions& iter_opts);
@@ -1102,6 +1102,18 @@ public:
     }
 
     Status get_segment_zone_map(segment_v2::ZoneMap* zone_map) const override;
+
+    // This reader serves a value the caller supplied, so the on-disk index for the column describes
+    // something else: for a placeholder column it indexes the placeholder. Leaving the iterator
+    // unset makes the caller fall back to reading through this reader, the same as the path that
+    // finds no reader at all. The base implementation would also run on physical state this class
+    // never initializes.
+    Status new_index_iterator(const std::shared_ptr<IndexFileReader>& /*index_file_reader*/,
+                              const TabletIndex* /*index_meta*/, const std::string& /*rowset_id*/,
+                              uint32_t /*segment_id*/, size_t /*rows_of_segment*/,
+                              std::unique_ptr<IndexIterator>* /*iterator*/) override {
+        return Status::OK();
+    }
 
 private:
     Field _value;
