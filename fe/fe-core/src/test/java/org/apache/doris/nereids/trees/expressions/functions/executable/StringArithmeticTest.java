@@ -95,8 +95,27 @@ class StringArithmeticTest {
         assertUrlDecodeValue("%EF%BF%BD", "�");
     }
 
+    @Test
+    void testParseUrlCommonBoundaries() {
+        assertParseUrlValue("http://[2001:db8::1]:8080/a?x=1#r", "HOST", "[2001:db8::1]");
+        assertParseUrlValue("http://[2001:db8::1]:8080/a?x=1#r", "PORT", "8080");
+        assertParseUrlValue("http://example.com/path/user@evil:123/file", "HOST", "example.com");
+        assertParseUrlValue("http://example.com/index.html?u=a@evil:123", "HOST", "example.com");
+        assertParseUrlValue("http://h?x=1", "AUTHORITY", "h");
+        assertParseUrlValue("http://h/p#f?q", "PATH", "/p");
+        assertParseUrlValue("http://h?x=/not-a-path", "PATH", "");
+        assertParseUrlValue("http://h#f/not-a-file", "FILE", "");
+        Assertions.assertTrue(StringArithmetic.parseurl(
+                new StringLiteral("http://h/p#f?q"), new StringLiteral("QUERY")).isNullLiteral());
+    }
+
     private void assertUrlDecodeValue(String encoded, String expected) {
         Expression result = ExpressionEvaluator.INSTANCE.eval(new UrlDecode(new StringLiteral(encoded)));
+        Assertions.assertEquals(expected, ((StringLikeLiteral) result).getValue());
+    }
+
+    private void assertParseUrlValue(String url, String part, String expected) {
+        Expression result = StringArithmetic.parseurl(new StringLiteral(url), new StringLiteral(part));
         Assertions.assertEquals(expected, ((StringLikeLiteral) result).getValue());
     }
 }

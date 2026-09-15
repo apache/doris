@@ -992,17 +992,32 @@ public class StringArithmetic {
         return Math.min(firstIndex, secondIndex);
     }
 
+    private static int firstIndexOf(String value, char first, char second, char third) {
+        return firstIndexOf(value, firstIndexOf(value, first, second), third);
+    }
+
+    private static int firstIndexOf(String value, int firstIndex, char second) {
+        int secondIndex = value.indexOf(second);
+        if (firstIndex < 0) {
+            return secondIndex;
+        }
+        if (secondIndex < 0) {
+            return firstIndex;
+        }
+        return Math.min(firstIndex, secondIndex);
+    }
+
     private static String substringEnd(String value, int end) {
         return end < 0 ? value : value.substring(0, end);
     }
 
     private static String parseUrlAuthority(String protocolEnd) {
-        return substringEnd(protocolEnd, protocolEnd.indexOf('/'));
+        return substringEnd(protocolEnd, firstIndexOf(protocolEnd, '/', '?', '#'));
     }
 
     private static String parseUrlPath(String protocolEnd) {
-        int startPos = protocolEnd.indexOf('/');
-        if (startPos < 0) {
+        int startPos = firstIndexOf(protocolEnd, '/', '?', '#');
+        if (startPos < 0 || protocolEnd.charAt(startPos) != '/') {
             return "";
         }
         String pathStart = protocolEnd.substring(startPos);
@@ -1010,8 +1025,8 @@ public class StringArithmetic {
     }
 
     private static String parseUrlFile(String protocolEnd) {
-        int startPos = protocolEnd.indexOf('/');
-        if (startPos < 0) {
+        int startPos = firstIndexOf(protocolEnd, '/', '?', '#');
+        if (startPos < 0 || protocolEnd.charAt(startPos) != '/') {
             return "";
         }
         String pathStart = protocolEnd.substring(startPos);
@@ -1019,23 +1034,28 @@ public class StringArithmetic {
     }
 
     private static String parseUrlHost(String protocolEnd) {
-        int startPos = protocolEnd.indexOf('@');
+        int authorityEnd = firstIndexOf(protocolEnd, '/', '?', '#');
+        String authority = substringEnd(protocolEnd, authorityEnd);
+        int startPos = authority.lastIndexOf('@');
         startPos = startPos < 0 ? 0 : startPos + 1;
-        String hostStart = protocolEnd.substring(startPos);
-        int queryStartPos = hostStart.indexOf('?');
-        if (queryStartPos > 0) {
-            hostStart = hostStart.substring(0, queryStartPos);
-        }
-        int endPos = hostStart.indexOf(':');
-        if (endPos < 0) {
-            endPos = hostStart.indexOf('/');
+        String hostStart = authority.substring(startPos);
+        int endPos;
+        if (hostStart.startsWith("[")) {
+            int closeBracket = hostStart.indexOf(']');
+            endPos = closeBracket < 0 ? hostStart.length() : closeBracket + 1;
+        } else {
+            endPos = hostStart.indexOf(':');
+            if (endPos < 0) {
+                endPos = hostStart.length();
+            }
         }
         return substringEnd(hostStart, endPos);
     }
 
     private static String parseUrlQuery(String protocolEnd) {
         int startPos = protocolEnd.indexOf('?');
-        if (startPos < 0) {
+        int hashPos = protocolEnd.indexOf('#');
+        if (startPos < 0 || (hashPos >= 0 && hashPos < startPos)) {
             return null;
         }
         String queryStart = protocolEnd.substring(startPos + 1);
@@ -1051,27 +1071,31 @@ public class StringArithmetic {
     }
 
     private static String parseUrlUserInfo(String protocolEnd) {
-        int endPos = protocolEnd.indexOf('@');
+        int authorityEnd = firstIndexOf(protocolEnd, '/', '?', '#');
+        String authority = substringEnd(protocolEnd, authorityEnd);
+        int endPos = authority.lastIndexOf('@');
         if (endPos < 0) {
             return null;
         }
-        return protocolEnd.substring(0, endPos);
+        return authority.substring(0, endPos);
     }
 
     private static String parseUrlPort(String protocolEnd) {
-        int startPos = protocolEnd.indexOf('@');
-        startPos = startPos < 0 ? 0 : startPos + 1;
-        String hostStart = protocolEnd.substring(startPos);
-        int endPos = hostStart.indexOf(':');
+        int authorityEnd = firstIndexOf(protocolEnd, '/', '?', '#');
+        String authority = substringEnd(protocolEnd, authorityEnd);
+        int userinfoEnd = authority.lastIndexOf('@');
+        String hostStart = authority.substring(userinfoEnd < 0 ? 0 : userinfoEnd + 1);
+        int endPos = hostStart.startsWith("[") ? hostStart.indexOf(']') : hostStart.indexOf(':');
         if (endPos < 0) {
             return null;
         }
-        String portStart = hostStart.substring(endPos + 1);
-        int portEndPos = portStart.indexOf('/');
-        if (portEndPos < 0) {
-            portEndPos = portStart.indexOf('?');
+        if (hostStart.startsWith("[")) {
+            if (endPos + 1 >= hostStart.length() || hostStart.charAt(endPos + 1) != ':') {
+                return null;
+            }
+            endPos++;
         }
-        return substringEnd(portStart, portEndPos);
+        return hostStart.substring(endPos + 1);
     }
 
     /**
