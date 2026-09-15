@@ -426,19 +426,19 @@ void CloudTabletMgr::sync_tablets(const CountDownLatch& stop_latch) {
             continue;
         }
         const bool needs_rowsets = tablet->last_sync_rowsets_time_s <= stale_before;
-        Work work {.tablet = weak_tablet,
-                   // Pulling rowsets implies pulling the tablet meta: the rowsets we are about
-                   // to take are only as trustworthy as the meta they belong to, and this is
-                   // the relationship the previous single pass had.
-                   .needs_meta = needs_rowsets ||
-                                 tablet->last_sync_tablet_meta_time_s <= stale_before,
-                   .needs_rowsets = needs_rowsets};
+        Work work {
+                .tablet = weak_tablet,
+                // Pulling rowsets implies pulling the tablet meta: the rowsets we are about
+                // to take are only as trustworthy as the meta they belong to, and this is
+                // the relationship the previous single pass had.
+                .needs_meta = needs_rowsets || tablet->last_sync_tablet_meta_time_s <= stale_before,
+                .needs_rowsets = needs_rowsets};
         if (!work.needs_meta && !work.needs_rowsets) {
             continue;
         }
-        due.emplace(std::min(tablet->last_sync_tablet_meta_time_s,
-                             tablet->last_sync_rowsets_time_s),
-                    std::move(work));
+        due.emplace(
+                std::min(tablet->last_sync_tablet_meta_time_s, tablet->last_sync_rowsets_time_s),
+                std::move(work));
     }
 
     int num_sync = 0;

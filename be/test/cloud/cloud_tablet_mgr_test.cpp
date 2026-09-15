@@ -215,7 +215,6 @@ TEST_F(CloudTabletMgrTest, TestGetTabletIfCachedOnlyReturnsCachedTablet) {
     sp->clear_all_call_backs();
 }
 
-
 // A tablet under continuous ingest keeps last_sync_rowsets_time_s permanently fresh, because every
 // rowset sync advances it. Selecting meta work by that same clock meant such a tablet never had
 // sync_meta() called on it at all, so it kept serving the tablet properties -- the file cache
