@@ -42,6 +42,7 @@ public:
     // Output columns, in the order the FE schema declares them.
     enum class Column : uint8_t {
         kPartitionName,
+        kMaterializedIndexName,
         kTabletId,
         kBackendId,
         kRowsetId,

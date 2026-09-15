@@ -22,6 +22,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
@@ -32,6 +34,7 @@ import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.tvf.source.IndexDiskUsageScanNode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -81,6 +84,7 @@ public class IndexDiskUsageTableValuedFunction extends MetadataTableValuedFuncti
 
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
             varcharColumn("PARTITION_NAME"),
+            varcharColumn("MATERIALIZED_INDEX_NAME"),
             bigintColumn("TABLET_ID"),
             bigintColumn("BACKEND_ID"),
             varcharColumn("ROWSET_ID"),
@@ -103,17 +107,23 @@ public class IndexDiskUsageTableValuedFunction extends MetadataTableValuedFuncti
             varcharColumn("STATS_SOURCE"));
 
     /**
-     * A base index tablet to inspect, pinned to the visible version of its partition.
+     * A tablet of a base or rollup index to inspect, pinned to the visible version of its partition.
      */
     public static class TabletTarget {
         private final Tablet tablet;
         private final long partitionId;
+        private final long materializedIndexId;
         private final long version;
 
-        public TabletTarget(Tablet tablet, long partitionId, long version) {
+        public TabletTarget(Tablet tablet, long partitionId, long materializedIndexId, long version) {
             this.tablet = tablet;
             this.partitionId = partitionId;
+            this.materializedIndexId = materializedIndexId;
             this.version = version;
+        }
+
+        public long getMaterializedIndexId() {
+            return materializedIndexId;
         }
 
         public Tablet getTablet() {
@@ -136,6 +146,7 @@ public class IndexDiskUsageTableValuedFunction extends MetadataTableValuedFuncti
             TIndexDiskUsageTablet target = new TIndexDiskUsageTablet();
             target.setTabletId(getTabletId());
             target.setPartitionId(partitionId);
+            target.setMaterializedIndexId(materializedIndexId);
             target.setVersion(version);
             return target;
         }
@@ -145,6 +156,7 @@ public class IndexDiskUsageTableValuedFunction extends MetadataTableValuedFuncti
     private final boolean positionDetail;
     private final List<Long> indexIds;
     private final Map<Long, String> partitionNames;
+    private final Map<Long, String> materializedIndexNames;
     private final List<TabletTarget> tabletTargets;
 
     public IndexDiskUsageTableValuedFunction(Map<String, String> params) throws AnalysisException {
@@ -170,14 +182,21 @@ public class IndexDiskUsageTableValuedFunction extends MetadataTableValuedFuncti
         List<Long> resolvedIndexIds;
         List<Partition> partitions;
         Map<Long, String> resolvedPartitionNames = Maps.newLinkedHashMap();
-        Map<Long, List<Tablet>> tabletsByPartition = Maps.newHashMap();
+        Map<Long, String> resolvedMaterializedIndexNames = Maps.newLinkedHashMap();
+        Map<Long, List<Pair<Long, List<Tablet>>>> tabletsByPartition = Maps.newHashMap();
         table.readLock();
         try {
             resolvedIndexIds = resolveIndexIds(table, validParams.get(INDEXES), qualifiedName);
             partitions = resolvePartitions(table, validParams.get(PARTITIONS), qualifiedName);
             for (Partition partition : partitions) {
                 resolvedPartitionNames.put(partition.getId(), partition.getName());
-                tabletsByPartition.put(partition.getId(), Lists.newArrayList(partition.getBaseIndex().getTablets()));
+                // A light ADD INDEX also installs indexes on rollups, so their tablets can hold index files.
+                List<Pair<Long, List<Tablet>>> indexTablets = Lists.newArrayList();
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                    resolvedMaterializedIndexNames.putIfAbsent(index.getId(), table.getIndexNameById(index.getId()));
+                    indexTablets.add(Pair.of(index.getId(), Lists.newArrayList(index.getTablets())));
+                }
+                tabletsByPartition.put(partition.getId(), indexTablets);
             }
         } finally {
             table.readUnlock();
@@ -187,12 +206,15 @@ public class IndexDiskUsageTableValuedFunction extends MetadataTableValuedFuncti
         List<TabletTarget> targets = Lists.newArrayList();
         for (int i = 0; i < partitions.size(); ++i) {
             long partitionId = partitions.get(i).getId();
-            for (Tablet tablet : tabletsByPartition.get(partitionId)) {
-                targets.add(new TabletTarget(tablet, partitionId, versions.get(i)));
+            for (Pair<Long, List<Tablet>> indexTablets : tabletsByPartition.get(partitionId)) {
+                for (Tablet tablet : indexTablets.second) {
+                    targets.add(new TabletTarget(tablet, partitionId, indexTablets.first, versions.get(i)));
+                }
             }
         }
         this.indexIds = ImmutableList.copyOf(resolvedIndexIds);
         this.partitionNames = resolvedPartitionNames;
+        this.materializedIndexNames = resolvedMaterializedIndexNames;
         this.tabletTargets = ImmutableList.copyOf(targets);
         checkPositionDetailLimit();
     }
@@ -213,6 +235,7 @@ public class IndexDiskUsageTableValuedFunction extends MetadataTableValuedFuncti
         params.setPositionDetail(positionDetail);
         params.setIndexIds(Lists.newArrayList(indexIds));
         params.setPartitionNames(Maps.newHashMap(partitionNames));
+        params.setMaterializedIndexNames(Maps.newHashMap(materializedIndexNames));
         params.setTablets(tabletTargets.stream().map(TabletTarget::toThrift).collect(Collectors.toList()));
         TMetaScanRange metaScanRange = new TMetaScanRange();
         metaScanRange.setMetadataType(TMetadataType.INDEX_DISK_USAGE);
