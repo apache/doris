@@ -394,7 +394,7 @@ void CloudTabletMgr::sync_tablets(const CountDownLatch& stop_latch) {
 
     // A tablet carries two staleness clocks and each one gates a different RPC:
     //
-    //   last_sync_time_s
+    //   last_sync_rowsets_time_s
     //       how long since we pulled this tablet's ROWSETS from MS. Only sync_rowsets()
     //       advances it, and only when it actually issues the RPC -- a query whose requested
     //       version we already hold returns early and leaves the clock untouched.
@@ -403,9 +403,9 @@ void CloudTabletMgr::sync_tablets(const CountDownLatch& stop_latch) {
     //       how long since we pulled this tablet's META from MS, which is what carries
     //       properties such as the file cache TTL. Only sync_meta() advances it.
     //
-    // They have to be read separately. A tablet under continuous ingest keeps last_sync_time_s
-    // permanently fresh, so selecting meta work by that clock -- as this used to -- means such
-    // a tablet never has its meta refreshed at all, and it keeps serving whatever TTL it was
+    // They have to be read separately. A tablet under continuous ingest keeps the rowsets
+    // clock permanently fresh, so selecting meta work by it -- as this used to -- means such a
+    // tablet never has its meta refreshed at all, and it keeps serving whatever TTL it was
     // built with.
     const int64_t stale_before = ::time(nullptr) - config::tablet_sync_interval_s;
 
@@ -425,7 +425,7 @@ void CloudTabletMgr::sync_tablets(const CountDownLatch& stop_latch) {
         if (!tablet) {
             continue;
         }
-        const bool needs_rowsets = tablet->last_sync_time_s <= stale_before;
+        const bool needs_rowsets = tablet->last_sync_rowsets_time_s <= stale_before;
         Work work {.tablet = weak_tablet,
                    // Pulling rowsets implies pulling the tablet meta: the rowsets we are about
                    // to take are only as trustworthy as the meta they belong to, and this is
@@ -436,7 +436,8 @@ void CloudTabletMgr::sync_tablets(const CountDownLatch& stop_latch) {
         if (!work.needs_meta && !work.needs_rowsets) {
             continue;
         }
-        due.emplace(std::min(tablet->last_sync_tablet_meta_time_s, tablet->last_sync_time_s),
+        due.emplace(std::min(tablet->last_sync_tablet_meta_time_s,
+                             tablet->last_sync_rowsets_time_s),
                     std::move(work));
     }
 

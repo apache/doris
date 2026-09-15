@@ -216,7 +216,7 @@ TEST_F(CloudTabletMgrTest, TestGetTabletIfCachedOnlyReturnsCachedTablet) {
 }
 
 
-// A tablet under continuous ingest keeps last_sync_time_s permanently fresh, because every
+// A tablet under continuous ingest keeps last_sync_rowsets_time_s permanently fresh, because every
 // rowset sync advances it. Selecting meta work by that same clock meant such a tablet never had
 // sync_meta() called on it at all, so it kept serving the tablet properties -- the file cache
 // TTL among them -- that it happened to be built with.
@@ -278,12 +278,12 @@ TEST_F(CloudTabletMgrTest, SyncTabletsRefreshesMetaOfContinuouslyIngestedTablet)
     const int64_t now = ::time(nullptr);
     const int64_t stale = now - config::tablet_sync_interval_s - 10;
 
-    tablets[0]->last_sync_time_s = stale;
+    tablets[0]->last_sync_rowsets_time_s = stale;
     tablets[0]->last_sync_tablet_meta_time_s = stale;
     // Rowsets pulled a moment ago, meta left behind.
-    tablets[1]->last_sync_time_s = now;
+    tablets[1]->last_sync_rowsets_time_s = now;
     tablets[1]->last_sync_tablet_meta_time_s = stale;
-    tablets[2]->last_sync_time_s = now;
+    tablets[2]->last_sync_rowsets_time_s = now;
     tablets[2]->last_sync_tablet_meta_time_s = now;
 
     {
