@@ -47,6 +47,17 @@ import java.util.List;
  *               /     \
  * Input(output:b)      child
  * </pre>
+ * SQL examples (the same shape as the tests of this rule):
+ * `select * from t1 where t1.c1 = (select max(t2.c1) from t2 where t1.c2 = t2.c2)` and
+ * `select * from t1 where t1.c1 = (select max(t2.c1) + 1 from t2 where t1.c2 = t2.c2)`;
+ * after the rule the Project of the subquery (with its outputs `max(t2.c1)` / `max(t2.c1) + 1`)
+ * is above the apply, so the correlation filter below the aggregate can be pulled up afterwards.
+ * The guard of this rule keeps IN subqueries whose body is directly a `Project -> Filter`
+ * untouched, e.g.
+ * `select t1.c1, t1.c1 in (select t3.c1 from (select t2.c1 from t2 where t2.c1 = t1.c1) t3
+ * where t3.c1 > t1.c1) as v from t1`;
+ * that shape is consumed by the IN specific rule `UN_CORRELATED_APPLY_PROJECT_FILTER`, which pulls
+ * the correlated predicate into the apply while keeping the Project in place.
  */
 public class PullUpProjectUnderApply extends OneRewriteRuleFactory {
     @Override

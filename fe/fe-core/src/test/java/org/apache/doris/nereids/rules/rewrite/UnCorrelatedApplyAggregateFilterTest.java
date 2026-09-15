@@ -492,6 +492,51 @@ class UnCorrelatedApplyAggregateFilterTest {
                 new LessThan(new Random(), new DoubleLiteral(0.5))));
     }
 
+    @Test
+    public void testInSubqueryExposesTheCorrelationKeyThroughTheWrappers() {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        Slot x = left.getOutput().get(0); // t1.id
+        LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "t2", 1);
+        Slot r1 = right.getOutput().get(0); // t2.id
+
+        Alias count = new Alias(new Count(), "c");
+        Plan subquery = new LogicalAggregate<>(ImmutableList.of(), ImmutableList.of(count),
+                new LogicalFilter<>(ImmutableSet.of(new EqualTo(r1, x)), right));
+        // `select count(*) as c, random() as r ...` of the derived table, a predicate over its
+        // volatile column cannot be pushed below the projection, and the projection of the select
+        // list of the IN subquery stays above the filter
+        Alias random = new Alias(new Random(), "r");
+        subquery = new LogicalProject<>(ImmutableList.of(count.toSlot(), random), subquery);
+        subquery = new LogicalFilter<>(ImmutableSet.of(new LessThan(random.toSlot(), new DoubleLiteral(0.5))),
+                subquery);
+        subquery = new LogicalProject<>(ImmutableList.of(count.toSlot()), subquery);
+        LogicalApply<LogicalOlapScan, Plan> apply = new LogicalApply<>(
+                ImmutableList.of(x), LogicalApply.SubQueryType.IN_SUBQUERY, false,
+                Optional.<Expression>of(x), Optional.empty(), Optional.empty(), Optional.empty(), false, false,
+                left, subquery);
+
+        ConnectContext connectContext = new ConnectContext();
+        Rule rule = new UnCorrelatedApplyAggregateFilter().buildRules().get(0);
+        List<Plan> transformed = rule.transform(apply, MemoTestUtils.createCascadesContext(connectContext, apply));
+        Assertions.assertEquals(1, transformed.size());
+        Plan rewritten = transformed.get(0);
+        Assertions.assertTrue(rewritten instanceof LogicalApply,
+                "the projection of the select list keeps the original rewrite of an IN subquery");
+        LogicalApply<?, ?> newApply = (LogicalApply<?, ?>) rewritten;
+        Assertions.assertTrue(newApply.getCorrelationFilter().isPresent());
+        // the join which unnests the apply reads the inner side of the correlation predicate from the
+        // output of the subquery: every slot which the correlation filter needs has to be part of the
+        // output of the rewritten subquery, otherwise CheckAfterRewrite rejects the plan
+        for (Expression conjunct : ExpressionUtils.extractConjunction(newApply.getCorrelationFilter().get())) {
+            for (Slot slot : conjunct.getInputSlots()) {
+                if (!newApply.getCorrelationSlot().contains(slot)) {
+                    Assertions.assertTrue(newApply.right().getOutput().contains(slot),
+                            "the correlation key of the IN subquery has to be exposed: " + conjunct);
+                }
+            }
+        }
+    }
+
     /**
      * build `outer exists (select count(*) from R where r1 = x having count(*) = 0)` where the
      * aggregation of the subquery has to be computed on the outer side (the HAVING clause holds for

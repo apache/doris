@@ -111,8 +111,13 @@ import java.util.Set;
  * groups of the aggregate whose key is the value of that inner side, so the HAVING clause of every
  * group is the HAVING clause of the outer row.
  * The aggregation of an EXISTS/NOT EXISTS subquery is built on the outer side instead when that
- * equivalence does not hold, see
- * {@link #pullUpCorrelatedPredicateByAggregatingOuter}.
+ * equivalence does not hold, see {@link #pullUpCorrelatedPredicateByAggregatingOuter}.
+ * <p>
+ * For example `select t1.c1 from t1 where exists (select count(*) from t2 where t2.c1 = t1.c1
+ * having count(*) = 0)` has to be aggregated on the outer side (a global aggregate returns one
+ * row for every outer row, the rows of an empty correlated domain included), while
+ * `select t1.c1 from t1 where exists (select count(*) from t2 where t2.c1 = t1.c1 group by t2.c2
+ * having count(*) > 0)` keeps the aggregation on the inner side.
  */
 public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
 
@@ -255,11 +260,22 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         apply.getCorrelationFilter().map(ExpressionUtils::extractConjunction)
                 .ifPresent(newCorrelationFilter::addAll);
         newCorrelationFilter.addAll(correlatedPredicate);
+        // the join which unnests the apply reads the inner side of the correlation predicates from
+        // the output of the right side, so the projections which wrap the new aggregate have to
+        // expose the keys it added: an IN subquery keeps the projections of its select list above
+        // the aggregate (for example the outputs `[c1]` and `[c1, c2]` which wrap an aggregate
+        // computing `count(*) as c1, random() as c2`), and a projection which hides one of the
+        // keys makes the apply
+        // unresolvable
+        Set<Slot> keysToExpose = newCorrelationFilter.stream()
+                .flatMap(conjunct -> conjunct.getInputSlots().stream())
+                .filter(slot -> newAgg.getOutput().contains(slot))
+                .collect(ImmutableSet.toImmutableSet());
         return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryType(), apply.isNot(),
                 apply.getCompareExpr(), apply.getTypeCoercionExpr(),
                 ExpressionUtils.optionalAnd(newCorrelationFilter), apply.getMarkJoinSlotReference(),
                 apply.isNeedAddSubOutputToProjects(), apply.isMarkJoinSlotNotNull(), apply.left(),
-                replaceAggregate(apply.right(), newAgg));
+                exposeCorrelationKeys(replaceAggregate(apply.right(), newAgg), keysToExpose));
     }
 
     /**
@@ -308,10 +324,14 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
     }
 
     /**
-     * The join which pairs an outer row with its correlation keys reads the keys from the output of
-     * the right side, so every projection which sits above the aggregate has to expose them: the
-     * keys which a projection does not carry are added to its output (nothing else reads the output
-     * of an EXISTS subquery).
+     * The predicates of the correlation filter are the join conditions of the plan which unnests the
+     * apply, so the keys they read from the right side have to be part of the output of that side:
+     * every projection which sits above the aggregate has to expose them, and a key which a
+     * projection does not carry is added to the end of its output (an EXISTS subquery does not read
+     * its output, and an IN or scalar subquery reads the value of the first column, which the keys
+     * appended after it do not move). For example the correlated predicate `t2.c1 = t1.c1` reads
+     * `t2.c1`, which the projections which wrap the aggregate (for example `[c1]` and `[c1, c2]`
+     * over an aggregate computing `count(*) as c1, random() as c2`) do not carry.
      */
     private static Plan exposeCorrelationKeys(Plan plan, Set<Slot> keys) {
         if (plan instanceof LogicalAggregate) {
@@ -344,12 +364,14 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      *
      * <ul>
      *   <li>domain predicates select the inner rows which belong to the correlated domain of one outer
-     *       row. They are the predicates of the WHERE clause of the subquery, plus the predicates
-     *       which were already pulled into the apply and do not reference the aggregation;</li>
-     *   <li>aggregate predicates reference the output of the aggregate, they are the predicates of the
-     *       HAVING clause which were pulled into the apply by {@link UnCorrelatedApplyFilter} (that
-     *       rule runs before this one). They decide which rows of the aggregation the subquery
-     *       returns for one outer row.</li>
+     *       row, for example `where t2.c1 = t1.c1`. They are the predicates of the WHERE clause of
+     *       the subquery, plus the predicates which were already pulled into the apply and do not
+     *       reference the aggregation;</li>
+     *   <li>aggregate predicates reference the output of the aggregate, for example
+     *       `having count(*) &lt;= t1.c1 - 7`. They are the predicates of the HAVING clause which were
+     *       pulled into the apply by {@link UnCorrelatedApplyFilter} (that rule runs before this
+     *       one). They decide which rows of the aggregation the subquery returns for one outer
+     *       row.</li>
      * </ul>
      */
     private static final class CorrelatedAggregatePredicates {
@@ -366,7 +388,7 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             // above the aggregate (the HAVING clause of the subquery), so it decides which rows of
             // the aggregation the subquery returns and has to be evaluated above the aggregation of
             // the rewrite. Its provenance cannot be recovered from the slots it uses: a predicate
-            // such as `outer.flag = 1` references no aggregation output and no inner column but it
+            // such as `t1.c3 = 1` references no aggregation output and no inner column but it
             // still rejects the row of the aggregation.
             apply.getCorrelationFilter()
                     .map(ExpressionUtils::extractConjunction)
@@ -451,16 +473,21 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      * aggregate, so the HAVING clause of one group is treated as the HAVING clause of one outer row.
      * That is wrong for:
      * <ul>
-     *   <li>a correlated predicate which is not an equality (eg. `inner.k &lt; outer.k`): the inner
-     *       rows of one outer row are the union of several groups, so group wide aggregates such as
-     *       count(*) are computed for a part of the domain of the outer row only;</li>
-     *   <li>a global aggregate (no group by) whose HAVING clause holds for an empty input
-     *       (eg. `having count(*) = 0`): a global aggregate returns one row for every outer row,
-     *       including the outer rows without any matching inner row, and that row disappears when
-     *       the inner side of the correlated predicate becomes the group by key;</li>
-     *   <li>a HAVING clause which references the outer query: the row kept by that HAVING clause is
-     *       the one of the domain of the outer row, so it cannot be evaluated on a group of the
-     *       inner side when the domain is empty.</li>
+     *   <li>a correlated predicate which is not an equality, eg.
+     *       `select t1.c1 from t1 where exists (select count(*) from t2 where t2.c1 &lt; t1.c1
+     *       group by t2.c2 having count(*) = 2)`: the inner rows of one outer row are the union of
+     *       several groups, so group wide aggregates such as count(*) are computed for a part of the
+     *       domain of the outer row only;</li>
+     *   <li>a global aggregate (no group by) whose HAVING clause holds for an empty input, eg.
+     *       `select t1.c1 from t1 where exists (select count(*) from t2 where t2.c1 = t1.c1
+     *       having count(*) = 0)`: a global aggregate returns one row for every outer row, including
+     *       the outer rows without any matching inner row, and that row disappears when the inner
+     *       side of the correlated predicate becomes the group by key;</li>
+     *   <li>a HAVING clause which references the outer query, eg.
+     *       `select t1.c1 from t1 where exists (select count(*) from t2 where t2.c1 = t1.c1
+     *       having count(*) &lt;= t1.c1 - 7)`: the row kept by that HAVING clause is the one of the
+     *       domain of the outer row, so it cannot be evaluated on a group of the inner side when the
+     *       domain is empty.</li>
      * </ul>
      */
     private static boolean needCorrelatedAggregationOnOuter(LogicalApply<?, ?> apply, LogicalAggregate<?> agg,
@@ -509,7 +536,10 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      * Whether this predicate changes the domain of an outer row in a way which is not a group of the
      * aggregate. Only an equality between the outer side and the inner side partitions the inner rows
      * of one outer row into exactly the groups of the aggregate, while a predicate which does not
-     * reference the outer query at all just filters the inner rows.
+     * reference the outer query at all just filters the inner rows: in
+     * `select t1.c1 from t1 where exists (select count(*) from t2 where t2.c1 &lt; t1.c1 group by
+     * t2.c2 having count(*) = 2)` the domain of one outer row is the union of the groups
+     * `(t2.c1, t2.c2)`, while `where t2.c1 = t1.c1` maps it onto exactly one group.
      */
     private static boolean breaksDomainPartition(Expression conjunct, List<Slot> correlationSlots) {
         if (conjunct instanceof EqualPredicate) {
@@ -520,7 +550,7 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
 
     /**
      * Whether the correlated predicate is a comparison whose sides do not mix the outer query and the
-     * subquery, eg. `inner.k &lt; outer.k` or `outer.k = inner.abs(k)`. Those are the predicates which
+     * subquery, eg. `t2.c1 &lt; t1.c1` or `t1.c1 = t2.abs(c1)`. Those are the predicates which
      * can be evaluated by joining the two sides, and the ones supported by the original rewrite.
      */
     private static boolean isSupportedCorrelatedComparison(Expression conjunct, List<Slot> correlationSlots) {
@@ -543,28 +573,30 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
     }
 
     /**
-     * Rewrite `outer [not] exists (select agg from inner where &lt;correlated predicate&gt;
+     * Rewrite `t1 [not] exists (select agg from t2 where &lt;correlated predicate&gt;
      * [group by ...] having ...)` into a semi/anti join whose right side aggregates the outer rows
      * together with their correlated inner rows, so that the aggregation of one outer row is the
-     * aggregation of exactly the inner rows satisfying the correlated predicate:
+     * aggregation of exactly the inner rows satisfying the correlated predicate. For example
+     * `select t1.c1 from t1 where exists (select count(*) from t2 where t2.c1 &lt; t1.c1
+     * having count(*) = 0)`:
      *
      * <pre>
      * before:
-     *              Apply(EXISTS, correlationSlot=[outer.k])
+     *              Apply(EXISTS, correlationSlot=[t1.c1])
      *             /                \
-     *        outer             Filter(having)
-     *                              +-- Aggregate(group by [inner.g], count(*))
-     *                                    +-- Filter(correlated predicate(inner.k &lt; outer.k))
-     *                                          +-- inner
+     *        t1                 Filter(having)
+     *                              +-- Aggregate(group by [t2.c2], count(*))
+     *                                    +-- Filter(correlated predicate(t2.c1 &lt; t1.c1))
+     *                                          +-- t2
      *
      * after:
-     *          LEFT SEMI JOIN(otherJoinConjuncts=[outer.k &lt;=&gt; key.k])
+     *          LEFT SEMI JOIN(otherJoinConjuncts=[t1.c1 &lt;=&gt; key.c1])
      *         /                 \
-     *     outer              Filter(having: count(*) =&gt; count(marker))
-     *                           +-- Aggregate(group by [key.k, inner.g], count(marker))
-     *                                 +-- LEFT OUTER JOIN(inner.k &lt; key.k)     // keeps the empty domain
-     *                                       |-- Aggregate(group by [k], output=[k])   // distinct correlated keys
-     *                                       |     +-- outer'
+     *     t1                 Filter(having: count(*) =&gt; count(marker))
+     *                           +-- Aggregate(group by [key.c1, t2.c2], count(marker))
+     *                                 +-- LEFT OUTER JOIN(t2.c1 &lt; key.c1)      // keeps the empty domain
+     *                                       |-- Aggregate(group by [c1], output=[c1])   // distinct correlated keys
+     *                                       |     +-- t1'
      *                                       +-- Project(marker, ...)
      *                                             +-- Filter(uncorrelated predicates)
      *                                                   +-- inner
@@ -716,7 +748,9 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      * null, so every argument is null for it and the aggregates which ignore null arguments (the
      * caller only admits those) return the value of an empty input. `count(*)` has no argument to
      * build that guard on, so it counts the marker instead; a distinct count keeps its argument and
-     * its distinct flag, because the null of the kept row must not be counted as a value.
+     * its distinct flag, because the null of the kept row must not be counted as a value. For
+     * example `count(*)` becomes `count(marker)` and `sum(1)` becomes `sum(if(marker, 1, null))`,
+     * which returns null for the row which was kept for an empty domain.
      */
     private static Map<Expression, Expression> guardAggregateArguments(
             Set<AggregateFunction> aggregates, Slot matchMarker) {
@@ -737,7 +771,9 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
 
     /**
      * Whether the HAVING clause of a global aggregate can hold for the row which the aggregate
-     * returns for an empty input.
+     * returns for an empty input. For example `having count(*) = 0` holds for an empty input (the row
+     * of the aggregation of the empty domain has to survive), while `having sum(t2.c1) is not null`
+     * rejects that row, so the aggregation of the subquery can stay on the inner side.
      */
     private static boolean havingMayHoldWithEmptyInput(LogicalAggregate<?> agg, Set<Expression> havingConjuncts) {
         // the having clause usually references the output slots of the aggregate, but it may also
@@ -772,7 +808,8 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
 
     /**
      * The value which an aggregate function returns for an empty input, or null if it cannot be
-     * decided.
+     * decided. For example `count(*)` returns 0 and `sum(t2.c1)` returns null, while the value of
+     * an `array_agg(t2.c1)` cannot be decided.
      */
     private static Expression emptyValueForEmptyInput(AggregateFunction function) {
         if (function instanceof Count) {
@@ -795,7 +832,11 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      * predicates and the groupings of the plan) or when it contributes to the value of a correlation
      * key, directly or through the slots of the expressions below: the values are followed through
      * the slots of the plan, so a volatile column which only decorates the output with a value the
-     * rewrite does not use is accepted.
+     * rewrite does not use is accepted. For example `select random() as c1, c2 from t1 ...` (the
+     * correlation key is volatile) and `select c1 from t1 where random() &lt; 0.5 ...` (the
+     * predicate decides the rows of the outer plan) are rejected, while
+     * `select c1, random() as c2 from t1 ...` is accepted when the subquery does not read `c2`
+     * (a decorative output).
      * <p>
      * A NoneMovableFunction (the only implementation today is assert_true) is rejected wherever it
      * appears instead, even in such a decorative output: its evaluation must not be duplicated,
@@ -920,6 +961,11 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      * aggregation or the value of a predicate which decides the result of the subquery is rejected.
      * The predicates which were pulled into the apply are not part of the plan of the subquery any
      * more, so they are checked against the volatile values of the aggregation they read as well.
+     * For example the domain predicate `... where t2.c1 = t1.c1 and random() &lt; 0.5 ...`, the
+     * grouping `group by random()` and a HAVING clause such as `having random() > 0` are rejected
+     * (two outer rows with the same correlation key would share one evaluation), while the value of
+     * `sum(random())` is accepted when nothing reads it, for example
+     * `... select count(*), sum(random()) as c2 from t2 where t2.c1 = t1.c1 having count(*) = 0`.
      */
     private static boolean containsSensitiveSubqueryExpression(LogicalApply<?, ?> apply,
             CorrelatedAggregatePredicates predicates) {
@@ -946,9 +992,11 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      * of rows which are equal on the order keys, the query semantics allows any subset of that
      * group to be returned, and the two evaluations are two instances of the same plan in different
      * places of the resulting plan, so they can keep rows with different correlation keys. This
-     * rule does not prove that the order keys are total, so every topn is rejected, together with
-     * the limit without an order (which returns arbitrary rows) and the sampled scan (whose two
-     * evaluations sample different rows).
+     * rule does not prove that the order keys are total, so every topn is rejected (for example
+     * `... where exists (select count(*) from (select c1 from t1 order by c2 limit 1) t2 ...)`),
+     * together with the limit without an order (`... (select c1 from t1 limit 1) ...`, which
+     * returns arbitrary rows) and the sampled scan (`... from t1 tablesample(1 rows) ...`, whose
+     * two evaluations sample different rows).
      */
     private static boolean hasNonDeterministicRows(Plan plan) {
         if (plan instanceof LogicalLimit || plan instanceof LogicalTopN) {

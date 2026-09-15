@@ -73,3 +73,17 @@
 4	true
 9	false
 
+-- !in_with_correlated_filters_above_and_below_a_projection --
+\N	false
+-1	false
+1	false
+2	false
+7	false
+
+-- !not_in_with_correlated_filters_above_and_below_a_projection --
+\N	true
+-1	true
+1	true
+2	true
+7	true
+
