@@ -209,7 +209,8 @@ protected:
     Status send_request_to_llm(const std::string& request_body, std::string& response,
                                const TAIResource& config, std::shared_ptr<AIAdapter>& adapter,
                                FunctionContext* context) const {
-        return HttpClient::execute_with_retry(config.max_retries, config.retry_delay_second,
+        return HttpClient::execute_with_retry(ai_http_request_attempts(config.max_retries),
+                                              config.retry_delay_second,
                                               [this, &request_body, &response, &config, &adapter,
                                                context](HttpClient* client) -> Status {
                                                   return this->do_send_request(client, request_body,
