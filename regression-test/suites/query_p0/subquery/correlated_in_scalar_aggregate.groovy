@@ -114,6 +114,24 @@ suite("correlated_in_scalar_aggregate") {
         FROM cisa_m m ORDER BY m.k
     """
 
+    // `x [not] in (subquery)` where the subquery keeps a correlated predicate in the filter above
+    // the projection of a derived table and another one in the filter below that projection: the
+    // rules which pull the correlated predicates into the apply run one after the other, and the
+    // condition of the second one may not replace the condition of the first one:
+    //   o.k in (select x.k from (select k from cisa_i i where i.k = o.k) x where x.k > o.k)
+    // the subquery is empty for every outer row (`i.k = o.k` and `i.k > o.k` cannot hold at the
+    // same time), so the IN is false and the NOT IN is true for every row, the null row included
+    order_qt_in_with_correlated_filters_above_and_below_a_projection """
+        SELECT o.k, o.k IN (SELECT x.k FROM (SELECT i.k FROM cisa_i i WHERE i.k = o.k) x
+            WHERE x.k > o.k) AS v
+        FROM cisa_o o ORDER BY o.k
+    """
+    order_qt_not_in_with_correlated_filters_above_and_below_a_projection """
+        SELECT o.k, o.k NOT IN (SELECT x.k FROM (SELECT i.k FROM cisa_i i WHERE i.k = o.k) x
+            WHERE x.k > o.k) AS v
+        FROM cisa_o o ORDER BY o.k
+    """
+
     // The shapes below are not supported by the scalar and IN subquery rewrites: they must be
     // rejected with a user error and must never return a wrong result silently.
     test {

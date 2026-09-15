@@ -41,6 +41,14 @@ import java.util.Optional;
  * <p>
  * UnCorrelated -> CROSS_JOIN
  * Correlated -> LEFT_OUTER_JOIN
+ * SQL examples (t1/t2 are two tables with columns c1/c2):
+ * - `select t1.c1, (select max(t2.c2) from t2) from t1`
+ *   becomes a CROSS_JOIN, with assert_num_rows(1) above t2 when the subquery body is not a one
+ *   row relation, so a subquery returning several rows is rejected instead of picking one;
+ * - `select t1.c1, (select max(t2.c2) from t2 where t1.c1 = t2.c1) from t1`
+ *   becomes a LEFT_OUTER_JOIN on `t1.c1 = t2.c1`;
+ * - `select t1.c1, (select max(t2.c2) from t2 where t1.c1 < t2.c1) from t1`
+ *   fails with `AnalysisException: scalar subquery's correlatedPredicates's operator must be EQ`.
  */
 public class ScalarApplyToJoin extends OneRewriteRuleFactory {
     @Override
@@ -58,6 +66,9 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
     }
 
     private Plan unCorrelatedToJoin(LogicalApply<Plan, Plan> apply) {
+        // e.g. `select t1.c1, (select max(t2.c2) from t2) from t1`: the uncorrelated subquery is
+        // joined with CROSS_JOIN, and assert_num_rows(1) rejects a subquery which returns more than
+        // one row instead of silently picking one of them
         Plan joinRightChild;
         if (apply.right() instanceof LogicalOneRowRelation) {
             joinRightChild = apply.right();
