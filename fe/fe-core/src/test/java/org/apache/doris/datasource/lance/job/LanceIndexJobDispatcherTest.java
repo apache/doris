@@ -86,6 +86,7 @@ public class LanceIndexJobDispatcherTest {
     private int originalIntervalSecond;
     private int originalMaxDispatchPerRound;
     private int originalMaxInflightPerBackend;
+    private long originalExecuteDeadlineSecond;
     private boolean originalLocalFileMutation;
 
     @BeforeEach
@@ -139,6 +140,7 @@ public class LanceIndexJobDispatcherTest {
         originalIntervalSecond = Config.lance_index_job_dispatch_interval_second;
         originalMaxDispatchPerRound = Config.lance_index_job_max_dispatch_per_round;
         originalMaxInflightPerBackend = Config.lance_index_job_max_inflight_per_backend;
+        originalExecuteDeadlineSecond = Config.lance_index_job_execute_deadline_second;
         originalLocalFileMutation = Config.enable_lance_index_local_file_mutation;
     }
 
@@ -147,6 +149,7 @@ public class LanceIndexJobDispatcherTest {
         Config.lance_index_job_dispatch_interval_second = originalIntervalSecond;
         Config.lance_index_job_max_dispatch_per_round = originalMaxDispatchPerRound;
         Config.lance_index_job_max_inflight_per_backend = originalMaxInflightPerBackend;
+        Config.lance_index_job_execute_deadline_second = originalExecuteDeadlineSecond;
         Config.enable_lance_index_local_file_mutation = originalLocalFileMutation;
         mockedEnv.close();
     }
@@ -270,6 +273,84 @@ public class LanceIndexJobDispatcherTest {
         Config.lance_index_job_dispatch_interval_second = 9;
         dispatcher.runAfterCatalogReady();
         Assertions.assertEquals(9_000L, dispatcher.getInterval());
+    }
+
+    @Test
+    public void nonPositiveDispatchIntervalIsClampedAtConsumption() {
+        // fe.conf bypasses the config validator; the consumption clamp keeps the daemon
+        // thread alive instead of dying inside Thread.sleep.
+        Config.lance_index_job_dispatch_interval_second = -5;
+
+        dispatcher.runAfterCatalogReady();
+
+        Assertions.assertEquals(1_000L, dispatcher.getInterval());
+    }
+
+    @Test
+    public void zeroDispatchCapsAreClampedSoProgressContinues() throws Exception {
+        Config.lance_index_job_max_dispatch_per_round = 0;
+        Config.lance_index_job_max_inflight_per_backend = 0;
+        admit(1L, "IdxA", LOCATOR);
+
+        dispatcher.runAfterCatalogReady();
+
+        Assertions.assertEquals(1, dispatcher.sends.size());
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, manager.getJob(1L).getMutationState());
+    }
+
+    @Test
+    public void nonPositiveExecuteDeadlineIsClamped() throws Exception {
+        Config.lance_index_job_execute_deadline_second = 0L;
+        admit(1L, "IdxA", LOCATOR);
+        long beforeMs = System.currentTimeMillis();
+
+        dispatcher.runAfterCatalogReady();
+
+        Assertions.assertEquals(1, dispatcher.sends.size());
+        long deadlineMs = dispatcher.sends.get(0).getDeadlineMs();
+        Assertions.assertTrue(deadlineMs >= beforeMs + 1_000L, "deadline=" + deadlineMs + " before=" + beforeMs);
+        Assertions.assertTrue(deadlineMs <= System.currentTimeMillis() + 1_000L);
+    }
+
+    @Test
+    public void dispatchCarriesTheEpochCapturedAtMarkRunningNotALaterHeartbeat() throws Exception {
+        admit(1L, "IdxA", LOCATOR);
+        Backend selected = systemInfo.getBackend(BE1_ID);
+        manager.afterMarkRunning = () -> selected.setLastStartTime(REPLACED_BE_EPOCH);
+
+        dispatcher.runAfterCatalogReady();
+
+        // A heartbeat landing between the durable record and the send must not split
+        // the dispatch identity: the wire carries the same epoch the journal recorded,
+        // which is what the callback matches and the epoch sweep releases against.
+        Assertions.assertEquals(1, dispatcher.sends.size());
+        Assertions.assertEquals(BE_EPOCH, dispatcher.sends.get(0).getBeProcessEpoch());
+        Assertions.assertEquals(BE_EPOCH, manager.getJob(1L).getBeProcessEpoch().longValue());
+    }
+
+    @Test
+    public void leadershipLossBeforeTheSendSendsNothing() throws Exception {
+        admit(1L, "IdxA", LOCATOR);
+        // The entry check passes, then mastership is lost before the pre-send recheck.
+        Mockito.when(env.isMaster()).thenReturn(true, false);
+
+        dispatcher.runAfterCatalogReady();
+
+        Assertions.assertTrue(dispatcher.sends.isEmpty(), events.toString());
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, manager.getJob(1L).getMutationState());
+    }
+
+    @Test
+    public void checkpointThreadSkipsTheRound() throws Exception {
+        admit(1L, "IdxA", LOCATOR);
+        mockedEnv.when(Env::isCheckpointThread).thenReturn(true);
+
+        dispatcher.runAfterCatalogReady();
+
+        Assertions.assertTrue(dispatcher.sends.isEmpty(), events.toString());
+        // Only the admission record exists: the round never ran.
+        Assertions.assertEquals(1, manager.editLog.size(), manager.editLog.toString());
+        Assertions.assertEquals(LanceIndexJobMutationState.PENDING, manager.getJob(1L).getMutationState());
     }
 
     // ------------------------------------------------------------------
@@ -761,6 +842,7 @@ public class LanceIndexJobDispatcherTest {
         private final List<String> events;
         private boolean rejectNextMarkRunning;
         private String hijackedInvocationId;
+        private Runnable afterMarkRunning;
         private LanceIndexJob staleExpiredJob;
 
         TestManager(List<String> events) {
@@ -784,6 +866,13 @@ public class LanceIndexJobDispatcherTest {
             }
             boolean marked = super.markRunning(jobId, expectedRevision, backendId, beProcessEpoch, invocationId,
                     deadlineMs);
+            if (marked && afterMarkRunning != null) {
+                // Simulates a heartbeat landing right after the durable record, before
+                // the dispatcher reads the backend again for the wire request.
+                Runnable hook = afterMarkRunning;
+                afterMarkRunning = null;
+                hook.run();
+            }
             if (marked && hijackedInvocationId != null) {
                 String hijacker = hijackedInvocationId;
                 hijackedInvocationId = null;
