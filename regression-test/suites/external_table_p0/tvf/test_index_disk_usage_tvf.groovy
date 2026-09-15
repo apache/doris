@@ -110,6 +110,58 @@ suite("test_index_disk_usage_tvf", "p0,external") {
         FROM index_disk_usage("database" = "${dbName}", "table" = "index_disk_usage_v3", "indexes" = "idx_num")
     """
 
+    // A light ADD INDEX installs the index on rollups too, so later loads write index files on the
+    // rollup tablets.
+    sql "DROP TABLE IF EXISTS index_disk_usage_rollup"
+    sql """
+        CREATE TABLE index_disk_usage_rollup (
+            k INT NOT NULL,
+            v INT,
+            msg VARCHAR(256)
+        )
+        DUPLICATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES ("replication_num" = "1", "disable_auto_compaction" = "true")
+    """
+    sql "ALTER TABLE index_disk_usage_rollup ADD ROLLUP r_msg(msg, k)"
+    assertEquals("FINISHED", getAlterRollupFinalState("index_disk_usage_rollup"))
+    sql """ CREATE INDEX idx_msg ON index_disk_usage_rollup(msg) USING INVERTED PROPERTIES("parser" = "english") """
+    sql """
+        INSERT INTO index_disk_usage_rollup
+        SELECT number, number % 7, concat('hello world doc', number) FROM numbers("number" = "2000")
+    """
+    order_qt_rollup """
+        SELECT materialized_index_name, index_name, column_name, SUM(total_bytes) > 0
+        FROM index_disk_usage("database" = "${dbName}", "table" = "index_disk_usage_rollup")
+        WHERE structure <> 'CONTAINER'
+        GROUP BY materialized_index_name, index_name, column_name
+    """
+
+    // Extracted VARIANT paths keep the parent index id under a path suffix, and their rows still
+    // carry the parent index and column names.
+    sql """ set default_variant_enable_typed_paths_to_sparse = false """
+    sql """ set default_variant_enable_doc_mode = false """
+    sql "DROP TABLE IF EXISTS index_disk_usage_variant"
+    sql """
+        CREATE TABLE index_disk_usage_variant (
+            k INT NOT NULL,
+            v VARIANT<'msg' : STRING>,
+            INDEX idx_v (v) USING INVERTED PROPERTIES("parser" = "english")
+        )
+        DUPLICATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES ("replication_num" = "1", "disable_auto_compaction" = "true")
+    """
+    sql """
+        INSERT INTO index_disk_usage_variant
+        SELECT number, parse_to_variant(concat('{"msg": "hello world doc', number, '"}')) FROM numbers("number" = "1000")
+    """
+    order_qt_variant """
+        SELECT DISTINCT index_name, column_name, index_suffix <> ''
+        FROM index_disk_usage("database" = "${dbName}", "table" = "index_disk_usage_variant")
+        WHERE structure = 'TERM'
+    """
+
     test {
         sql """ SELECT * FROM index_disk_usage("database" = "${dbName}", "table" = "index_disk_usage_v2", "foo" = "bar") """
         exception "'foo' is invalid property"
