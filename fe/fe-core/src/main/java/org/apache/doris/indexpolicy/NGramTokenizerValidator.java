@@ -102,6 +102,8 @@ public class NGramTokenizerValidator extends BasePolicyValidator {
         // The new gram-family parameters: once mode is given this is an auto/sparse/dense gram index,
         // whose validation rules are entirely independent of legacy ngram, so validate and return
         // without reusing any of the legacy rules below.
+        // Gram mode ignores max_ngram_diff, the max_gram - min_gram limit and the absolute size limit, so
+        // the max_ngram_diff=1 marker that IndexPolicyMgr stores on every new ngram tokenizer stays valid.
         String mode = props.get("mode");
         if (mode != null) {
             validateGramMode(props, mode);

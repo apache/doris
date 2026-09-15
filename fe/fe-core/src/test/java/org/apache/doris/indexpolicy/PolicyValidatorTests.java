@@ -474,6 +474,61 @@ public class PolicyValidatorTests {
         }
     }
 
+    // NGramTokenizerValidator gram mode with the max_ngram_diff compatibility marker
+    @Test
+    public void testNGramValidator_GramModeIgnoresDifferenceLimit() {
+        // IndexPolicyMgr stores max_ngram_diff=1 on every new ngram tokenizer, gram mode included,
+        // so that marker must not limit max_gram - min_gram once mode is set.
+        Map<String, String> props = sparseGramProps();
+        props.put("min_gram", "3");
+        props.put("max_gram", "16");
+        props.put("max_ngram_diff", "1");
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Assertions.assertDoesNotThrow(() -> validator.validate(props));
+    }
+
+    @Test
+    public void testGramNGramPolicyWithCompatibilityMarkerRemainsValidAfterReplay() throws Exception {
+        Map<String, String> props = sparseGramProps();
+        props.put("min_gram", "3");
+        props.put("max_gram", "16");
+        IndexPolicy withoutMarker = roundTrip(new IndexPolicy(
+                3, "gram_without_marker", IndexPolicyTypeEnum.TOKENIZER, props));
+        Assertions.assertFalse(withoutMarker.isInvalid());
+
+        props.put("max_ngram_diff", "1");
+        IndexPolicy withMarker = roundTrip(new IndexPolicy(
+                4, "gram_with_marker", IndexPolicyTypeEnum.TOKENIZER, props));
+        Assertions.assertFalse(withMarker.isInvalid());
+    }
+
+    @Test
+    public void testNewGramNGramPolicyWithCompatibilityMarkerIsUsable() throws Exception {
+        Map<String, String> tokenizerProps = sparseGramProps();
+        tokenizerProps.put("min_gram", "3");
+        tokenizerProps.put("max_gram", "16");
+        Map<String, String> analyzerProps = new HashMap<>();
+        analyzerProps.put(IndexPolicy.PROP_TOKENIZER, "new_gram_tokenizer");
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getNextId()).thenReturn(5L, 6L);
+        Mockito.when(env.getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            policyMgr.createIndexPolicy(false, "new_gram_tokenizer", IndexPolicyTypeEnum.TOKENIZER,
+                    tokenizerProps);
+            // Creating the analyzer re-validates the stored tokenizer, marker included.
+            policyMgr.createIndexPolicy(false, "new_gram_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                    analyzerProps);
+        }
+
+        IndexPolicy tokenizer = policyMgr.getPolicyByName("new_gram_tokenizer");
+        Assertions.assertEquals("1", tokenizer.getProperties().get("max_ngram_diff"));
+        Assertions.assertFalse(tokenizer.isInvalid());
+        Assertions.assertDoesNotThrow(() -> policyMgr.validateAnalyzerExists("new_gram_analyzer"));
+    }
+
     // StandardTokenizerValidator Tests
     @Test
     public void testStandardTokenizerValidator_ValidProperties() throws Exception {
