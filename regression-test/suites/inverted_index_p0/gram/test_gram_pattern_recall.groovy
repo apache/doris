@@ -125,8 +125,68 @@ suite("test_gram_pattern_recall", "p0") {
         }
     }
     sql "SET enable_inverted_index_query=true"
+
+    // The scalar engine is chosen per pattern, and Hyperscan, RE2 and Boost read these patterns
+    // differently: spaced or long repeat counts, collating elements, and escapes Boost reads as
+    // anchors. The index must still return every row the scalar predicate returns.
+    sql "DROP TABLE IF EXISTS test_gram_pattern_recall_engines"
+    sql """CREATE TABLE test_gram_pattern_recall_engines (
+        id INT,
+        dense VARCHAR(128), sparse VARCHAR(128), dense_lc VARCHAR(128), sparse_lc VARCHAR(128),
+        INDEX idx_dense (dense) USING INVERTED PROPERTIES ("analyzer"="gram_recall_dense"),
+        INDEX idx_sparse (sparse) USING INVERTED PROPERTIES ("analyzer"="gram_recall_sparse"),
+        INDEX idx_dense_lc (dense_lc) USING INVERTED PROPERTIES ("analyzer"="gram_recall_dense_lc"),
+        INDEX idx_sparse_lc (sparse_lc) USING INVERTED PROPERTIES ("analyzer"="gram_recall_sparse_lc")
+    ) DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+    PROPERTIES ("replication_num"="1", "disable_auto_compaction"="true",
+                "inverted_index_storage_format"="SNII")"""
+    def engineRows = ['aaatimeout', 'aaaatimeout', 'aaaaatimeout', 'a{ 3 }timeout', 'atimeout',
+                      'btimeout', 'x timeout', '.]timeout', 'timeout', '<timeout', 'abcd wxyz',
+                      'abcdwxyz', 'xaytimeout', 'xaaytimeout', 'xytimeout',
+                      'xa{1,4294967297}ytimeout', 'xa{1000000000}ytimeout', 'xa{01}ytimeout',
+                      'xa{1,02}ytimeout', 'xa{00}ytimeout', 'unrelated']
+    def engineValues = engineRows.withIndex().collect { value, id ->
+        def literal = sqlLiteral(value)
+        "(${id}, ${literal}, ${literal}, ${literal}, ${literal})"
+    }.join(',')
+    sql "INSERT INTO test_gram_pattern_recall_engines VALUES ${engineValues}"
+    sql "sync"
+    // With extended regex on, a possessive quantifier sends the pattern to Boost.
+    def boostPatterns = ['a{ 3 }timeout++', 'a{3, 4}timeout++', 'a{3, }timeout++',
+                         '[[.a.]]timeout++', '[[=a=]]timeout++', 'x[[.space.]]timeout++',
+                         '\\<timeout++', '\\`timeout++', 'abcd \\<wxyz(?:q)?+',
+                         'abcdwxyz\\>(?:q)?+', "abcdwxyz\\'(?:q)?+",
+                         'xa{1,4294967297}ytimeout++', 'xa{0,4294967296}ytimeout++']
+    // On the default session RE2 runs the patterns Hyperscan rejects or skips.
+    def re2Patterns = ['xa{1,4294967297}ytimeout', 'xa{1000000000}ytimeout',
+                       'xa{01}ytimeout.{0,51}', 'xa{1,02}ytimeout.{0,51}', 'xa{00}ytimeout.{0,51}']
+    def countRegexp = { String column, String pattern, boolean useIndex ->
+        sql "SET enable_inverted_index_query=${useIndex}"
+        return sql("""SELECT count(*) FROM test_gram_pattern_recall_engines
+            WHERE ${column} REGEXP ${sqlLiteral(pattern)}""")[0][0]
+    }
+    def scanned = [:]
+    def indexed = [:]
+    [[true, boostPatterns], [false, re2Patterns]].each { extended, engineCases ->
+        sql "SET enable_extended_regex=${extended}"
+        schemes.each { column, unused ->
+            engineCases.each { pattern ->
+                def label = "extended=${extended} ${column} REGEXP ${pattern}".toString()
+                scanned[label] = countRegexp(column, pattern, false)
+                indexed[label] = countRegexp(column, pattern, true)
+            }
+        }
+    }
+    sql "SET enable_extended_regex=false"
+    sql "SET enable_inverted_index_query=true"
+    assertEquals(scanned, indexed, "the gram index lost rows the scalar predicate returns")
+    scanned.each { label, count ->
+        assertTrue(count > 0, "${label} matches no row even without the index")
+    }
+
     // The policies live cluster-wide and the cluster is shared, so a suite that leaves
     // its own behind eats into the instance-wide policy limit for everyone else.
+    sql "DROP TABLE IF EXISTS test_gram_pattern_recall_engines"
     sql "DROP TABLE IF EXISTS test_gram_pattern_recall"
     schemes.each { name, properties ->
         sql "DROP INVERTED INDEX ANALYZER IF EXISTS gram_recall_${name}"
