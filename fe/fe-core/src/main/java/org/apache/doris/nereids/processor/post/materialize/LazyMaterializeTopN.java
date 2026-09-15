@@ -26,6 +26,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.processor.post.PlanPostProcessor;
 import org.apache.doris.nereids.processor.post.Validator;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.qe.SessionVariable;
@@ -107,6 +109,7 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         List<Slot> materializedSlots = new ArrayList<>();
         Set<Slot> requiredMaterializedSlots = new HashSet<>();
         collectProjectExprInputSlots(topN.child(), requiredMaterializedSlots);
+        collectOrderKeyColumns(topN, requiredMaterializedSlots);
 
         /*
          * requiredMaterializedSlots only records slots consumed by Project/final-projection expressions inside the
@@ -119,6 +122,9 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
          * a is in Filter.getInputSlots(). Both return Optional.empty() and are appended to materializedSlots below.
          * Therefore an empty requiredMaterializedSlots set does not mean every scan column can be delayed; it only
          * means no extra Project/final-projection input must be forced materialized by this local safety check.
+         *
+         * The probe only protects the slots the operators reference directly, so the columns an order key reads
+         * through identity aliases are protected by collectOrderKeyColumns above.
          */
         for (Slot slot : effectiveOutput) {
             Optional<MaterializeSource> source = computeMaterializeSource(topN, (SlotReference) slot,
@@ -289,6 +295,69 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         }
         for (Plan child : plan.children()) {
             collectProjectExprInputSlots(child, requiredMaterializedSlots);
+        }
+    }
+
+    /**
+     * Keep the columns read by the TopN order keys materialized during the scan.
+     *
+     * <p>{@link MaterializeProbeVisitor} only protects the order key slot itself, because an order key
+     * slot is in {@code TopN.getInputSlots()}; it never resolves an identity alias down to the column
+     * that the alias reads. For
+     *
+     * <pre>
+     *   TopN(order by x)
+     *     Project(lazy_col AS x, lazy_col AS y)
+     *       OlapScan
+     * </pre>
+     *
+     * probing the output {@code y} resolves to the base column {@code lazy_col}, so {@code lazy_col} is
+     * classified lazy and {@link LazySlotPruning} removes it from the scan, while {@code lazy_col AS x}
+     * below the TopN still reads it. The plan then references a slot its child no longer produces and
+     * the final {@link Validator} rejects it. Resolving the order keys through the alias chain lets the
+     * probe reject every output backed by those columns, keeping the plan valid.
+     *
+     * <p>A set operation is a boundary: {@link MaterializeProbeVisitor} never reports a lazy source for a
+     * slot produced by a set operation, and {@link #collectIdentityAliasMap} stops at it, so the aliases
+     * below a set operation are neither resolved nor reachable. If lazy materialization is ever extended
+     * through set operations, the order keys have to be resolved per set operation branch instead.
+     */
+    private void collectOrderKeyColumns(PhysicalTopN<? extends Plan> topN, Set<Slot> requiredMaterializedSlots) {
+        Map<Slot, Slot> aliasToChild = new HashMap<>();
+        collectIdentityAliasMap(topN.child(), aliasToChild);
+        for (OrderKey orderKey : topN.getOrderKeys()) {
+            for (Slot inputSlot : orderKey.getExpr().getInputSlots()) {
+                collectAliasChain(inputSlot, aliasToChild, requiredMaterializedSlots);
+            }
+        }
+    }
+
+    /** Collect {@code alias slot -> child slot} for every identity Alias of the Projects under the TopN. */
+    private void collectIdentityAliasMap(Plan plan, Map<Slot, Slot> aliasToChild) {
+        if (plan instanceof PhysicalSetOperation) {
+            // Set operations are not materialized lazily, so aliases below them are never reached.
+            return;
+        }
+        if (plan instanceof PhysicalProject) {
+            for (NamedExpression project : ((PhysicalProject<?>) plan).getProjects()) {
+                if (project instanceof Alias && project.child(0) instanceof Slot) {
+                    aliasToChild.putIfAbsent(project.toSlot(), (Slot) project.child(0));
+                }
+            }
+        }
+        for (Plan child : plan.children()) {
+            collectIdentityAliasMap(child, aliasToChild);
+        }
+    }
+
+    /** Add a slot together with every slot of its alias chain, so the column the chain ends at is protected. */
+    @VisibleForTesting
+    static void collectAliasChain(Slot slot, Map<Slot, Slot> aliasToChild, Set<Slot> requiredMaterializedSlots) {
+        Set<Slot> visited = new HashSet<>();
+        Slot current = slot;
+        while (current != null && visited.add(current)) {
+            requiredMaterializedSlots.add(current);
+            current = aliasToChild.get(current);
         }
     }
 

@@ -143,6 +143,64 @@ public class TopnLazyMaterializeTest extends SSBTestBase {
     }
 
     @Test
+    public void testOrderByAliasKeepsItsSourceMaterialized() throws Exception {
+        this.createTable("create table lazy_materialize_order_by_alias_tbl("
+                + "sort_col int, lazy_col int, other_col int) "
+                + "duplicate key(sort_col) distributed by hash(sort_col) buckets 1 "
+                + "properties('replication_num' = '1')");
+        // TestWithFeService enables feDebug, which makes LazyMaterializeTopN validate its own result and
+        // silently fall back on an invalid plan. Turn it off so an invalid plan fails the whole test.
+        boolean feDebug = connectContext.getSessionVariable().feDebug;
+        connectContext.getSessionVariable().feDebug = false;
+        try {
+            // The TopN sorts by an alias of lazy_col, so lazy_col must be materialized for the sort.
+            // Otherwise LazySlotPruning removes it from the scan while `lazy_col AS x` below the TopN
+            // still reads it, and the resulting plan references a slot its child no longer produces.
+            PhysicalPlan plan = postProcess("select lazy_col as x, lazy_col as y "
+                    + "from lazy_materialize_order_by_alias_tbl order by x limit 1");
+            Assertions.assertTrue(
+                    plan.collectToList(node -> node instanceof PhysicalLazyMaterialize).isEmpty(),
+                    plan.treeString());
+
+            // Sorting by a bare column that is also aliased must keep that column materialized.
+            plan = postProcess("select lazy_col, lazy_col as y "
+                    + "from lazy_materialize_order_by_alias_tbl order by lazy_col limit 1");
+            Assertions.assertTrue(
+                    plan.collectToList(node -> node instanceof PhysicalLazyMaterialize).isEmpty(),
+                    plan.treeString());
+
+            // Only the column the order key reads is forced materialized, other_col is still fetched lazily.
+            plan = postProcess("select lazy_col as x, other_col as y "
+                    + "from lazy_materialize_order_by_alias_tbl order by x limit 1");
+            List<PhysicalLazyMaterialize<? extends Plan>> materializeNodes = plan.collectToList(
+                    node -> node instanceof PhysicalLazyMaterialize);
+            Assertions.assertEquals(1, materializeNodes.size(), plan.treeString());
+            Assertions.assertEquals(ImmutableList.of(ImmutableList.of(2)),
+                    materializeNodes.get(0).getLazyBaseColumnIndices());
+
+            // Sorting by a column that is not aliased keeps every projected column lazily fetched.
+            plan = postProcess("select lazy_col as x, other_col as y "
+                    + "from lazy_materialize_order_by_alias_tbl order by sort_col limit 1");
+            materializeNodes = plan.collectToList(node -> node instanceof PhysicalLazyMaterialize);
+            Assertions.assertEquals(1, materializeNodes.size(), plan.treeString());
+            List<Integer> lazyColumnIndexes = Lists.newArrayList();
+            materializeNodes.get(0).getLazyBaseColumnIndices().forEach(lazyColumnIndexes::addAll);
+            lazyColumnIndexes.sort(Integer::compareTo);
+            Assertions.assertEquals(ImmutableList.of(1, 2), lazyColumnIndexes);
+        } finally {
+            connectContext.getSessionVariable().feDebug = feDebug;
+        }
+    }
+
+    private PhysicalPlan postProcess(String sql) {
+        PlanChecker checker = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .implement();
+        return new PlanPostProcessors(checker.getCascadesContext()).process(checker.getPhysicalPlan());
+    }
+
+    @Test
     public void testLightSchemaChangeFalse() throws Exception {
         this.createTable("create table tm_lsc_false (k int, v int) duplicate key(k) "
                 + "distributed by hash(k) buckets 1 "
