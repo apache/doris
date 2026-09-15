@@ -17,12 +17,18 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.filesystem.spi.FileSystemProvider;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.ServiceLoader;
 import java.util.Set;
+import java.util.TreeSet;
 
 public class DatasourcePrintableMapTest {
 
@@ -57,6 +63,48 @@ public class DatasourcePrintableMapTest {
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("AWS_SECRET_KEY"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("obs.secret_key"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("oss.secret_key"));
+    }
+
+    /**
+     * Masking must not depend on a filesystem plugin having loaded. A shipped plugin that fails to load
+     * is skipped and the FE serves on, but every catalog, repository and vault created with its aliases
+     * is still in metadata and is printed through this set (SHOW CREATE CATALOG, SHOW CATALOG, the
+     * catalogs() TVF, the audit log). So every alias a shipped provider declares sensitive has to be in
+     * the static set, not only in what {@link DatasourcePrintableMap#registerSensitiveKeys} adds at
+     * startup. Checked against {@link DatasourcePrintableMap#BUILTIN_SENSITIVE_KEYS} rather than
+     * {@code SENSITIVE_KEY}, which another test in this JVM may already have grown by registration.
+     *
+     * <p>The providers come from the test classpath, which carries every shipped filesystem plugin
+     * (fe-filesystem-obs and -cos only unless the build passes {@code -Ddisable.obs} / {@code -Ddisable.cos}).
+     */
+    @Test
+    public void testShippedFilesystemPluginAliasesAreMaskedWithoutThePlugin() {
+        List<String> providerNames = new ArrayList<>();
+        Set<String> unmasked = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        for (FileSystemProvider<?> provider : ServiceLoader.load(FileSystemProvider.class)) {
+            providerNames.add(provider.name());
+            for (String alias : provider.sensitivePropertyKeys()) {
+                if (!DatasourcePrintableMap.BUILTIN_SENSITIVE_KEYS.contains(alias)) {
+                    unmasked.add(provider.name() + ":" + alias);
+                }
+            }
+        }
+        Assertions.assertTrue(providerNames.size() >= 10,
+                () -> "the shipped filesystem providers must be on the test classpath, found only "
+                        + providerNames);
+        Assertions.assertTrue(unmasked.isEmpty(),
+                () -> "sensitive aliases printed in clear when the plugin declaring them is not loaded: "
+                        + unmasked);
+
+        // And the set is consulted case-insensitively by the printer itself, plugin or no plugin.
+        Map<String, String> map = new HashMap<>();
+        map.put("cos.session_token", "sts-token");
+        map.put("AZURE_CLIENT_SECRET", "client-secret");
+        map.put("ozone.secret_key", "ozone-secret");
+        String printed = new DatasourcePrintableMap<>(map, " = ", true, false, true).toString();
+        Assertions.assertFalse(printed.contains("sts-token"), printed);
+        Assertions.assertFalse(printed.contains("client-secret"), printed);
+        Assertions.assertFalse(printed.contains("ozone-secret"), printed);
     }
 
     @Test
