@@ -104,7 +104,7 @@ public class StreamingTaskScheduler extends MasterDaemon {
         }
     }
 
-    private void scheduleOneTask(AbstractStreamingTask task) {
+    private void scheduleOneTask(AbstractStreamingTask task) throws JobException {
         if (DebugPointUtil.isEnable("StreamingJob.scheduleTask.exception")) {
             throw new RuntimeException("debug point StreamingJob.scheduleTask.exception");
         }
@@ -122,6 +122,11 @@ public class StreamingTaskScheduler extends MasterDaemon {
         }
         // reject task if no more data to consume
         if (!job.hasMoreDataToConsume()) {
+            if (job.hasReachedEnd()) {
+                job.updateJobStatus(JobStatus.FINISHED);
+                job.logUpdateOperation();
+                return;
+            }
             String delayMsg = "No data available for consumption at the moment, will retry after "
                     + (System.currentTimeMillis() + DELAY_SCHEDULER_MS);
             job.setJobRuntimeMsg(delayMsg);
