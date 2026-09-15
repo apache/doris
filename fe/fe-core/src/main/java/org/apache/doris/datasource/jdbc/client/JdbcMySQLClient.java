@@ -81,9 +81,11 @@ public class JdbcMySQLClient extends JdbcClient {
             return false;
         }
         String lowerVersionComment = versionComment.toLowerCase(Locale.ROOT);
+        // Enterprise releases can omit the optional "(Cloud Mode)" suffix.
         return lowerVersionComment.contains("doris")
                 || lowerVersionComment.contains("selectdb")
                 || lowerVersionComment.contains("velodb")
+                || lowerVersionComment.contains("enterprise version enterprise-")
                 || (lowerVersionComment.contains("enterprise version")
                     && lowerVersionComment.contains("cloud mode"));
     }
