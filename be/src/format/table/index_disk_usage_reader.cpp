@@ -48,16 +48,27 @@ namespace {
 const std::vector<std::pair<std::string_view, IndexDiskUsageReader::Column>>& column_names() {
     using C = IndexDiskUsageReader::Column;
     static const std::vector<std::pair<std::string_view, C>> names = {
-            {"PARTITION_NAME", C::kPartitionName}, {"TABLET_ID", C::kTabletId},
-            {"BACKEND_ID", C::kBackendId},         {"ROWSET_ID", C::kRowsetId},
-            {"SEGMENT_ID", C::kSegmentId},         {"INDEX_ID", C::kIndexId},
-            {"INDEX_NAME", C::kIndexName},         {"INDEX_TYPE", C::kIndexType},
-            {"COLUMN_NAME", C::kColumnName},       {"INDEX_SUFFIX", C::kIndexSuffix},
-            {"STRUCTURE", C::kStructure},          {"STORAGE_FORMAT", C::kStorageFormat},
-            {"SEGMENT_COUNT", C::kSegmentCount},   {"ROW_COUNT", C::kRowCount},
-            {"TOTAL_BYTES", C::kTotalBytes},       {"DICT_BYTES", C::kDictBytes},
-            {"POSTING_BYTES", C::kPostingBytes},   {"POSITION_BYTES", C::kPositionBytes},
-            {"STATS_BYTES", C::kStatsBytes},       {"OTHER_BYTES", C::kOtherBytes},
+            {"PARTITION_NAME", C::kPartitionName},
+            {"MATERIALIZED_INDEX_NAME", C::kMaterializedIndexName},
+            {"TABLET_ID", C::kTabletId},
+            {"BACKEND_ID", C::kBackendId},
+            {"ROWSET_ID", C::kRowsetId},
+            {"SEGMENT_ID", C::kSegmentId},
+            {"INDEX_ID", C::kIndexId},
+            {"INDEX_NAME", C::kIndexName},
+            {"INDEX_TYPE", C::kIndexType},
+            {"COLUMN_NAME", C::kColumnName},
+            {"INDEX_SUFFIX", C::kIndexSuffix},
+            {"STRUCTURE", C::kStructure},
+            {"STORAGE_FORMAT", C::kStorageFormat},
+            {"SEGMENT_COUNT", C::kSegmentCount},
+            {"ROW_COUNT", C::kRowCount},
+            {"TOTAL_BYTES", C::kTotalBytes},
+            {"DICT_BYTES", C::kDictBytes},
+            {"POSTING_BYTES", C::kPostingBytes},
+            {"POSITION_BYTES", C::kPositionBytes},
+            {"STATS_BYTES", C::kStatsBytes},
+            {"OTHER_BYTES", C::kOtherBytes},
             {"STATS_SOURCE", C::kStatsSource},
     };
     return names;
@@ -228,6 +239,8 @@ struct RowView {
     const TIndexDiskUsageTablet* target = nullptr;
     // nullptr when FE sent no name for the partition.
     const std::string* partition_name = nullptr;
+    // nullptr when FE sent no name for the base or rollup index of the tablet.
+    const std::string* materialized_index_name = nullptr;
     const IndexDiskUsageRow* row = nullptr;
     // nullptr for container rows and for indexes no longer in the schema.
     const TabletIndex* index = nullptr;
@@ -255,6 +268,10 @@ Cell cell_of(IndexDiskUsageReader::Column column, const RowView& view, IndexDisk
     case C::kPartitionName:
         return view.partition_name == nullptr ? Cell {}
                                               : Cell {std::string_view(*view.partition_name)};
+    case C::kMaterializedIndexName:
+        return view.materialized_index_name == nullptr
+                       ? Cell {}
+                       : Cell {std::string_view(*view.materialized_index_name)};
     case C::kTabletId:
         return Cell {view.target->tablet_id};
     case C::kBackendId:
@@ -323,12 +340,18 @@ void IndexDiskUsageReader::_append_rows(std::vector<MutableColumnPtr>& columns,
                                         const TIndexDiskUsageTablet& target,
                                         const TabletSchema& schema,
                                         const std::vector<IndexDiskUsageRow>& rows) const {
-    const auto& partition_names = _scan_range.index_disk_usage_params.partition_names;
-    const auto partition = partition_names.find(target.partition_id);
+    const auto& params = _scan_range.index_disk_usage_params;
+    const auto partition = params.partition_names.find(target.partition_id);
+    const auto materialized_index =
+            params.materialized_index_names.find(target.materialized_index_id);
     for (const IndexDiskUsageRow& row : rows) {
         RowView view;
         view.target = &target;
-        view.partition_name = partition == partition_names.end() ? nullptr : &partition->second;
+        view.partition_name =
+                partition == params.partition_names.end() ? nullptr : &partition->second;
+        view.materialized_index_name = materialized_index == params.materialized_index_names.end()
+                                               ? nullptr
+                                               : &materialized_index->second;
         view.row = &row;
         if (row.record.structure != IndexDiskUsageStructure::kContainer) {
             view.index = segment_v2::resolve_disk_usage_index(schema, row.record.index_id,

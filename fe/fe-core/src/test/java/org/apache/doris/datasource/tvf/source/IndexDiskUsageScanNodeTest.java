@@ -202,7 +202,7 @@ public class IndexDiskUsageScanNodeTest {
             Mockito.when(tablet.getReplicas()).thenReturn(replicas);
             Mockito.when(tablet.getQueryableReplicas(Mockito.anyLong(), Mockito.anyMap(), Mockito.eq(false)))
                     .thenReturn(replicas);
-            selector.select(new TabletTarget(tablet, 10, 5));
+            selector.select(new TabletTarget(tablet, 10, 1000L, 5));
         }
         // Every tablet shares the backends' disk snapshot instead of rebuilding it.
         Mockito.verify(be1, Mockito.times(1)).getDisks();
@@ -267,7 +267,7 @@ public class IndexDiskUsageScanNodeTest {
     private static TabletTarget target(long tabletId, long partitionId, long version) {
         Tablet tablet = Mockito.mock(Tablet.class);
         Mockito.when(tablet.getId()).thenReturn(tabletId);
-        return new TabletTarget(tablet, partitionId, version);
+        return new TabletTarget(tablet, partitionId, 1000L, version);
     }
 
     private static List<Long> tabletIds(List<TabletTarget> targets) {

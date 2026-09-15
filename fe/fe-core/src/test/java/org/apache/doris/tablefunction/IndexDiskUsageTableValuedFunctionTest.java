@@ -56,6 +56,8 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class IndexDiskUsageTableValuedFunctionTest {
+    private static final long BASE_INDEX_ID = 1000L;
+
     private MockedStatic<Env> mockedEnv;
     private MockedStatic<ConnectContext> mockedContext;
     private AccessControllerManager accessManager;
@@ -151,17 +153,17 @@ public class IndexDiskUsageTableValuedFunctionTest {
     @Test
     public void testSchema() {
         List<Column> columns = new IndexDiskUsageTableValuedFunction(params()).getTableColumns();
-        Assertions.assertEquals(Arrays.asList("PARTITION_NAME", "TABLET_ID", "BACKEND_ID", "ROWSET_ID",
-                "SEGMENT_ID", "INDEX_ID", "INDEX_NAME", "INDEX_TYPE", "COLUMN_NAME", "INDEX_SUFFIX",
-                "STRUCTURE", "STORAGE_FORMAT", "SEGMENT_COUNT", "ROW_COUNT", "TOTAL_BYTES", "DICT_BYTES",
-                "POSTING_BYTES", "POSITION_BYTES", "STATS_BYTES", "OTHER_BYTES", "STATS_SOURCE"),
+        Assertions.assertEquals(Arrays.asList("PARTITION_NAME", "MATERIALIZED_INDEX_NAME", "TABLET_ID",
+                "BACKEND_ID", "ROWSET_ID", "SEGMENT_ID", "INDEX_ID", "INDEX_NAME", "INDEX_TYPE", "COLUMN_NAME",
+                "INDEX_SUFFIX", "STRUCTURE", "STORAGE_FORMAT", "SEGMENT_COUNT", "ROW_COUNT", "TOTAL_BYTES",
+                "DICT_BYTES", "POSTING_BYTES", "POSITION_BYTES", "STATS_BYTES", "OTHER_BYTES", "STATS_SOURCE"),
                 columns.stream().map(Column::getName).collect(Collectors.toList()));
-        Assertions.assertEquals(Arrays.asList(PrimitiveType.VARCHAR, PrimitiveType.BIGINT, PrimitiveType.BIGINT,
-                PrimitiveType.VARCHAR, PrimitiveType.INT, PrimitiveType.BIGINT, PrimitiveType.VARCHAR,
-                PrimitiveType.VARCHAR, PrimitiveType.VARCHAR, PrimitiveType.VARCHAR, PrimitiveType.VARCHAR,
-                PrimitiveType.VARCHAR, PrimitiveType.BIGINT, PrimitiveType.BIGINT, PrimitiveType.BIGINT,
+        Assertions.assertEquals(Arrays.asList(PrimitiveType.VARCHAR, PrimitiveType.VARCHAR,
+                PrimitiveType.BIGINT, PrimitiveType.BIGINT, PrimitiveType.VARCHAR, PrimitiveType.INT,
+                PrimitiveType.BIGINT, PrimitiveType.VARCHAR, PrimitiveType.VARCHAR, PrimitiveType.VARCHAR,
+                PrimitiveType.VARCHAR, PrimitiveType.VARCHAR, PrimitiveType.VARCHAR, PrimitiveType.BIGINT,
                 PrimitiveType.BIGINT, PrimitiveType.BIGINT, PrimitiveType.BIGINT, PrimitiveType.BIGINT,
-                PrimitiveType.BIGINT, PrimitiveType.VARCHAR),
+                PrimitiveType.BIGINT, PrimitiveType.BIGINT, PrimitiveType.BIGINT, PrimitiveType.VARCHAR),
                 columns.stream().map(c -> c.getType().getPrimitiveType()).collect(Collectors.toList()));
         Assertions.assertTrue(columns.stream().allMatch(Column::isAllowNull));
     }
@@ -177,6 +179,7 @@ public class IndexDiskUsageTableValuedFunctionTest {
         Assertions.assertFalse(p.isPositionDetail());
         Assertions.assertTrue(p.getIndexIds().isEmpty());
         Assertions.assertEquals(ImmutableMap.of(10L, "p1", 11L, "p2"), p.getPartitionNames());
+        Assertions.assertEquals(ImmutableMap.of(BASE_INDEX_ID, "logs"), p.getMaterializedIndexNames());
         Assertions.assertEquals(Arrays.asList(tablet(101, 10, 5), tablet(102, 10, 5), tablet(103, 11, 7)),
                 p.getTablets());
     }
@@ -210,6 +213,7 @@ public class IndexDiskUsageTableValuedFunctionTest {
         Assertions.assertEquals(10L, targets.get(0).getPartitionId());
         Assertions.assertEquals(5L, targets.get(0).getVersion());
         Assertions.assertEquals(101L, targets.get(0).getTablet().getId());
+        Assertions.assertEquals(BASE_INDEX_ID, targets.get(0).getMaterializedIndexId());
         Assertions.assertEquals(102L, targets.get(1).getTabletId());
     }
 
@@ -224,6 +228,33 @@ public class IndexDiskUsageTableValuedFunctionTest {
         InOrder inOrder = Mockito.inOrder(table, p1);
         inOrder.verify(table).readUnlock();
         inOrder.verify(p1).getVisibleVersion();
+    }
+
+    @Test
+    public void testCollectsVisibleRollupTablets() throws Exception {
+        OlapTable table = mockOlapTable();
+        Partition p1 = table.getPartition("p1", false);
+        MaterializedIndex baseIndex = p1.getBaseIndex();
+        Tablet rollupTablet = Mockito.mock(Tablet.class);
+        Mockito.when(rollupTablet.getId()).thenReturn(201L);
+        MaterializedIndex rollup = Mockito.mock(MaterializedIndex.class);
+        Mockito.when(rollup.getId()).thenReturn(2000L);
+        Mockito.when(rollup.getTablets()).thenReturn(Arrays.asList(rollupTablet));
+        // A light ADD INDEX installs the index on rollups too, so their tablets hold index files.
+        Mockito.when(p1.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE))
+                .thenReturn(Arrays.asList(baseIndex, rollup));
+        Mockito.when(table.getIndexNameById(2000L)).thenReturn("r_msg");
+        Mockito.when(db.getTableOrAnalysisException("with_rollup")).thenReturn(table);
+
+        IndexDiskUsageTableValuedFunction tvf = new IndexDiskUsageTableValuedFunction(
+                params("table", "with_rollup", "partitions", "p1"));
+        List<IndexDiskUsageTableValuedFunction.TabletTarget> targets = tvf.getTabletTargets();
+        Assertions.assertEquals(Arrays.asList(101L, 102L, 201L), targets.stream()
+                .map(IndexDiskUsageTableValuedFunction.TabletTarget::getTabletId).collect(Collectors.toList()));
+        Assertions.assertEquals(2000L, targets.get(2).getMaterializedIndexId());
+        Assertions.assertEquals(5L, targets.get(2).getVersion());
+        Assertions.assertEquals(ImmutableMap.of(BASE_INDEX_ID, "logs", 2000L, "r_msg"),
+                tvf.getMetaScanRange(Lists.newArrayList()).getIndexDiskUsageParams().getMaterializedIndexNames());
     }
 
     private void allowShow(boolean allowed) {
@@ -251,6 +282,7 @@ public class IndexDiskUsageTableValuedFunctionTest {
         TIndexDiskUsageTablet tablet = new TIndexDiskUsageTablet();
         tablet.setTabletId(tabletId);
         tablet.setPartitionId(partitionId);
+        tablet.setMaterializedIndexId(BASE_INDEX_ID);
         tablet.setVersion(version);
         return tablet;
     }
@@ -258,6 +290,7 @@ public class IndexDiskUsageTableValuedFunctionTest {
     private static OlapTable mockOlapTable() {
         OlapTable table = Mockito.mock(OlapTable.class);
         Mockito.when(table.getName()).thenReturn("logs");
+        Mockito.when(table.getIndexNameById(BASE_INDEX_ID)).thenReturn("logs");
         Partition p1 = mockPartition(10L, "p1", 5L, 101L, 102L);
         Partition p2 = mockPartition(11L, "p2", 7L, 103L);
         Mockito.when(table.getPartitions()).thenReturn(Arrays.asList(p1, p2));
@@ -283,8 +316,11 @@ public class IndexDiskUsageTableValuedFunctionTest {
             tablets.add(tablet);
         }
         MaterializedIndex baseIndex = Mockito.mock(MaterializedIndex.class);
+        Mockito.when(baseIndex.getId()).thenReturn(BASE_INDEX_ID);
         Mockito.when(baseIndex.getTablets()).thenReturn(tablets);
         Mockito.when(partition.getBaseIndex()).thenReturn(baseIndex);
+        Mockito.when(partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE))
+                .thenReturn(Arrays.asList(baseIndex));
         return partition;
     }
 

@@ -816,6 +816,8 @@ struct TIndexDiskUsageTablet {
   1: optional i64 tablet_id
   2: optional i64 partition_id
   3: optional i64 version
+  // The base or rollup index that the tablet belongs to.
+  4: optional i64 materialized_index_id
 }
 
 // Parameters of the index_disk_usage table function.
@@ -828,6 +830,8 @@ struct TIndexDiskUsageMetadataParams {
   3: optional list<i64> index_ids
   4: optional map<i64, string> partition_names
   5: optional list<TIndexDiskUsageTablet> tablets
+  // Names of the base and rollup indexes, keyed by materialized index id.
+  6: optional map<i64, string> materialized_index_names
 }
 
 struct TMetaScanRange {
