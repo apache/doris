@@ -107,4 +107,37 @@ suite("test_variant_bool_numeric_widening", "p0") {
         sql """ select id from ${table_name} where var['rev'] = ${variantV2Function}('1') """
         exception "CAST to a concrete type first"
     }
+
+    // Separate INSERTs put the booleans and the numbers into different rowsets, so each segment
+    // stores its own physical type. Compaction then merges the segment schemas: the merged
+    // subcolumn type must keep booleans distinct from 0/1 for plain, array and object paths.
+    // Subcolumn count 10 and 0 exercise the two compaction schema paths.
+    ["variant_bool_compaction_limited": "10", "variant_bool_compaction_unlimited": "0"].each { table, count ->
+        sql "drop table if exists ${table}"
+        sql """
+            create table ${table} (
+                id int,
+                v variant<properties("variant_max_subcolumns_count" = "${count}")>
+            ) engine = olap
+            duplicate key (id)
+            distributed by hash(id) buckets 1
+            properties ("replication_num" = "1", "disable_auto_compaction" = "true")
+        """
+        sql """insert into ${table} values
+            (1, parse_to_variant('{"k": true, "a": [true], "o": {"b": true}}')),
+            (2, parse_to_variant('{"k": false, "a": [false], "o": {"b": false}}'))"""
+        sql """insert into ${table} values
+            (3, parse_to_variant('{"k": 1, "a": [1], "o": {"b": 1}}')),
+            (4, parse_to_variant('{"k": 0, "a": [0], "o": {"b": 0}}'))"""
+
+        qt_before_compaction_values "select id, v['k'], v['a'], v['o']['b'] from ${table} order by id"
+        qt_before_compaction_groups """select count(*), min(id) from ${table}
+            group by v['k'] order by min(id)"""
+
+        trigger_and_wait_compaction(table, "full")
+
+        qt_after_compaction_values "select id, v['k'], v['a'], v['o']['b'] from ${table} order by id"
+        qt_after_compaction_groups """select count(*), min(id) from ${table}
+            group by v['k'] order by min(id)"""
+    }
 }

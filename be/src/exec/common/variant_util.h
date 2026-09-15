@@ -98,6 +98,15 @@ size_t get_number_of_dimensions(const IColumn& column);
 /// Returns type of scalars of Array of arbitrary dimensions.
 DataTypePtr get_base_type_of_array(const DataTypePtr& type);
 
+// A Variant path keeps JSON booleans distinct from numbers. The generic numeric promotion counts
+// BOOLEAN as an 8-bit unsigned integer, so a path that holds both must use JSONB instead.
+bool is_variant_boolean_numeric_mix(PrimitiveType left, PrimitiveType right);
+
+// Least common type of the types that one Variant path has in different segments or rows. Same as
+// get_least_supertype_jsonb(), except that BOOLEAN mixed with a number at the same array depth
+// becomes JSONB, so merging never casts true/false to 1/0.
+void get_least_common_variant_path_type(const DataTypes& types, DataTypePtr* type);
+
 // Cast column to dst type
 Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result);
 

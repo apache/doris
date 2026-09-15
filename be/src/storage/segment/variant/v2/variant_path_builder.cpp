@@ -327,26 +327,6 @@ bool is_small_or_regular_integer(PrimitiveType type) {
     return type == TYPE_TINYINT || type == TYPE_SMALLINT || type == TYPE_INT || type == TYPE_BIGINT;
 }
 
-// get_numeric_type() (core/data_type/get_least_supertype.cpp) counts TYPE_BOOLEAN as an 8-bit
-// unsigned integer so it can share signed/unsigned width promotion with the real integer types.
-// That is the right numeric-tower rule for its other callers, but a Variant path must keep JSON
-// true/false distinct from 0/1: BOOLEAN mixed with any of these must fall back to JSONB instead of
-// silently becoming an integer/float column (which would cast the existing bool values to 1/0).
-bool is_non_boolean_pure_numeric_type(PrimitiveType type) {
-    switch (type) {
-    case TYPE_TINYINT:
-    case TYPE_SMALLINT:
-    case TYPE_INT:
-    case TYPE_BIGINT:
-    case TYPE_LARGEINT:
-    case TYPE_FLOAT:
-    case TYPE_DOUBLE:
-        return true;
-    default:
-        return false;
-    }
-}
-
 size_t array_dimensions(const DataTypePtr& type) {
     size_t dimensions = 0;
     DataTypePtr current = remove_nullable(type);
@@ -396,8 +376,7 @@ DataTypePtr path_least_common_type(const DataTypePtr& left, const DataTypePtr& r
         }
         return jsonb_type();
     }
-    if ((left_primitive == TYPE_BOOLEAN && is_non_boolean_pure_numeric_type(right_primitive)) ||
-        (right_primitive == TYPE_BOOLEAN && is_non_boolean_pure_numeric_type(left_primitive))) {
+    if (variant_util::is_variant_boolean_numeric_mix(left_primitive, right_primitive)) {
         return jsonb_type();
     }
     DataTypePtr result;
