@@ -19,7 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
-import org.apache.doris.kerberos.AuthenticationConfig;
+import org.apache.doris.foundation.security.HadoopAuthConfigKeys;
 import org.apache.doris.thrift.THdfsConf;
 import org.apache.doris.thrift.THdfsParams;
 
@@ -110,11 +110,11 @@ public class HdfsResource extends Resource {
                 tHdfsParams.setFsName(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(HADOOP_FS_ROOT_PATH)) {
                 tHdfsParams.setRootPath(property.getValue());
-            } else if (property.getKey().equalsIgnoreCase(AuthenticationConfig.HADOOP_USER_NAME)) {
+            } else if (property.getKey().equalsIgnoreCase(HadoopAuthConfigKeys.HADOOP_USER_NAME)) {
                 tHdfsParams.setUser(property.getValue());
-            } else if (property.getKey().equalsIgnoreCase(AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL)) {
+            } else if (property.getKey().equalsIgnoreCase(HadoopAuthConfigKeys.HADOOP_KERBEROS_PRINCIPAL)) {
                 tHdfsParams.setHdfsKerberosPrincipal(property.getValue());
-            } else if (property.getKey().equalsIgnoreCase(AuthenticationConfig.HADOOP_KERBEROS_KEYTAB)) {
+            } else if (property.getKey().equalsIgnoreCase(HadoopAuthConfigKeys.HADOOP_KERBEROS_KEYTAB)) {
                 tHdfsParams.setHdfsKerberosKeytab(property.getValue());
             } else {
                 THdfsConf hdfsConf = new THdfsConf();

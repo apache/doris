@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.apache.doris</groupId>
+        <artifactId>fe</artifactId>
+        <version>${revision}</version>
+    </parent>
+
+    <artifactId>fe-hadoop-runtime</artifactId>
+    <packaging>pom</packaging>
+    <name>Doris FE Hadoop Runtime</name>
+    <description>
+        Ships Hadoop as one shared library bundle for the FE's plugins, rather than a copy inside
+        each plugin that needs it. Produces doris-fe-hadoop-runtime.zip, unpacked by build.sh into
+        fe/plugins/shared/hadoop/ and turned into a classloader by SharedLibraryLayer.
+
+        This module has no sources. It exists to give the bundle one dependency resolution and one
+        artifact list, which is what makes "the same Hadoop for every plugin" checkable rather than
+        a coincidence of nine plugin poms agreeing.
+    </description>
+
+    <dependencies>
+        <!-- The Doris-patched org.apache.hadoop.fs.FileSystem, whose Cache.Key carries
+             doris.fs.cache.key.<scheme> so that two catalogs differing only in credentials do not
+             share one client. It goes at the ZIP ROOT, ahead of lib/, which is how it wins over
+             hadoop-common's copy of the same class - see the assembly descriptor.
+
+             All transitives excluded: be-java-extensions/hadoop-deps resolves the BE's Hadoop
+             (149 jars, ~88MB, HDFS server + YARN + netty), and this bundle is the FE's, which is
+             the list below. Only the patched class comes from there, so the patch keeps living in
+             exactly one place. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>hadoop-deps</artifactId>
+            <version>${project.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- The same two roots fe-filesystem-hdfs-base declares, with the same exclusions, so this
+             bundle resolves the Hadoop the plugins resolve. Versions come from the parent's
+             dependencyManagement (hadoop.version, additionally held by the enforcer rule in
+             be-java-extensions/hadoop-deps), which is what keeps bundle and plugins on one version.
+
+             The bundle's membership is NOT this closure: it is the explicit list in the assembly
+             descriptor. Everything else these two drag in - jackson, guava, netty, jetty, commons-*,
+             the logging bindings - is already in fe/lib at a version fe-core arbitrated, and the
+             layer falls back to it. Bundling a second copy is how the shared layer would start
+             quietly answering with different versions than the kernel. -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-client</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-log4j12</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>log4j</groupId>
+                    <artifactId>log4j</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-auth</artifactId>
+        </dependency>
+        <!-- Declared on its own even though hadoop-client already reaches it: hadoop-client is the
+             slim client POM and prunes some of hadoop-common's own dependencies, com.jcraft:jsch
+             among them, which SFTPFileSystem needs. The connector plugins declare hadoop-common
+             directly and so ship jsch today; the bundle has to resolve the same closure they do, or
+             it would quietly drop a class the plugins are giving up. -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-common</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>doris-fe-hadoop-runtime</finalName>
+        <plugins>
+            <plugin>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <configuration>
+                    <appendAssemblyId>false</appendAssemblyId>
+                    <descriptors>
+                        <descriptor>src/main/assembly/hadoop-runtime-zip.xml</descriptor>
+                    </descriptors>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>make-assembly</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>verify-bundle-shape</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <!-- The bundle is defined by an allowlist, so a mistake in it is
+                                     silent: too few jars only shows up much later, as a plugin that
+                                     cannot link. These three assertions are the cheap half of that -
+                                     the patched FileSystem is present and at the root where its
+                                     precedence comes from, Hadoop itself made it in, and nothing
+                                     Doris-owned other than the patch did. -->
+                                <!-- unzip only adds, so without this the assertions below would
+                                     pass on what a previous build left here. -->
+                                <delete dir="${project.build.directory}/bundle-check"/>
+                                <unzip src="${project.build.directory}/${project.build.finalName}.zip"
+                                       dest="${project.build.directory}/bundle-check"/>
+                                <fail message="hadoop-deps.jar missing from the bundle root: the patched FileSystem would not precede hadoop-common">
+                                    <condition>
+                                        <not>
+                                            <available file="${project.build.directory}/bundle-check/hadoop-deps.jar"/>
+                                        </not>
+                                    </condition>
+                                </fail>
+                                <fileset id="bundle.hadoop.common" dir="${project.build.directory}/bundle-check/lib"
+                                         includes="hadoop-common-*.jar"/>
+                                <fail message="hadoop-common missing from the bundle lib/: the allowlist in the assembly descriptor no longer matches what resolves here">
+                                    <condition>
+                                        <resourcecount refid="bundle.hadoop.common" when="equal" count="0"/>
+                                    </condition>
+                                </fail>
+                                <fileset id="bundle.doris.jars" dir="${project.build.directory}/bundle-check/lib"
+                                         includes="fe-*.jar,doris-*.jar,hadoop-deps*.jar"/>
+                                <fail message="a Doris artifact reached the bundle lib/: the shared layer must carry libraries only, never FE code">
+                                    <condition>
+                                        <resourcecount refid="bundle.doris.jars" when="greater" count="0"/>
+                                    </condition>
+                                </fail>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

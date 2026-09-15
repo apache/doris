@@ -78,6 +78,22 @@ public final class AzureBlobEndpointSignals {
     }
 
     /**
+     * Explicit provider selection key; {@code provider=azure} claims the map without an endpoint.
+     */
+    public static final String PROVIDER_KEY = "provider";
+
+    /**
+     * Azure's whole routing guess over the (probe view of the) properties - {@code provider=azure}, or
+     * an endpoint alias whose host carries a recognised Azure Blob/DFS suffix. The Azure provider's
+     * {@code supportsGuess} is exactly this, and so is fe-core's answer when that provider is not
+     * loaded: a persisted type must be decided by one predicate, or an absent plugin lets an
+     * Azure-shaped map through as something else.
+     */
+    public static boolean guessIsAzure(Map<String, String> properties) {
+        return "azure".equalsIgnoreCase(properties.get(PROVIDER_KEY)) || guessIsAzureBlobEndpoint(properties);
+    }
+
+    /**
      * The endpoint leg of Azure's routing guess over the full (probe view of the) properties:
      * takes the first present endpoint alias and matches its host against the live suffix list.
      * Used positively by the Azure provider and negatively (exclusion) by MinIO.

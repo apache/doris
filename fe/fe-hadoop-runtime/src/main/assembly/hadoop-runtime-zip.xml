@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<!--
+  Bundle layout, read by SharedLibraryLayer:
+
+    hadoop-deps.jar      the Doris-patched org.apache.hadoop.fs.FileSystem
+    lib/*.jar            Hadoop and the part of its closure that must be shared
+
+  Root before lib/ is the whole reason hadoop-deps.jar sits at the root: the layer orders a
+  bundle's root jars ahead of its lib/ jars, so this copy of FileSystem is the one that defines
+  the class and hadoop-common's is shadowed. Nothing else belongs at the root.
+
+  MEMBERSHIP IS AN ALLOWLIST, not "whatever resolves". Two boundaries decide it:
+
+  1. What must be shared. The classes below inherit from one another across jars, so a second copy
+     is a LinkageError rather than a duplicate; and their static state - FileSystem.CACHE,
+     UserGroupInformation's login, FileSystem.SERVICE_FILE_SYSTEMS - is what "two plugins talk to
+     one HDFS" actually means. hadoop-hdfs-client is here because hdfs:// has no fs.hdfs.impl entry
+     in core-default.xml and is found through META-INF/services instead, which the patched
+     FileSystem scans with its OWN loader - so the registration has to be in this bundle.
+
+  2. What must NOT be. Anything reachable by fs.<scheme>.impl stays in the plugin that configures
+     it: hadoop-aws, hadoop-azure and hadoop-huaweicloud are looked up through Configuration, which
+     resolves them with the plugin's classloader, and each needs the plugin's own SDK. hadoop-aws in
+     particular cannot move: the filesystem plugins take software.amazon.awssdk parent-first from
+     fe/lib on purpose, so an awssdk in this bundle would break that, and hadoop-aws without an
+     awssdk beside it is useless. The general libraries - jackson, guava, netty, jetty, commons-*,
+     logging - stay out too: fe/lib already has them at the version fe-core arbitrated, the layer
+     falls back there, and a second copy here is how the shared layer would start answering with a
+     different version than the kernel.
+
+  A hadoop.version bump can add a jar to Hadoop's own closure, and an allowlist will not notice.
+  That shows up as a plugin failing to link on a class this bundle should have carried; the check
+  in the pom catches the coarse version of the mistake, and the failure message from
+  DirectoryPluginRuntimeManager names the missing class for the rest.
+-->
+<assembly xmlns="http://maven.apache.org/ASSEMBLY/2.2.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/ASSEMBLY/2.2.0
+              https://maven.apache.org/xsd/assembly-2.2.0.xsd">
+    <id>hadoop-runtime</id>
+    <formats>
+        <format>zip</format>
+    </formats>
+    <includeBaseDirectory>false</includeBaseDirectory>
+
+    <dependencySets>
+        <!-- Root: the patched FileSystem, name kept unversioned so it reads the same as the copy
+             be/lib/hadoop_hdfs/ ships to the BE. -->
+        <dependencySet>
+            <outputDirectory>/</outputDirectory>
+            <useProjectArtifact>false</useProjectArtifact>
+            <scope>runtime</scope>
+            <outputFileNameMapping>${artifact.artifactId}.${artifact.extension}</outputFileNameMapping>
+            <includes>
+                <include>org.apache.doris:hadoop-deps</include>
+            </includes>
+        </dependencySet>
+
+        <dependencySet>
+            <outputDirectory>/lib</outputDirectory>
+            <useProjectArtifact>false</useProjectArtifact>
+            <scope>runtime</scope>
+            <includes>
+                <!-- Hadoop itself. -->
+                <include>org.apache.hadoop:hadoop-annotations</include>
+                <include>org.apache.hadoop:hadoop-auth</include>
+                <include>org.apache.hadoop:hadoop-client</include>
+                <include>org.apache.hadoop:hadoop-common</include>
+                <include>org.apache.hadoop:hadoop-hdfs-client</include>
+                <include>org.apache.hadoop:hadoop-mapreduce-client-common</include>
+                <include>org.apache.hadoop:hadoop-mapreduce-client-core</include>
+                <include>org.apache.hadoop:hadoop-mapreduce-client-jobclient</include>
+                <include>org.apache.hadoop:hadoop-yarn-client</include>
+                <!-- Hadoop's own relocated Guava and Protobuf: shaded INTO the org.apache.hadoop
+                     namespace, so they are part of Hadoop, not a second copy of anything. -->
+                <include>org.apache.hadoop.thirdparty:hadoop-shaded-guava</include>
+                <include>org.apache.hadoop.thirdparty:hadoop-shaded-protobuf_3_25</include>
+                <!-- Kerberos: UserGroupInformation's ticket handling reaches these directly, and the
+                     login it holds is process-wide, so they share the layer with it. -->
+                <include>org.apache.kerby:kerb-core</include>
+                <include>org.apache.kerby:kerb-crypto</include>
+                <include>org.apache.kerby:kerb-util</include>
+                <include>org.apache.kerby:kerby-asn1</include>
+                <include>org.apache.kerby:kerby-config</include>
+                <include>org.apache.kerby:kerby-pkix</include>
+                <include>org.apache.kerby:kerby-util</include>
+                <!-- Configuration's XML parser, and the utilities core-site.xml resolution and
+                     Hadoop's own net/DNS/SSH paths reach. Not in fe/lib, so the layer cannot fall
+                     back for them. -->
+                <include>com.fasterxml.woodstox:woodstox-core</include>
+                <include>org.codehaus.woodstox:stax2-api</include>
+                <include>org.apache.commons:commons-configuration2</include>
+                <include>commons-net:commons-net</include>
+                <include>dnsjava:dnsjava</include>
+                <include>com.jcraft:jsch</include>
+                <include>com.google.re2j:re2j</include>
+                <!-- ZooKeeper client, used by the HA filesystem paths. -->
+                <include>org.apache.curator:curator-client</include>
+                <include>org.apache.curator:curator-framework</include>
+                <include>org.apache.curator:curator-recipes</include>
+            </includes>
+        </dependencySet>
+    </dependencySets>
+</assembly>

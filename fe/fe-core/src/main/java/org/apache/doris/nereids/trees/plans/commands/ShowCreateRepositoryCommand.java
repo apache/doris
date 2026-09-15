@@ -75,6 +75,10 @@ public class ShowCreateRepositoryCommand extends ShowCommand {
         if (repo == null) {
             throw new AnalysisException("repository not exist.");
         }
+        if (!repo.hasFileSystemDescriptor()) {
+            throw new AnalysisException("repository " + repoName + " is not available: "
+                    + repo.getUnavailableReason());
+        }
         rows.add(Lists.newArrayList(repoName, repo.getCreateStatement()));
         return new ShowResultSet(getMetaData(), rows);
     }

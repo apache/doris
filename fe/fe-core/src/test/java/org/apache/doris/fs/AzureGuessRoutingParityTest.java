@@ -20,6 +20,7 @@ package org.apache.doris.fs;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
@@ -87,6 +88,21 @@ public class AzureGuessRoutingParityTest {
         for (Cell c : GUESS_BATTERY) {
             Assertions.assertEquals(c.expected,
                     StorageAdapter.matchesProviderGuess("AZURE", c.props), "props: " + c.props);
+        }
+    }
+
+    @Test
+    public void testGuessAgainstAnAbsentProviderIsAnErrorNotFalse() {
+        // "false" would be indistinguishable from "not an Azure map" to a caller that persists a type
+        // on the answer, so an absent provider is reported the way ofProvider() reports it.
+        StorageAdapter.initPluginManager(TestFileSystemPluginManagers.withoutProviders("AZURE"));
+        try {
+            Map<String, String> props = ImmutableMap.of("s3.endpoint", "https://acct.blob.core.windows.net");
+            StoragePropertiesException absent = Assertions.assertThrows(StoragePropertiesException.class,
+                    () -> StorageAdapter.matchesProviderGuess("AZURE", props));
+            Assertions.assertTrue(absent.getMessage().contains("'AZURE' is not available"), absent.getMessage());
+        } finally {
+            StorageAdapter.initPluginManager(null);
         }
     }
 

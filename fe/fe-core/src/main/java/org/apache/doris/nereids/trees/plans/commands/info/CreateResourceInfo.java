@@ -26,6 +26,9 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.filesystem.spi.AzureBlobEndpointSignals;
+import org.apache.doris.foundation.property.StoragePropertiesException;
+import org.apache.doris.fs.FileSystemPluginManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -92,9 +95,21 @@ public class CreateResourceInfo {
         }
 
         // Facade twin of the legacy AzureProperties.guessIsMe static (guess-only heuristics).
-        if (StorageAdapter.matchesProviderGuess("AZURE", properties)) {
-            resourceType = ResourceType.AZURE;
-            return;
+        try {
+            if (StorageAdapter.matchesProviderGuess("AZURE", properties)) {
+                resourceType = ResourceType.AZURE;
+                return;
+            }
+        } catch (StoragePropertiesException azureAbsent) {
+            // The Azure plugin is not loaded, so its guess cannot be asked - but the predicate it is
+            // made of (provider=azure, or an Azure Blob endpoint) lives in the SPI and still can. An
+            // Azure-shaped map must be refused here rather than fall through to type=s3: the resource
+            // type is persisted and ALTER RESOURCE cannot change it, so an S3Resource created while
+            // the plugin was absent would stay one after the plugin is repaired.
+            if (AzureBlobEndpointSignals.guessIsAzure(FileSystemPluginManager.withProbeContext(properties))) {
+                throw new AnalysisException("Cannot create resource '" + resourceName
+                        + "': its properties select Azure Blob storage, but " + azureAbsent.getMessage());
+            }
         }
 
         resourceType = ResourceType.fromString(type);

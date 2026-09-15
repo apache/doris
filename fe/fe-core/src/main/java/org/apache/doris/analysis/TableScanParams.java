@@ -20,9 +20,9 @@ package org.apache.doris.analysis;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import org.bouncycastle.util.Strings;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
@@ -78,7 +78,9 @@ public class TableScanParams {
     }
 
     public TableScanParams(String paramType, Map<String, String> mapParams, List<String> listParams) {
-        this.paramType = Strings.toLowerCase(paramType);
+        // Locale.ROOT, not the default locale: the accepted param types are ASCII keywords, and a
+        // server running under a Turkish locale would otherwise fold "INCR" to "ıncr" and reject it.
+        this.paramType = paramType.toLowerCase(Locale.ROOT);
         this.mapParams = mapParams == null ? ImmutableMap.of() : ImmutableMap.copyOf(mapParams);
         this.listParams = listParams == null ? ImmutableList.of() : ImmutableList.copyOf(listParams);
         validate();
