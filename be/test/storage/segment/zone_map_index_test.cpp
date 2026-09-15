@@ -1716,12 +1716,17 @@ TEST_F(ColumnZoneMapTest, FromProtoGivesUpTheRangeForAWrappedCutMax) {
     whole_raised.push_back(static_cast<char>(0xae));
     EXPECT_FALSE(reads_back_as_pass_all("aaa", whole_raised));
 
-    // A max raised from a character the cut split in half is not UTF-8, so that zone gives up its
-    // range on read too, the same way the writer gives it up.
+    // A cut that split a character in half still raised the last byte, so the max stands above
+    // every value sharing the prefix. Long CJK text must not lose pruning over that.
     std::string cut_raised(MAX_ZONE_MAP_INDEX_SIZE - 2, 'a');
     cut_raised.push_back(static_cast<char>(0xe4));
     cut_raised.push_back(static_cast<char>(0xb9));
-    EXPECT_TRUE(reads_back_as_pass_all("aaa", cut_raised));
+    EXPECT_FALSE(reads_back_as_pass_all("aaa", cut_raised));
+
+    // Only the wrap leaves a 0x00 there. A max ending in 0xff was never raised into one.
+    std::string ends_with_ff(MAX_ZONE_MAP_INDEX_SIZE - 1, 'a');
+    ends_with_ff.push_back(static_cast<char>(0xff));
+    EXPECT_FALSE(reads_back_as_pass_all("aaa", ends_with_ff));
 
     // A max shorter than the cut was never raised, so it is exact whatever bytes it holds.
     std::string short_ff = "abc";
