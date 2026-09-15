@@ -506,10 +506,10 @@ Status PointQueryExecutor::_lookup_row_key() {
         }
         // Get rowlocation and rowset, ctx._rowset_ptr will acquire wrap this ptr
         auto rowset_ptr = std::make_unique<RowsetSharedPtr>();
-        st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, nullptr, false,
-                                      specified_rowsets, &location, INT32_MAX /*rethink?*/,
-                                      segment_caches, rowset_ptr.get(), false, nullptr,
-                                      &_profile_metrics.read_stats, nullptr, &io_ctx));
+        st = (_tablet->lookup_row_key(
+                _row_read_ctxs[i]._primary_key, nullptr, false, specified_rowsets, &location,
+                INT32_MAX /*rethink?*/, segment_caches, rowset_ptr.get(), false, nullptr,
+                &_profile_metrics.read_stats, nullptr, &io_ctx, &_row_read_ctxs[i]._segment));
         if (st.is<ErrorCode::KEY_NOT_FOUND>()) {
             continue;
         }
@@ -554,8 +554,8 @@ Status PointQueryExecutor::_lookup_row_data() {
                 io_ctx.remote_scan_cache_write_limiter = _remote_scan_cache_write_limiter.get();
                 RETURN_IF_ERROR(_tablet->lookup_row_data(
                         _row_read_ctxs[i]._primary_key, _row_read_ctxs[i]._row_location.value(),
-                        *(_row_read_ctxs[i]._rowset_ptr), _profile_metrics.read_stats, value,
-                        use_row_cache, &io_ctx));
+                        _row_read_ctxs[i]._segment, *(_row_read_ctxs[i]._rowset_ptr),
+                        _profile_metrics.read_stats, value, use_row_cache, &io_ctx));
                 // serialize value to block, currently only jsonb row format
                 RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_columns(
                         _reusable->get_data_type_serdes(), value.data(), value.size(),
