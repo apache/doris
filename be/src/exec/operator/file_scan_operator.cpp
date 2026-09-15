@@ -148,20 +148,21 @@ bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_o
     const bool is_transactional_hive =
             scan_params.__isset.table_format_params &&
             scan_params.table_format_params.table_format_type == "transactional_hive";
-    const bool is_paimon_native_scan = scan_params.format_type == TFileFormatType::FORMAT_JNI &&
-                                       scan_params.__isset.paimon_predicate &&
-                                       scan_params.__isset.history_schema_info &&
-                                       !scan_params.history_schema_info.empty();
-    const bool has_versioned_parquet_semantics =
-            (scan_params.format_type == TFileFormatType::FORMAT_PARQUET || is_paimon_native_scan) &&
-            scan_params.__isset.parquet_timestamp_semantics_version &&
-            scan_params.parquet_timestamp_semantics_version >=
-                    format::parquet::PARQUET_TIMESTAMP_SEMANTICS_VERSION_1;
+    const bool is_paimon_native_parquet = scan_params.format_type == TFileFormatType::FORMAT_JNI &&
+                                          scan_params.__isset.contains_native_parquet &&
+                                          scan_params.contains_native_parquet;
+    const bool requires_parquet_timestamp_contract =
+            (scan_params.format_type == TFileFormatType::FORMAT_PARQUET ||
+             is_paimon_native_parquet) &&
+            (scan_params.__isset.hive_parquet_time_zone ||
+             (scan_params.__isset.parquet_timestamp_semantics_version &&
+              scan_params.parquet_timestamp_semantics_version >=
+                      format::parquet::PARQUET_TIMESTAMP_SEMANTICS_VERSION_1));
     const bool scanner_v2_requested = (query_options.__isset.enable_file_scanner_v2 &&
                                        query_options.enable_file_scanner_v2) ||
-                                      has_versioned_parquet_semantics;
-    // V1 cannot consume the versioned Parquet timestamp contract. Paimon keeps FORMAT_JNI at scan
-    // level even for native ranges, whose presence is represented by their history schemas.
+                                      requires_parquet_timestamp_contract;
+    // V1 cannot honor either the explicit timezone or the versioned Parquet contract. Paimon ORC
+    // also has history schemas, so only an actual native Parquet range may force this choice.
     return scanner_v2_requested && !is_load &&
            scan_params.format_type != TFileFormatType::FORMAT_ES_HTTP && !is_transactional_hive;
 }

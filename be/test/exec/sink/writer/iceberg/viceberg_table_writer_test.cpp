@@ -18,15 +18,133 @@
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 
 #include <gtest/gtest.h>
+#include <thrift/protocol/TBinaryProtocol.h>
+#include <thrift/transport/TBufferTransports.h>
 
 #include "common/exception.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "exec/sink/writer/iceberg/partition_transformers.h"
+#include "exec/sink/writer/iceberg/vpartition_writer_base.h"
 #include "format/table/iceberg/partition_spec_parser.h"
 #include "format/table/iceberg/schema.h"
 #include "format/table/iceberg/types.h"
 
 namespace doris {
+
+namespace {
+class RecordingPartitionWriter : public IPartitionWriterBase {
+public:
+    Status open(RuntimeState*, RuntimeProfile*, const RowDescriptor*) override {
+        return Status::OK();
+    }
+    Status write(Block& block) override {
+        rows += block.rows();
+        for (size_t i = 0; i < block.rows(); ++i) {
+            EXPECT_TRUE(block.get_by_position(0).column->is_null_at(i));
+        }
+        return Status::OK();
+    }
+    Status close(const Status& status) override { return status; }
+    const std::string& file_name() const override { return name; }
+    int file_name_index() const override { return 0; }
+    size_t written_len() const override { return 0; }
+    size_t rows = 0;
+    const std::string name = "part";
+};
+} // namespace
+
+TEST(VIcebergTableWriterTest, StaticNullBinaryPartitionsKeepNullPathsAndCommitValues) {
+    for (int kind = 0; kind < 3; ++kind) {
+        SCOPED_TRACE(kind);
+        std::unique_ptr<iceberg::Type> source_type;
+        if (kind == 0) {
+            source_type = std::make_unique<iceberg::BinaryType>();
+        } else if (kind == 1) {
+            source_type = std::make_unique<iceberg::FixedType>(16);
+        } else {
+            source_type = std::make_unique<iceberg::UUIDType>();
+        }
+        std::vector<iceberg::NestedField> fields;
+        fields.emplace_back(true, 1, "key", std::move(source_type), std::nullopt);
+        fields.emplace_back(true, 2, "id", std::make_unique<iceberg::IntegerType>(), std::nullopt);
+        auto schema = std::make_shared<iceberg::Schema>(std::move(fields));
+        auto spec = iceberg::PartitionSpecParser::from_json(
+                schema,
+                R"({"spec-id":0,"fields":[{"name":"key","transform":"identity","source-id":1,"field-id":1000}]})");
+        // Encode the nullable wire contract independently of the generated reader's schema.
+        using namespace apache::thrift::protocol;
+        auto buffer = std::make_shared<apache::thrift::transport::TMemoryBuffer>();
+        TBinaryProtocol protocol(buffer);
+        protocol.writeStructBegin("TIcebergTableSink");
+        protocol.writeFieldBegin("static_partition_values", T_MAP, 15);
+        protocol.writeMapBegin(T_STRING, T_STRING, 1);
+        protocol.writeString(std::string("key"));
+        protocol.writeString(std::string("null"));
+        protocol.writeMapEnd();
+        protocol.writeFieldEnd();
+        protocol.writeFieldBegin("static_partition_null_keys", T_SET, 19);
+        protocol.writeSetBegin(T_STRING, 1);
+        protocol.writeString(std::string("key"));
+        protocol.writeSetEnd();
+        protocol.writeFieldEnd();
+        protocol.writeFieldStop();
+        protocol.writeStructEnd();
+        TIcebergTableSink sink;
+        sink.read(&protocol);
+        TDataSink data_sink;
+        data_sink.__set_iceberg_table_sink(sink);
+        VExprContextSPtrs exprs;
+        VIcebergTableWriter writer(data_sink, exprs);
+        writer._schema = schema;
+        auto type = make_nullable(std::make_shared<DataTypeVarbinary>());
+        writer._iceberg_partition_columns.emplace_back(
+                spec->fields()[0], TYPE_VARBINARY, 0,
+                std::make_unique<IdentityPartitionColumnTransform>(type));
+        ASSERT_NO_THROW(writer._init_static_partition_values());
+        EXPECT_TRUE(writer._is_full_static_partition);
+        ASSERT_EQ("key=null", writer._static_partition_path);
+        EXPECT_EQ(std::vector<std::string>({"null"}), writer._static_partition_value_list);
+        auto recording_writer = std::make_shared<RecordingPartitionWriter>();
+        writer._partitions_to_writers["key=null"] = recording_writer;
+        auto null_column = type->create_column();
+        null_column->insert_default();
+        auto id_type = std::make_shared<DataTypeInt32>();
+        auto id_column = id_type->create_column();
+        id_column->insert(Field::create_field<TYPE_INT>(7));
+        Block full_static({ColumnWithTypeAndName(null_column->get_ptr(), type, "key"),
+                           ColumnWithTypeAndName(id_column->get_ptr(), id_type, "id")});
+        ASSERT_TRUE(writer._write_prepared_block(full_static).ok());
+        EXPECT_EQ(1, recording_writer->rows);
+        // Partition columns retain a reference to their spec field throughout dispatch.
+        iceberg::PartitionField dynamic_field(2, 1001, "id", "identity");
+        writer._iceberg_partition_columns.emplace_back(
+                dynamic_field, TYPE_INT, 1,
+                std::make_unique<IdentityPartitionColumnTransform>(
+                        std::make_shared<DataTypeInt32>()));
+        ASSERT_NO_THROW(writer._init_static_partition_values());
+        EXPECT_FALSE(writer._is_full_static_partition);
+        IcebergPartitionData hybrid({std::any(), Int32(7)});
+        ASSERT_EQ("key=null/id=7", writer._partition_to_path(hybrid));
+        EXPECT_EQ(std::vector<std::string>({"null", "7"}), writer._partition_values(hybrid));
+        writer._partitions_to_writers["key=null/id=7"] = recording_writer;
+        Block hybrid_block({ColumnWithTypeAndName(null_column->get_ptr(), type, "key"),
+                            ColumnWithTypeAndName(id_column->get_ptr(), id_type, "id")});
+        ASSERT_TRUE(writer._write_prepared_block(hybrid_block).ok());
+        EXPECT_EQ(2, recording_writer->rows);
+
+        // Empty bytes and malformed non-null bytes must not be silently converted to SQL NULL.
+        if (kind == 0) {
+            writer._t_sink.iceberg_table_sink.__set_static_partition_null_keys({});
+            writer._t_sink.iceberg_table_sink.__set_static_partition_values({{"key", "0x"}});
+            ASSERT_NO_THROW(writer._init_static_partition_values());
+            EXPECT_EQ("key=/id=7", writer._partition_to_path(hybrid));
+            EXPECT_EQ(std::vector<std::string>({"0x", "7"}), writer._partition_values(hybrid));
+            writer._t_sink.iceberg_table_sink.__set_static_partition_values({{"key", "null"}});
+            EXPECT_THROW(writer._init_static_partition_values(), Exception);
+        }
+    }
+}
 
 TEST(VIcebergTableWriterTest, BinaryIdentityStaticAndDynamicRouting) {
     std::vector<iceberg::NestedField> columns;

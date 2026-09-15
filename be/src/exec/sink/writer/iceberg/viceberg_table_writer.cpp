@@ -172,12 +172,26 @@ void VIcebergTableWriter::_init_static_partition_values() {
         if (it != static_values_map.end()) {
             _partition_column_static_values[i] = it->second;
             _partition_column_static_path_values[i] = it->second;
+            _partition_column_is_static[i] = 1;
             auto type =
                     _iceberg_partition_columns[i].partition_column_transform().get_result_type();
+            if (iceberg_sink.static_partition_null_keys.contains(col_name)) {
+                // SQL NULL is not a UUID/hex string, and must not share the empty-byte path.
+                _partition_column_static_values[i] =
+                        _iceberg_partition_columns[i]
+                                .partition_column_transform()
+                                .get_partition_value(type, std::any {});
+                _partition_column_static_path_values[i] =
+                        _partition_value_to_human_string(i, std::any {});
+                continue;
+            }
             if (type->get_primitive_type() == TYPE_VARBINARY) {
                 // Static and dynamic partitions share typed hex commit values, but Iceberg paths
                 // render binary as base64 (UUID as canonical text). Decode before rendering.
-                auto column = type->create_column();
+                // Nullable SerDe turns malformed bytes into NULL. Non-null wire values must fail
+                // validation instead of being silently rendered as an empty binary partition.
+                auto non_null_type = remove_nullable(type);
+                auto column = non_null_type->create_column();
                 auto& encoded = _partition_column_static_values[i];
                 if (_schema->find_type(_iceberg_partition_columns[i].field().source_id())
                                     ->type_id() == iceberg::TypeID::UUID &&
@@ -197,7 +211,7 @@ void VIcebergTableWriter::_init_static_partition_values() {
                 }
                 StringRef value(encoded.data(), encoded.size());
                 DataTypeSerDe::FormatOptions options;
-                auto status = type->get_serde()->from_string(value, *column, options);
+                auto status = non_null_type->get_serde()->from_string(value, *column, options);
                 if (!status.ok()) {
                     throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid binary partition: {}",
                                     status.to_string());
@@ -205,7 +219,6 @@ void VIcebergTableWriter::_init_static_partition_values() {
                 _partition_column_static_path_values[i] =
                         _partition_value_to_human_string(i, column->get_data_at(0).to_string());
             }
-            _partition_column_is_static[i] = 1;
         } else {
             dynamic_count++;
         }
@@ -414,11 +427,22 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
             if (_has_static_partition && _partition_column_is_static[i]) {
                 auto result_type =
                         iceberg_partition_columns.partition_column_transform().get_result_type();
+                const bool is_null = _t_sink.iceberg_table_sink.static_partition_null_keys.contains(
+                        iceberg_partition_columns.field().name());
+                if (is_null) {
+                    result_type = make_nullable(result_type);
+                }
                 auto data_col = result_type->create_column();
-                StringRef str_ref(_partition_column_static_values[i].data(),
-                                  _partition_column_static_values[i].size());
-                DataTypeSerDe::FormatOptions options;
-                RETURN_IF_ERROR(result_type->get_serde()->from_string(str_ref, *data_col, options));
+                if (is_null) {
+                    // The wire placeholder is not a textual value to parse in hybrid routing.
+                    data_col->insert_default();
+                } else {
+                    StringRef str_ref(_partition_column_static_values[i].data(),
+                                      _partition_column_static_values[i].size());
+                    DataTypeSerDe::FormatOptions options;
+                    RETURN_IF_ERROR(
+                            result_type->get_serde()->from_string(str_ref, *data_col, options));
+                }
                 auto col = ColumnConst::create(std::move(data_col), output_block.rows());
                 transformed_block.insert(
                         {std::move(col), result_type, iceberg_partition_columns.field().name()});

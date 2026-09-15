@@ -384,8 +384,9 @@ struct THiveTableSink {
     10: optional bool overwrite
     11: optional THiveSerDeProperties serde_properties
     12: optional list<Types.TNetworkAddress> broker_addresses;
+    // Field 13 is supports_deferred_azure_multipart (bool) in master; never reuse its wire ID.
     // Absent: legacy session timezone; empty: wall-clock INT96; otherwise: named catalog timezone.
-    13: optional string hive_parquet_time_zone
+    14: optional string hive_parquet_time_zone
 }
 
 enum TUpdateMode {
@@ -491,6 +492,8 @@ struct TIcebergTableSink {
     17: optional TIcebergWriteType write_type = TIcebergWriteType.INSERT;
     // Unset keeps collection enabled for rolling upgrades with older FEs.
     18: optional bool collect_column_stats;
+    // Thrift map values cannot be null. These keys distinguish SQL NULL from text and empty bytes.
+    19: optional set<string> static_partition_null_keys;
 }
 
 struct TIcebergRewritableDeleteFileSet {

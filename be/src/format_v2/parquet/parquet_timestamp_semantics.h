@@ -28,13 +28,20 @@ namespace doris::format::parquet {
 inline constexpr int32_t PARQUET_TIMESTAMP_SEMANTICS_VERSION_1 = 1;
 
 inline std::optional<std::string> get_int96_timezone_override(const TFileScanRangeParams* params) {
-    // Only the marker can distinguish a new FE's explicit wall-clock semantics from an old FE
-    // plan whose missing timezone field must keep legacy session-timezone decoding.
-    if (params == nullptr || !params->__isset.parquet_timestamp_semantics_version ||
+    if (params == nullptr) {
+        return std::nullopt;
+    }
+    // The timezone field predates the version marker. Honor intermediate FEs that send it alone,
+    // including an explicit empty value selecting wall-clock semantics.
+    if (params->__isset.hive_parquet_time_zone) {
+        return params->hive_parquet_time_zone;
+    }
+    // Only a plan lacking both an explicit timezone and the new contract uses the legacy session.
+    if (!params->__isset.parquet_timestamp_semantics_version ||
         params->parquet_timestamp_semantics_version < PARQUET_TIMESTAMP_SEMANTICS_VERSION_1) {
         return std::nullopt;
     }
-    return params->__isset.hive_parquet_time_zone ? params->hive_parquet_time_zone : std::string {};
+    return std::string {};
 }
 
 } // namespace doris::format::parquet

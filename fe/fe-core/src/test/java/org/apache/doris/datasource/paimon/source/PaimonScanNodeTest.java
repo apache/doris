@@ -57,6 +57,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TPaimonReaderType;
@@ -1784,6 +1785,49 @@ public class PaimonScanNodeTest {
 
         Mockito.verify(branchTable.schemaManager()).schema(3L);
         Assert.assertEquals(3L, node.getFileScanRangeParams().getHistorySchemaInfo().get(0).getSchemaId());
+    }
+
+    @Test
+    public void testNativeParquetSignalDoesNotIncludeOrcOrJni() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        DataTable table = Mockito.mock(DataTable.class, Mockito.RETURNS_DEEP_STUBS);
+        TableSchema schema = Mockito.mock(TableSchema.class);
+        Mockito.when(table.schemaManager().schema(3L)).thenReturn(schema);
+        Mockito.when(schema.id()).thenReturn(3L);
+        Mockito.when(schema.fields()).thenReturn(Collections.emptyList());
+        Mockito.when(table.partitionKeys()).thenReturn(Collections.emptyList());
+        Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+        Mockito.when(source.getPaimonTable()).thenReturn(table);
+        Mockito.when(source.getCatalog()).thenReturn(catalog);
+        node.setSource(source);
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        setField(FileQueryScanNode.class, node, "params", params);
+
+        node.setScanParams(new TFileRangeDesc(), new PaimonSplit(createDataSplit("jni.parquet")));
+        Assert.assertFalse(params.isContainsNativeParquet());
+        PaimonSplit nativeSplit = Mockito.mock(PaimonSplit.class);
+        Mockito.when(nativeSplit.getTableFormatType()).thenReturn(org.apache.doris.datasource.TableFormatType.PAIMON);
+        Mockito.when(nativeSplit.getSchemaId()).thenReturn(3L);
+        Mockito.when(nativeSplit.getDeletionFile()).thenReturn(Optional.empty());
+        Mockito.when(nativeSplit.getRowCount()).thenReturn(Optional.empty());
+        Mockito.when(nativeSplit.getPathString()).thenReturn("/native.orc");
+        TFileRangeDesc range = new TFileRangeDesc();
+        node.setScanParams(range, nativeSplit);
+        Assert.assertEquals(TFileFormatType.FORMAT_ORC, range.getFormatType());
+        Assert.assertFalse(params.getHistorySchemaInfo().isEmpty());
+        Assert.assertFalse(params.isContainsNativeParquet());
+
+        Mockito.when(nativeSplit.getPathString()).thenReturn("/native.parquet");
+        node.setScanParams(range, nativeSplit);
+        Assert.assertEquals(TFileFormatType.FORMAT_PARQUET, range.getFormatType());
+        Assert.assertTrue(params.isContainsNativeParquet());
+        // A later ORC range must not erase the capability required by an earlier Parquet range.
+        Mockito.when(nativeSplit.getPathString()).thenReturn("/later.orc");
+        node.setScanParams(range, nativeSplit);
+        Assert.assertTrue(params.isContainsNativeParquet());
     }
 
     private void mockJniReader(PaimonScanNode spyNode) {

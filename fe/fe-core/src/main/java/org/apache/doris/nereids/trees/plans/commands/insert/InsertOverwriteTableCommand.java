@@ -53,6 +53,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -490,7 +491,8 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                 if (expr instanceof Literal) {
                     // Binary literals expose bare hex, while BE partition parsing and FE commit
                     // conversion require an explicit byte representation, distinct from text.
-                    String value = ((Literal) expr).getStringValue();
+                    // Keep SQL NULL distinct from the literal text "null" through FE commit.
+                    String value = expr instanceof NullLiteral ? null : ((Literal) expr).getStringValue();
                     staticPartitionValues.put(entry.getKey(), expr instanceof VarBinaryLiteral ? "0x" + value : value);
                 } else {
                     throw new AnalysisException(
