@@ -29,8 +29,9 @@ class IndexPolicyMgr;
 
 namespace doris::segment_v2::gram {
 
-// Whether the index properties name an analyzer policy rather than a built-in analyzer or none,
-// the only kind of index that can be written as a gram index. It never resolves the policy.
+// Whether the index properties name an analyzer or normalizer policy rather than a built-in
+// analyzer, a built-in normalizer or nothing; only such an index can be written as a gram index.
+// It never resolves the policy.
 bool may_be_gram_index(const std::map<std::string, std::string>& index_properties);
 
 // Resolve index properties -> analyzer/normalizer name -> policy -> gram scheme, so that a

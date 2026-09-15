@@ -31,9 +31,10 @@ namespace doris::segment_v2::gram {
 
 bool may_be_gram_index(const std::map<std::string, std::string>& index_properties) {
     const std::string name = get_analyzer_name_from_properties(index_properties);
-    // The same built-in test create_analyzer_provider uses, so both agree on which names are
-    // built in.
-    return !name.empty() && !inverted_index::InvertedIndexAnalyzer::is_builtin_analyzer(name);
+    // The same built-in tests the analyzer and normalizer lookups use, so they agree on which
+    // names are built in.
+    return !name.empty() && !inverted_index::InvertedIndexAnalyzer::is_builtin_analyzer(name) &&
+           !IndexPolicyMgr::is_builtin_normalizer(name);
 }
 
 std::optional<GramScheme> resolve_gram_scheme(

@@ -52,6 +52,9 @@ public:
             const std::string& name,
             const std::map<std::string, std::string>& outer_char_filter_map = {});
 
+    // Whether the name is one of the normalizers built into Doris rather than a policy.
+    static bool is_builtin_normalizer(const std::string& name);
+
 private:
     segment_v2::inverted_index::CustomAnalyzerConfigPtr build_analyzer_config_from_policy(
             const TIndexPolicy& index_policy_analyzer);
@@ -67,7 +70,6 @@ private:
             std::function<void(const std::string&, const segment_v2::inverted_index::Settings&)>
                     add_config_func);
 
-    bool is_builtin_normalizer(const std::string& name);
     AnalyzerPtr build_builtin_normalizer(const std::string& name);
 
     // Normalize policy name to lowercase for case-insensitive lookup

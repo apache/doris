@@ -377,10 +377,9 @@ protected:
     // Send the original LIKE/REGEXP pattern to the selected reader. The reader compiles it
     // against its persisted gram scheme and returns an approximate candidate bitmap.
     //
-    // The index only narrows the rows the predicate still checks. A disabled switch, a call shape
-    // the compiler cannot handle, a NULL pattern and an index that declines the pattern return OK
-    // without a result. Any other index error is returned, so the scan applies the same fallback
-    // policy it applies to other index push-downs.
+    // Returns OK without a result when the switch is off, the call is not one column and one
+    // constant pattern, the pattern is NULL, or the index declines it. Any other index error is
+    // returned so the scan applies its usual fallback policy.
     enum class GramCompileKind { LIKE, REGEXP };
     Status evaluate_gram_index(GramCompileKind kind, const ColumnsWithTypeAndName& arguments,
                                const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,
