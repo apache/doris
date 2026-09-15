@@ -1798,7 +1798,7 @@ DEFINE_Validator(read_ahead_max_bytes_per_be, [](int64_t value) { return value >
 DEFINE_mInt64(read_ahead_eager_window_bytes, "4194304"); // 4 MiB
 DEFINE_Validator(read_ahead_eager_window_bytes, [](int64_t value) { return value > 0; });
 // Compressed page bytes per lazy read-ahead window.
-DEFINE_mInt64(read_ahead_lazy_window_bytes, "131072"); // 128 KiB
+DEFINE_mInt64(read_ahead_lazy_window_bytes, "1048576"); // 1 MiB
 DEFINE_Validator(read_ahead_lazy_window_bytes, [](int64_t value) { return value > 0; });
 // Foreground file-range coalescing and cache-block completion policy
 DEFINE_mInt64(read_ahead_max_gap_bytes, "65536"); // 64 KiB
@@ -1816,10 +1816,10 @@ DEFINE_Int64(hole_fill_max_gap_bytes, "32768"); // 32 KiB
 DEFINE_Validator(hole_fill_max_gap_bytes, [](int64_t value) { return value >= 0; });
 DEFINE_Int64(hole_fill_max_range_bytes, "1048576"); // 1 MiB
 DEFINE_Validator(hole_fill_max_range_bytes, [](int64_t value) { return value > 0; });
-DEFINE_Double(hole_fill_max_read_amplification_ratio, "2.0");
+DEFINE_Double(hole_fill_max_read_amplification_ratio, "1.0");
 DEFINE_Validator(hole_fill_max_read_amplification_ratio,
                  [](double value) { return std::isfinite(value) && value >= 1.0; });
-DEFINE_Int64(hole_fill_max_pending_bytes_per_be, "268435456"); // 256 MiB
+DEFINE_Int64(hole_fill_max_pending_bytes_per_be, "1073741824"); // 1 GiB
 DEFINE_Validator(hole_fill_max_pending_bytes_per_be, [](int64_t value) { return value > 0; });
 DEFINE_mInt32(hole_fill_workers_per_be, "32");
 DEFINE_Validator(hole_fill_workers_per_be, [](int32_t value) { return value > 0 && value <= 128; });
@@ -1827,7 +1827,7 @@ DEFINE_Validator(hole_fill_workers_per_be, [](int32_t value) { return value > 0 
 DEFINE_mInt32(hole_fill_remote_read_threads_per_be, "64");
 DEFINE_Validator(hole_fill_remote_read_threads_per_be, [](int32_t value) { return value > 0; });
 // Minimum aggregation time from first partial-block admission; zero disables the delay.
-DEFINE_mInt32(hole_fill_merge_delay_ms, "10"); // 10 ms
+DEFINE_mInt32(hole_fill_merge_delay_ms, "0"); // 0 ms
 DEFINE_Validator(hole_fill_merge_delay_ms, [](int32_t value) { return value >= 0; });
 // Enable segment file cache block prefetch for compaction
 DEFINE_mBool(enable_compaction_segment_file_cache_prefetch, "false");
