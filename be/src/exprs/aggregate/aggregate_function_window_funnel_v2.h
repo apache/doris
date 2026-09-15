@@ -288,6 +288,54 @@ struct WindowFunnelStateV2 {
         }
     };
 
+    /// One partial chain of the INCREASE mode.
+    /// first_ts is the timestamp of the chain start and is used for the time-window check,
+    /// last_ts is the timestamp of the chain's last matched event and is used for the
+    /// strict-increase check, list_idx is the position of that event in events_list.
+    struct IncreaseLevelState {
+        TimestampType first_ts = 0;
+        TimestampType last_ts = 0;
+        size_t list_idx = 0;
+    };
+
+    /// Keep the state of `level_states` that can reach at least as far as any other one: the
+    /// chain start that is the latest, because every event the other states can extend has to be
+    /// strictly greater than their last timestamp, and the earlier chain start expires first.
+    static void _merge_increase_state(std::vector<IncreaseLevelState>& level_states,
+                                      const IncreaseLevelState& new_state) {
+        level_states.push_back(new_state);
+        IncreaseLevelState best = level_states[0];
+        for (const auto& state : level_states) {
+            if (state.first_ts > best.first_ts ||
+                (state.first_ts == best.first_ts && state.last_ts < best.last_ts)) {
+                best = state;
+            }
+        }
+        level_states.assign(1, best);
+    }
+
+    /// Remove the states of the levels below `updated_level` that can no longer be part of a
+    /// better chain: a state of a higher level whose last timestamp is not greater can extend
+    /// every event the lower state can extend, and it already reaches a higher level.
+    static void _prune_increase_levels(std::vector<std::vector<IncreaseLevelState>>& levels,
+                                       int updated_level) {
+        for (int level = updated_level; level >= 0 && !levels[level].empty(); --level) {
+            bool dominated = false;
+            for (int higher = level + 1; higher < static_cast<int>(levels.size()) && !dominated;
+                 ++higher) {
+                for (const auto& state : levels[higher]) {
+                    if (state.last_ts <= levels[level][0].last_ts) {
+                        dominated = true;
+                        break;
+                    }
+                }
+            }
+            if (dominated) {
+                levels[level].clear();
+            }
+        }
+    }
+
     int get() const {
         if (event_count == 0 || events_list.empty()) {
             return 0;
@@ -361,8 +409,18 @@ private:
     /// - The new chain has a later first_ts (better for the time-window check)
     /// Neither dominates the other, so both must be tried independently.
     ///
-    /// This method iterates over each event-0 occurrence as a potential chain start,
-    /// then scans forward to build the longest matching chain from that start.
+    /// This method iterates over each event-0 occurrence as a potential chain start and scans
+    /// forward, keeping for every level the most permissive partial chain reachable from that
+    /// start. A single state per level is not sufficient: a later event of the same level can be
+    /// needed to extend an even later event, while the earlier one is needed to satisfy the
+    /// strict-increase check, so both must be kept until one of them is dominated.
+    ///
+    /// States of different levels are compared by their last timestamp: a state that reached a
+    /// higher level with a timestamp that is not larger can extend every event the lower state
+    /// can extend, and its chain starts no later, so the lower state is removed. The remaining
+    /// per-level state is the one with the latest chain start, which is the most permissive for
+    /// the time-window check. This keeps the state list small while preserving the longest chain.
+    ///
     /// The maximum chain length across all starts is returned.
     ///
     /// Complexity: O(M_event0 × N_matched) worst-case, where M_event0 is the count of
@@ -388,9 +446,9 @@ private:
             }
 
             // Try building a chain from this event-0
-            std::vector<TimestampPair> events_timestamp(event_count);
-            events_timestamp[0] = {events_list[start].timestamp, events_list[start].timestamp,
-                                   start, true};
+            std::vector<std::vector<IncreaseLevelState>> levels(event_count);
+            levels[0].push_back(
+                    {events_list[start].timestamp, events_list[start].timestamp, start});
             int curr_level = 0;
 
             for (size_t i = start + 1; i < list_size; ++i) {
@@ -402,19 +460,28 @@ private:
                     continue;
                 }
 
-                if (events_timestamp[event_idx - 1].has_value() &&
-                    !_is_same_row(events_timestamp[event_idx - 1].last_list_idx, i)) {
-                    bool matched =
-                            _within_window(events_timestamp[event_idx - 1].first_ts, evt.timestamp);
-                    matched = matched && events_timestamp[event_idx - 1].last_ts < evt.timestamp;
-                    if (matched) {
-                        events_timestamp[event_idx] = {events_timestamp[event_idx - 1].first_ts,
-                                                       evt.timestamp, i, true};
-                        curr_level = std::max(event_idx, curr_level);
-                        if (event_idx + 1 == event_count) {
-                            return event_count;
-                        }
+                // Find the most permissive state of the previous level that this event can
+                // extend. States are stored by increasing last_ts, so the last extendable one
+                // also carries the latest chain start.
+                const IncreaseLevelState* extended_from = nullptr;
+                for (const auto& state : levels[event_idx - 1]) {
+                    if (state.last_ts < evt.timestamp && !_is_same_row(state.list_idx, i) &&
+                        _within_window(state.first_ts, evt.timestamp)) {
+                        extended_from = &state;
                     }
+                }
+
+                if (extended_from == nullptr) {
+                    continue;
+                }
+
+                _merge_increase_state(levels[event_idx],
+                                      {extended_from->first_ts, evt.timestamp, i});
+                _prune_increase_levels(levels, event_idx);
+
+                curr_level = std::max(event_idx, curr_level);
+                if (event_idx + 1 == event_count) {
+                    return event_count;
                 }
             }
 

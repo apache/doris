@@ -142,3 +142,13 @@
 
 -- !v2_fixed_edge_relevant_wrong_no_restart --
 2
+
+-- !v2_increase_extendable_level --
+3
+
+-- !v2_increase_extendable_level_default --
+3
+
+-- !v2_increase_extendable_level_dedup --
+3
+

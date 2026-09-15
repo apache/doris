@@ -1930,4 +1930,84 @@ TEST_F(VWindowFunnelV2Test, testFixedRelevantButWrongRowBreaksChain) {
     agg_func_3->destroy(place);
 }
 
+// Test INCREASE mode: an intermediate level must not be overwritten when the event that
+// overwrites it cannot extend the chain any further.
+//   3 conditions, window=10s, INCREASE mode
+//   Row A (t=0s): c1
+//   Row B (t=1s): c2   (still extendable: c2@1 -> c3@2)
+//   Row C (t=2s): c2   (cannot extend: c3@2 is not strictly greater)
+//   Row D (t=2s): c3
+// Correct result: 3 (c1@0 -> c2@1 -> c3@2)
+// Bug (before fix): returned 2 because c2@2 overwrote c2@1 and the strict-increase check
+// then rejected c3@2.
+TEST_F(VWindowFunnelV2Test, testIncreaseModeExtendableIntermediateLevelKept) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    DataTypes data_types_3 = {
+            std::make_shared<DataTypeInt64>(),      std::make_shared<DataTypeString>(),
+            std::make_shared<DataTypeDateTimeV2>(), std::make_shared<DataTypeUInt8>(),
+            std::make_shared<DataTypeUInt8>(),      std::make_shared<DataTypeUInt8>()};
+    auto agg_func_3 = factory.get("window_funnel_v2", data_types_3, nullptr, false,
+                                  BeExecVersionManager::get_newest_version());
+    ASSERT_NE(agg_func_3, nullptr);
+
+    const int32_t NUM_ROWS = 4;
+    auto column_mode = ColumnString::create();
+    for (int32_t i = 0; i < NUM_ROWS; i++) {
+        column_mode->insert(Field::create_field<TYPE_STRING>("increase"));
+    }
+
+    auto column_timestamp = ColumnDateTimeV2::create();
+    VecDateTimeValue tv0, tv1, tv2, tv3;
+    tv0.unchecked_set_time(2022, 2, 28, 0, 0, 0);
+    tv1.unchecked_set_time(2022, 2, 28, 0, 0, 1);
+    tv2.unchecked_set_time(2022, 2, 28, 0, 0, 2);
+    tv3.unchecked_set_time(2022, 2, 28, 0, 0, 2);
+    auto dtv2_0 = tv0.to_datetime_v2();
+    auto dtv2_1 = tv1.to_datetime_v2();
+    auto dtv2_2 = tv2.to_datetime_v2();
+    auto dtv2_3 = tv3.to_datetime_v2();
+    column_timestamp->insert_data((char*)&dtv2_0, 0);
+    column_timestamp->insert_data((char*)&dtv2_1, 0);
+    column_timestamp->insert_data((char*)&dtv2_2, 0);
+    column_timestamp->insert_data((char*)&dtv2_3, 0);
+
+    // Row 0: c1, Row 1: c2, Row 2: c2, Row 3: c3
+    auto column_c1 = ColumnUInt8::create();
+    column_c1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_c1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_c1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_c1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    auto column_c2 = ColumnUInt8::create();
+    column_c2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_c2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_c2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_c2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    auto column_c3 = ColumnUInt8::create();
+    column_c3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_c3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_c3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_c3->insert(Field::create_field<TYPE_BOOLEAN>(1));
+
+    auto column_window = ColumnInt64::create();
+    for (int32_t i = 0; i < NUM_ROWS; i++) {
+        column_window->insert(Field::create_field<TYPE_BIGINT>(10));
+    }
+
+    std::unique_ptr<char[]> memory(new char[agg_func_3->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_func_3->create(place);
+    const IColumn* columns[6] = {column_window.get(), column_mode.get(), column_timestamp.get(),
+                                 column_c1.get(),     column_c2.get(),   column_c3.get()};
+    for (int32_t i = 0; i < NUM_ROWS; i++) {
+        agg_func_3->add(place, columns, i, arena);
+    }
+
+    ColumnInt32 result_column;
+    agg_func_3->insert_result_into(place, result_column);
+    EXPECT_EQ(result_column.get_data()[0], 3);
+    agg_func_3->destroy(place);
+}
+
 } // namespace doris
