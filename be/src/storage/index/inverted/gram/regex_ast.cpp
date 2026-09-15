@@ -259,6 +259,73 @@ struct Parser {
         }
     }
 
+    // How the scalar engines read a `{` that follows an atom.
+    enum class BraceReading { LITERAL, REPEAT, AMBIGUOUS };
+
+    bool skip_repeat_space() {
+        const size_t start = i;
+        while (!eof() && std::isspace(static_cast<unsigned char>(peek()))) {
+            i++;
+        }
+        return i != start;
+    }
+
+    // Reads one repeat count at i. Hyperscan, RE2 and Boost all read one to nine digits without a
+    // leading zero as the same number, while RE2 reads a longer count or a leading zero as literal
+    // text; those forms return false. The digits are consumed either way and *value cannot
+    // overflow.
+    bool parse_repeat_count(int* value) {
+        const size_t start = i;
+        int v = 0;
+        while (!eof() && std::isdigit(static_cast<unsigned char>(peek()))) {
+            if (i - start < 9) {
+                v = v * 10 + (peek() - '0');
+            }
+            i++;
+        }
+        *value = v;
+        const size_t digits = i - start;
+        return digits <= 9 && !(digits > 1 && p[start] == '0');
+    }
+
+    // Reads `{m}`, `{m,}` or `{m,n}` at i; LITERAL restores i to the brace. Boost skips whitespace
+    // around the bounds and the comma where Hyperscan and RE2 read literal text, so a spaced form
+    // is AMBIGUOUS, and so is a count only some engines read as a number.
+    BraceReading parse_repeat_bounds(int* mn, int* mx) {
+        const size_t save = i;
+        i++; // '{'
+        bool spaced = skip_repeat_space();
+        if (eof() || !std::isdigit(static_cast<unsigned char>(peek()))) {
+            i = save;
+            return BraceReading::LITERAL;
+        }
+        bool plain = parse_repeat_count(mn);
+        if (skip_repeat_space()) {
+            spaced = true;
+        }
+        *mx = *mn;
+        if (peek() == ',') {
+            i++;
+            if (skip_repeat_space()) {
+                spaced = true;
+            }
+            *mx = -1;
+            if (std::isdigit(static_cast<unsigned char>(peek()))) {
+                const bool upper_plain = parse_repeat_count(mx);
+                plain = plain && upper_plain;
+                if (skip_repeat_space()) {
+                    spaced = true;
+                }
+            }
+        }
+        if (peek() != '}') {
+            i = save;
+            return BraceReading::LITERAL;
+        }
+        i++;
+        return plain && !spaced ? BraceReading::REPEAT : BraceReading::AMBIGUOUS;
+    }
+
     NP parse_quant(NP a) {
         while (!eof()) {
             char c = peek();
@@ -278,37 +345,17 @@ struct Parser {
                 s->kids.push_back(std::move(a));
                 a = std::move(s);
             } else if (c == '{') {
-                size_t save = i;
-                i++;
                 int mn = 0;
                 int mx = -1;
-                bool has = false;
-                while (!eof() && std::isdigit(static_cast<unsigned char>(peek()))) {
-                    mn = mn * 10 + (peek() - '0');
-                    i++;
-                    has = true;
-                }
-                if (!has) {
-                    i = save;
+                const BraceReading reading = parse_repeat_bounds(&mn, &mx);
+                if (reading == BraceReading::LITERAL) {
                     break;
                 }
-                if (peek() == ',') {
-                    i++;
-                    if (std::isdigit(static_cast<unsigned char>(peek()))) {
-                        mx = 0;
-                        while (!eof() && std::isdigit(static_cast<unsigned char>(peek()))) {
-                            mx = mx * 10 + (peek() - '0');
-                            i++;
-                        }
-                    }
-                } else {
-                    mx = mn;
+                if (reading == BraceReading::AMBIGUOUS) {
+                    ok = false;
+                    err = "bounded repeat the scalar engines read differently";
+                    return a;
                 }
-                if (peek() != '}') {
-                    i = save;
-                    break;
-                }
-                i++;
                 NP s = mk(RegexNode::Type::REPEAT);
                 s->rmin = mn;
                 s->rmax = mx;
@@ -549,6 +596,13 @@ struct Parser {
         bool first = true;
         while (!eof() && (peek() != ']' || first)) {
             first = false;
+            if (peek() == '[' && i + 1 < p.size() && (p[i + 1] == '.' || p[i + 1] == '=')) {
+                // Boost reads [.x.] and [=x=] as one collating or equivalence element and closes
+                // the class at the bracket after it, while RE2 closes the class at the first ']'.
+                ok = false;
+                err = "collating or equivalence element";
+                return n;
+            }
             if (peek() == '[' && i + 1 < p.size() && p[i + 1] == ':') { // POSIX class, [:alpha:]
                 size_t e = p.find(":]", i);
                 if (e == std::string_view::npos) {
@@ -654,6 +708,15 @@ struct Parser {
         case 'z':
             i++;
             return mk(RegexNode::Type::EMPTY);
+        case '<':
+        case '>':
+        case '`':
+        case '\'':
+            // Boost reads these as word and buffer anchors, while Hyperscan and RE2 read the
+            // escaped character.
+            ok = false;
+            err = "escape Boost reads as an anchor";
+            return nullptr;
         case 'p':
         case 'P': {
             i++;

@@ -172,4 +172,54 @@ TEST(RegexAstTest, HexEscapeHardening) {
     EXPECT_EQ(parse_dump("\\x{4"), "ERR");
 }
 
+// Boost skips whitespace around repeat bounds, while Hyperscan and RE2 read such braces as literal
+// text, so a spaced repeat has no reading the gram query can rely on.
+TEST(RegexAstTest, BoundedRepeatWithWhitespaceIsRejected) {
+    for (const char* re :
+         {"a{ 3 }", "a{3 }", "a{ 3}", "a{\t3}", "a{3, 4}", "a{3 ,4}", "a{ 3 , 4 }", "a{3, }"}) {
+        EXPECT_EQ(parse_dump(re), "ERR") << re;
+    }
+    // Braces that no engine reads as a repeat stay literal text.
+    EXPECT_EQ(parse_dump("a{ x}"), "cat('a','{',' ','x','}',)");
+    EXPECT_EQ(parse_dump("a{3 x}"), "cat('a','{','3',' ','x','}',)");
+}
+
+// RE2 reads a count of ten or more digits, or one with a leading zero, as literal text, while
+// Hyperscan and Boost read a number.
+TEST(RegexAstTest, RepeatCountsSomeEngineReadsAsTextAreRejected) {
+    for (const char* re : {"a{1000000000}", "a{2147483648}", "a{1,4294967297}", "a{0,4294967296}",
+                           "a{01}", "a{1,02}", "a{00}"}) {
+        EXPECT_EQ(parse_dump(re), "ERR") << re;
+    }
+}
+
+// Braces every engine reads the same way keep their meaning.
+TEST(RegexAstTest, RepeatCountsEveryEngineReadsAlikeKeepTheirShape) {
+    EXPECT_EQ(parse_dump("a{0}"), "cat(rep('a',0,0),)");
+    EXPECT_EQ(parse_dump("a{0,2}"), "cat(rep('a',0,2),)");
+    EXPECT_EQ(parse_dump("a{3,}"), "cat(rep('a',3,-1),)");
+    EXPECT_EQ(parse_dump("a{2,1000}"), "cat(rep('a',2,1000),)");
+    EXPECT_EQ(parse_dump("a{999999999}"), "cat(rep('a',999999999,999999999),)");
+    EXPECT_EQ(parse_dump("a{,3}"), "cat('a','{',',','3','}',)");
+}
+
+// Boost reads [.x.] and [=x=] as one collating or equivalence element and closes the class after
+// it, while RE2 closes the class at the first ']'.
+TEST(RegexAstTest, CollatingAndEquivalenceElementsAreRejected) {
+    for (const char* re : {"[[.a.]]x", "[[=a=]]x", "[b[.a.]]x", "[^[=a=]]x", "x[[.space.]]"}) {
+        EXPECT_EQ(parse_dump(re), "ERR") << re;
+    }
+    EXPECT_EQ(parse_dump("[[:alpha:]]x"), "cat([big],'x',)");
+    EXPECT_EQ(parse_dump("[[a]x"), "cat([[a],'x',)");
+}
+
+// At top level Boost reads \< \> \` \' as word and buffer anchors, while Hyperscan and RE2 read
+// the escaped character. Inside a class every engine reads the character.
+TEST(RegexAstTest, BoostAnchorEscapesAreRejected) {
+    for (const char* re : {"\\<x", "x\\>", "\\`x", "x\\'"}) {
+        EXPECT_EQ(parse_dump(re), "ERR") << re;
+    }
+    EXPECT_EQ(parse_dump("[\\<\\>]x"), "cat([<>],'x',)");
+}
+
 } // namespace doris::segment_v2::gram

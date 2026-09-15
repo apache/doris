@@ -53,11 +53,14 @@ struct RegexNode {
 };
 
 // Parse a pattern in the RE2 syntax subset into a RegexNode AST. Supported: literals; escapes
-// (`\. \a \f \n \t \r \0oo \xHH \x{...} \Q..\E`, where \0oo has no octal digit after it);
-// classes (`[...]`, negation, ranges, POSIX classes, `\d \w \s \v \D \W \S \pL \p{..}`);
+// (`\. \a \f \n \t \r \0oo \xHH \x{...} \Q..\E`, where \0oo has no octal digit after it; outside
+// a class the escapes \< \> \` \' are not supported, because Boost reads them as anchors);
+// classes (`[...]`, negation, ranges, POSIX classes, `\d \w \s \v \D \W \S \pL \p{..}`, but not
+// the collating and equivalence elements `[.x.]` and `[=x=]`);
 // `.`; groups (capturing, `(?:`, `(?P<name>`, `(?<name>`);
-// the flags `(?i) (?s) (?m) (?U)` and `(?i:...)`; the quantifiers `* + ? {m} {m,} {m,n}` and
-// their lazy suffixes; the anchors `^ $ \b \B \A \Z \z`; `|`.
+// the flags `(?i) (?s) (?m) (?U)` and `(?i:...)`; the quantifiers `* + ? {m} {m,} {m,n}`, each
+// bound one to nine digits without a leading zero and no whitespace inside the braces, and their
+// lazy suffixes; the anchors `^ $ \b \B \A \Z \z`; `|`.
 // On success *root owns the whole tree and *case_insensitive says whether `(?i)` appeared in
 // the pattern; on failure (syntax error, unclosed group/class, dangling escape, group nesting
 // too deep, ...) Status::InvalidArgument is returned and neither *root nor *case_insensitive is

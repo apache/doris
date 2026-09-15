@@ -890,4 +890,269 @@ TEST(RegexGramRecallTest, NumericEscapesBoostReadsDifferentlyFilterNothing) {
                 {ill_formed + "ab1cdtimeout", ill_formed + "abacdtimeout", "unrelated"}, true);
 }
 
+TEST(RegexGramRecallTest, BoundedRepeatWithWhitespaceFiltersNothing) {
+    // With extended regex, Boost runs every pattern Hyperscan and RE2 both reject; a possessive
+    // quantifier is one way there. Boost skips whitespace around the bounds and the comma, so
+    // `a{ 3 }` repeats `a`, while Hyperscan and RE2 read the same braces as literal text.
+    const std::vector<RecallCase> cases = {{"a{ 3 }timeout++",
+                                            {"aaatimeout", "a{ 3 }timeout", "unrelated"},
+                                            {true, false, false},
+                                            ScalarPath::BOOST,
+                                            false,
+                                            true},
+                                           {"a{3 }timeout++",
+                                            {"aaatimeout", "a{3 }timeout", "unrelated"},
+                                            {true, false, false},
+                                            ScalarPath::BOOST,
+                                            false,
+                                            true},
+                                           {"a{ 3}timeout++",
+                                            {"aaatimeout", "a{ 3}timeout", "unrelated"},
+                                            {true, false, false},
+                                            ScalarPath::BOOST,
+                                            false,
+                                            true},
+                                           {"a{\t3}timeout++",
+                                            {"aaatimeout", "a{\t3}timeout", "unrelated"},
+                                            {true, false, false},
+                                            ScalarPath::BOOST,
+                                            false,
+                                            true},
+                                           {"a{3, 4}timeout++",
+                                            {"aaaatimeout", "a{3, 4}timeout", "unrelated"},
+                                            {true, false, false},
+                                            ScalarPath::BOOST,
+                                            false,
+                                            true},
+                                           {"a{3 ,4}timeout++",
+                                            {"aaaatimeout", "a{3 ,4}timeout", "unrelated"},
+                                            {true, false, false},
+                                            ScalarPath::BOOST,
+                                            false,
+                                            true},
+                                           {"a{ 3 , 4 }timeout++",
+                                            {"aaaatimeout", "a{ 3 , 4 }timeout", "unrelated"},
+                                            {true, false, false},
+                                            ScalarPath::BOOST,
+                                            false,
+                                            true},
+                                           {"a{3, }timeout++",
+                                            {"aaaaatimeout", "a{3, }timeout", "unrelated"},
+                                            {true, false, false},
+                                            ScalarPath::BOOST,
+                                            false,
+                                            true}};
+    check_cases(cases, /*fallback=*/true, /*extended=*/true);
+
+    // Hyperscan reads the same braces as literal text, and that row must stay a candidate too.
+    check_recall("a{ 3 }timeout", {"a{ 3 }timeout", "aaatimeout", "unrelated"},
+                 {true, false, false}, /*require_pruning=*/false,
+                 /*enable_hyperscan_fallback=*/true, /*enable_extended_regex=*/false,
+                 ScalarPath::HYPERSCAN);
+    check_recall("a{3, 4}timeout", {"a{3, 4}timeout", "aaaatimeout", "unrelated"},
+                 {true, false, false}, /*require_pruning=*/false,
+                 /*enable_hyperscan_fallback=*/true, /*enable_extended_regex=*/false,
+                 ScalarPath::HYPERSCAN);
+}
+
+TEST(RegexGramRecallTest, RepeatCountsTheEnginesReadDifferentlyFilterNothing) {
+    // Boost accepts counts past INT_MAX once Hyperscan and RE2 decline the pattern. Such a count
+    // must neither overflow in the parser nor constrain the query with a wrapped value.
+    const std::vector<RecallCase> boost_cases = {{"xa{1,4294967297}ytimeout++",
+                                                  {"xaaytimeout", "xaytimeout", "unrelated"},
+                                                  {true, true, false},
+                                                  ScalarPath::BOOST,
+                                                  false,
+                                                  true},
+                                                 {"xa{0,4294967296}ytimeout++",
+                                                  {"xaytimeout", "xytimeout", "unrelated"},
+                                                  {true, true, false},
+                                                  ScalarPath::BOOST,
+                                                  false,
+                                                  true},
+                                                 {"xa{2147483648}ytimeout++",
+                                                  {"xaytimeout", "unrelated"},
+                                                  {false, false},
+                                                  ScalarPath::BOOST,
+                                                  false,
+                                                  true},
+                                                 {"xa{1,2147483648}ytimeout++",
+                                                  {"xaaytimeout", "xaytimeout", "unrelated"},
+                                                  {true, true, false},
+                                                  ScalarPath::BOOST,
+                                                  false,
+                                                  true}};
+    check_cases(boost_cases, /*fallback=*/true, /*extended=*/true);
+
+    // RE2 runs whatever Hyperscan rejects or skips, with or without extended regex, and reads a
+    // count of ten or more digits, or one with a leading zero, as literal text. Hyperscan and
+    // Boost read a repeat, so the row holding the literal braces must stay a candidate.
+    const std::vector<RecallCase> re2_cases = {
+            {"xa{1,4294967297}ytimeout",
+             {"xa{1,4294967297}ytimeout", "xaytimeout", "unrelated"},
+             {true, false, false},
+             ScalarPath::RE2,
+             false,
+             true},
+            {"xa{1000000000}ytimeout",
+             {"xa{1000000000}ytimeout", "xaytimeout", "unrelated"},
+             {true, false, false},
+             ScalarPath::RE2,
+             false,
+             true},
+            {"xa{1,1000000000}ytimeout",
+             {"xa{1,1000000000}ytimeout", "xaytimeout", "unrelated"},
+             {true, false, false},
+             ScalarPath::RE2,
+             false,
+             true},
+            {"xa{01}ytimeout.{0,51}",
+             {"xa{01}ytimeout", "xaytimeout", "unrelated"},
+             {true, false, false},
+             ScalarPath::RE2,
+             false,
+             true},
+            {"xa{1,02}ytimeout.{0,51}",
+             {"xa{1,02}ytimeout", "xaaytimeout", "unrelated"},
+             {true, false, false},
+             ScalarPath::RE2,
+             false,
+             true},
+            {"xa{00}ytimeout.{0,51}",
+             {"xa{00}ytimeout", "xytimeout", "unrelated"},
+             {true, false, false},
+             ScalarPath::RE2,
+             false,
+             true}};
+    for (bool extended : {false, true}) {
+        check_cases(re2_cases, /*fallback=*/true, extended);
+    }
+
+    // Hyperscan reads a leading zero as a number, so its row carries no literal braces.
+    check_recall("xa{01}ytimeout", {"xaytimeout", "xa{01}ytimeout", "unrelated"},
+                 {true, false, false}, /*require_pruning=*/false,
+                 /*enable_hyperscan_fallback=*/true, /*enable_extended_regex=*/false,
+                 ScalarPath::HYPERSCAN);
+}
+
+TEST(RegexGramRecallTest, RepeatCountsEveryEngineReadsAlikeKeepPruning) {
+    // Braces every engine reads the same way still constrain the gram query.
+    const std::vector<RecallCase> cases = {
+            {"ab{0}cdtimeout",
+             {"acdtimeout", "abcdtimeout", "unrelated"},
+             {true, false, false},
+             ScalarPath::RE2},
+            {"ab{0,2}cdtimeout",
+             {"acdtimeout", "abbcdtimeout", "abbbcdtimeout", "unrelated"},
+             {true, true, false, false},
+             ScalarPath::HYPERSCAN},
+            {"ab{3,}cdtimeout",
+             {"abbbcdtimeout", "abbbbbcdtimeout", "abbcdtimeout", "unrelated"},
+             {true, true, false, false},
+             ScalarPath::HYPERSCAN},
+            {"xa{2,1000}ytimeout",
+             {"xaaytimeout", "xaytimeout", "unrelated"},
+             {true, false, false},
+             ScalarPath::RE2},
+            {"xa{,3}ytimeout",
+             {"xa{,3}ytimeout", "xaytimeout", "unrelated"},
+             {true, false, false},
+             ScalarPath::HYPERSCAN}};
+    check_cases(cases, /*fallback=*/true, /*extended=*/false);
+}
+
+TEST(RegexGramRecallTest, CollatingAndEquivalenceElementsFilterNothing) {
+    // Boost reads [.a.] and [=a=] inside a bracket expression as one element and closes the class
+    // at the bracket after it. Hyperscan rejects both, and RE2 reads '[', '.' and '=' as members
+    // and closes the class at the first ']'.
+    const std::vector<RecallCase> boost_cases = {{"[[.a.]]timeout++",
+                                                  {"atimeout", ".]timeout", "unrelated"},
+                                                  {true, false, false},
+                                                  ScalarPath::BOOST,
+                                                  false,
+                                                  true},
+                                                 {"[[=a=]]timeout++",
+                                                  {"atimeout", "=]timeout", "unrelated"},
+                                                  {true, false, false},
+                                                  ScalarPath::BOOST,
+                                                  false,
+                                                  true},
+                                                 {"x[[.space.]]timeout++",
+                                                  {"x timeout", "x.]timeout", "unrelated"},
+                                                  {true, false, false},
+                                                  ScalarPath::BOOST,
+                                                  false,
+                                                  true},
+                                                 {"[b[.a.]]timeout++",
+                                                  {"atimeout", "btimeout", "unrelated"},
+                                                  {true, true, false},
+                                                  ScalarPath::BOOST,
+                                                  false,
+                                                  true}};
+    check_cases(boost_cases, /*fallback=*/true, /*extended=*/true);
+
+    const std::vector<RecallCase> re2_cases = {{"[[.a.]]timeout",
+                                                {".]timeout", "[]timeout", "atimeout", "unrelated"},
+                                                {true, true, false, false},
+                                                ScalarPath::RE2,
+                                                false,
+                                                true},
+                                               {"[[=a=]]timeout",
+                                                {"=]timeout", "[]timeout", "atimeout", "unrelated"},
+                                                {true, true, false, false},
+                                                ScalarPath::RE2,
+                                                false,
+                                                true}};
+    for (bool extended : {false, true}) {
+        check_cases(re2_cases, /*fallback=*/true, extended);
+    }
+}
+
+TEST(RegexGramRecallTest, BoostAnchorEscapesFilterNothing) {
+    // At top level Boost reads \< \> \` \' as word and buffer anchors, while Hyperscan and RE2 read
+    // the escaped character. A possessive quantifier sends each pattern to Boost.
+    const std::vector<RecallCase> cases = {{"\\<timeout++",
+                                            {"timeout", "<timeout", "unrelated"},
+                                            {true, true, false},
+                                            ScalarPath::BOOST,
+                                            false,
+                                            true},
+                                           {"\\`timeout++",
+                                            {"timeout", "`timeout", "unrelated"},
+                                            {true, false, false},
+                                            ScalarPath::BOOST,
+                                            false,
+                                            true},
+                                           {"abcd \\<wxyz(?:q)?+",
+                                            {"abcd wxyz", "abcd <wxyz", "unrelated"},
+                                            {true, false, false},
+                                            ScalarPath::BOOST,
+                                            false,
+                                            true},
+                                           {"abcd\\> wxyz(?:q)?+",
+                                            {"abcd wxyz", "abcd> wxyz", "unrelated"},
+                                            {true, false, false},
+                                            ScalarPath::BOOST,
+                                            false,
+                                            true},
+                                           {"abcdwxyz\\>(?:q)?+",
+                                            {"abcdwxyz", "abcdwxyz>", "unrelated"},
+                                            {true, true, false},
+                                            ScalarPath::BOOST,
+                                            false,
+                                            true},
+                                           {"abcdwxyz\\'(?:q)?+",
+                                            {"abcdwxyz", "abcdwxyz'", "unrelated"},
+                                            {true, false, false},
+                                            ScalarPath::BOOST,
+                                            false,
+                                            true}};
+    check_cases(cases, /*fallback=*/true, /*extended=*/true);
+
+    // Hyperscan reads the escaped character, so that row must stay a candidate as well.
+    check_recall("\\<timeout", {"<timeout", "timeout", "unrelated"}, {true, false, false},
+                 /*require_pruning=*/false, /*enable_hyperscan_fallback=*/true,
+                 /*enable_extended_regex=*/false, ScalarPath::HYPERSCAN);
+}
+
 } // namespace doris::segment_v2::gram
