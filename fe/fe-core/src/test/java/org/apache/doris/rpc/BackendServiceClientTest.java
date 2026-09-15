@@ -25,7 +25,12 @@ import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import io.grpc.Context;
+import io.grpc.Deadline;
 import io.grpc.ManagedChannel;
+import io.grpc.Server;
+import io.grpc.ServerBuilder;
+import io.grpc.stub.StreamObserver;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,6 +39,8 @@ import org.mockito.Mockito;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Unit tests for BackendServiceClient to verify that it uses
@@ -70,6 +77,78 @@ public class BackendServiceClientTest {
 
         if (executor != null) {
             executor.shutdown();
+        }
+    }
+
+    @Test
+    public void testBatchRpcOverRealChannelPreservesContextAndDeadline() throws Exception {
+        AtomicReference<Deadline> batchDeadline = new AtomicReference<>();
+        AtomicReference<Deadline> unaryDeadline = new AtomicReference<>();
+        Server server = ServerBuilder.forPort(0).addService(new PBackendServiceGrpc.PBackendServiceImplBase() {
+            @Override
+            public void tabletFetchDataBatch(InternalService.PTabletKeyLookupBatchRequest request,
+                    StreamObserver<InternalService.PTabletKeyLookupBatchResponse> observer) {
+                batchDeadline.set(Context.current().getDeadline());
+                Assertions.assertEquals(2, request.getItemsCount());
+                Assertions.assertEquals("Asia/Tokyo", request.getItems(0).getRequest().getTimeZone());
+                Assertions.assertEquals(123, request.getItems(0).getRequest().getVersion());
+                observer.onNext(InternalService.PTabletKeyLookupBatchResponse.newBuilder()
+                        .setStatus(org.apache.doris.proto.Types.PStatus.newBuilder().setStatusCode(0))
+                        .addResults(InternalService.PTabletKeyLookupResponse.newBuilder()
+                                .setStatus(org.apache.doris.proto.Types.PStatus.newBuilder().setStatusCode(0))
+                                .setNeedResendQueryContext(true))
+                        .addResults(InternalService.PTabletKeyLookupResponse.newBuilder()
+                                .setStatus(org.apache.doris.proto.Types.PStatus.newBuilder().setStatusCode(0))
+                                .setRowBatch(com.google.protobuf.ByteString.copyFrom(new byte[32]))).build());
+                observer.onCompleted();
+            }
+
+            @Override
+            public void tabletFetchData(InternalService.PTabletKeyLookupRequest request,
+                    StreamObserver<InternalService.PTabletKeyLookupResponse> observer) {
+                unaryDeadline.set(Context.current().getDeadline());
+                observer.onNext(InternalService.PTabletKeyLookupResponse.newBuilder()
+                        .setStatus(org.apache.doris.proto.Types.PStatus.newBuilder().setStatusCode(0))
+                        .setRowBatch(com.google.protobuf.ByteString.copyFrom(new byte[32])).build());
+                observer.onCompleted();
+            }
+        }).build().start();
+        BackendServiceClient client = new BackendServiceClient(
+                new TNetworkAddress("127.0.0.1", server.getPort()), "127.0.0.1", executor);
+        try {
+            InternalService.PTabletKeyLookupRequest lookup = InternalService.PTabletKeyLookupRequest.newBuilder()
+                    .setTabletId(7).setTimeZone("Asia/Tokyo").setVersion(123).build();
+            InternalService.PTabletKeyLookupBatchItem item = InternalService.PTabletKeyLookupBatchItem.newBuilder()
+                    .setRequest(lookup).setRemainingTimeoutMs(1000).build();
+            InternalService.PTabletKeyLookupBatchResponse response = client.fetchTabletDataBatchAsync(
+                    InternalService.PTabletKeyLookupBatchRequest.newBuilder().addItems(item).addItems(item).build(),
+                    5000).get(5, TimeUnit.SECONDS);
+            Assertions.assertEquals(2, response.getResultsCount());
+            Assertions.assertTrue(response.getResults(0).getNeedResendQueryContext());
+            Assertions.assertEquals(32, response.getResults(1).getRowBatch().size());
+            Assertions.assertNotNull(batchDeadline.get());
+            client.fetchTabletDataAsync(lookup).get(5, TimeUnit.SECONDS);
+            Assertions.assertNull(unaryDeadline.get());
+            client.fetchTabletDataAsync(lookup, 1000).get(5, TimeUnit.SECONDS);
+            Assertions.assertNotNull(unaryDeadline.get());
+            Config.grpc_max_message_size_bytes = 48;
+            BackendServiceClient smallClient = new BackendServiceClient(
+                    new TNetworkAddress("127.0.0.1", server.getPort()), "127.0.0.1", executor);
+            try {
+                java.util.concurrent.ExecutionException failure = Assertions.assertThrows(
+                        java.util.concurrent.ExecutionException.class,
+                        () -> smallClient.fetchTabletDataBatchAsync(InternalService.PTabletKeyLookupBatchRequest
+                                .newBuilder().addItems(item).addItems(item).build(), 5000).get(5, TimeUnit.SECONDS));
+                Assertions.assertEquals(io.grpc.Status.Code.RESOURCE_EXHAUSTED,
+                        io.grpc.Status.fromThrowable(failure).getCode());
+                Assertions.assertEquals(32, smallClient.fetchTabletDataAsync(lookup, 1000)
+                        .get(5, TimeUnit.SECONDS).getRowBatch().size());
+            } finally {
+                smallClient.shutdown();
+            }
+        } finally {
+            client.shutdown();
+            server.shutdownNow().awaitTermination(5, TimeUnit.SECONDS);
         }
     }
 

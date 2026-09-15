@@ -91,6 +91,27 @@ public class BackendServiceProxy {
         return Holder.get();
     }
 
+    // Aggregate before selecting one of the existing channels, otherwise the 48 proxy shards
+    // divide the arrival rate and prevent small batches from filling.
+    private static class PointQueryBatcherHolder {
+        private static final PointQueryRpcBatcher BATCHER = new PointQueryRpcBatcher(
+                new PointQueryRpcBatcher.Transport() {
+                    @Override
+                    public ListenableFuture<InternalService.PTabletKeyLookupResponse> unary(
+                            TNetworkAddress address, InternalService.PTabletKeyLookupRequest request,
+                            long timeoutMs) throws UnknownHostException {
+                        return getInstance().getProxy(address).fetchTabletDataAsync(request, timeoutMs);
+                    }
+
+                    @Override
+                    public ListenableFuture<InternalService.PTabletKeyLookupBatchResponse> batch(
+                            TNetworkAddress address, InternalService.PTabletKeyLookupBatchRequest request,
+                            long timeoutMs) throws UnknownHostException {
+                        return getInstance().getProxy(address).fetchTabletDataBatchAsync(request, timeoutMs);
+                    }
+                }, grpcThreadPool);
+    }
+
     private class BackendServiceClientExtIp {
         private String realIp;
         private BackendServiceClient client;
@@ -308,6 +329,15 @@ public class BackendServiceProxy {
                     address.getHostname(), address.getPort(), e);
             throw new RpcException(address.hostname, e.getMessage());
         }
+    }
+
+    public Future<InternalService.PTabletKeyLookupResponse> fetchTabletDataAsync(
+            TNetworkAddress address, InternalService.PTabletKeyLookupRequest request, long timeoutMs)
+            throws RpcException {
+        if (!Config.enable_point_query_rpc_batch) {
+            return fetchTabletDataAsync(address, request);
+        }
+        return PointQueryBatcherHolder.BATCHER.submit(address, request, timeoutMs);
     }
 
     public InternalService.PFetchDataResult fetchDataSync(
