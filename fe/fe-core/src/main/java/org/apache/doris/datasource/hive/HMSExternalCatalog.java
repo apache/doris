@@ -221,36 +221,47 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public synchronized void onClose() {
-        ThreadPoolExecutor retiredExecutor = threadPoolWithPreAuth;
-        threadPoolWithPreAuth = null;
-        IcebergMetadataOps retiredIcebergMetadataOps = icebergMetadataOps;
-        Catalog retiredIcebergCatalog = retiredIcebergMetadataOps == null
-                ? null : retiredIcebergMetadataOps.getCatalog();
-        icebergMetadataOps = null;
-        super.onClose();
-        if (null != fileSystemExecutor) {
-            ThreadPoolManager.shutdownExecutorService(fileSystemExecutor);
-        }
-        if (null != metadataOps) {
-            metadataOps.close();
-            metadataOps = null;
-        }
-        icebergResourceTracker.retireCurrent(() -> {
-            if (retiredIcebergMetadataOps != null) {
-                retiredIcebergMetadataOps.close();
+    public void onClose() {
+        // Retire the Iceberg cache group before synchronized cleanup to preserve
+        // HMS's lifecycle-stripe -> catalog-monitor lock ordering.
+        // Cached HMS-Iceberg table values still retain this tracker; retiring the
+        // cache group first releases those references so the teardown callback
+        // (metadata ops / catalog / executor close) runs outside the cache-removal
+        // lock stack.
+        ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        cacheMgr.removeCatalogByEngine(getId(), IcebergExternalMetaCache.ENGINE);
+
+        synchronized (this) {
+            ThreadPoolExecutor retiredExecutor = threadPoolWithPreAuth;
+            threadPoolWithPreAuth = null;
+            IcebergMetadataOps retiredIcebergMetadataOps = icebergMetadataOps;
+            Catalog retiredIcebergCatalog = retiredIcebergMetadataOps == null
+                    ? null : retiredIcebergMetadataOps.getCatalog();
+            icebergMetadataOps = null;
+            super.onClose();
+            if (null != fileSystemExecutor) {
+                ThreadPoolManager.shutdownExecutorService(fileSystemExecutor);
             }
-            if (retiredIcebergCatalog instanceof AutoCloseable) {
-                try {
-                    ((AutoCloseable) retiredIcebergCatalog).close();
-                } catch (Exception e) {
-                    LOG.warn("Failed to close HMS Iceberg catalog: {}", getName(), e);
+            if (null != metadataOps) {
+                metadataOps.close();
+                metadataOps = null;
+            }
+            icebergResourceTracker.retireCurrent(() -> {
+                if (retiredIcebergMetadataOps != null) {
+                    retiredIcebergMetadataOps.close();
                 }
-            }
-            if (retiredExecutor != null) {
-                ThreadPoolManager.shutdownExecutorService(retiredExecutor);
-            }
-        });
+                if (retiredIcebergCatalog instanceof AutoCloseable) {
+                    try {
+                        ((AutoCloseable) retiredIcebergCatalog).close();
+                    } catch (Exception e) {
+                        LOG.warn("Failed to close HMS Iceberg catalog: {}", getName(), e);
+                    }
+                }
+                if (retiredExecutor != null) {
+                    ThreadPoolManager.shutdownExecutorService(retiredExecutor);
+                }
+            });
+        }
     }
 
     @Override
