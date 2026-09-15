@@ -43,10 +43,7 @@ suite("test_iceberg_duplicate_position_delete_legacy_scanner",
             process.waitForOrKill(timeoutSeconds * 1000)
             int exitCode = process.exitValue()
             if (exitCode != 0 && logFailure) {
-                logger.info("exit code: ${exitCode}, stdout
-: ${stdout}
-stderr
-: ${stderr}")
+                logger.info("exit code: ${exitCode}, stdout\n: ${stdout}\nstderr\n: ${stderr}")
             }
             return [exitCode: exitCode, stdout: stdout.toString(), stderr: stderr.toString()]
         } catch (IOException e) {
@@ -57,11 +54,7 @@ stderr
     def executeCommand = { String command, int timeoutSeconds = 300 ->
         def result = executeCommandWithStatus(command, timeoutSeconds)
         assertEquals(0, result.exitCode,
-                "Command failed
-stdout:
-${result.stdout}
-stderr:
-${result.stderr}")
+                "Command failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}")
         return result.stdout
     }
 
