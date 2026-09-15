@@ -37,6 +37,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/packed_file_manager.h"
 #include "io/fs/packed_file_system.h"
+#include "io/fs/packed_file_writer.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
 #include "runtime/exec_env.h"
@@ -54,6 +55,27 @@ RowsetMeta::~RowsetMeta() {
     if (_handle) {
         TabletSchemaCache::instance()->release(_handle);
     }
+}
+
+Status RowsetMeta::collect_packed_slice_location(const io::FileWriter& file_writer,
+                                                 const std::string& file_path) {
+    if (file_writer.state() != io::FileWriter::State::CLOSED) {
+        return Status::OK();
+    }
+    if (!file_writer.is_in_packed_file()) {
+        return Status::OK();
+    }
+
+    // Read the writer-owned location so collection cannot race with global index cleanup.
+    io::PackedSliceLocation location;
+    RETURN_IF_ERROR(static_cast<const io::PackedFileWriter&>(file_writer)
+                            .get_packed_slice_location(&location));
+    DORIS_CHECK(!location.packed_file_path.empty());
+    add_packed_slice_location(file_path, location.packed_file_path, location.offset, location.size,
+                              location.packed_file_size);
+    LOG(INFO) << "collect packed file index: " << file_path << " -> " << location.packed_file_path
+              << ", offset: " << location.offset << ", size: " << location.size;
+    return Status::OK();
 }
 
 bool RowsetMeta::init(std::string_view pb_rowset_meta) {

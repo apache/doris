@@ -38,8 +38,6 @@ private:
 
     Status _collect_all_packed_slice_locations(RowsetMeta* rowset_meta);
 
-    Status _collect_packed_slice_location(io::FileWriter* file_writer, const std::string& file_path,
-                                          RowsetMeta* rowset_meta);
     CloudStorageEngine& _engine;
 };
 
