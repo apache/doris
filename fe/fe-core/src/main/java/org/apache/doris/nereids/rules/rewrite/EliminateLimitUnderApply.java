@@ -27,6 +27,12 @@ import java.util.List;
 
 /**
  * EliminateLimitUnderApply.
+ * SQL examples (t1/t2 are two tables with columns c1/c2):
+ * - `select t1.c1 from t1 where exists (select 1 from t2 where t2.c1 = t1.c1 limit 3)`:
+ *   correlated, the LIMIT cannot change the result of the apply (existence is checked per outer
+ *   row), so it is removed;
+ * - `select t1.c1, (select t2.c1 from t2 limit 1) from t1`: uncorrelated, the LIMIT decides
+ *   whether and how many rows the subquery returns, so it is kept and this rule returns null.
  */
 public class EliminateLimitUnderApply extends OneRewriteRuleFactory {
     @Override

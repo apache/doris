@@ -47,6 +47,19 @@ import java.util.List;
  * <p>
  * Not In -> NULL_AWARE_LEFT_ANTI_JOIN
  * In -> LEFT_SEMI_JOIN
+ * SQL examples (t1/t2 are two tables with columns c1/c2; the NOT IN one needs a nullable build
+ * side):
+ * - `select t1.c1 from t1 where t1.c1 in (select t2.c1 from t2)`
+ *   becomes a LEFT_SEMI_JOIN on `t1.c1 = t2.c1`;
+ * - `select t1.c1 from t1 where t1.c1 not in (select t2.c1 from t2)`
+ *   becomes a NULL_AWARE_LEFT_ANTI_JOIN: a NULL in t2.c1 makes `t1.c1 not in (...)` NULL instead
+ *   of false, so the row must be rejected even though no equal value was found;
+ * - `select t1.c1 from t1 where t1.c1 in (select t2.c1 from t2 where t1.c1 = t2.c2)`
+ *   becomes a LEFT_SEMI_JOIN on `t1.c1 = t2.c1 and t1.c1 = t2.c2`: the correlation filter is one
+ *   of the predicates which unnest the apply;
+ * - `select t1.c1, t1.c1 in (select t2.c1 from t2) as v from t1`
+ *   becomes a mark join: the IN result is returned as the nullable boolean v, so a nullable
+ *   comparison stays in the mark join predicate instead of the hash conjuncts.
  */
 public class InApplyToJoin extends OneRewriteRuleFactory {
     @Override
