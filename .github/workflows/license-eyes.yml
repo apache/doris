@@ -33,12 +33,25 @@ jobs:
     name: "License Check"
     runs-on: ubuntu-latest
     concurrency:
-      group: license-check-${{ github.event.pull_request.number || github.run_id }}
+      group: license-check-${{ github.event.pull_request.number || github.run_id }}-${{ github.sha }}
       cancel-in-progress: true
     if: |
       (github.event_name == 'pull_request') ||
       (github.event_name == 'push' && github.ref == 'refs/heads/master')
     steps:
+      - name: Verify current PR head
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          current_head_sha=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha')
+          if [[ "${current_head_sha}" != "${EXPECTED_HEAD_SHA}" ]]; then
+            echo "::error::PR #${PR_NUMBER} moved from ${EXPECTED_HEAD_SHA} to ${current_head_sha}; refusing stale validation"
+            exit 1
+          fi
+
       - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
         uses: actions/checkout@v7
         with:

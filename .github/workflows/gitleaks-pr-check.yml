@@ -23,18 +23,31 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   gitleaks:
     name: Check for secrets
     runs-on: ubuntu-latest
     concurrency:
-      group: gitleaks-${{ github.event.pull_request.number || github.run_id }}
+      group: gitleaks-${{ github.event.pull_request.number || github.run_id }}-${{ github.sha }}
       cancel-in-progress: true
     env:
       GITLEAKS_VERSION: 8.30.0
       GITLEAKS_SHA256: 79a3ab579b53f71efd634f3aaf7e04a0fa0cf206b7ed434638d1547a2470a66e
     steps:
+      - name: Verify current PR head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          current_head_sha=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha')
+          if [[ "${current_head_sha}" != "${EXPECTED_HEAD_SHA}" ]]; then
+            echo "::error::PR #${PR_NUMBER} moved from ${EXPECTED_HEAD_SHA} to ${current_head_sha}; refusing stale validation"
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
