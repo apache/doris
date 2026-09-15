@@ -37,6 +37,8 @@ import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeTVFScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
@@ -70,6 +72,37 @@ import java.util.Map;
 import java.util.Optional;
 
 class MaterializeProbeVisitorTest {
+
+    @Test
+    void testLazyScansKeepPassiveColumnsRejectedByProbe() {
+        for (DataType type : ImmutableList.of(DateTimeV2Type.SYSTEM_DEFAULT, TimeStampTzType.SYSTEM_DEFAULT,
+                ArrayType.of(DateTimeV2Type.SYSTEM_DEFAULT), VariantType.COMPUTE_V2_INSTANCE,
+                MapType.of(IntegerType.INSTANCE, VariantType.COMPUTE_V2_INSTANCE))) {
+            List<Slot> output = topNOutput(type);
+            SlotReference rowId = new SlotReference("row_id", IntegerType.INSTANCE);
+            PhysicalFileScan fileScan = Mockito.mock(PhysicalFileScan.class);
+            Mockito.when(fileScan.getTable()).thenReturn(Mockito.mock(IcebergExternalTable.class));
+            Mockito.when(fileScan.getRelationId()).thenReturn(new RelationId(1));
+            Mockito.when(fileScan.getQualifier()).thenReturn(ImmutableList.of("db"));
+            Mockito.when(fileScan.getOutput()).thenReturn(output);
+            Mockito.when(fileScan.getOperativeSlots()).thenReturn(ImmutableList.of(output.get(0)));
+            Mockito.when(fileScan.getTableSample()).thenReturn(Optional.empty());
+            Mockito.when(fileScan.getTableSnapshot()).thenReturn(Optional.empty());
+            Mockito.when(fileScan.getScanParams()).thenReturn(Optional.empty());
+            Mockito.when(fileScan.getRelationSnapshot()).thenReturn(Optional.empty());
+            PhysicalLazyMaterializeFileScan lazyFile = new PhysicalLazyMaterializeFileScan(
+                    fileScan, rowId, ImmutableList.of(output.get(2)));
+            Assertions.assertEquals(ImmutableList.of(output.get(0), output.get(1), rowId), lazyFile.getOutput());
+
+            PhysicalTVFRelation tvf = mockVectorSearchRelation();
+            Mockito.when(tvf.getRelationId()).thenReturn(new RelationId(2));
+            Mockito.when(tvf.getOutput()).thenReturn(output);
+            Mockito.when(tvf.getOperativeSlots()).thenReturn(ImmutableList.of(output.get(0)));
+            PhysicalLazyMaterializeTVFScan lazyTVF = new PhysicalLazyMaterializeTVFScan(
+                    tvf, rowId, ImmutableList.of(output.get(2)));
+            Assertions.assertEquals(ImmutableList.of(output.get(0), output.get(1), rowId), lazyTVF.getOutput());
+        }
+    }
 
     @Test
     void testIcebergVariantTopNStaysInInitialScan() {

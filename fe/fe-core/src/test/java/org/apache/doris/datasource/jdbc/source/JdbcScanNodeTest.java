@@ -55,7 +55,12 @@ public class JdbcScanNodeTest {
         SlotRef slot = new SlotRef(null, "binary_col");
         slot.setType(Type.VARBINARY);
         for (TOdbcTableType dialect : Arrays.asList(TOdbcTableType.POSTGRESQL,
-                TOdbcTableType.ORACLE, TOdbcTableType.SQLSERVER)) {
+                TOdbcTableType.ORACLE, TOdbcTableType.SQLSERVER, TOdbcTableType.DB2,
+                TOdbcTableType.OCEANBASE_ORACLE)) {
+            for (Operator operator : Arrays.asList(Operator.EQ, Operator.NE, Operator.LT)) {
+                Assert.assertEquals(false, method.invoke(null, dialect,
+                        new BinaryPredicate(operator, slot, new VarBinaryLiteral(new byte[] {0, (byte) 0xff}))));
+            }
             for (boolean notIn : Arrays.asList(false, true)) {
                 Expr predicate = new InPredicate(slot, Arrays.asList(
                         new VarBinaryLiteral(new byte[] {(byte) 0xde, 0, (byte) 0xff}),

@@ -79,11 +79,8 @@ suite("test_hive_statistics_all_type_p0", "all_types,p0,external,hive,external_d
             assertEquals("25273.0", result[0][5])
 
             result = sql """show column stats orc_all_types (binary_col);"""
-            assertEquals("binary_col", result[0][0])
-            assertEquals("3600.0", result[0][2])
-            assertEquals("3240.0", result[0][3])
-            assertEquals("362.0", result[0][4])
-            assertEquals("85788.0", result[0][5])
+            // VARBINARY is excluded from column statistics; it is no longer a STRING alias.
+            assertTrue(result.isEmpty())
 
             result = sql """show column stats orc_all_types (bigint_col);"""
             assertEquals("bigint_col", result[0][0])

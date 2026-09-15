@@ -53,8 +53,10 @@ public class PhysicalLazyMaterializeTVFScan extends PhysicalTVFRelation {
     @Override
     public List<Slot> computeOutput() {
         if (output == null) {
+            // Probe eligibility is stricter than passivity: retain every column not deferred.
             output = ImmutableList.<Slot>builder()
-                    .addAll(scan.getOperativeSlots())
+                    .addAll(scan.getOutput().stream().filter(slot -> !lazySlots.contains(slot))
+                            .collect(ImmutableList.toImmutableList()))
                     .add(rowId).build();
         }
         return output;

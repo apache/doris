@@ -286,7 +286,8 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
                     for (int queryIndex = 0; queryIndex < queries.size(); queryIndex++) {
                         def metrics = queries[queryIndex]()
                         long raw = metricValueAsLong(metrics["RawRowsRead"])
-                        long selected = metricValueAsLong(metrics["ReaderSelectRows"])
+                        // ReaderSelectRows sums per-column work, not logical output rows.
+                        long selected = metricValueAsLong(metrics["SelectedRows"])
                         long filtered = metricValueAsLong(metrics["RowsFilteredByConjunct"])
                         long lazyFiltered = metricValueAsLong(metrics["FilteredRowsByLazyRead"])
                         assertTrue(raw >= 0 && selected >= 0 && filtered >= 0)
