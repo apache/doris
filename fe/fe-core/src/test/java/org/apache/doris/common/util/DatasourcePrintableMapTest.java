@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -89,22 +90,47 @@ public class DatasourcePrintableMapTest {
                 }
             }
         }
-        Assertions.assertTrue(providerNames.size() >= 10,
-                () -> "the shipped filesystem providers must be on the test classpath, found only "
-                        + providerNames);
+        // Every shipped provider by name, so a module leaving fe-core's test-scope dependency list -
+        // or a new one added to the deploy loop but not here - fails this gate rather than silently
+        // narrowing it. OBS and COS are dropped from the test classpath by -Ddisable.obs / -Ddisable.cos.
+        List<String> expected = new ArrayList<>(Arrays.asList("LOCAL", "HDFS", "OSS_HDFS", "JFS", "S3", "OSS",
+                "GCS", "MINIO", "OZONE", "AZURE", "HTTP", "Broker"));
+        if (isOnClasspath("org.apache.doris.filesystem.obs.ObsFileSystemProvider")) {
+            expected.add("OBS");
+        }
+        if (isOnClasspath("org.apache.doris.filesystem.cos.CosFileSystemProvider")) {
+            expected.add("COS");
+        }
+        Set<String> found = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        found.addAll(providerNames);
+        Set<String> missing = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        missing.addAll(expected);
+        missing.removeAll(found);
+        Assertions.assertTrue(missing.isEmpty(),
+                () -> "shipped filesystem providers missing from the test classpath: " + missing);
         Assertions.assertTrue(unmasked.isEmpty(),
                 () -> "sensitive aliases printed in clear when the plugin declaring them is not loaded: "
                         + unmasked);
 
-        // And the set is consulted case-insensitively by the printer itself, plugin or no plugin.
+        // And the set is consulted case-insensitively by the printer itself, plugin or no plugin:
+        // the keys below are spelled differently from the set's entries.
         Map<String, String> map = new HashMap<>();
-        map.put("cos.session_token", "sts-token");
-        map.put("AZURE_CLIENT_SECRET", "client-secret");
-        map.put("ozone.secret_key", "ozone-secret");
+        map.put("COS.Session_Token", "sts-token");
+        map.put("azure_client_secret", "client-secret");
+        map.put("Ozone.Secret_Key", "ozone-secret");
         String printed = new DatasourcePrintableMap<>(map, " = ", true, false, true).toString();
         Assertions.assertFalse(printed.contains("sts-token"), printed);
         Assertions.assertFalse(printed.contains("client-secret"), printed);
         Assertions.assertFalse(printed.contains("ozone-secret"), printed);
+    }
+
+    private static boolean isOnClasspath(String className) {
+        try {
+            Class.forName(className, false, DatasourcePrintableMapTest.class.getClassLoader());
+            return true;
+        } catch (ClassNotFoundException e) {
+            return false;
+        }
     }
 
     @Test

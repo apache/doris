@@ -296,6 +296,11 @@ public class ConnectorPluginManager {
      * matter — mirroring how a duplicate catalog type is handled.
      */
     private String createTableEngineNameProblem(Set<String> engineNames) {
+        if (engineNames == null) {
+            // The SPI promises "empty if none"; a null answer is the one shape the loop below cannot
+            // take, and for a directory plugin it is that plugin's problem, not the FE's.
+            return "acceptedCreateTableEngineNames() returned null";
+        }
         for (String engineName : engineNames) {
             if (engineName == null || engineName.trim().isEmpty()) {
                 return "acceptedCreateTableEngineNames() returned a blank engine name";
