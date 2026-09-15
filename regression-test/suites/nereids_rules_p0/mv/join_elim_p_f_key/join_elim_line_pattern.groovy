@@ -22,6 +22,7 @@ suite("join_elim_line_pattern") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_materialized_view_rewrite=true"
+    sql "SET enable_join_reorder_before_eager_agg=true"
     sql "SET enable_nereids_timeout = false"
 
     sql """

@@ -131,6 +131,8 @@ public class MTMVPlanUtil {
             RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM,
             RuleType.ELIMINATE_GROUP_BY_KEY,
             RuleType.ELIMINATE_GROUP_BY,
+            // Preserve the join structure used by FK-based MV matching.
+            RuleType.REORDER_JOIN_BEFORE_EAGER_AGG,
             RuleType.SALT_JOIN
     );
     // The rules should be disabled when run MTMV task
