@@ -175,13 +175,10 @@ public class MetaCache<T> {
     public List<String> refreshNames() {
         throwIfInterrupted();
         // Retire any active load so the forced refresh is not blocked behind a stuck
-        // background refresh. The old load's connector call continues but its result
-        // is discarded; its slot is freed so getNames(true) can start a fresh load.
+        // background refresh. Advance the generation so the old loader's publication
+        // predicate fails and it cannot overwrite the forced load's result.
         synchronized (namesMutationLock) {
-            if (activeNamesLoad != null) {
-                activeNamesLoad.result.complete(null);
-                activeNamesLoad = null;
-            }
+            advanceNamesGeneration();
             physicalNamesLoads.clear();
         }
         throwIfInterrupted();
