@@ -156,29 +156,43 @@ public class MaterializationNode extends PlanNode {
     }
 
     public void initNodeInfo(List<Backend> remoteBackends) {
-        BeSelectionPolicy policy = new BeSelectionPolicy.Builder()
-                .needQueryAvailable()
-                .setRequireAliveBe()
-                .build();
-        nodesInfo = new TPaloNodesInfo();
         ConnectContext context = ConnectContext.get();
         if (context == null) {
             context = new ConnectContext();
         }
         ComputeGroup computeGroup = context.getComputeGroupSafely();
-        // The local compute group backends and the remote doris catalog backends go through
-        // the same policy: the remote meta cache may still advertise dead backends and an
-        // unreachable entry makes the second phase fetch fail eagerly. On a remote Backend
-        // only the alive flag is carried (Backend.fromThrift), so the query-available check
-        // degrades to it. Id conflicts are rejected before the plan rewrite
-        // (LazyMaterializeTopN), so no dedupe here.
-        List<Backend> candidates = ImmutableList.<Backend>builder()
-                .addAll(computeGroup.getBackendList())
-                .addAll(remoteBackends)
+        nodesInfo = buildNodesInfo(computeGroup.getBackendList(), remoteBackends);
+    }
+
+    /**
+     * Builds the phase-2 fetch address book. Local compute group backends go through the full
+     * selection policy, including the SimpleScheduler blacklist. Remote doris catalog backends
+     * are numbered by an independent id space and must skip that blacklist: it is keyed by the
+     * numeric backend id only, so a dead local backend would also evict a healthy remote backend
+     * sharing the same id, and rows owned by it would then fail the fetch with
+     * "failed to find rpc_struct". The remote meta cache may still advertise dead backends and
+     * an unreachable entry makes the second phase fetch fail eagerly, so filter by query
+     * availability (on a Backend.fromThrift object this degrades to the alive flag). Id
+     * conflicts are rejected before the plan rewrite (LazyMaterializeTopN), so no dedupe here.
+     */
+    static TPaloNodesInfo buildNodesInfo(List<Backend> localBackends, List<Backend> remoteBackends) {
+        BeSelectionPolicy policy = new BeSelectionPolicy.Builder()
+                .needQueryAvailable()
+                .setRequireAliveBe()
                 .build();
-        for (Backend backend : policy.getCandidateBackends(candidates)) {
-            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
+        TPaloNodesInfo nodesInfo = new TPaloNodesInfo();
+        for (Backend backend : policy.getCandidateBackends(localBackends)) {
+            nodesInfo.addToNodes(
+                    new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
         }
+        for (Backend backend : remoteBackends) {
+            if (!backend.isQueryAvailable()) {
+                continue;
+            }
+            nodesInfo.addToNodes(
+                    new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
+        }
+        return nodesInfo;
     }
 
     @Override
