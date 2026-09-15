@@ -2008,6 +2008,34 @@ void MetaServiceImpl::commit_txn_immediately(
             continue;
         }
 
+        {
+            // Recheck the tmp keys from scan_tmp_rowset() in this write transaction.
+            // Non-snapshot reads detect concurrent lazy cleanup; already missing keys
+            // require a retry to avoid publishing the same rowset twice.
+            auto tmp_keys = to_container<std::vector<std::string>>(
+                    std::ranges::ref_view(tmp_rowsets_meta) | std::ranges::views::keys);
+            std::vector<std::optional<std::string>> tmp_values;
+            err = txn->batch_get(&tmp_values, tmp_keys, Transaction::BatchGetOptions(false));
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get tmp rowsets before commit, txn_id={} err={}",
+                                  txn_id, err);
+                LOG(WARNING) << msg;
+                return;
+            }
+            for (size_t i = 0; i < tmp_keys.size(); ++i) {
+                if (!tmp_values[i].has_value()) {
+                    code = MetaServiceCode::KV_TXN_CONFLICT;
+                    msg = fmt::format(
+                            "tmp rowset disappeared after scan, retry commit, "
+                            "txn_id={} tmp_rowset_key={}",
+                            txn_id, hex(tmp_keys[i]));
+                    LOG(WARNING) << msg;
+                    return;
+                }
+            }
+        }
+
         record_txn_commit_stats(txn.get(), instance_id, partition_indexes.size(), tablet_ids.size(),
                                 txn_id);
 
