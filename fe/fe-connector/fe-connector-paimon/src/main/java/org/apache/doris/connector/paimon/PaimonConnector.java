@@ -166,6 +166,13 @@ public class PaimonConnector implements Connector {
     // connector and overlaid on every table load by CatalogBackedPaimonCatalogOps.getTable.
     private final Map<String, String> tableOptions;
 
+    // Doris-owned paimon Table cache replacing the Paimon SDK CachingCatalog tableCache: caches the loaded
+    // Table object (with SDK snapshot/stat/manifest caches attached) in the connector metaCache scoped per
+    // table, so REFRESH TABLE/DATABASE/CATALOG invalidate it together with the other Doris-owned caches —
+    // the SDK CachingCatalog only exposed per-table eviction, which left frozen Tables stale after an
+    // external same-name drop/recreate. Same ttl/capacity knobs as latestSnapshotCache.
+    private final PaimonTableCache tableCache;
+
     public PaimonConnector(Map<String, String> properties, ConnectorContext context) {
         // Construct-time BIND, not validation: of() carries only what the connector cannot run without,
         // so a catalog created before a rule existed still comes back after an FE restart. The
@@ -190,6 +197,8 @@ public class PaimonConnector implements Connector {
                 metaCache, "paimon.partition-view", "paimon", "partition_view", properties,
                 key -> org.apache.doris.connector.cache.ScopePath.table(key.getDb(), key.getTable()),
                 PaimonPartitionViewSizeEstimator::estimateEntry);
+        this.tableCache = new PaimonTableCache(metaCache, resolveTableCacheTtlSecond(properties),
+                DEFAULT_TABLE_CACHE_CAPACITY, buildCatalogOptions());
     }
 
     /**
@@ -278,7 +287,7 @@ public class PaimonConnector implements Connector {
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return new PaimonConnectorMetadata(
-                new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog(), tableOptions),
+                new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog(), tableOptions, tableCache),
                 catalogProps, context, schemaAtMemo, latestSnapshotCache, partitionViewCache);
     }
 
@@ -353,7 +362,7 @@ public class PaimonConnector implements Connector {
         // FIX-B-R2-be: inject the SAME per-catalog schemaAtMemo getMetadata uses, so the schema-evolution
         // dict's per-schema-id reads are memoized across scans (and shared with the B-MC2 time-travel path).
         return new PaimonScanPlanProvider(catalogProps,
-                new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog(), tableOptions),
+                new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog(), tableOptions, tableCache),
                 context, schemaAtMemo);
     }
 
@@ -499,7 +508,7 @@ public class PaimonConnector implements Connector {
     }
 
     Options buildCatalogOptions() {
-        return PaimonCatalogFactory.buildCatalogOptions(catalogProps, metaCache.hasEnclosingWeightLimit());
+        return PaimonCatalogFactory.buildCatalogOptions(catalogProps);
     }
 
     /**

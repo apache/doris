@@ -103,11 +103,6 @@ public final class PaimonCatalogFactory {
      * plus each flavor's {@code appendCustomCatalogOptions()}.
      */
     public static Options buildCatalogOptions(PaimonCatalogProperties catalogProperties) {
-        return buildCatalogOptions(catalogProperties, false);
-    }
-
-    static Options buildCatalogOptions(
-            PaimonCatalogProperties catalogProperties, boolean hasEnclosingMetaCacheWeightLimit) {
         Options options = new Options();
         Map<String, String> props = catalogProperties.getRaw();
         String flavor = catalogProperties.getFlavor();
@@ -141,9 +136,13 @@ public final class PaimonCatalogFactory {
                 // filesystem: nothing custom.
                 break;
         }
-        if (hasEnclosingMetaCacheWeightLimit && !options.contains(CatalogOptions.CACHE_ENABLED)) {
-            options.set(CatalogOptions.CACHE_ENABLED, false);
-        }
+        // Doris manages the paimon table metadata cache itself (PaimonTableCache, registered in the
+        // connector's CatalogMetaCache with full table/database/catalog invalidation semantics). The Paimon
+        // SDK's CachingCatalog caches frozen Table objects (schema/snapshot pinned at load time) behind only
+        // a per-table invalidateTable API, so after an external same-name drop/recreate it keeps serving the
+        // stale Table even when Doris-side caches are fresh. Force it off so every catalog.getTable() loads
+        // live through the Doris-owned cache instead.
+        options.set(CatalogOptions.CACHE_ENABLED, false);
         return options;
     }
 

@@ -268,14 +268,25 @@ public interface PaimonCatalogOps {
         private final Catalog catalog;
         /** Extracted {@code paimon.table-option.*} catalog defaults; empty when none are configured. */
         private final Map<String, String> tableOptions;
+        /**
+         * Doris-owned {@link Table} cache replacing the Paimon SDK {@code CachingCatalog} tableCache
+         * (see {@link PaimonTableCache}). Null in test constructors only — a null cache loads live.
+         */
+        private final PaimonTableCache tableCache;
 
         public CatalogBackedPaimonCatalogOps(Catalog catalog) {
-            this(catalog, Collections.emptyMap());
+            this(catalog, Collections.emptyMap(), null);
         }
 
         public CatalogBackedPaimonCatalogOps(Catalog catalog, Map<String, String> tableOptions) {
+            this(catalog, tableOptions, null);
+        }
+
+        public CatalogBackedPaimonCatalogOps(Catalog catalog, Map<String, String> tableOptions,
+                PaimonTableCache tableCache) {
             this.catalog = catalog;
             this.tableOptions = tableOptions;
+            this.tableCache = tableCache;
         }
 
         @Override
@@ -302,11 +313,32 @@ public interface PaimonCatalogOps {
          */
         @Override
         public Table getTable(Identifier identifier) throws Catalog.TableNotExistException {
-            Table table = catalog.getTable(identifier);
+            Table table = tableCache == null
+                    ? catalog.getTable(identifier)
+                    : loadCachedTable(identifier);
             Map<String, String> optionsForCopy = PaimonTableOptions.forCopy(tableOptions);
             // Relation options are applied after this cached handle is returned. Defer final
             // validation so a safe relation value can override an unsafe physical value.
             return optionsForCopy.isEmpty() ? table : table.copy(optionsForCopy);
+        }
+
+        private Table loadCachedTable(Identifier identifier) throws Catalog.TableNotExistException {
+            try {
+                return tableCache.getOrLoad(identifier, () -> {
+                    try {
+                        return catalog.getTable(identifier);
+                    } catch (Catalog.TableNotExistException e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+            } catch (RuntimeException e) {
+                // Unwrap the loader's exception so callers see the original TableNotExistException,
+                // matching the no-cache path above.
+                if (e.getCause() instanceof Catalog.TableNotExistException) {
+                    throw (Catalog.TableNotExistException) e.getCause();
+                }
+                throw e;
+            }
         }
 
         @Override
