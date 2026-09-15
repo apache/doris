@@ -1056,4 +1056,123 @@ TEST(FunctionJsonbTEST, JsonbModifyMissingPathParent) {
     }
 }
 
+// json_extract_string over a raw VARCHAR/STRING column must stay byte-identical to the existing
+// Cast(JsonbExtract(CAST(text AS JSON), path) AS String) path; expected values below are that
+// path's output (JSON null -> SQL NULL, strings unescaped, numbers/whitespace normalized).
+TEST(FunctionJsonbTEST, JsonExtractStringFromVarcharTest) {
+    std::string func_name = "jsonb_extract_string";
+    InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_VARCHAR},
+                                Nullable {PrimitiveType::TYPE_VARCHAR}};
+
+    DataSet data_set = {
+            {{Null(), STRING("$.k1")}, Null()},
+            {{STRING("{}"), STRING("$.k1")}, Null()},
+            {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("$.k1")}, STRING("v31")},
+            {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("$.k2")}, STRING("300")},
+            {{STRING(R"({"k1":null})"), STRING("$.k1")}, Null()},
+            {{STRING(R"({"k1":"null"})"), STRING("$.k1")}, STRING("null")},
+            {{STRING(R"({"k1":true})"), STRING("$.k1")}, STRING("true")},
+            {{STRING(R"({"k1":false})"), STRING("$.k1")}, STRING("false")},
+            {{STRING(R"({"k1":123})"), STRING("$.k1")}, STRING("123")},
+            {{STRING(R"({"k1":3.14})"), STRING("$.k1")}, STRING("3.14")},
+            {{STRING(R"({"k1":3.140})"), STRING("$.k1")}, STRING("3.14")},
+            {{STRING(R"({"k1":1e2})"), STRING("$.k1")}, STRING("100")},
+            {{STRING(R"({"k1":10000000000})"), STRING("$.k1")}, STRING("10000000000")},
+            {{STRING(R"({"k1":[1, 2, 3]})"), STRING("$.k1")}, STRING("[1,2,3]")},
+            {{STRING(R"({"k1":{"nested" : "value"}})"), STRING("$.k1")},
+             STRING(R"({"nested":"value"})")},
+            {{STRING(R"({"k1":"caf\u00e9"})"), STRING("$.k1")}, STRING("caf\u00e9")},
+            {{STRING(R"({"k1":"a\"b"})"), STRING("$.k1")}, STRING(R"(a"b)")},
+    };
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+
+    data_set = {
+            {{STRING(R"({"k1":{"k2":"v2"}})"), STRING("$.k1.k2")}, STRING("v2")},
+            {{STRING(R"({"k1":{"k2":[1,2,3]}})"), STRING("$.k1.k2[0]")}, STRING("1")},
+            {{STRING(R"({"k1":{"k2":[1,2,3]}})"), STRING("$.k1.k2[1]")}, STRING("2")},
+            {{STRING(R"({"k1":[{"k2":"v1"},{"k2":"v2"}]})"), STRING("$.k1[0].k2")}, STRING("v1")},
+            {{STRING(R"({"k1":[{"k2":"v1"},{"k2":"v2"}]})"), STRING("$.k1[1].k2")}, STRING("v2")},
+            {{STRING(R"({"arr":[123, 456]})"), STRING("$.arr[0]")}, STRING("123")},
+            {{STRING(R"({"arr":[123, 456]})"), STRING("$.arr[1]")}, STRING("456")},
+            {{STRING(R"({"arr":[123, 456]})"), STRING("$.arr[2]")}, Null()},
+            {{STRING(R"({"arr":[{"k1":"v41", "k2": 400}, 1]})"), STRING("$.arr[0]")},
+             STRING(R"({"k1":"v41","k2":400})")},
+            {{STRING(R"({"k1":"v1"})"), STRING("$.nope")}, Null()},
+    };
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+
+    // top-level object, array and scalar roots must be preserved, not narrowed to NULL.
+    data_set = {
+            {{STRING(R"({"k1":"v1"})"), STRING("$")}, STRING(R"({"k1":"v1"})")},
+            {{STRING("[1, 2, 3]"), STRING("$")}, STRING("[1,2,3]")},
+            {{STRING("[]"), STRING("$")}, STRING("[]")},
+            {{STRING("[1,2,3]"), STRING("$[0]")}, STRING("1")},
+            {{STRING("[1,2,3]"), STRING("$[9]")}, Null()},
+            {{STRING(R"([{"k":1},{"k":2}])"), STRING("$[1].k")}, STRING("2")},
+            {{STRING("100"), STRING("$")}, STRING("100")},
+            {{STRING("6.18"), STRING("$")}, STRING("6.18")},
+            {{STRING(R"("abcd")"), STRING("$")}, STRING("abcd")},
+            {{STRING("true"), STRING("$")}, STRING("true")},
+            {{STRING("false"), STRING("$")}, STRING("false")},
+            {{STRING("null"), STRING("$")}, Null()},
+    };
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+
+    data_set = {
+            {{STRING("invalid"), STRING("$")}, Null()},
+            {{STRING("{invalid}"), STRING("$")}, Null()},
+            {{STRING("[1,2,"), STRING("$")}, Null()},
+            {{STRING(""), STRING("$")}, Null()},
+            {{STRING(""), STRING("$.k1")}, Null()},
+            {{STRING(R"({"k1":"v1"})"), Null()}, Null()},
+    };
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+
+    // Exotic JsonbPath forms that the JSON Pointer fast path cannot express and that must fall back
+    // to the exact JsonbPath findValue route: quoted dotted keys, $.[i], wildcards, recursive
+    // wildcard, [last]/[last-N], and the "index a scalar" quirk. Values are the JSONB-route output.
+    data_set = {
+            {{STRING(R"({"k1":"v1", "my.key":["e1", "e2", "e3"]})"), STRING(R"($."my.key"[1])")},
+             STRING("e2")},
+            {{STRING(R"({"k1.key":{"k2":["v1", "v2"]}})"), STRING(R"($."k1.key".k2[0])")},
+             STRING("v1")},
+            {{STRING("[1, 2, 3]"), STRING("$.[1]")}, STRING("2")},
+            {{STRING(R"({"a":[1,2,3]})"), STRING("$.a[*]")}, STRING("[1,2,3]")},
+            {{STRING(R"({"a":1,"b":2})"), STRING("$.*")}, STRING("[1,2]")},
+            {{STRING(R"({"arr":[{"k":1},{"k":2}]})"), STRING("$.arr[*].k")}, STRING("[1,2]")},
+            {{STRING(R"({"a":{"b":1},"c":{"b":2}})"), STRING("$**.b")}, STRING("[1,2]")},
+            {{STRING(R"({"a":[10,20,30]})"), STRING("$.a[last]")}, STRING("30")},
+            {{STRING(R"({"a":[10,20,30]})"), STRING("$.a[last-1]")}, STRING("20")},
+            {{STRING(R"({"a":["x","y","z"]})"), STRING("$.a[last]")}, STRING("z")},
+            {{STRING(R"({"k":5})"), STRING("$.k[0]")}, STRING("5")},
+    };
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+
+    // JsonbPath dispatches leg navigation by leg SYNTAX, not by the runtime container. An ARRAY leg
+    // [i] requires an array (with the index==0-on-non-array self quirk that returns the value
+    // itself), and a MEMBER leg .k requires an object. These must match the JSONB route, not a JSON
+    // Pointer that would index/key by whatever the container happens to be. Trailing-NUL string
+    // parity checks getBlobLen() rather than a strnlen-style length. Values are the JSONB-route output.
+    data_set = {
+            {{STRING(R"({"1":"b"})"), STRING("$[1]")}, Null()},
+            {{STRING(R"({"0":"a"})"), STRING("$[0]")}, STRING(R"({"0":"a"})")},
+            {{STRING("[10,20]"), STRING("$.0")}, Null()},
+            {{STRING(R"({"k":"ab\u0000"})"), STRING("$.k")}, std::string("ab\000", 3)},
+    };
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+}
+
+// A path that JsonbPath rejects must raise INVALID_ARGUMENT, matching the JSON-typed route, rather
+// than silently returning NULL.
+TEST(FunctionJsonbTEST, JsonExtractStringFromVarcharInvalidPathTest) {
+    std::string func_name = "jsonb_extract_string";
+    InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_VARCHAR},
+                                Nullable {PrimitiveType::TYPE_VARCHAR}};
+
+    DataSet data_set = {{{STRING(R"({"a":1})"), STRING("a.b")}, Null()}};
+    EXPECT_FALSE((check_function<DataTypeString, true>(func_name, input_types, data_set, -1, -1,
+                                                       /*expect_execute_fail=*/true))
+                         .ok());
+}
+
 } // namespace doris
