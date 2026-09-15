@@ -315,6 +315,43 @@ public class AIResourceTest {
     }
 
     @Test
+    public void testRejectInvalidNumericProperties() {
+        assertInvalidNumericProperty(AIProperties.TEMPERATURE, "", "Temperature");
+        assertInvalidNumericProperty(AIProperties.TEMPERATURE, "not-a-double", "Temperature");
+        assertInvalidNumericProperty(AIProperties.TEMPERATURE, "NaN", "Temperature");
+        assertInvalidNumericProperty(AIProperties.TEMPERATURE, "Infinity", "Temperature");
+        assertInvalidNumericProperty(AIProperties.TEMPERATURE, "-Infinity", "Temperature");
+        assertInvalidNumericProperty(AIProperties.TEMPERATURE, "1.1", "Temperature");
+        assertInvalidNumericProperty(AIProperties.MAX_TOKEN, "", "Max token");
+        assertInvalidNumericProperty(AIProperties.MAX_TOKEN, "not-a-long", "Max token");
+        assertInvalidNumericProperty(AIProperties.MAX_TOKEN, "9223372036854775808", "Max token");
+        assertInvalidNumericProperty(AIProperties.MAX_TOKEN, "0", "Max token");
+        assertInvalidNumericProperty(AIProperties.MAX_RETRIES, "", "Max retries");
+        assertInvalidNumericProperty(AIProperties.MAX_RETRIES, "not-an-int", "Max retries");
+        assertInvalidNumericProperty(AIProperties.MAX_RETRIES, "2147483648", "Max retries");
+        assertInvalidNumericProperty(AIProperties.MAX_RETRIES, "2147483647", "Max retries");
+        assertInvalidNumericProperty(AIProperties.MAX_RETRIES, "-1", "Max retries");
+        assertInvalidNumericProperty(AIProperties.RETRY_DELAY_SECOND, "", "Retry delay second");
+        assertInvalidNumericProperty(AIProperties.RETRY_DELAY_SECOND, "not-an-int", "Retry delay second");
+        assertInvalidNumericProperty(AIProperties.RETRY_DELAY_SECOND, "2147483648", "Retry delay second");
+        assertInvalidNumericProperty(AIProperties.RETRY_DELAY_SECOND, "-1", "Retry delay second");
+        assertInvalidNumericProperty(AIProperties.DIMENSIONS, "", "Dimensions");
+        assertInvalidNumericProperty(AIProperties.DIMENSIONS, "not-an-int", "Dimensions");
+        assertInvalidNumericProperty(AIProperties.DIMENSIONS, "2147483648", "Dimensions");
+        assertInvalidNumericProperty(AIProperties.DIMENSIONS, "0", "Dimensions");
+    }
+
+    private void assertInvalidNumericProperty(String property, String value, String expectedMessage) {
+        Map<String, String> properties = new HashMap<>(aiProperties);
+        properties.put(property, value);
+        AIResource aiResource = new AIResource("invalid-numeric-resource");
+
+        DdlException exception = Assertions.assertThrows(DdlException.class,
+                () -> aiResource.setProperties(ImmutableMap.copyOf(properties)));
+        Assertions.assertTrue(exception.getMessage().contains(expectedMessage));
+    }
+
+    @Test
     public void testDifferentProviders() throws DdlException {
         // 1. OpenAI
         Map<String, String> openaiProps = new HashMap<>();

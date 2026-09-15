@@ -76,6 +76,19 @@ suite("test_create_ai_resource") {
         exception "Missing [ai.api_key] in properties for provider: DEEPSEEK"
     }
 
+    test {
+        sql """CREATE RESOURCE "${resourceName}"
+            PROPERTIES(
+                'type' = 'ai',
+                'ai.provider_type' = 'deepseek',
+                'ai.endpoint' = 'https://api.deepseek.com/chat/completions',
+                'ai.model_name' = 'deepseek-chat',
+                'ai.api_key' = 'sk-xxx',
+                'ai.max_retries' = '-1'
+            );"""
+        exception "Max retries must be a non-negative integer"
+    }
+
     sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
             PROPERTIES(
                 'type' = 'ai',

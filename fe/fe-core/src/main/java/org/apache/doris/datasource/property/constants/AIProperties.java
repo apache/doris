@@ -78,22 +78,81 @@ public class AIProperties extends BaseProperties {
                     + properties.get(AIProperties.PROVIDER_TYPE));
         }
 
-        // Check weather the 'temperature' is valid
+        // Check whether the numeric properties are valid
         String temp = properties.get(AIProperties.TEMPERATURE);
-        if (!Strings.isNullOrEmpty(temp) && !temp.equals("-1")) {
-            double tempVal = Double.parseDouble(temp);
-            if (!(tempVal >= 0 && tempVal <= 1)) {
-                throw new DdlException("Temperature must be a double between 0 and 1");
+        if (properties.containsKey(AIProperties.TEMPERATURE)) {
+            double tempVal;
+            try {
+                tempVal = Double.parseDouble(temp);
+            } catch (NullPointerException | NumberFormatException e) {
+                throw new DdlException("Temperature must be -1 or a double between 0 and 1", e);
+            }
+            if (!Double.isFinite(tempVal) || (tempVal != -1 && !(tempVal >= 0 && tempVal <= 1))) {
+                throw new DdlException("Temperature must be -1 or a double between 0 and 1");
             }
         }
 
-        // Check 'dimensions'
-        temp = properties.get(AIProperties.DIMENSIONS);
-        if (!Strings.isNullOrEmpty(temp) && temp.equals("-1")) {
-            int tempVal = Integer.parseInt(temp);
-            if (tempVal <= 0) {
-                throw new DdlException("Dimensions must be a positive integer");
-            }
+        if (properties.containsKey(AIProperties.MAX_TOKEN)) {
+            checkPositiveLongOrDefault(properties.get(AIProperties.MAX_TOKEN), "Max token");
+        }
+        if (properties.containsKey(AIProperties.MAX_RETRIES)) {
+            checkMaxRetries(properties.get(AIProperties.MAX_RETRIES));
+        }
+        if (properties.containsKey(AIProperties.RETRY_DELAY_SECOND)) {
+            checkNonNegativeInteger(properties.get(AIProperties.RETRY_DELAY_SECOND), "Retry delay second");
+        }
+        if (properties.containsKey(AIProperties.DIMENSIONS)) {
+            checkPositiveIntegerOrDefault(properties.get(AIProperties.DIMENSIONS), "Dimensions");
+        }
+    }
+
+    private static void checkPositiveLongOrDefault(String value, String propertyName) throws DdlException {
+        long parsedValue;
+        try {
+            parsedValue = Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            throw new DdlException(propertyName + " must be a positive integer or -1", e);
+        }
+        if (parsedValue != -1 && parsedValue <= 0) {
+            throw new DdlException(propertyName + " must be a positive integer or -1");
+        }
+    }
+
+    private static void checkNonNegativeInteger(String value, String propertyName) throws DdlException {
+        int parsedValue;
+        try {
+            parsedValue = Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            throw new DdlException(propertyName + " must be a non-negative integer", e);
+        }
+        if (parsedValue < 0) {
+            throw new DdlException(propertyName + " must be a non-negative integer");
+        }
+    }
+
+    private static void checkMaxRetries(String value) throws DdlException {
+        int parsedValue;
+        try {
+            parsedValue = Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            throw new DdlException("Max retries must be a non-negative integer less than "
+                    + Integer.MAX_VALUE, e);
+        }
+        if (parsedValue < 0 || parsedValue == Integer.MAX_VALUE) {
+            throw new DdlException("Max retries must be a non-negative integer less than "
+                    + Integer.MAX_VALUE);
+        }
+    }
+
+    private static void checkPositiveIntegerOrDefault(String value, String propertyName) throws DdlException {
+        int parsedValue;
+        try {
+            parsedValue = Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            throw new DdlException(propertyName + " must be a positive integer or -1", e);
+        }
+        if (parsedValue != -1 && parsedValue <= 0) {
+            throw new DdlException(propertyName + " must be a positive integer or -1");
         }
     }
 
