@@ -7,6 +7,7 @@ INDEX_ID	bigint	Yes	false	\N	NONE
 INDEX_NAME	varchar(65533)	Yes	false	\N	NONE
 INDEX_SUFFIX	varchar(65533)	Yes	false	\N	NONE
 INDEX_TYPE	varchar(65533)	Yes	false	\N	NONE
+MATERIALIZED_INDEX_NAME	varchar(65533)	Yes	false	\N	NONE
 OTHER_BYTES	bigint	Yes	false	\N	NONE
 PARTITION_NAME	varchar(65533)	Yes	false	\N	NONE
 POSITION_BYTES	bigint	Yes	false	\N	NONE
@@ -60,4 +61,11 @@ true	true	true
 
 -- !index_filter --
 idx_num	BKD
+
+-- !rollup --
+index_disk_usage_rollup	idx_msg	msg	true
+r_msg	idx_msg	msg	true
+
+-- !variant --
+idx_v	v	true
 
