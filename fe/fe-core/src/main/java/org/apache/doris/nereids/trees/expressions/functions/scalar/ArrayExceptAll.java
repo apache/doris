@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.ArrayFunctionTypeChecker;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
@@ -64,9 +65,8 @@ public class ArrayExceptAll extends ScalarFunction implements ExplicitlyCastable
                 continue;
             }
             DataType itemType = ((ArrayType) argumentType).getItemType();
-            if (itemType.isComplexType() || itemType.isVariantType() || itemType.isJsonType()) {
-                throw new AnalysisException("array_except_all does not support types: "
-                        + argumentType.toSql());
+            if (!ArrayFunctionTypeChecker.isSupportedByArrayEqualityFunctions(itemType)) {
+                throw new AnalysisException("array_except_all does not support element type " + itemType.toSql());
             }
         }
     }
