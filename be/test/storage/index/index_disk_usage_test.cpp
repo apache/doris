@@ -697,6 +697,54 @@ TEST_F(IndexDiskUsageCollectorTest, CollectSniiPositionDetailChecksCancellationP
     EXPECT_EQ(2, checks);
 }
 
+// Each SNII logical index costs a core metadata read, so cancellation is checked before it even
+// without a dictionary scan.
+TEST_F(IndexDiskUsageCollectorTest, CollectSniiChecksCancellationPerIndex) {
+    auto schema = create_schema();
+    std::vector<IndexSpec> specs {
+            {.index = text_index(1, true), .column_index = 1, .feed = feed_many_text}};
+    const std::string prefix =
+            write_segment(InvertedIndexStorageFormatPB::SNII, "rs_snii_cancel_idx", schema, &specs);
+
+    int checks = 0;
+    IndexDiskUsageOptions options;
+    options.check_cancelled = [&checks]() {
+        ++checks;
+        return Status::Cancelled("query is cancelled");
+    };
+    IndexDiskUsageCollector collector(io::global_local_filesystem(), prefix, schema,
+                                      InvertedIndexStorageFormatPB::SNII, 1001);
+    std::vector<IndexDiskUsageRecord> records;
+    const Status st = collector.collect(options, &records);
+    EXPECT_TRUE(st.is<ErrorCode::CANCELLED>()) << st;
+    EXPECT_EQ(1, checks);
+    EXPECT_TRUE(records.empty());
+}
+
+// Each V1 index file is opened separately, so cancellation is checked before every file.
+TEST_F(IndexDiskUsageCollectorTest, CollectV1ChecksCancellationPerIndexFile) {
+    auto schema = create_schema();
+    schema->append_index(text_index(1, true));
+    std::vector<IndexSpec> specs {
+            {.index = text_index(1, true), .column_index = 1, .feed = feed_text}};
+    const std::string prefix =
+            write_segment(InvertedIndexStorageFormatPB::V1, "rs_v1_cancel", schema, &specs);
+
+    int checks = 0;
+    IndexDiskUsageOptions options;
+    options.check_cancelled = [&checks]() {
+        ++checks;
+        return Status::Cancelled("query is cancelled");
+    };
+    IndexDiskUsageCollector collector(io::global_local_filesystem(), prefix, schema,
+                                      InvertedIndexStorageFormatPB::V1, 1001);
+    std::vector<IndexDiskUsageRecord> records;
+    const Status st = collector.collect(options, &records);
+    EXPECT_TRUE(st.is<ErrorCode::CANCELLED>()) << st;
+    EXPECT_EQ(1, checks);
+    EXPECT_TRUE(records.empty());
+}
+
 // A V1 VARIANT index writes one file per extracted path under the parent index id, while the
 // rowset schema only lists the parent index.
 TEST_F(IndexDiskUsageCollectorTest, CollectV1VariantPathFilesFromFileInfo) {
