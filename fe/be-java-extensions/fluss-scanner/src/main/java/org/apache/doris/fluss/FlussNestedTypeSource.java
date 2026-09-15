@@ -17,7 +17,7 @@
 
 package org.apache.doris.fluss;
 
-import org.apache.doris.common.jni.vec.NestedProjection;
+import org.apache.doris.jni.toolkit.vec.NestedProjection;
 
 import org.apache.fluss.types.ArrayType;
 import org.apache.fluss.types.DataType;

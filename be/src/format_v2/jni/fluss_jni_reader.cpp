@@ -42,8 +42,8 @@ Status FlussJniReader::validate_scan_range(const TFileRangeDesc& range) const {
     return Status::OK();
 }
 
-std::string FlussJniReader::connector_class() const {
-    return "org/apache/doris/fluss/FlussJniScanner";
+Jni::PluginRef FlussJniReader::plugin_ref() const {
+    return Jni::plugin::FLUSS_SCANNER;
 }
 
 Status FlussJniReader::build_scanner_params(std::map<std::string, std::string>* params) const {

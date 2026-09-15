@@ -28,6 +28,13 @@ under the License.
     <modelVersion>4.0.0</modelVersion>
 
     <artifactId>fluss-scanner</artifactId>
+    <name>Doris BE fluss Plugin</name>
+    <description>
+        Reads the fluss half of a fluss table: a bounded range of a log table, a primary-key
+        bucket as its kv snapshot merged with the change log after it, or the log tail a lake read
+        still needs. FE plans every range and hands this plugin the untyped string maps it wrote,
+        so the plugin carries the fluss client and nothing else.
+    </description>
 
     <properties>
         <!--
@@ -42,18 +49,29 @@ under the License.
     <dependencies>
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>java-common</artifactId>
+            <artifactId>jni-spi</artifactId>
             <version>${project.version}</version>
             <scope>provided</scope>
+        </dependency>
+        <!--
+          NestedProjection and JniSchemaParams: the fluss reader and the paimon reader decode the
+          same logical column on the two halves of a union read, so the rules resolving a pruned
+          nested field must be one piece of code. Compiled into this plugin like into paimon's.
+        -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>plugin-toolkit</artifactId>
+            <version>${project.version}</version>
         </dependency>
 
         <!--
           The whole fluss client, as one ~69MB unrelocated fat jar: fluss-common, fluss-rpc,
-          frocksdbjni (with its natives, for the kv-snapshot path) and a relocated Arrow
-          (org.apache.fluss.shaded.arrow.**, allocator included) are all inside it. So do NOT add
-          fluss-common, fluss-rpc or any org.apache.arrow artifact — a second copy of those classes
-          on this scanner's classloader is a split-brain risk, and the arrow coordinates fluss's pom
-          marks `provided` are not the ones its code uses.
+          frocksdbjni (with its natives, for the kv-snapshot path), a relocated Arrow
+          (org.apache.fluss.shaded.arrow.**, allocator included) and slf4j-api 1.7 are all inside
+          it. So do NOT add fluss-common, fluss-rpc, slf4j-api or any org.apache.arrow artifact - a
+          second copy of those classes in this plugin's directory is a split-brain risk the layout
+          check (tools/be-java-plugins/check_plugin_layout.py) rejects, and the arrow coordinates
+          fluss's pom marks `provided` are not the ones its code uses.
           The version is fe/pom.xml's single fluss.version, shared with fe-connector-fluss: FE plans
           the offsets this scanner reads at, and the two link the same fluss classes on either side
           of a JNI call. Never override it here.
@@ -62,11 +80,73 @@ under the License.
             <groupId>org.apache.fluss</groupId>
             <artifactId>fluss-client</artifactId>
             <version>${fluss.version}</version>
+            <!--
+              Both are shaded INTO the fat jar, byte for byte, yet its pom still declares them
+              (fluss's parent pom puts them on every module). Deploying them again beside it would
+              be two copies of the same classes in one plugin directory, and the slf4j one at a
+              different version - see the logging note below.
+            -->
+            <exclusions>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-api</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.google.code.findbugs</groupId>
+                    <artifactId>jsr305</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
+        <!--
+          Logging: this plugin and the fluss client inside it must reach the one file BE's plugin
+          runtime configures - log/jni.log, written through java.util.logging - so the plugin
+          deploys an slf4j-to-JUL binding. It is the 1.7 binding at the 1.7 API's own version, not
+          the tree's slf4j 2.x: the only slf4j API in this directory is the 1.7.36 copy shaded into
+          fluss-client, and a 1.7 LoggerFactory binds through org.slf4j.impl.StaticLoggerBinder,
+          which a 2.x provider does not carry - it would find nothing and log nothing. The
+          binding's own slf4j-api is excluded so the fat jar's copy stays the only one.
+          This module's own code compiles against that same shaded org.slf4j, which is why
+          slf4j-api can be narrowed below without breaking the build.
+
+          The four artifacts narrowed to test are the fe parent pom's, declared compile on EVERY
+          module: slf4j-api 2.x would be a second, incompatible API next to the shaded 1.7 one,
+          log4j-core a second logging implementation writing wherever its own configuration says
+          (nowhere, since BE's log4j2 config is not on a plugin's classpath), log4j-slf4j2-impl
+          would route slf4j into it, and log4j-1.2-api is not the pure facade its name suggests -
+          its org.apache.log4j.Logger resolves log4j-core classes. Maven cannot drop an inherited
+          dependency, only narrow its scope; test scope keeps them out of copy-dependencies.
+        -->
         <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-jdk14</artifactId>
+            <version>1.7.36</version>
+            <scope>runtime</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-api</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-slf4j2-impl</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-1.2-api</artifactId>
             <scope>test</scope>
         </dependency>
 
@@ -77,6 +157,8 @@ under the License.
           this scanner. Same four dependencies fe-connector-fluss needs, for the same reasons:
           FlussClusterExtension lives in fluss-server's test-jar, and fluss-test-utils and curator-test
           are test-scope dependencies of fluss-server that do not arrive with it.
+          No JUnit here: the fe parent pom puts the jupiter engine on every module's test classpath,
+          and the be-java-extensions pom says why a per-module entry must not come back.
         -->
         <dependency>
             <groupId>org.apache.fluss</groupId>
@@ -127,28 +209,43 @@ under the License.
                       passes the same flag to the BE JVM that hosts this scanner.
                     -->
                     <argLine>--add-opens=java.base/java.nio=ALL-UNNAMED</argLine>
+                    <!--
+                      Give the tests the logging the deployed plugin has: the shaded slf4j 1.7 bound
+                      to JUL. Both artifacts excluded here are declared test only because maven
+                      cannot drop what the fe parent pom declares compile on every module -
+                      narrowing the scope keeps them out of the plugin directory, and this keeps
+                      them out of the test JVM, where log4j-slf4j2-impl would be a second provider
+                      competing for the same slot.
+                    -->
+                    <classpathDependencyExcludes>
+                        <classpathDependencyExclude>
+                            org.apache.logging.log4j:log4j-core
+                        </classpathDependencyExclude>
+                        <classpathDependencyExclude>
+                            org.apache.logging.log4j:log4j-slf4j2-impl
+                        </classpathDependencyExclude>
+                    </classpathDependencyExcludes>
                 </configuration>
             </plugin>
+            <!--
+              A plugin is a directory of jars, not one jar with everything shaded into it. Its own
+              jar is built by the parent's jar plugin; its runtime closure lands beside it here.
+              `provided` dependencies are excluded by scope, which is what keeps the SPI out.
+            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-assembly-plugin</artifactId>
-                <configuration>
-                    <descriptors>
-                        <descriptor>src/main/resources/package.xml</descriptor>
-                    </descriptors>
-                    <archive>
-                        <manifest>
-                            <mainClass></mainClass>
-                        </manifest>
-                    </archive>
-                </configuration>
+                <artifactId>maven-dependency-plugin</artifactId>
                 <executions>
                     <execution>
-                        <id>make-assembly</id>
+                        <id>copy-plugin-dependencies</id>
                         <phase>package</phase>
                         <goals>
-                            <goal>single</goal>
+                            <goal>copy-dependencies</goal>
                         </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
+                            <includeScope>runtime</includeScope>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>

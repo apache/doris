@@ -28,7 +28,8 @@
 namespace doris::format::fluss {
 
 /**
- * Reads one fluss scan range through org.apache.doris.fluss.FlussJniScanner.
+ * Reads one fluss scan range through the fluss plugin's reader factory (see
+ * Jni::plugin::FLUSS_SCANNER).
  *
  * This layer holds no fluss logic. FE writes two untyped string maps - the scan-level
  * `fluss_properties` (connection, table identity, client options) and the per-range `fluss_params`
@@ -40,7 +41,7 @@ public:
     ~FlussJniReader() override = default;
 
 protected:
-    std::string connector_class() const override;
+    Jni::PluginRef plugin_ref() const override;
     Status validate_scan_range(const TFileRangeDesc& range) const override;
     Status build_scanner_params(std::map<std::string, std::string>* params) const override;
     Status build_jni_columns(
