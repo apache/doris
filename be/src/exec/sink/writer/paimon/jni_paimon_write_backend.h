@@ -28,6 +28,7 @@
 #include "exec/sink/writer/paimon/paimon_write_backend.h"
 #include "format/parquet/arrow_memory_pool.h"
 #include "runtime/runtime_profile.h"
+#include "util/jni_plugin_registry.h"
 
 namespace arrow {
 class Schema;
@@ -71,15 +72,15 @@ private:
     Status _check_jni_exception(JNIEnv* env, const std::string& method_name);
     void _refresh_memory_profile();
 
-    // JNI global references — live for the duration of this backend.
-    jclass _jni_writer_cls = nullptr;
-    jobject _jni_writer_obj = nullptr;
+    // JNI global reference — lives for the duration of this backend. The method ids on the
+    // shared SPI base class are owned by PluginRegistry.
+    Jni::GlobalObject _jni_writer_obj;
+    const Jni::WriterApi* _writer_api = nullptr;
 
     // Cached JNI method IDs for the PaimonJniWriter Java methods.
     jmethodID _write_id = nullptr;
     jmethodID _prepare_commit_id = nullptr;
     jmethodID _abort_id = nullptr;
-    jmethodID _close_id = nullptr;
 
     std::unique_ptr<PaimonJniMemoryManager> _memory_manager;
     std::shared_ptr<arrow::Schema> _arrow_schema;

@@ -81,7 +81,9 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Latest-schema publication is explicit in major 8; older engines cannot honor the opt-in contract.
+        // Latest-schema publication, cluster-scoped commit identity, and row-level write planning
+        // changed the public surface in major 8. A plugin built against major 7 must be refused
+        // rather than run against a contract it did not compile against.
         Assertions.assertEquals("8.0", version.getProperty("api.version"));
     }
 
