@@ -175,6 +175,18 @@ public:
             }
         }
 
+        // A constant period is validated before the vectorized loop below. Return early when every
+        // row is already NULL so NULL propagation takes precedence over period validation.
+        if (input_rows_count > 0 && std::all_of(result_null_map.begin(), result_null_map.end(),
+                                                [](uint8_t is_null) { return is_null != 0; })) {
+            auto col_to = ColumnVector<PType>::create();
+            col_to->resize(input_rows_count);
+            block.replace_by_position(
+                    result,
+                    ColumnNullable::create(std::move(col_to), std::move(result_null_map_column)));
+            return Status::OK();
+        }
+
         // Extract nested columns from const(nullable) wrappers
         argument_columns[0] = col_const[0] ? static_cast<const ColumnConst&>(
                                                      *block.get_by_position(arguments[0]).column)
