@@ -1646,6 +1646,8 @@ DECLARE_mBool(enable_mow_get_agg_by_cache);
 DECLARE_mBool(enable_mow_get_agg_correctness_check_core);
 DECLARE_mBool(enable_agg_and_remove_pre_rowsets_delete_bitmap);
 DECLARE_mBool(enable_check_agg_and_remove_pre_rowsets_delete_bitmap);
+DECLARE_mBool(enable_remove_agg_pre_rowsets_delete_bitmap_by_keys);
+DECLARE_mBool(enable_remove_pre_rowsets_delete_bitmap_by_keys);
 
 // The secure path with user files, used in the `local` table function.
 DECLARE_String(user_files_secure_path);
@@ -1810,6 +1812,11 @@ DECLARE_String(tmp_file_dir);
 
 // the directory for storing the trino-connector plugins.
 DECLARE_String(trino_connector_plugin_dir);
+
+DECLARE_String(jni_plugin_dir);
+DECLARE_String(jni_plugin_hadoop_conf_dir);
+DECLARE_String(jni_plugin_fs_dir);
+DECLARE_Bool(java_plugin_warmup);
 
 // the file paths(one or more) of CA cert, splite using ";" aws s3 lib use it to init s3client
 DECLARE_mString(ca_cert_file_paths);

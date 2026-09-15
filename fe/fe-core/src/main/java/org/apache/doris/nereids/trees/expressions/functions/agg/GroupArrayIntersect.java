@@ -36,7 +36,7 @@ import java.util.List;
  * AggregateFunction 'group_array_intersect'.
  */
 public class GroupArrayIntersect extends NotNullableAggregateFunction
-        implements UnaryExpression, ExplicitlyCastableSignature {
+        implements UnaryExpression, ExplicitlyCastableSignature, NullIgnoringAggregateFunction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.retArgType(0)

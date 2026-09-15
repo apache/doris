@@ -22,6 +22,8 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
@@ -39,9 +41,12 @@ import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Minimal orchestration entry point for incremental refresh.
@@ -92,7 +97,16 @@ public class IvmIncrRefreshManager {
         MTMV mtmv = context.getMtmv();
         StatementContext statementContext = new StatementContext(
                 context.getConnectContext(), new OriginStatement(mtmv.getQuerySql(), 0));
-        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.incremental(mtmv)));
+        // The delta may only read the base partitions the MV's partition definition keeps. A base
+        // partition outside that set, expired by partition_sync_limit, would otherwise still be
+        // read through the delta and the join-opposite snapshot, and its rows would have no MV
+        // partition to land in. A base partition inside the set stays readable even when its MV
+        // partition is not there yet, so that the refresh still reports the missing partition and
+        // recovers it by syncing.
+        Map<BaseTableInfo, Set<Long>> scopePartitionIds =
+                MTMVPartitionUtil.generateRelatedBasePartitionIds(mtmv).orElse(Collections.emptyMap());
+        statementContext.setIvmRewriteContext(
+                Optional.of(IvmRewriteContext.incremental(mtmv, scopePartitionIds)));
         // Excluded trigger tables do not produce delta and must not be validated for
         // binlog / key-type support during the incremental analyze.
         statementContext.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());

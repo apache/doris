@@ -60,9 +60,9 @@ jobs:
       head_sha: ${{ steps.review_inputs.outputs.head_sha }}
       manage_status: ${{ steps.review_inputs.outputs.manage_status }}
       pr_number: ${{ steps.review_inputs.outputs.pr_number }}
-    # Pre-finalization steps can use 188 minutes and auth sync can use 8 more,
+    # Pre-finalization steps can use 218 minutes and auth sync can use 8 more,
     # leaving 12 minutes for runner setup and post-job cleanup.
-    timeout-minutes: 208
+    timeout-minutes: 238
     if: >-
       inputs.pr_number != '' ||
       (
@@ -711,7 +711,7 @@ jobs:
 
       - name: Run automated code review
         id: review
-        timeout-minutes: 90
+        timeout-minutes: 120
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

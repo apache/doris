@@ -884,15 +884,16 @@ Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
                 tasks.emplace_back([this, sync_stats, version, i, task_ctx, task_create_time]() {
                     // Record bthread scheduling delay
                     auto task_start_time = std::chrono::steady_clock::now();
+                    auto task_lock = task_ctx.lock();
+                    if (task_lock == nullptr) {
+                        return Status::OK();
+                    }
+                    // The local state owns sync_stats, so keep its context alive before access.
                     if (sync_stats) {
                         sync_stats->bthread_schedule_delay_ns +=
                                 std::chrono::duration_cast<std::chrono::nanoseconds>(
                                         task_start_time - task_create_time)
                                         .count();
-                    }
-                    auto task_lock = task_ctx.lock();
-                    if (task_lock == nullptr) {
-                        return Status::OK();
                     }
                     Defer defer([&] {
                         if (_pending_tablets_num.fetch_sub(1) == 1) {

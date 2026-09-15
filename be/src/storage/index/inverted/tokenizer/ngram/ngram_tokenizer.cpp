@@ -103,7 +103,8 @@ void NGramTokenizer::init(int32_t min_gram, int32_t max_gram, bool edges_only) {
     _min_gram = min_gram;
     _max_gram = max_gram;
     _edges_only = edges_only;
-    _buffer.resize(4 * max_gram + 1024);
+    const size_t buffer_size = static_cast<size_t>(max_gram) * 4 + 1024;
+    _buffer.resize(buffer_size);
 }
 
 void NGramTokenizer::update_last_non_token_char() {

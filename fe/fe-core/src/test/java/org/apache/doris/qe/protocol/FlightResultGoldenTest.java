@@ -18,12 +18,12 @@
 package org.apache.doris.qe.protocol;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.arrowflight.FlightSqlConnectProcessor;
+import org.apache.doris.arrowflight.results.FlightSqlResultCacheEntry;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
-import org.apache.doris.service.arrowflight.FlightSqlConnectProcessor;
-import org.apache.doris.service.arrowflight.results.FlightSqlResultCacheEntry;
-import org.apache.doris.service.arrowflight.sessions.FlightSqlConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -52,8 +52,8 @@ import java.util.List;
  *
  * <p>What is covered: {@code SHOW VARIABLES}, {@code SHOW DATABASES} and {@code DESC} (results the
  * frontend materializes and caches), {@code SET} and {@code USE} (no cached result, which is how the
- * producer knows to synthesize its {@code StatusResult=0} row), {@code EXPLAIN}, a syntax error and
- * an unknown table. Every column comes back as {@code Utf8} today -- that is the current behavior,
+ * producer knows to synthesize its {@code StatusResult=0} row), {@code EXPLAIN},
+ * {@code EXPLAIN PLAN PROCESS}, a syntax error and an unknown table. Every column comes back as {@code Utf8} today -- that is the current behavior,
  * and typing those results is a later step of the same work.
  *
  * <p>Regenerate from the {@code fe} directory with:
@@ -94,13 +94,14 @@ public class FlightResultGoldenTest extends TestWithFeService {
                 // The plan text and the node ids inside it move with the planner, so only the shape
                 // of the answer is recorded. Same reason as ProtocolGolden.Fidelity.SUMMARY.
                 new FlightCase("explain select 1", Detail.SHAPE),
+                new FlightCase("explain plan process select 1", Detail.SHAPE),
                 // A parser error carries the whole keyword list of the grammar.
                 new FlightCase("select from", Detail.SHAPE),
                 new FlightCase("select * from no_such_table", Detail.ROWS));
     }
 
     private String render(String statement, Detail detail) throws Exception {
-        FlightSqlConnectContext ctx = newContext();
+        ConnectContext ctx = newContext();
         StringBuilder rendered = new StringBuilder();
         rendered.append("=== statement ").append(statement).append(" ===\n");
         try (FlightSqlConnectProcessor processor = new FlightSqlConnectProcessor(ctx)) {
@@ -113,7 +114,7 @@ public class FlightResultGoldenTest extends TestWithFeService {
         return rendered.toString();
     }
 
-    private String renderOutcome(FlightSqlConnectContext ctx, Detail detail) {
+    private String renderOutcome(ConnectContext ctx, Detail detail) {
         StringBuilder rendered = new StringBuilder();
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             String message = ctx.getState().getErrorMessage().replace("\n", "\\n").replace("\r", "\\r");
@@ -193,8 +194,8 @@ public class FlightResultGoldenTest extends TestWithFeService {
         }
     }
 
-    private FlightSqlConnectContext newContext() {
-        FlightSqlConnectContext ctx = new FlightSqlConnectContext(PEER_IDENTITY);
+    private ConnectContext newContext() {
+        ConnectContext ctx = ConnectContext.forFlight(PEER_IDENTITY);
         ctx.setCurrentUserIdentity(UserIdentity.ROOT);
         ctx.setRemoteIP("127.0.0.1");
         ctx.setEnv(Env.getCurrentEnv());

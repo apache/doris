@@ -778,6 +778,7 @@ struct OrcReaderScanState {
     std::vector<StripeRange> selected_stripe_ranges;
     size_t current_stripe_range = 0;
     bool stripe_pruning_applied = false;
+    size_t next_row_id = 0;
 
     bool row_reader_created = false;
 };
@@ -1239,6 +1240,7 @@ Status OrcReader::open(std::shared_ptr<format::FileScanRequest> request) {
         return Status::Uninitialized("OrcReader is not open");
     }
     RETURN_IF_ERROR(format::FileReader::open(std::move(request)));
+    _state->next_row_id = 0;
 
     if (_request->local_positions.empty()) {
         size_t next_position = 0;
@@ -1296,6 +1298,16 @@ Status OrcReader::open(std::shared_ptr<format::FileScanRequest> request) {
     _apply_current_stripe_range();
 
     RETURN_IF_ERROR(_create_row_reader());
+    if (_request->row_ids.has_value()) {
+        for (const int64_t row_id : *_request->row_ids) {
+            if (static_cast<uint64_t>(row_id) < _state->row_reader_range_first_row ||
+                static_cast<uint64_t>(row_id) >= _state->row_reader_range_end_row) {
+                return Status::InvalidArgument(
+                        "ORC row id {} is outside the current split row range [{}, {})", row_id,
+                        _state->row_reader_range_first_row, _state->row_reader_range_end_row);
+            }
+        }
+    }
     _eof = get_total_rows() == 0;
     return Status::OK();
 }
@@ -1650,7 +1662,12 @@ Status OrcReader::_create_row_reader() {
                 _state->orc_lazy_read_enabled ? _orc_filter.get() : nullptr);
         _state->selected_type = &_state->row_reader->getSelectedType();
         DORIS_CHECK(_state->selected_type->getKind() == ::orc::TypeKind::STRUCT);
-        _state->batch = _state->row_reader->createRowBatch(DEFAULT_ORC_READ_BATCH_SIZE);
+        // Row-id fetch seeks before every read; a one-row batch preserves exact selection instead
+        // of also returning the sequential rows that follow the requested position.
+        const uint64_t batch_size = _request != nullptr && _request->row_ids.has_value()
+                                            ? 1
+                                            : DEFAULT_ORC_READ_BATCH_SIZE;
+        _state->batch = _state->row_reader->createRowBatch(batch_size);
         _state->orc_lazy_selection_valid = false;
         _state->orc_lazy_selected_rows.clear();
         _state->orc_lazy_input_rows = 0;
@@ -1947,11 +1964,23 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     }
 
     bool has_next = false;
+    std::optional<uint64_t> fetched_row_id;
     while (true) {
         try {
+            if (_request->row_ids.has_value()) {
+                if (_state->next_row_id >= _request->row_ids->size()) {
+                    _eof = true;
+                    *eof = true;
+                    return Status::OK();
+                }
+                fetched_row_id = static_cast<uint64_t>((*_request->row_ids)[_state->next_row_id]);
+                _state->row_reader->seekToRow(*fetched_row_id);
+            }
             // Condition-cache seeks can perform I/O, so keep them in the same cancellation
             // boundary as next().
-            _skip_condition_cache_false_granules(rows, eof);
+            if (!_request->row_ids.has_value()) {
+                _skip_condition_cache_false_granules(rows, eof);
+            }
             if (*eof) {
                 return Status::OK();
             }
@@ -1959,6 +1988,9 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
             _state->orc_lazy_selected_rows.clear();
             _state->orc_lazy_input_rows = 0;
             has_next = _state->row_reader->next(*_state->batch);
+            if (_request->row_ids.has_value() && has_next) {
+                ++_state->next_row_id;
+            }
         } catch (const std::exception& e) {
             if (is_orc_stop(_io_ctx.get(), e)) {
                 file_block->clear_column_data(file_block->columns());
@@ -1979,6 +2011,10 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
             }
             break;
         }
+        if (_request->row_ids.has_value()) {
+            return Status::InternalError("ORC row id {} could not be read from the current split",
+                                         *fetched_row_id);
+        }
         bool advanced = false;
         RETURN_IF_ERROR(_advance_to_next_stripe_range(&advanced));
         if (!advanced) {
@@ -1989,7 +2025,7 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     }
 
     const auto batch_rows = static_cast<size_t>(_state->batch->numElements);
-    const auto batch_first_row = _state->row_reader->getRowNumber();
+    const auto batch_first_row = fetched_row_id.value_or(_state->row_reader->getRowNumber());
     _state->current_batch_first_row = batch_first_row;
     _state->condition_cache_next_row = _state->current_batch_first_row + batch_rows;
     auto* struct_batch = dynamic_cast<::orc::StructVectorBatch*>(_state->batch.get());
