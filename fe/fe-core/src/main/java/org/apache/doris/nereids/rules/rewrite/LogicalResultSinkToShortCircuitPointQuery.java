@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.Rule;
@@ -30,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.policy.PolicyMgr;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 
@@ -46,8 +49,9 @@ import java.util.Set;
  */
 public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFactory {
 
-    private Expression removeCast(Expression expression) {
-        if (expression instanceof Cast) {
+    private Expression removeInjectiveCast(Expression expression) {
+        if (expression instanceof Cast
+                && expression.child(0).getDataType().isInjectiveCastTo(expression.getDataType())) {
             return expression.child(0);
         }
         return expression;
@@ -55,12 +59,27 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
 
     private boolean filterMatchShortCircuitCondition(LogicalFilter<LogicalOlapScan> filter) {
         return filter.getConjuncts().stream().allMatch(
-                // all conjuncts match with pattern `key = ?`
+                // all conjuncts match with pattern `key = literal`
                 expression -> (expression instanceof EqualTo)
-                        && (removeCast(expression.child(0)).isKeyColumnFromTable()
+                        && (removeInjectiveCast(expression.child(0)).isKeyColumnFromTable()
                         || (expression.child(0) instanceof SlotReference
                         && ((SlotReference) expression.child(0)).getName().equals(Column.DELETE_SIGN)))
                         && expression.child(1).isLiteral());
+    }
+
+    /** Any row policy on the table makes point-query planning ineligible, regardless of its target. */
+    private boolean hasRowPolicy(OlapTable table, StatementContext statementContext) {
+        try {
+            DatabaseIf<?> database = table.getDatabase();
+            CatalogIf<?> catalog = database == null ? null : database.getCatalog();
+            ConnectContext connectContext = statementContext.getConnectContext();
+            PolicyMgr policyMgr = connectContext == null || connectContext.getEnv() == null
+                    ? null : connectContext.getEnv().getPolicyMgr();
+            return database == null || catalog == null || policyMgr == null
+                    || policyMgr.hasRowPolicy(catalog.getName(), database.getFullName(), table.getName());
+        } catch (RuntimeException e) {
+            return true;
+        }
     }
 
     @VisibleForTesting
@@ -103,25 +122,29 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
     // set short circuit flag and return the original plan
     private Plan shortCircuit(Plan root, OlapTable olapTable,
                 Set<Expression> conjuncts, StatementContext statementContext) {
-        // Row filters are injected into the analyzed plan and views are inlined. Neither shape has a
-        // cheap, stable dependency fence suitable for a reusable direct plan, so keep both on the
-        // normal execution path. A global row-policy epoch still invalidates a no-policy plan if a
-        // policy is added after it was cached.
-        if (statementContext.getSecurityDependencyContext().hasRowPolicy()
-                || !statementContext.getViewDdlSqls().isEmpty()
-                || !statementContext.arePointQueryFixedKeyConstraintsComplete()) {
+        // Keep policy-bearing tables, inlined views, and placeholders outside the final filter on
+        // the normal path. A cached no-policy plan repeats the table-level lookup before reuse.
+        if (hasRowPolicy(olapTable, statementContext)
+                || statementContext.getSecurityDependencyContext().hasEffectiveRowPolicy()
+                || statementContext.getSecurityDependencyContext().hasDataMask()
+                || statementContext.hasNonFilterPlaceholder()
+                || !statementContext.getViewDdlSqls().isEmpty()) {
             return root;
         }
         // All key columns in conjuncts
         Set<String> colNames = Sets.newHashSet();
         for (Expression expr : conjuncts) {
-            SlotReference slot = ((SlotReference) removeCast((expr.child(0))));
+            SlotReference slot = (SlotReference) removeInjectiveCast(expr.child(0));
             if (slot.isKeyColumnFromTable()) {
-                colNames.add(slot.getName());
+                // The executor updates cached conjuncts by column name. More than one predicate on
+                // the same key would make a fixed literal indistinguishable from a placeholder.
+                if (!colNames.add(slot.getName())) {
+                    return root;
+                }
             }
         }
         // set short circuit flag and modify nothing to the plan
-        if (olapTable.getBaseSchemaKeyColumns().size() <= colNames.size()) {
+        if (olapTable.getBaseSchemaKeyColumns().size() == colNames.size()) {
             statementContext.setShortCircuitQuery(true);
         }
         return root;

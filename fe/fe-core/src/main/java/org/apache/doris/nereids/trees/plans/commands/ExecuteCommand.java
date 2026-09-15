@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableComma
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapGroupCommitInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -117,6 +118,7 @@ public class ExecuteCommand extends Command {
         }
         // Commands hide their retained query trees from normal plan traversal. Reset every exposed
         // root so a later EXECUTE cannot reuse a relation-local snapshot from an earlier execution.
+        boolean hasNonFilterPlaceholder = false;
         for (int rootIndex = 0; rootIndex < relationRoots.size(); rootIndex++) {
             LogicalPlan relationRoot = relationRoots.get(rootIndex);
             for (UnboundRelation relation : relationRoot.<UnboundRelation>collectToList(
@@ -128,6 +130,10 @@ public class ExecuteCommand extends Command {
             }
             for (LogicalPlan plan : relationRoot.<LogicalPlan>collectToList(node -> true)) {
                 for (Expression expression : plan.getExpressions()) {
+                    if (!(plan instanceof LogicalFilter)
+                            && expression.anyMatch(Placeholder.class::isInstance)) {
+                        hasNonFilterPlaceholder = true;
+                    }
                     for (SubqueryExpr subquery : expression.<SubqueryExpr>collectToList(
                             SubqueryExpr.class::isInstance)) {
                         // SubqueryExpr owns its query plan outside Plan.children(), so retained prepared
@@ -136,6 +142,10 @@ public class ExecuteCommand extends Command {
                     }
                 }
             }
+        }
+        statementContext.setHasNonFilterPlaceholder(hasNonFilterPlaceholder);
+        if (hasNonFilterPlaceholder) {
+            statementContext.setShortCircuitQuery(false);
         }
         if (logicalPlan instanceof LogicalSqlCache) {
             throw new AnalysisException("Unsupported sql cache for server prepared statement");
@@ -162,10 +172,8 @@ public class ExecuteCommand extends Command {
             // statementContext.getShortCircuitQueryContext(), and the fallback (building one from a
             // null planner, since this path skips planning) would NPE.
             statementContext.setShortCircuitQueryContext(preparedStmtCtx.shortCircuitQueryContext.get());
-            if (PointQueryExecutor.directExecuteShortCircuitQuery(
-                    executor, preparedStmtCtx, statementContext)) {
-                return;
-            }
+            PointQueryExecutor.directExecuteShortCircuitQuery(executor, preparedStmtCtx, statementContext);
+            return;
         }
         if (ctx.getSessionVariable().enableGroupCommitFullPrepare) {
             if (preparedStmtCtx.groupCommitPlanner.isPresent()) {
@@ -187,15 +195,20 @@ public class ExecuteCommand extends Command {
         // Drop the previously cached short-circuit context: either it was reusable and returned
         // early above, has just been refreshed here, or is stale and we are about to re-plan.
         preparedStmtCtx.shortCircuitQueryContext = Optional.empty();
+        // The inherited flag is only for deciding direct reuse above. Recompute it from the
+        // current plan so a newly added policy or another eligibility change cannot stay cached.
+        statementContext.setShortCircuitQuery(false);
         executor.execute();
         StatementContext executedStatementContext = executor.getContext().getStatementContext();
         ShortCircuitQueryContext shortCircuitQueryContext =
                 executedStatementContext.getShortCircuitQueryContext();
         if (shortCircuitQueryContext != null) {
             Preconditions.checkState(executedStatementContext.isShortCircuitQuery());
-            // Publish the exact context used by this execution so its topology generation stays
-            // bound to the cached partition pruner in the same planner scan node.
-            preparedStmtCtx.shortCircuitQueryContext = Optional.of(shortCircuitQueryContext);
+            // Publish the exact context used by this execution only if the security and namespace
+            // snapshot still matches after planning and execution.
+            if (shortCircuitQueryContext.isReusable(ctx)) {
+                preparedStmtCtx.shortCircuitQueryContext = Optional.of(shortCircuitQueryContext);
+            }
         }
     }
 

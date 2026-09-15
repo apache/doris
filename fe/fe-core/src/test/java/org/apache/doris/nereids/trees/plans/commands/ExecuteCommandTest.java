@@ -42,7 +42,6 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.PreparedStatementContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.ShortCircuitQueryContext;
-import org.apache.doris.qe.ShortCircuitQueryContext.PointQueryExecutionContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TQueryOptions;
 
@@ -266,9 +265,7 @@ public class ExecuteCommandTest {
         PreparedStatementContext preparedStatement = new PreparedStatementContext(
                 prepareCommand, connectContext, statementContext, "stmt");
 
-        // Keep the real point-key binding path, but explicitly model a cache whose security
-        // dependencies have already been validated. A bare StatementContext intentionally
-        // cannot produce a reusable security snapshot because production validation is fail-closed.
+        // Explicitly model a cache whose security dependencies have already been validated.
         Planner planner = Mockito.mock(Planner.class);
         Mockito.when(planner.getQueryOptions()).thenReturn(new TQueryOptions());
         DescriptorTable descriptorTable = new DescriptorTable();
@@ -278,7 +275,6 @@ public class ExecuteCommandTest {
         OlapTable table = Mockito.spy(new OlapTable());
         Mockito.doReturn("tbl").when(table).getName();
         Mockito.doReturn(10).when(table).getBaseSchemaVersion();
-        Mockito.doReturn(Collections.emptyList()).when(table).getBaseSchemaKeyColumns();
         Mockito.when(scanNode.getPointQueryProjectList()).thenReturn(Collections.emptyList());
         Mockito.when(scanNode.getOlapTable()).thenReturn(table);
         Mockito.when(scanNode.getTableNameInPlan()).thenReturn("tbl");
@@ -309,45 +305,6 @@ public class ExecuteCommandTest {
                 "the fast path installs the validated cache on the fresh context (second, reusable EXECUTE)");
         Mockito.verify(executor, Mockito.times(2)).executeAndSendResult(Mockito.anyBoolean(), Mockito.anyBoolean(),
                 Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
-    }
-
-    @Test
-    public void testUnsafePointKeyFallsBackToNormalPreparedExecution() throws Exception {
-        String sql = "select 1";
-        LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
-
-        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
-        StatementContext statementContext = new StatementContext();
-        statementContext.setShortCircuitQuery(true);
-        PrepareCommand prepareCommand = new PrepareCommand(
-                "stmt", logicalPlan, Collections.emptyList(), new OriginStatement(sql, 0));
-        PreparedStatementContext preparedStatement = new PreparedStatementContext(
-                prepareCommand, connectContext, statementContext, "stmt");
-        ShortCircuitQueryContext cachedPlan = Mockito.mock(ShortCircuitQueryContext.class);
-        Mockito.when(cachedPlan.isReusable(connectContext)).thenReturn(true);
-        Mockito.when(cachedPlan.createPointQueryExecutionContext(Mockito.any(StatementContext.class)))
-                .thenReturn(PointQueryExecutionContext.fallback());
-        preparedStatement.shortCircuitQueryContext = Optional.of(cachedPlan);
-
-        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
-        Mockito.when(connectContext.getPreparedStementContext("stmt")).thenReturn(preparedStatement);
-        SessionVariable sessionVariable = new SessionVariable();
-        sessionVariable.enableGroupCommitFullPrepare = false;
-        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
-        Mockito.when(connectContext.getStatementContext()).thenReturn(statementContext);
-        Mockito.when(executor.getContext()).thenReturn(connectContext);
-
-        new ExecuteCommand("stmt", prepareCommand, statementContext).run(connectContext, executor);
-
-        Mockito.verify(executor).execute();
-        Mockito.verify(executor, Mockito.never()).executeAndSendResult(Mockito.anyBoolean(), Mockito.anyBoolean(),
-                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
-        Assertions.assertFalse(preparedStatement.shortCircuitQueryContext.isPresent(),
-                "an unsafe typed key must discard direct reuse and run the normal planner");
-        Assertions.assertFalse(preparedStatement.getStatementContext().isShortCircuitQuery(),
-                "normal planning must not inherit the cached execution's short-circuit flag");
-        Assertions.assertNull(preparedStatement.getStatementContext().getShortCircuitQueryContext());
-        Assertions.assertNull(preparedStatement.getStatementContext().getPointQueryExecutionContext());
     }
 
     @Test

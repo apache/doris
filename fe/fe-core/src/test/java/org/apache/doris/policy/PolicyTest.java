@@ -189,17 +189,16 @@ public class PolicyTest extends TestWithFeService {
     }
 
     @Test
-    public void testRowPolicyVersionAdvancesOnMutation() throws Exception {
+    public void testHasRowPolicy() throws Exception {
         PolicyMgr policyMgr = Env.getCurrentEnv().getPolicyMgr();
-        long version = policyMgr.getRowPolicyVersion();
+        Assertions.assertFalse(policyMgr.hasRowPolicy("internal", "test", "table1"));
 
-        createPolicy("CREATE ROW POLICY test_row_policy_version ON test.table1 AS PERMISSIVE"
+        createPolicy("CREATE ROW POLICY test_has_row_policy ON test.table1 AS PERMISSIVE"
                 + " TO test_policy USING (k1 = 1)");
-        long createdVersion = policyMgr.getRowPolicyVersion();
-        Assertions.assertTrue(createdVersion > version);
+        Assertions.assertTrue(policyMgr.hasRowPolicy("internal", "test", "table1"));
 
-        dropPolicy("DROP ROW POLICY test_row_policy_version ON test.table1");
-        Assertions.assertTrue(policyMgr.getRowPolicyVersion() > createdVersion);
+        dropPolicy("DROP ROW POLICY test_has_row_policy ON test.table1");
+        Assertions.assertFalse(policyMgr.hasRowPolicy("internal", "test", "table1"));
     }
 
     @Test

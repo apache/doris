@@ -229,7 +229,7 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         if (sqlCacheContext.isPresent()) {
             sqlCacheContext.get().setRowFilterPolicy(ctlName, dbName, tableName, rowPolicies);
         }
-        securityDependencyContext.setRowPolicies(ctlName, dbName, tableName, rowPolicies);
+        securityDependencyContext.addRowPolicies(rowPolicies);
 
         return new RelatedPolicy(
                 Optional.ofNullable(CollectionUtils.isEmpty(rowPolicies)

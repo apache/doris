@@ -94,88 +94,51 @@ suite("prepared_point_query_row_policy", "p0") {
         assertTrue(explainRows.toString().contains("SHORT-CIRCUIT"))
     }
 
-    // Without a policy, a fixed statement predicate can share a key with a placeholder. The
-    // immutable key template must preserve that fixed value across every execution.
-    connect(user, password, url) {
-        def prepared = prepareStatement """
-            SELECT /*+ SET_VAR(enable_short_circuit_query=true) */ tenant_id, item_id, value
-            FROM prepared_point_query_row_policy
-            WHERE tenant_id = ? AND tenant_id = 1 AND item_id = ?
-        """
-        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, prepared.class)
-
-        def readRows = { Integer tenant, int item ->
-            if (tenant == null) {
-                prepared.setNull(1, java.sql.Types.INTEGER)
-            } else {
-                prepared.setInt(1, tenant)
-            }
-            prepared.setInt(2, item)
-            def rows = []
-            prepared.executeQuery().withCloseable { result ->
-                assertEquals(3, result.getMetaData().getColumnCount())
-                assertEquals("tenant_id", result.getMetaData().getColumnLabel(1))
-                assertEquals("item_id", result.getMetaData().getColumnLabel(2))
-                assertEquals("value", result.getMetaData().getColumnLabel(3))
-                while (result.next()) {
-                    rows.add([result.getInt(1), result.getInt(2), result.getString(3)])
-                }
-            }
-            return rows
-        }
-
-        assertEquals([[1, 10, "allowed"]], readRows(1, 10))
-        assertEquals([], readRows(2, 10))
-        assertEquals([[1, 10, "allowed"]], readRows(1, 10))
-        assertEquals([], readRows(null, 10))
-
-        // A non-integral parameter cannot be represented by the physical INT lookup key. It is
-        // evaluated by the normal planner, exercising direct-reuse FALLBACK without an error.
-        prepared.setBigDecimal(1, new BigDecimal("1.2"))
-        prepared.setInt(2, 10)
-        def fallbackRows = []
-        prepared.executeQuery().withCloseable { result ->
-            while (result.next()) {
-                fallbackRows.add([result.getInt(1), result.getInt(2), result.getString(3)])
-            }
-        }
-        assertEquals([], fallbackRows)
-        prepared.close()
-    }
-
-    // A cast row policy also keeps the statement on the normal path.
-    sql """
-        CREATE ROW POLICY ${policyName} ON ${dbName}.prepared_point_query_row_policy
-        AS RESTRICTIVE TO ${user} USING (CAST(tenant_id AS CHAR(1)) = '1')
-    """
-    sql "SYNC"
+    // Ambiguous key predicates and non-injective casts are outside the supported point-query shape.
     connect(user, password, explainUrl) {
-        def explainRows = sql """
+        def duplicateKey = sql """
             EXPLAIN SELECT /*+ SET_VAR(enable_short_circuit_query=true) */ tenant_id, item_id, value
-            FROM prepared_point_query_row_policy WHERE tenant_id = 1 AND item_id = 10
+            FROM prepared_point_query_row_policy
+            WHERE tenant_id = 1 AND tenant_id = 2 AND item_id = 10
         """
-        assertFalse(explainRows.toString().contains("SHORT-CIRCUIT"))
+        assertFalse(duplicateKey.toString().contains("SHORT-CIRCUIT"))
+        def nonInjectiveCast = sql """
+            EXPLAIN SELECT /*+ SET_VAR(enable_short_circuit_query=true) */ tenant_id, item_id, value
+            FROM prepared_point_query_row_policy
+            WHERE CAST(tenant_id AS CHAR(1)) = '1' AND item_id = 10
+        """
+        assertFalse(nonInjectiveCast.toString().contains("SHORT-CIRCUIT"))
     }
 
+    // A placeholder outside the final filter cannot be rebound in cached output expressions.
+    // Keep this shape on the normal path and verify both lookup and projection values across executions.
     connect(user, password, url) {
         def prepared = prepareStatement """
-            SELECT /*+ SET_VAR(enable_short_circuit_query=true) */ tenant_id, item_id, value
+            SELECT /*+ SET_VAR(enable_short_circuit_query=true) */ tenant_id = ? AS matches_parameter
             FROM prepared_point_query_row_policy
             WHERE tenant_id = ? AND item_id = ?
         """
         assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, prepared.class)
+
+        prepared.setInt(1, 2)
+        prepared.setInt(2, 1)
+        prepared.setInt(3, 10)
+        prepared.executeQuery().withCloseable { result ->
+            assertTrue(result.next())
+            assertFalse(result.getBoolean(1))
+            assertFalse(result.next())
+        }
+
         prepared.setInt(1, 10)
         prepared.setInt(2, 10)
-        def rows = []
+        prepared.setInt(3, 10)
         prepared.executeQuery().withCloseable { result ->
-            while (result.next()) {
-                rows.add([result.getInt(1), result.getInt(2), result.getString(3)])
-            }
+            assertTrue(result.next())
+            assertTrue(result.getBoolean(1))
+            assertFalse(result.next())
         }
         prepared.close()
-        assertEquals([[10, 10, "cast-match"]], rows)
     }
 
-    sql "DROP ROW POLICY IF EXISTS ${policyName} ON ${dbName}.prepared_point_query_row_policy FOR ${user}"
     sql "DROP USER IF EXISTS ${user}"
 }

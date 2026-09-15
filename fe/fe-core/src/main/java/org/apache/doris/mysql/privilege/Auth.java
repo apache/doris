@@ -118,10 +118,6 @@ public class Auth implements Writable {
 
     private PasswordPolicyManager passwdPolicyManager = new PasswordPolicyManager();
 
-    // Prepared point-query plans use this process-local epoch to avoid repeating built-in
-    // privilege checks while no authorization state has changed.
-    private transient volatile long authorizationVersion;
-
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     private void readLock() {
@@ -138,19 +134,6 @@ public class Auth implements Writable {
 
     private void writeUnlock() {
         lock.writeLock().unlock();
-    }
-
-    private void markAuthorizationChanged() {
-        authorizationVersion++;
-    }
-
-    public long getAuthorizationVersion() {
-        return authorizationVersion;
-    }
-
-    /** Whether this version covers every role which can affect authorization decisions. */
-    public boolean isAuthorizationVersionReliable() {
-        return !isLdapAuthEnabled();
     }
 
     public enum PrivLevel {
@@ -604,7 +587,6 @@ public class Auth implements Writable {
             if (role != null) {
                 userRoleManager.addUserRole(userIdent, roleName);
             }
-            markAuthorizationChanged();
             // other user properties
             propertyMgr.addUserResource(userIdent.getQualifiedUser());
             MetricRepo.updateUserConnectionMaxMetric(this, userIdent.getQualifiedUser(),
@@ -659,7 +641,6 @@ public class Auth implements Writable {
             roleManager.removeDefaultRole(userIdent);
             // drop user role
             userRoleManager.dropUser(userIdent);
-            markAuthorizationChanged();
             passwdPolicyManager.dropUser(userIdent);
             userManager.removeUser(userIdent);
             if (CollectionUtils.isEmpty(userManager.getUserByName(userIdent.getQualifiedUser()))) {
@@ -774,7 +755,6 @@ public class Auth implements Writable {
             }
             Role newRole = new Role(role, tblPattern, privs, colPrivileges);
             roleManager.addOrMergeRole(newRole, false /* err on exist */);
-            markAuthorizationChanged();
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(userIdent, tblPattern, privs, null, role, colPrivileges);
                 Env.getCurrentEnv().getEditLog().logGrantPriv(info);
@@ -826,7 +806,6 @@ public class Auth implements Writable {
 
             Role newRole = new Role(role, resourcePattern, privs);
             roleManager.addOrMergeRole(newRole, false /* err on exist */);
-            markAuthorizationChanged();
 
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(userIdent, resourcePattern, privs, null, role);
@@ -858,7 +837,6 @@ public class Auth implements Writable {
 
             Role newRole = new Role(role, workloadGroupPattern, privs);
             roleManager.addOrMergeRole(newRole, false /* err on exist */);
-            markAuthorizationChanged();
 
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(userIdent, workloadGroupPattern, privs, null, role);
@@ -884,7 +862,6 @@ public class Auth implements Writable {
                 }
             }
             userRoleManager.addUserRoles(userIdent, roles);
-            markAuthorizationChanged();
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(userIdent, roles);
                 Env.getCurrentEnv().getEditLog().logGrantPriv(info);
@@ -975,7 +952,6 @@ public class Auth implements Writable {
             }
             // revoke privs from role
             roleManager.revokePrivs(role, tblPattern, privs, colPrivileges, errOnNonExist);
-            markAuthorizationChanged();
 
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(userIdent, tblPattern, privs, null, role, colPrivileges);
@@ -997,7 +973,6 @@ public class Auth implements Writable {
 
             // revoke privs from role
             roleManager.revokePrivs(role, resourcePattern, privs, errOnNonExist);
-            markAuthorizationChanged();
 
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(userIdent, resourcePattern, privs, null, role);
@@ -1019,7 +994,6 @@ public class Auth implements Writable {
 
             // revoke privs from role
             roleManager.revokePrivs(role, workloadGroupPattern, privs, errOnNonExist);
-            markAuthorizationChanged();
 
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(userIdent, workloadGroupPattern, privs, null, role);
@@ -1045,7 +1019,6 @@ public class Auth implements Writable {
                 }
             }
             userRoleManager.removeUserRoles(userIdent, roles);
-            markAuthorizationChanged();
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(userIdent, roles);
                 Env.getCurrentEnv().getEditLog().logRevokePriv(info);
@@ -1161,7 +1134,6 @@ public class Auth implements Writable {
             }
 
             roleManager.addOrMergeRole(emptyPrivsRole, true /* err on exist */);
-            markAuthorizationChanged();
 
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(role, comment);
@@ -1195,7 +1167,6 @@ public class Auth implements Writable {
 
             roleManager.dropRole(role, true /* err on non exist */);
             userRoleManager.dropRole(role);
-            markAuthorizationChanged();
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(null, null, null, role, null, null, "");
                 Env.getCurrentEnv().getEditLog().logDropRole(info);
@@ -2025,7 +1996,6 @@ public class Auth implements Writable {
         userRoleManager.dropUser(userIdent);
         userRoleManager.addUserRole(userIdent, role);
         userRoleManager.addUserRole(userIdent, roleManager.getUserDefaultRoleName(userIdent));
-        markAuthorizationChanged();
     }
 
     private void updateUserTlsRequirements(UserIdentity userIdent) throws DdlException {

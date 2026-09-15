@@ -55,7 +55,6 @@ import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -185,21 +184,16 @@ public class StatementContext implements Closeable {
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
     private final SqlCacheContext sqlCacheContext;
     private final SecurityDependencyContext securityDependencyContext;
+    private boolean hasNonFilterPlaceholder;
 
     // generate for next id for prepared statement's placeholders, which is
     // connection level
     private final IdGenerator<PlaceholderId> placeHolderIdGenerator = PlaceholderId.createGenerator();
     // relation id to placeholders for prepared statement, ordered by placeholder id
     private final Map<PlaceholderId, Expression> idToPlaceholderRealExpr = new TreeMap<>();
-    // Map placeholder id to the physical key slot used by the immutable point-query template.
+    // map placeholder id to comparison slot, which will used to replace conjuncts
+    // directly
     private final Map<PlaceholderId, SlotReference> idToComparisonSlot = new TreeMap<>();
-
-    // Equality literals written as constants in the statement. They are deliberately separate
-    // from placeholder bindings: a prepared point query must never replace a fixed predicate
-    // merely because it references the same column as a placeholder. Plans with row policies
-    // are not eligible for the point-query shortcut.
-    private final List<PointQueryFixedKeyConstraint> pointQueryFixedKeyConstraints = new ArrayList<>();
-    private boolean pointQueryFixedKeyConstraintsComplete = true;
 
     // collect all hash join conditions to compute node connectivity in join graph
     private final List<Expression> joinFilters = new ArrayList<>();
@@ -289,9 +283,6 @@ public class StatementContext implements Closeable {
     private boolean isShortCircuitQuery;
 
     private ShortCircuitQueryContext shortCircuitQueryContext;
-
-    // Built afresh for one EXECUTE. Never copied into the next StatementContext.
-    private ShortCircuitQueryContext.PointQueryExecutionContext pointQueryExecutionContext;
 
     private FormatOptions formatOptions = FormatOptions.getDefault();
 
@@ -447,8 +438,8 @@ public class StatementContext implements Closeable {
         next.cteIdGenerator.resetId(cteIdGenerator.getCurrentId());
         next.talbeIdGenerator.resetId(talbeIdGenerator.getCurrentId());
         next.placeHolderIdGenerator.resetId(placeHolderIdGenerator.getCurrentId());
-        // Copy this EXECUTE's placeholder values and the stable placeholder-to-key registry.
-        // Fixed constraints and bound key tuples remain local to the context that owns them.
+        // Placeholder bindings of this EXECUTE, and the comparison-slot registry used to replace
+        // conjuncts on the cached short-circuit plan without re-planning.
         next.idToPlaceholderRealExpr.putAll(idToPlaceholderRealExpr);
         next.idToComparisonSlot.putAll(idToComparisonSlot);
         next.placeholders = new ArrayList<>(placeholders);
@@ -700,21 +691,20 @@ public class StatementContext implements Closeable {
         this.shortCircuitQueryContext = shortCircuitQueryContext;
     }
 
-    public ShortCircuitQueryContext.PointQueryExecutionContext getPointQueryExecutionContext() {
-        return pointQueryExecutionContext;
-    }
-
-    public void setPointQueryExecutionContext(
-            ShortCircuitQueryContext.PointQueryExecutionContext pointQueryExecutionContext) {
-        this.pointQueryExecutionContext = pointQueryExecutionContext;
-    }
-
     public Optional<SqlCacheContext> getSqlCacheContext() {
         return Optional.ofNullable(sqlCacheContext);
     }
 
     public SecurityDependencyContext getSecurityDependencyContext() {
         return securityDependencyContext;
+    }
+
+    public boolean hasNonFilterPlaceholder() {
+        return hasNonFilterPlaceholder;
+    }
+
+    public void setHasNonFilterPlaceholder(boolean hasNonFilterPlaceholder) {
+        this.hasNonFilterPlaceholder = hasNonFilterPlaceholder;
     }
 
     public boolean isDpHyp() {
@@ -860,22 +850,6 @@ public class StatementContext implements Closeable {
 
     public Map<PlaceholderId, SlotReference> getIdToComparisonSlot() {
         return idToComparisonSlot;
-    }
-
-    public void addPointQueryFixedKeyConstraint(SlotReference slot, Literal literal) {
-        pointQueryFixedKeyConstraints.add(new PointQueryFixedKeyConstraint(slot, literal));
-    }
-
-    public List<PointQueryFixedKeyConstraint> getPointQueryFixedKeyConstraints() {
-        return pointQueryFixedKeyConstraints;
-    }
-
-    public void markPointQueryFixedKeyConstraintsIncomplete() {
-        pointQueryFixedKeyConstraintsComplete = false;
-    }
-
-    public boolean arePointQueryFixedKeyConstraintsComplete() {
-        return pointQueryFixedKeyConstraintsComplete;
     }
 
     public Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> getCteIdToConsumerGroup() {
@@ -1705,24 +1679,5 @@ public class StatementContext implements Closeable {
 
     public void setIsDelete(boolean del) {
         isDelete = del;
-    }
-
-    /** A fixed equality operand and the exact bound slot it constrains. */
-    public static class PointQueryFixedKeyConstraint {
-        private final SlotReference slot;
-        private final Literal literal;
-
-        public PointQueryFixedKeyConstraint(SlotReference slot, Literal literal) {
-            this.slot = Objects.requireNonNull(slot);
-            this.literal = Objects.requireNonNull(literal);
-        }
-
-        public SlotReference getSlot() {
-            return slot;
-        }
-
-        public Literal getLiteral() {
-            return literal;
-        }
     }
 }

@@ -87,17 +87,4 @@ public class AuthTest extends TestWithFeService {
         }
     }
 
-    @Test
-    public void testAuthorizationVersionAdvancesOnMutation() throws Exception {
-        Auth auth = Env.getCurrentEnv().getAuth();
-        long version = auth.getAuthorizationVersion();
-
-        addUser("authorization_version_user", true);
-
-        Assertions.assertTrue(auth.getAuthorizationVersion() > version);
-        long changedVersion = auth.getAuthorizationVersion();
-        auth.refreshUserPrivEntriesByResovledIPs(Collections.emptyMap());
-        Assertions.assertEquals(changedVersion, auth.getAuthorizationVersion());
-    }
-
 }

@@ -79,6 +79,7 @@ class ShortCircuitPointQueryTest extends TestWithFeService
                 + "  \"store_row_column\" = \"true\"\n"
                 + ");");
         createView("CREATE VIEW `view_point_query` AS SELECT `key`, `v1` FROM `tbl_point_query`");
+        executeSql("CREATE USER point_query_policy_user IDENTIFIED BY 'Point_query_policy_123!'");
     }
 
     @Test
@@ -140,6 +141,32 @@ class ShortCircuitPointQueryTest extends TestWithFeService
                 + "where order_id = 1 and pay_date = '2026-08-05'");
 
         Assertions.assertFalse(connectContext.getStatementContext().isShortCircuitQuery());
+    }
+
+    @Test
+    void testInjectiveCastUsesShortCircuit() {
+        rewrite("select * from tbl_point_query where cast(`key` as bigint) = 1");
+
+        Assertions.assertTrue(connectContext.getStatementContext().isShortCircuitQuery());
+    }
+
+    @Test
+    void testDuplicateKeyPredicatesDoNotUseShortCircuit() {
+        rewrite("select * from tbl_point_query where `key` = 1 and `key` = 2");
+
+        Assertions.assertFalse(connectContext.getStatementContext().isShortCircuitQuery());
+    }
+
+    @Test
+    void testAnyRowPolicyDisablesShortCircuitAtPlanning() throws Exception {
+        createPolicy("CREATE ROW POLICY point_query_policy ON test.tbl_point_query "
+                + "AS RESTRICTIVE TO point_query_policy_user USING (`key` = 1)");
+        try {
+            rewrite("select * from tbl_point_query where `key` = 1");
+            Assertions.assertFalse(connectContext.getStatementContext().isShortCircuitQuery());
+        } finally {
+            dropPolicy("DROP ROW POLICY point_query_policy ON test.tbl_point_query");
+        }
     }
 
     @Test

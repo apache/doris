@@ -23,10 +23,12 @@ import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.InternalAuthorizationPlugin;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.policy.PolicyMgr;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -48,20 +50,39 @@ public class SecurityDependencyContextTest {
     private static final String COLUMN = "value";
 
     @Test
-    public void testBuiltInVersionsAllowConstantTimeReuse() {
+    public void testCurrentPrivilegeAndNoPolicyAllowReuse() throws Exception {
         BuiltInFixture fixture = new BuiltInFixture();
         SecurityDependencyContext snapshot = fixture.completeDependencies().snapshotForShortCircuit();
+        Mockito.clearInvocations(fixture.accessManager, fixture.policyMgr);
 
         Assertions.assertTrue(snapshot.isValid(fixture.connectContext));
-        Mockito.verify(fixture.accessManager, Mockito.never()).evalRowFilterPolicies(
-                Mockito.any(), Mockito.anyString(), Mockito.anyString(), Mockito.anyString());
-        Mockito.verify(fixture.accessManager, Mockito.never()).evalDataMaskPolicies(
-                Mockito.any(), Mockito.anyString(), Mockito.anyString(), Mockito.anyString(), Mockito.anySet());
+        Mockito.verify(fixture.policyMgr).hasRowPolicy(CATALOG, DATABASE, TABLE);
+        Mockito.verify(fixture.accessManager).checkColumnsPriv(
+                fixture.connectContext, CATALOG, DATABASE, TABLE,
+                ImmutableSet.of(COLUMN), PrivPredicate.SELECT);
+    }
 
-        Mockito.when(fixture.auth.getAuthorizationVersion()).thenReturn(8L);
+    @Test
+    public void testPolicyAddedAfterPlanningInvalidatesReuseBeforePrivilegeCheck() throws Exception {
+        BuiltInFixture fixture = new BuiltInFixture();
+        SecurityDependencyContext snapshot = fixture.completeDependencies().snapshotForShortCircuit();
+        Mockito.when(fixture.policyMgr.hasRowPolicy(CATALOG, DATABASE, TABLE)).thenReturn(true);
+        Mockito.clearInvocations(fixture.accessManager);
+
         Assertions.assertFalse(snapshot.isValid(fixture.connectContext));
-        Mockito.when(fixture.auth.getAuthorizationVersion()).thenReturn(7L);
-        Mockito.when(fixture.policyMgr.getRowPolicyVersion()).thenReturn(12L);
+        Mockito.verify(fixture.accessManager, Mockito.never()).checkColumnsPriv(
+                Mockito.any(ConnectContext.class), Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
+                Mockito.anySet(), Mockito.any());
+    }
+
+    @Test
+    public void testSelectRevocationInvalidatesReuse() throws Exception {
+        BuiltInFixture fixture = new BuiltInFixture();
+        SecurityDependencyContext snapshot = fixture.completeDependencies().snapshotForShortCircuit();
+        Mockito.doThrow(new AnalysisException("denied")).when(fixture.accessManager).checkColumnsPriv(
+                fixture.connectContext, CATALOG, DATABASE, TABLE,
+                ImmutableSet.of(COLUMN), PrivPredicate.SELECT);
+
         Assertions.assertFalse(snapshot.isValid(fixture.connectContext));
     }
 
@@ -84,23 +105,35 @@ public class SecurityDependencyContextTest {
     }
 
     @Test
-    public void testRowPolicyDisablesShortCircuitReuse() {
+    public void testEffectiveExternalRowPolicyFailsClosed() {
         BuiltInFixture fixture = new BuiltInFixture();
         SecurityDependencyContext dependencies = fixture.completeDependencies();
-        dependencies.setRowPolicies(CATALOG, DATABASE, TABLE,
+        dependencies.addRowPolicies(
                 ImmutableList.of(RowFilterSpec.restrictive("row:1", "tenant_id = 1")));
 
-        Assertions.assertTrue(dependencies.hasRowPolicy());
+        Assertions.assertTrue(dependencies.hasEffectiveRowPolicy());
         Assertions.assertFalse(dependencies.snapshotForShortCircuit().isValid(fixture.connectContext));
     }
 
     @Test
-    public void testDataMaskDisablesVersionOnlyReuse() {
+    public void testNamespaceChangeBeforeSnapshotFailsClosed() {
+        BuiltInFixture fixture = new BuiltInFixture();
+        SecurityDependencyContext dependencies = fixture.completeDependencies();
+        Mockito.when(fixture.database.getFullName()).thenReturn("renamed_db");
+
+        Assertions.assertFalse(dependencies.snapshotForShortCircuit().isValid(fixture.connectContext));
+        Mockito.verify(fixture.policyMgr, Mockito.never()).hasRowPolicy(Mockito.anyString(),
+                Mockito.anyString(), Mockito.anyString());
+    }
+
+    @Test
+    public void testDataMaskDisablesDirectReuse() {
         BuiltInFixture fixture = new BuiltInFixture();
         SecurityDependencyContext dependencies = fixture.completeDependencies();
         dependencies.addDataMask(CATALOG, DATABASE, TABLE, COLUMN,
                 Optional.of(new DataMaskSpec("mask:1", "null")));
 
+        Assertions.assertTrue(dependencies.hasDataMask());
         Assertions.assertFalse(dependencies.snapshotForShortCircuit().isValid(fixture.connectContext));
     }
 
@@ -129,12 +162,9 @@ public class SecurityDependencyContextTest {
             Mockito.when(database.getFullName()).thenReturn(DATABASE);
             Mockito.when(table.getDatabase()).thenReturn((DatabaseIf) database);
             Mockito.when(table.getName()).thenReturn(TABLE);
-            Mockito.when(auth.getAuthorizationVersion()).thenReturn(7L);
-            Mockito.when(auth.isAuthorizationVersionReliable()).thenReturn(true);
-            Mockito.when(policyMgr.getRowPolicyVersion()).thenReturn(11L);
+            Mockito.when(policyMgr.hasRowPolicy(CATALOG, DATABASE, TABLE)).thenReturn(false);
             Mockito.when(accessManager.getAccessControllerOrDefault(CATALOG))
                     .thenReturn(new InternalAuthorizationPlugin(auth));
-            Mockito.when(env.getAuth()).thenReturn(auth);
             Mockito.when(env.getPolicyMgr()).thenReturn(policyMgr);
             Mockito.when(env.getAccessManager()).thenReturn(accessManager);
             Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(USER);
@@ -146,7 +176,6 @@ public class SecurityDependencyContextTest {
         private SecurityDependencyContext completeDependencies() {
             SecurityDependencyContext dependencies = new SecurityDependencyContext(connectContext);
             dependencies.addCheckedPrivilege(table, ImmutableSet.of(COLUMN));
-            dependencies.setRowPolicies(CATALOG, DATABASE, TABLE, ImmutableList.of());
             dependencies.addDataMask(CATALOG, DATABASE, TABLE, COLUMN, Optional.empty());
             return dependencies;
         }
