@@ -44,6 +44,8 @@ suite("test_gram_pattern_recall", "p0") {
         throw new IllegalStateException("analyzer ${name} was not installed on BE", lastNotFound);
     }
 
+    // Both tables use the analyzers below, and a failed run can leave either one behind.
+    sql "DROP TABLE IF EXISTS test_gram_pattern_recall_engines"
     sql "DROP TABLE IF EXISTS test_gram_pattern_recall"
     def schemes = [dense: ["dense", false], sparse: ["sparse", false],
                    dense_lc: ["dense", true], sparse_lc: ["sparse", true]]
