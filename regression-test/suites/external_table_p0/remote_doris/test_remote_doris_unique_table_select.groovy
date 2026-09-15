@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_remote_doris_unique_table_select", "p0,external") {
+    withGlobalLock("allow_non_aggregate_table_state_types") {
+    setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
     String remote_doris_host = context.config.otherConfigs.get("extArrowFlightSqlHost")
     String remote_doris_arrow_port = context.config.otherConfigs.get("extArrowFlightSqlPort")
     String remote_doris_http_port = context.config.otherConfigs.get("extArrowFlightHttpPort")
@@ -235,4 +237,6 @@ suite("test_remote_doris_unique_table_select", "p0,external") {
 
     sql """ DROP DATABASE IF EXISTS `${db_name}` """
     sql """ DROP CATALOG IF EXISTS `${catalog_name}` """
+    }
+    }
 }
