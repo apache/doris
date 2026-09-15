@@ -24,16 +24,10 @@
 #include "util/jsonb_writer.h"
 namespace doris::CastWrapper {
 
-namespace {
-
-/// A nullable column keeps an all zero NULL map when it has no NULL row, and there is nothing to
-/// inherit from such a column.
 bool has_masked_row(const NullMap::value_type* null_map, size_t rows) {
     return std::any_of(null_map, null_map + rows,
                        [](const NullMap::value_type value) { return value != 0; });
 }
-
-} // namespace
 
 ChildNullMask build_child_null_mask(const NullMap::value_type* parent_null_map,
                                     const IColumn::Offsets64* offsets, const ColumnPtr& child) {
@@ -68,15 +62,13 @@ ChildNullMask build_child_null_mask(const NullMap::value_type* parent_null_map,
     }
 
     // The NULL state of a child is the union of its own NULL map and the mask inherited from the
-    // rows of its parent.
-    auto merged_mask = ColumnUInt8::create(child->size(), 0);
-    auto& merged_data = merged_mask->get_data();
+    // rows of its parent. Merge it into `mask` instead of building a second mask of the same size.
     const auto& child_null_map = nullable_child->get_null_map_data();
-    for (size_t i = 0; i < merged_data.size(); ++i) {
-        merged_data[i] = mask_data[i] | child_null_map[i];
+    for (size_t i = 0; i < mask_data.size(); ++i) {
+        mask_data[i] |= child_null_map[i];
     }
     return {.column = ColumnNullable::create(nullable_child->get_nested_column_ptr(),
-                                             std::move(merged_mask)),
+                                             std::move(mask)),
             .null_map = nullptr,
             .mask_holder = nullptr};
 }

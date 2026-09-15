@@ -173,6 +173,12 @@ struct ChildNullMask {
 ChildNullMask build_child_null_mask(const NullMap::value_type* parent_null_map,
                                     const IColumn::Offsets64* offsets, const ColumnPtr& child);
 
+/// Whether the mask of `rows` rows marks at least one of them as NULL. A nullable column keeps an
+/// all zero mask when it has no NULL row, and there is nothing to inherit from such a column. Callers
+/// that build masks for several children of the same parent can check this once and pass nullptr to
+/// build_child_null_mask when it is false.
+bool has_masked_row(const NullMap::value_type* null_map, size_t rows);
+
 WrapperType create_identity_wrapper(const DataTypePtr&);
 
 } // namespace CastWrapper
