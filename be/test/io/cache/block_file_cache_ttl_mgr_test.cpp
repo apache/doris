@@ -462,4 +462,259 @@ TEST_F(BlockFileCacheTtlMgrTest, TabletTtlRemovedMovesBlocksBackToNormal) {
                                    std::chrono::seconds(5)));
 }
 
+TEST_F(BlockFileCacheTtlMgrTest, ExpiredTtlExtendedMovesBlocksBackToTtl) {
+    constexpr int64_t kTabletId = 6006;
+    auto tablet = std::make_shared<FakeTablet>(UnixSeconds(), 120);
+    fake_engine()->add_tablet(kTabletId, tablet);
+
+    UInt128Wrapper hash;
+    auto block = create_block(kTabletId, "ttl-extend-after-expire", 0, 1024, &hash);
+    persist_block_meta(kTabletId, hash, block->range().left, block->range().size());
+
+    _ttl_mgr = std::make_unique<BlockFileCacheTtlMgr>(_cache.get(), _meta_store.get());
+    _ttl_mgr->register_tablet_id(kTabletId);
+
+    ASSERT_TRUE(wait_for_condition([&]() { return block->cache_type() == FileCacheType::TTL; },
+                                   std::chrono::seconds(5)));
+
+    // Let the TTL expire. The block goes back to NORMAL while the manager keeps a non-zero TTL
+    // recorded for the tablet, which is the state that used to wedge the promotion path.
+    tablet->set_creation_time(UnixSeconds() - 120);
+    tablet->set_ttl_seconds(1);
+    ASSERT_TRUE(wait_for_condition([&]() { return block->cache_type() == FileCacheType::NORMAL; },
+                                   std::chrono::seconds(5)));
+
+    // Extending an already expired TTL to one that has not expired has to bring the block back.
+    tablet->set_ttl_seconds(30758400);
+    ASSERT_TRUE(wait_for_condition([&]() { return block->cache_type() == FileCacheType::TTL; },
+                                   std::chrono::seconds(5)));
+}
+
+TEST_F(BlockFileCacheTtlMgrTest, ExtendedTtlThatIsStillExpiredKeepsBlocksNormal) {
+    constexpr int64_t kTabletId = 7007;
+    const int64_t creation_time = UnixSeconds() - 7200;
+    auto tablet = std::make_shared<FakeTablet>(creation_time, 60);
+    fake_engine()->add_tablet(kTabletId, tablet);
+
+    UInt128Wrapper hash;
+    auto block = create_block(kTabletId, "ttl-extend-still-expired", 0, 1024, &hash);
+    persist_block_meta(kTabletId, hash, block->range().left, block->range().size());
+
+    _ttl_mgr = std::make_unique<BlockFileCacheTtlMgr>(_cache.get(), _meta_store.get());
+    _ttl_mgr->register_tablet_id(kTabletId);
+
+    int64_t call_count = fake_engine()->get_tablet_meta_call_count();
+    ASSERT_TRUE(wait_for_condition(
+            [&]() { return fake_engine()->get_tablet_meta_call_count() >= call_count + 2; },
+            std::chrono::seconds(5)));
+    ASSERT_EQ(FileCacheType::NORMAL, block->cache_type());
+
+    // A longer TTL that is still in the past must not promote anything.
+    tablet->set_ttl_seconds(120);
+    call_count = fake_engine()->get_tablet_meta_call_count();
+    ASSERT_TRUE(wait_for_condition(
+            [&]() { return fake_engine()->get_tablet_meta_call_count() >= call_count + 3; },
+            std::chrono::seconds(5)));
+    EXPECT_EQ(FileCacheType::NORMAL, block->cache_type());
+}
+
+TEST_F(BlockFileCacheTtlMgrTest, RewritingTtlToAnotherValidValueDoesNotRescanBlocks) {
+    constexpr int64_t kTabletId = 8008;
+    auto tablet = std::make_shared<FakeTablet>(UnixSeconds(), 3600);
+    fake_engine()->add_tablet(kTabletId, tablet);
+
+    UInt128Wrapper hash;
+    auto block = create_block(kTabletId, "ttl-rewrite-valid", 0, 1024, &hash);
+    persist_block_meta(kTabletId, hash, block->range().left, block->range().size());
+
+    _ttl_mgr = std::make_unique<BlockFileCacheTtlMgr>(_cache.get(), _meta_store.get());
+    _ttl_mgr->register_tablet_id(kTabletId);
+
+    ASSERT_TRUE(wait_for_condition([&]() { return block->cache_type() == FileCacheType::TTL; },
+                                   std::chrono::seconds(5)));
+
+    std::atomic<int64_t> block_scan_count {0};
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->clear_all_call_backs();
+    sync_point->clear_trace();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "BlockFileCacheTtlMgr::get_file_blocks_from_tablet_id",
+            [&block_scan_count](std::vector<std::any>&& args) {
+                if (doris::try_any_cast<int64_t>(args[0]) == kTabletId) {
+                    block_scan_count.fetch_add(1, std::memory_order_relaxed);
+                }
+            },
+            &guard);
+    sync_point->enable_processing();
+
+    // Automated jobs rewrite this property regularly. As long as the tablet stays in the same
+    // state, none of those rewrites may trigger another walk of the meta store.
+    for (int64_t ttl : {7200, 1800, 5400}) {
+        tablet->set_ttl_seconds(ttl);
+        int64_t call_count = fake_engine()->get_tablet_meta_call_count();
+        ASSERT_TRUE(wait_for_condition(
+                [&]() { return fake_engine()->get_tablet_meta_call_count() >= call_count + 2; },
+                std::chrono::seconds(5)));
+    }
+
+    sync_point->disable_processing();
+    sync_point->clear_trace();
+
+    EXPECT_EQ(0, block_scan_count.load(std::memory_order_relaxed));
+    EXPECT_EQ(FileCacheType::TTL, block->cache_type());
+}
+
+TEST_F(BlockFileCacheTtlMgrTest, TtlExtensionWinsOverConcurrentExpirationScan) {
+    constexpr int64_t kTabletId = 9009;
+    auto tablet = std::make_shared<FakeTablet>(UnixSeconds(), 3600);
+    fake_engine()->add_tablet(kTabletId, tablet);
+
+    UInt128Wrapper hash;
+    auto block = create_block(kTabletId, "ttl-extend-during-demote", 0, 1024, &hash);
+    persist_block_meta(kTabletId, hash, block->range().left, block->range().size());
+
+    _ttl_mgr = std::make_unique<BlockFileCacheTtlMgr>(_cache.get(), _meta_store.get());
+    _ttl_mgr->register_tablet_id(kTabletId);
+
+    ASSERT_TRUE(wait_for_condition([&]() { return block->cache_type() == FileCacheType::TTL; },
+                                   std::chrono::seconds(5)));
+
+    // Stall the demotion scan midway so the TTL can be extended underneath it, reproducing the
+    // window where the expiration check acts on a view of the tablet that is already stale.
+    std::atomic<bool> demote_scan_entered {false};
+    std::atomic<bool> release_demote_scan {false};
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->clear_all_call_backs();
+    sync_point->clear_trace();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "BlockFileCacheTtlMgr::get_file_blocks_from_tablet_id",
+            [&](std::vector<std::any>&& args) {
+                if (doris::try_any_cast<int64_t>(args[0]) != kTabletId) {
+                    return;
+                }
+                if (demote_scan_entered.exchange(true, std::memory_order_acq_rel)) {
+                    return;
+                }
+                while (!release_demote_scan.load(std::memory_order_acquire)) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                }
+            },
+            &guard);
+    sync_point->enable_processing();
+
+    tablet->set_creation_time(UnixSeconds() - 3600);
+    tablet->set_ttl_seconds(1);
+
+    bool scan_stalled = wait_for_condition(
+            [&]() { return demote_scan_entered.load(std::memory_order_acquire); },
+            std::chrono::seconds(10));
+
+    // Extend the TTL while the demotion is still in flight.
+    tablet->set_creation_time(UnixSeconds());
+    tablet->set_ttl_seconds(30758400);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    release_demote_scan.store(true, std::memory_order_release);
+
+    bool ends_as_ttl = wait_for_condition(
+            [&]() { return block->cache_type() == FileCacheType::TTL; }, std::chrono::seconds(10));
+    sync_point->disable_processing();
+    sync_point->clear_trace();
+
+    ASSERT_TRUE(scan_stalled);
+    EXPECT_TRUE(ends_as_ttl);
+}
+
+// _ttl_info_map is rebuilt in memory only, while the cache type of each block survives on disk.
+// A tablet whose TTL expired while this BE was down therefore comes back with TTL blocks and no
+// recorded state, and nothing later in the tablet's life re-examines them.
+TEST_F(BlockFileCacheTtlMgrTest, ExpiredTabletDemotesTtlBlocksRestoredFromDisk) {
+    constexpr int64_t kTabletId = 10010;
+    const int64_t creation_time = UnixSeconds() - 7200;
+    auto tablet = std::make_shared<FakeTablet>(creation_time, 60);
+    fake_engine()->add_tablet(kTabletId, tablet);
+
+    const uint64_t expiration_time = static_cast<uint64_t>(creation_time) + 60;
+    UInt128Wrapper hash;
+    auto block = create_block(kTabletId, "ttl-restored-expired", 0, 1024, &hash, FileCacheType::TTL,
+                              expiration_time);
+    persist_block_meta(kTabletId, hash, block->range().left, block->range().size(),
+                       FileCacheType::TTL, expiration_time);
+    ASSERT_EQ(FileCacheType::TTL, block->cache_type());
+
+    _ttl_mgr = std::make_unique<BlockFileCacheTtlMgr>(_cache.get(), _meta_store.get());
+    _ttl_mgr->register_tablet_id(kTabletId);
+
+    EXPECT_TRUE(wait_for_condition([&]() { return block->cache_type() == FileCacheType::NORMAL; },
+                                   std::chrono::seconds(5)));
+}
+
+// Blocks can still land in the TTL queue after a tablet's existing ones were demoted, and the
+// recorded state is per tablet, so it cannot tell that they have. They have to be collected too.
+TEST_F(BlockFileCacheTtlMgrTest, ExpiredTabletDemotesTtlBlocksCachedAfterDemotion) {
+    constexpr int64_t kTabletId = 11011;
+    auto tablet = std::make_shared<FakeTablet>(UnixSeconds(), 120);
+    fake_engine()->add_tablet(kTabletId, tablet);
+
+    UInt128Wrapper hash;
+    auto block = create_block(kTabletId, "ttl-expire-then-cache", 0, 1024, &hash);
+    persist_block_meta(kTabletId, hash, block->range().left, block->range().size());
+
+    _ttl_mgr = std::make_unique<BlockFileCacheTtlMgr>(_cache.get(), _meta_store.get());
+    _ttl_mgr->register_tablet_id(kTabletId);
+
+    ASSERT_TRUE(wait_for_condition([&]() { return block->cache_type() == FileCacheType::TTL; },
+                                   std::chrono::seconds(5)));
+
+    tablet->set_creation_time(UnixSeconds() - 120);
+    tablet->set_ttl_seconds(1);
+    ASSERT_TRUE(wait_for_condition([&]() { return block->cache_type() == FileCacheType::NORMAL; },
+                                   std::chrono::seconds(5)));
+
+    // A fresh block lands in the TTL queue after the demotion.
+    const uint64_t expiration_time = UnixSeconds() + 3600;
+    UInt128Wrapper late_hash;
+    auto late_block = create_block(kTabletId, "ttl-expire-then-cache-late", 0, 1024, &late_hash,
+                                   FileCacheType::TTL, expiration_time);
+    persist_block_meta(kTabletId, late_hash, late_block->range().left, late_block->range().size(),
+                       FileCacheType::TTL, expiration_time);
+    ASSERT_EQ(FileCacheType::TTL, late_block->cache_type());
+
+    EXPECT_TRUE(
+            wait_for_condition([&]() { return late_block->cache_type() == FileCacheType::NORMAL; },
+                               std::chrono::seconds(5)));
+}
+
+// Dropping the TTL of a tablet that had already expired leaves nothing to convert, but the
+// tablet still has to stop being tracked -- otherwise it holds a map entry for the life of the
+// process and never again qualifies for the periodic reconcile.
+TEST_F(BlockFileCacheTtlMgrTest, TtlClearedAfterExpiryStopsTrackingTablet) {
+    constexpr int64_t kTabletId = 12012;
+    auto tablet = std::make_shared<FakeTablet>(UnixSeconds(), 120);
+    fake_engine()->add_tablet(kTabletId, tablet);
+
+    UInt128Wrapper hash;
+    auto block = create_block(kTabletId, "ttl-cleared-after-expiry", 0, 1024, &hash);
+    persist_block_meta(kTabletId, hash, block->range().left, block->range().size());
+
+    _ttl_mgr = std::make_unique<BlockFileCacheTtlMgr>(_cache.get(), _meta_store.get());
+    _ttl_mgr->register_tablet_id(kTabletId);
+
+    ASSERT_TRUE(wait_for_condition([&]() { return block->cache_type() == FileCacheType::TTL; },
+                                   std::chrono::seconds(5)));
+    ASSERT_TRUE(wait_for_condition([&]() { return _ttl_mgr->tracked_tablet_num() == 1; },
+                                   std::chrono::seconds(5)));
+
+    tablet->set_creation_time(UnixSeconds() - 120);
+    tablet->set_ttl_seconds(1);
+    ASSERT_TRUE(wait_for_condition([&]() { return block->cache_type() == FileCacheType::NORMAL; },
+                                   std::chrono::seconds(5)));
+
+    tablet->set_ttl_seconds(0);
+    EXPECT_TRUE(wait_for_condition([&]() { return _ttl_mgr->tracked_tablet_num() == 0; },
+                                   std::chrono::seconds(5)));
+    EXPECT_EQ(FileCacheType::NORMAL, block->cache_type());
+}
+
 } // namespace doris::io
