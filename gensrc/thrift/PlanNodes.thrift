@@ -467,6 +467,8 @@ struct TSearchVector {
     1: optional TVectorElementType element_type
     2: optional i32 dimension
     3: optional binary values
+    // Present only for one multi-vector query; values contains a row-major matrix.
+    4: optional i32 num_vectors
 }
 
 // Logical result parameters for one vector query. `top_k` is the number of rows returned after

@@ -86,6 +86,7 @@ import lance
 import lance_namespace
 import pyarrow as pa
 import pyarrow.ipc as ipc
+from lance_build_multivector import build as build_multivector, check as check_multivector
 from lance_build_nested_null import build as build_nested_null, check as check_nested_null
 from lance_namespace_urllib3_client.models import (
     CreateNamespaceRequest,
@@ -939,6 +940,7 @@ def build(root: Path, all_types_source: Path) -> None:
     build_multi_frag(root)
     # Recreate this fixture in staging because promotion replaces the entire catalog tree.
     build_nested_null(root / NESTED_NULL_DIR)
+    build_multivector(root / "multivector.lance")
     namespace = lance_namespace.connect("dir", {"root": str(root)})
     namespace.register_table(
         RegisterTableRequest(id=["all_types"], location=ALL_TYPES_DIR)
@@ -1728,6 +1730,7 @@ def check_catalog(root: Path) -> None:
     check_nested_dataset(nested.location)
     check_multi_frag(root)
     check_nested_null(root / NESTED_NULL_DIR)
+    check_multivector(root / "multivector.lance")
 
     full_fts = namespace.describe_table(DescribeTableRequest(id=[NAMESPACE, FTS_TABLE]))
     check_fts_dataset(

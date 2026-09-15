@@ -66,14 +66,55 @@ public final class LanceVectorQuery {
 
     public static TSearchVector parseAndEncodeQueryVector(Field field, String json)
             throws AnalysisException {
-        VectorEncodingSpec encodingSpec = analyzeVectorField(field);
-        JsonArray values = parseQueryVector(json, field, encodingSpec.dimension);
-        byte[] encodedValues = encodeQueryVectorValues(field, values, encodingSpec);
-
-        return new TSearchVector()
+        boolean multiVector = field.getType().getTypeID() == ArrowType.ArrowTypeID.List;
+        Field vectorField = field;
+        if (multiVector) {
+            if (hasExtension(field) || field.getDictionary() != null || field.getChildren().size() != 1) {
+                throw unsupportedVectorType(field);
+            }
+            vectorField = field.getChildren().get(0);
+            // Lance's multi-vector distance kernels do not consult inner validity bitmaps.
+            if (vectorField.isNullable() || vectorField.getChildren().size() != 1) {
+                throw new AnalysisException("Lance multi-vector columns require non-nullable subvectors");
+            }
+        }
+        VectorEncodingSpec encodingSpec = analyzeVectorField(vectorField);
+        if (multiVector && encodingSpec.elementType != TVectorElementType.FLOAT16
+                && encodingSpec.elementType != TVectorElementType.FLOAT32
+                && encodingSpec.elementType != TVectorElementType.FLOAT64) {
+            throw unsupportedVectorType(field);
+        }
+        JsonArray values = parseQueryVector(json, field, multiVector ? -1 : encodingSpec.dimension);
+        int numVectors = multiVector ? values.size() : 1;
+        if (multiVector) {
+            // Validate shape before allocating from the schema dimension, even for a short input.
+            for (JsonElement subvector : values) {
+                if (!subvector.isJsonArray() || subvector.getAsJsonArray().size() != encodingSpec.dimension) {
+                    throw new AnalysisException("Each query subvector must be an array of dimension "
+                            + encodingSpec.dimension);
+                }
+            }
+        }
+        long bytesPerVector = (long) encodingSpec.dimension * encodingSpec.byteWidth;
+        if (numVectors == 0 || numVectors > Integer.MAX_VALUE / bytesPerVector) {
+            throw new AnalysisException("Query vector matrix must be non-empty and fit in a binary value");
+        }
+        ByteBuffer buffer = ByteBuffer.allocate((int) (numVectors * bytesPerVector)).order(ByteOrder.LITTLE_ENDIAN);
+        if (multiVector) {
+            for (JsonElement subvector : values) {
+                encodeQueryVectorValues(subvector.getAsJsonArray(), encodingSpec, buffer);
+            }
+        } else {
+            encodeQueryVectorValues(values, encodingSpec, buffer);
+        }
+        TSearchVector query = new TSearchVector()
                 .setElementType(encodingSpec.elementType)
                 .setDimension(encodingSpec.dimension)
-                .setValues(encodedValues);
+                .setValues(buffer.array());
+        if (multiVector) {
+            query.setNumVectors(numVectors);
+        }
+        return query;
     }
 
     private static VectorEncodingSpec analyzeVectorField(Field field) throws AnalysisException {
@@ -104,7 +145,7 @@ public final class LanceVectorQuery {
                 throw new AnalysisException("'query_vector' must be a JSON array");
             }
             JsonArray values = root.getAsJsonArray();
-            if (values.size() != dimension) {
+            if (dimension >= 0 && values.size() != dimension) {
                 throw new AnalysisException("Query vector dimension " + values.size()
                         + " does not match Lance column '" + field.getName()
                         + "' dimension " + dimension);
@@ -117,14 +158,8 @@ public final class LanceVectorQuery {
         }
     }
 
-    private static byte[] encodeQueryVectorValues(Field field, JsonArray values,
-            VectorEncodingSpec encodingSpec) throws AnalysisException {
-        long encodedSize = (long) encodingSpec.dimension * encodingSpec.byteWidth;
-        if (encodedSize > Integer.MAX_VALUE) {
-            throw new AnalysisException("Lance vector column '" + field.getName()
-                    + "' is too large to encode: " + encodingSpec.dimension + " elements");
-        }
-        ByteBuffer buffer = ByteBuffer.allocate((int) encodedSize).order(ByteOrder.LITTLE_ENDIAN);
+    private static void encodeQueryVectorValues(JsonArray values,
+            VectorEncodingSpec encodingSpec, ByteBuffer buffer) throws AnalysisException {
         for (int i = 0; i < values.size(); ++i) {
             JsonElement value = values.get(i);
             if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber()) {
@@ -133,7 +168,6 @@ public final class LanceVectorQuery {
             writeQueryVectorElement(
                     value.getAsJsonPrimitive(), i, encodingSpec.elementType, buffer);
         }
-        return buffer.array();
     }
 
     private static VectorEncodingSpec determineVectorEncoding(
@@ -236,7 +270,8 @@ public final class LanceVectorQuery {
 
     private static AnalysisException unsupportedVectorType(Field field) {
         return new AnalysisException("Lance vector column '" + field.getName()
-                + "' must be fixed_size_list<float16|float32|float64|uint8|int8>, but was "
+                + "' must be fixed_size_list<float16|float32|float64|uint8|int8> or "
+                + "list<fixed_size_list<float16|float32|float64>>, but was "
                 + field.getType());
     }
 

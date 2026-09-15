@@ -34,6 +34,7 @@
 #include "common/logging.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "exec/common/endian.h"
 #include "format_v2/lance/lance_reader_helper.h"
 #include "format_v2/lance/lance_runtime_filter_helper.h"
@@ -506,7 +507,7 @@ Status LanceTableReader::_validate_external_search_request() const {
     }
 
     const auto& request = lance_scan_params.external_search_request;
-    if (request.schema_version != 1) {
+    if (request.schema_version != 1 && request.schema_version != 2) {
         return Status::NotSupported("unsupported external search schema version: {}",
                                     request.schema_version);
     }
@@ -537,13 +538,27 @@ Status LanceTableReader::_validate_external_search_request() const {
             return Status::NotSupported("unsupported Lance query vector element type: {}",
                                         static_cast<int>(query_vector.element_type));
         }
-        const auto dimension = static_cast<size_t>(query_vector.dimension);
-        if (dimension > std::numeric_limits<size_t>::max() / element_width ||
-            query_vector.values.size() != dimension * element_width) {
+        const bool multi_vector = query_vector.__isset.num_vectors;
+        if (multi_vector != (request.schema_version == 2) ||
+            (multi_vector && query_vector.num_vectors <= 0)) {
             return Status::InvalidArgument(
-                    "Lance query vector byte size {} does not match dimension {} and element width "
-                    "{}",
-                    query_vector.values.size(), dimension, element_width);
+                    "Lance multi-vector queries require schema version 2 and positive num_vectors");
+        }
+        if (multi_vector && (query_vector.element_type == TVectorElementType::UINT8 ||
+                             query_vector.element_type == TVectorElementType::INT8 ||
+                             (vector.__isset.metric && vector.metric == TVectorMetric::HAMMING))) {
+            return Status::NotSupported(
+                    "Lance multi-vector search requires floating-point vectors and l2, cosine, or "
+                    "dot");
+        }
+        const auto dimension = static_cast<size_t>(query_vector.dimension);
+        const auto count = multi_vector ? static_cast<size_t>(query_vector.num_vectors) : 1;
+        if (dimension > std::numeric_limits<size_t>::max() / count / element_width ||
+            query_vector.values.size() != dimension * count * element_width) {
+            return Status::InvalidArgument(
+                    "Lance query vector byte size {} does not match {} vectors of dimension {} and "
+                    "element width {}",
+                    query_vector.values.size(), count, dimension, element_width);
         }
         if (!vector.__isset.top_k || vector.top_k <= 0) {
             return Status::InvalidArgument("Lance vector search top_k must be positive");
@@ -557,6 +572,9 @@ Status LanceTableReader::_validate_external_search_request() const {
         }
     } else {
         DORIS_CHECK(_search_kind == SearchKind::FULL_TEXT);
+        if (request.schema_version != 1) {
+            return Status::InvalidArgument("Lance full-text search requires schema version 1");
+        }
         const auto& full_text = request.search_query.full_text_search;
         if (!full_text.__isset.column || full_text.column.empty() ||
             full_text.column.find('\0') != std::string::npos) {
@@ -876,12 +894,19 @@ Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
     const auto& vector = request.search_query.vector_search;
     const auto& query = vector.query_vector;
     const auto dimension = static_cast<size_t>(query.dimension);
+    const auto count = query.__isset.num_vectors ? static_cast<size_t>(query.num_vectors) : 1;
+    const auto num_elements = dimension * count;
     const auto* bytes = query.values.data();
     const auto candidate_k = static_cast<uint32_t>(vector.top_k + vector.offset);
 
     const auto set_nearest = [&](const void* values, LanceDataType type) -> Status {
-        if (lance_scanner_nearest(scanner, vector.column.c_str(), values, dimension, type,
-                                  candidate_k) != 0) {
+        const int result =
+                query.__isset.num_vectors
+                        ? lance_scanner_nearest_multivector(scanner, vector.column.c_str(), values,
+                                                            dimension, count, type, candidate_k)
+                        : lance_scanner_nearest(scanner, vector.column.c_str(), values, dimension,
+                                                type, candidate_k);
+        if (result != 0) {
             return lance_error("set Lance nearest query");
         }
         return Status::OK();
@@ -889,16 +914,16 @@ Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
 
     switch (query.element_type) {
     case TVectorElementType::FLOAT16: {
-        std::vector<uint16_t> values(dimension);
-        for (size_t i = 0; i < dimension; ++i) {
+        std::vector<uint16_t> values(num_elements);
+        for (size_t i = 0; i < num_elements; ++i) {
             values[i] = LittleEndian::Load16(bytes + i * sizeof(uint16_t));
         }
         RETURN_IF_ERROR(set_nearest(values.data(), LANCE_DTYPE_FLOAT16));
         break;
     }
     case TVectorElementType::FLOAT32: {
-        std::vector<float> values(dimension);
-        for (size_t i = 0; i < dimension; ++i) {
+        std::vector<float> values(num_elements);
+        for (size_t i = 0; i < num_elements; ++i) {
             const auto bits = LittleEndian::Load32(bytes + i * sizeof(uint32_t));
             values[i] = std::bit_cast<float>(bits);
         }
@@ -906,8 +931,8 @@ Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
         break;
     }
     case TVectorElementType::FLOAT64: {
-        std::vector<double> values(dimension);
-        for (size_t i = 0; i < dimension; ++i) {
+        std::vector<double> values(num_elements);
+        for (size_t i = 0; i < num_elements; ++i) {
             const auto bits = LittleEndian::Load64(bytes + i * sizeof(uint64_t));
             values[i] = std::bit_cast<double>(bits);
         }
@@ -915,14 +940,14 @@ Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
         break;
     }
     case TVectorElementType::UINT8: {
-        std::vector<uint8_t> values(dimension);
-        std::memcpy(values.data(), bytes, dimension);
+        std::vector<uint8_t> values(num_elements);
+        std::memcpy(values.data(), bytes, num_elements);
         RETURN_IF_ERROR(set_nearest(values.data(), LANCE_DTYPE_UINT8));
         break;
     }
     case TVectorElementType::INT8: {
-        std::vector<int8_t> values(dimension);
-        std::memcpy(values.data(), bytes, dimension);
+        std::vector<int8_t> values(num_elements);
+        std::memcpy(values.data(), bytes, num_elements);
         RETURN_IF_ERROR(set_nearest(values.data(), LANCE_DTYPE_INT8));
         break;
     }
@@ -955,6 +980,11 @@ Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
         }
     }
 
+    // The pinned Lance ANN scorer and flat scorer differ by a query-count constant.
+    // Exact refinement makes indexed and unindexed candidates use the same row-level score.
+    if (query.__isset.num_vectors && lance_scanner_set_refine_factor(scanner, 1) != 0) {
+        return lance_error("enable Lance multi-vector refinement");
+    }
     if (request.__isset.vector_search_options) {
         const auto& options = request.vector_search_options;
         if (options.__isset.nprobes &&
@@ -1235,6 +1265,26 @@ Status LanceTableReader::_fill_block_from_record_batch(
                                     ->read_column_from_arrow(*columns[output_idx],
                                                              normalized_column.get(), 0, row_count,
                                                              _ctz));
+            if (_search_kind == SearchKind::VECTOR && field->name() == LANCE_DISTANCE_COLUMN) {
+                const auto& query = _scan_params->lance_scan_params.external_search_request
+                                            .search_query.vector_search.query_vector;
+                if (query.__isset.num_vectors) {
+                    // Lance's exact score is 1 - sum(1 - distance). Expose sum(min distance)
+                    // so one logical row has the same scoring contract for every query size.
+                    IColumn* output = columns[output_idx].get();
+                    if (auto* nullable = check_and_get_column<ColumnNullable>(*output)) {
+                        output = &nullable->get_nested_column();
+                    }
+                    auto* distances = check_and_get_column<ColumnFloat32>(*output);
+                    if (distances == nullptr) {
+                        return Status::InternalError("Lance multi-vector distance must be FLOAT");
+                    }
+                    auto& data = distances->get_data();
+                    for (size_t i = data.size() - row_count; i < data.size(); ++i) {
+                        data[i] += static_cast<float>(query.num_vectors - 1);
+                    }
+                }
+            }
         } catch (const Exception& e) {
             return Status::InternalError("convert Lance Arrow column '{}' failed: {}",
                                          field->name(), e.what());

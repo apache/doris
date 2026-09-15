@@ -1,0 +1,105 @@
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
+# Lance multi-vector search
+
+A Lance `List<FixedSizeList<T, D>>` column stores a variable number of D-dimensional
+subvectors in each table row. Doris exposes it as `ARRAY<ARRAY<FLOAT>>` for Float16
+and Float32, or `ARRAY<ARRAY<DOUBLE>>` for Float64.
+
+`vector_search` accepts a non-empty JSON matrix for such a column. Every inner
+array must contain exactly D finite numeric values representable in the column's
+element type. A matrix with one inner array is still one multi-vector query.
+This is not a batch of independent searches or a search across several columns.
+Ordinary `FixedSizeList` columns continue to accept a one-dimensional JSON array.
+
+```sql
+SELECT id, _distance
+FROM vector_search(
+    "table" = "lance_catalog.default.documents",
+    "column" = "embeddings",
+    "query_vector" = "[[1,0],[0,1]]",
+    "top_k" = "10",
+    "metric" = "cosine",
+    "filter" = "id > 100"
+)
+ORDER BY _distance, id;
+```
+
+## Row-level score and filtering
+
+For query subvectors Q and a row's subvectors V, Doris reports:
+
+`_distance = sum(q in Q, min(v in V, distance(q, v)))`
+
+Smaller is better. The base distance is squared Euclidean distance for `l2`,
+`1 - cosine_similarity` for `cosine`, or `1 - dot_product` for `dot`. Each query
+subvector contributes once; the same stored subvector may match several query
+subvectors. The score is a sum, not an average, so duplicating a query subvector
+changes the score. `_distance` uses Doris FLOAT, including for Float64 inputs.
+
+`top_k` and `offset` count table rows, not subvectors. The TVF `filter` is applied
+before candidate search; an outer SQL WHERE filters the search's results.
+Distributed fragments return row candidates for the global TopK. Ties at the
+TopK boundary have no guaranteed row order.
+
+`use_index=false` computes exact scores over the selected rows. With indexes,
+candidate selection is approximate. Doris always refines multi-vector candidates
+against their original values so indexed and unindexed rows use the same score.
+`refine_factor` can increase the candidate pool beyond this default refinement.
+It does not turn ANN candidate selection into an exhaustive search.
+
+The pinned Lance version supports multi-vector indexes with the cosine metric.
+Use `use_index=false` for L2 or dot searches. `nprobes`, `ef`, and `refine_factor`
+retain their usual index-specific meaning. Rows appended after index creation
+are searched together with indexed rows.
+
+## Data and compatibility requirements
+
+- Supported element types: Float16, Float32, Float64. Integer multi-vector columns
+  and Hamming multi-vector queries are rejected.
+- Outer null rows and empty outer arrays have no matching subvector and do not rank.
+- Subvectors must be declared non-nullable. Stored subvectors must contain only
+  finite, non-null elements. The pinned Lance distance kernels do not support
+  null elements; declaring elements nullable in the persisted schema does not
+  imply support for actual null values. Lance reconstructs this element schema
+  flag as nullable, so Doris cannot reject the flag itself.
+- Query matrices reject empty matrices, ragged dimensions, nulls, nonnumeric
+  values, and numbers outside the element type's finite range.
+- Extension and dictionary vector encodings are not supported.
+- Multi-vector requests use a new protocol version. Old BEs reject these requests;
+  finish the BE upgrade before enabling multi-vector searches. Ordinary vector
+  requests retain their previous protocol.
+
+For example, a compatible PyArrow schema is:
+
+```python
+import pyarrow as pa
+
+vector = pa.list_(pa.float32(), 2)
+embeddings = pa.field(
+    "embeddings",
+    pa.list_(pa.field("item", vector, nullable=False)),
+    nullable=True,
+)
+```
+
+The regression fixture generator `lance_build_multivector.py` creates typed
+multi-vector data, empty/null rows, a cosine IVF_FLAT index, and a subsequent
+append. Its distance oracle computes scores independently of Lance.
