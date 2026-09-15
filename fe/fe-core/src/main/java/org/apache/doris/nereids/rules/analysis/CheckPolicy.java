@@ -80,8 +80,7 @@ public class CheckPolicy implements AnalysisRuleFactory {
                                 upAgg = child;
                                 child = child.child(0);
                             }
-                            if (!(child instanceof LogicalRelation || isView(child))
-                                    || ctx.connectContext.getSessionVariable().isPlayNereidsDump()) {
+                            if (!(child instanceof LogicalRelation || isView(child))) {
                                 return ctx.root.child();
                             }
                             LogicalPlan relation = child instanceof LogicalSubQueryAlias ? (LogicalPlan) child.child(0)
