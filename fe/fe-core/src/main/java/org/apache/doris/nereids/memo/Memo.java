@@ -22,6 +22,7 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
+import org.apache.doris.nereids.cost.CostWeight;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
@@ -78,6 +79,7 @@ public class Memo {
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(GroupMergeEvent.class, EventChannel.LOG)));
     private static long stateId = 0;
     private final ConnectContext connectContext;
+    private final CostWeight costWeight;
     // The key is the query tableId, the value is the refresh version when last refresh, this is needed
     // because struct info refresh base on target tableId.
     private final Map<Integer, AtomicInteger> refreshVersion = new HashMap<>();
@@ -95,11 +97,18 @@ public class Memo {
     public Memo() {
         this.root = null;
         this.connectContext = null;
+        this.costWeight = null;
     }
 
     public Memo(ConnectContext connectContext, Plan plan) {
+        this(connectContext, plan,
+                connectContext == null ? null : connectContext.getStatementContext().getCostWeight());
+    }
+
+    public Memo(ConnectContext connectContext, Plan plan, CostWeight costWeight) {
         this.root = init(plan);
         this.connectContext = connectContext;
+        this.costWeight = costWeight;
     }
 
     public static long getStateId() {
@@ -1035,15 +1044,12 @@ public class Memo {
 
             List<Pair<Long, List<Integer>>> childrenId = new ArrayList<>();
             permute(children, 0, childrenId, new ArrayList<>());
-            Cost cost = CostCalculator.calculateCost(connectContext, groupExpression, inputProperties);
+            Cost cost = CostCalculator.calculateCost(
+                    connectContext, groupExpression, inputProperties, costWeight);
             for (Pair<Long, List<Integer>> c : childrenId) {
                 Cost totalCost = cost;
                 for (int i = 0; i < children.size(); i++) {
-                    totalCost = CostCalculator.addChildCost(connectContext,
-                            groupExpression.getPlan(),
-                            totalCost,
-                            children.get(i).get(c.second.get(i)).second,
-                            i);
+                    totalCost = totalCost.add(children.get(i).get(c.second.get(i)).second, costWeight);
                 }
                 if (res.isEmpty()) {
                     Preconditions.checkArgument(
