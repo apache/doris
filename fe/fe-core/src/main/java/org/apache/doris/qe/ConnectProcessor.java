@@ -362,11 +362,16 @@ public abstract class ConnectProcessor {
                     if (!ctx.isReturnResultFromLocal()) {
                         returnResultFromRemoteExecutor.add(executor);
                     }
-                    if (!ctx.getProtocolAdapter().finishStatement(ctx, executor, i, stmts.size())) {
-                        break;
-                    }
+                    // A statement that ran is audited whether or not the request goes on: the Flight
+                    // adapter refuses a result that is not the last statement's after the statement
+                    // executed, and the refusal is what the audit row then records (State=ERR with
+                    // its error code), counted as one failed query like any other.
+                    boolean requestGoesOn = ctx.getProtocolAdapter().finishStatement(ctx, executor, i, stmts.size());
                     auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(),
                             true);
+                    if (!requestGoesOn) {
+                        break;
+                    }
                     // execute failed, skip remaining stmts
                     if (ctx.getState().getStateType() == MysqlStateType.ERR || (!Env.getCurrentEnv().isMaster()
                             && ctx.executor != null && ctx.executor.hasForwardedToMaster()

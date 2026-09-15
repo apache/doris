@@ -87,6 +87,7 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -808,6 +809,17 @@ public class ConnectContext {
         backendSelectionProfile.reset();
     }
 
+    /**
+     * The client was active just now: wait_timeout counts from here. Unlike {@link #setStartTime},
+     * which starts a statement, this leaves what the last statement recorded (its rows, its backend
+     * selection) as it is, for a command that runs no statement of its own -- an Arrow Flight SQL
+     * session option or metadata request.
+     */
+    public void refreshStartTime() {
+        startTimeInstant = Instant.now();
+        startTime = startTimeInstant.toEpochMilli();
+    }
+
     public BackendSelection.SelectionHint getQueryBackendSelectionDecision() {
         if (queryBackendSelectionDecision == null) {
             queryBackendSelectionDecision = BackendSelectionManager.getQuerySelectionHint(this);
@@ -982,6 +994,15 @@ public class ConnectContext {
 
     public void changeDefaultCatalog(String catalogName) {
         defaultCatalog = catalogName;
+        clearDatabase();
+    }
+
+    /**
+     * No current database: the state a session starts in and switching catalogs puts it back into.
+     * No statement leads back to it (there is no USE of nothing), so a client that means to be in
+     * none again, e.g. through the Arrow Flight SQL {@code schema} session option, comes here.
+     */
+    public void clearDatabase() {
         currentDb = "";
         currentDbId = -1;
     }
@@ -1028,22 +1049,50 @@ public class ConnectContext {
         }
     }
 
-    // Returns -1 when the connection has nothing deferred or the bound is disabled.
-    public long getFlightSqlDeferredExecutorsIdleTimeoutS() {
-        return protocolAdapter instanceof FlightProtocolAdapter
-                ? ((FlightProtocolAdapter) protocolAdapter).getDeferredExecutorsIdleTimeoutS() : -1;
+    // A request that failed after deferring its query: the query is cancelled on the backends, then
+    // its executor finalized (see FlightProtocolAdapter.cancelDeferredExecutors).
+    public void cancelFlightSqlDeferredExecutors(Status cancelReason) {
+        if (protocolAdapter instanceof FlightProtocolAdapter) {
+            ((FlightProtocolAdapter) protocolAdapter).cancelDeferredExecutors(cancelReason);
+        }
     }
 
-    // Called by the timeout checker for a sleeping connection that is not past wait_timeout yet.
-    private void reapIdleFlightSqlDeferredExecutors(long idleMs) {
-        long timeoutS = getFlightSqlDeferredExecutorsIdleTimeoutS();
-        if (timeoutS < 0 || idleMs <= timeoutS * 1000L) {
+    // The session is over (see FlightProtocolAdapter.tearDown): its deferred executors are
+    // finalized, and it keeps none and runs no command from now on. Nothing to do for a
+    // connection of any other protocol.
+    public void tearDownFlightSqlSession() {
+        if (protocolAdapter instanceof FlightProtocolAdapter) {
+            ((FlightProtocolAdapter) protocolAdapter).tearDown();
+        }
+    }
+
+    // A snapshot; empty for a connection of any other protocol.
+    @VisibleForTesting
+    public List<StmtExecutor> getFlightSqlDeferredExecutors() {
+        return protocolAdapter instanceof FlightProtocolAdapter
+                ? ((FlightProtocolAdapter) protocolAdapter).getDeferredExecutors() : Collections.emptyList();
+    }
+
+    // Called by the timeout checker for a sleeping connection that is not past wait_timeout yet:
+    // finalizes each deferred query whose own bound has passed since it started (see
+    // FlightProtocolAdapter.takeExpiredDeferredExecutors), not the ones whose bound has not, and
+    // not the connection. The bound counts from the query's start, not from startTime: the
+    // session's later commands (a session option, a metadata request) move startTime on without
+    // finishing that query, and must not keep its coordinator alive either.
+    private void reapIdleFlightSqlDeferredExecutors(long now) {
+        if (!(protocolAdapter instanceof FlightProtocolAdapter)) {
             return;
         }
-        LOG.warn("release deferred arrow flight query of idle connection, connectionId: {}, remote: {}, "
-                        + "idle: {}ms, idle timeout: {}s",
-                connectionId, getRemoteHostPortString(), idleMs, timeoutS);
-        closeFlightSqlDeferredExecutors();
+        List<StmtExecutor> expired = ((FlightProtocolAdapter) protocolAdapter).takeExpiredDeferredExecutors(now);
+        for (StmtExecutor deferredExecutor : expired) {
+            LOG.warn("release deferred arrow flight query {} of idle connection, connectionId: {}, remote: {}, "
+                            + "deferred for: {}ms, bound: {}ms",
+                    DebugUtil.printId(deferredExecutor.getDeferredQueryId()),
+                    connectionId, getRemoteHostPortString(), now - deferredExecutor.getDeferredStartTimeMs(),
+                    FlightProtocolAdapter.deferredBoundMs(deferredExecutor,
+                            Config.arrow_flight_deferred_query_idle_timeout_second));
+        }
+        FlightProtocolAdapter.finalizeDeferredExecutors(expired);
     }
 
     /**
@@ -1311,7 +1360,7 @@ public class ConnectContext {
                 killFlag = true;
                 killConnection = true;
             } else {
-                reapIdleFlightSqlDeferredExecutors(delta);
+                reapIdleFlightSqlDeferredExecutors(now);
             }
         } else {
             String timeoutTag = "query";
