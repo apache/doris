@@ -110,8 +110,24 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             if (policy.isInvalid()) {
                 throw new DdlException("Analyzer '" + analyzerName + "' is invalid");
             }
+            validateReferencedTokenizerUsableLocked(analyzerName, policy);
         } finally {
             readUnlock();
+        }
+    }
+
+    private void validateReferencedTokenizerUsableLocked(String analyzerName, IndexPolicy analyzer)
+            throws DdlException {
+        Map<String, String> analyzerProperties = analyzer.getProperties();
+        if (analyzerProperties == null) {
+            return;
+        }
+        String tokenizerName = analyzerProperties.get(IndexPolicy.PROP_TOKENIZER);
+        IndexPolicy tokenizer = tokenizerName == null
+                ? null : nameToIndexPolicy.get(normalizeKey(tokenizerName));
+        if (tokenizer != null && tokenizer.isInvalid()) {
+            throw new DdlException("Analyzer '" + analyzerName + "' references invalid tokenizer '"
+                    + tokenizerName + "'");
         }
     }
 
@@ -159,11 +175,18 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             throw new DdlException("Policy name '" + policyName + "' conflicts with built-in analyzer name");
         }
 
-        IndexPolicy indexPolicy = IndexPolicy.create(policyName, type, properties);
+        Map<String, String> storedProperties = properties == null
+                ? null : Maps.newHashMap(properties);
+        IndexPolicy indexPolicy = IndexPolicy.create(policyName, type, storedProperties);
 
         writeLock();
         try {
-            validatePolicyProperties(type, properties);
+            validatePolicyProperties(type, storedProperties);
+            if (type == IndexPolicyTypeEnum.TOKENIZER
+                    && "ngram".equals(storedProperties.get(IndexPolicy.PROP_TYPE))) {
+                // The marker preserves the size limit for new policies during replay.
+                storedProperties.putIfAbsent("max_ngram_diff", "1");
+            }
 
             if (nameToIndexPolicy.containsKey(normalizedName)) {
                 if (ifNotExists) {
@@ -311,6 +334,9 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         if (policy.getType() != expectedType) {
             throw new DdlException("Referenced policy '" + name + "' is of type "
                     + policy.getType() + " but expected " + expectedType);
+        }
+        if (policy.isInvalid()) {
+            throw new DdlException("Referenced " + expectedType + " policy '" + name + "' is invalid");
         }
     }
 
@@ -590,6 +616,7 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     public void replayCreateIndexPolicy(IndexPolicy indexPolicy) {
         writeLock();
         try {
+            warnIfInvalid(indexPolicy);
             idToIndexPolicy.put(indexPolicy.getId(), indexPolicy);
             // Store with normalized key for case-insensitive lookup
             nameToIndexPolicy.put(normalizeKey(indexPolicy.getName()), indexPolicy);
@@ -632,6 +659,19 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     public void gsonPostProcess() throws IOException {
         // Store with normalized key for case-insensitive lookup
         idToIndexPolicy.forEach(
-                (id, indexPolicy) -> nameToIndexPolicy.put(normalizeKey(indexPolicy.getName()), indexPolicy));
+                (id, indexPolicy) -> {
+                    warnIfInvalid(indexPolicy);
+                    nameToIndexPolicy.put(normalizeKey(indexPolicy.getName()), indexPolicy);
+                });
     }
+
+    private static void warnIfInvalid(IndexPolicy indexPolicy) {
+        if (indexPolicy.isInvalid()) {
+            LOG.error("Index policy '{}' (id={}, type={}) is not valid in this version; analyzers"
+                    + " referencing it will be rejected. Drop the indexes and policies that depend"
+                    + " on it.", indexPolicy.getName(), indexPolicy.getId(),
+                    indexPolicy.getProperties().get(IndexPolicy.PROP_TYPE));
+        }
+    }
+
 }

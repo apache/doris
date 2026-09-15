@@ -28,6 +28,8 @@ import java.util.Map;
 import java.util.TreeMap;
 
 public final class AnalyzerIdentityBuilder {
+    private static final String PROP_MAX_NGRAM_DIFF = "max_ngram_diff";
+
     private AnalyzerIdentityBuilder() {
     }
 
@@ -169,6 +171,9 @@ public final class AnalyzerIdentityBuilder {
             if (policy == null || policy.getType() != expectedType) {
                 return name;
             }
+            if (policy.isInvalid()) {
+                return "invalid-policy:" + policy.getId() + ":" + policy.getName();
+            }
 
             Map<String, String> props = policy.getProperties();
             if (props == null || props.isEmpty()) {
@@ -177,6 +182,11 @@ public final class AnalyzerIdentityBuilder {
 
             // Build identity from sorted properties
             TreeMap<String, String> sortedProps = new TreeMap<>(props);
+            if (expectedType == IndexPolicyTypeEnum.TOKENIZER
+                    && "ngram".equals(sortedProps.get(IndexPolicy.PROP_TYPE))) {
+                // This setting only limits policy creation; it does not change emitted tokens.
+                sortedProps.remove(PROP_MAX_NGRAM_DIFF);
+            }
             return sortedProps.toString();
         } catch (RuntimeException e) {
             return name;

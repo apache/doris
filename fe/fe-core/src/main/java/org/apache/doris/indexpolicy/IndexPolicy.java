@@ -125,6 +125,9 @@ public class IndexPolicy implements Writable, GsonPostProcessable {
     }
 
     public boolean isInvalid() {
-        return false;
+        return type == IndexPolicyTypeEnum.TOKENIZER
+                && properties != null
+                && "ngram".equals(properties.get(PROP_TYPE))
+                && !NGramTokenizerValidator.isValidPolicy(properties);
     }
 }
