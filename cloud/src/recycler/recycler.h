@@ -21,6 +21,7 @@
 #include <glog/logging.h>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -153,105 +154,136 @@ struct RowsetDeleteTask {
 
 class RecyclerMetricsContext {
 public:
-    RecyclerMetricsContext() = default;
+    enum class MetricType {
+        SCANNED_NUM,
+        EXPIRED_NUM,
+        RECYCLED_NUM,
+        RECYCLED_BYTES,
+    };
 
-    RecyclerMetricsContext(std::string instance_id, std::string operation_type)
-            : operation_type(std::move(operation_type)), instance_id(std::move(instance_id)) {
-        start();
+    class MetricValue {
+    public:
+        MetricValue(RecyclerMetricsContext* context, MetricType type)
+                : context_(context), type_(type) {}
+
+        MetricValue& operator+=(uint64_t delta) {
+            value_.fetch_add(delta);
+            context_->put(type_, value_.load());
+            return *this;
+        }
+
+        MetricValue& operator++() {
+            *this += 1;
+            return *this;
+        }
+
+        uint64_t operator++(int) {
+            auto old_value = value_.fetch_add(1);
+            context_->put(type_, value_.load());
+            return old_value;
+        }
+
+        void reset() {
+            value_.store(0);
+            context_->put(type_, 0);
+        }
+
+        void set(uint64_t v) {
+            value_.store(v);
+            context_->put(type_, v);
+        }
+
+        uint64_t value() const { return value_.load(); }
+
+    private:
+        RecyclerMetricsContext* context_;
+        MetricType type_;
+        std::atomic_ullong value_ = 0;
+    };
+
+    RecyclerMetricsContext() = delete;
+
+    explicit RecyclerMetricsContext(std::string instance_id, std::string operation_type)
+            : operation_type(std::move(operation_type)),
+              instance_id(std::move(instance_id)),
+              start_time_(std::chrono::steady_clock::now()) {
+        reset_current_round_metrics();
     }
 
-    ~RecyclerMetricsContext() = default;
+    ~RecyclerMetricsContext() {
+        update_elapsed_time();
+        if (auto num = kv_recycled_num.value(); num > 0) {
+            g_bvar_recycler_instance_recycle_total_num_since_started.put(
+                    {instance_id, operation_type}, static_cast<int64_t>(num));
+        }
+        if (auto bytes = kv_recycled_bytes.value(); bytes > 0) {
+            g_bvar_recycler_instance_recycle_total_bytes_since_started.put(
+                    {instance_id, operation_type}, static_cast<int64_t>(bytes));
+        }
+    }
 
-    std::atomic_ullong total_need_recycle_data_size = 0;
-    std::atomic_ullong total_need_recycle_num = 0;
-
-    std::atomic_ullong total_recycled_data_size = 0;
-    std::atomic_ullong total_recycled_num = 0;
+    MetricValue kv_scanned_num {this, MetricType::SCANNED_NUM};
+    MetricValue kv_expired_num {this, MetricType::EXPIRED_NUM};
+    MetricValue kv_recycled_num {this, MetricType::RECYCLED_NUM};
+    MetricValue kv_recycled_bytes {this, MetricType::RECYCLED_BYTES};
 
     std::string operation_type;
     std::string instance_id;
 
-    double start_time = 0;
-
-    void start() {
-        start_time = duration_cast<std::chrono::milliseconds>(
-                             std::chrono::system_clock::now().time_since_epoch())
-                             .count();
+    void reset_current_round_metrics() {
+        start_time_ = std::chrono::steady_clock::now();
+        kv_scanned_num.reset();
+        kv_expired_num.reset();
+        kv_recycled_num.reset();
+        kv_recycled_bytes.reset();
+        g_bvar_recycler_instance_current_round_recycle_duration_ms.put(
+                {instance_id, operation_type}, 0);
     }
 
-    double duration() const {
-        return duration_cast<std::chrono::milliseconds>(
-                       std::chrono::system_clock::now().time_since_epoch())
-                       .count() -
-               start_time;
+private:
+    std::chrono::steady_clock::time_point start_time_;
+
+    void update_elapsed_time() {
+        auto cost = duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
+                                                             start_time_)
+                            .count();
+        g_bvar_recycler_instance_current_round_recycle_duration_ms.put(
+                {instance_id, operation_type}, cost);
     }
 
-    void reset() {
-        total_need_recycle_data_size = 0;
-        total_need_recycle_num = 0;
-        total_recycled_data_size = 0;
-        total_recycled_num = 0;
-        start_time = duration_cast<std::chrono::milliseconds>(
-                             std::chrono::system_clock::now().time_since_epoch())
-                             .count();
-    }
-
-    void finish_report() {
-        if (!operation_type.empty()) {
-            double cost = duration();
-            g_bvar_recycler_instance_last_round_recycle_elpased_ts.put(
-                    {instance_id, operation_type}, cost);
-            g_bvar_recycler_instance_recycle_round.put({instance_id, operation_type}, 1);
-            g_bvar_recycler_instance_recycle_total_bytes_since_started.put(
-                    {instance_id, operation_type}, total_recycled_data_size.load());
-            g_bvar_recycler_instance_recycle_total_num_since_started.put(
-                    {instance_id, operation_type}, total_recycled_num.load());
-            LOG(INFO) << "recycle instance: " << instance_id
-                      << ", operation type: " << operation_type << ", cost: " << cost
-                      << " ms, total recycled num: " << total_recycled_num.load()
-                      << ", total recycled data size: " << total_recycled_data_size.load()
-                      << " bytes";
-            if (cost != 0) {
-                if (total_recycled_num.load() != 0) {
-                    g_bvar_recycler_instance_recycle_time_per_resource.put(
-                            {instance_id, operation_type}, cost / total_recycled_num.load());
-                }
-                g_bvar_recycler_instance_recycle_bytes_per_ms.put(
-                        {instance_id, operation_type}, total_recycled_data_size.load() / cost);
-            }
-        }
-    }
-
-    // `is_begin` is used to initialize total num of items need to be recycled
-    void report(bool is_begin = false) {
-        if (!operation_type.empty()) {
-            // is init
-            if (is_begin) {
-                auto value = total_need_recycle_num.load();
-
-                g_bvar_recycler_instance_last_round_to_recycle_bytes.put(
-                        {instance_id, operation_type}, total_need_recycle_data_size.load());
-                g_bvar_recycler_instance_last_round_to_recycle_num.put(
-                        {instance_id, operation_type}, value);
-            } else {
-                g_bvar_recycler_instance_last_round_recycled_bytes.put(
-                        {instance_id, operation_type}, total_recycled_data_size.load());
-                g_bvar_recycler_instance_last_round_recycled_num.put({instance_id, operation_type},
-                                                                     total_recycled_num.load());
-            }
+    void put(MetricType type, uint64_t value) {
+        update_elapsed_time();
+        switch (type) {
+        case MetricType::SCANNED_NUM:
+            g_bvar_recycler_instance_recycle_current_round_kv_scanned.put(
+                    {instance_id, operation_type}, value);
+            break;
+        case MetricType::EXPIRED_NUM:
+            g_bvar_recycler_instance_recycle_current_round_kv_expired.put(
+                    {instance_id, operation_type}, value);
+            break;
+        case MetricType::RECYCLED_NUM:
+            g_bvar_recycler_instance_recycle_current_round_kv_recycled.put(
+                    {instance_id, operation_type}, value);
+            break;
+        case MetricType::RECYCLED_BYTES:
+            g_bvar_recycler_instance_current_round_recycled_object_bytes.put(
+                    {instance_id, operation_type}, value);
+            break;
         }
     }
 };
 
 class TabletRecyclerMetricsContext : public RecyclerMetricsContext {
 public:
-    TabletRecyclerMetricsContext() : RecyclerMetricsContext("global_recycler", "recycle_tablet") {}
+    explicit TabletRecyclerMetricsContext(std::string instance_id)
+            : RecyclerMetricsContext(std::move(instance_id), "recycle_tablet") {}
 };
 
 class SegmentRecyclerMetricsContext : public RecyclerMetricsContext {
 public:
-    SegmentRecyclerMetricsContext()
-            : RecyclerMetricsContext("global_recycler", "recycle_segment") {}
+    explicit SegmentRecyclerMetricsContext(std::string instance_id)
+            : RecyclerMetricsContext(std::move(instance_id), "recycle_segment") {}
 };
 
 struct OplogRecycleStats;
@@ -413,30 +445,6 @@ public:
 
     bool check_recycle_tasks();
 
-    int scan_and_statistics_indexes();
-
-    int scan_and_statistics_partitions();
-
-    int scan_and_statistics_rowsets();
-
-    int scan_and_statistics_tmp_rowsets();
-
-    int scan_and_statistics_abort_timeout_txn();
-
-    int scan_and_statistics_expired_txn_label();
-
-    int scan_and_statistics_copy_jobs();
-
-    int scan_and_statistics_stage();
-
-    int scan_and_statistics_expired_stage_objects();
-
-    int scan_and_statistics_versions();
-
-    int scan_and_statistics_restore_jobs();
-
-    void scan_and_statistics_operation_logs();
-
     /**
      * Decode the key of a packed-file metadata record into the persisted object path.
      *
@@ -583,7 +591,8 @@ private:
     // Recycle rowset meta and data, return 0 for success otherwise error
     //
     // This function will decrease the rowset ref count and remove the rowset meta and data if the ref count is 1.
-    int recycle_rowset_meta_and_data(const RowsetDeleteTask& task);
+    int recycle_rowset_meta_and_data(const RowsetDeleteTask& task,
+                                     RecyclerMetricsContext& metrics_context);
 
     // Classify rowset task by ref_count, return 0 to add to batch delete, 1 if handled (ref>1), -1 on error
     int classify_rowset_task_by_ref_count(RowsetDeleteTask& task,

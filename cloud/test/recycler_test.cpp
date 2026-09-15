@@ -69,7 +69,22 @@ using namespace doris;
 std::string instance_id = "instance_id_recycle_test";
 int64_t current_time = 0;
 static constexpr int64_t db_id = 1000;
-static RecyclerMetricsContext ctx;
+
+// Lazily-constructed shared metrics context for tests.
+//
+// RecyclerMetricsContext's constructor publishes to bvars, which in turn logs
+// via glog. A namespace-scope RecyclerMetricsContext would therefore run during
+// static initialization, before main() sets up glog and the cross-TU bvar
+// globals, causing a crash. This proxy has a trivial constructor and builds the
+// real context on first use (inside a running test), avoiding the static
+// initialization order fiasco while keeping call sites (`ctx`) unchanged.
+struct GlobalRecyclerMetricsContext {
+    operator RecyclerMetricsContext&() {
+        static RecyclerMetricsContext ctx(instance_id, "test");
+        return ctx;
+    }
+};
+static GlobalRecyclerMetricsContext ctx;
 
 namespace {
 
@@ -7420,7 +7435,7 @@ TEST(RecyclerTest, delete_v2_inverted_index_with_segment_list) {
 
     std::map<std::string, doris::RowsetMetaCloudPB> rowsets;
     rowsets.emplace(batch_rowset.rowset_id_v2(), batch_rowset);
-    RecyclerMetricsContext metrics_context;
+    RecyclerMetricsContext metrics_context(instance_id, "test");
     ASSERT_EQ(recycler.delete_rowset_data(rowsets, RowsetRecyclingState::FORMAL_ROWSET,
                                           metrics_context),
               0);
@@ -8824,7 +8839,7 @@ TEST(RecyclerTest, recycle_tablet_with_empty_resource_id_and_no_segments) {
                               std::make_shared<TxnLazyCommitter>(txn_kv));
     EXPECT_EQ(recycler.init(), 0);
 
-    RecyclerMetricsContext ctx;
+    RecyclerMetricsContext ctx("test_instance", "recycle_tablet");
     EXPECT_EQ(recycler.recycle_tablet(0, ctx), 0);
 }
 
@@ -8861,7 +8876,7 @@ TEST(RecyclerTest, recycle_tablet_with_resource_id_and_no_segments) {
     recycler.TEST_add_accessor("resource_id", accessor);
 
     EXPECT_EQ(accessor->exists("data/1234/orphan.dat"), 0);
-    RecyclerMetricsContext ctx;
+    RecyclerMetricsContext ctx("test_instance", "recycle_tablet");
     EXPECT_EQ(recycler.recycle_tablet(tablet_id, ctx), 0);
     EXPECT_EQ(accessor->exists("data/1234/orphan.dat"), 1);
 }

@@ -383,12 +383,6 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
                               return process_recycle_instance((RS*)s, c);
                           },
                   .role = HttpRole::RECYCLER}},
-                {"statistics_recycle",
-                 {.handler =
-                          [](void* s, brpc::Controller* c) {
-                              return process_statistics_recycle((RS*)s, c);
-                          },
-                  .role = HttpRole::RECYCLER}},
                 {"recycle_copy_jobs",
                  {.handler =
                           [](void* s, brpc::Controller* c) {
@@ -773,20 +767,6 @@ HttpResponse process_recycle_instance(RecyclerServiceImpl* service, brpc::Contro
     RecycleInstanceResponse res;
     service->recycle_instance(cntl, &req, &res, nullptr);
     return http_text_reply(res.status(), res.status().msg());
-}
-
-HttpResponse process_statistics_recycle(RecyclerServiceImpl* service, brpc::Controller* cntl) {
-    std::string request_body = cntl->request_attachment().to_string();
-    StatisticsRecycleRequest req;
-    auto st = google::protobuf::util::JsonStringToMessage(request_body, &req);
-    if (!st.ok()) {
-        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
-                               "failed to parse StatisticsRecycleRequest");
-    }
-    MetaServiceCode code = MetaServiceCode::OK;
-    std::string msg = "OK";
-    service->statistics_recycle(req, code, msg);
-    return http_text_reply(code, msg, msg);
 }
 
 HttpResponse process_recycle_copy_jobs(RecyclerServiceImpl* service, brpc::Controller* cntl) {
