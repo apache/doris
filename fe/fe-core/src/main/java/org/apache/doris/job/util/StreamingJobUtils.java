@@ -453,6 +453,9 @@ public class StreamingJobUtils {
                         primaryKeys
                 );
 
+                // Propagate the source table comment to the Doris target table.
+                String tableComment = jdbcClient.getTableComment(database, table);
+
                 // Create CreateTableInfo
                 CreateTableInfo createtblInfo = new CreateTableInfo(
                         true, // ifNotExists
@@ -466,7 +469,7 @@ public class StreamingJobUtils {
                         "olap", // engineName
                         KeysType.UNIQUE_KEYS, // keysType
                         primaryKeys, // keys
-                        "", // comment
+                        tableComment, // comment
                         PartitionTableInfo.EMPTY, // partitionTableInfo
                         distribution, // distribution
                         ImmutableList.of(), // rollups

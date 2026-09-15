@@ -29,6 +29,7 @@ import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.qe.GlobalVariable;
 
 import org.junit.jupiter.api.Assertions;
@@ -314,6 +315,39 @@ public class StreamingJobUtilsTest {
                     .get("source_table").isPresent());
         } finally {
             GlobalVariable.lowerCaseTableNames = originalLowerCaseTableNames;
+        }
+    }
+
+    @Test
+    public void testGenerateCreateTableCmdsPropagatesTableComment() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(DataSourceConfigKeys.SCHEMA, "source_db");
+
+        Database targetDatabase = new Database(1L, "target_db");
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
+        Mockito.when(env.getInternalCatalog()).thenReturn(internalCatalog);
+        Mockito.when(internalCatalog.getDbNullable("target_db")).thenReturn(targetDatabase);
+        Mockito.when(jdbcClient.getTablesNameList("source_db"))
+                .thenReturn(Arrays.asList("sys_config"));
+        Mockito.when(jdbcClient.getPrimaryKeys("source_db", "sys_config"))
+                .thenReturn(Arrays.asList("id"));
+        Mockito.when(jdbcClient.getColumnsFromJdbc("source_db", "sys_config"))
+                .thenReturn(Arrays.asList(new Column("id", ScalarType.createType(PrimitiveType.BIGINT))));
+        Mockito.when(jdbcClient.getTableComment("source_db", "sys_config"))
+                .thenReturn("source table comment");
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedStatic<StreamingJobUtils> utils = Mockito.mockStatic(StreamingJobUtils.class,
+                        Mockito.CALLS_REAL_METHODS)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            utils.when(() -> StreamingJobUtils.getJdbcClient(DataSourceType.POSTGRES, properties))
+                    .thenReturn(jdbcClient);
+
+            CreateTableCommand cmd = (CreateTableCommand) StreamingJobUtils.generateCreateTableCmds(
+                    "target_db", DataSourceType.POSTGRES, properties, new HashMap<>())
+                    .get("sys_config").get();
+            Assertions.assertEquals("source table comment", cmd.getCreateTableInfo().getComment());
         }
     }
 }
