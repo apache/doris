@@ -1945,6 +1945,18 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return index.getRowCount() == -1 ? 0 : index.getRowCount();
     }
 
+    /**
+     * Whether the table has any partition that has ever been loaded.
+     */
+    public boolean hasData() {
+        for (Partition p : idToPartition.values()) {
+            if (p.hasData()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     public long getAvgRowLength() {
         return getTableStatusStats().getAvgRowLength();
