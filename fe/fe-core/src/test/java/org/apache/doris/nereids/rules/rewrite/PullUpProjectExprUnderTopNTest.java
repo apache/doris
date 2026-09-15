@@ -48,6 +48,7 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -176,6 +177,7 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
     }
 
     private void assertRepeatedIdentityAliasesPulledUp(int aliasCount) {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
         Slot id = scan1.getOutput().get(0);
         Slot source = scan1.getOutput().get(1);
         ImmutableList.Builder<Alias> aliasesBuilder = ImmutableList.builder();
@@ -190,7 +192,7 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
                 .topN(3, 0, ImmutableList.of(aliasCount))
                 .build();
 
-        LogicalPlan rewritten = (LogicalPlan) PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+        LogicalPlan rewritten = (LogicalPlan) PlanChecker.from(connectContext, plan)
                 .applyCustom(new PullUpProjectExprUnderTopN())
                 .getPlan();
 
