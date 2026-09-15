@@ -1309,15 +1309,15 @@ TEST(PartialBlockWritebackOptionsTest, AcceptsProductionDefaults) {
             .block_size = 1_mb,
             .worker_count = 32,
             .remote_read_thread_count = 64,
-            .max_pending_bytes = 256_mb,
+            .max_pending_bytes = 1024_mb,
             .hole_fill_coalesce =
                     {
                             .max_gap_bytes = 32_kb,
                             .max_range_bytes = 1_mb,
-                            .max_read_amplification_ratio = 2.0,
+                            .max_read_amplification_ratio = 1.0,
                     },
     };
-    EXPECT_EQ(options.merge_delay_ms, 10);
+    EXPECT_EQ(options.merge_delay_ms, 0);
     EXPECT_TRUE(options.validate().ok());
 }
 
